@@ -18,7 +18,7 @@ test-sbf = []
 [dependencies]
 bincode = { workspace = true }
 custom-ring-interface = { workspace = true }
-bytemuck = { workspace = true }
+bytemuck = { workspace = true, features = ["extern_crate_alloc"] }
 # `bsb22`: the custom-ring circuit's emulated P256 arithmetic adds one BSB22
 # commitment, so its proofs verify through `Groth16Verifier::new_with_commitment`.
 groth16-solana = { workspace = true, features = ["bsb22"] }
@@ -26,8 +26,6 @@ pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-curve25519 = { workspace = true }
-solana-program-error = { workspace = true }
-thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true }

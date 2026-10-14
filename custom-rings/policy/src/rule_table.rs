@@ -2,6 +2,7 @@ use core::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 
 use crate::{field_u64, field_u8, ListId, ListSet, POLICY_TABLE_DOMAIN};
@@ -25,13 +26,13 @@ pub const POLICY_VERSION: u8 = 7;
 
 /// Distinct sender keys and live outputs of one transfer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AnswerLoad {
-    pub senders: usize,
-    pub outputs: usize,
+struct AnswerLoad {
+    senders: usize,
+    outputs: usize,
 }
 
 /// A one-key spend at the output width, every table answers it in one transfer.
-pub const GUARANTEED_LOAD: AnswerLoad = AnswerLoad {
+const GUARANTEED_LOAD: AnswerLoad = AnswerLoad {
     senders: 1,
     outputs: POLICY_OUTPUT_SLOTS,
 };
@@ -44,7 +45,7 @@ pub struct SourceOwner {
 }
 
 /// Positional source map, slot `i` is empty or serves list `i + 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceMap {
     slots: [SourceOwner; MAX_SOURCES],
 }
@@ -79,106 +80,63 @@ pub enum SourceMapOwnerError<E> {
     Owner(E),
 }
 
-/// A table or a row the circuit cannot enforce.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuleTableError {
-    TooManyRules,
-    TooManyInlineAssets,
-    ZeroInlineAsset,
-    InlineNotAsset,
-    InlineAbsent,
-    InlineWithoutPool,
-    PoolWithoutInlineRule,
-    EmptyLists,
-    ListInBothSets,
-    SenderGuard,
-    ExitDestination,
-    ZeroThreshold,
-    DuplicateRule,
-    OwnerGuardWithoutInlineAsset,
-    PerAssetGuardNotOwner,
-    MissingAssetLimit,
-    AssetLimitWithoutGuard,
-    DuplicateInlineAsset,
-    TooManyAnswers,
-    UnknownSubject,
-    UnknownMode,
-    UnknownGuardTag,
-    ThresholdWithoutGuard,
-    ReservedBytes,
-    NonCanonicalAlternative,
-    InlineWithAlternative,
-    NonZeroPadding,
-    TooManyVelocityAssets,
-    WindowWithoutVelocity,
-    ZeroVelocityAsset,
-    DuplicateVelocityAsset,
-    VelocityRowWithoutBound,
-}
-
-impl RuleTableError {
-    pub const fn message(&self) -> &'static str {
-        match self {
-            Self::TooManyRules => "policy table is full",
-            Self::TooManyInlineAssets => "inline asset list exceeds the circuit width",
-            Self::ZeroInlineAsset => "zero is the padding value, never a member",
-            Self::InlineNotAsset => "inline members serve asset rules only",
-            Self::InlineAbsent => "inline members express an allowlist only",
-            Self::InlineWithoutPool => "inline asset list is empty",
-            Self::PoolWithoutInlineRule => "inline assets without a rule consuming them",
-            Self::EmptyLists => "a group names no list",
-            Self::ListInBothSets => "a list is both required and forbidden",
-            Self::SenderGuard => "sender rules take no amount guard",
-            Self::ExitDestination => "exit destinations are enforced by no plane yet",
-            Self::ZeroThreshold => "a zero threshold is Guard::Always",
-            Self::DuplicateRule => "duplicate rule",
-            Self::OwnerGuardWithoutInlineAsset => {
-                "an owner amount guard needs a single unguarded inline asset"
-            }
-            Self::PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
-            Self::MissingAssetLimit => "every inline asset needs a nonzero limit",
-            Self::AssetLimitWithoutGuard => "asset limits need a per-asset guard",
-            Self::DuplicateInlineAsset => "inline assets must be unique",
-            Self::TooManyAnswers => {
-                "a one-key input_utxo at the output width exceeds the answer slots"
-            }
-            Self::UnknownSubject => "unknown subject",
-            Self::UnknownMode => "unknown mode",
-            Self::UnknownGuardTag => "unknown guard tag",
-            Self::ThresholdWithoutGuard => "a threshold without a guard",
-            Self::ReservedBytes => "reserved row bytes are not zero",
-            Self::NonCanonicalAlternative => "an alternative beside an absent primary",
-            Self::InlineWithAlternative => "an inline rule with an alternative",
-            Self::NonZeroPadding => "padding past the counts is not zero",
-            Self::TooManyVelocityAssets => "velocity rows exceed the circuit width",
-            Self::WindowWithoutVelocity => "a window needs velocity rows",
-            Self::ZeroVelocityAsset => "a velocity row names no mint",
-            Self::DuplicateVelocityAsset => "velocity mints must be unique",
-            Self::VelocityRowWithoutBound => "a velocity row needs a cap or a cosign threshold",
+macro_rules! rule_errors {
+    ($($variant:ident => $message:literal,)*) => {
+        /// A table or a row the circuit cannot enforce.
+        #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+        pub enum RuleTableError {
+            $(#[error($message)] $variant,)*
         }
-    }
+
+        impl RuleTableError {
+            /// Const, a refused `RuleTableBuilder::build` panics with it at compile time.
+            pub const fn message(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $message,)*
+                }
+            }
+        }
+    };
 }
 
-impl core::fmt::Display for RuleTableError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.message())
-    }
+rule_errors! {
+    TooManyRules => "policy table is full",
+    TooManyInlineAssets => "inline asset list exceeds the circuit width",
+    ZeroInlineAsset => "zero is the padding value, never a member",
+    InlineNotAsset => "inline members serve asset rules only",
+    InlineAbsent => "inline members express an allowlist only",
+    InlineWithoutPool => "inline asset list is empty",
+    PoolWithoutInlineRule => "inline assets without a rule consuming them",
+    EmptyLists => "a group names no list",
+    ListInBothSets => "a list is both required and forbidden",
+    SenderGuard => "sender rules take no amount guard",
+    ExitDestination => "exit destinations are enforced by no plane yet",
+    ZeroThreshold => "a zero threshold is Guard::Always",
+    DuplicateRule => "duplicate rule",
+    OwnerGuardWithoutInlineAsset => "an owner amount guard needs a single unguarded inline asset",
+    PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
+    MissingAssetLimit => "every inline asset needs a nonzero limit",
+    AssetLimitWithoutGuard => "asset limits need a per-asset guard",
+    DuplicateInlineAsset => "inline assets must be unique",
+    TooManyAnswers => "a one-key input_utxo at the output width exceeds the answer slots",
+    UnknownSubject => "unknown subject",
+    UnknownMode => "unknown mode",
+    UnknownGuardTag => "unknown guard tag",
+    ThresholdWithoutGuard => "a threshold without a guard",
+    ReservedBytes => "reserved row bytes are not zero",
+    NonCanonicalAlternative => "an alternative beside an absent primary",
+    InlineWithAlternative => "an inline rule with an alternative",
+    NonZeroPadding => "padding past the counts is not zero",
+    TooManyVelocityAssets => "velocity rows exceed the circuit width",
+    WindowWithoutVelocity => "a window needs velocity rows",
+    ZeroVelocityAsset => "a velocity row names no mint",
+    DuplicateVelocityAsset => "velocity mints must be unique",
+    VelocityRowWithoutBound => "a velocity row needs a cap or a cosign threshold",
 }
-
-impl core::error::Error for RuleTableError {}
 
 impl SourceMap {
-    pub const fn empty() -> Self {
-        Self {
-            slots: [SourceOwner {
-                list_id: 0,
-                owner_hash: [0u8; 32],
-            }; MAX_SOURCES],
-        }
-    }
-
     pub fn new(entries: &[(ListId, [u8; 32])]) -> Result<Self, SourceMapError> {
-        let mut sources = Self::empty();
+        let mut sources = Self::default();
         for (list_id, owner_hash) in entries {
             if *owner_hash == [0u8; 32] {
                 return Err(SourceMapError::ZeroOwner);
@@ -207,21 +165,19 @@ impl SourceMap {
         Ok(Self { slots })
     }
 
-    /// The map a `PolicyConfig`'s stored `(list_id, namespace)` slots resolve to,
-    /// each namespace address hashed to its owner. An empty slot is `list_id` 0.
+    /// The map of stored `(list_id, namespace)` slots, each namespace hashed to its owner.
     pub fn from_namespaces<E>(
         slots: &[(u8, [u8; 32]); MAX_SOURCES],
         owner_hash: impl Fn(&[u8; 32]) -> Result<[u8; 32], E>,
     ) -> Result<Self, SourceMapOwnerError<E>> {
         let mut out = [SourceOwner::default(); MAX_SOURCES];
         for (dst, (list_id, namespace)) in out.iter_mut().zip(slots) {
-            if *list_id == 0 {
-                continue;
+            if *list_id != 0 {
+                *dst = SourceOwner {
+                    list_id: *list_id,
+                    owner_hash: owner_hash(namespace).map_err(SourceMapOwnerError::Owner)?,
+                };
             }
-            *dst = SourceOwner {
-                list_id: *list_id,
-                owner_hash: owner_hash(namespace).map_err(SourceMapOwnerError::Owner)?,
-            };
         }
         Self::from_slots(out).map_err(SourceMapOwnerError::Map)
     }
@@ -515,7 +471,7 @@ impl Rule {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct VelocityRow {
     pub asset: [u8; 32],
     pub cap: u64,
@@ -630,7 +586,7 @@ impl RuleTable {
     }
 
     /// Upper bound on answer triples, reached with members disjoint across subjects.
-    pub const fn max_answers(&self, load: AnswerLoad) -> usize {
+    const fn max_answers(&self, load: AnswerLoad) -> usize {
         assert!(
             load.senders <= POLICY_INPUT_SLOTS && load.outputs <= POLICY_OUTPUT_SLOTS,
             "answer load exceeds the policy openings"
@@ -647,15 +603,12 @@ impl RuleTable {
     pub fn encode(&self) -> EncodedRuleTable {
         let mut encoded = EncodedRuleTable {
             rule_count: self.len,
-            rules: [[0u8; 32]; MAX_RULES],
             inline_count: self.inline_len,
             inline_assets: self.inline_assets,
             inline_limits: self.inline_limits.map(u64::to_be_bytes),
             window_slots: self.window_slots.to_be_bytes(),
             velocity_count: self.velocity_len,
-            velocity_assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
-            velocity_caps: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-            velocity_cosign: [[0u8; 8]; MAX_VELOCITY_ASSETS],
+            ..EncodedRuleTable::default()
         };
         for (row, rule) in encoded.rules.iter_mut().zip(self.rules()) {
             *row = rule.encoded();
@@ -664,8 +617,7 @@ impl RuleTable {
         encoded
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered
-    /// rule fails closed.
+    /// The map binds each referenced list to one namespace, an uncovered rule fails closed.
     pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
         self.encode().hash(sources)
     }
@@ -684,36 +636,23 @@ pub struct RuleTableBuilder {
 impl RuleTableBuilder {
     #[must_use]
     pub const fn rule(mut self, rule: Rule) -> Self {
-        if self.rule_count < MAX_RULES {
-            self.table.rules[self.rule_count] = rule;
-        }
-        self.rule_count += 1;
+        push(&mut self.table.rules, &mut self.rule_count, &[rule]);
         self
     }
 
     #[must_use]
     pub const fn inline_assets(mut self, members: &[[u8; 32]]) -> Self {
-        let mut i = 0;
-        while i < members.len() {
-            if self.member_count < MAX_INLINE_ASSETS {
-                self.table.inline_assets[self.member_count] = members[i];
-            }
-            self.member_count += 1;
-            i += 1;
-        }
+        push(
+            &mut self.table.inline_assets,
+            &mut self.member_count,
+            members,
+        );
         self
     }
 
     #[must_use]
     pub const fn inline_limits(mut self, limits: &[u64]) -> Self {
-        let mut i = 0;
-        while i < limits.len() {
-            if self.limit_count < MAX_INLINE_ASSETS {
-                self.table.inline_limits[self.limit_count] = limits[i];
-            }
-            self.limit_count += 1;
-            i += 1;
-        }
+        push(&mut self.table.inline_limits, &mut self.limit_count, limits);
         self
     }
 
@@ -725,17 +664,9 @@ impl RuleTableBuilder {
 
     #[must_use]
     pub const fn velocity(mut self, rows: &[VelocityRow]) -> Self {
-        let mut i = 0;
-        while i < rows.len() {
-            if self.velocity_count < MAX_VELOCITY_ASSETS {
-                self.table.velocity[self.velocity_count] = rows[i];
-            }
-            self.velocity_count += 1;
-            i += 1;
-        }
+        push(&mut self.table.velocity, &mut self.velocity_count, rows);
         self
     }
-
     pub const fn try_build(mut self) -> Result<RuleTable, RuleTableError> {
         if self.rule_count > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
@@ -856,15 +787,20 @@ impl RuleTableBuilder {
     }
 }
 
-const fn is_zero(bytes: &[u8; 32]) -> bool {
+/// Counts every item and stores those that fit, `try_build` refuses an overflowing count.
+const fn push<T: Copy, const N: usize>(slots: &mut [T; N], len: &mut usize, items: &[T]) {
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != 0 {
-            return false;
+    while i < items.len() {
+        if *len < N {
+            slots[*len] = items[i];
         }
+        *len += 1;
         i += 1;
     }
-    true
+}
+
+const fn is_zero(bytes: &[u8; 32]) -> bool {
+    equal(bytes, &[0u8; 32])
 }
 
 const fn equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
@@ -879,7 +815,7 @@ const fn equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
 }
 
 /// Rows past `rule_count` and members past `inline_count` stay zero.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct EncodedRuleTable {
     pub rule_count: u8,
@@ -894,7 +830,7 @@ pub struct EncodedRuleTable {
     pub velocity_cosign: [[u8; 8]; MAX_VELOCITY_ASSETS],
 }
 
-/// Wire parts of a table, `encode` checks the counts and nothing else.
+/// Wire parts of a table, `encode` checks the counts and `decode` the rest.
 #[derive(Clone, Copy, Debug)]
 pub struct TableParts<'a> {
     pub rows: &'a [[u8; 32]],
@@ -906,13 +842,7 @@ pub struct TableParts<'a> {
 
 impl TableParts<'_> {
     pub fn encode(self) -> Result<EncodedRuleTable, RuleTableError> {
-        let Self {
-            rows,
-            inline_assets: inline,
-            inline_limits: limits,
-            window_slots,
-            velocity,
-        } = self;
+        let (rows, inline, limits) = (self.rows, self.inline_assets, self.inline_limits);
         if rows.len() > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
         }
@@ -922,53 +852,28 @@ impl TableParts<'_> {
         if limits.len() != inline.len() {
             return Err(RuleTableError::MissingAssetLimit);
         }
-        if velocity.len() > MAX_VELOCITY_ASSETS {
+        if self.velocity.len() > MAX_VELOCITY_ASSETS {
             return Err(RuleTableError::TooManyVelocityAssets);
         }
-        let mut encoded = EncodedRuleTable::empty();
-        encoded
-            .rules
-            .get_mut(..rows.len())
-            .ok_or(RuleTableError::TooManyRules)?
-            .copy_from_slice(rows);
-        encoded
-            .inline_assets
-            .get_mut(..inline.len())
-            .ok_or(RuleTableError::TooManyInlineAssets)?
-            .copy_from_slice(inline);
-        encoded.rule_count = rows.len() as u8;
-        encoded.inline_count = inline.len() as u8;
-        let encoded_limits = encoded
-            .inline_limits
-            .get_mut(..limits.len())
-            .ok_or(RuleTableError::TooManyInlineAssets)?;
-        for (dst, limit) in encoded_limits.iter_mut().zip(limits) {
+        let mut encoded = EncodedRuleTable {
+            rule_count: rows.len() as u8,
+            inline_count: inline.len() as u8,
+            window_slots: self.window_slots.to_be_bytes(),
+            velocity_count: self.velocity.len() as u8,
+            ..EncodedRuleTable::default()
+        };
+        encoded.rules[..rows.len()].copy_from_slice(rows);
+        encoded.inline_assets[..inline.len()].copy_from_slice(inline);
+        for (dst, limit) in encoded.inline_limits.iter_mut().zip(limits) {
             *dst = limit.to_be_bytes();
         }
-        encoded.window_slots = window_slots.to_be_bytes();
-        encoded.velocity_count = velocity.len() as u8;
-        encoded.write_velocity_columns(velocity);
+        encoded.write_velocity_columns(self.velocity);
         Ok(encoded)
     }
 }
 
 impl EncodedRuleTable {
     pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn empty() -> Self {
-        Self {
-            rule_count: 0,
-            rules: [[0u8; 32]; MAX_RULES],
-            inline_count: 0,
-            inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
-            inline_limits: [[0u8; 8]; MAX_INLINE_ASSETS],
-            window_slots: [0u8; 8],
-            velocity_count: 0,
-            velocity_assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
-            velocity_caps: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-            velocity_cosign: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-        }
-    }
 
     pub const fn window_slots(&self) -> u64 {
         u64::from_be_bytes(self.window_slots)
@@ -978,64 +883,31 @@ impl EncodedRuleTable {
         VelocityMode::of(self.window_slots(), self.velocity_count)
     }
 
-    pub fn from_parts(rows: &[[u8; 32]], inline: &[[u8; 32]]) -> Result<Self, RuleTableError> {
-        let limits = [0; MAX_INLINE_ASSETS];
-        Self::from_parts_with_limits(rows, inline, &limits[..inline.len().min(MAX_INLINE_ASSETS)])
-    }
-
-    pub fn from_parts_with_limits(
-        rows: &[[u8; 32]],
-        inline: &[[u8; 32]],
-        limits: &[u64],
-    ) -> Result<Self, RuleTableError> {
-        TableParts {
-            rows,
-            inline_assets: inline,
-            inline_limits: limits,
-            window_slots: 0,
-            velocity: &[],
-        }
-        .encode()
-    }
-
     pub fn decode(&self) -> Result<RuleTable, RuleTableError> {
-        let Counted {
-            rows,
-            members,
-            limits,
-        } = self.counted()?;
-        let padding = self.rules[rows.len()..]
-            .iter()
-            .chain(&self.inline_assets[members.len()..]);
-        if padding.into_iter().any(|slot| *slot != [0u8; 32]) {
-            return Err(RuleTableError::NonZeroPadding);
-        }
-        if self.inline_limits[limits.len()..]
-            .iter()
-            .any(|slot| *slot != [0u8; 8])
+        let (rows, members, limits) = self.counted()?;
+        if !zero_past(&self.rules, rows.len())
+            || !zero_past(&self.inline_assets, members.len())
+            || !zero_past(&self.inline_limits, limits.len())
         {
             return Err(RuleTableError::NonZeroPadding);
         }
         let velocity = self.velocity_rows()?;
-        let velocity_padding = self.velocity_assets[velocity.len()..]
-            .iter()
-            .any(|slot| *slot != [0u8; 32])
-            || self.velocity_caps[velocity.len()..]
-                .iter()
-                .chain(&self.velocity_cosign[velocity.len()..])
-                .any(|slot| *slot != [0u8; 8]);
-        if velocity_padding {
+        let count = velocity.len();
+        if !zero_past(&self.velocity_assets, count)
+            || !zero_past(&self.velocity_caps, count)
+            || !zero_past(&self.velocity_cosign, count)
+        {
             return Err(RuleTableError::NonZeroPadding);
         }
-        let decoded_limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
+        let limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
         let mut builder = RuleTable::builder()
             .inline_assets(members)
             .velocity(&velocity);
         if let Some(window) = NonZeroU64::new(self.window_slots()) {
             builder = builder.windowed(window);
         }
-        if decoded_limits.iter().any(|limit| *limit != 0) {
-            builder = builder.inline_limits(&decoded_limits);
+        if limits.iter().any(|limit| *limit != 0) {
+            builder = builder.inline_limits(&limits);
         }
         for row in rows {
             builder = builder.rule(Rule::decode(row)?);
@@ -1054,14 +926,9 @@ impl EncodedRuleTable {
             .fold(ListSet::EMPTY, ListSet::union)
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered
-    /// rule fails closed.
+    /// The map binds each referenced list to one namespace, an uncovered rule fails closed.
     pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
-        let Counted {
-            rows,
-            members,
-            limits,
-        } = self.counted().map_err(PolicyHashError::Table)?;
+        let (rows, members, limits) = self.counted().map_err(PolicyHashError::Table)?;
         if let Some(list_id) = self
             .referenced()
             .iter()
@@ -1079,8 +946,8 @@ impl EncodedRuleTable {
             elements.push(field_u8(slot.list_id));
             elements.push(slot.owner_hash);
         }
-        elements.push(field_u8(self.rule_count));
         // Counts make the variable length sections unambiguous.
+        elements.push(field_u8(self.rule_count));
         elements.push(field_u8(self.inline_count));
         elements.push(field_u8(self.velocity_count));
         elements.extend_from_slice(rows);
@@ -1098,20 +965,18 @@ impl EncodedRuleTable {
     }
 
     fn counted(&self) -> Result<Counted<'_>, RuleTableError> {
-        Ok(Counted {
-            rows: self
-                .rules
+        let members = usize::from(self.inline_count);
+        Ok((
+            self.rules
                 .get(..usize::from(self.rule_count))
                 .ok_or(RuleTableError::TooManyRules)?,
-            members: self
-                .inline_assets
-                .get(..usize::from(self.inline_count))
+            self.inline_assets
+                .get(..members)
                 .ok_or(RuleTableError::TooManyInlineAssets)?,
-            limits: self
-                .inline_limits
-                .get(..usize::from(self.inline_count))
+            self.inline_limits
+                .get(..members)
                 .ok_or(RuleTableError::TooManyInlineAssets)?,
-        })
+        ))
     }
 
     fn velocity_rows(&self) -> Result<Vec<VelocityRow>, RuleTableError> {
@@ -1145,10 +1010,11 @@ impl EncodedRuleTable {
     }
 }
 
-struct Counted<'a> {
-    rows: &'a [[u8; 32]],
-    members: &'a [[u8; 32]],
-    limits: &'a [[u8; 8]],
+/// Rows, inline members and their limits up to the counts.
+type Counted<'a> = (&'a [[u8; 32]], &'a [[u8; 32]], &'a [[u8; 8]]);
+
+fn zero_past<const N: usize>(slots: &[[u8; N]], len: usize) -> bool {
+    slots[len..].iter().all(|slot| *slot == [0u8; N])
 }
 
 const _: () = assert!(EncodedRuleTable::SIZE == 1227);
@@ -1207,6 +1073,29 @@ mod tests {
             .collect()
     }
 
+    fn from_parts(
+        rows: &[[u8; 32]],
+        inline: &[[u8; 32]],
+    ) -> Result<EncodedRuleTable, RuleTableError> {
+        let limits = [0; MAX_INLINE_ASSETS];
+        from_parts_with_limits(rows, inline, &limits[..inline.len().min(MAX_INLINE_ASSETS)])
+    }
+
+    fn from_parts_with_limits(
+        rows: &[[u8; 32]],
+        inline: &[[u8; 32]],
+        limits: &[u64],
+    ) -> Result<EncodedRuleTable, RuleTableError> {
+        TableParts {
+            rows,
+            inline_assets: inline,
+            inline_limits: limits,
+            window_slots: 0,
+            velocity: &[],
+        }
+        .encode()
+    }
+
     fn sources(entries: &[(ListId, [u8; 32])]) -> SourceMap {
         SourceMap::new(entries).unwrap()
     }
@@ -1256,7 +1145,7 @@ mod tests {
         assert_eq!(TABLE.inline_assets(), ASSETS);
         assert_eq!(RuleTable::empty(), EMPTY);
         assert!(EMPTY.is_empty());
-        assert_eq!(EMPTY.encode(), EncodedRuleTable::empty());
+        assert_eq!(EMPTY.encode(), EncodedRuleTable::default());
     }
 
     #[test]
@@ -1583,7 +1472,7 @@ mod tests {
 
     #[test]
     fn an_empty_table_hashes_the_empty_map() {
-        let baseline = EMPTY.hash(&SourceMap::empty()).unwrap();
+        let baseline = EMPTY.hash(&SourceMap::default()).unwrap();
         let with_slot = sources(&[(ListId::Allow, [4u8; 32])]);
         assert_ne!(baseline, EMPTY.hash(&with_slot).unwrap());
     }
@@ -1638,7 +1527,7 @@ mod tests {
             .chain([Rule::allow_only_assets()])
             .map(|rule| rule.encoded())
             .collect();
-        let encoded = EncodedRuleTable::from_parts(&rows, &POOL).unwrap();
+        let encoded = from_parts(&rows, &POOL).unwrap();
         assert_eq!(usize::from(encoded.rule_count), MAX_RULES);
         assert_eq!(usize::from(encoded.inline_count), MAX_INLINE_ASSETS);
         assert_eq!(encoded.rules.as_slice(), rows.as_slice());
@@ -1646,16 +1535,16 @@ mod tests {
         assert_eq!(encoded.decode(), Err(RuleTableError::TooManyAnswers));
         let seventeen: Vec<[u8; 32]> = rows.iter().chain(&rows[..1]).copied().collect();
         assert_eq!(
-            EncodedRuleTable::from_parts(&seventeen, &POOL),
+            from_parts(&seventeen, &POOL),
             Err(RuleTableError::TooManyRules)
         );
         let nine: Vec<[u8; 32]> = POOL.iter().chain(&POOL[..1]).copied().collect();
         assert_eq!(
-            EncodedRuleTable::from_parts(&rows, &nine),
+            from_parts(&rows, &nine),
             Err(RuleTableError::TooManyInlineAssets)
         );
         assert_eq!(
-            EncodedRuleTable::from_parts_with_limits(&rows, &POOL, &[1]),
+            from_parts_with_limits(&rows, &POOL, &[1]),
             Err(RuleTableError::MissingAssetLimit)
         );
     }
@@ -1815,7 +1704,7 @@ mod tests {
 
     #[test]
     fn velocity_rows_round_trip_and_bind_the_hash() {
-        let map = SourceMap::empty();
+        let map = SourceMap::default();
         assert_eq!(WINDOWED.velocity(), &[ROW]);
         assert_eq!(WINDOWED.window_slots(), WINDOW.get());
         assert_eq!(WINDOWED.encode().decode(), Ok(WINDOWED));
@@ -1873,7 +1762,7 @@ mod tests {
 
     #[test]
     fn velocity_padding_past_the_count_must_be_zero() {
-        let map = SourceMap::empty();
+        let map = SourceMap::default();
         let mut asset_padding = WINDOWED.encode();
         asset_padding.velocity_assets[1][31] = 1;
         assert_eq!(asset_padding.decode(), Err(RuleTableError::NonZeroPadding));

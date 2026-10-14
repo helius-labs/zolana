@@ -15,6 +15,8 @@ verifying-keys = ["dep:groth16-solana"]
 bytemuck = { workspace = true, features = ["min_const_generics"] }
 groth16-solana = { workspace = true, optional = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
+solana-program-error = { workspace = true }
+thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-hasher = { workspace = true }

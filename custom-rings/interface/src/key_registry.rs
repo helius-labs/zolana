@@ -1,18 +1,25 @@
+use thiserror::Error;
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice,
-    primitives::{is_canonical_bn254_scalar_be, right_align},
+    primitives::{is_canonical_bn254_scalar_be, right_align, BN254_SCALAR_MODULUS_BE},
     Hasher, HasherError, Poseidon,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{base_public_input::pack33_to_2fe, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{pack_2fe, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
 /// Matches the circuit height and the on-chain tree.
 pub const KEY_REGISTRY_HEIGHT: usize = 40;
 pub const KEY_REGISTRY_CAPACITY: u64 = 1 << KEY_REGISTRY_HEIGHT;
 
-/// Binds encrypted nullifier-key enrollment to the member, auditor and registry
-/// transition.
+/// BN254 scalar field order minus one, the sentinel high member closing the list.
+pub const FIELD_MAX: [u8; 32] = {
+    let mut max = BN254_SCALAR_MODULUS_BE;
+    max[31] -= 1;
+    max
+};
+
+/// Binds encrypted nullifier-key enrollment to the member, auditor and registry transition.
 pub struct RegisterKeyPublicInput<'a> {
     pub registry_old_root: &'a [u8; 32],
     pub registry_new_root: &'a [u8; 32],
@@ -26,9 +33,8 @@ pub struct RegisterKeyPublicInput<'a> {
 
 impl RegisterKeyPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let auditor = pack33_to_2fe(self.auditor_pk);
-        let eph = pack33_to_2fe(self.eph_pk);
-        let ct_hash = ciphertext_hash(self.ciphertext)?;
+        let auditor = pack_2fe(self.auditor_pk);
+        let eph = pack_2fe(self.eph_pk);
         create_hash_chain_from_slice(&[
             *self.registry_old_root,
             *self.registry_new_root,
@@ -38,7 +44,7 @@ impl RegisterKeyPublicInput<'_> {
             auditor.hi,
             eph.lo,
             eph.hi,
-            ct_hash,
+            ciphertext_hash(self.ciphertext)?,
             right_align(&self.new_index.to_be_bytes()),
         ])
     }
@@ -56,12 +62,17 @@ impl RegisteredKey<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum KeyRegistryVerifyError {
+    #[error("key registry hashing failed")]
     Hashing,
+    #[error("key registry path has the wrong length")]
     ProofLength,
+    #[error("key registry index or member is out of range")]
     OutOfRange,
+    #[error("key registry path does not reach the root")]
     RootMismatch,
+    #[error("key registry append slot is occupied")]
     SlotOccupied,
 }
 
@@ -132,8 +143,7 @@ pub struct KeyRegistryInsert<'a> {
 impl KeyRegistryInsert<'_> {
     /// `root` is not checked against chain state.
     pub fn verify(&self) -> Result<[u8; 32], KeyRegistryVerifyError> {
-        // 1. Validate positions and canonical field encodings before hashing
-        // the witness.
+        // 1. Validate positions and canonical field encodings before hashing.
         let low_path = MerklePath {
             index: self.low_index,
             siblings: self.low_proof,
@@ -163,8 +173,7 @@ impl KeyRegistryInsert<'_> {
         {
             return Err(KeyRegistryVerifyError::OutOfRange);
         }
-        // 2. Prove the member absent inside an authenticated predecessor
-        // interval.
+        // 2. Prove the member absent inside an authenticated predecessor interval.
         if !(self.low_member < self.member && self.member < self.low_next) {
             return Err(KeyRegistryVerifyError::OutOfRange);
         }
@@ -177,8 +186,7 @@ impl KeyRegistryInsert<'_> {
         if &low_path.root_of(low_old)? != self.root {
             return Err(KeyRegistryVerifyError::RootMismatch);
         }
-        // 3. Splice the predecessor link and append only into a proven empty
-        // slot.
+        // 3. Splice the predecessor link and append only into a proven empty slot.
         let low_new = KeyRegistryLeaf {
             member: self.low_member,
             next: self.member,

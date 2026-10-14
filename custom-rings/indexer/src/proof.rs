@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use custom_ring_interface::{MerklePath, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
 use std::collections::HashMap;
 use zolana_hasher::{Hasher, Poseidon};
@@ -15,7 +15,7 @@ impl LeafPath {
             siblings: &self.siblings,
         }
         .root_of(self.leaf)
-        .map_err(|error| anyhow::anyhow!("invalid path ({error:?})"))
+        .context("invalid path")
     }
 }
 
@@ -60,8 +60,7 @@ impl PathOverlay<'_> {
 }
 
 fn parent(left: &[u8; 32], right: &[u8; 32]) -> Result<[u8; 32]> {
-    Poseidon::hashv(&[left, right])
-        .map_err(|error| anyhow::anyhow!("parent hash failed ({error:?})"))
+    Poseidon::hashv(&[left, right]).context("parent hash failed")
 }
 
 #[cfg(test)]

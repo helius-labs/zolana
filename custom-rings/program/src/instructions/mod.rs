@@ -1,6 +1,5 @@
-mod clear_cosigner;
-mod clear_spend_window;
-pub(crate) mod cosign;
+mod close;
+mod cosign;
 mod create_config;
 mod create_entry;
 mod create_key_registry_root;
@@ -10,14 +9,12 @@ mod deposit_audit;
 pub(crate) mod forward;
 mod grant_read_access;
 mod init_spp_ring_config;
-mod key_escrow;
 mod loader;
 mod policy_shared;
 mod policy_trees;
 mod public_legs;
 mod register_key;
 mod register_spend;
-mod revoke_read_access;
 mod set_authority;
 mod set_cosigner;
 mod set_delegate;
@@ -27,12 +24,13 @@ mod set_policy_rules;
 mod set_policy_source;
 mod set_spend_window;
 mod shared;
-pub(crate) mod transact;
+mod transact;
 mod update_entry;
 mod verifier;
 
-pub(crate) use clear_cosigner::process_clear_cosigner_ix;
-pub(crate) use clear_spend_window::process_clear_spend_window_ix;
+pub(crate) use close::{
+    process_clear_cosigner_ix, process_clear_spend_window_ix, process_revoke_read_access_ix,
+};
 pub(crate) use create_config::process_create_config_ix;
 pub(crate) use create_entry::process_create_entry_ix;
 pub(crate) use create_key_registry_root::process_create_key_registry_root_ix;
@@ -42,7 +40,6 @@ pub(crate) use grant_read_access::process_grant_read_access_ix;
 pub(crate) use init_spp_ring_config::process_init_spp_ring_config_ix;
 pub(crate) use register_key::process_register_key_ix;
 pub(crate) use register_spend::process_register_spend_ix;
-pub(crate) use revoke_read_access::process_revoke_read_access_ix;
 pub(crate) use set_authority::process_set_authority_ix;
 pub(crate) use set_cosigner::process_set_cosigner_ix;
 pub(crate) use set_delegate::process_set_delegate_ix;

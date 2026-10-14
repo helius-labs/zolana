@@ -26,7 +26,7 @@ fn create_policy_pins_an_empty_table_at_generation_one() {
     let empty = RuleTable::empty();
     assert_eq!(config.discriminator, POLICY_CONFIG);
     assert_eq!(config.sources, own_source_slots(&empty));
-    assert_eq!(config.rules, EncodedRuleTable::empty());
+    assert_eq!(config.rules, EncodedRuleTable::default());
     assert_eq!(config.policy_hash, policy_hash_for(&empty, &config.sources));
     assert_eq!(config.address_tree.to_bytes(), address_tree().to_bytes());
     assert_eq!(config.namespace_bump, namespace_pda().1);

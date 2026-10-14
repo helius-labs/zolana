@@ -3,11 +3,10 @@ use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
     pda, KeyRegistryLeaf, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, KEY_REGISTRY_CAPACITY,
+    COMPRESSED_P256_KEY_LEN, FIELD_MAX, KEY_REGISTRY_CAPACITY,
 };
 use serde::{Deserialize, Serialize};
 use zolana_hasher::HasherError;
-use zolana_ring_key_registry::FIELD_MAX;
 use zolana_ring_policy::Member;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -74,7 +73,7 @@ pub fn registration(instruction: InstructionView<'_>) -> Result<Option<Registrat
         .get(accounts::REGISTER_KEY_MEMBER)
         .context("key registration has no member signer")?;
     let member = *Member::owner_tag(&signer.to_bytes())
-        .map_err(|error| anyhow::anyhow!("registration member derivation failed ({error:?})"))?
+        .context("registration member derivation failed")?
         .as_bytes();
     Ok(Some(Registration {
         old_root: ix.registry_old_root,

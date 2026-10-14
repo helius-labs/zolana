@@ -1,17 +1,14 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    CoSignScope, CoSigner, SetCoSignerIxData, WithdrawalThresholdRow, MAX_CO_SIGNER_THRESHOLDS,
+    CoSignScope, CoSigner, CustomRingError, SetCoSignerIxData, WithdrawalThresholdRow, CO_SIGNER,
+    MAX_CO_SIGNER_THRESHOLDS,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
-use crate::{
-    error::CustomRingError,
-    instructions::{
-        loader::{load_authorized_config, load_cosigner_mut},
-        shared::PdaCreate,
-    },
-    state::CoSignerInitParams,
+use crate::instructions::{
+    loader::load_authorized_config,
+    shared::{check_system_program, parse, upsert},
 };
 
 #[inline(never)]
@@ -20,12 +17,11 @@ pub fn process_set_cosigner_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    // 1. Validate the signer, supported scope and unique per-mint thresholds.
     let SetCoSignerIxData {
         signer,
         scope,
         thresholds,
-    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    } = parse(data)?;
     let scope = CoSignScope::new(scope).ok_or(CustomRingError::InvalidCoSignerScope)?;
     if signer == [0; 32] {
         return Err(CustomRingError::InvalidCoSigner.into());
@@ -50,36 +46,20 @@ pub fn process_set_cosigner_ix(
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
-    let config_account = iter.next_account("config")?;
-    let cosigner_account = iter.next_mut("cosigner")?;
+    let config = iter.next_account("config")?;
+    let cosigner = iter.next_mut("cosigner")?;
     let system_program = iter.next_account("system_program")?;
 
-    // 2. Only the current config authority may create or replace the
-    // requirement.
-    if !pinocchio_system::check_id(system_program.address()) {
-        return Err(CustomRingError::InvalidSystemProgram.into());
-    }
-    load_authorized_config(program_id, config_account, authority)?;
-
-    // 3. Replace in place or initialize the canonical PDA without changing the
-    // ring config.
-    let params = |bump| CoSignerInitParams {
-        signer: Address::new_from_array(signer),
-        scope: scope.bits(),
-        thresholds: rows,
-        threshold_count: thresholds.len() as u8,
-        bump,
-    };
-    if let Some(mut existing) = load_cosigner_mut(program_id, cosigner_account)? {
-        *existing = params(existing.bump).value();
-        return Ok(());
-    }
-    let bump = PdaCreate {
-        program_id,
-        payer,
-        seeds: &[CoSigner::SEED],
-        mismatch: CustomRingError::InvalidCoSigner,
-    }
-    .create::<CoSigner>(cosigner_account)?;
-    params(bump).init(cosigner_account)
+    check_system_program(system_program)?;
+    load_authorized_config(program_id, config, authority)?;
+    upsert(program_id, payer, cosigner, &[CoSigner::SEED], |bump| {
+        CoSigner {
+            discriminator: CO_SIGNER,
+            signer: Address::new_from_array(signer),
+            scope: scope.bits(),
+            threshold_count: thresholds.len() as u8,
+            thresholds: rows,
+            bump,
+        }
+    })
 }

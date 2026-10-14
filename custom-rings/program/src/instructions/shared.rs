@@ -1,22 +1,115 @@
-use pinocchio::Address;
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use custom_ring_interface::{CustomRingError, RingAccount};
 use pinocchio::{
-    cpi::{invoke_signed_with_slice, MAX_CPI_ACCOUNTS},
-    instruction::{InstructionAccount, InstructionView},
-};
-use pinocchio::{
-    cpi::{Seed, Signer},
+    address::address_eq,
+    cpi::{invoke_signed_with_slice, Seed, Signer, MAX_CPI_ACCOUNTS},
     error::ProgramError,
-    AccountView, ProgramResult,
+    instruction::{InstructionAccount, InstructionView},
+    AccountView, Address, ProgramResult,
 };
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use wincode::{config::DefaultConfig, SchemaRead};
 use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_ring_policy::NAMESPACE_PDA_SEED;
 
-use crate::{
-    error::CustomRingError, instructions::policy_shared::namespace_address, state::Account,
-};
+use crate::{instructions::loader::load_mut, state::Init};
+
+/// Instruction data of `T`, trailing bytes refused.
+#[inline(never)]
+pub(crate) fn parse<'a, T: SchemaRead<'a, DefaultConfig, Dst = T>>(
+    data: &'a [u8],
+) -> Result<T, CustomRingError> {
+    wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)
+}
+
+pub(crate) fn check_system_program(account: &AccountView) -> Result<(), CustomRingError> {
+    if !pinocchio_system::check_id(account.address()) {
+        return Err(CustomRingError::InvalidSystemProgram);
+    }
+    Ok(())
+}
+
+/// The canonical bump of `seeds`, `mismatch` for another address.
+pub(crate) fn verify_pda<const N: usize>(
+    program_id: &Address,
+    address: &Address,
+    seeds: &[&[u8]; N],
+    mismatch: CustomRingError,
+) -> Result<u8, CustomRingError> {
+    match Address::derive_program_address(seeds, program_id) {
+        Some((derived, bump)) if address_eq(address, &derived) => Ok(bump),
+        _ => Err(mismatch),
+    }
+}
+
+/// The ring's namespace PDA at the bump `create_policy` stored, which needs no curve check.
+pub(crate) fn namespace_address(program_id: &Address, bump: u8) -> Address {
+    Address::derive_address(&[NAMESPACE_PDA_SEED], Some(bump), program_id)
+}
+
+/// Creates `T`'s account at its canonical address, refusing an occupied one.
+pub(crate) fn create_pda<T: RingAccount, const N: usize>(
+    program_id: &Address,
+    payer: &AccountView,
+    account: &mut AccountView,
+    seeds: &[&[u8]; N],
+) -> Result<u8, ProgramError> {
+    let bump = verify_pda(program_id, account.address(), seeds, T::ADDRESS)?;
+    if account.data_len() != 0 {
+        return Err(T::EXISTS.into());
+    }
+    create_account(program_id, payer, account, seeds, bump, T::SIZE)?;
+    Ok(bump)
+}
+
+#[inline(never)]
+fn create_account(
+    program_id: &Address,
+    payer: &AccountView,
+    account: &mut AccountView,
+    seeds: &[&[u8]],
+    bump: u8,
+    space: usize,
+) -> ProgramResult {
+    let bump = [bump];
+    let signer: Vec<Seed> = seeds
+        .iter()
+        .map(|seed| Seed::from(*seed))
+        .chain([Seed::from(&bump)])
+        .collect();
+    pinocchio_system::create_account_with_minimum_balance_signed(
+        account,
+        space,
+        program_id,
+        payer,
+        None,
+        &[Signer::from(signer.as_slice())],
+    )
+}
+
+/// Replaces `T` in place when its stored bump derives the account from `seeds`,
+/// otherwise creates it at the canonical address.
+pub(crate) fn upsert<T: RingAccount, const N: usize>(
+    program_id: &Address,
+    payer: &AccountView,
+    account: &mut AccountView,
+    seeds: &[&[u8]; N],
+    value: impl FnOnce(u8) -> T,
+) -> ProgramResult {
+    if account.data_len() == 0 {
+        let bump = create_pda::<T, N>(program_id, payer, account, seeds)?;
+        return Init(&value(bump)).init(account);
+    }
+    let address = *account.address();
+    let mut existing = load_mut::<T>(program_id, account)?;
+    let bump = existing.bump();
+    if !address_eq(
+        &address,
+        &Address::derive_address(seeds, Some(bump), program_id),
+    ) {
+        return Err(T::ADDRESS.into());
+    }
+    *existing = value(bump);
+    Ok(())
+}
 
 /// Refunds the rent and closes, `mismatch` when the recipient is the account.
 pub(crate) fn close_into(
@@ -36,200 +129,74 @@ pub(crate) fn close_into(
     account.close()
 }
 
-#[must_use]
-pub(crate) struct PdaCheck<'a> {
-    pub program_id: &'a Address,
-    pub address: &'a Address,
-    pub seeds: &'a [&'a [u8]],
-    pub mismatch: CustomRingError,
-}
-
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-impl PdaCheck<'_> {
-    #[inline(always)]
-    pub fn verify(self) -> Result<u8, ProgramError> {
-        let (derived, bump) = Address::find_program_address(self.seeds, self.program_id);
-        if !pinocchio::address::address_eq(self.address, &derived) {
-            return Err(self.mismatch.into());
-        }
-        Ok(bump)
-    }
-
-    /// The program creates PDA accounts only at the canonical bump, so a
-    /// stored bump that re-derives the address proves canonicality.
-    #[inline(always)]
-    pub fn verify_stored_bump(self, bump: u8) -> Result<(), ProgramError> {
-        let bump = [bump];
-        let mut seeds: [&[u8]; 3] = [&[]; 3];
-        let len = self.seeds.len();
-        if len >= seeds.len() {
-            return Err(self.mismatch.into());
-        }
-        seeds[..len].copy_from_slice(self.seeds);
-        seeds[len] = &bump;
-        let derived = Address::create_program_address(&seeds[..=len], self.program_id)
-            .map_err(|_| self.mismatch)?;
-        if !pinocchio::address::address_eq(self.address, &derived) {
-            return Err(self.mismatch.into());
-        }
-        Ok(())
-    }
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-impl PdaCheck<'_> {
-    pub fn verify(self) -> Result<u8, ProgramError> {
-        let Self {
-            program_id,
-            address,
-            seeds,
-            mismatch,
-        } = self;
-        let _ = (program_id, address, seeds);
-        Err(mismatch.into())
-    }
-
-    pub fn verify_stored_bump(self, _bump: u8) -> Result<(), ProgramError> {
-        Err(self.mismatch.into())
-    }
-}
-
-/// Creates `T`'s account at the canonical bump, refusing an occupied one.
-#[must_use]
-pub(crate) struct PdaCreate<'a> {
-    pub program_id: &'a Address,
-    pub payer: &'a AccountView,
-    pub seeds: &'a [&'a [u8]],
-    pub mismatch: CustomRingError,
-}
-
-impl PdaCreate<'_> {
-    #[inline(always)]
-    pub fn create<T: Account>(self, account: &mut AccountView) -> Result<u8, ProgramError> {
-        let bump = PdaCheck {
-            program_id: self.program_id,
-            address: account.address(),
-            seeds: self.seeds,
-            mismatch: self.mismatch,
-        }
-        .verify()?;
-        if account.data_len() != 0 {
-            return Err(T::ALREADY_INITIALIZED.into());
-        }
-        let bump_seed = [bump];
-        let len = self.seeds.len();
-        let mut seeds: [Seed; 3] = core::array::from_fn(|_| Seed::from(&bump_seed));
-        let Some(signed) = seeds.get_mut(..=len) else {
-            return Err(self.mismatch.into());
-        };
-        for (seed, bytes) in signed.iter_mut().zip(self.seeds) {
-            *seed = Seed::from(*bytes);
-        }
-        pinocchio_system::create_account_with_minimum_balance_signed(
-            account,
-            T::SIZE,
-            self.program_id,
-            self.payer,
-            None,
-            &[Signer::from(&*signed)],
-        )?;
-        Ok(bump)
-    }
-}
-
 /// PDAs the ring raises to signers on the forwarded SPP instruction.
 #[derive(Clone, Copy)]
 pub(crate) enum SppSigners {
     RingAuth,
     RingAuthAndNamespace { bump: u8 },
+    Namespace { bump: u8 },
 }
 
-impl SppSigners {
-    fn namespace(self, program_id: &Address) -> Result<Option<Address>, CustomRingError> {
-        match self {
-            Self::RingAuth => Ok(None),
-            Self::RingAuthAndNamespace { bump } => namespace_address(program_id, bump).map(Some),
-        }
-    }
-}
-
-/// Forward `data` to SPP with this ring's `ring_auth` PDA flipped to a signer.
-///
-/// `accounts` must already be ordered exactly as the target SPP instruction
-/// expects: the CPI metas are rebuilt from it one-to-one, and pinocchio matches
-/// account views to metas by position. `data` keeps its leading tag byte because
-/// SPP's dispatcher strips it.
-///
-/// The generic account type lets callers either forward their whole account list
-/// (`deposit`, `transact`) or hand-pick a reordered subset (`init_spp_ring_config`).
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+/// Forwards `data`, tag byte included, over `accounts` in SPP's order with the
+/// selected ring PDAs raised to signers.
 #[inline(never)]
-pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
+pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     program_id: &Address,
     accounts: &[A],
     data: &[u8],
     signers: SppSigners,
 ) -> ProgramResult {
-    // 1. Derive only the ring PDAs authorized by the verified instruction path.
-    let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
-    let namespace = signers.namespace(program_id)?;
-    if !accounts
-        .iter()
-        .any(|account| account.as_ref().address() == &ring_auth)
-    {
+    let (ring_auth, ring_auth_bump) = match signers {
+        SppSigners::Namespace { .. } => (None, 0),
+        SppSigners::RingAuth | SppSigners::RingAuthAndNamespace { .. } => {
+            let (address, bump) =
+                Address::derive_program_address(&[RING_AUTH_PDA_SEED], program_id)
+                    .ok_or(CustomRingError::MissingRingAuth)?;
+            (Some(address), bump)
+        }
+    };
+    let (namespace, namespace_bump) = match signers {
+        SppSigners::RingAuth => (None, 0),
+        SppSigners::RingAuthAndNamespace { bump } | SppSigners::Namespace { bump } => {
+            (Some(namespace_address(program_id, bump)), bump)
+        }
+    };
+    let raised = |address: &Address| [ring_auth, namespace].contains(&Some(*address));
+    if ring_auth.is_some_and(|ring_auth| {
+        !accounts
+            .iter()
+            .any(|account| account.as_ref().address() == &ring_auth)
+    }) {
         return Err(CustomRingError::MissingRingAuth.into());
     }
-
     if accounts.len() > MAX_CPI_ACCOUNTS {
         return Err(CustomRingError::TooManyAccounts.into());
     }
-    // 2. Preserve caller privileges and add only the selected PDA signatures.
     let metas: Vec<InstructionAccount> = accounts
         .iter()
         .map(|account| {
             let account = account.as_ref();
-            let is_signer = account.is_signer()
-                || account.address() == &ring_auth
-                || namespace.is_some_and(|namespace| account.address() == &namespace);
+            let is_signer = account.is_signer() || raised(account.address());
             InstructionAccount::new(account.address(), account.is_writable(), is_signer)
         })
         .collect();
-
-    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    let ring_auth_bump = [ring_auth_bump];
+    let namespace_bump = [namespace_bump];
+    let ring_auth_seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(&ring_auth_bump)];
+    let namespace_seeds = [Seed::from(NAMESPACE_PDA_SEED), Seed::from(&namespace_bump)];
+    let all = [
+        Signer::from(ring_auth_seeds.as_slice()),
+        Signer::from(namespace_seeds.as_slice()),
+    ];
+    let signers = match signers {
+        SppSigners::RingAuth => &all[..1],
+        SppSigners::RingAuthAndNamespace { .. } => &all[..],
+        SppSigners::Namespace { .. } => &all[1..],
+    };
     let instruction = InstructionView {
-        program_id: &spp_id,
+        program_id: &Address::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: &metas,
         data,
     };
-    let bump = [bump];
-    let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(bump.as_ref())];
-    let ring_signer = Signer::from(seeds.as_ref());
-    match signers {
-        SppSigners::RingAuthAndNamespace {
-            bump: namespace_bump,
-        } => {
-            let namespace_bump = [namespace_bump];
-            let namespace_seeds = [
-                Seed::from(NAMESPACE_PDA_SEED),
-                Seed::from(namespace_bump.as_ref()),
-            ];
-            let signers = [ring_signer, Signer::from(namespace_seeds.as_ref())];
-            invoke_signed_with_slice(&instruction, accounts, &signers)
-        }
-        SppSigners::RingAuth => {
-            invoke_signed_with_slice(&instruction, accounts, core::slice::from_ref(&ring_signer))
-        }
-    }
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-#[inline(never)]
-pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
-    program_id: &Address,
-    _accounts: &[A],
-    _data: &[u8],
-    signers: SppSigners,
-) -> ProgramResult {
-    signers.namespace(program_id)?;
-    Err(CustomRingError::InvalidShieldedPoolProgram.into())
+    invoke_signed_with_slice(&instruction, accounts, signers)
 }

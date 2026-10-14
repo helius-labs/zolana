@@ -2136,6 +2136,8 @@ dependencies = [
  "groth16-solana",
  "serde_json",
  "solana-address 2.6.1",
+ "solana-program-error",
+ "thiserror 2.0.20",
  "wincode",
  "zolana-hasher",
  "zolana-interface",
@@ -2162,7 +2164,6 @@ dependencies = [
  "solana-loader-v3-interface 8.0.1",
  "solana-program-error",
  "solana-pubkey 4.2.1",
- "thiserror 2.0.20",
  "wincode",
  "zolana-account-checks",
  "zolana-interface",
@@ -11993,7 +11994,6 @@ dependencies = [
  "zolana-hasher",
  "zolana-indexer-api",
  "zolana-interface",
- "zolana-ring-key-registry",
  "zolana-ring-policy",
 ]
 
@@ -12018,6 +12018,7 @@ dependencies = [
  "serde_json",
  "solana-address 2.6.1",
  "thiserror 2.0.20",
+ "wincode",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",

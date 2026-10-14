@@ -1,10 +1,12 @@
 use core::num::NonZeroU64;
 
 use custom_ring_interface::{
-    CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
-    CustomRingProof, CustomRingTransactIxData, FixedWindow, KeyEscrow, AUDIT_CIPHERTEXT_LEN,
-    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN, COMPRESSED_P256_KEY_LEN,
+    base_verifying_key, compressed_policy_verifying_key, delegate_policy_verifying_key,
+    policy_verifying_key, AuditorMessage, CompressedPolicyPublicInput, CustomRingBasePublicInput,
+    CustomRingError, CustomRingPolicyPublicInput, CustomRingTransactIxData, FixedWindow, KeyEscrow,
+    PolicyConfig, RingProgramConfig, COMPRESSED_P256_KEY_LEN,
 };
+use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
@@ -13,24 +15,23 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
+        TransactOutput,
     },
     tag, CircuitId, MessageData,
 };
-use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
+use zolana_ring_policy::{ring_id_field, ListNamespace, SpendRecord, VelocityMode};
 
 use crate::{
-    error::CustomRingError,
     instructions::{
-        cosign::{approval_signer, require_cosigner, CoSignerRequirement},
-        key_escrow::EscrowRoot,
-        loader::{load_config, load_policy_config, load_spp_tree_id, validate_spp_program},
-        policy_shared::{namespace_address, RecordNamespace, SpendRecordCarrier},
+        cosign::{approval_cosigner, demanded_cosigner},
+        loader::{load, load_escrow_root, load_spp_tree_id, validate_spp_program},
         policy_trees::{PolicyTrees, RevocationTargets},
         public_legs::PublicLegs,
-        shared::{cpi_spp_signed, SppSigners},
+        shared::{cpi_spp, namespace_address, parse, SppSigners},
         verifier::verify_groth16,
     },
+    state::is_p256_key,
 };
 
 #[inline(never)]
@@ -41,69 +42,45 @@ pub fn process_transact_ix(
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
-    let config_account = iter.next_account("config")?;
-    let cosigner_account = iter.next_account("cosigner_pda")?;
-    let cosigner = iter.next_account("cosigner")?;
-    TransactRail::Member.verify_and_forward(
-        TransactControls {
-            program_id,
-            config_account,
-            cosigner_account,
-            cosigner,
-        },
-        iter,
-        data,
-    )
+    let controls = Controls::next(&mut iter)?;
+    Rail::Member.verify_and_forward(program_id, controls, iter, data)
 }
 
-/// Selects member ownership authorization or the configured delegate's
-/// signature.
+/// The ring config and the co-signer slots every forwarded instruction leads with.
+pub(crate) struct Controls<'a> {
+    pub config: &'a AccountView,
+    pub cosigner_pda: &'a AccountView,
+    pub cosigner: &'a AccountView,
+}
+
+impl<'a> Controls<'a> {
+    pub fn next(iter: &mut AccountIterator<'a>) -> Result<Self, ProgramError> {
+        Ok(Self {
+            config: iter.next_account("config")?,
+            cosigner_pda: iter.next_account("cosigner_pda")?,
+            cosigner: iter.next_account("cosigner")?,
+        })
+    }
+}
+
+/// Member ownership authorization or the configured delegate's signature.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TransactRail {
+pub(crate) enum Rail {
     Member,
     /// Owner signatures are replaced by the delegate's, value never leaves.
     Delegate,
 }
 
-/// Ring-owned control accounts shared by member and delegate settlement.
-pub(crate) struct TransactControls<'a> {
-    pub program_id: &'a Address,
-    pub config_account: &'a AccountView,
-    pub cosigner_account: &'a AccountView,
-    pub cosigner: &'a AccountView,
-}
-
-impl TransactRail {
-    fn accepts(self, circuit: CircuitId) -> bool {
-        match self {
-            Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
-            Self::Delegate => matches!(circuit, CircuitId::RingAuthority(..)),
-        }
-    }
-
-    const fn spp_tag(self) -> u8 {
-        match self {
-            Self::Member => tag::RING_TRANSACT,
-            Self::Delegate => tag::RING_AUTHORITY_TRANSACT,
-        }
-    }
-
+impl Rail {
     /// `rest` holds the policy accounts, the window slots and the SPP list.
     pub fn verify_and_forward(
         self,
-        controls: TransactControls<'_>,
+        program_id: &Address,
+        controls: Controls<'_>,
         mut rest: AccountIterator<'_>,
         data: &[u8],
     ) -> ProgramResult {
-        let TransactControls {
-            program_id,
-            config_account,
-            cosigner_account,
-            cosigner,
-        } = controls;
-        // 1. Decode the statement and reject public settlement on the delegate
-        // rail.
-        let decoded = decode_transact(data)?;
+        let decoded: Box<CustomRingTransactIxData> = parse(data)?;
         let CustomRingTransactIxData {
             proof,
             policy_trees,
@@ -118,7 +95,7 @@ impl TransactRail {
             1 => true,
             _ => return Err(CustomRingError::InvalidInstructionData.into()),
         };
-        if self == TransactRail::Delegate && !transact.interface_transfers.is_empty() {
+        if self == Rail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
         let revocations = RevocationTargets {
@@ -126,30 +103,19 @@ impl TransactRail {
             tree_indexes: revocation_tree_indexes,
         };
 
-        // 2. Select the verifier from ring state, read the policy trees and the
-        // escrow registry.
-        let config = *load_config(program_id, config_account)?;
+        let config = *load::<RingProgramConfig>(program_id, controls.config)?;
         let policy = if config.has_policy != 0 {
-            let policy_config_account = rest.next_account("policy_config")?;
-            let binding = PolicyBinding::load(program_id, policy_config_account)?;
+            let binding = PolicyBinding::load(program_id, rest.next_account("policy_config")?)?;
             let trees = PolicyTrees::load(&mut rest, policy_trees)?;
             let escrow = config.key_escrow();
-            if self == TransactRail::Delegate && escrow != KeyEscrow::Registry {
+            if self == Rail::Delegate && escrow != KeyEscrow::Registry {
                 return Err(CustomRingError::InvalidKeyRegistryRoot.into());
             }
-            let key_registry_root = EscrowRoot {
-                program_id,
-                escrow,
-                index: *key_registry_root_index,
-            }
-            .load(&mut rest)?;
-            Some(PolicyReads {
-                binding,
-                trees,
-                key_registry_root,
-            })
+            let key_registry_root =
+                load_escrow_root(program_id, escrow, *key_registry_root_index, &mut rest)?;
+            Some((binding, trees, key_registry_root))
         } else {
-            if self == TransactRail::Delegate {
+            if self == Rail::Delegate {
                 return Err(CustomRingError::DelegateRequiresPolicy.into());
             }
             if !policy_trees.is_empty() {
@@ -160,41 +126,32 @@ impl TransactRail {
             }
             None
         };
-        let amount_controls_active = self == TransactRail::Member
-            && policy
-                .as_ref()
-                .is_some_and(|reads| !matches!(reads.binding.velocity, VelocityMode::Off));
-        let windowed_policy = policy
+        let velocity = policy
             .as_ref()
-            .is_some_and(|reads| matches!(reads.binding.velocity, VelocityMode::PerWindow { .. }));
-        if approval_required && !amount_controls_active {
+            .map_or(VelocityMode::Off, |(binding, ..)| binding.velocity);
+        let amount_controls = self == Rail::Member && velocity != VelocityMode::Off;
+        if approval_required && !amount_controls {
             return Err(CustomRingError::InvalidInstructionData.into());
         }
-        let statement = match self {
-            TransactRail::Delegate => PolicyStatement::Delegate,
-            TransactRail::Member if !windowed_policy => PolicyStatement::Member,
-            TransactRail::Member => {
-                let reads = policy.as_ref().ok_or(CustomRingError::InvalidPolicyRules)?;
-                let namespace = namespace_address(program_id, reads.binding.namespace_bump)?;
-                let counters_disclosure_hash = CountersDisclosure {
-                    namespace: namespace.as_array(),
-                    tx_viewing_pk: &transact.tx_viewing_pk,
-                    salt: &transact.salt,
-                    messages: &transact.messages,
-                }
-                .hash()?;
-                PolicyStatement::Windowed {
-                    counters_disclosure_hash,
-                }
+        let namespace = policy
+            .as_ref()
+            .map(|(binding, ..)| namespace_address(program_id, binding.namespace_bump));
+        let counters = match (self, velocity, namespace) {
+            (Rail::Member, VelocityMode::PerWindow { .. }, Some(namespace)) => {
+                Some(counters_disclosure_hash(
+                    namespace.as_array(),
+                    &transact.tx_viewing_pk,
+                    &transact.salt,
+                    &transact.messages,
+                )?)
             }
+            _ => None,
         };
-        match policy.as_ref() {
-            Some(reads) => revocations.verify(&reads.trees, &mut rest)?,
+        match &policy {
+            Some((_, trees, _)) => revocations.verify(trees, &mut rest)?,
             None => revocations.require_empty()?,
         }
 
-        // 3. Enforce approval and public mint caps against the actual
-        // settlement legs.
         let rest = rest.remaining_mut()?;
         let leg_count = transact.interface_transfers.len();
         if rest.len() < leg_count {
@@ -212,23 +169,25 @@ impl TransactRail {
             .checked_sub(settlement_len)
             .and_then(|start| spp_accounts.get(start..))
             .ok_or(CustomRingError::InvalidInstructionData)?;
-        let demand = CoSignerRequirement::transact(PublicLegs::from_transact(
-            &transact.interface_transfers,
-            settlements,
-        )?);
+        let legs = PublicLegs::from_transact(&transact.interface_transfers, settlements)?;
         let demanded = if approval_required {
-            Some(approval_signer(program_id, cosigner_account)?)
+            Some(approval_cosigner(program_id, controls.cosigner_pda)?)
         } else {
-            demand.demanded_signer(program_id, cosigner_account)?
+            demanded_cosigner(program_id, controls.cosigner_pda, legs.classes(), &legs)?
         };
-        require_cosigner(demanded, cosigner)?;
-        if amount_controls_active && demand.legs.has_deposits() {
+        if let Some(expected) = demanded {
+            if !controls.cosigner.is_signer() {
+                return Err(CustomRingError::MissingCoSigner.into());
+            }
+            if controls.cosigner.address() != &expected {
+                return Err(CustomRingError::UnauthorizedCoSigner.into());
+            }
+        }
+        if amount_controls && legs.has_deposits() {
             return Err(CustomRingError::VelocityDepositLeg.into());
         }
-        demand.legs.apply_windows(program_id, windows)?;
+        legs.apply_windows(program_id, windows)?;
 
-        // 4. Bind auditor disclosure to the selected SPP statement and its
-        // unique audit message.
         if !self.accepts(transact.circuit) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
@@ -240,13 +199,7 @@ impl TransactRail {
         }) {
             return Err(CustomRingError::UnsupportedOutputScheme.into());
         }
-
-        let view_tag: &[u8; 32] = config
-            .auditor_pubkey
-            .get(1..COMPRESSED_P256_KEY_LEN)
-            .and_then(|tag| tag.try_into().ok())
-            .ok_or(CustomRingError::InvalidAuditorPubkey)?;
-        let message = select_auditor_message(&transact.messages, view_tag)?;
+        let message = select_auditor_message(&transact.messages, &config.auditor_pubkey)?;
         let output_hashes: Vec<[u8; 32]> = transact
             .outputs
             .iter()
@@ -256,64 +209,49 @@ impl TransactRail {
             private_tx_hash: &transact.private_tx_hash,
             tx_viewing_pk: &transact.tx_viewing_pk,
             auditor_pk: &config.auditor_pubkey,
-            eph_pk: message.eph_pk,
-            ciphertext: message.ciphertext,
+            eph_pk: &message.eph_pk,
+            ciphertext: &message.ciphertext,
             output_hashes: &output_hashes,
             salt: &transact.salt,
-            disclosure: message.disclosure,
+            disclosure: &message.disclosure,
         };
 
-        // 5. Verify policy and record commitments before granting namespace
-        // spend authorization.
-        let signers = match policy {
-            Some(PolicyReads {
-                binding,
-                trees,
-                key_registry_root,
-            }) => {
-                let signers = match &statement {
-                    PolicyStatement::Windowed { .. } => {
-                        let record_output = transact
+        // The spend record is verified before the namespace signs.
+        let (public_input, verifying_key, signers) = match (policy, namespace) {
+            (Some((binding, trees, key_registry_root)), Some(namespace)) => {
+                let signers = match counters {
+                    Some(_) => {
+                        let record = transact
                             .outputs
                             .last()
                             .ok_or(CustomRingError::InvalidSpendRecord)?;
                         let output_tree = spp_accounts
                             .get(1)
                             .ok_or(ProgramError::NotEnoughAccountKeys)?;
-                        SpendRecordCarrier {
-                            output: record_output,
-                            messages: &transact.messages,
-                            output_tree_id: load_spp_tree_id(
-                                output_tree,
-                                CustomRingError::InvalidSpendRecord,
-                            )?,
-                        }
-                        .verify(&RecordNamespace {
-                            owner: ListNamespace {
-                                owner_hash: binding.namespace_owner_hash,
-                            },
-                            address: namespace_address(program_id, binding.namespace_bump)?,
-                            address_tree_id: binding.address_tree_id,
-                        })?;
+                        verify_spend_record(
+                            &namespace,
+                            &binding,
+                            record,
+                            &transact.messages,
+                            load_spp_tree_id(output_tree, CustomRingError::InvalidSpendRecord)?,
+                        )?;
                         SppSigners::RingAuthAndNamespace {
                             bump: binding.namespace_bump,
                         }
                     }
-                    PolicyStatement::Member | PolicyStatement::Delegate => SppSigners::RingAuth,
+                    None => SppSigners::RingAuth,
                 };
                 let window_index = match (self, binding.velocity) {
-                    (TransactRail::Member, VelocityMode::PerWindow { window_slots }) => {
-                        FixedWindow {
-                            slots: NonZeroU64::new(window_slots)
-                                .ok_or(CustomRingError::InvalidPolicyRules)?,
-                        }
-                        .index(Clock::get()?.slot)
+                    (Rail::Member, VelocityMode::PerWindow { window_slots }) => FixedWindow {
+                        slots: NonZeroU64::new(window_slots)
+                            .ok_or(CustomRingError::InvalidPolicyRules)?,
                     }
+                    .index(Clock::get()?.slot),
                     _ => 0,
                 };
-                let ring_id = ring_id_field(program_id.as_array())
-                    .map_err(|_| CustomRingError::HashingFailed)?;
-                let policy_input = CustomRingPolicyPublicInput {
+                let ring_id =
+                    ring_id_field(program_id.as_array()).map_err(CustomRingError::from)?;
+                let input = CustomRingPolicyPublicInput {
                     audit,
                     policy_hash: &binding.policy_hash,
                     tree_slots: trees.slots(),
@@ -326,81 +264,61 @@ impl TransactRail {
                     revocation_tree_indexes,
                     revocation_targets,
                 };
-                statement.verify(proof, policy_input)?;
-                signers
+                let (public_input, verifying_key) = self.policy_statement(input, counters)?;
+                (public_input, verifying_key, signers)
             }
-            None => {
-                verify_groth16(
-                    proof,
-                    audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
-                    &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
-                )?;
-                SppSigners::RingAuth
-            }
+            _ => (
+                audit.hash().map_err(CustomRingError::from)?,
+                &base_verifying_key::VERIFYINGKEY,
+                SppSigners::RingAuth,
+            ),
         };
+        verify_groth16(proof, public_input, verifying_key)?;
 
-        // 6. Settle the verified bytes through SPP, any failure rolls back
-        // counters.
-        let transact_bytes = transact
-            .serialize()
-            .map_err(|_| CustomRingError::InvalidInstructionData)?;
-        let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
-        instruction_data.push(self.spp_tag());
-        instruction_data.extend_from_slice(&transact_bytes);
-        cpi_spp_signed(program_id, spp_accounts, &instruction_data, signers)
+        // A failed settlement rolls the window counters back.
+        let mut instruction_data = vec![self.spp_tag()];
+        instruction_data.extend_from_slice(
+            &transact
+                .serialize()
+                .map_err(|_| CustomRingError::InvalidInstructionData)?,
+        );
+        cpi_spp(program_id, spp_accounts, &instruction_data, signers)
     }
-}
 
-/// Proof variants separating member limits, compressed history and delegate
-/// exemptions.
-enum PolicyStatement {
-    Member,
-    Windowed { counters_disclosure_hash: [u8; 32] },
-    Delegate,
-}
-
-impl PolicyStatement {
-    /// Inlining exceeds the SBF stack frame limit.
-    #[inline(never)]
-    fn verify(
-        self,
-        proof: &CustomRingProof,
-        policy_input: CustomRingPolicyPublicInput<'_>,
-    ) -> ProgramResult {
+    fn accepts(self, circuit: CircuitId) -> bool {
         match self {
-            Self::Windowed {
-                counters_disclosure_hash,
-            } => verify_groth16(
-                proof,
-                CompressedPolicyPublicInput {
-                    policy: policy_input,
-                    counters_disclosure_hash: &counters_disclosure_hash,
-                }
-                .hash()
-                .map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
-            ),
-            Self::Delegate => verify_groth16(
-                proof,
-                policy_input
-                    .hash()
-                    .map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
-            ),
-            Self::Member => verify_groth16(
-                proof,
-                policy_input
-                    .hash()
-                    .map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
-            ),
+            Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
+            Self::Delegate => matches!(circuit, CircuitId::RingAuthority(..)),
         }
     }
-}
 
-#[inline(never)]
-fn decode_transact(data: &[u8]) -> Result<Box<CustomRingTransactIxData>, ProgramError> {
-    wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData.into())
+    const fn spp_tag(self) -> u8 {
+        match self {
+            Self::Member => tag::RING_TRANSACT,
+            Self::Delegate => tag::RING_AUTHORITY_TRANSACT,
+        }
+    }
+
+    /// Kept out of line, the policy chains exceed the caller's SBF stack frame.
+    #[inline(never)]
+    fn policy_statement(
+        self,
+        input: CustomRingPolicyPublicInput<'_>,
+        counters: Option<[u8; 32]>,
+    ) -> Result<([u8; 32], &'static Groth16Verifyingkey<'static>), CustomRingError> {
+        Ok(match (self, counters) {
+            (Rail::Delegate, _) => (input.hash()?, &delegate_policy_verifying_key::VERIFYINGKEY),
+            (Rail::Member, None) => (input.hash()?, &policy_verifying_key::VERIFYINGKEY),
+            (Rail::Member, Some(counters_disclosure_hash)) => (
+                CompressedPolicyPublicInput {
+                    policy: input,
+                    counters_disclosure_hash: &counters_disclosure_hash,
+                }
+                .hash()?,
+                &compressed_policy_verifying_key::VERIFYINGKEY,
+            ),
+        })
+    }
 }
 
 /// Copied out, no account borrow may live across the SPP CPI.
@@ -415,7 +333,7 @@ struct PolicyBinding {
 impl PolicyBinding {
     #[inline(never)]
     fn load(program_id: &Address, account: &AccountView) -> Result<Self, ProgramError> {
-        let policy = load_policy_config(program_id, account)?;
+        let policy = load::<PolicyConfig>(program_id, account)?;
         Ok(Self {
             policy_hash: policy.policy_hash,
             address_tree_id: policy.address_tree_id(),
@@ -426,86 +344,93 @@ impl PolicyBinding {
     }
 }
 
-struct PolicyReads {
-    binding: PolicyBinding,
-    trees: PolicyTrees,
-    key_registry_root: Option<[u8; 32]>,
+/// The last output is the namespace-owned successor record its one public
+/// message opens, before the namespace signs.
+#[inline(never)]
+fn verify_spend_record(
+    namespace: &Address,
+    binding: &PolicyBinding,
+    output: &TransactOutput,
+    messages: &[MessageData],
+    tree_id: u16,
+) -> Result<(), CustomRingError> {
+    if output.owner_tag != OwnerTag::Inline(namespace.to_bytes())
+        || output
+            .data
+            .as_deref()
+            .and_then(confidential_encrypted_output_body)
+            .is_none()
+    {
+        return Err(CustomRingError::InvalidSpendRecord);
+    }
+    SpendRecord::open_carrier(
+        namespace.as_array(),
+        &ListNamespace {
+            owner_hash: binding.namespace_owner_hash,
+        },
+        binding.address_tree_id,
+        messages
+            .iter()
+            .map(|message| (&message.view_tag, message.data.as_slice())),
+        &output.utxo_hash,
+        tree_id,
+    )?;
+    Ok(())
 }
 
-/// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out
-/// of the published message data.
-struct AuditorMessageParts<'a> {
-    eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
-    disclosure: &'a [[u8; 32]],
-}
-
-/// Select the auditor message out of the transaction's published messages.
-///
-/// The ring's convention is: exactly one message carries the auditor view tag,
-/// and it is the last one. Free-form messages before it stay allowed. Requiring
-/// uniqueness and a fixed position leaves no room for a second, differently
-/// tagged ciphertext that an indexer or auditor might pick up instead of the proven
-/// one -- the proof covers exactly one ciphertext, so exactly one message may
-/// claim the auditor's tag.
+/// Exactly one message carries the auditor's view tag and it is the last, so no
+/// second ciphertext can claim the tag beside the one the proof covers.
 fn select_auditor_message<'a>(
     messages: &'a [MessageData],
-    view_tag: &[u8; 32],
-) -> Result<AuditorMessageParts<'a>, ProgramError> {
+    auditor_pubkey: &[u8; COMPRESSED_P256_KEY_LEN],
+) -> Result<&'a AuditorMessage, CustomRingError> {
+    let view_tag = &auditor_pubkey[1..];
     let (last, earlier) = messages
         .split_last()
         .ok_or(CustomRingError::MissingAuditorMessage)?;
-    let tagged_earlier = earlier.iter().any(|message| &message.view_tag == view_tag);
-    match (&last.view_tag == view_tag, tagged_earlier) {
-        (true, false) => {}
-        // No message claims the auditor tag at all.
-        (false, false) => return Err(CustomRingError::MissingAuditorMessage.into()),
-        // Either a second tagged message, or a tagged message that is not last.
-        _ => return Err(CustomRingError::InvalidAuditorMessage.into()),
+    let tagged_earlier = earlier.iter().any(|message| message.view_tag == view_tag);
+    match (last.view_tag == view_tag, tagged_earlier) {
+        (true, false) => {
+            bytemuck::try_from_bytes(&last.data).map_err(|_| CustomRingError::InvalidAuditorMessage)
+        }
+        (false, false) => Err(CustomRingError::MissingAuditorMessage),
+        _ => Err(CustomRingError::InvalidAuditorMessage),
     }
-
-    let (eph_pk, body) = last
-        .data
-        .split_at_checked(COMPRESSED_P256_KEY_LEN)
-        .ok_or(CustomRingError::InvalidAuditorMessage)?;
-    let eph_pk: &[u8; COMPRESSED_P256_KEY_LEN] = eph_pk
-        .try_into()
-        .map_err(|_| CustomRingError::InvalidAuditorMessage)?;
-    let (ciphertext, disclosure) = body
-        .split_at_checked(AUDIT_CIPHERTEXT_LEN)
-        .filter(|(_, disclosure)| disclosure.len() == AUDIT_DISCLOSURE_LEN)
-        .ok_or(CustomRingError::InvalidAuditorMessage)?;
-    let ciphertext: &[u8; AUDIT_CIPHERTEXT_LEN] = ciphertext
-        .try_into()
-        .map_err(|_| CustomRingError::InvalidAuditorMessage)?;
-    let disclosure: &[[u8; 32]] =
-        bytemuck::try_cast_slice(disclosure).map_err(|_| CustomRingError::InvalidAuditorMessage)?;
-    if disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
-        return Err(CustomRingError::InvalidAuditorMessage.into());
-    }
-    Ok(AuditorMessageParts {
-        eph_pk,
-        ciphertext,
-        disclosure,
-    })
 }
 
 fn is_valid_confidential_output(data: &[u8]) -> bool {
-    let Some(body) = confidential_encrypted_output_body(data)
+    confidential_encrypted_output_body(data)
         .or_else(|| ring_confidential_encrypted_output_body(data))
-    else {
-        return false;
-    };
-    let Some((key, ciphertext)) = body.split_at_checked(COMPRESSED_P256_KEY_LEN) else {
-        return false;
-    };
-    matches!(key.first(), Some(2 | 3)) && !ciphertext.is_empty()
+        .and_then(|body| body.split_first_chunk::<COMPRESSED_P256_KEY_LEN>())
+        .is_some_and(|(key, ciphertext)| is_p256_key(key) && !ciphertext.is_empty())
+}
+
+/// The one namespace-tagged body, opened for the transaction key, that the
+/// compressed statement hashes.
+fn counters_disclosure_hash(
+    namespace: &[u8; 32],
+    tx_viewing_pk: &[u8; COMPRESSED_P256_KEY_LEN],
+    salt: &[u8; 16],
+    messages: &[MessageData],
+) -> Result<[u8; 32], CustomRingError> {
+    let invalid = CustomRingError::InvalidSpendCountersDisclosure;
+    let mut tagged = messages
+        .iter()
+        .filter(|message| &message.view_tag == namespace);
+    let message = tagged.next().ok_or(invalid)?;
+    if tagged.next().is_some() || !message.data.starts_with(tx_viewing_pk) {
+        return Err(invalid);
+    }
+    let body = message.data.as_slice().try_into().map_err(|_| invalid)?;
+    Ok(zolana_ring_policy::spend_counters_disclosure_hash(
+        salt, body,
+    )?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use custom_ring_interface::{pack33_to_2fe, AUDITOR_MESSAGE_LEN};
+    use custom_ring_interface::{pack33_to_2fe, AUDITOR_MESSAGE_LEN, AUDIT_DISCLOSURE_FIELD_COUNT};
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
@@ -594,10 +519,8 @@ mod tests {
         tag
     }
 
-    fn select_err(messages: &[MessageData]) -> ProgramError {
-        select_auditor_message(messages, &auditor_view_tag())
-            .err()
-            .expect("selection must fail")
+    fn select_err(messages: &[MessageData]) -> CustomRingError {
+        select_auditor_message(messages, &bytes::<33>(AUDITOR_PK)).expect_err("selection must fail")
     }
 
     #[test]
@@ -606,14 +529,12 @@ mod tests {
         let other = [1u8; 32];
 
         let valid = vec![message(other, 4), message(tag, AUDITOR_MESSAGE_LEN)];
-        let parts = select_auditor_message(&valid, &tag).expect("valid selection");
-        assert_eq!(
-            parts.eph_pk.len() + parts.ciphertext.len() + core::mem::size_of_val(parts.disclosure),
-            AUDITOR_MESSAGE_LEN
-        );
+        let parts =
+            select_auditor_message(&valid, &bytes::<33>(AUDITOR_PK)).expect("valid selection");
+        assert_eq!(bytemuck::bytes_of(parts), valid[1].data.as_slice());
 
-        let missing = ProgramError::Custom(CustomRingError::MissingAuditorMessage as u32);
-        let invalid = ProgramError::Custom(CustomRingError::InvalidAuditorMessage as u32);
+        let missing = CustomRingError::MissingAuditorMessage;
+        let invalid = CustomRingError::InvalidAuditorMessage;
         assert_eq!(select_err(&[]), missing);
         assert_eq!(select_err(&[message(other, AUDITOR_MESSAGE_LEN)]), missing);
         assert_eq!(
@@ -638,35 +559,6 @@ mod tests {
     }
 }
 
-struct CountersDisclosure<'a> {
-    namespace: &'a [u8; 32],
-    tx_viewing_pk: &'a [u8; 33],
-    salt: &'a [u8; 16],
-    messages: &'a [MessageData],
-}
-
-impl CountersDisclosure<'_> {
-    fn hash(self) -> Result<[u8; 32], ProgramError> {
-        let mut messages = self
-            .messages
-            .iter()
-            .filter(|message| &message.view_tag == self.namespace);
-        let message = messages
-            .next()
-            .ok_or(CustomRingError::InvalidSpendCountersDisclosure)?;
-        if messages.next().is_some() || !message.data.starts_with(self.tx_viewing_pk) {
-            return Err(CustomRingError::InvalidSpendCountersDisclosure.into());
-        }
-        let body = message
-            .data
-            .as_slice()
-            .try_into()
-            .map_err(|_| CustomRingError::InvalidSpendCountersDisclosure)?;
-        zolana_ring_policy::spend_counters_disclosure_hash(self.salt, body)
-            .map_err(|_| CustomRingError::HashingFailed.into())
-    }
-}
-
 #[cfg(test)]
 mod counters_tests {
     use super::*;
@@ -683,16 +575,10 @@ mod counters_tests {
             data: body,
         };
         let hash = |messages: &[MessageData]| {
-            CountersDisclosure {
-                namespace: &namespace,
-                tx_viewing_pk: &public,
-                salt: &salt,
-                messages,
-            }
-            .hash()
+            counters_disclosure_hash(&namespace, &public, &salt, messages)
         };
         assert!(hash(std::slice::from_ref(&message)).is_ok());
-        let refused = Err(CustomRingError::InvalidSpendCountersDisclosure.into());
+        let refused = Err(CustomRingError::InvalidSpendCountersDisclosure);
         assert_eq!(hash(&[]), refused);
         assert_eq!(hash(&[message.clone(), message.clone()]), refused);
         let mut changed = message.clone();

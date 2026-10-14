@@ -15,5 +15,4 @@ zolana-event.workspace = true
 zolana-hasher.workspace = true
 zolana-indexer-api.workspace = true
 zolana-interface = { workspace = true, features = ["tree"] }
-zolana-ring-key-registry.workspace = true
 zolana-ring-policy.workspace = true

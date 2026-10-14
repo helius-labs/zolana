@@ -1,14 +1,17 @@
-use crate::deposit_audit::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN};
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice,
     primitives::{hash_bytes, right_align, PACK_BE_CHUNK_BYTES},
     HasherError,
 };
 
-use crate::{pack33_to_2fe, policy_public_input::key_escrow_elements, COMPRESSED_P256_KEY_LEN};
+use crate::{
+    deposit_audit::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN},
+    pack_2fe,
+    policy_public_input::key_escrow_elements,
+    COMPRESSED_P256_KEY_LEN,
+};
 
-/// Binds a disclosure proof to one ring, destination tree and exact SPP deposit
-/// instruction.
+/// Binds a disclosure proof to one ring, destination tree and exact SPP deposit instruction.
 pub struct DepositContext<'a> {
     pub program_id: &'a [u8; 32],
     pub tree: &'a [u8; 32],
@@ -16,6 +19,7 @@ pub struct DepositContext<'a> {
 }
 
 impl DepositContext<'_> {
+    /// The length separates byte strings whose 31-byte chunks pack to equal fields.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let chunks: Vec<_> = self
             .spp_data
@@ -26,8 +30,6 @@ impl DepositContext<'_> {
                 field
             })
             .collect();
-        // The length distinguishes equal field encodings of different byte
-        // strings.
         create_hash_chain_from_slice(&[
             hash_bytes(self.program_id)?,
             hash_bytes(self.tree)?,
@@ -37,8 +39,7 @@ impl DepositContext<'_> {
     }
 }
 
-/// Commits deposited owner hashes and their encrypted openings to the pinned
-/// auditor.
+/// Commits deposited owner hashes and their encrypted openings to the pinned auditor.
 pub struct DepositPublicInput<'a> {
     pub context_hash: &'a [u8; 32],
     pub owner_utxo_hashes: &'a [[u8; 32]],
@@ -55,8 +56,8 @@ impl DepositPublicInput<'_> {
         if !(1..=MAX_RING_DEPOSIT_AUDIT_SLOTS).contains(&count) || self.ciphertexts.len() != count {
             return Err(HasherError::InvalidNumFields);
         }
-        let auditor = pack33_to_2fe(self.auditor_pk);
-        let ephemeral = pack33_to_2fe(self.eph_pk);
+        let auditor = pack_2fe(self.auditor_pk);
+        let ephemeral = pack_2fe(self.eph_pk);
         let mut chain = [[0; 32]; 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 6];
         chain[0] = right_align(b"CRDP");
         chain[1] = *self.context_hash;

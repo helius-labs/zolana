@@ -124,13 +124,25 @@ fn a_policy_ring_with_the_audit_only_layout_is_rejected_exactly() {
     );
 }
 
+/// Owner and discriminator stand in for the address, the program creates the
+/// policy config only at the canonical PDA.
 #[test]
-fn a_non_canonical_policy_config_is_rejected_exactly() {
+fn a_foreign_owned_or_uninitialized_policy_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
+    let mut foreign = initialized_policy_config_account();
+    foreign.owner = Pubkey::new_from_array([63; 32]);
     let mut fixture = init_spp_ring_config_fixture(valid_config());
-    fixture.substitute("policy_config", Pubkey::new_from_array([63; 32]));
-    fixture.set_account("policy_config", initialized_policy_config_account());
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyConfigPda));
+    fixture.set_account("policy_config", foreign);
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::PolicyConfigNotInitialized),
+    );
+    let mut other = init_spp_ring_config_fixture(valid_config());
+    other.substitute("policy_config", Pubkey::new_from_array([63; 32]));
+    other.expect_err(
+        &mollusk,
+        custom(CustomRingError::PolicyConfigNotInitialized),
+    );
 }
 
 #[test]

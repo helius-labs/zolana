@@ -1,14 +1,11 @@
-use bytemuck::from_bytes_mut;
-use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
+use custom_ring_interface::{CustomRingError, PolicyConfig, PolicyTableIxData};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
-use crate::{
-    error::CustomRingError,
-    instructions::{
-        loader::{load_policy_config, UpgradeAuthorityCheck},
-        policy_shared::{namespace_pda, repin, Repin, TableBinding},
-    },
+use crate::instructions::{
+    loader::{check_upgrade_authority, load_mut},
+    policy_shared::{bind_table, repin},
+    shared::{namespace_address, parse},
 };
 
 /// Takes effect at once, a proof over the old hash fails at verification.
@@ -18,8 +15,7 @@ pub fn process_set_policy_rules_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: PolicyTableIxData =
-        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let ix: PolicyTableIxData = parse(data)?;
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
@@ -28,32 +24,14 @@ pub fn process_set_policy_rules_ix(
     let program_data = iter.next_account("program_data")?;
     let curators = iter.remaining_unchecked()?;
 
-    UpgradeAuthorityCheck {
-        program_id,
-        authority,
-        program,
-        program_data,
-    }
-    .verify()?;
-    let (address_tree, old_window_slots) = {
-        let config = load_policy_config(program_id, policy_config)?;
-        (config.address_tree, config.rules.window_slots())
-    };
-
-    let (own_namespace, _) = namespace_pda(program_id)?;
-    let bound = TableBinding {
-        table: &ix,
-        curators,
-        own_namespace: &own_namespace,
-        address_tree: &address_tree,
-    }
-    .bind()?;
-
-    if old_window_slots != 0 && bound.rules.window_slots() != old_window_slots {
+    check_upgrade_authority(program_id, authority, program, program_data)?;
+    let mut live = load_mut::<PolicyConfig>(program_id, policy_config)?;
+    let namespace = namespace_address(program_id, live.namespace_bump);
+    let bound = bind_table(&ix, curators, &namespace, &live.address_tree)?;
+    let window_slots = live.rules.window_slots();
+    if window_slots != 0 && bound.rules.window_slots() != window_slots {
         return Err(CustomRingError::VelocityWindowImmutable.into());
     }
-
-    let mut data = policy_config.try_borrow_mut()?;
-    let live: &mut PolicyConfig = from_bytes_mut(&mut data);
-    repin(live, Repin::Table(&bound))
+    live.rules = bound.rules;
+    repin(&mut live, &bound.sources)
 }

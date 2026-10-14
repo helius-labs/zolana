@@ -226,7 +226,7 @@ fn a_mixed_rule_hashes_to_the_go_fixture() {
 fn source_map_hashing_matches_the_go_fixture() {
     const EMPTY: RuleTable = RuleTable::builder().build();
     assert_eq!(
-        EMPTY.hash(&SourceMap::empty()).expect("empty hash"),
+        EMPTY.hash(&SourceMap::default()).expect("empty hash"),
         hex32(EMPTY_POLICY_HASH)
     );
     const ONE_RULE: RuleTable = RuleTable::builder()

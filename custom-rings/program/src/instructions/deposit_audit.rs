@@ -1,15 +1,23 @@
+use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
-    deposit_verifying_key::VERIFYINGKEY, tag, CustomRingProof, DepositContext, DepositPublicInput,
+    deposit_verifying_key::VERIFYINGKEY, tag, CustomRingError, CustomRingProof, DepositContext,
+    DepositPublicInput, RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
 };
-use custom_ring_interface::{
-    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
-};
-use pinocchio::{error::ProgramError, Address, ProgramResult};
+use pinocchio::{Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
 
-use crate::{error::CustomRingError, instructions::verifier::verify_groth16};
+use crate::instructions::verifier::verify_groth16;
 
-/// Ring disclosure proof wrapped around an unchanged SPP deposit instruction.
+/// `tag || proof || key_registry_root_index`, then the SPP deposit instruction unchanged.
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct AuditedPrefix {
+    tag: u8,
+    proof: CustomRingProof,
+    key_registry_root_index: u8,
+}
+
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
     pub key_registry_root_index: u8,
@@ -17,88 +25,70 @@ pub(crate) struct AuditedDeposit<'a> {
 }
 
 impl<'a> AuditedDeposit<'a> {
-    pub fn parse(data: &'a [u8]) -> Result<Self, ProgramError> {
-        let (&outer_tag, rest) = data
-            .split_first()
-            .ok_or(CustomRingError::InvalidInstructionData)?;
-        let (proof, rest) = rest
-            .split_at_checked(CustomRingProof::SIZE)
-            .ok_or(CustomRingError::InvalidInstructionData)?;
-        let (&key_registry_root_index, spp_data) = rest
-            .split_first()
-            .ok_or(CustomRingError::InvalidInstructionData)?;
-        if outer_tag != tag::AUDITED_DEPOSIT || spp_data.first() != Some(&tag::DEPOSIT) {
-            return Err(CustomRingError::InvalidInstructionData.into());
+    pub fn parse(data: &'a [u8]) -> Result<Self, CustomRingError> {
+        let invalid = CustomRingError::InvalidInstructionData;
+        let (prefix, spp_data) = data
+            .split_at_checked(core::mem::size_of::<AuditedPrefix>())
+            .ok_or(invalid)?;
+        let prefix: &AuditedPrefix = bytemuck::from_bytes(prefix);
+        if prefix.tag != tag::AUDITED_DEPOSIT || spp_data.first() != Some(&tag::DEPOSIT) {
+            return Err(invalid);
         }
         Ok(Self {
-            proof: wincode::deserialize_exact(proof)
-                .map_err(|_| CustomRingError::InvalidInstructionData)?,
-            key_registry_root_index,
+            proof: prefix.proof,
+            key_registry_root_index: prefix.key_registry_root_index,
             spp_data,
         })
     }
 }
 
-/// Trusted ring context paired with the deposit commitments and published
-/// ciphertexts.
-pub(crate) struct DepositVerification<'a, 'data> {
-    pub program_id: &'a Address,
-    pub tree: &'a Address,
-    pub auditor_pk: &'a [u8; 33],
-    pub key_registry_root: Option<&'a [u8; 32]>,
-    pub audited: &'a AuditedDeposit<'data>,
-    pub deposit: &'a RingDepositIxDataRef<'data>,
-}
-
-impl DepositVerification<'_, '_> {
-    #[inline(never)]
-    pub fn verify(self) -> ProgramResult {
-        // 1. Require one indexed capsule per output under a shared ephemeral
-        // encryption key.
-        let count = self.deposit.deposits.len();
-        if !(1..=MAX_RING_DEPOSIT_AUDIT_SLOTS).contains(&count) {
-            return Err(CustomRingError::InvalidDepositDisclosure.into());
-        }
-        let mut owners = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-        let mut ciphertexts =
-            [[0; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-        let mut eph_pk = [0; 33];
-        for (slot, entry) in self.deposit.deposits.iter().enumerate() {
-            let capsule = RingDepositAuditCapsule::parse(entry.encrypted.ciphertext)
-                .map_err(|_| CustomRingError::InvalidDepositDisclosure)?
-                .ok_or(CustomRingError::InvalidDepositDisclosure)?;
-            if usize::from(capsule.slot_index) != slot {
-                return Err(CustomRingError::InvalidDepositDisclosure.into());
-            }
-            if slot == 0 {
-                eph_pk = *capsule.eph_pk;
-            } else if capsule.eph_pk != &eph_pk {
-                return Err(CustomRingError::InvalidDepositDisclosure.into());
-            }
-            owners[slot] = *entry.owner_utxo_hash;
-            ciphertexts[slot] = *capsule.ciphertext;
-        }
-        // 2. Bind disclosure to the actual ring, destination tree and full SPP
-        // deposit bytes.
-        let context_hash = DepositContext {
-            program_id: self.program_id.as_array(),
-            tree: self.tree.as_array(),
-            spp_data: self.audited.spp_data,
-        }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?;
-        let public_input = DepositPublicInput {
-            context_hash: &context_hash,
-            owner_utxo_hashes: &owners[..count],
-            ciphertexts: &ciphertexts[..count],
-            auditor_pk: self.auditor_pk,
-            eph_pk: &eph_pk,
-            key_registry_root: self.key_registry_root,
-        }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?;
-        // 3. Prove the auditor can recover each deposited owner commitment's
-        // opening.
-        verify_groth16(&self.audited.proof, public_input, &VERIFYINGKEY)
+/// The disclosure proof over the actual ring, destination tree and deposit bytes.
+#[inline(never)]
+pub(crate) fn verify_deposit_disclosure(
+    program_id: &Address,
+    tree: &Address,
+    auditor_pk: &[u8; 33],
+    key_registry_root: Option<&[u8; 32]>,
+    audited: &AuditedDeposit<'_>,
+    deposit: &RingDepositIxDataRef<'_>,
+) -> ProgramResult {
+    // One capsule per output at its own index, all under one ephemeral key.
+    let invalid = CustomRingError::InvalidDepositDisclosure;
+    let count = deposit.deposits.len();
+    if !(1..=MAX_RING_DEPOSIT_AUDIT_SLOTS).contains(&count) {
+        return Err(invalid.into());
     }
+    let mut owners = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+    let mut ciphertexts = [[0; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+    let mut eph_pk = [0; 33];
+    for (slot, entry) in deposit.deposits.iter().enumerate() {
+        let capsule = RingDepositAuditCapsule::parse(entry.encrypted.ciphertext)
+            .ok()
+            .flatten()
+            .filter(|capsule| usize::from(capsule.slot_index) == slot)
+            .filter(|capsule| slot == 0 || *capsule.eph_pk == eph_pk)
+            .ok_or(invalid)?;
+        eph_pk = *capsule.eph_pk;
+        owners[slot] = *entry.owner_utxo_hash;
+        ciphertexts[slot] = *capsule.ciphertext;
+    }
+    let context_hash = DepositContext {
+        program_id: program_id.as_array(),
+        tree: tree.as_array(),
+        spp_data: audited.spp_data,
+    }
+    .hash()
+    .map_err(CustomRingError::from)?;
+    let public_input = DepositPublicInput {
+        context_hash: &context_hash,
+        owner_utxo_hashes: &owners[..count],
+        ciphertexts: &ciphertexts[..count],
+        auditor_pk,
+        eph_pk: &eph_pk,
+        key_registry_root,
+    }
+    .hash()
+    .map_err(CustomRingError::from)?;
+    // The auditor can recover the opening of each deposited owner commitment.
+    verify_groth16(&audited.proof, public_input, &VERIFYINGKEY)
 }
