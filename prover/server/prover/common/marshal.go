@@ -16,6 +16,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
+	"github.com/consensys/gnark/constraint"
 )
 
 func FromHex(i *big.Int, s string) error {
@@ -179,130 +180,76 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 }
 
 func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
-	var totalWritten int64 = 0
-	var intBuf [4]byte
-
 	requiresP256 := uint32(0)
 	if ps.RequiresP256 {
 		requiresP256 = 1
 	}
-	fieldsToWrite := []uint32{
-		ps.NInputs,
-		ps.NOutputs,
-		requiresP256,
-	}
-
-	for _, field := range fieldsToWrite {
-		binary.BigEndian.PutUint32(intBuf[:], field)
-		written, err := w.Write(intBuf[:])
-		totalWritten += int64(written)
-		if err != nil {
-			return totalWritten, err
-		}
-	}
-
-	keyWritten, err := ps.ProvingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.VerifyingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	return totalWritten, nil
+	return writeSystem(w, []uint32{ps.NInputs, ps.NOutputs, requiresP256}, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
 }
 
 func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
-	var totalRead int64 = 0
-	var intBuf [4]byte
-
 	var requiresP256 uint32
-	fieldsToRead := []*uint32{
-		&ps.NInputs,
-		&ps.NOutputs,
-		&requiresP256,
-	}
-
-	for _, field := range fieldsToRead {
-		read, err := io.ReadFull(r, intBuf[:])
-		totalRead += int64(read)
-		if err != nil {
-			return totalRead, err
-		}
-		*field = binary.BigEndian.Uint32(intBuf[:])
-	}
+	read, err := readSystem(r, []*uint32{&ps.NInputs, &ps.NOutputs, &requiresP256}, &ps.ProvingKey, &ps.VerifyingKey, &ps.ConstraintSystem)
 	ps.RequiresP256 = requiresP256 != 0
-
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
-	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
-	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	return totalRead, nil
+	return read, err
 }
 
 func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
-	var total int64
-
-	written, err := ps.ProvingKey.WriteTo(w)
-	total += written
-	if err != nil {
-		return total, err
-	}
-	written, err = ps.VerifyingKey.WriteTo(w)
-	total += written
-	if err != nil {
-		return total, err
-	}
-	written, err = ps.ConstraintSystem.WriteTo(w)
-	total += written
-	return total, err
+	return writeSystem(w, nil, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
 }
 
 func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	return readSystem(r, nil, &ps.ProvingKey, &ps.VerifyingKey, &ps.ConstraintSystem)
+}
+
+func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {
+	return writeSystem(w, []uint32{ps.TreeHeight, ps.BatchSize}, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
+}
+
+func (ps *BatchProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	return readSystem(r, []*uint32{&ps.TreeHeight, &ps.BatchSize}, &ps.ProvingKey, &ps.VerifyingKey, &ps.ConstraintSystem)
+}
+
+// writeSystem writes the key file layout, big-endian header words then the keys and the circuit.
+func writeSystem(w io.Writer, header []uint32, pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) (int64, error) {
 	var total int64
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	read, err := ps.ProvingKey.UnsafeReadFrom(r)
-	total += read
-	if err != nil {
-		return total, err
+	for _, field := range header {
+		written, err := w.Write(binary.BigEndian.AppendUint32(nil, field))
+		total += int64(written)
+		if err != nil {
+			return total, err
+		}
 	}
-	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
-	read, err = ps.VerifyingKey.UnsafeReadFrom(r)
-	total += read
-	if err != nil {
-		return total, err
+	for _, part := range []io.WriterTo{pk, vk, ccs} {
+		written, err := part.WriteTo(w)
+		total += written
+		if err != nil {
+			return total, err
+		}
 	}
-	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
-	read, err = ps.ConstraintSystem.ReadFrom(r)
-	total += read
-	return total, err
+	return total, nil
+}
+
+func readSystem(r io.Reader, header []*uint32, pk *groth16.ProvingKey, vk *groth16.VerifyingKey, ccs *constraint.ConstraintSystem) (int64, error) {
+	var total int64
+	var word [4]byte
+	for _, field := range header {
+		read, err := io.ReadFull(r, word[:])
+		total += int64(read)
+		if err != nil {
+			return total, err
+		}
+		*field = binary.BigEndian.Uint32(word[:])
+	}
+	*pk, *vk, *ccs = groth16.NewProvingKey(ecc.BN254), groth16.NewVerifyingKey(ecc.BN254), groth16.NewCS(ecc.BN254)
+	for _, part := range []func(io.Reader) (int64, error){(*pk).UnsafeReadFrom, (*vk).UnsafeReadFrom, (*ccs).ReadFrom} {
+		read, err := part(r)
+		total += read
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
 }
 
 // readKeyFile deserializes the key file at path through read and hashes every
@@ -403,91 +350,10 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 }
 
 func ringCircuitOfKeyFile(name string) (CircuitType, bool) {
-	for circuitType, file := range RingKeyFiles {
-		if file == name {
-			return circuitType, true
+	for _, circuit := range RingCircuitTypes {
+		if RingKeyFile(circuit) == name {
+			return circuit, true
 		}
 	}
 	return "", false
-}
-
-func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {
-	var totalWritten int64 = 0
-	var intBuf [4]byte
-
-	fieldsToWrite := []uint32{
-		ps.TreeHeight,
-		ps.BatchSize,
-	}
-
-	for _, field := range fieldsToWrite {
-		binary.BigEndian.PutUint32(intBuf[:], field)
-		written, err := w.Write(intBuf[:])
-		totalWritten += int64(written)
-		if err != nil {
-			return totalWritten, err
-		}
-	}
-
-	keyWritten, err := ps.ProvingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.VerifyingKey.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
-	totalWritten += keyWritten
-	if err != nil {
-		return totalWritten, err
-	}
-
-	return totalWritten, nil
-}
-
-func (ps *BatchProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
-	var totalRead int64 = 0
-	var intBuf [4]byte
-
-	fieldsToRead := []*uint32{
-		&ps.TreeHeight,
-		&ps.BatchSize,
-	}
-
-	for _, field := range fieldsToRead {
-		read, err := io.ReadFull(r, intBuf[:])
-		totalRead += int64(read)
-		if err != nil {
-			return totalRead, err
-		}
-		*field = binary.BigEndian.Uint32(intBuf[:])
-	}
-
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
-	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
-	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
-	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
-	totalRead += keyRead
-	if err != nil {
-		return totalRead, err
-	}
-
-	return totalRead, nil
 }

@@ -1,5 +1,10 @@
 package common
 
+import (
+	"slices"
+	"strings"
+)
+
 type CircuitType string
 
 const (
@@ -46,26 +51,24 @@ const (
 	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
 )
 
-const CustomRingPolicyKeyFile = "custom_ring_policy.key"
-const CustomRingDelegatePolicyKeyFile = "custom_ring_delegate_policy.key"
-
-const CustomRingBaseKeyFile = "custom_ring_base.key"
-
-const CustomRingCompressedPolicyKeyFile = "custom_ring_compressed_policy.key"
-
-const CustomRingKeyRegisterKeyFile = "custom_ring_register_key.key"
-const CustomRingDepositKeyFile = "custom_ring_deposit.key"
-
-var RingKeyFiles = map[CircuitType]string{
-	CustomRingPolicyCircuitType:           CustomRingPolicyKeyFile,
-	CustomRingBaseCircuitType:             CustomRingBaseKeyFile,
-	CustomRingDelegatePolicyCircuitType:   CustomRingDelegatePolicyKeyFile,
-	CustomRingCompressedPolicyCircuitType: CustomRingCompressedPolicyKeyFile,
-	CustomRingKeyRegisterCircuitType:      CustomRingKeyRegisterKeyFile,
-	CustomRingDepositCircuitType:          CustomRingDepositKeyFile,
+// RingCircuitTypes are the custom-ring circuits, each proven with one key.
+var RingCircuitTypes = []CircuitType{
+	CustomRingPolicyCircuitType,
+	CustomRingBaseCircuitType,
+	CustomRingDelegatePolicyCircuitType,
+	CustomRingCompressedPolicyCircuitType,
+	CustomRingKeyRegisterCircuitType,
+	CustomRingDepositCircuitType,
 }
 
 func (c CircuitType) IsRing() bool {
-	_, ok := RingKeyFiles[c]
-	return ok
+	return slices.Contains(RingCircuitTypes, c)
+}
+
+// RingKeyFile names a custom-ring circuit's key file, or "" for none.
+func RingKeyFile(c CircuitType) string {
+	if !c.IsRing() {
+		return ""
+	}
+	return strings.ReplaceAll(string(c), "-", "_") + ".key"
 }
