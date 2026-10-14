@@ -1,0 +1,69 @@
+error[E0277]: `/` on `CircuitVar` multiplies by a field inverse, which is not integer division
+ --> tests/ui/fail/opaque_var.rs:4:33
+  |
+4 |     let quotient = left.clone() / right;
+  |                                 ^ use `Uint::div_rem` for integer division
+  |
+  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `&CircuitVar`
+  = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
+  = note: for deliberate field division, use `CircuitVar::div`
+  = note: required for `CircuitVar` to implement `Div<&CircuitVar>`
+
+error[E0277]: `%` on `CircuitVar` has no meaning in the field
+ --> tests/ui/fail/opaque_var.rs:5:31
+  |
+5 |     let remainder = &quotient % Field::from(2u64);
+  |                               ^ use the remainder that `Uint::div_rem` returns
+  |
+  = help: the trait `circuit::builtins::field::var::rules::UseRemOfDivRem` is not implemented for `zolana_program::circuit::Field`
+  = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
+  = note: required for `&CircuitVar` to implement `Rem<zolana_program::circuit::Field>`
+
+error[E0277]: cannot divide-assign `CircuitVar` by `CircuitVar`
+ --> tests/ui/fail/opaque_var.rs:7:11
+  |
+7 |     total /= right.clone();
+  |           ^^ no implementation for `CircuitVar /= CircuitVar`
+  |
+  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `CircuitVar`
+  = note: required for `CircuitVar` to implement `DivAssign`
+
+error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
+  --> tests/ui/fail/opaque_var.rs:12:10
+   |
+12 |     left == right || left < right
+   |          ^^ no implementation for `&CircuitVar == &CircuitVar`
+   |
+   = help: the trait `circuit::builtins::field::var::rules::UseAssertEqual` is not implemented for `CircuitVar`
+   = note: required for `CircuitVar` to implement `PartialEq`
+   = note: 1 redundant requirement hidden
+   = note: required for `&CircuitVar` to implement `PartialEq<&CircuitVar>`
+
+error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
+  --> tests/ui/fail/opaque_var.rs:12:27
+   |
+12 |     left == right || left < right
+   |                           ^ no implementation for `&CircuitVar < &CircuitVar` and `&CircuitVar > &CircuitVar`
+   |
+   = help: the trait `circuit::builtins::field::var::rules::UseUintComparison` is not implemented for `CircuitVar`
+   = note: required for `CircuitVar` to implement `PartialOrd`
+   = note: 1 redundant requirement hidden
+   = note: required for `&CircuitVar` to implement `PartialOrd<&CircuitVar>`
+
+error[E0599]: no method named `value` found for reference `&CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:16:9
+   |
+16 |     var.value().unwrap()
+   |         ^^^^^ method not found in `&CircuitVar`
+
+error[E0599]: no associated function or constant named `new_witness` found for struct `CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:20:17
+   |
+20 |     CircuitVar::new_witness(cs, || Ok(Field::from(1u64))).unwrap()
+   |                 ^^^^^^^^^^^ associated function or constant not found in `CircuitVar`
+
+error[E0599]: no associated function or constant named `Constant` found for struct `CircuitVar` in the current scope
+  --> tests/ui/fail/opaque_var.rs:25:21
+   |
+25 |         CircuitVar::Constant(value) => value,
+   |                     ^^^^^^^^ associated function or constant not found in `CircuitVar`

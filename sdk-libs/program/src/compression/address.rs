@@ -2,9 +2,10 @@ use zolana_hasher::{
     primitives::{is_canonical_bn254_scalar_be, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::ADDRESS_DOMAIN;
+use zolana_instruction::ADDRESS_TREE_ID;
+use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD};
 
-use super::{CompressedAccountError, PdaOwner, NO_RING_HASH};
+use super::{CompressedAccountError, PdaOwner};
 
 /// The blinding of an address slot. An owner reserves one address per seed and
 /// tree, so a PDA owns as many addresses as it has seeds.
@@ -50,7 +51,11 @@ pub struct NewAddress {
 }
 
 impl NewAddress {
-    pub fn derive(
+    pub fn derive(owner: &PdaOwner, seed: AddressSeed) -> Result<Self, CompressedAccountError> {
+        Self::derive_with_tree_id(owner, seed, ADDRESS_TREE_ID)
+    }
+
+    pub fn derive_with_tree_id(
         owner: &PdaOwner,
         seed: AddressSeed,
         tree_id: u16,
@@ -59,11 +64,11 @@ impl NewAddress {
         let owner_utxo_hash = Poseidon::hashv(&[owner.owner_hash(), seed.as_bytes()])?;
         let utxo_hash = Poseidon::hashv(&[
             &right_align(&ADDRESS_DOMAIN.to_be_bytes()),
-            &right_align(&tree_id.to_be_bytes()),
+            &tree_id_field(tree_id),
             &zero,
             &zero,
             &zero,
-            &NO_RING_HASH,
+            &SOL_ASSET_FIELD,
             &owner_utxo_hash,
         ])?;
         let address = Poseidon::hashv(&[&utxo_hash, seed.as_bytes(), &zero])?;

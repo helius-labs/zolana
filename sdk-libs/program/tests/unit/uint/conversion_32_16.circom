@@ -1,0 +1,9 @@
+pragma circom 2.0.0;
+include "bitify.circom";
+template Narrow() {
+ signal input x; signal input claimed;
+ component wide = Num2Bits(32); wide.in <== x;
+ component narrow = Num2Bits(16); narrow.in <== x;
+ claimed === x;
+}
+component main = Narrow();

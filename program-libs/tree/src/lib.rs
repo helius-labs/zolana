@@ -1,3 +1,5 @@
+#![no_std]
+
 //! # zolana-tree
 //!
 //! The shielded pool's tree account. A single Solana account holds both trees

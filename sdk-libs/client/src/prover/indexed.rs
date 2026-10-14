@@ -241,7 +241,23 @@ impl IndexedProofRequest {
             {
                 return Err(invalid());
             }
-            if (dummy || cached) != lookup.commitment.is_none()
+            let address = input
+                .utxo
+                .as_ref()
+                .map(|utxo| decode_field(&utxo.domain))
+                .transpose()
+                .map_err(|_| invalid())?
+                == Some(right_align_slice(
+                    &zolana_interface::ADDRESS_DOMAIN.to_be_bytes(),
+                )?);
+            if address
+                && (dummy
+                    || cached
+                    || metadata.circuit_type != IndexedCircuit::TransferConfidential)
+            {
+                return Err(invalid());
+            }
+            if (dummy || cached || address) != lookup.commitment.is_none()
                 || lookup
                     .commitment
                     .as_ref()
@@ -449,6 +465,7 @@ struct PreparedMetadata {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PreparedInputMetadata {
+    utxo: Option<PreparedUtxoMetadata>,
     tree_slot: String,
     domain: Option<String>,
     is_dummy: Option<String>,
@@ -458,6 +475,11 @@ struct PreparedInputMetadata {
     nullifier_next_value: Option<serde::de::IgnoredAny>,
     nullifier_low_path_elements: Option<serde::de::IgnoredAny>,
     nullifier_low_path_index: Option<serde::de::IgnoredAny>,
+}
+
+#[derive(Deserialize)]
+struct PreparedUtxoMetadata {
+    domain: String,
 }
 
 impl PreparedInputMetadata {

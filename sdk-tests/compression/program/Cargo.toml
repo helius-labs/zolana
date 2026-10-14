@@ -22,7 +22,6 @@ test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
-borsh = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
@@ -36,7 +35,7 @@ zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["compression"] }
 
 [lints.rust.unexpected_cfgs]
-level = "allow"
+level = "warn"
 check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',

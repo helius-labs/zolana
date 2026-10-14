@@ -30,7 +30,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["client"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol"] }
+zolana-program = { workspace = true, features = ["protocol-instructions", "client", "setup", "parallel"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

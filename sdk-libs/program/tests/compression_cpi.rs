@@ -56,7 +56,7 @@ fn pool_output_tree() -> AccountView {
 }
 
 /// A state whose data hash is its count.
-#[derive(borsh::BorshSerialize, Default)]
+#[derive(wincode::SchemaWrite, Default)]
 struct CountState {
     address: [u8; 32],
     count: u8,
@@ -77,8 +77,8 @@ impl CompressedAccountData for CountState {
     }
 }
 
-fn cpi(owner: &PdaOwner) -> SppTransactCpi<'_> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), 1).unwrap();
+fn cpi(owner: &PdaOwner) -> SppTransactCpi {
+    let address = NewAddress::derive_with_tree_id(owner, AddressSeed::owner(owner), 1).unwrap();
     let mut account: CompressedAccount<'_, CountState> = CompressedAccount::new_init(
         owner,
         address,
@@ -154,9 +154,7 @@ fn error_codes_are_stable() {
         (OwnerNotSigner, 14007),
         (NoAccounts, 14008),
         (TooManyAccounts, 14009),
-        (InputTreesNotContiguous, 14010),
         (ConflictingTreeContexts, 14011),
-        (InvalidExternalData, 14012),
         (HashingFailed, 14013),
         (SerializationFailed, 14014),
     ] {

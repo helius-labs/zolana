@@ -25,7 +25,8 @@ pub fn account_pda(authority: &Address) -> Address {
 /// address is scoped to one tree.
 pub fn account_address(pda: &Address, tree_id: u16) -> Result<[u8; 32]> {
     let owner = PdaOwner::new(pda).map_err(err)?;
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), tree_id).map_err(err)?;
+    let address = NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), tree_id)
+        .map_err(err)?;
     Ok(*address.address())
 }
 

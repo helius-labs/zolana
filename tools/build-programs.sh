@@ -22,6 +22,7 @@ build --manifest-path programs/shielded-pool/Cargo.toml -- --locked --features b
 build --manifest-path program-tests/ring-test-program/Cargo.toml -- --locked
 build --manifest-path program-tests/spp-recorder-program/Cargo.toml -- --locked
 build --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
+cargo run --release --locked -p zolana-cli -- zk compile -p timelock-escrow-program --skip-wasm
 build --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml -- --locked --features bpf-entrypoint
 build --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
 build --manifest-path sdk-tests/compression/program/Cargo.toml -- --locked --features bpf-entrypoint

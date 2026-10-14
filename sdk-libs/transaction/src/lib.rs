@@ -20,11 +20,13 @@ pub mod indexer_types;
 pub mod instructions;
 pub mod keys;
 pub mod selection;
+#[cfg(feature = "serde")]
+mod serde_helpers;
 pub mod serialization;
 pub mod signature;
 pub mod utxo;
 
-pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
+pub use asset::{AssetAmount, AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, rebuild_merge, verify_owned, verify_spendable, DecryptionResult,
@@ -35,7 +37,7 @@ pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
-    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
+    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys, ShieldedView,
     TransactionKeyRequest,
 };
 pub use selection::{select_merge, select_spend, select_spend_excluding};

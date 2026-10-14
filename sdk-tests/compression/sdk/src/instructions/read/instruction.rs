@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::pda::nullifier_pda;
 
-use zolana_program::compression::{CompressedAccountMeta, CompressedProof};
+use zolana_program::{compression::CompressedAccountMeta, CompressedProof};
 
 use crate::{err, tag, ReadIxData};
 

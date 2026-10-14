@@ -42,6 +42,7 @@ const INTERLEAVED: [(u16, u8); 4] = [(7, 10), (9, 11), (7, 12), (9, 13)];
 
 fn input(_index: usize, tree_id: u16, seed: u8) -> SppProofInputUtxo {
     SppProofInputUtxo {
+        address: false,
         utxo_hash: [seed; 32],
         nullifier: [seed | 0x80; 32],
         tree_id,
@@ -308,4 +309,53 @@ fn write_response(stream: &mut TcpStream, body: &Value) {
         body
     )
     .expect("write mock response");
+}
+
+#[test]
+fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
+    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let inputs: Vec<_> = [(7, 1u8), (9, 2), (7, 3)]
+        .into_iter()
+        .map(|(tree, seed)| {
+            SppProofInputUtxo::new_address(
+                owner,
+                zolana_hasher::primitives::right_align(&[seed]),
+                tree,
+            )
+            .unwrap()
+        })
+        .collect();
+    let witnesses = indexer.transaction_witnesses(&inputs, None).unwrap();
+    assert!(witnesses.spend_proofs.is_empty());
+    assert_eq!(
+        witnesses
+            .dummy_nullifier_proofs
+            .iter()
+            .map(|proof| (proof.leaf, proof.merkle_context.tree))
+            .collect::<Vec<_>>(),
+        inputs
+            .iter()
+            .map(|input| (input.nullifier, pda::tree(input.tree_id)))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn async_address_only_transaction_fetches_its_tree() {
+    let indexer = AsyncZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let input = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
+    let witnesses = indexer
+        .transaction_witnesses(std::slice::from_ref(&input), None)
+        .await
+        .unwrap();
+    assert!(witnesses.spend_proofs.is_empty());
+    assert_eq!(
+        witnesses
+            .dummy_nullifier_proofs
+            .first()
+            .map(|proof| (proof.leaf, proof.merkle_context.tree)),
+        Some((input.nullifier, pda::tree(7)))
+    );
 }

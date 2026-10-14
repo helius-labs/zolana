@@ -223,6 +223,7 @@ fn real_input(
         .expect("hash");
     let nullifier = keypair.nullifier(&utxo_hash, &blinding).expect("nullifier");
     SppProofInputUtxo {
+        address: false,
         utxo,
         nullifier_pubkey,
         utxo_hash,

@@ -1,0 +1,119 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+use zolana_keypair::ShieldedAddress;
+use zolana_program::{
+    circuit::{
+        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
+        Uint,
+    },
+    conversion::ProofInput,
+    CircuitError, Groth16Prover, TxContext, ZkProgram,
+};
+use zolana_transaction::{Mint, WalletUtxo};
+
+use crate::{
+    benchmark::prove,
+    shared::{data_input, keypair},
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+pub struct Profile {
+    pub score: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+pub struct Badge {
+    pub level: u16,
+}
+
+#[derive(Clone, ProofInput)]
+pub struct CreateAndUpdate {
+    private: CreateAndUpdatePrivateInputs,
+    public: CreateAndUpdatePublicInputs,
+}
+
+#[derive(Clone, ProofInput)]
+struct CreateAndUpdatePrivateInputs {
+    tx_context: TxContext,
+    profile_utxo: WalletUtxo,
+    profile: Profile,
+    level: u16,
+}
+
+#[derive(Clone, PublicInputs)]
+struct CreateAndUpdatePublicInputs {
+    badge_owner: ShieldedAddress,
+}
+
+#[deny(clippy::disallowed_types)]
+impl Circuit for <CreateAndUpdate as ProofInput>::Circuit {
+    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        let private = &self.private;
+        let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
+        profile.score = profile
+            .score
+            .checked_add(&Uint::<64>::constant(1)?, "the score overflows")?;
+        let mut badge = DataUtxo::<BadgeCircuit>::new_init(&self.public.badge_owner);
+        badge.level = private.level.clone();
+
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
+            .with_data_utxo(profile)
+            .with_data_utxo(badge)
+            .check()
+    }
+}
+
+#[test]
+fn create_and_update_prove_and_verify() {
+    let owner = keypair(5);
+    let address = owner.shielded_address().expect("owner address");
+    let payer = address.solana_address().expect("payer");
+    let badge_owner = keypair(6).shielded_address().expect("badge owner address");
+    let profile = Profile { score: 41 };
+    let profile_utxo = data_input(&owner, 0, &profile, 0);
+
+    let create_and_update = CreateAndUpdate {
+        private: CreateAndUpdatePrivateInputs {
+            tx_context: TxContext::new(),
+            profile_utxo,
+            profile,
+            level: 2,
+        },
+        public: CreateAndUpdatePublicInputs { badge_owner },
+    };
+    let spp_proof_inputs = create_and_update
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
+        .expect("create and update proof inputs");
+    assert_eq!(
+        spp_proof_inputs
+            .output_utxos
+            .iter()
+            .map(|output| (
+                output.owner_address,
+                output.asset,
+                output.amount,
+                output.data.utxo_data().map(<[u8]>::to_vec),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                Some(address),
+                Mint::SOL,
+                0,
+                Some(borsh::to_vec(&Profile { score: 42 }).expect("profile bytes")),
+            ),
+            (
+                Some(badge_owner),
+                Mint::SOL,
+                0,
+                Some(borsh::to_vec(&Badge { level: 2 }).expect("badge bytes")),
+            ),
+        ]
+    );
+
+    let prover =
+        Groth16Prover::<CreateAndUpdate>::new_with_test_setup().expect("create and update setup");
+    let result = prove(&prover, &create_and_update, "create and update proof");
+    prover
+        .verify(&result)
+        .expect("the compressed proof verifies");
+}

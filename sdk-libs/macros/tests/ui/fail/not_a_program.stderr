@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `InputsCircuit: zolana_program::circuit::Circuit` is not satisfied
+  --> tests/ui/fail/not_a_program.rs:11:23
+   |
+11 |     require_program::<Inputs>();
+   |                       ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `zolana_program::circuit::Circuit` is not implemented for `InputsCircuit`
+  --> tests/ui/fail/not_a_program.rs:3:17
+   |
+ 3 | #[derive(Clone, ProofInput)]
+   |                 ^^^^^^^^^^
+   = note: required for `Inputs` to implement `ZkProgram`
+note: required by a bound in `require_program`
+  --> tests/ui/fail/not_a_program.rs:8:23
+   |
+ 8 | fn require_program<P: ZkProgram>() {}
+   |                       ^^^^^^^^^ required by this bound in `require_program`
+   = note: this error originates in the derive macro `ProofInput` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,24 @@
+error[E0080]: evaluation panicked: a padded field takes min_len <= max_len
+ --> $RUST/core/src/panic.rs
+  |
+  |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::conversion::instantiate_padded::<zolana_transaction::WalletUtxo, 3, 2>::{constant#1}` failed here
+  |
+ ::: $WORKSPACE/sdk-libs/program/src/conversion/mod.rs
+  |
+  |     const { assert!(MIN <= MAX, "a padded field takes min_len <= max_len") };
+  |             -------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> $WORKSPACE/sdk-libs/program/src/conversion/mod.rs
+  |
+  |     const { assert!(MIN <= MAX, "a padded field takes min_len <= max_len") };
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn instantiate_padded::<WalletUtxo, 3, 2>`
+ --> tests/ui/lengths/fail/bounded_lengths.rs:4:10
+  |
+4 | #[derive(ProofInput)]
+  |          ^^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `ProofInput` (in Nightly builds, run with -Z macro-backtrace for more info)

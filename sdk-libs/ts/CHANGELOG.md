@@ -5,7 +5,9 @@
 Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
-opts out. One private transfer can pay several recipients.
+opts out. One private transfer can pay several recipients, and the SDK seals
+and proves a transaction built by a ZK program's WebAssembly bindings, which
+the program forwards to `transact` through a CPI.
 
 Breaking
 
@@ -33,6 +35,36 @@ Added
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
   its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+- `decodeProgramTransaction(value, assets)` turns the
+  `ProgramFinalizedTransaction` a ZK program's WebAssembly bindings return into
+  SDK inputs, outputs and owner tags, refusing an input, output hash, owner tag,
+  first nullifier or mint that does not match the transaction with
+  `TRANSACTION_INPUT_HASH_MISMATCH`, `TRANSACTION_OUTPUT_HASH_MISMATCH`,
+  `TRANSACTION_OWNER_TAG_MISMATCH`, `TRANSACTION_OWNER_TAG_COUNT_MISMATCH`,
+  `TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH`,
+  `TRANSACTION_FIRST_NULLIFIER_MISMATCH` or `TRANSACTION_MINT_MISMATCH`, and
+  `DecodedProgramTransaction.encrypt(tx, { expiryUnixTs })` seals every real
+  output and gives each padding slot a length-matched random ciphertext under
+  its owner tag, into the `ExternalData` the program's proof commits to.
+- `toProgramWalletUtxo(utxo, { nullifierPublicKey, treeId, assets })` builds
+  the `ProgramWalletUtxo` those bindings spend and refuses a tree id or
+  nullifier public key that does not open the UTXO's commitment, and
+  `SettlementTransfer`, the leg type of `ExternalData.interfaceTransfers`, is
+  exported from `@heliuslabs/zolana/transaction`.
+- `ProgramOwner.find(seeds, programId)` derives a ZK program's PDA owner with
+  its `ownerTag()`, `ownerHash()`, `address(viewingPublicKey)` and the shared
+  `ProgramOwner.nullifierKey()`, and
+  `DecodedProgramTransaction.toProofInputs(keys, { expiryUnixTs })` seals a
+  program transaction into the `SppProofInputs` that `proveTransact` takes,
+  refusing keys that are not the sender's with
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
+- `transactCpiAccounts(input)` and `encodeTransactInstructionData(data)` from
+  `@heliuslabs/zolana/interface` return the accounts, signing PDAs included,
+  and the instruction bytes a program forwards to `transact` through a CPI.
+- `bytes16`, `bytes31`, `bytes32`, `bytes33`, `bytes34` and `bytes64` copy a
+  `Uint8Array` into the matching fixed-length type and refuse any other length
+  with `KEYPAIR_INVALID_LENGTH`, and `ShieldedPublicKey.fromPda` and
+  `ShieldedAddress.forPda` also take the PDA as an `Address`.
 
 Changed
 

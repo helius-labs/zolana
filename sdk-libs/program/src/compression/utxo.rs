@@ -1,13 +1,7 @@
 use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
-use zolana_interface::{SOL_ASSET_FIELD, UTXO_DOMAIN};
+use zolana_interface::{tree_slot::tree_id_field, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use super::{CompressedAccountError, PdaOwner};
-
-/// `Poseidon(0, 0)`: the ring hash of a UTXO outside every ring.
-pub const NO_RING_HASH: [u8; 32] = [
-    0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4, 0x81,
-    0xdc, 0x31, 0x24, 0xd5, 0x5f, 0xfe, 0xd5, 0x23, 0xa8, 0x39, 0xee, 0x84, 0x46, 0xb6, 0x48, 0x64,
-];
 
 /// A compressed account's UTXO: owned by a program PDA, zero SOL, outside
 /// every ring, and carrying the hash of the program's state.
@@ -30,11 +24,11 @@ impl DataUtxo<'_> {
         let owner_utxo_hash = Poseidon::hashv(&[self.owner.owner_hash(), &self.blinding])?;
         Ok(Poseidon::hashv(&[
             &right_align(&UTXO_DOMAIN.to_be_bytes()),
-            &right_align(&tree_id.to_be_bytes()),
+            &tree_id_field(tree_id),
             &SOL_ASSET_FIELD,
             &[0u8; 32],
             &self.data_hash,
-            &NO_RING_HASH,
+            &SOL_ASSET_FIELD,
             &owner_utxo_hash,
         ])?)
     }

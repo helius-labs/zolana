@@ -1,3 +1,12 @@
+#![no_std]
+
+#[macro_use]
+extern crate alloc;
+#[cfg(test)]
+extern crate std;
+
+use alloc::vec::Vec;
+
 pub mod output_data;
 pub mod output_utxo;
 pub mod proofless;

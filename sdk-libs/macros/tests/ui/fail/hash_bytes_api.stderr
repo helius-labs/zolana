@@ -1,0 +1,80 @@
+error[E0425]: cannot find function `hash_bytes` in module `zolana_program::circuit`
+ --> tests/ui/fail/hash_bytes_api.rs:7:30
+  |
+7 |     zolana_program::circuit::hash_bytes(bytes)
+  |                              ^^^^^^^^^^ not found in `zolana_program::circuit`
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/hash_bytes_api.rs:16:18
+   |
+16 |     fixed_domain(&bytes)
+   |     ------------ ^^^^^^ expected `32`, found `1`
+   |     |
+   |     arguments to this function are incorrect
+   |
+   = note: expected reference `&zolana_program::circuit::Bytes<32>`
+              found reference `&zolana_program::circuit::Bytes<1>`
+note: function defined here
+  --> tests/ui/fail/hash_bytes_api.rs:10:4
+   |
+10 | fn fixed_domain(bytes: &Bytes<32>) -> Result<CircuitVar, CircuitError> {
+   |    ^^^^^^^^^^^^ -----------------
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/hash_bytes_api.rs:21:18
+   |
+21 |     fixed_domain(&bytes)
+   |     ------------ ^^^^^^ expected `32`, found `2`
+   |     |
+   |     arguments to this function are incorrect
+   |
+   = note: expected reference `&zolana_program::circuit::Bytes<32>`
+              found reference `&zolana_program::circuit::Bytes<2>`
+note: function defined here
+  --> tests/ui/fail/hash_bytes_api.rs:10:4
+   |
+10 | fn fixed_domain(bytes: &Bytes<32>) -> Result<CircuitVar, CircuitError> {
+   |    ^^^^^^^^^^^^ -----------------
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/hash_bytes_api.rs:26:21
+   |
+26 |     Bytes::constant(&bytes)
+   |     --------------- ^^^^^^ expected `&[u8; 2]`, found `&[u16; 2]`
+   |     |
+   |     arguments to this function are incorrect
+   |
+   = note: expected reference `&[u8; 2]`
+              found reference `&[u16; 2]`
+note: associated function defined here
+  --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/bytes.rs
+   |
+   |     pub fn constant(bytes: &[u8; N]) -> Self {
+   |            ^^^^^^^^
+
+error[E0624]: associated function `from_checked` is private
+  --> tests/ui/fail/hash_bytes_api.rs:30:12
+   |
+30 |     Bytes::from_checked([constant(256u64), constant(258u64)])
+   |            ^^^^^^^^^^^^ private associated function
+   |
+  ::: $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/bytes.rs
+   |
+   |     pub(crate) fn from_checked(bytes: [CircuitVar; N]) -> Self {
+   |     ---------------------------------------------------------- private associated function defined here
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/hash_bytes_api.rs:34:21
+   |
+34 |     Bytes::constant(bytes)
+   |     --------------- ^^^^^ expected `&[u8; 2]`, found `&[u8]`
+   |     |
+   |     arguments to this function are incorrect
+   |
+   = note: expected reference `&[u8; 2]`
+              found reference `&[u8]`
+note: associated function defined here
+  --> $WORKSPACE/sdk-libs/program/src/circuit/builtins/types/bytes.rs
+   |
+   |     pub fn constant(bytes: &[u8; N]) -> Self {
+   |            ^^^^^^^^

@@ -1105,7 +1105,11 @@ export class ZolanaClient
       ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
       feePayer,
       // A sponsored fee payer is not the input owner, so the owner signs too.
-      ownerSigners: ownerSignerAddresses(authorized.proofInputs.inputUtxos, feePayer),
+      ownerSigners: ownerSignerAddresses(
+        authorized.proofInputs.inputUtxos,
+        authorized.proofInputs.outputs,
+        feePayer,
+      ),
       inputTree: authorized.tree,
       outputTree: this.tree,
       setupInstructions: authorized.setupInstructions,

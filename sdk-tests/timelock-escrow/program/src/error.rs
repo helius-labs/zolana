@@ -1,6 +1,7 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
+use zolana_program::verifier::VerifyError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
@@ -22,6 +23,15 @@ pub enum TimelockEscrowError {
 impl From<TimelockEscrowError> for ProgramError {
     fn from(error: TimelockEscrowError) -> Self {
         ProgramError::Custom(error as u32)
+    }
+}
+
+impl From<VerifyError> for TimelockEscrowError {
+    fn from(error: VerifyError) -> Self {
+        match error {
+            VerifyError::PublicInputs => Self::HashingFailed,
+            VerifyError::Proof => Self::ProofVerificationFailed,
+        }
     }
 }
 

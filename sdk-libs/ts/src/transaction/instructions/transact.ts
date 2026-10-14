@@ -1651,7 +1651,7 @@ export function encodeConfidentialSlots(
  * encoding a throwaway output through the same path. This keeps dummy slots
  * byte-length-indistinguishable from real ones without pinning a brittle constant.
  */
-function dummyCiphertextLength(salt: Bytes16): number {
+export function dummyCiphertextLength(salt: Bytes16): number {
   const throwaway = ViewingKey.generate();
   try {
     return encodeOutputData(

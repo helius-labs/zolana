@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConfig};

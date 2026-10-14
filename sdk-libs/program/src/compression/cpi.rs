@@ -1,7 +1,14 @@
 use alloc::vec::Vec;
 
-use borsh::BorshSerialize;
 use pinocchio::{cpi::Signer, ProgramResult};
+use wincode::{config::DefaultConfig, SchemaWrite};
+use zolana_instruction::{
+    cpi::SppTransactAccounts,
+    derivation::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
+    PrivateTxHash, TransactExternalData, TransactInputs,
+};
 use zolana_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{
@@ -14,13 +21,6 @@ use zolana_interface::{
 use super::{
     account::AccountInput, load_tree_id, CompressedAccount, CompressedAccountData,
     CompressedAccountError, DataUtxo, PdaOwner,
-};
-use crate::{
-    cpi::SppTransactAccounts,
-    derivation::{
-        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    },
-    PrivateTxHash, TransactExternalData, TransactInputs,
 };
 
 /// The blinding seed of every transaction [`SppTransactCpi`] builds; a client
@@ -39,17 +39,17 @@ pub const ACCOUNT_BLINDING_SEED: [u8; 32] = {
 /// everything but the proof on chain: every blinding, the output UTXO hashes,
 /// the external data hash and the private transaction hash.
 ///
-/// The inputs of one tree must be added one after another, and share that
-/// tree's root indexes.
-pub struct SppTransactCpi<'a> {
+/// Inputs may interleave trees; every input of one tree shares its root indexes.
+pub struct SppTransactCpi {
     proof: TransactProof,
-    writes: Vec<AccountWrite<'a>>,
+    output_blinding_seed: Option<[u8; 32]>,
+    writes: Vec<AccountWrite>,
 }
 
 /// A write with its new state hashed and serialized, so one transaction can
 /// write accounts of different state types.
-struct AccountWrite<'a> {
-    owner: &'a PdaOwner,
+struct AccountWrite {
+    owner: PdaOwner,
     input: AccountInput,
     tree_id: u16,
     tree_context: TreeContext,
@@ -58,10 +58,11 @@ struct AccountWrite<'a> {
     data: Vec<u8>,
 }
 
-impl<'a> SppTransactCpi<'a> {
+impl SppTransactCpi {
     pub fn new(proof: TransactProof) -> Self {
         Self {
             proof,
+            output_blinding_seed: None,
             writes: Vec::new(),
         }
     }
@@ -73,7 +74,7 @@ impl<'a> SppTransactCpi<'a> {
     /// write, and compact padding fills the slots the writes leave.
     pub fn with_compressed_account<A: CompressedAccountData>(
         mut self,
-        account: CompressedAccount<'a, A>,
+        account: CompressedAccount<'_, A>,
     ) -> Result<Self, CompressedAccountError> {
         square_width(self.writes.len() + 1)?;
         let CompressedAccount {
@@ -89,12 +90,20 @@ impl<'a> SppTransactCpi<'a> {
         };
         let slot = u32::try_from(self.writes.len())
             .map_err(|_| CompressedAccountError::TooManyAccounts)?;
-        let blinding = output_blinding(&first_nullifier, slot)?;
+        let seed = match self.output_blinding_seed {
+            Some(seed) => seed,
+            None => {
+                let seed = derive_output_blinding_seed(&first_nullifier, &ACCOUNT_BLINDING_SEED)?;
+                self.output_blinding_seed = Some(seed);
+                seed
+            }
+        };
+        let blinding = derive_transact_output_blinding(&first_nullifier, &seed, slot)?;
         *state.blinding_mut() = blinding;
         let data_hash = state.data_hash()?;
         let data = plaintext_output_data(&state)?;
         self.writes.push(AccountWrite {
-            owner,
+            owner: *owner,
             input,
             tree_id,
             tree_context,
@@ -164,7 +173,7 @@ impl<'a> SppTransactCpi<'a> {
             address_nullifiers.push(address_nullifier);
 
             let output_hash = DataUtxo {
-                owner: write.owner,
+                owner: &write.owner,
                 data_hash: write.data_hash,
                 blinding: write.blinding,
             }
@@ -216,57 +225,39 @@ fn square_width(count: usize) -> Result<u8, CompressedAccountError> {
         .ok_or(CompressedAccountError::TooManyAccounts)
 }
 
-/// The blinding the circuit derives for output `slot` of a transaction with
-/// `first_nullifier` and [`ACCOUNT_BLINDING_SEED`].
-fn output_blinding(
-    first_nullifier: &[u8; 32],
-    slot: u32,
-) -> Result<[u8; 32], CompressedAccountError> {
-    let seed = derive_output_blinding_seed(first_nullifier, &ACCOUNT_BLINDING_SEED)?;
-    Ok(derive_transact_output_blinding(
-        first_nullifier,
-        &seed,
-        slot,
-    )?)
-}
-
-/// `state` as `OutputDataEncoding::Plaintext` output data: the plaintext tag,
-/// the borsh length as a little-endian `u32`, then the borsh bytes.
-fn plaintext_output_data(state: &impl BorshSerialize) -> Result<Vec<u8>, CompressedAccountError> {
-    let state_len =
-        borsh::object_length(state).map_err(|_| CompressedAccountError::SerializationFailed)?;
-    let state_len_prefix =
-        u32::try_from(state_len).map_err(|_| CompressedAccountError::SerializationFailed)?;
-    let mut data = Vec::with_capacity(1 + 4 + state_len);
-    data.push(OutputDataEncoding::PLAINTEXT_TAG);
-    data.extend_from_slice(&state_len_prefix.to_le_bytes());
-    state
-        .serialize(&mut data)
+/// State encoded once inside the protocol's plaintext tag and u32 length prefix.
+fn plaintext_output_data<T: SchemaWrite<DefaultConfig, Src = T>>(
+    state: &T,
+) -> Result<Vec<u8>, CompressedAccountError> {
+    let mut data = alloc::vec![OutputDataEncoding::PLAINTEXT_TAG, 0, 0, 0, 0];
+    wincode::serialize_into(&mut data, state)
         .map_err(|_| CompressedAccountError::SerializationFailed)?;
+    let length =
+        u32::try_from(data.len() - 5).map_err(|_| CompressedAccountError::SerializationFailed)?;
+    data.get_mut(1..5)
+        .ok_or(CompressedAccountError::SerializationFailed)?
+        .copy_from_slice(&length.to_le_bytes());
     Ok(data)
 }
 
-/// The index of `tree_id`'s context, adding it when the tree starts a new run
-/// of inputs. Transact takes one context per tree and needs the inputs of a
-/// tree to be contiguous.
+/// Reuse a tree's context wherever it occurs in the input order.
 fn tree_index(
     tree_contexts: &mut Vec<(u16, TreeContext)>,
     tree_id: u16,
     tree_context: TreeContext,
 ) -> Result<u8, CompressedAccountError> {
-    match tree_contexts.last() {
-        Some((last_tree_id, last_context)) if *last_tree_id == tree_id => {
-            if *last_context != tree_context {
-                return Err(CompressedAccountError::ConflictingTreeContexts);
-            }
+    if let Some((index, (_, context))) = tree_contexts
+        .iter()
+        .enumerate()
+        .find(|(_, (id, _))| *id == tree_id)
+    {
+        if *context != tree_context {
+            return Err(CompressedAccountError::ConflictingTreeContexts);
         }
-        _ => {
-            if tree_contexts.iter().any(|(id, _)| *id == tree_id) {
-                return Err(CompressedAccountError::InputTreesNotContiguous);
-            }
-            tree_contexts.push((tree_id, tree_context));
-        }
+        return u8::try_from(index).map_err(|_| CompressedAccountError::TooManyAccounts);
     }
-    u8::try_from(tree_contexts.len().saturating_sub(1))
-        .map_err(|_| CompressedAccountError::TooManyAccounts)
+    let index =
+        u8::try_from(tree_contexts.len()).map_err(|_| CompressedAccountError::TooManyAccounts)?;
+    tree_contexts.push((tree_id, tree_context));
+    Ok(index)
 }

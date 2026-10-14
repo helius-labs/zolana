@@ -101,16 +101,28 @@ let lastResolvedHash:
     }>
   | undefined;
 
-/** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
+/**
+ * Unique non-payer Ed25519 owners of real inputs, then of real outputs that
+ * carry data, in first-occurrence order, mirrors Rust `owner_signer_pubkeys`.
+ */
 export function ownerSignerAddresses(
   inputs: readonly ProofInputUtxo[],
+  outputs: readonly ProofOutputUtxo[],
   payer: Address,
 ): readonly Address[] {
+  const owners = [
+    ...inputs.filter((input) => !input.isDummy()).map((input) => input.utxo.owner),
+    ...outputs.flatMap((output) =>
+      output.ownerAddress !== undefined && output.dataHash?.some((byte) => byte !== 0) === true
+        ? [output.ownerAddress.signingPublicKey]
+        : [],
+    ),
+  ];
   const seen = new Set<string>();
   const signers: Address[] = [];
-  for (const input of inputs) {
-    if (input.isDummy() || input.utxo.owner.signatureType() === "p256") continue;
-    const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
+  for (const owner of owners) {
+    if (owner.signatureType() === "p256") continue;
+    const address = getAddressDecoder().decode(owner.confidentialViewTag());
     if (address === payer || seen.has(address)) continue;
     seen.add(address);
     signers.push(address);
@@ -298,7 +310,9 @@ function prepareTransferUnchecked(
   // matching Rust's `signer_pk_hashes`.
   const ownerSignerHashes = plan.authority
     ? []
-    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(signerIdentity);
+    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs, proofInputs.payer).map(
+        signerIdentity,
+      );
   const signerPublicKeyHashes = [
     signerIdentity(proofInputs.payer),
     ...ownerSignerHashes,
