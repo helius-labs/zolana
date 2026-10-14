@@ -1,0 +1,18 @@
+[package]
+name = "zolana-cli-common"
+version = "0.1.0"
+description = "Release downloads and owned local services shared by the zolana command line tools."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+serde = { workspace = true, features = ["derive"] }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

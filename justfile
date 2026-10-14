@@ -364,6 +364,7 @@ test-sdk-libs:
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-event-parser
     cargo nextest run -p zolana-transaction
+    cargo nextest run -p zolana-secret-file
     cargo nextest run -p zolana-client --features client
     # The test harness wallet: its scan, indexer sync and transaction actions.
     cargo nextest run -p zolana-test-utils

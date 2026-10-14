@@ -11650,10 +11650,8 @@ dependencies = [
  "clap",
  "groth16-solana",
  "hex",
- "reqwest",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -11663,12 +11661,26 @@ dependencies = [
  "solana-sdk-ids",
  "solana-signature",
  "solana-signer",
+ "zolana-cli-common",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
+ "zolana-secret-file",
  "zolana-transaction",
  "zolana-user-registry-interface",
+]
+
+[[package]]
+name = "zolana-cli-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -12059,6 +12071,16 @@ dependencies = [
  "zolana-keypair",
  "zolana-ring-client",
  "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-secret-file"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "libc",
+ "thiserror 2.0.20",
+ "zeroize",
 ]
 
 [[package]]

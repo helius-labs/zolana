@@ -18,6 +18,7 @@ members = [
     "program-tests/spp-recorder-program",
     "bench/tree",
     "cli",
+    "cli/common",
     "custom-rings/cli",
     "custom-rings/client",
     "custom-rings/interface",
@@ -38,6 +39,7 @@ members = [
     "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
+    "sdk-libs/secret-file",
     "sdk-libs/transaction",
     "services/photon",
     "services/ring-rpc",
@@ -94,6 +96,8 @@ zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
+zolana-secret-file = { path = "sdk-libs/secret-file", version = "0.1.0" }
+zolana-cli-common = { path = "cli/common" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
