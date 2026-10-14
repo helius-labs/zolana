@@ -21,6 +21,7 @@ pub mod authority;
 pub mod client;
 pub mod error;
 pub mod indexer;
+pub mod program_data;
 pub mod prover;
 pub mod rpc;
 pub mod scan;
@@ -28,12 +29,14 @@ pub mod user_registry;
 
 pub use authority::ProofAuthority;
 pub use client::{
-    check_merge_record, check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, Submission,
-    UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    check_merge_record, check_service_url, wait_for_indexed_transaction, AsyncIndexer,
+    AsyncZolanaClient, BlockingIndexer, BlockingRpc, MergeSubmission, ProvedMerge,
+    SignedPrivateTransaction, Submission, UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+    MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use program_data::{program_data, ProgramData, PROGRAM_DATA_METADATA_LEN};
 pub use prover::timing;
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
@@ -55,6 +58,7 @@ pub use prover::{spawn_prover, ProverLaunch};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
+    MAX_ASSET_REGISTRY_ACCOUNTS,
 };
 pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;

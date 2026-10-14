@@ -18,6 +18,7 @@
 
 use std::collections::HashSet;
 
+use solana_account::Account;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -188,20 +189,22 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
         return Ok(SOL_ASSET_ID);
     }
     let not_registered = || ClientError::SplAssetNotRegistered { mint: asset };
-    let account = rpc
-        .get_account(pda::spl_asset_registry(&asset))?
-        .ok_or_else(not_registered)?;
-    // Only the pool can create an account at the registry address. Any other
-    // owner means lamports were sent there, not that the mint was registered.
+    let address = pda::spl_asset_registry(&asset);
+    let account = rpc.get_account(address)?.ok_or_else(not_registered)?;
+    // Any other owner means lamports were sent there, not that the mint was registered.
     if account.owner != PROGRAM_ID_PUBKEY {
         return Err(not_registered());
     }
-    let invalid = || ClientError::InvalidSplAssetRegistry { mint: asset };
-    let registry = SplAssetRegistry::from_account_bytes(&account.data).map_err(|_| invalid())?;
-    if registry.mint != asset {
-        return Err(invalid());
-    }
-    Ok(registry.asset_id)
+    registry_entry(&address, &account)
+        .map(|(asset_id, _)| asset_id)
+        .ok_or(ClientError::InvalidSplAssetRegistry { mint: asset })
+}
+
+/// The `(asset id, mint)` a pool-owned registry account at its mint's address records.
+pub(crate) fn registry_entry(address: &Address, account: &Account) -> Option<(u64, Address)> {
+    let registry = SplAssetRegistry::from_account_bytes(&account.data).ok()?;
+    (account.owner == PROGRAM_ID_PUBKEY && *address == pda::spl_asset_registry(&registry.mint))
+        .then_some((registry.asset_id, registry.mint))
 }
 
 /// What the rounds of one fetch read and decrypted.

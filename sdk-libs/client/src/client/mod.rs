@@ -37,6 +37,7 @@ use crate::{
     rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
 
+pub use confirmation::wait_for_indexed_transaction;
 pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
 pub use transaction::{SignedPrivateTransaction, Submission, UnsignedMessage};
 pub use validation::check_service_url;

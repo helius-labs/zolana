@@ -31,7 +31,10 @@ use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatu
 use zolana_client::{
     rpc::{compile_message, sign_transaction, ComputeBudgetConfig},
     AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc, SolanaRpc,
+    MAX_ASSET_REGISTRY_ACCOUNTS,
 };
+use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
+use zolana_transaction::{SOL_ASSET_ID, SOL_MINT};
 
 #[test]
 fn get_account_returns_none_for_missing_account() {
@@ -214,6 +217,71 @@ async fn async_filtered_query_decodes_matching_accounts() {
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].0, pubkey);
     assert_eq!(accounts[0].1.data, data);
+}
+
+fn registry_account(mint: Address, asset_id: u64) -> Value {
+    keyed_account(
+        &pda::spl_asset_registry(&mint),
+        &PROGRAM_ID_PUBKEY,
+        &SplAssetRegistry::account_bytes(mint, asset_id),
+    )
+}
+
+fn registry_rpc(accounts: Vec<Value>) -> SolanaRpc {
+    SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
+        "succeeds",
+        program_accounts_mocks(accounts),
+    ))
+}
+
+#[test]
+fn the_asset_registry_reads_every_registered_mint() {
+    let mint = Address::new_unique();
+    let registry = registry_rpc(vec![registry_account(mint, 9)])
+        .asset_registry()
+        .expect("registry");
+    assert_eq!(registry.asset_id(&mint).expect("mint"), 9);
+    assert_eq!(registry.asset_id(&SOL_MINT).expect("sol"), SOL_ASSET_ID);
+}
+
+/// An entry off its mint's address or owned elsewhere fails the read, never drops out.
+#[test]
+fn one_invalid_registry_account_fails_the_read() {
+    let mint = Address::new_unique();
+    let elsewhere = keyed_account(
+        &Address::new_unique(),
+        &PROGRAM_ID_PUBKEY,
+        &SplAssetRegistry::account_bytes(mint, 9),
+    );
+    let foreign = keyed_account(
+        &pda::spl_asset_registry(&mint),
+        &Address::new_unique(),
+        &SplAssetRegistry::account_bytes(mint, 9),
+    );
+    for invalid in [elsewhere, foreign] {
+        let error = registry_rpc(vec![registry_account(Address::new_unique(), 3), invalid])
+            .asset_registry()
+            .expect_err("invalid entry");
+        assert!(
+            matches!(error, ClientError::InvalidAssetRegistryAccount { .. }),
+            "{error:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_async_asset_registry_caps_its_accounts() {
+    let accounts = (0..=MAX_ASSET_REGISTRY_ACCOUNTS as u64)
+        .map(|asset_id| registry_account(Address::new_unique(), asset_id + 2))
+        .collect();
+    let rpc = AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks(
+        "succeeds".to_owned(),
+        program_accounts_mocks(accounts),
+    ));
+    assert!(matches!(
+        rpc.asset_registry().await,
+        Err(ClientError::AssetRegistryTooLarge { .. })
+    ));
 }
 
 /// A confirmed transaction with one inner instruction, as `getTransaction`

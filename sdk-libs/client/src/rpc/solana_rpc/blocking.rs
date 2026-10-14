@@ -18,10 +18,15 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
+use zolana_transaction::AssetRegistry;
+
 use crate::{error::ClientError, rpc::Rpc};
 
 use super::{
-    accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
+    accounts::{
+        asset_registry, asset_registry_query, filtered_program_accounts, pubkey_from_address,
+        ProgramAccountsFilter,
+    },
     transaction::{
         instruction_groups_from_confirmed_transaction,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
@@ -74,6 +79,12 @@ impl SolanaRpc {
             .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
             .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
         filtered_program_accounts(&program_id, filter, accounts)
+    }
+
+    /// Every SPL mint the pool registered, each read from its own registry address.
+    pub fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
+        let (program, filter) = asset_registry_query();
+        asset_registry(self.get_program_accounts_filtered(program, &filter)?)
     }
 
     pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {

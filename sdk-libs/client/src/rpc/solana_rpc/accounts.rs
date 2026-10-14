@@ -9,7 +9,16 @@ use solana_rpc_client::api::{
     response::UiAccount,
 };
 
-use crate::error::ClientError;
+use zolana_interface::{
+    state::{discriminator::SPL_ASSET_REGISTRY, SplAssetRegistry},
+    PROGRAM_ID_PUBKEY,
+};
+use zolana_transaction::AssetRegistry;
+
+use crate::{error::ClientError, scan::registry_entry};
+
+/// The most SPL mints a registry read accepts.
+pub const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramAccountsFilter {
@@ -95,4 +104,28 @@ pub(super) fn filtered_program_accounts(
 
 pub(super) fn pubkey_from_address(address: &Address) -> Pubkey {
     Pubkey::new_from_array(address.to_bytes())
+}
+
+pub(super) fn asset_registry_query() -> (Address, ProgramAccountsFilter) {
+    let filter =
+        ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);
+    (PROGRAM_ID_PUBKEY, filter)
+}
+
+/// One invalid registry account fails the whole read.
+pub(super) fn asset_registry(
+    accounts: Vec<(Address, Account)>,
+) -> Result<AssetRegistry, ClientError> {
+    if accounts.len() > MAX_ASSET_REGISTRY_ACCOUNTS {
+        return Err(ClientError::AssetRegistryTooLarge {
+            accounts: accounts.len(),
+        });
+    }
+    let mut registry = AssetRegistry::default();
+    for (address, account) in accounts {
+        let (asset_id, mint) = registry_entry(&address, &account)
+            .ok_or(ClientError::InvalidAssetRegistryAccount { address })?;
+        registry.insert(asset_id, mint)?;
+    }
+    Ok(registry)
 }
