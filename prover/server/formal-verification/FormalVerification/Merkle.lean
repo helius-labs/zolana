@@ -4,6 +4,7 @@ import FormalVerification.Lemmas
 import FormalVerification.FullField
 import FormalVerification.Poseidon
 import FormalVerification.RangeTree
+import FormalVerification.Collision
 import Mathlib
 
 open ZolanaProver (F Order Gates)
@@ -93,56 +94,82 @@ lemma InclusionProof_rw {roots leaves inPathIndices inPathElements k}:
     rw [←List.Vector.ofFn_get (v:=roots)] at hk
     exact hk
 
-theorem InclusionProof_correct [Fact (CollisionResistant poseidon₂)]  {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B}:
-  (∃inPathIndices proofs, InclusionProof (trees.map (·.root)) leaves inPathIndices proofs k) ↔
-  k (trees.map (·.root)) ∧ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i] := by
-  simp [InclusionProof_rw, MerkleTree.recoverAtFin_eq_root_iff_proof_and_item_correct]
-  intro
-  apply Iff.intro
-  . rintro ⟨_, _, hp⟩ i ir
-    have := hp i ir
-    rcases this with ⟨h, _, hp⟩
-    exact Exists.intro _ (Eq.symm hp)
-  . intro hp
-    have ⟨ind, indhp⟩ := Vector.exists_ofElems.mp fun (i : Fin B) => hp i.val ⟨by simp, And.intro i.prop (by simp [Nat.mod_one])⟩
-    use ind.map fun i => (⟨i.val, Nat.lt_trans i.prop (by decide)⟩: F)
-    use List.Vector.ofFn fun (i : Fin B) => (List.Vector.reverse $ trees[i.val].proofAtFin ind[i])
-    intro i ir
-    use by
-      simp only [List.Vector.getElem_map, ZMod.val, Order]
-      apply Fin.prop
-    simp [getElem]
-    apply And.intro
-    . rfl
-    . have := indhp i ir.2.1
-      simp [getElem] at this
-      rw [←this]
-      congr
+/-- The Merkle path an inclusion witness gives for `leaf` collides with `tree`. -/
+def InclusionCollision (tree : MerkleTree F poseidon₂ SD) (leaf ind : F) (path : List.Vector F SD) : Prop :=
+  ∃ hi : ind.val < 2^SD, tree.recoverCollision (Fin.toBitsBE ⟨ind.val, hi⟩) path.reverse leaf
+
+theorem InclusionProof_sound {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B}
+    {inPathIndices inPathElements k}
+    (h : InclusionProof (trees.map (·.root)) leaves inPathIndices inPathElements k) :
+    k (trees.map (·.root)) ∧ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i] ∨
+      InclusionCollision trees[i] leaves[i] inPathIndices[i] inPathElements[i] := by
+  rw [InclusionProof_rw] at h
+  refine ⟨h.1, fun i ir => ?_⟩
+  rcases h.2 i ir with ⟨hi, hrec⟩
+  simp only [List.Vector.getElem_map] at hrec
+  rcases MerkleTree.recoverAtFin_eq_root hrec with ⟨_, hitem⟩ | hcol
+  · exact Or.inl ⟨_, hitem.symm⟩
+  · exact Or.inr ⟨hi, hcol⟩
+
+theorem InclusionProof_complete {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B} {k}
+    (hk : k (trees.map (·.root))) (hmem : ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i]) :
+    ∃inPathIndices proofs, InclusionProof (trees.map (·.root)) leaves inPathIndices proofs k := by
+  have ⟨ind, indhp⟩ := Vector.exists_ofElems.mp fun (i : Fin B) => hmem i.val ⟨by simp, And.intro i.prop (by simp [Nat.mod_one])⟩
+  refine ⟨ind.map fun i => (⟨i.val, Nat.lt_trans i.prop (by decide)⟩: F),
+    List.Vector.ofFn fun (i : Fin B) => (List.Vector.reverse $ trees[i.val].proofAtFin ind[i]), ?_⟩
+  rw [InclusionProof_rw]
+  refine ⟨hk, fun i ir => ?_⟩
+  use by
+    simp only [List.Vector.getElem_map, ZMod.val, Order]
+    apply Fin.prop
+  have := indhp i ir.2.1
+  simp [getElem] at this ⊢
+  rw [←this]
+  exact MerkleTree.recoverAtFin_proofAtFin_itemAtFin
 
 -- The public input hash: the circuit chains each column, then chains the
 -- column hashes — the same compression the SPP transaction circuit applies.
 def hashChain : List.Vector F (d + 1) → F := fun v =>
   v.tail.toList.foldl (fun h l => poseidon₂ vec![h, l]) v.head
 
-lemma hashChain_body_inj [Fact (CollisionResistant poseidon₂)] {d : Nat} {a₁ a₂} {v₁ v₂ : List.Vector F d}:
-  v₁.toList.foldl (fun h l => poseidon₂ vec![h, l]) a₁ = v₂.toList.foldl (fun h l => poseidon₂ vec![h, l]) a₂ ↔
-  a₁ = a₂ ∧ v₁ = v₂ := by
+/-- Two chains of equal length hash distinct inputs to the same value at some step. -/
+def foldCollision : {d : Nat} → F → F → List.Vector F d → List.Vector F d → Prop
+  | 0, _, _, _, _ => False
+  | _ + 1, a₁, a₂, v₁, v₂ =>
+    Collision poseidon₂ vec![a₁, v₁.head] vec![a₂, v₂.head] ∨
+      foldCollision (poseidon₂ vec![a₁, v₁.head]) (poseidon₂ vec![a₂, v₂.head]) v₁.tail v₂.tail
+
+lemma hashChain_body_eq {d : Nat} {a₁ a₂} {v₁ v₂ : List.Vector F d}
+    (h : v₁.toList.foldl (fun h l => poseidon₂ vec![h, l]) a₁ = v₂.toList.foldl (fun h l => poseidon₂ vec![h, l]) a₂) :
+    (a₁ = a₂ ∧ v₁ = v₂) ∨ foldCollision a₁ a₂ v₁ v₂ := by
   induction d generalizing a₁ a₂ with
   | zero =>
     cases v₁ using List.Vector.casesOn
     cases v₂ using List.Vector.casesOn
-    simp
+    exact Or.inl ⟨h, rfl⟩
   | succ d ih =>
-    cases v₁ using List.Vector.casesOn
-    cases v₂ using List.Vector.casesOn
-    simp [ih, List.Vector.eq_cons]
-    tauto
+    cases v₁ using List.Vector.casesOn with | cons x₁ xs₁ =>
+    cases v₂ using List.Vector.casesOn with | cons x₂ xs₂ =>
+    simp only [List.Vector.toList_cons, List.foldl_cons] at h
+    rcases ih h with ⟨hacc, rfl⟩ | hcol
+    · rcases eq_or_collision hacc with hin | hcol
+      · simp only [List.Vector.eq_cons, and_true] at hin
+        exact Or.inl ⟨hin.1, by rw [hin.2]⟩
+      · exact Or.inr (Or.inl hcol)
+    · exact Or.inr (Or.inr hcol)
 
-theorem hashChain_injective [Fact (CollisionResistant poseidon₂)] {d:Nat} {v₁ v₂ : List.Vector F d.succ}:
-  hashChain v₁ = hashChain v₂ ↔ v₁ = v₂ := by
-  cases v₁ using List.Vector.casesOn
-  cases v₂ using List.Vector.casesOn
-  simp [hashChain, hashChain_body_inj, List.Vector.eq_cons]
+/-- The hash chains of two columns collide at some step. -/
+def hashChainCollision {d : Nat} (v₁ v₂ : List.Vector F (d + 1)) : Prop :=
+  foldCollision v₁.head v₂.head v₁.tail v₂.tail
+
+theorem hashChain_eq {d : Nat} {v₁ v₂ : List.Vector F d.succ} (h : hashChain v₁ = hashChain v₂) :
+    v₁ = v₂ ∨ hashChainCollision v₁ v₂ := by
+  cases v₁ using List.Vector.casesOn with | cons x₁ xs₁ =>
+  cases v₂ using List.Vector.casesOn with | cons x₂ xs₂ =>
+  simp only [hashChain, List.Vector.head_cons, List.Vector.tail_cons] at h
+  rcases hashChain_body_eq h with ⟨rfl, rfl⟩ | hcol
+  · exact Or.inl rfl
+  · exact Or.inr hcol
 
 theorem HashChainGadget_B_rw {v : List.Vector F B} {k : F → Prop}: HashChainGadget_B v k ↔ k (hashChain v) := by
   unfold HashChainGadget_B
@@ -158,11 +185,24 @@ theorem HashChainGadget_Two_rw {v : List.Vector F 2} {k : F → Prop}: HashChain
 
 def inputHash (l r : List.Vector F B) : F := hashChain vec![hashChain l, hashChain r]
 
-theorem inputHash_correct [Fact (CollisionResistant poseidon₂)] {l₁ r₁ l₂ r₂ : List.Vector F B}:
-    inputHash l₁ r₁ = inputHash l₂ r₂ ↔ l₁ = l₂ ∧ r₁ = r₂ := by
+/-- The public input hashes of two column pairs collide, in the outer hash or
+in one of the column chains. -/
+def inputHashCollision (l₁ r₁ l₂ r₂ : List.Vector F B) : Prop :=
+  Collision poseidon₂ vec![hashChain l₁, hashChain r₁] vec![hashChain l₂, hashChain r₂] ∨
+    hashChainCollision l₁ l₂ ∨ hashChainCollision r₁ r₂
+
+theorem inputHash_eq {l₁ r₁ l₂ r₂ : List.Vector F B} (h : inputHash l₁ r₁ = inputHash l₂ r₂) :
+    (l₁ = l₂ ∧ r₁ = r₂) ∨ inputHashCollision l₁ r₁ l₂ r₂ := by
   have hpair : ∀ (a b : F), hashChain vec![a, b] = poseidon₂ vec![a, b] := fun _ _ => rfl
-  simp only [inputHash, hpair, CollisionResistant_def, List.Vector.eq_cons, and_true]
-  simp [hashChain_injective]
+  simp only [inputHash, hpair] at h
+  rcases eq_or_collision h with hin | hcol
+  · simp only [List.Vector.eq_cons, and_true] at hin
+    rcases hashChain_eq hin.1 with rfl | hl
+    · rcases hashChain_eq hin.2 with rfl | hr
+      · exact Or.inl ⟨rfl, rfl⟩
+      · exact Or.inr (Or.inr (Or.inr hr))
+    · exact Or.inr (Or.inr (Or.inl hl))
+  · exact Or.inr (Or.inl hcol)
 
 theorem InclusionCircuit_rw:
     InclusionCircuit h roots leaves inPathIndices inPathElements ↔
@@ -171,62 +211,68 @@ theorem InclusionCircuit_rw:
   unfold InclusionCircuit
   simp only [HashChainGadget_B_rw, HashChainGadget_Two_rw, Gates, GatesGnark8, GatesGnark9, GatesGnark12, GatesDef.eq, inputHash]
 
-theorem InclusionCircuit_correct [Fact (CollisionResistant poseidon₂)] {ih : F} {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B}:
-  (∃inPathIndices proofs, InclusionCircuit ih (trees.map (·.root)) leaves inPathIndices proofs) ↔
-   ih = (inputHash (trees.map (·.root)) leaves) ∧ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i] := by
-  simp [InclusionCircuit_rw, InclusionProof_correct]
+theorem InclusionCircuit_sound {ih : F} {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B}
+    {inPathIndices proofs}
+    (h : InclusionCircuit ih (trees.map (·.root)) leaves inPathIndices proofs) :
+    ih = inputHash (trees.map (·.root)) leaves ∧ ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i] ∨
+      InclusionCollision trees[i] leaves[i] inPathIndices[i] proofs[i] := by
+  rw [InclusionCircuit_rw] at h
+  exact ⟨h.1, (InclusionProof_sound h.2).2⟩
 
-theorem AddressMerkleRootGadget_eq_rw [Fact (CollisionResistant poseidon₂)] {h i : F} {p : List.Vector F AD} {tree : MerkleTree F poseidon₂ AD} {k : F → Prop}:
-  (∃gate, Gates.to_binary i AD gate ∧ AddressMerkleRootGadget h gate p (fun r => Gates.eq r tree.root ∧ k r)) ↔ (∃(hi: i.val < 2^AD), h = tree.itemAtFin ⟨i.val, hi⟩ ∧ p.reverse = tree.proofAtFin ⟨i.val, hi⟩) ∧ k tree.root := by
-  rw [AddressInclusionProofStep_rw]
-  simp [and_comm]
+theorem InclusionCircuit_complete {trees : List.Vector (MerkleTree F poseidon₂ SD) B} {leaves : List.Vector F B}
+    (hmem : ∀i (_: i∈[0:B]), leaves[i] ∈ trees[i]) :
+    ∃inPathIndices proofs,
+      InclusionCircuit (inputHash (trees.map (·.root)) leaves) (trees.map (·.root)) leaves inPathIndices proofs := by
+  have ⟨inPathIndices, proofs, hp⟩ := InclusionProof_complete (k := fun _ => True) trivial hmem
+  exact ⟨inPathIndices, proofs, InclusionCircuit_rw.mpr ⟨rfl, hp⟩⟩
 
-theorem Range.hashOpt_eq_poseidon_iff_is_some {lo hi : F} {r : Option Range} [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)]:
-    (Range.hashOpt r = poseidon₂ vec![lo, hi]) ↔ ∃(h:r.isSome), lo = (r.get h).lo ∧ hi = (r.get h).hi := by
-  have : poseidon₂_no_zero_preimage := Fact.elim inferInstance
-  unfold poseidon₂_no_zero_preimage at this
-  apply Iff.intro
-  · intro h
-    cases r
-    · simp only [Range.hashOpt, Option.map, Option.getD] at h
-      rw [eq_comm] at h
-      have := this _ _ h
-      cases this
-    · simp only [Range.hashOpt, Option.map, Option.getD, Range.hash, CollisionResistant_def, List.Vector.eq_cons, and_true] at h
-      rcases h with ⟨hlo, hhi⟩
-      exact ⟨rfl, hlo.symm, hhi.symm⟩
-  · rintro ⟨h, rfl, rfl⟩
-    cases r
-    · cases h
-    · rfl
+/-- The non-inclusion witness for one value breaks Poseidon: its Merkle path
+collides with the range tree, or its low-leaf bounds `(lo, hi)` hash to the
+stored slot without being that slot's range. -/
+def NonInclusionCollision (ranges : RangeVector (2^AD)) (lo hi ind : F) (proof : List.Vector F AD) : Prop :=
+  ∃ hind : ind.val < 2^AD,
+    (rangeTree ranges).recoverCollision (Fin.toBitsBE ⟨ind.val, hind⟩) proof.reverse (poseidon₂ vec![lo, hi]) ∨
+      Range.hashCollision lo hi (ranges.ranges ⟨ind.val, hind⟩)
 
 /-- One item of the non-inclusion proof: the low leaf `poseidon₂(lo, hi)` is in
 the range tree at the given index, and the value is strictly inside `(lo, hi)`
 by the full-field ordering gadget. -/
-theorem NonInclusionStep_rw [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)]
-    {lo hi v ind : F} {proof : List.Vector F AD} {ranges : RangeVector (2^AD)} {k : F → Prop} :
-    (ZolanaProver.Poseidon_2 vec![lo, hi] (0:F) fun r =>
+theorem NonInclusionStep_sound
+    {lo hi v ind : F} {proof : List.Vector F AD} {ranges : RangeVector (2^AD)} {k : F → Prop}
+    (h : ZolanaProver.Poseidon_2 vec![lo, hi] (0:F) fun r =>
       ∃lv, Gates.to_binary ind AD lv ∧
       AddressMerkleRootGadget r lv proof fun root =>
-      Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered lo v hi ∧ k root)
-    ↔ ∃(range : Range) (hind : ind.val < 2^AD),
-        ranges.ranges ⟨ind.val, hind⟩ = some range ∧ lo = range.lo ∧ hi = range.hi ∧
-        proof.reverse = (rangeTree ranges).proofAtFin ⟨ind.val, hind⟩ ∧
-        v.val ∈ range ∧ k ranges.root := by
-  simp only [Poseidon_2_iff_uniqueAssignment, RangeVector.root]
-  rw [AddressMerkleRootGadget_eq_rw (tree := rangeTree ranges)]
-  simp only [rangeTree, MerkleTree.ofFn_itemAtFin, AssertStrictlyOrdered_rw]
-  apply Iff.intro
-  · rintro ⟨⟨hind, hhash, hproof⟩, ⟨hlo, hhi⟩, hk⟩
-    rw [eq_comm, Range.hashOpt_eq_poseidon_iff_is_some] at hhash
-    rcases hhash with ⟨hsome, hloeq, hhieq⟩
-    refine ⟨(ranges.ranges ⟨ind.val, hind⟩).get hsome, hind, by simp, hloeq, hhieq, by simpa [rangeTree] using hproof, ?_, hk⟩
-    refine ⟨?_, ?_⟩
-    · rw [←hloeq]; exact hlo
-    · rw [←hhieq]; exact hhi
-  · rintro ⟨range, hind, hrget, rfl, rfl, hproof, hmem, hk⟩
-    rcases hmem with ⟨hlomem, hhimem⟩
-    exact ⟨⟨hind, by rw [hrget]; rfl, by simpa [rangeTree] using hproof⟩, ⟨hlomem, hhimem⟩, hk⟩
+      Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered lo v hi ∧ k root) :
+    k ranges.root ∧ (v.val ∈ ranges ∨ NonInclusionCollision ranges lo hi ind proof) := by
+  simp only [Poseidon_2_iff_uniqueAssignment] at h
+  rw [AddressInclusionProofStep_rw] at h
+  rcases h with ⟨⟨hind, hrec⟩, hord, hk⟩
+  rw [AssertStrictlyOrdered_rw] at hord
+  refine ⟨hk, ?_⟩
+  rcases MerkleTree.recoverAtFin_eq_root (tree := rangeTree ranges) hrec with ⟨_, hleaf⟩ | hcol
+  · simp only [rangeTree, MerkleTree.ofFn_itemAtFin] at hleaf
+    rcases Range.hashOpt_eq hleaf with ⟨range, hsome, rfl, rfl⟩ | hcol
+    · exact Or.inl ⟨⟨ind.val, hind⟩, range, hord, hsome.symm⟩
+    · exact Or.inr ⟨hind, Or.inr hcol⟩
+  · exact Or.inr ⟨hind, Or.inl hcol⟩
+
+theorem NonInclusionStep_complete
+    {v ind : F} {proof : List.Vector F AD} {ranges : RangeVector (2^AD)} {k : F → Prop} {range : Range}
+    (hind : ind.val < 2^AD) (hsome : ranges.ranges ⟨ind.val, hind⟩ = some range)
+    (hproof : proof.reverse = (rangeTree ranges).proofAtFin ⟨ind.val, hind⟩)
+    (hmem : v.val ∈ range) (hk : k ranges.root) :
+    ZolanaProver.Poseidon_2 vec![range.lo, range.hi] (0:F) fun r =>
+      ∃lv, Gates.to_binary ind AD lv ∧
+      AddressMerkleRootGadget r lv proof fun root =>
+      Gates.eq root ranges.root ∧ ZolanaProver.AssertStrictlyOrdered range.lo v range.hi ∧ k root := by
+  simp only [Poseidon_2_iff_uniqueAssignment]
+  rw [AddressInclusionProofStep_rw, AssertStrictlyOrdered_rw]
+  refine ⟨⟨hind, ?_⟩, hmem, hk⟩
+  have hleaf : poseidon₂ vec![range.lo, range.hi] = (rangeTree ranges).itemAtFin ⟨ind.val, hind⟩ := by
+    simp only [rangeTree, MerkleTree.ofFn_itemAtFin, hsome]
+    rfl
+  rw [hproof, hleaf]
+  exact MerkleTree.recoverAtFin_proofAtFin_itemAtFin
 
 def NonInclusionProof_rec {n : Nat} (lo hi leaf inds roots : List.Vector F n) (proofs : List.Vector (List.Vector F AD) n) (k : List.Vector F n → Prop): Prop :=
   match n with
@@ -250,79 +296,72 @@ lemma NonInclusionProof_rec_equiv {lo hi leaf inds roots proofs k}:
      ]
   rfl
 
-theorem NonInclusionCircuit_rec_correct [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)] {n : Nat} {trees : List.Vector (RangeVector (2^AD)) n} {leaves : List.Vector F n} {k : List.Vector F n → Prop}:
-  (∃lo hi inds proofs, NonInclusionProof_rec lo hi leaves inds (trees.map (·.root)) proofs k) ↔
-  k (trees.map (·.root)) ∧ ∀i (_: i∈[0:n]), leaves[i].val ∈ trees[i] := by
-  unfold AD at *
+theorem NonInclusionProof_rec_sound {n : Nat} {trees : List.Vector (RangeVector (2^AD)) n}
+    {lo hi leaves inds : List.Vector F n} {proofs : List.Vector (List.Vector F AD) n} {k : List.Vector F n → Prop}
+    (h : NonInclusionProof_rec lo hi leaves inds (trees.map (·.root)) proofs k) :
+    k (trees.map (·.root)) ∧ ∀i (_: i∈[0:n]), leaves[i].val ∈ trees[i] ∨
+      NonInclusionCollision trees[i] lo[i] hi[i] inds[i] proofs[i] := by
   induction n with
   | zero =>
     cases trees using List.Vector.casesOn
-    simp [NonInclusionProof_rec]
-    intro _ _ k
-    linarith [k.2]
+    refine ⟨by simpa [NonInclusionProof_rec] using h, fun i ir => ?_⟩
+    exact absurd ir.2.1 (Nat.not_lt_zero _)
   | succ n ih =>
-    apply Iff.intro
-    . intro ⟨lo, hi, inds, proofs, hp⟩
-      cases lo using List.Vector.casesOn with | cons hlo tlo =>
-      cases hi using List.Vector.casesOn with | cons hhi thi =>
-      cases leaves using List.Vector.casesOn with | cons hleaf tleaf =>
-      cases inds using List.Vector.casesOn with | cons hinds tinds =>
-      cases proofs using List.Vector.casesOn with | cons hproof tproof =>
-      cases trees using List.Vector.casesOn with | cons htree ttree =>
-      -- `simp [NonInclusionStep_rw]` would not fire: the default-simp lemma
-      -- `Poseidon_2_iff_uniqueAssignment` rewrites the head first and destroys
-      -- the pattern. Unfold one step, then rewrite with the step lemma directly.
-      simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons,
-        List.Vector.map_cons] at hp
-      rw [NonInclusionStep_rw] at hp
-      rcases hp with ⟨range, hind, hsome, ⟨_⟩, ⟨_⟩, hproof, hmem, hp⟩
-      have := ih.mp $ Exists.intro _ $ Exists.intro _ $ Exists.intro _ $ Exists.intro _ hp
-      rcases this with ⟨hl, hr⟩
-      apply And.intro
-      . simpa [*]
-      . intro i ir
-        cases i with
-        | zero =>
-          simp [Membership.mem]
-          exact ⟨⟨hinds.val, hind⟩, range, hmem, hsome.symm⟩
-        | succ i =>
-          rcases ir with ⟨l, r⟩
-          simp
-          exact hr i ⟨by simp, by simp [Nat.mod_one]; linarith⟩
-    . intro ⟨hk, hmem⟩
-      cases trees using List.Vector.casesOn with | cons htree ttree =>
-      cases leaves using List.Vector.casesOn with | cons hleaf tleaf =>
-      have := (ih (trees := ttree) (leaves := tleaf) (k := fun roots => k $ htree.root ::ᵥ roots)).mpr $ by
-        simp at hk
-        apply And.intro hk
+    cases lo using List.Vector.casesOn with | cons hlo tlo =>
+    cases hi using List.Vector.casesOn with | cons hhi thi =>
+    cases leaves using List.Vector.casesOn with | cons hleaf tleaf =>
+    cases inds using List.Vector.casesOn with | cons hinds tinds =>
+    cases proofs using List.Vector.casesOn with | cons hproof tproof =>
+    cases trees using List.Vector.casesOn with | cons htree ttree =>
+    -- `simp [NonInclusionStep_sound]` would not fire: the default-simp lemma
+    -- `Poseidon_2_iff_uniqueAssignment` rewrites the head first and destroys
+    -- the pattern. Unfold one step, then apply the step lemma directly.
+    simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons,
+      List.Vector.map_cons] at h
+    obtain ⟨hk, hstep⟩ := NonInclusionStep_sound h
+    obtain ⟨hk, hrest⟩ := ih hk
+    refine ⟨by simpa using hk, fun i ir => ?_⟩
+    cases i with
+    | zero => simpa using hstep
+    | succ i =>
+      rcases ir with ⟨l, r⟩
+      simpa using hrest i ⟨by simp, by simp [Nat.mod_one]; linarith⟩
+
+theorem NonInclusionProof_rec_complete {n : Nat} {trees : List.Vector (RangeVector (2^AD)) n}
+    {leaves : List.Vector F n} {k : List.Vector F n → Prop}
+    (hk : k (trees.map (·.root))) (hmem : ∀i (_: i∈[0:n]), leaves[i].val ∈ trees[i]) :
+    ∃lo hi inds proofs, NonInclusionProof_rec lo hi leaves inds (trees.map (·.root)) proofs k := by
+  induction n with
+  | zero =>
+    cases trees using List.Vector.casesOn
+    exact ⟨List.Vector.nil, List.Vector.nil, List.Vector.nil, List.Vector.nil, by simpa [NonInclusionProof_rec] using hk⟩
+  | succ n ih =>
+    cases trees using List.Vector.casesOn with | cons htree ttree =>
+    cases leaves using List.Vector.casesOn with | cons hleaf tleaf =>
+    have := ih (trees := ttree) (leaves := tleaf) (k := fun roots => k $ htree.root ::ᵥ roots)
+      (by simpa using hk)
+      (by
         intro i ir
         have := hmem (i+1) ⟨by simp, by simp [Nat.mod_one]; linarith [ir.2]⟩
         simp at this
-        exact this
-      rcases this with ⟨lo, hi, inds, proofs, hp⟩
-      have := hmem 0 ⟨by simp, by simp⟩
-      simp at this
-      rcases this with ⟨ix, r, hmem0, hsome⟩
-      simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons, List.Vector.map_cons]
-      use r.lo ::ᵥ lo
-      use r.hi ::ᵥ hi
-      use (↑ix.val : F) ::ᵥ inds
-      use ((rangeTree htree).proofAtFin ix).reverse ::ᵥ proofs
-      rw [NonInclusionStep_rw]
-      use r
-      have hvix : (ZMod.val (ix.val : F)) = ix.val := by
-        rw [ZMod.val_natCast, Nat.mod_eq_of_lt]
-        exact Nat.lt_trans ix.prop (by decide)
-      have hind : (ZMod.val (ix.val : F)) < 2^40 := by rw [hvix]; exact ix.prop
-      use hind
-      refine ⟨?_, rfl, rfl, ?_, hmem0, ?_⟩
-      · refine Eq.trans (congrArg htree.ranges (Fin.eq_of_val_eq ?_)) hsome.symm
-        simpa using hvix
-      · simp
-        congr 1
-        apply Fin.eq_of_val_eq
-        simpa using hvix.symm
-      · simpa using hp
+        exact this)
+    rcases this with ⟨lo, hi, inds, proofs, hp⟩
+    have := hmem 0 ⟨by simp, by simp⟩
+    simp at this
+    rcases this with ⟨ix, r, hmem0, hsome⟩
+    have hvix : (ZMod.val (ix.val : F)) = ix.val := by
+      rw [ZMod.val_natCast, Nat.mod_eq_of_lt]
+      exact Nat.lt_trans ix.prop (by decide)
+    have hind : (ZMod.val (ix.val : F)) < 2^AD := by rw [hvix]; exact ix.prop
+    refine ⟨r.lo ::ᵥ lo, r.hi ::ᵥ hi, (↑ix.val : F) ::ᵥ inds, ((rangeTree htree).proofAtFin ix).reverse ::ᵥ proofs, ?_⟩
+    simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons, List.Vector.map_cons]
+    refine NonInclusionStep_complete hind ?_ ?_ hmem0 (by simpa using hp)
+    · refine Eq.trans (congrArg htree.ranges (Fin.eq_of_val_eq ?_)) hsome.symm
+      simpa using hvix
+    · simp
+      congr 1
+      apply Fin.eq_of_val_eq
+      simpa using hvix.symm
 
 theorem NonInclusionCircuit_rw:
     NonInclusionCircuit h roots values lo hi inds proofs ↔
@@ -331,14 +370,17 @@ theorem NonInclusionCircuit_rw:
   unfold NonInclusionCircuit
   simp only [HashChainGadget_B_rw, HashChainGadget_Two_rw, Gates, GatesGnark8, GatesGnark9, GatesGnark12, GatesDef.eq, inputHash]
 
-theorem NonInclusionCircuit_correct [Fact poseidon₂_no_zero_preimage] [Fact (CollisionResistant poseidon₂)] {trees : List.Vector (RangeVector (2^AD)) B} {leaves : List.Vector F B}:
-    (∃lo hi inds proofs, NonInclusionCircuit h (trees.map (·.root)) leaves lo hi inds proofs) ↔
-    h = inputHash (trees.map (·.root)) leaves ∧ ∀i (_: i∈[0:B]), leaves[i].val ∈ trees[i] := by
-  simp only [NonInclusionCircuit_rw, ←NonInclusionProof_rec_equiv]
-  apply Iff.intro
-  · rintro ⟨lo, hi, inds, proofs, hh, hp⟩
-    exact ⟨hh, (NonInclusionCircuit_rec_correct.mp ⟨lo, hi, inds, proofs, hp⟩).2⟩
-  · rintro ⟨hh, hp⟩
-    have := (NonInclusionCircuit_rec_correct (k := fun _ => True)).mpr ⟨trivial, hp⟩
-    rcases this with ⟨lo, hi, inds, proofs, hp⟩
-    exact ⟨lo, hi, inds, proofs, hh, hp⟩
+theorem NonInclusionCircuit_sound {ih : F} {trees : List.Vector (RangeVector (2^AD)) B}
+    {leaves lo hi inds : List.Vector F B} {proofs : List.Vector (List.Vector F AD) B}
+    (h : NonInclusionCircuit ih (trees.map (·.root)) leaves lo hi inds proofs) :
+    ih = inputHash (trees.map (·.root)) leaves ∧ ∀i (_: i∈[0:B]), leaves[i].val ∈ trees[i] ∨
+      NonInclusionCollision trees[i] lo[i] hi[i] inds[i] proofs[i] := by
+  rw [NonInclusionCircuit_rw, ←NonInclusionProof_rec_equiv] at h
+  exact ⟨h.1, (NonInclusionProof_rec_sound h.2).2⟩
+
+theorem NonInclusionCircuit_complete {trees : List.Vector (RangeVector (2^AD)) B} {leaves : List.Vector F B}
+    (hmem : ∀i (_: i∈[0:B]), leaves[i].val ∈ trees[i]) :
+    ∃lo hi inds proofs,
+      NonInclusionCircuit (inputHash (trees.map (·.root)) leaves) (trees.map (·.root)) leaves lo hi inds proofs := by
+  have ⟨lo, hi, inds, proofs, hp⟩ := NonInclusionProof_rec_complete (k := fun _ => True) trivial hmem
+  exact ⟨lo, hi, inds, proofs, NonInclusionCircuit_rw.mpr ⟨rfl, NonInclusionProof_rec_equiv.mp hp⟩⟩
