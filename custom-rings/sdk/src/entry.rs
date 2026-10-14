@@ -750,3 +750,7 @@ impl NamespaceWrite<'_> {
 pub(crate) fn zero_nullifier_key() -> NullifierKey {
     NullifierKey::from_secret([0; 31])
 }
+
+#[cfg(test)]
+#[path = "tests/entry.rs"]
+mod tests;

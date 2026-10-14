@@ -2198,6 +2198,7 @@ dependencies = [
  "solana-message",
  "solana-pubkey 4.2.1",
  "solana-rpc-client",
+ "solana-rpc-client-api",
  "solana-signature",
  "solana-signer",
  "solana-transaction",

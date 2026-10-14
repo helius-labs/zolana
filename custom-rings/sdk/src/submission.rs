@@ -402,3 +402,7 @@ fn retryable(error: &TransactionError, window_advanced: bool) -> bool {
         || (window_advanced
             && ring_error(error) == Some(CustomRingError::ProofVerificationFailed as u32))
 }
+
+#[cfg(test)]
+#[path = "tests/submission.rs"]
+mod tests;

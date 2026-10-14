@@ -259,7 +259,7 @@ impl Owner<'_> {
     }
 }
 
-fn check_record_tree_count(
+pub(super) fn check_record_tree_count(
     transaction: &ConfidentialTransaction,
     record_tree: u16,
 ) -> Result<(), RingError> {

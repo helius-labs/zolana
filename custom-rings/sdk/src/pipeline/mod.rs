@@ -623,3 +623,7 @@ impl ProvenRingTransfer {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/pipeline.rs"]
+mod tests;

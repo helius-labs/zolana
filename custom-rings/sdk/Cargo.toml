@@ -55,6 +55,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 
 [[test]]

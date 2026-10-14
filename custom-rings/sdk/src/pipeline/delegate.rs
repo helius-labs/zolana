@@ -216,7 +216,7 @@ impl Delegated<'_> {
 
 /// Pads to the smallest square width, dummy outputs name a recipient and the ring,
 /// dummy inputs sit under the last declared tree.
-fn pad(
+pub(super) fn pad(
     inputs: &mut Vec<SppProofInputUtxo>,
     outputs: &mut Vec<SppProofOutputUtxo>,
     program: Address,
@@ -267,7 +267,7 @@ fn pad(
 }
 
 /// Every asset moved in equals the asset moved out.
-fn check_balance(
+pub(super) fn check_balance(
     inputs: &[SppProofInputUtxo],
     outputs: &[SppProofOutputUtxo],
 ) -> Result<(), RingError> {

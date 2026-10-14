@@ -18,6 +18,8 @@ mod prover;
 mod request;
 mod spend;
 mod submission;
+#[cfg(test)]
+mod tests;
 mod transact_ix;
 mod trees;
 mod velocity;

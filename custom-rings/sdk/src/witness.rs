@@ -750,3 +750,7 @@ fn output_opening(
 fn ring_field(ring: Option<&solana_address::Address>) -> Result<[u8; 32], RingError> {
     ring.map_or(Ok([0; 32]), |address| Ok(hash_bytes(address.as_array())?))
 }
+
+#[cfg(test)]
+#[path = "tests/witness.rs"]
+mod tests;
