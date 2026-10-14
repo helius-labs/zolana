@@ -17,6 +17,9 @@ Breaking
 - `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
   through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
   refuses `"prover"` → set `proverUrl` to keep another prover.
+- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys, so
+  `ProverClient` rejects a ring proof from a prover on the previous keys with
+  `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
 
 Added
 
