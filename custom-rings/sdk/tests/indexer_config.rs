@@ -1,5 +1,5 @@
 //! `ReadEntry` and `ReadSpendRecord` pass their indexer config to every
-//! request of the lineage walk, sync and async.
+//! request of the lineage walk.
 
 use std::sync::Mutex;
 
@@ -8,7 +8,7 @@ use custom_ring_sdk::{CustomRing, ReadEntry, ReadSpendRecord};
 use solana_address::Address;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, ClientError, Context,
-    IndexerRpcConfig, Rpc,
+    IndexerRpcConfig,
 };
 use zolana_ring_policy::{ListId, Member};
 
@@ -43,18 +43,6 @@ impl Indexer {
     }
 }
 
-impl Rpc for Indexer {
-    fn get_shielded_transactions_by_nullifiers(
-        &self,
-        _nullifiers: Vec<[u8; 32]>,
-        _cursor: Option<Vec<u8>>,
-        _limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        Ok(self.read(config))
-    }
-}
-
 #[async_trait]
 impl AsyncRpc for Indexer {
     async fn get_shielded_transactions_by_nullifiers(
@@ -84,44 +72,31 @@ fn spend_record() -> ReadSpendRecord {
     )
 }
 
-#[test]
-fn an_entry_read_requires_the_slot_of_its_indexer_config() {
+#[tokio::test]
+async fn an_entry_read_requires_the_slot_of_its_indexer_config() {
     let indexer = Indexer::default();
     let config = IndexerRpcConfig::at_slot(42);
 
-    assert_eq!(entry().read(&indexer).expect("read"), None);
+    assert_eq!(entry().read(&indexer).await.expect("read"), None);
     assert_eq!(indexer.required_slots(), vec![None]);
 
-    assert_eq!(
-        entry()
-            .with_indexer_config(config)
-            .read(&indexer)
-            .expect("read"),
-        None
-    );
-    let read_async = entry().with_indexer_config(config).read_async(&indexer);
-    assert_eq!(futures::executor::block_on(read_async).expect("read"), None);
-    assert_eq!(indexer.required_slots(), vec![Some(42), Some(42)]);
+    let read = entry().with_indexer_config(config).read(&indexer).await;
+    assert_eq!(read.expect("read"), None);
+    assert_eq!(indexer.required_slots(), vec![Some(42)]);
 }
 
-#[test]
-fn a_spend_record_read_requires_the_slot_of_its_indexer_config() {
+#[tokio::test]
+async fn a_spend_record_read_requires_the_slot_of_its_indexer_config() {
     let indexer = Indexer::default();
     let config = IndexerRpcConfig::at_slot(42);
 
-    assert!(spend_record().read(&indexer).expect("read").is_none());
+    assert!(spend_record().read(&indexer).await.expect("read").is_none());
     assert_eq!(indexer.required_slots(), vec![None]);
 
-    assert!(spend_record()
+    let read = spend_record()
         .with_indexer_config(config)
         .read(&indexer)
-        .expect("read")
-        .is_none());
-    let read_async = spend_record()
-        .with_indexer_config(config)
-        .read_async(&indexer);
-    assert!(futures::executor::block_on(read_async)
-        .expect("read")
-        .is_none());
-    assert_eq!(indexer.required_slots(), vec![Some(42), Some(42)]);
+        .await;
+    assert!(read.expect("read").is_none());
+    assert_eq!(indexer.required_slots(), vec![Some(42)]);
 }

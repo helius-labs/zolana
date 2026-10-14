@@ -4,16 +4,15 @@
 //! `custom-rings/program/tests/common/mod.rs`.
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
-use custom_ring_interface::{PlainGroth16Proof, SetCoSignerIxData, SetPausedIxData, SourceSpec};
+use custom_ring_interface::{
+    CreateConfigIxData, CustomRingTransactIxData, PlainGroth16Proof, PolicyTableIxData,
+    ReaderIxData, SetCoSignerIxData, SetPausedIxData, SourceSpec, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED,
+};
 use custom_ring_sdk::{
-    tag, ClearCoSigner, ClearSpendWindow, CoSignScope, CoSignThreshold, CreateConfig,
-    CreateConfigIxData, CreateKeyRegistryRoot, CreatePolicy, CustomRing,
-    CustomRingDelegateTransact, CustomRingProof, CustomRingTransact, CustomRingTransactIxData,
-    Deposit, DepositInstructionError, EntryError, EscrowBinding, GrantReadAccess,
-    InitSppRingConfig, PolicyReads, PolicyTableIxData, PolicyTreeContext, ReaderIxData, ReaderKey,
-    ReaderKeyError, RevokeReadAccess, SetAuthority, SetCoSigner, SetDelegate, SetPaused,
-    SetPolicyRules, SetSpendWindow, TransactInstructionError, CONFIG_PDA_SEED,
-    READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, tag, CoSignScope, CoSignThreshold, CustomRing, CustomRingDelegateTransact,
+    CustomRingProof, CustomRingTransact, Deposit, EscrowBinding, InstructionTag, PolicyReads,
+    PolicyTreeContext, RingError, SetSpendWindow,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -32,6 +31,7 @@ use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
 };
+use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_ring_policy::{ListId, ListSet, Rule, RuleTable, Subject, MAX_INLINE_ASSETS};
 
 /// The system program is the all-zero address.
@@ -80,15 +80,9 @@ fn split_tag(instruction: &Instruction) -> (u8, &[u8]) {
 fn create_config_emits_the_program_account_order_and_auditor_key() {
     let auditor_pubkey = auditor_pubkey();
 
-    let instruction = CreateConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        auditor_pubkey,
-        has_policy: true,
-    }
-    .instruction()
-    .expect("instruction");
+    let instruction = ring()
+        .create_config(payer(), authority(), auditor_pubkey, true)
+        .expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -118,30 +112,14 @@ fn create_config_rejects_reserved_auditor_keys() {
         zolana_interface::P_PDA_SEC1,
     ] {
         let auditor_pubkey = P256Pubkey::from_bytes(bytes).expect("reserved point");
-        let result = CreateConfig {
-            ring: ring(),
-            payer: payer(),
-            authority: authority(),
-            auditor_pubkey,
-            has_policy: true,
-        }
-        .instruction();
-        assert!(matches!(
-            result,
-            Err(custom_ring_sdk::CreateConfigError::ReservedAuditorKey)
-        ));
+        let result = ring().create_config(payer(), authority(), auditor_pubkey, true);
+        assert!(matches!(result, Err(RingError::ReservedAuditorKey)));
     }
 }
 
 #[test]
 fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
-    let instruction = InitSppRingConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        has_policy: false,
-    }
-    .instruction();
+    let instruction = ring().init_spp_ring_config(payer(), authority(), false);
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -163,20 +141,8 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
 
 #[test]
 fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
-    let audit_only = InitSppRingConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        has_policy: false,
-    }
-    .instruction();
-    let policy = InitSppRingConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        has_policy: true,
-    }
-    .instruction();
+    let audit_only = ring().init_spp_ring_config(payer(), authority(), false);
+    let policy = ring().init_spp_ring_config(payer(), authority(), true);
 
     assert_eq!(audit_only.accounts.len(), 7);
     assert_eq!(policy.accounts.len(), 8);
@@ -190,12 +156,7 @@ fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
 
 #[test]
 fn create_key_registry_root_emits_the_program_account_order_and_no_body() {
-    let instruction = CreateKeyRegistryRoot {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-    }
-    .instruction();
+    let instruction = ring().create_key_registry_root(payer(), authority());
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(instruction.data, vec![tag::CREATE_KEY_REGISTRY_ROOT]);
     assert_eq!(
@@ -227,14 +188,9 @@ fn p256_reader() -> ReaderKey {
 
 #[test]
 fn grant_read_access_emits_the_program_account_order_and_reader() {
-    let instruction = GrantReadAccess {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        reader: reader(),
-    }
-    .instruction()
-    .expect("instruction");
+    let instruction = ring()
+        .grant_read_access(payer(), authority(), reader())
+        .expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -311,14 +267,9 @@ fn reserved_p256_reader_key_is_rejected() {
 #[test]
 fn revoke_read_access_emits_the_program_account_order_and_reader() {
     let rent_recipient = Address::new_from_array([24; 32]);
-    let instruction = RevokeReadAccess {
-        ring: ring(),
-        authority: authority(),
-        reader: reader(),
-        rent_recipient,
-    }
-    .instruction()
-    .expect("instruction");
+    let instruction = ring()
+        .revoke_read_access(authority(), reader(), rent_recipient)
+        .expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -340,12 +291,7 @@ fn revoke_read_access_emits_the_program_account_order_and_reader() {
 #[test]
 fn set_authority_emits_both_signers_and_the_config() {
     let new_authority = Address::new_from_array([31; 32]);
-    let instruction = SetAuthority {
-        ring: ring(),
-        authority: authority(),
-        new_authority,
-    }
-    .instruction();
+    let instruction = ring().set_authority(authority(), new_authority);
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -362,13 +308,7 @@ fn set_authority_emits_both_signers_and_the_config() {
 #[test]
 fn set_paused_emits_the_authority_the_ring_auth_and_spp() {
     for paused in [true, false] {
-        let instruction = SetPaused {
-            ring: ring(),
-            authority: authority(),
-            paused,
-        }
-        .instruction()
-        .expect("instruction");
+        let instruction = ring().set_paused(authority(), paused).expect("instruction");
 
         assert_eq!(instruction.program_id, ring().program_id());
         assert_eq!(
@@ -387,7 +327,7 @@ fn set_paused_emits_the_authority_the_ring_auth_and_spp() {
         assert_eq!(decoded.paused, u8::from(paused));
         assert_eq!(instruction.data, vec![tag::SET_PAUSED, u8::from(paused)]);
     }
-    assert_eq!(SET_PAUSED_COMPUTE_UNIT_LIMIT, 50_000);
+    assert_eq!(compute_unit_limit(InstructionTag::SetPaused), 50_000);
 }
 
 #[test]
@@ -421,27 +361,15 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     assert_eq!(ring().ring_auth_pda(), ring_auth);
     assert_eq!(ring().program_data_pda(), program_data);
 
-    let create_config = CreateConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        auditor_pubkey: auditor_pubkey(),
-        has_policy: true,
-    }
-    .instruction()
-    .expect("instruction");
+    let create_config = ring()
+        .create_config(payer(), authority(), auditor_pubkey(), true)
+        .expect("instruction");
     assert_eq!(
         create_config.accounts.get(2).expect("config meta").pubkey,
         config
     );
 
-    let init = InitSppRingConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        has_policy: false,
-    }
-    .instruction();
+    let init = ring().init_spp_ring_config(payer(), authority(), false);
     assert_eq!(
         init.accounts.get(4).expect("ring_auth meta").pubkey,
         ring_auth
@@ -470,13 +398,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
 /// marked it a signer would make every transaction unsignable.
 #[test]
 fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
-    let init = InitSppRingConfig {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        has_policy: false,
-    }
-    .instruction();
+    let init = ring().init_spp_ring_config(payer(), authority(), false);
     let init_ring_auth = init.accounts.get(4).expect("ring_auth meta");
     assert!(!init_ring_auth.is_signer);
     // SPP allocates its RingConfig into the account, so the outer instruction must
@@ -618,22 +540,14 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
         escrowed.accounts[5],
         AccountMeta::new(ring().spend_window_pda(&Address::default()), false)
     );
-    assert!(matches!(
-        build(None),
-        Err(DepositInstructionError::AuditRequired)
-    ));
+    assert!(matches!(build(None), Err(RingError::AuditRequired)));
 }
 
 #[test]
 fn deposit_audit_setting_names_its_authority_and_canonical_pda() {
-    let instruction = custom_ring_sdk::SetDepositAudit {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        required: true,
-    }
-    .instruction()
-    .unwrap();
+    let instruction = ring()
+        .set_deposit_audit(payer(), authority(), true)
+        .unwrap();
     assert_eq!(instruction.data, vec![tag::SET_DEPOSIT_AUDIT, 1]);
     assert_eq!(
         instruction.accounts,
@@ -926,7 +840,7 @@ fn a_revocation_outside_the_policy_trees_is_refused() {
     .instruction();
     assert!(matches!(
         refused,
-        Err(TransactInstructionError::RevocationTree {
+        Err(RingError::RevocationTree {
             slot: 1,
             index: 2,
             trees: 2
@@ -1093,27 +1007,18 @@ const TABLE: RuleTable = RuleTable::builder()
     .inline_assets(&[ASSET])
     .build();
 
-fn create_policy(rules: &RuleTable, shared_sources: Vec<(ListId, CustomRing)>) -> CreatePolicy<'_> {
-    CreatePolicy {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        address_tree: address_tree(),
-        rules,
-        shared_sources,
-    }
+fn create_policy(
+    rules: &RuleTable,
+    shared_sources: Vec<(ListId, CustomRing)>,
+) -> Result<Instruction, RingError> {
+    ring().create_policy(payer(), authority(), address_tree(), rules, &shared_sources)
 }
 
 fn set_policy_rules(
     rules: &RuleTable,
     shared_sources: Vec<(ListId, CustomRing)>,
-) -> SetPolicyRules<'_> {
-    SetPolicyRules {
-        ring: ring(),
-        authority: authority(),
-        rules,
-        shared_sources,
-    }
+) -> Result<Instruction, RingError> {
+    ring().set_policy_rules(authority(), rules, &shared_sources)
 }
 
 fn policy_body(instruction: &Instruction, expected_tag: u8) -> PolicyTableIxData {
@@ -1131,9 +1036,8 @@ fn spec(list_id: ListId, source: u8) -> SourceSpec {
 
 #[test]
 fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
-    let instruction = create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
-        .instruction()
-        .expect("instruction");
+    let instruction =
+        create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)]).expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -1172,12 +1076,9 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
 
 #[test]
 fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
-    let created = create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
-        .instruction()
-        .expect("create");
-    let instruction = set_policy_rules(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
-        .instruction()
-        .expect("instruction");
+    let created = create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)]).expect("create");
+    let instruction =
+        set_policy_rules(&TABLE, vec![(ListId::Frozen, CURATOR_A)]).expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -1203,10 +1104,8 @@ fn curators_are_indexed_once_in_first_use_order() {
         (ListId::Allow, CURATOR_B),
     ];
     for instruction in [
-        create_policy(&TABLE, shared.clone())
-            .instruction()
-            .expect("create"),
-        set_policy_rules(&TABLE, shared).instruction().expect("set"),
+        create_policy(&TABLE, shared.clone()).expect("create"),
+        set_policy_rules(&TABLE, shared).expect("set"),
     ] {
         let curators: Vec<Address> = instruction
             .accounts
@@ -1236,12 +1135,12 @@ fn curators_are_indexed_once_in_first_use_order() {
 #[test]
 fn a_shared_source_the_table_does_not_reference_is_refused() {
     assert!(matches!(
-        create_policy(&TABLE, vec![(ListId::Block, CURATOR_A)]).instruction(),
-        Err(EntryError::UnreferencedList(ListId::Block))
+        create_policy(&TABLE, vec![(ListId::Block, CURATOR_A)]),
+        Err(RingError::UnreferencedList(ListId::Block))
     ));
     assert!(matches!(
-        set_policy_rules(&TABLE, vec![(ListId::Block, CURATOR_A)]).instruction(),
-        Err(EntryError::UnreferencedList(ListId::Block))
+        set_policy_rules(&TABLE, vec![(ListId::Block, CURATOR_A)]),
+        Err(RingError::UnreferencedList(ListId::Block))
     ));
 }
 
@@ -1277,14 +1176,13 @@ fn the_largest_pin_is_past_a_legacy_packet_and_inside_a_v1_transaction() {
         })
         .collect();
 
-    let instruction = create_policy(&full, curated.clone())
-        .instruction()
-        .expect("the largest pin fits a v1 transaction");
+    let instruction =
+        create_policy(&full, curated.clone()).expect("the largest pin fits a v1 transaction");
     // The payer and the upgrade authority sign it.
     let measured = transaction_size(
         &payer(),
         core::slice::from_ref(&instruction),
-        ComputeBudgetConfig::new(custom_ring_interface::CREATE_POLICY_COMPUTE_UNIT_LIMIT),
+        ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::CreatePolicy)),
     )
     .expect("the pin compiles into a v1 message");
     assert!(
@@ -1293,36 +1191,32 @@ fn the_largest_pin_is_past_a_legacy_packet_and_inside_a_v1_transaction() {
     );
     assert!(measured.bytes <= MAX_TRANSACTION_SIZE);
     assert!(measured.fits());
-    create_policy(&full, Vec::new())
-        .instruction()
-        .expect("own sources fit");
-    set_policy_rules(&full, curated)
-        .instruction()
-        .expect("the re-pin carries no payer, tree or system account");
+    create_policy(&full, Vec::new()).expect("own sources fit");
+    set_policy_rules(&full, curated).expect("the re-pin carries no payer, tree or system account");
 }
 
 #[test]
 fn set_cosigner_creates_or_replaces_under_the_config_authority() {
     let signer = Address::new_from_array([37; 32]);
-    let instruction = SetCoSigner {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        signer,
-        scope: CoSignScope::WITHDRAWALS,
-        thresholds: vec![
-            CoSignThreshold {
-                mint: Address::default(),
-                amount: 10,
-            },
-            CoSignThreshold {
-                mint: Address::new_from_array([60; 32]),
-                amount: 20,
-            },
-        ],
-    }
-    .instruction()
-    .expect("instruction");
+    let thresholds = [
+        CoSignThreshold {
+            mint: Address::default(),
+            amount: 10,
+        },
+        CoSignThreshold {
+            mint: Address::new_from_array([60; 32]),
+            amount: 20,
+        },
+    ];
+    let instruction = ring()
+        .set_cosigner(
+            payer(),
+            authority(),
+            signer,
+            CoSignScope::WITHDRAWALS,
+            &thresholds,
+        )
+        .expect("instruction");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -1349,12 +1243,7 @@ fn set_cosigner_creates_or_replaces_under_the_config_authority() {
 #[test]
 fn clear_cosigner_closes_into_the_rent_recipient() {
     let rent_recipient = Address::new_from_array([38; 32]);
-    let instruction = ClearCoSigner {
-        ring: ring(),
-        authority: authority(),
-        rent_recipient,
-    }
-    .instruction();
+    let instruction = ring().clear_cosigner(authority(), rent_recipient);
 
     assert_eq!(
         instruction.accounts,
@@ -1407,13 +1296,7 @@ fn set_spend_window_creates_or_replaces_under_the_config_authority() {
 fn clear_spend_window_closes_into_the_rent_recipient() {
     let mint = Address::new_from_array([60; 32]);
     let rent_recipient = Address::new_from_array([38; 32]);
-    let instruction = ClearSpendWindow {
-        ring: ring(),
-        authority: authority(),
-        mint,
-        rent_recipient,
-    }
-    .instruction();
+    let instruction = ring().clear_spend_window(authority(), mint, rent_recipient);
 
     assert_eq!(
         instruction.accounts,
@@ -1432,13 +1315,7 @@ fn clear_spend_window_closes_into_the_rent_recipient() {
 #[test]
 fn set_delegate_runs_under_the_upgrade_authority() {
     let delegate = Address::new_from_array([47; 32]);
-    let instruction = SetDelegate {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        delegate,
-    }
-    .instruction();
+    let instruction = ring().set_delegate(payer(), authority(), delegate);
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -1481,6 +1358,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
             delegate,
             proof: sample_proof(),
             transact: transact_data(legs),
+            approval_required: false,
         }
         .instruction()
     };
@@ -1524,7 +1402,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(
         build(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
-        Err(TransactInstructionError::PublicLeg)
+        Err(RingError::DelegatePublicLeg)
     ));
 }
 

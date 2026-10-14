@@ -4,8 +4,8 @@
 //! `go_vectors.rs` and `go_policy_vectors.rs`.
 
 use custom_ring_interface::policy_verifying_key::VERIFYINGKEY;
-use custom_ring_sdk::AuditorMessage;
 use zolana_keypair::ViewingKey;
+use zolana_ring_client::AuditorMessage;
 
 /// The `go_vectors.rs` fixture, also the Go circuit test's (scalars 0x11 / 0x22
 /// / 0x33).
