@@ -8,6 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
+use zolana_cli_common::config_dir;
 use zolana_transaction::{Address, AssetRegistry};
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
@@ -131,17 +132,6 @@ impl CliConfigFile {
             .map(str::parse::<Pubkey>)
             .transpose()
             .map_err(Into::into)
-    }
-}
-
-pub(crate) fn config_dir() -> PathBuf {
-    if let Ok(path) = env::var("ZOLANA_CONFIG_DIR") {
-        return PathBuf::from(path);
-    }
-    if let Some(home) = env::var_os("HOME") {
-        PathBuf::from(home).join(".config").join("zolana")
-    } else {
-        PathBuf::from(".zolana")
     }
 }
 

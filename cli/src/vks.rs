@@ -12,12 +12,12 @@ use std::{collections::BTreeMap, fs, path::Path, str::FromStr};
 use anyhow::{anyhow, bail, Context, Result};
 use groth16_solana::vk::setup::{find_setup_txts, SetupTxt};
 use solana_address::Address;
-use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
+use solana_loader_v3_interface::get_program_data_address;
 use solana_loader_v4_interface::state::LoaderV4State;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4};
 use zolana_client::{
     prover::{known_proving_keys, redact_api_key},
-    ProverClient, Rpc, SolanaRpc,
+    ProverClient, Rpc, SolanaRpc, PROGRAM_DATA_METADATA_LEN,
 };
 use zolana_interface::PROGRAM_ID_PUBKEY;
 
@@ -25,9 +25,6 @@ use crate::{
     args::{VksCheckOptions, VksCommand, VksSourceOptions},
     cli_config::{resolve_rpc_url, CliConfigFile},
 };
-
-/// Loader-v3 `UpgradeableLoaderState::ProgramData` discriminant, little endian.
-const PROGRAM_DATA_TAG: [u8; 4] = [3, 0, 0, 0];
 
 /// Proving key file names by sha256.
 type KeyNames = BTreeMap<[u8; 32], String>;
@@ -268,15 +265,12 @@ fn read_program_data_elf(rpc: &SolanaRpc, program_id: &Address) -> Result<Vec<u8
         .ok_or_else(|| {
             anyhow!("ProgramData {program_data} of {program_id} not found; is it deployed?")
         })?;
-    if account.owner != bpf_loader_upgradeable::ID {
-        bail!("{program_data} is not owned by the upgradeable loader");
-    }
-    if account.data.get(..PROGRAM_DATA_TAG.len()) != Some(&PROGRAM_DATA_TAG[..]) {
+    if zolana_client::program_data(&account).is_none() {
         bail!("{program_data} is not a loader-v3 ProgramData account");
     }
     account
         .data
-        .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
+        .get(PROGRAM_DATA_METADATA_LEN..)
         .map(<[u8]>::to_vec)
         .ok_or_else(|| anyhow!("ProgramData {program_data} holds no program"))
 }

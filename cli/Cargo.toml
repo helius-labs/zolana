@@ -15,10 +15,8 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
 hex = { workspace = true }
-reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 solana-instruction = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -28,9 +26,11 @@ solana-pubkey = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+zolana-cli-common = { workspace = true }
 zolana-client = { workspace = true, features = ["client"] }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["protocol"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
+zolana-secret-file = { workspace = true }
 zolana-transaction = { workspace = true }

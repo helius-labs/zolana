@@ -4,16 +4,13 @@ use std::{
     fs::OpenOptions,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    thread,
-    time::Instant,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+pub(crate) use zolana_cli_common::process::process_scope;
+use zolana_cli_common::process::{listening_pids, spawn_owned, stop_owned_pid, stop_pid};
 
 use crate::{config::TERMINATION_GRACE_PERIOD, http::wait_for_port_closed};
-
-pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
-const RECEIPT_EXTENSION: &str = "owner";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Service {
@@ -32,11 +29,6 @@ impl Service {
             Self::Prover => "prover-server",
         }
     }
-}
-
-struct OwnedReceipt {
-    pid: String,
-    identity: String,
 }
 
 pub(crate) fn spawn_service(
@@ -77,23 +69,17 @@ pub(crate) fn spawn_service(
             .env("TEMP", &temporary)
             .env("TMP", &temporary);
     }
-    let mut child = command
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .with_context(|| format!("failed to spawn {}", binary.display()))?;
-    if let Some(scope) = scope {
-        // 1. A scoped child without an ownership receipt must not survive
-        // startup.
-        if let Err(error) = record_owned_process(&scope, log_name, child.id()) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
+        .stderr(Stdio::from(stderr));
+    match scope {
+        Some(scope) => spawn_owned(&scope, log_name, &mut command),
+        None => command
+            .spawn()
+            .with_context(|| format!("failed to spawn {}", binary.display())),
     }
-    Ok(child)
 }
 
 fn service_log_dir(scope: Option<&Path>, log_dir: &str) -> PathBuf {
@@ -141,54 +127,15 @@ pub(crate) fn remove_launchd_validators() {
     }
 }
 
-/// Stop the process listening on `port`. Processes merely connected to it, such
-/// as a test's RPC client or Photon polling the validator, are not the service
-/// and keep running.
+/// Processes merely connected to `port`, such as Photon polling the validator, keep running.
 pub(crate) fn stop_port(port: u16) {
-    let Some(scope) = stop_scope() else {
-        return;
-    };
-    let output = Command::new("lsof")
-        .args(["-t", "-i", &format!("TCP:{port}"), "-s", "TCP:LISTEN"])
-        .output();
-    let Ok(output) = output else {
-        return;
-    };
-
-    for pid in String::from_utf8_lossy(&output.stdout).lines() {
-        let pid = pid.trim();
-        if !pid.is_empty() {
-            match &scope {
-                Some(scope) => stop_owned_pid(scope, pid),
-                None => stop_pid(pid),
-            }
-        }
-    }
-}
-
-pub(crate) fn process_scope() -> Result<Option<PathBuf>> {
-    let Some(scope) = env::var_os(PROCESS_SCOPE_ENV) else {
-        return Ok(None);
-    };
-    let scope = PathBuf::from(scope);
-    if !scope.is_absolute()
-        || !scope.is_dir()
-        || scope.parent().is_none()
-        || std::fs::symlink_metadata(&scope)?.file_type().is_symlink()
-    {
-        bail!("{PROCESS_SCOPE_ENV} must name an existing absolute task directory");
-    }
-    Ok(Some(scope))
-}
-
-/// An invalid scope refuses the stop, never an unscoped fallback.
-fn stop_scope() -> Option<Option<PathBuf>> {
+    // An invalid scope refuses the stop, never an unscoped fallback.
     match process_scope() {
-        Ok(scope) => Some(scope),
-        Err(error) => {
-            eprintln!("refusing unscoped stop ({error:#})");
-            None
-        }
+        Ok(Some(scope)) => listening_pids(port)
+            .iter()
+            .for_each(|pid| stop_owned_pid(&scope, pid)),
+        Ok(None) => listening_pids(port).iter().for_each(|pid| stop_pid(pid)),
+        Err(error) => eprintln!("refusing unscoped stop ({error:#})"),
     }
 }
 
@@ -201,136 +148,6 @@ pub(crate) fn require_scoped_port_available(port: u16) -> Result<()> {
         std::net::TcpListener::bind(("127.0.0.1", port)).with_context(occupied)?;
     }
     Ok(())
-}
-
-fn valid_pid(pid: &str) -> bool {
-    pid.parse::<u32>().is_ok_and(|pid| pid > 1)
-}
-
-fn receipt_path(scope: &Path, name: &str) -> PathBuf {
-    scope.join(name).with_extension(RECEIPT_EXTENSION)
-}
-
-fn process_identity(pid: &str) -> Option<String> {
-    if !valid_pid(pid) {
-        return None;
-    }
-    os_process_identity(pid)
-}
-
-/// The start time in clock ticks since boot, from /proc/<pid>/stat.
-///
-/// It is set at fork and survives exec, so a reused pid -- the thing a receipt
-/// guards against -- always starts later. The command line cannot be part of
-/// it: `spawn` returns once exec has swapped in the new address space, before
-/// the kernel writes the argument pages, so /proc/<pid>/cmdline can still be
-/// empty and `ps` then prints `[sleep]` instead of `sleep 30`. An identity
-/// recorded in that window never matched a later read. Nor can `ps -o lstart`:
-/// it adds the ticks to /proc/stat's boot time, which follows the wall clock.
-#[cfg(target_os = "linux")]
-fn os_process_identity(pid: &str) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    live_start_ticks(&stat).map(str::to_owned)
-}
-
-/// Field 22 of /proc/<pid>/stat, or `None` for a zombie or dead process. The
-/// command name (field 2) is parenthesized and may itself contain spaces and
-/// parentheses, so fields are counted from the last `)`.
-#[cfg(any(target_os = "linux", test))]
-fn live_start_ticks(stat: &str) -> Option<&str> {
-    let (_, fields) = stat.rsplit_once(')')?;
-    let mut fields = fields.split_whitespace();
-    let state = fields.next()?;
-    if matches!(state, "Z" | "X" | "x") {
-        return None;
-    }
-    // Field 3 was the state; field 22 is 18 further on.
-    fields.nth(18)
-}
-
-/// macOS `ps` reads the start time from the kernel as an absolute time.
-#[cfg(not(target_os = "linux"))]
-fn os_process_identity(pid: &str) -> Option<String> {
-    let output = Command::new("ps")
-        .args(["-p", pid, "-o", "lstart=", "-o", "command="])
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    let identity = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    (output.status.success() && !identity.is_empty()).then_some(identity)
-}
-
-fn record_owned_process(scope: &Path, name: &str, pid: u32) -> Result<()> {
-    if !name
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-    {
-        bail!("invalid scoped service name");
-    }
-    let path = receipt_path(scope, name);
-    if std::fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.file_type().is_file()) {
-        bail!("scoped service receipt is not a regular file");
-    }
-    if OwnedReceipt::read(&path).is_some_and(|receipt| receipt.alive()) {
-        bail!("task-owned {name} is still running");
-    }
-    let pid = pid.to_string();
-    let identity =
-        process_identity(&pid).context("spawned service exited before ownership was recorded")?;
-    std::fs::write(path, format!("{pid}\n{identity}\n")).context("record task-owned service")
-}
-
-impl OwnedReceipt {
-    fn read(path: &Path) -> Option<Self> {
-        if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
-            return None;
-        }
-        let receipt = std::fs::read_to_string(path).ok()?;
-        let (pid, identity) = receipt.trim_end().split_once('\n')?;
-        if !valid_pid(pid) || identity.is_empty() {
-            return None;
-        }
-        Some(Self {
-            pid: pid.to_owned(),
-            identity: identity.to_owned(),
-        })
-    }
-
-    /// A reused pid with another identity is another process.
-    fn alive(&self) -> bool {
-        process_identity(&self.pid).as_deref() == Some(self.identity.as_str())
-    }
-}
-
-fn stop_owned_receipt(path: &Path) {
-    // 1. Only a receipt matching the live process may authorize a signal.
-    let Some(receipt) = OwnedReceipt::read(path) else {
-        return;
-    };
-    if !receipt.alive() {
-        return;
-    }
-    let _ = signal_pid(&receipt.pid, "-TERM");
-    // 2. Escalation requires the same process identity after the grace period.
-    if !wait_for_process_exit(|| !receipt.alive()) && receipt.alive() {
-        let _ = signal_pid(&receipt.pid, "-KILL");
-    }
-}
-
-fn stop_owned_pid(scope: &Path, target: &str) {
-    let Ok(entries) = std::fs::read_dir(scope) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == RECEIPT_EXTENSION)
-            && OwnedReceipt::read(&path).is_some_and(|receipt| receipt.pid == target)
-        {
-            stop_owned_receipt(&path);
-        }
-    }
 }
 
 pub(crate) fn find_binary(
@@ -404,137 +221,9 @@ pub(crate) fn path_string_with_trailing_separator(path: &Path) -> Result<String>
     Ok(value)
 }
 
-fn stop_pid(pid: &str) {
-    let _ = signal_pid(pid, "-TERM");
-    if wait_for_process_exit(|| !pid_exists(pid)) {
-        return;
-    }
-    let _ = signal_pid(pid, "-KILL");
-}
-
-fn signal_pid(pid: &str, signal: &str) -> bool {
-    Command::new("kill")
-        .args([signal, pid])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn pid_exists(pid: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", pid])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn wait_for_process_exit<F>(mut exited: F) -> bool
-where
-    F: FnMut() -> bool,
-{
-    let start = Instant::now();
-    while start.elapsed() < TERMINATION_GRACE_PERIOD {
-        if exited() {
-            return true;
-        }
-        thread::sleep(std::time::Duration::from_millis(100));
-    }
-    exited()
-}
-
 fn find_in_path(binary: &str) -> Option<PathBuf> {
     let paths = env::var_os("PATH")?;
     env::split_paths(&paths)
         .map(|dir| dir.join(binary))
         .find(|candidate| candidate.is_file())
-}
-
-#[cfg(test)]
-mod scope_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn directory() -> PathBuf {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = env::temp_dir().join(format!(
-            "zolana-process-scope-{}-{unique}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir(&path).unwrap();
-        path
-    }
-
-    #[test]
-    fn start_ticks_count_fields_from_the_last_parenthesis() {
-        let stat = "4242 (sleep (x) 1) S 1 4242 4242 0 -1 4194304 90 0 0 0 0 0 0 0 20 0 1 0 987654 5779456 190";
-        assert_eq!(live_start_ticks(stat), Some("987654"));
-        let zombie = stat.replacen(") S ", ") Z ", 1);
-        assert_eq!(live_start_ticks(&zombie), None);
-        assert_eq!(live_start_ticks("no parenthesis here"), None);
-    }
-
-    #[test]
-    fn a_live_process_keeps_one_identity() {
-        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-        let pid = child.id().to_string();
-        let first = process_identity(&pid).expect("a live process has an identity");
-        for _ in 0..50 {
-            assert_eq!(process_identity(&pid).as_deref(), Some(first.as_str()));
-        }
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
-
-    #[test]
-    fn a_reused_pid_receipt_cannot_stop_an_unrelated_process() {
-        let scope = directory();
-        let receipt = scope.join("probe.owner");
-        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-        let pid = child.id();
-        std::fs::write(&receipt, format!("{pid}\nnot this process identity\n")).unwrap();
-        stop_owned_receipt(&receipt);
-        assert!(child.try_wait().unwrap().is_none());
-        record_owned_process(&scope, "probe", pid).unwrap();
-        assert!(record_owned_process(&scope, "probe", pid).is_err());
-        stop_owned_receipt(&receipt);
-        child.wait().unwrap();
-        std::fs::remove_file(receipt).unwrap();
-        std::fs::remove_dir(scope).unwrap();
-    }
-
-    #[test]
-    fn invalid_pid_receipts_never_reach_process_signals() {
-        let scope = directory();
-        let receipt = scope.join("probe.owner");
-        for pid in ["0", "1", "-1", "42 -TERM", ""] {
-            std::fs::write(&receipt, format!("{pid}\nidentity\n")).unwrap();
-            assert!(OwnedReceipt::read(&receipt).is_none());
-        }
-        std::fs::remove_file(receipt).unwrap();
-        std::fs::remove_dir(scope).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn symlinks_cannot_supply_or_receive_service_ownership() {
-        let scope = directory();
-        let target = scope.join("foreign");
-        let receipt = scope.join("probe.owner");
-        std::fs::write(&target, "42\nidentity\n").unwrap();
-        std::os::unix::fs::symlink(&target, &receipt).unwrap();
-        assert!(OwnedReceipt::read(&receipt).is_none());
-        assert!(record_owned_process(&scope, "probe", std::process::id()).is_err());
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "42\nidentity\n");
-        std::fs::remove_file(receipt).unwrap();
-        std::fs::remove_file(target).unwrap();
-        std::fs::remove_dir(scope).unwrap();
-    }
 }
