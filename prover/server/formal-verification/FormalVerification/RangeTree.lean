@@ -46,9 +46,7 @@ def Range.hash : Range → F := fun r => poseidon₂ vec![r.lo, r.hi]
 
 def Range.hashOpt : Option Range → F := fun r => r.map Range.hash |>.getD 0
 
-/-- Bounds `(lo, hi)` hash to a stored slot without being its range: the slot is
-empty and `(lo, hi)` is a preimage of the empty-slot hash 0, or the slot holds a
-range whose bounds collide with `(lo, hi)`. -/
+/-- An empty slot hashes to 0, so a preimage of 0 forges one. -/
 def Range.hashCollision (lo hi : F) : Option Range → Prop
   | none => poseidon₂ vec![lo, hi] = 0
   | some r => Collision poseidon₂ vec![lo, hi] vec![r.lo, r.hi]

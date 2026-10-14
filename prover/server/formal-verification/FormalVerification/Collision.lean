@@ -1,15 +1,11 @@
 import ProvenZk
 
 /-!
-Poseidon is modelled as the concrete function `poseidon₂ : F² → F`. It maps `p²`
-inputs into `p` outputs, so it is not injective, and assuming it were (ProvenZk's
-`CollisionResistant`) would make every theorem provable. Soundness is stated as
-an extraction instead: a satisfying witness either proves the claimed statement
-or exhibits a `Collision` between concrete hash inputs read off the witness and
-the public trees. Finding one breaks Poseidon's collision resistance.
+No `F² → F` map is injective, so ProvenZk's `CollisionResistant poseidon₂` would
+prove `False`. Soundness instead concludes the claim or a `Collision` between
+values of the witness and the public trees.
 -/
 
-/-- Distinct inputs with the same hash. -/
 def Collision {F : Type} {n : Nat} (H : Hash F n) (a b : List.Vector F n) : Prop :=
   a ≠ b ∧ H a = H b
 
@@ -21,8 +17,7 @@ lemma eq_or_collision {F : Type} {n : Nat} {H : Hash F n} {a b : List.Vector F n
 
 namespace MerkleTree
 
-/-- At some level of the path, the input `recover` hashes (rebuilt from `proof`
-and `item`) differs from the tree's own node input, yet both hash to the node. -/
+/-- A level where the input `recover` hashes collides with the tree's node input. -/
 def recoverCollision {F : Type} {H : Hash F 2} :
     {d : Nat} → MerkleTree F H d → List.Vector Bool d → List.Vector F d → F → Prop
   | 0, _, _, _, _ => False

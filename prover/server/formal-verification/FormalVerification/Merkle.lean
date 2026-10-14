@@ -94,7 +94,6 @@ lemma InclusionProof_rw {roots leaves inPathIndices inPathElements k}:
     rw [←List.Vector.ofFn_get (v:=roots)] at hk
     exact hk
 
-/-- The Merkle path an inclusion witness gives for `leaf` collides with `tree`. -/
 def InclusionCollision (tree : MerkleTree F poseidon₂ SD) (leaf ind : F) (path : List.Vector F SD) : Prop :=
   ∃ hi : ind.val < 2^SD, tree.recoverCollision (Fin.toBitsBE ⟨ind.val, hi⟩) path.reverse leaf
 
@@ -132,7 +131,6 @@ theorem InclusionProof_complete {trees : List.Vector (MerkleTree F poseidon₂ S
 def hashChain : List.Vector F (d + 1) → F := fun v =>
   v.tail.toList.foldl (fun h l => poseidon₂ vec![h, l]) v.head
 
-/-- Two chains of equal length hash distinct inputs to the same value at some step. -/
 def foldCollision : {d : Nat} → F → F → List.Vector F d → List.Vector F d → Prop
   | 0, _, _, _, _ => False
   | _ + 1, a₁, a₂, v₁, v₂ =>
@@ -158,7 +156,6 @@ lemma hashChain_body_eq {d : Nat} {a₁ a₂} {v₁ v₂ : List.Vector F d}
       · exact Or.inr (Or.inl hcol)
     · exact Or.inr (Or.inr hcol)
 
-/-- The hash chains of two columns collide at some step. -/
 def hashChainCollision {d : Nat} (v₁ v₂ : List.Vector F (d + 1)) : Prop :=
   foldCollision v₁.head v₂.head v₁.tail v₂.tail
 
@@ -185,8 +182,6 @@ theorem HashChainGadget_Two_rw {v : List.Vector F 2} {k : F → Prop}: HashChain
 
 def inputHash (l r : List.Vector F B) : F := hashChain vec![hashChain l, hashChain r]
 
-/-- The public input hashes of two column pairs collide, in the outer hash or
-in one of the column chains. -/
 def inputHashCollision (l₁ r₁ l₂ r₂ : List.Vector F B) : Prop :=
   Collision poseidon₂ vec![hashChain l₁, hashChain r₁] vec![hashChain l₂, hashChain r₂] ∨
     hashChainCollision l₁ l₂ ∨ hashChainCollision r₁ r₂
@@ -226,9 +221,6 @@ theorem InclusionCircuit_complete {trees : List.Vector (MerkleTree F poseidon₂
   have ⟨inPathIndices, proofs, hp⟩ := InclusionProof_complete (k := fun _ => True) trivial hmem
   exact ⟨inPathIndices, proofs, InclusionCircuit_rw.mpr ⟨rfl, hp⟩⟩
 
-/-- The non-inclusion witness for one value breaks Poseidon: its Merkle path
-collides with the range tree, or its low-leaf bounds `(lo, hi)` hash to the
-stored slot without being that slot's range. -/
 def NonInclusionCollision (ranges : RangeVector (2^AD)) (lo hi ind : F) (proof : List.Vector F AD) : Prop :=
   ∃ hind : ind.val < 2^AD,
     (rangeTree ranges).recoverCollision (Fin.toBitsBE ⟨ind.val, hind⟩) proof.reverse (poseidon₂ vec![lo, hi]) ∨
@@ -313,9 +305,8 @@ theorem NonInclusionProof_rec_sound {n : Nat} {trees : List.Vector (RangeVector 
     cases inds using List.Vector.casesOn with | cons hinds tinds =>
     cases proofs using List.Vector.casesOn with | cons hproof tproof =>
     cases trees using List.Vector.casesOn with | cons htree ttree =>
-    -- `simp [NonInclusionStep_sound]` would not fire: the default-simp lemma
-    -- `Poseidon_2_iff_uniqueAssignment` rewrites the head first and destroys
-    -- the pattern. Unfold one step, then apply the step lemma directly.
+    -- `simp only`: the default `Poseidon_2_iff_uniqueAssignment` would rewrite
+    -- the head out of the shape `NonInclusionStep_sound` expects.
     simp only [NonInclusionProof_rec, List.Vector.head_cons, List.Vector.tail_cons,
       List.Vector.map_cons] at h
     obtain ⟨hk, hstep⟩ := NonInclusionStep_sound h
