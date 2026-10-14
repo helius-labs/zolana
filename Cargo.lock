@@ -12007,6 +12007,7 @@ dependencies = [
  "serde_json",
  "solana-address 2.6.1",
  "thiserror 2.0.20",
+ "wincode",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",

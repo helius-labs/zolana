@@ -393,7 +393,7 @@ mod tests {
             namespace_owner_hash: [0u8; 32],
             bump: 0,
             sources,
-            rules: EncodedRuleTable::empty(),
+            rules: EncodedRuleTable::default(),
             generation: 1u32.to_le_bytes(),
             generation_slot: [0u8; 8],
         };

@@ -2,6 +2,7 @@
 
 use core::ops::Range;
 
+use thiserror::Error;
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, Hasher, HasherError,
     Poseidon, Sha256,
@@ -61,6 +62,27 @@ impl ListNamespace {
     }
 }
 
+/// A spend record that its carrier output and message do not open.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum SpendRecordError {
+    #[error("spend-record hashing failed")]
+    Hashing,
+    #[error("spend-record message missing")]
+    MissingMessage,
+    #[error("duplicate spend-record messages")]
+    DuplicateMessage,
+    #[error("malformed spend-record message")]
+    Malformed,
+    #[error("spend-record message does not open its successor output")]
+    Unopened,
+}
+
+impl From<HasherError> for SpendRecordError {
+    fn from(_: HasherError) -> Self {
+        Self::Hashing
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendRecord {
     pub member: Member,
@@ -96,6 +118,43 @@ impl SpendRecord {
             },
             tree_id,
         )
+    }
+
+    /// The record the one `namespace` tagged message publishes, which must open `leaf`.
+    pub fn open_carrier<'a>(
+        namespace: &[u8; 32],
+        owner: &ListNamespace,
+        address_tree_id: u16,
+        messages: impl IntoIterator<Item = (&'a [u8; 32], &'a [u8])>,
+        leaf: &[u8; 32],
+        tree_id: u16,
+    ) -> Result<Self, SpendRecordError> {
+        let tag = spend_record_message_tag(namespace)?;
+        let mut tagged = messages
+            .into_iter()
+            .filter(|(view_tag, _)| **view_tag == tag);
+        let (_, data) = tagged.next().ok_or(SpendRecordError::MissingMessage)?;
+        if tagged.next().is_some() {
+            return Err(SpendRecordError::DuplicateMessage);
+        }
+        let record = Self::from_output_data(data).ok_or(SpendRecordError::Malformed)?;
+        record.opens(owner, address_tree_id, leaf, tree_id)?;
+        Ok(record)
+    }
+
+    /// The record hashes to `leaf` at its member's address.
+    pub fn opens(
+        &self,
+        owner: &ListNamespace,
+        address_tree_id: u16,
+        leaf: &[u8; 32],
+        tree_id: u16,
+    ) -> Result<(), SpendRecordError> {
+        let address = owner.spend_address(&self.member, address_tree_id)?;
+        if self.utxo_hash(owner, &address, tree_id)? != *leaf {
+            return Err(SpendRecordError::Unopened);
+        }
+        Ok(())
     }
 
     pub fn to_output_data(&self) -> [u8; SPEND_RECORD_OUTPUT_DATA_LEN] {
@@ -281,6 +340,51 @@ mod tests {
         ] {
             assert_ne!(changed.data_hash(&address).unwrap(), base);
         }
+    }
+
+    #[test]
+    fn a_carrier_opens_only_its_one_tagged_message_against_the_leaf() {
+        let namespace = [11u8; 32];
+        let owner = ListNamespace::new(&namespace).unwrap();
+        let record = SpendRecord {
+            member: member(1),
+            version: 2,
+            window: 9,
+            counters_commitment: [5u8; 32],
+            blinding: [6u8; 32],
+        };
+        let address = owner.spend_address(&record.member, 3).unwrap();
+        let leaf = record.utxo_hash(&owner, &address, 4).unwrap();
+        let tag = spend_record_message_tag(&namespace).unwrap();
+        let data = record.to_output_data();
+        let open = |messages: &[([u8; 32], &[u8])], leaf: &[u8; 32]| {
+            SpendRecord::open_carrier(
+                &namespace,
+                &owner,
+                3,
+                messages.iter().map(|(tag, data)| (tag, *data)),
+                leaf,
+                4,
+            )
+        };
+        let other: &[u8] = &[1, 2];
+        assert_eq!(open(&[([1; 32], other), (tag, &data)], &leaf), Ok(record));
+        assert_eq!(
+            open(&[([1; 32], other)], &leaf),
+            Err(SpendRecordError::MissingMessage)
+        );
+        assert_eq!(
+            open(&[(tag, &data), (tag, &data)], &leaf),
+            Err(SpendRecordError::DuplicateMessage)
+        );
+        assert_eq!(
+            open(&[(tag, &data[1..])], &leaf),
+            Err(SpendRecordError::Malformed)
+        );
+        assert_eq!(
+            open(&[(tag, &data)], &[0; 32]),
+            Err(SpendRecordError::Unopened)
+        );
     }
 
     #[test]

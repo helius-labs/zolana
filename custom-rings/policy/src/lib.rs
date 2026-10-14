@@ -1,16 +1,9 @@
-//! The entry-list primitive for custom rings and the rule table compiled over
-//! it.
-//!
-//! One entry per `(list_id, member)` lives as a zero-amount data UTXO in the SPP
-//! state tree, owned by the ring's namespace PDA, present or absent provably
-//! against SPP's own roots. [`ListId`] names each list, [`ListNamespace`]
-//! keys it, and [`ListEntry`] carries it on the wire. [`RuleTable`] compiles a rule
-//! table over these lists, and [`schema`] types the content of each.
+//! Entry lists of custom rings and the rule table compiled over them. One entry per
+//! `(list_id, member)` is a zero-amount data UTXO owned by the ring's namespace PDA.
 
 mod entry;
 mod member;
 mod rule_table;
-pub mod schema;
 mod spend;
 
 pub use entry::{
@@ -20,15 +13,14 @@ pub use entry::{
 };
 pub use member::{Member, MemberError};
 pub use rule_table::{
-    AnswerLoad, EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable,
-    RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner,
-    Subject, TableParts, VelocityMode, VelocityRow, ANSWER_SLOTS, GUARANTEED_LOAD,
-    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS,
-    POLICY_OUTPUT_SLOTS, POLICY_VERSION,
+    EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable, RuleTableBuilder,
+    RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner, Subject,
+    TableParts, VelocityMode, VelocityRow, ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
+    MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_VERSION,
 };
 pub use spend::{
     ring_id_field, spend_counters_disclosure_hash, spend_record_message_tag, spend_seed,
-    SpendCounters, SpendRecord, SPEND_COUNTERS_BODY_LEN, SPEND_COUNTERS_LEN,
+    SpendCounters, SpendRecord, SpendRecordError, SPEND_COUNTERS_BODY_LEN, SPEND_COUNTERS_LEN,
 };
 
 /// At most 31 bytes keeps the packed value below the field modulus.

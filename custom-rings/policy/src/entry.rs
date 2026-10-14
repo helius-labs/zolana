@@ -9,20 +9,6 @@ use crate::{
     POLICY_RECORD_DOMAIN,
 };
 
-/// The on-chain discriminant of a list, never `0` (the circuit reserves it as the inline-asset sentinel).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ListId {
-    Allow = 1,
-    Block = 2,
-    Frozen = 3,
-    RingViewing = 4,
-    Recovery = 5,
-    Reader = 6,
-    Approval = 7,
-    Escrow = 8,
-}
-
 /// Who may mutate a list, the sole authorization axis the program gates on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Writer {
@@ -30,30 +16,48 @@ pub enum Writer {
     Member,
 }
 
-impl ListId {
-    /// Source-slot order, the id of `ALL[i]` is `i + 1`.
-    pub const ALL: [Self; MAX_SOURCES] = [
-        Self::Allow,
-        Self::Block,
-        Self::Frozen,
-        Self::RingViewing,
-        Self::Recovery,
-        Self::Reader,
-        Self::Approval,
-        Self::Escrow,
-    ];
+macro_rules! lists {
+    ($($variant:ident = $id:literal, $name:literal => $writer:ident,)*) => {
+        /// The on-chain discriminant of a list, never `0` (the circuit's inline-asset sentinel).
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum ListId {
+            $($variant = $id,)*
+        }
 
-    /// The single source of truth the program and every `ListSchema` impl read.
-    /// Exhaustive on purpose, a new list must declare its writer to compile.
-    pub const fn writer(self) -> Writer {
-        match self {
-            Self::RingViewing | Self::Recovery | Self::Escrow => Writer::Member,
-            Self::Allow | Self::Block | Self::Frozen | Self::Reader | Self::Approval => {
-                Writer::Authority
+        impl ListId {
+            /// Source-slot order, the id of `ALL[i]` is `i + 1`.
+            pub const ALL: [Self; MAX_SOURCES] = [$(Self::$variant,)*];
+
+            /// The program's only authorization axis for entry writes.
+            pub const fn writer(self) -> Writer {
+                match self {
+                    $(Self::$variant => Writer::$writer,)*
+                }
+            }
+
+            /// Lowercase kebab-case, the one spelling of the list.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
             }
         }
-    }
+    };
+}
 
+lists! {
+    Allow = 1, "allow" => Authority,
+    Block = 2, "block" => Authority,
+    Frozen = 3, "frozen" => Authority,
+    RingViewing = 4, "ring-viewing" => Member,
+    Recovery = 5, "recovery" => Member,
+    Reader = 6, "reader" => Authority,
+    Approval = 7, "approval" => Authority,
+    Escrow = 8, "escrow" => Member,
+}
+
+impl ListId {
     /// Index into the source map and into `ALL`.
     pub const fn slot(self) -> usize {
         self as usize - 1
@@ -61,6 +65,12 @@ impl ListId {
 
     const fn mask_bit(self) -> u8 {
         1 << self.slot()
+    }
+
+    /// Every list commits `()` content, only the zero commitment is admitted.
+    #[must_use]
+    pub fn admits_content(self, commit: [u8; 32]) -> bool {
+        commit == [0u8; 32]
     }
 }
 
@@ -147,8 +157,7 @@ pub const NAMESPACE_PDA_SEED: &[u8] = b"policy_records";
 
 /// Published entry length, the complete preimage of its hashes.
 pub const LIST_ENTRY_LEN: usize = 106;
-/// The plaintext output-data envelope, tag byte and `u32` length before the
-/// content.
+/// The plaintext output-data envelope, tag byte and `u32` length before the content.
 pub const ENTRY_OUTPUT_DATA_LEN: usize = 5 + LIST_ENTRY_LEN;
 
 /// Active or Cleared, removal writes Cleared, no version is ever deleted.
@@ -175,6 +184,12 @@ impl TryFrom<u8> for EntryState {
 pub const ZERO_NULLIFIER_PK: [u8; 32] = [
     0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
     0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
+];
+
+/// `Poseidon(0, 0)`, the ring hash of a UTXO outside every ring.
+const NO_RING_HASH: [u8; 32] = [
+    0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4, 0x81,
+    0xdc, 0x31, 0x24, 0xd5, 0x5f, 0xfe, 0xd5, 0x23, 0xa8, 0x39, 0xee, 0x84, 0x46, 0xb6, 0x48, 0x64,
 ];
 
 /// The zero nullifier secret makes every entry nullifier publicly computable,
@@ -204,7 +219,6 @@ impl ListNamespace {
         tree_id: u16,
     ) -> Result<[u8; 32], HasherError> {
         let zero = [0u8; 32];
-        let ring_hash = Poseidon::hashv(&[&zero, &zero])?;
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, seed])?;
         Poseidon::hashv(&[
             &field_u16(ADDRESS_DOMAIN),
@@ -212,29 +226,26 @@ impl ListNamespace {
             &zero,
             &zero,
             &zero,
-            &ring_hash,
+            &NO_RING_HASH,
             &owner_utxo_hash,
         ])
     }
 
     /// The shape every namespace record takes.
     pub fn leaf_hash(&self, leaf: Leaf<'_>, tree_id: u16) -> Result<[u8; 32], HasherError> {
-        let zero = [0u8; 32];
-        let ring_hash = Poseidon::hashv(&[&zero, &zero])?;
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, leaf.blinding])?;
         Poseidon::hashv(&[
             &field_u16(UTXO_DOMAIN),
             &tree_id_field(tree_id),
             &SOL_ASSET_FIELD,
-            &zero,
+            &[0u8; 32],
             leaf.data_hash,
-            &ring_hash,
+            &NO_RING_HASH,
             &owner_utxo_hash,
         ])
     }
 
-    /// Deterministic, the nullifier tree admits one entry lineage per
-    /// `(list_id, member)`.
+    /// Deterministic, the nullifier tree admits one entry lineage per `(list_id, member)`.
     pub fn address(
         &self,
         list_id: ListId,
@@ -297,18 +308,16 @@ impl ListEntry {
         })
     }
 
-    /// The published plaintext content, discovery re-derives `data_hash` from
-    /// it and compares against the on-chain leaf before trusting it.
+    /// The published plaintext, discovery rehashes it against the on-chain leaf before trusting it.
     pub fn to_output_data(&self) -> [u8; ENTRY_OUTPUT_DATA_LEN] {
-        let mut content = [0u8; ENTRY_OUTPUT_DATA_LEN];
-        content[1..5].copy_from_slice(&(LIST_ENTRY_LEN as u32).to_le_bytes());
-        content[5] = self.list_id as u8;
-        content[6..38].copy_from_slice(self.member.as_bytes());
-        content[38] = self.state as u8;
-        content[39..47].copy_from_slice(&self.version.to_le_bytes());
-        content[47..79].copy_from_slice(&self.content_hash);
-        content[79..111].copy_from_slice(&self.blinding);
-        content
+        let mut content = [0u8; LIST_ENTRY_LEN];
+        content[0] = self.list_id as u8;
+        content[1..33].copy_from_slice(self.member.as_bytes());
+        content[33] = self.state as u8;
+        content[34..42].copy_from_slice(&self.version.to_le_bytes());
+        content[42..74].copy_from_slice(&self.content_hash);
+        content[74..].copy_from_slice(&self.blinding);
+        crate::seal_plaintext(content)
     }
 
     /// The canonical SPP UTXO hash under the holding tree, entries are indistinguishable from value UTXOs.
@@ -358,6 +367,27 @@ mod tests {
     #[test]
     fn zero_nullifier_pk_is_the_poseidon_of_zero() {
         assert_eq!(Poseidon::hashv(&[&[0u8; 32]]).unwrap(), ZERO_NULLIFIER_PK);
+        assert_eq!(
+            Poseidon::hashv(&[&[0u8; 32], &[0u8; 32]]).unwrap(),
+            NO_RING_HASH
+        );
+    }
+
+    #[test]
+    fn the_writer_of_every_list_is_pinned() {
+        use Writer::{Authority, Member};
+        assert_eq!(
+            ListId::ALL.map(ListId::writer),
+            [Authority, Authority, Authority, Member, Member, Authority, Authority, Member]
+        );
+    }
+
+    #[test]
+    fn a_list_admits_only_the_zero_commitment() {
+        for list_id in ListId::ALL {
+            assert!(list_id.admits_content([0u8; 32]));
+            assert!(!list_id.admits_content([1u8; 32]));
+        }
     }
 
     fn owner() -> ListNamespace {
