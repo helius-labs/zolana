@@ -78,9 +78,9 @@ impl CustomRingProofParams {
 
 impl PendingCustomRingProof {
     pub(crate) fn finish_base(self, private_tx_hash: [u8; 32]) -> Result<BaseBody, RingError> {
+        let audit = self.secrets(private_tx_hash)?;
         let output_hashes = self.output_hashes()?;
         let public_input_hash = self.statement(&private_tx_hash, &output_hashes).hash()?;
-        let audit = self.secrets(private_tx_hash)?;
         Ok(BaseBody {
             circuit_type: RingCircuit::Base,
             public_input_hash,
@@ -97,6 +97,7 @@ impl PendingCustomRingProof {
         mut witness: CustomRingWitness,
         policy_hash: &[u8; 32],
     ) -> Result<PolicyProof, RingError> {
+        let audit = self.secrets(private_tx_hash)?;
         let output_hashes = self.output_hashes()?;
         let tree_slots = witness.tree_slots();
         let key_registry_root = witness.escrow.0.map(|registry| registry.root);
@@ -127,7 +128,7 @@ impl PendingCustomRingProof {
             body: PolicyBody {
                 circuit_type: RingCircuit::Policy,
                 public_input_hash,
-                audit: self.secrets(private_tx_hash)?,
+                audit,
                 witness,
             },
             indexed,
