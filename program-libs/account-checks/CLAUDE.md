@@ -62,4 +62,7 @@
 - `msg` - Enables `AccountIterator` error logging via `solana-msg` with caller
   location (file:line:column, via `#[track_caller]`); active only with `std` (default)
 - `test-only` - Enables test utilities (pulls in `rand` and `std`)
+- `upgrade-authority` - `upgrade_authority::is_upgrade_authority`, the loader-v3
+  upgrade authority check with a nonzero authority (pulls in `bincode` and the
+  loader-v3 interface)
 - Default: `std`, `msg`
