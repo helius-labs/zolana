@@ -50,6 +50,10 @@ impl ProjectionCursor {
         self.ready
     }
 
+    pub fn tip_slot(&self) -> u64 {
+        self.tip.as_ref().map_or(self.start_slot, |tip| tip.slot)
+    }
+
     pub async fn suspend<C: ConnectionTrait>(&mut self, conn: &C) -> Result<()> {
         self.ready = false;
         save_cursor(conn, self).await
@@ -147,8 +151,6 @@ pub(crate) enum PredecessorError {
     Storage(#[from] anyhow::Error),
 }
 
-const ROOTS_TABLE: &str = "ring_key_registry_roots";
-const MEMBERS_TABLE: &str = "ring_key_registry_members";
 const DELETE_MEMBER: &str = "DELETE FROM ring_key_registry_members WHERE program=$1 AND member=$2";
 
 pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
@@ -268,10 +270,7 @@ pub(crate) async fn rollback(
     }
     exec(tx, "DELETE FROM ring_projection_blocks WHERE slot=$1", slot).await?;
     cursor.tip = journal.previous_tip;
-    cursor.scanned_slot = cursor
-        .tip
-        .as_ref()
-        .map_or(cursor.start_slot, |tip| tip.slot);
+    cursor.scanned_slot = cursor.tip_slot();
     cursor.suspend(tx).await
 }
 
@@ -290,7 +289,8 @@ async fn restore(
             let sql = "DELETE FROM state_trees WHERE tree=$1 AND tree_kind=$2";
             let kind = i32::from(RingsTreeKind::KeyRegistry);
             exec(tx, sql, vec![created.address.to_vec().into(), kind.into()]).await?;
-            store.delete_rows(&[MEMBERS_TABLE, ROOTS_TABLE]).await?;
+            let tables = ["ring_key_registry_members", "ring_key_registry_roots"];
+            store.delete_rows(&tables).await?;
             continue;
         };
         if !undo.leaves.is_empty() {

@@ -35,24 +35,17 @@ pub(crate) async fn register(
     let (tx, snapshot) = snapshot(db, &request).await?;
     let root = &snapshot.root;
     if root.next_index >= KEY_REGISTRY_CAPACITY {
-        return Err(PhotonApiError::ValidationError(
-            "key registry capacity exhausted".into(),
-        ));
+        return Err(validation("key registry capacity exhausted"));
     }
-    let store = Store::new(&tx, root.program);
-    if store
-        .member(&request.member.0)
-        .await
-        .map_err(internal)?
-        .is_some()
-    {
+    let (store, member) = (Store::new(&tx, root.program), &request.member.0);
+    if store.member(member).await.map_err(internal)?.is_some() {
         return Err(RingProjectionError::MemberAlreadyRegistered.into());
     }
     let low = store
-        .predecessor(&request.member.0)
+        .predecessor(member)
         .await
         .map_err(|error| match error {
-            PredecessorError::NotAbsent => PhotonApiError::ValidationError(error.to_string()),
+            PredecessorError::NotAbsent => validation(error),
             PredecessorError::Storage(error) => internal(error),
         })?;
     let low_path = proof::path(&tx, root, low.index).await.map_err(internal)?;
@@ -135,11 +128,10 @@ pub(super) async fn ready(
         .map_err(internal)?
         .filter(ProjectionCursor::is_ready)
         .ok_or_else(|| stale("projector is catching up or recovering"))?;
-    if storage::pending_ring(&tx, program)
+    let pending = storage::pending_ring(&tx, program)
         .await
-        .map_err(internal)?
-        .is_some()
-    {
+        .map_err(internal)?;
+    if pending.is_some() {
         return Err(stale("ring history is being replayed"));
     }
     Ok((tx, cursor))
@@ -173,9 +165,7 @@ async fn snapshot(
         || request.member.0 == [0; 32]
         || request.member.0 >= FIELD_MAX
     {
-        return Err(PhotonApiError::ValidationError(
-            "invalid key registry member or cursor".into(),
-        ));
+        return Err(validation("invalid key registry member or cursor"));
     }
     let program = request.ring_program_id.0.to_bytes();
     let (tx, cursor) = ready(db, &program, RingProjectionError::OutOfSync).await?;
@@ -223,6 +213,10 @@ pub(super) async fn canonical_context(
 
 fn out_of_sync(reason: impl Display) -> PhotonApiError {
     RingProjectionError::OutOfSync(reason.to_string()).into()
+}
+
+pub(super) fn validation(reason: impl Display) -> PhotonApiError {
+    PhotonApiError::ValidationError(reason.to_string())
 }
 
 pub(super) fn internal(error: impl Display) -> PhotonApiError {

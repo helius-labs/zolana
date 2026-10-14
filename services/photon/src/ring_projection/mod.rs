@@ -8,7 +8,7 @@ mod storage;
 
 use std::{collections::HashMap, ops::RangeInclusive, sync::Arc, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
     pda, KeyRegistryRoot, PolicyConfig, KEY_REGISTRY_ROOT, POLICY_CONFIG,
@@ -29,7 +29,7 @@ use crate::{
     },
     rpc::{RpcClient, RpcError},
 };
-use key_registry::{MemberKey, Registration};
+use key_registry::MemberKey;
 use spend_record::SpendUndo;
 use storage::{
     BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
@@ -110,23 +110,18 @@ impl Projector {
         }
         self.replay_pending(&mut cursor).await?;
         // 2. Scan from the canonical tip to include slots filled by a fork.
-        cursor.scanned_slot = cursor
-            .tip
-            .as_ref()
-            .map_or(cursor.start_slot, |tip| tip.slot);
+        cursor.scanned_slot = cursor.tip_slot();
         let target = self.rpc.get_slot().await?;
         if cursor.scanned_slot < target {
             cursor.suspend(db).await?;
             let batch = block_batch(&self.rpc, cursor.scanned_slot + 1..=target).await?;
             for block in self.fetch_blocks(batch.slots).await {
                 let block = block?;
-                if cursor
+                let orphan = cursor
                     .tip
                     .as_ref()
-                    .is_some_and(|tip| !tip.is_parent_of(&block.metadata))
-                {
-                    bail!("ring projection parent mismatch");
-                }
+                    .is_some_and(|tip| !tip.is_parent_of(&block.metadata));
+                ensure!(!orphan, "ring projection parent mismatch");
                 let tx = db.begin().await?;
                 self.apply_block(&tx, &block, &mut cursor).await?;
                 tx.commit().await?;
@@ -147,24 +142,19 @@ impl Projector {
 
     async fn cursor(&self) -> Result<ProjectionCursor> {
         let db = self.db.as_ref();
-        match storage::cursor(db).await? {
-            Some(cursor) => {
-                if let StartSlot::Explicit(slot) = self.start {
-                    if cursor.start_slot != slot {
-                        bail!(
-                            "the stored ring projection starts after slot {}, not {slot}",
-                            cursor.start_slot
-                        );
-                    }
-                }
-                Ok(cursor)
-            }
-            None => {
-                let cursor = ProjectionCursor::new(self.start.slot());
-                storage::save_cursor(db, &cursor).await?;
-                Ok(cursor)
-            }
+        let Some(cursor) = storage::cursor(db).await? else {
+            let cursor = ProjectionCursor::new(self.start.slot());
+            storage::save_cursor(db, &cursor).await?;
+            return Ok(cursor);
+        };
+        if let StartSlot::Explicit(slot) = self.start {
+            let start = cursor.start_slot;
+            ensure!(
+                start == slot,
+                "the stored ring projection starts after slot {start}, not {slot}"
+            );
         }
+        Ok(cursor)
     }
 
     async fn suspend(&self) -> Result<()> {
@@ -186,11 +176,8 @@ impl Projector {
 
     /// A pruned slot reads as noncanonical.
     async fn canonical(&self, meta: &BlockMetadata) -> Result<bool> {
-        match self
-            .rpc
-            .get_block(meta.slot, TransactionDetails::None)
-            .await
-        {
+        let block = self.rpc.get_block(meta.slot, TransactionDetails::None);
+        match block.await {
             Ok(block) => Ok(block.blockhash == meta.blockhash.to_string()),
             Err(error) if error.is_slot_skipped() => Ok(false),
             Err(error) => Err(error.into()),
@@ -257,25 +244,18 @@ impl Projector {
             }
             for chunk in page.chunks(BLOCK_BATCH) {
                 for block in self.fetch_blocks(chunk.to_vec()).await {
-                    let block = block?;
-                    if candidate.replayed_tip.is_none()
-                        && block.metadata.blockhash != candidate.blockhash
-                    {
-                        bail!("ring initialization is no longer canonical");
-                    }
-                    if candidate
-                        .replayed_tip
-                        .as_ref()
-                        .is_some_and(|checkpoint| !checkpoint.is_parent_of(&block.metadata))
-                    {
-                        bail!("ring replay parent mismatch");
-                    }
+                    let (block, replayed) = (block?, candidate.replayed_tip.as_ref());
+                    let initial =
+                        replayed.is_some() || block.metadata.blockhash == candidate.blockhash;
+                    ensure!(initial, "ring initialization is no longer canonical");
+                    let linked = replayed.is_none_or(|tip| tip.is_parent_of(&block.metadata));
+                    ensure!(linked, "ring replay parent mismatch");
                     let journal = storage::journal(db, block.metadata.slot).await?;
-                    if journal.as_ref().is_some_and(|journal| {
-                        journal.metadata.blockhash != block.metadata.blockhash
-                    }) {
-                        bail!("ring replay crossed a confirmed fork");
-                    }
+                    let hash = &block.metadata.blockhash;
+                    let forked = journal
+                        .as_ref()
+                        .is_some_and(|known| known.metadata.blockhash != *hash);
+                    ensure!(!forked, "ring replay crossed a confirmed fork");
                     // 2. Replay progress and undo data must commit together.
                     let tx = db.begin().await?;
                     let undo = self
@@ -400,15 +380,15 @@ enum Scope {
 /// The projected families, each with its own undo journal.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Family {
-    SpendRecords,
-    KeyRegistry,
+    Spend,
+    Key,
 }
 
 impl Family {
     fn of(instruction: &Instruction) -> Option<Self> {
         match *instruction.data.first()? {
-            tag::REGISTER_SPEND | tag::TRANSACT => Some(Self::SpendRecords),
-            tag::CREATE_KEY_REGISTRY_ROOT | tag::REGISTER_KEY => Some(Self::KeyRegistry),
+            tag::REGISTER_SPEND | tag::TRANSACT => Some(Self::Spend),
+            tag::CREATE_KEY_REGISTRY_ROOT | tag::REGISTER_KEY => Some(Self::Key),
             _ => None,
         }
     }
@@ -420,12 +400,6 @@ fn instruction_view(instruction: &Instruction) -> zolana_ring_indexer::Instructi
         accounts: &instruction.accounts,
         data: &instruction.data,
     }
-}
-
-pub(crate) struct Step<'a> {
-    pub root: &'a RingRoot,
-    pub transition: Registration,
-    pub revision: u64,
 }
 
 #[derive(Debug, Error)]
@@ -628,37 +602,15 @@ struct BlockWork<'a> {
 impl BlockWork<'_> {
     async fn run(mut self) -> Result<BlockUndo> {
         let mut undo = BlockUndo::default();
-        for transaction in &self.block.transactions {
-            if transaction.error.is_some() {
-                continue;
-            }
-            let invocations = Invocations::new(transaction, self.block.metadata.slot);
+        let (block, slot) = (self.block, self.block.metadata.slot);
+        for transaction in block.transactions.iter().filter(|tx| tx.error.is_none()) {
+            let invocations = Invocations::new(transaction, slot);
             // A transaction's spend records project before its key registrations.
-            for family in [Family::SpendRecords, Family::KeyRegistry] {
+            for family in [Family::Spend, Family::Key] {
                 for (position, instruction) in invocations.instructions() {
-                    let program = instruction.program_id.to_bytes();
-                    if Family::of(instruction) != Some(family) {
-                        continue;
-                    }
-                    let skip = match self.scope {
-                        Scope::Ring(ring) => ring != program,
-                        Scope::Every => storage::pending_ring(self.tx, &program).await?.is_some(),
-                    };
-                    if skip {
-                        continue;
-                    }
-                    let store = Store::new(self.tx, program);
-                    match family {
-                        Family::SpendRecords => {
-                            let undo = &mut undo.spend_records;
-                            self.spend_records(&store, &invocations, position, undo)
-                                .await?
-                        }
-                        Family::KeyRegistry => {
-                            let undo = &mut undo.key_registry;
-                            self.key_registry(&store, &invocations, position, undo)
-                                .await?
-                        }
+                    if Family::of(instruction) == Some(family) {
+                        self.project(family, &invocations, position, &mut undo)
+                            .await?;
                     }
                 }
             }
@@ -666,7 +618,34 @@ impl BlockWork<'_> {
         Ok(undo)
     }
 
-    async fn spend_records(
+    async fn project(
+        &mut self,
+        family: Family,
+        invocations: &Invocations<'_>,
+        position: usize,
+        undo: &mut BlockUndo,
+    ) -> Result<()> {
+        let program = invocations.instructions[position].program_id.to_bytes();
+        let skip = match self.scope {
+            Scope::Ring(ring) => ring != program,
+            // A pending ring waits for its own replay.
+            Scope::Every => storage::pending_ring(self.tx, &program).await?.is_some(),
+        };
+        let store = Store::new(self.tx, program);
+        match family {
+            _ if skip => Ok(()),
+            Family::Spend => {
+                self.spend(&store, invocations, position, &mut undo.spend_records)
+                    .await
+            }
+            Family::Key => {
+                self.key(&store, invocations, position, &mut undo.key_registry)
+                    .await
+            }
+        }
+    }
+
+    async fn spend(
         &mut self,
         store: &Store<'_, DatabaseTransaction>,
         invocations: &Invocations<'_>,
@@ -697,7 +676,7 @@ impl BlockWork<'_> {
         Ok(())
     }
 
-    async fn key_registry(
+    async fn key(
         &mut self,
         store: &Store<'_, DatabaseTransaction>,
         invocations: &Invocations<'_>,
@@ -795,25 +774,13 @@ impl BlockWork<'_> {
         };
         let revision = self.cursor.advance_revision()?;
         let savepoint = self.tx.begin().await?;
-        let applied = key_registry::apply(
-            &Store::new(&savepoint, root.program),
-            Step {
-                root,
-                transition,
-                revision,
-            },
-        )
-        .await;
+        let store = Store::new(&savepoint, root.program);
+        let applied = key_registry::apply(&store, root, transition, revision).await;
         match applied {
-            Ok(entry) => {
-                savepoint.commit().await?;
-                Ok(Some(entry))
-            }
-            Err(error) => {
-                savepoint.rollback().await?;
-                Err(error)
-            }
+            Ok(_) => savepoint.commit().await?,
+            Err(_) => savepoint.rollback().await?,
         }
+        applied.map(Some)
     }
 }
 

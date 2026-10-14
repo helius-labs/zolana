@@ -1,7 +1,7 @@
 pub(super) mod parser;
 
 use anyhow::{anyhow, Result};
-use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult, Value};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use solana_signature::{Signature, SIGNATURE_BYTES};
@@ -11,7 +11,7 @@ use zolana_indexer_api::{
 use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
-    api::{canonical_context, internal, ready},
+    api::{canonical_context, internal, ready, validation},
     fault,
     storage::{int, Store},
     BlockEnv, Invocation, ProjectError,
@@ -25,9 +25,8 @@ use crate::{
 };
 use parser::Rail;
 
-const RINGS_TABLE: &str = "ring_spend_record_rings";
-const RECORDS_TABLE: &str = "ring_spend_records";
 const RECORD_COLUMNS: &str = "member,nullifier,signature,event_index,output_index,slot";
+const DELETE_RECORD: &str = "DELETE FROM ring_spend_records WHERE program=$1 AND member=$2";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RecordRow {
@@ -95,7 +94,7 @@ pub(super) async fn restore(tx: &DatabaseTransaction, undos: &[SpendUndo]) -> Re
     for undo in undos.iter().rev() {
         match undo {
             SpendUndo::Opened { program } => {
-                let tables = [RECORDS_TABLE, RINGS_TABLE];
+                let tables = ["ring_spend_records", "ring_spend_record_rings"];
                 Store::new(tx, *program).delete_rows(&tables).await?
             }
             SpendUndo::Quarantined { program } => {
@@ -110,9 +109,9 @@ pub(super) async fn restore(tx: &DatabaseTransaction, undos: &[SpendUndo]) -> Re
                 match before {
                     Some(row) => store.save_record(row).await?,
                     None => {
-                        let sql =
-                            format!("DELETE FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2");
-                        store.exec(&sql, vec![member.to_vec().into()]).await?
+                        store
+                            .exec(DELETE_RECORD, vec![member.to_vec().into()])
+                            .await?
                     }
                 }
             }
@@ -127,9 +126,7 @@ pub(crate) async fn lookup(
     request: RingSpendRecordRequest,
 ) -> Result<GetRingSpendRecordResponse, PhotonApiError> {
     if request.member.0 == [0; 32] || request.member.0 >= FIELD_MAX {
-        return Err(PhotonApiError::ValidationError(
-            "invalid spend record member".into(),
-        ));
+        return Err(validation("invalid spend record member"));
     }
     let program = request.ring_program_id.0.to_bytes();
     let (tx, cursor) = ready(db, &program, RingProjectionError::SpendRecordOutOfSync).await?;
@@ -140,16 +137,12 @@ pub(crate) async fn lookup(
         Some(None) => store.record(&request.member.0).await.map_err(internal)?,
     };
     let record = match row {
-        Some(row) => {
-            let signature = <[u8; SIGNATURE_BYTES]>::from(row.signature.0);
-            let transaction = shielded_transaction_at(&tx, signature, row.event_index)
+        Some(row) => Some(RingSpendRecord {
+            transaction: shielded_transaction_at(&tx, row.signature.0.into(), row.event_index)
                 .await?
-                .ok_or_else(|| out_of_sync("record transaction is not indexed yet"))?;
-            Some(RingSpendRecord {
-                transaction,
-                output_index: row.output_index,
-            })
-        }
+                .ok_or_else(|| out_of_sync("record transaction is not indexed yet"))?,
+            output_index: row.output_index,
+        }),
         None => None,
     };
     tx.commit().await?;
@@ -162,14 +155,14 @@ pub(crate) async fn lookup(
 impl<C: ConnectionTrait> Store<'_, C> {
     /// `None` until the ring's first registration, then the fault that quarantines its records.
     pub async fn records_fault(&self) -> Result<Option<Option<String>>> {
-        let sql = format!("SELECT fault FROM {RINGS_TABLE} WHERE program=$1");
-        let row = self.conn.query_one(self.statement(&sql, vec![])).await?;
+        let sql = "SELECT fault FROM ring_spend_record_rings WHERE program=$1";
+        let row = self.conn.query_one(self.statement(sql, vec![])).await?;
         Ok(row.map(|row| row.try_get("", "fault")).transpose()?)
     }
 
     pub async fn open_records(&self) -> Result<SpendUndo> {
-        let sql = format!("INSERT INTO {RINGS_TABLE}(program,fault) VALUES($1,NULL)");
-        self.exec(&sql, vec![]).await?;
+        let sql = "INSERT INTO ring_spend_record_rings(program,fault) VALUES($1,NULL)";
+        self.exec(sql, vec![]).await?;
         Ok(SpendUndo::Opened {
             program: self.program,
         })
@@ -185,17 +178,22 @@ impl<C: ConnectionTrait> Store<'_, C> {
     }
 
     async fn set_records_fault(&self, fault: Option<String>) -> Result<()> {
-        let sql = format!("UPDATE {RINGS_TABLE} SET fault=$2 WHERE program=$1");
-        self.exec(&sql, vec![fault.into()]).await
+        let sql = "UPDATE ring_spend_record_rings SET fault=$2 WHERE program=$1";
+        self.exec(sql, vec![fault.into()]).await
     }
 
     pub async fn record(&self, member: &[u8; 32]) -> Result<Option<RecordRow>> {
-        let sql =
-            format!("SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2");
-        let row = self
-            .conn
-            .query_one(self.statement(&sql, vec![member.to_vec().into()]));
-        row.await?.as_ref().map(record_row).transpose()
+        Ok(self
+            .records("member=$2", vec![member.to_vec().into()])
+            .await?
+            .pop())
+    }
+
+    async fn records(&self, filter: &str, values: Vec<Value>) -> Result<Vec<RecordRow>> {
+        let columns = RECORD_COLUMNS;
+        let sql = format!("SELECT {columns} FROM ring_spend_records WHERE program=$1 AND {filter}");
+        let rows = self.conn.query_all(self.statement(&sql, values)).await?;
+        rows.iter().map(record_row).collect()
     }
 
     /// The member record among `nullifiers`, at most one per transfer.
@@ -210,17 +208,9 @@ impl<C: ConnectionTrait> Store<'_, C> {
             .map(|index| format!("${index}"))
             .collect::<Vec<_>>()
             .join(",");
-        let sql = format!(
-            "SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} \
-             WHERE program=$1 AND nullifier IN ({placeholders})"
-        );
         let values = nullifiers.iter().map(|nullifier| nullifier.to_vec().into());
-        let rows = self.conn.query_all(self.statement(&sql, values.collect()));
-        let spent = rows
-            .await?
-            .iter()
-            .map(record_row)
-            .collect::<Result<Vec<_>>>()?;
+        let filter = format!("nullifier IN ({placeholders})");
+        let spent = self.records(&filter, values.collect()).await?;
         match <[RecordRow; 1]>::try_from(spent) {
             Ok([spent]) => Ok(Some(spent)),
             Err(spent) if spent.is_empty() => Ok(None),
@@ -230,7 +220,7 @@ impl<C: ConnectionTrait> Store<'_, C> {
 
     pub async fn save_record(&self, row: &RecordRow) -> Result<()> {
         let sql = format!(
-            "INSERT INTO {RECORDS_TABLE}(program,{RECORD_COLUMNS}) VALUES($1,$2,$3,$4,$5,$6,$7) \
+            "INSERT INTO ring_spend_records(program,{RECORD_COLUMNS}) VALUES($1,$2,$3,$4,$5,$6,$7) \
              ON CONFLICT(program,member) DO UPDATE SET nullifier=excluded.nullifier,\
              signature=excluded.signature,event_index=excluded.event_index,\
              output_index=excluded.output_index,slot=excluded.slot"

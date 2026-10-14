@@ -6,7 +6,7 @@ use zolana_ring_indexer::key_registry::Spliced;
 use super::{
     fault, instruction_view, proof,
     storage::{LeafWrite, MemberRestore, RingRoot, Store, Undo},
-    Invocation, ProjectError, Step,
+    Invocation, ProjectError,
 };
 
 pub(crate) use super::api::{lookup, register};
@@ -21,13 +21,10 @@ pub(crate) fn transition(
 
 pub(crate) async fn apply(
     store: &Store<'_, DatabaseTransaction>,
-    step: Step<'_>,
+    root: &RingRoot,
+    transition: Registration,
+    revision: u64,
 ) -> Result<Undo, ProjectError> {
-    let Step {
-        root,
-        transition,
-        revision,
-    } = step;
     let &Registration {
         old_root,
         new_root,
@@ -160,11 +157,9 @@ mod tests {
             assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
             apply(
                 &store,
-                Step {
-                    root: &root,
-                    transition: registration(&root, seed, inputs.new_root),
-                    revision: cursor.advance_revision().unwrap(),
-                },
+                &root,
+                registration(&root, seed, inputs.new_root),
+                cursor.advance_revision().unwrap(),
             )
             .await
             .unwrap();
@@ -188,11 +183,9 @@ mod tests {
         let tx = db.begin().await.unwrap();
         assert!(apply(
             &Store::new(&tx, root.program),
-            Step {
-                root: &root,
-                transition: registration(&root, 8, field(99)),
-                revision: 2,
-            },
+            &root,
+            registration(&root, 8, field(99)),
+            2,
         )
         .await
         .is_err());
@@ -204,11 +197,9 @@ mod tests {
         let tx = db.begin().await.unwrap();
         let undo = apply(
             &Store::new(&tx, root.program),
-            Step {
-                root: &root,
-                transition: registration(&root, 8, registered.new_root),
-                revision: cursor.advance_revision().unwrap(),
-            },
+            &root,
+            registration(&root, 8, registered.new_root),
+            cursor.advance_revision().unwrap(),
         )
         .await
         .unwrap();
@@ -255,11 +246,9 @@ mod tests {
         assert_eq!(path.root(0).unwrap(), root.root);
         apply(
             &Store::new(&tx, root.program),
-            Step {
-                root: &root,
-                transition: registration(&root, 8, registered.new_root),
-                revision: restarted.advance_revision().unwrap(),
-            },
+            &root,
+            registration(&root, 8, registered.new_root),
+            restarted.advance_revision().unwrap(),
         )
         .await
         .unwrap();
