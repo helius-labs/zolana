@@ -18,10 +18,12 @@ package fingerprint
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark/constraint"
 
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
@@ -63,23 +65,10 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 4)
 	add("transfer_p256_ring_2_4", p256Ring, err)
 
-	customRing, err := customring.R1CSPolicy()
-	add("custom_ring_policy", customRing, err)
-
-	delegate, err := customring.R1CSDelegatePolicy()
-	add("custom_ring_delegate_policy", delegate, err)
-
-	audit, err := customring.R1CSBase()
-	add("custom_ring_base", audit, err)
-
-	compressed, err := customring.R1CSCompressedPolicy()
-	add("custom_ring_compressed_policy", compressed, err)
-
-	registerKey, err := customring.R1CSKeyRegister()
-	add("custom_ring_register_key", registerKey, err)
-
-	deposit, err := customring.R1CSDeposit()
-	add("custom_ring_deposit", deposit, err)
+	for _, ring := range customring.RingCircuits {
+		cs, err := ring.R1CS()
+		add(strings.TrimSuffix(common.RingKeyFile(ring.Type), ".key"), cs, err)
+	}
 
 	merged, err := mergeprover.R1CSMerge(24)
 	add("merge_24_1", merged, err)
@@ -101,12 +90,12 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_ring_2_4":             {constraints: 57680, public: 2},
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
 	"transfer_p256_ring_2_4":        {constraints: 202642, public: 2},
-	"custom_ring_policy":            {constraints: 576177, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1905759, public: 2},
-	"custom_ring_register_key":      {constraints: 240449, public: 2},
-	"custom_ring_deposit":           {constraints: 980538, public: 2},
-	"custom_ring_delegate_policy":   {constraints: 563841, public: 2},
-	"custom_ring_base":              {constraints: 237921, public: 2},
+	"custom_ring_policy":            {constraints: 574519, public: 2},
+	"custom_ring_compressed_policy": {constraints: 1903999, public: 2},
+	"custom_ring_register_key":      {constraints: 241571, public: 2},
+	"custom_ring_deposit":           {constraints: 981661, public: 2},
+	"custom_ring_delegate_policy":   {constraints: 562183, public: 2},
+	"custom_ring_base":              {constraints: 240169, public: 2},
 	"merge_24_1":                    {constraints: 525759, public: 2},
 	"merge_ring_24_1":               {constraints: 525837, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},

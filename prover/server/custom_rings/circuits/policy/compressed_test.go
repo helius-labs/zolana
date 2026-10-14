@@ -25,11 +25,7 @@ func compressedAssignment(t *testing.T, chain func(policy []*big.Int, disclosure
 	}.Hash(t)
 	c.PublicInputHash = spptest.MustHashChain(t, chain(s.policyChainElements(t, f.facts()), disclosure))
 
-	assignment := &CompressedPolicyCircuit{Policy: *c}
-	for i := range assignment.TransactionSalt {
-		assignment.TransactionSalt[i] = 0
-	}
-	return assignment
+	return &CompressedPolicyCircuit{Policy: *c}
 }
 
 // The program hashes the policy elements, then the counters disclosure hash.
@@ -43,9 +39,9 @@ func TestCompressedCircuitSolves(t *testing.T) {
 	)
 }
 
-func TestCompressedCircuitBindsTransactionSalt(t *testing.T) {
+func TestCompressedCircuitBindsTheSalt(t *testing.T) {
 	assignment := compressedAssignment(t, programChain)
-	assignment.TransactionSalt[0] = 1
+	assignment.Policy.Salt[0] = 1
 	test.NewAssert(t).SolvingFailed(
 		&CompressedPolicyCircuit{}, assignment, test.WithCurves(ecc.BN254),
 	)

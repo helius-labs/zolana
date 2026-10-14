@@ -90,7 +90,7 @@ func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 
 func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
 	finishParameters := p.trace.Start("parameters")
-	request, err := customring.DecodeRequest(circuit, payload)
+	assignment, err := customring.Decode(circuit, payload)
 	finishParameters()
 	if err != nil {
 		return nil, customRingFailure(malformedBodyError(err))
@@ -104,7 +104,7 @@ func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common
 	if err != nil {
 		return nil, customRingFailure(provingError(fmt.Errorf("%s: %w", circuit, err)))
 	}
-	proof, err := customring.RingProof{System: ps, Parameters: request, Prover: backend.Prover(p.trace)}.Prove()
+	proof, err := customring.Prove(ps, assignment, backend.Prover(p.trace))
 	if err != nil {
 		return nil, customRingFailure(provingError(err))
 	}

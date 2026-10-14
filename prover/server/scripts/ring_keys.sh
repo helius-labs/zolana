@@ -1,9 +1,6 @@
-# The custom-ring proving keys, release assets never served from the object store.
-ring_keys=(
-    custom_ring_policy.key
-    custom_ring_base.key
-    custom_ring_compressed_policy.key
-    custom_ring_delegate_policy.key
-    custom_ring_register_key.key
-    custom_ring_deposit.key
-)
+# The custom-ring proving keys, the release assets the lockfile pins.
+ring_keys=()
+while read -r key; do
+    ring_keys+=("$key")
+done < <(python3 -c 'import json, sys; print("\n".join(k for k, v in json.load(open(sys.argv[1]))["keys"].items() if v.get("source") == "release"))' \
+    "$(dirname "${BASH_SOURCE[0]}")/../prover/provingkeys/proving-keys.lock")

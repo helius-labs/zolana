@@ -190,9 +190,6 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	disclosure := spptest.CounterDisclosure{Secret: secret, CounterSalt: s.record.nextSalt, Assets: s.record.assets, Spent: s.record.nextSpent}.Hash(t)
 	policy.PublicInputHash = spptest.MustHashChain(t, append(s.policyChainElements(t, nil), disclosure))
 	compressed := &CompressedPolicyCircuit{Policy: *policy}
-	for i := range compressed.TransactionSalt {
-		compressed.TransactionSalt[i] = 0
-	}
 	if err := test.IsSolved(&CompressedPolicyCircuit{}, compressed, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("windowed policy authorizes a namespace address claim hidden as padding")
 	}

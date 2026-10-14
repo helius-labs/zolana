@@ -1,6 +1,3 @@
-// Fixes circuit capacities and policy encodings for consistent rule
-// selection, amount checks and commitment hashes.
-
 package policy
 
 import (
@@ -8,102 +5,71 @@ import (
 	"math/bits"
 )
 
-// Fixed capacities bound the transaction slots, policy rows and shared facts in
-// one proof.
+// Capacities of one proof.
 const (
-	NInputs       = 5
-	NOutputs      = 4
-	NRules        = 16
-	NListFacts    = 10
-	NInlineAssets = 8
-	NSources      = 8
-	// One spend counter per velocity mint.
+	NInputs         = 5
+	NOutputs        = 4
+	NRules          = 16
+	NListFacts      = 10
+	NInlineAssets   = 8
+	NSources        = 8
 	NVelocityAssets = 8
 )
 
 // PolicyVersion is committed in policy_hash.
 const PolicyVersion = 7
 
-// Subjects select the transaction value checked against a rule.
+// Subjects select the transaction value a rule checks, SubjectExitDestination is rejected.
 const (
 	SubjectOutputOwner     = 1
 	SubjectSender          = 2
-	SubjectExitDestination = 3 // Rejected for enabled rules.
+	SubjectExitDestination = 3
 	SubjectAsset           = 4
 )
 
-// Modes select active list membership or absence at the supplied roots.
 const (
 	ModePresent = 1
 	ModeAbsent  = 2
 )
 
-// Entry states distinguish active membership from a stored revocation.
 const (
 	EntryStateActive  = 1
 	EntryStateCleared = 2
 )
 
-// Guard tags select no exemption, a subject threshold or an owner-and-asset
-// limit.
+// Guards waive a rule at or below a subject threshold or an owner and asset limit.
 const (
 	GuardAlways             = 0
 	GuardAboveAmount        = 1
 	GuardAboveAmountByAsset = 2
 )
 
-// Absence uses an unclaimed address or an unspent cleared entry.
+// Absence is an unclaimed address or an unspent cleared entry.
 const (
 	AbsentBranchUnclaimedAddress = 1
 	AbsentBranchCleared          = 2
 )
 
-// Distinct hash domains separate policy commitments from list and spend records.
-const (
-	addressDomainTag      = "zolana:ring-policy:address:v1"
-	recordDomainTag       = "zolana:ring-policy:record:v1"
-	tableDomainTag        = "zolana:ring-policy:policy:v1"
-	spendAddressDomainTag = "zolana:ring-policy:spend:v1"
-	spendRecordDomainTag  = "zolana:ring-spend:record:v1"
-)
-
 var (
-	policyAddressDomain = packedASCII(addressDomainTag)
-	policyRecordDomain  = packedASCII(recordDomainTag)
-	policyTableDomain   = packedASCII(tableDomainTag)
-	SpendAddressDomain  = packedASCII(spendAddressDomainTag)
-	SpendRecordDomain   = packedASCII(spendRecordDomainTag)
+	policyAddressDomain = packedASCII("zolana:ring-policy:address:v1")
+	policyRecordDomain  = packedASCII("zolana:ring-policy:record:v1")
+	policyTableDomain   = packedASCII("zolana:ring-policy:policy:v1")
+	SpendAddressDomain  = packedASCII("zolana:ring-policy:spend:v1")
+	SpendRecordDomain   = packedASCII("zolana:ring-spend:record:v1")
 )
 
-// Policy entries use the SOL asset Poseidon(0, 0).
-var solAssetField, _ = new(big.Int).SetString(
-	"2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
+// solAssetField is Poseidon(0, 0), the asset of policy entries and spend records.
+var solAssetField, _ = new(big.Int).SetString("2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
 
-// Entry UTXOs use the empty ring commitment Poseidon(0, 0).
-var emptyRingHash = solAssetField
-
-// UTXO amounts and thresholds use the same unsigned width.
 const amountBits = 64
 
-// The sum width bounds the larger of the input and output groups.
-var amountSumBits = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
+// The sum width bounds the larger slot group, the offset's top bit marks total <= threshold.
+var (
+	amountSumBits   = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
+	amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))
+)
 
-// Adding the offset makes the top bit indicate total <= threshold.
-var amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))
-
-// Packed rows bind each field at its encoded byte offset.
-var ruleWeights = struct {
-	mode, listMask, guardTag, threshold, altListMask *big.Int
-}{
-	mode:        new(big.Int).Lsh(big.NewInt(1), 8),
-	listMask:    new(big.Int).Lsh(big.NewInt(1), 16),
-	guardTag:    new(big.Int).Lsh(big.NewInt(1), 24),
-	threshold:   new(big.Int).Lsh(big.NewInt(1), 32),
-	altListMask: new(big.Int).Lsh(big.NewInt(1), 96),
-}
-
-// packedASCII encodes short domain tags as big endian fields without modular
-// reduction.
+// packedASCII reads a tag of at most 31 bytes as a big-endian field.
 func packedASCII(tag string) *big.Int {
 	if len(tag) > 31 {
 		panic("policy domain tag exceeds 31 bytes")

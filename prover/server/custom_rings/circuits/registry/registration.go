@@ -33,7 +33,6 @@ func (l Leaf) Hash(api frontend.API) frontend.Variable {
 
 // NewRoot preserves the ordered member chain across both root updates.
 func (r Insertion) NewRoot(api frontend.API) frontend.Variable {
-	// 1. Prove absence between adjacent members and update their link.
 	api.AssertIsDifferent(r.NewIndex, 0)
 	gadget.AssertStrictlyOrderedFullField(api, r.Low.Member, r.Member, r.Low.Next)
 	root := abstractor.Call(api, gadget.MerkleRootUpdateGadget{
@@ -44,7 +43,7 @@ func (r Insertion) NewRoot(api frontend.API) frontend.Variable {
 		MerkleProof: r.LowProof,
 		Height:      Height,
 	})
-	// 2. Prove the append slot empty under the updated predecessor root.
+	// The append slot is empty under the updated predecessor root.
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     root,
 		OldLeaf:     emptyLeaf(),

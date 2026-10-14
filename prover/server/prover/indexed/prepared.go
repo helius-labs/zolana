@@ -6,11 +6,13 @@ import (
 	"math/big"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	merge "github.com/helius-labs/zolana/prover/server/prover/merge"
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
 )
 
 type inputTarget struct {
+	fill                  func(state *stateProof, exclusion nullifierProof)
 	disabled              bool
 	slot, nullifier       *big.Int
 	dummy, cached         bool
@@ -20,9 +22,9 @@ type inputTarget struct {
 }
 
 type preparedProof struct {
-	registry *resolvedPolicy
+	registry *ring.PolicyParams
 	policy   bool
-	value    json.Marshaler
+	value    any
 	inputs   []inputTarget
 	slots    *[]common.TreeSlotParams
 	hash     **big.Int
@@ -156,6 +158,10 @@ func decodePrepared(request Request) (*preparedProof, error) {
 }
 
 func (input inputTarget) apply(state *stateProof, exclusion nullifierProof) {
+	if input.fill != nil {
+		input.fill(state, exclusion)
+		return
+	}
 	if state == nil {
 		*input.state = make([]*big.Int, 32)
 		for index := range *input.state {

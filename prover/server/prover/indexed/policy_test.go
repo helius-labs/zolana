@@ -62,7 +62,7 @@ func policyFixture(t *testing.T, enabled bool) (Request, response[stateProof], r
 		"privateTxHash": "0x" + strings.Repeat("00", 31) + "01", "txViewingSk": "0x" + strings.Repeat("00", 31) + "01", "ephSk": "0x" + strings.Repeat("00", 31) + "02",
 		"auditorPk": "0x" + hex.EncodeToString(elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy)),
 		"salt":      "0x" + strings.Repeat("00", 16), "nIn": 1, "nOut": 1, "inputs": openings(5), "outputs": openings(4),
-		"addressChain": "0x" + strings.Repeat("00", 32), "externalDataHash": "0x" + strings.Repeat("00", 32), "privateTxBlinding": "0x" + strings.Repeat("00", 32), "sources": sources, "policyLen": 0, "ruleEnc": rules,
+		"addressChain": "0x" + strings.Repeat("00", 32), "privateTxBlinding": "0x" + strings.Repeat("00", 32), "sources": sources, "policyLen": 0, "ruleEnc": rules,
 		"inlineAssets": zeroFields(8), "inlineLimits": zeroFields(8), "inlineCount": 0, "windowSlots": 0, "velocity": velocity, "velocityCount": 0,
 		"addressTreeId": "0x" + strings.Repeat("00", 32), "ringId": "0x" + strings.Repeat("00", 31) + "01", "namespaceOwnerHash": "0x" + strings.Repeat("00", 31) + "01", "windowIndex": 0, "approvalRequired": false, "keyEscrow": false, "keyRegistryRoot": "0x" + strings.Repeat("00", 32),
 		"record": map[string]any{"version": 0, "window": 0, "commitment": "0x" + strings.Repeat("00", 32), "salt": "0x" + strings.Repeat("00", 32), "assets": zeroFields(8), "spent": zeroFields(8), "nextSalt": "0x" + strings.Repeat("00", 32)}, "answers": answers,
@@ -110,14 +110,14 @@ func TestPolicyResolvesOnlyEnabledFacts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var params ring.PolicyParameters
+		var params ring.PolicyParams
 		if err := json.Unmarshal(resolved.Payload, &params); err != nil {
 			t.Fatal(err)
 		}
-		if common.FeHex(params.PublicInputHash) != resolved.Resolution.PublicInputHash {
+		if common.FeHex(params.PublicInputHash.Int) != resolved.Resolution.PublicInputHash {
 			t.Fatal("policy statement mismatch")
 		}
-		if enabled && params.ListFacts[0].Low.Cmp(new(big.Int).SetBytes(exclusion.Proofs[0].LowElement[:])) != 0 {
+		if enabled && params.ListFacts[0].NullifierLowValue.Cmp(new(big.Int).SetBytes(exclusion.Proofs[0].LowElement[:])) != 0 {
 			t.Fatal("unresolved exclusion")
 		}
 	}
@@ -268,11 +268,11 @@ func TestPolicyRegistryBindsOwnerKeyAndAnchor(t *testing.T) {
 					}
 				}
 				if mutation == "" && circuit == common.CustomRingDepositCircuitType {
-					var params ring.DepositParameters
+					var params ring.DepositParams
 					if err := json.Unmarshal(resolved.Payload, &params); err != nil {
 						t.Fatal(err)
 					}
-					if params.Keys[0] == nil || params.Keys[0].Index != 1 || params.Keys[0].CtHash.Cmp(ctHash) != 0 || calls != 1 || resolved.Resolution.PublicInputHash != common.FeHex(params.PublicInputHash) {
+					if params.Keys[0] == nil || params.Keys[0].Index != 1 || params.Keys[0].CtHash.Cmp(ctHash) != 0 || calls != 1 || resolved.Resolution.PublicInputHash != common.FeHex(params.PublicInputHash.Int) {
 						t.Fatal("unresolved deposit membership")
 					}
 					for _, key := range params.Keys[1:] {
@@ -282,7 +282,7 @@ func TestPolicyRegistryBindsOwnerKeyAndAnchor(t *testing.T) {
 					}
 				}
 				if mutation == "" && circuit == common.CustomRingPolicyCircuitType {
-					var params ring.PolicyParameters
+					var params ring.PolicyParams
 					if err := json.Unmarshal(resolved.Payload, &params); err != nil {
 						t.Fatal(err)
 					}

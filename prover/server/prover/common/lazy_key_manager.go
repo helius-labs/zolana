@@ -39,87 +39,36 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 }
 
 func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSystem, error) {
-	key := string(circuitType)
-	m.mu.RLock()
-	if ps, exists := m.ringSystems[key]; exists {
-		m.mu.RUnlock()
-		return ps, nil
-	}
-	m.mu.RUnlock()
-
-	loadChan := m.acquireLoadingLock(key)
-	if loadChan == nil {
-		m.waitForLoading(key)
-		m.mu.RLock()
-		ps, exists := m.ringSystems[key]
-		m.mu.RUnlock()
-		if exists {
-			return ps, nil
-		}
-		return nil, fmt.Errorf("loading completed but system not found in cache")
-	}
-	defer m.releaseLoadingLock(key, loadChan)
-
-	keyPath := m.determineRingKeyPath(circuitType)
-	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for circuit %s", circuitType)
-	}
-	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
-		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
-	}
-	system, err := ReadSystemFromFile(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
-	}
-	ps, ok := system.(*RingProofSystem)
-	if !ok {
-		return nil, fmt.Errorf("expected RingProofSystem but got %T", system)
-	}
-	m.mu.Lock()
-	m.ringSystems[key] = ps
-	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
-	m.mu.Unlock()
-	return ps, nil
+	return load(m, m.ringSystems, string(circuitType), m.determineRingKeyPath(circuitType))
 }
 
 func (m *LazyKeyManager) GetBatchSystem(circuitType CircuitType, treeHeight uint32, batchSize uint32) (*BatchProofSystem, error) {
 	key := fmt.Sprintf("%s_%d_%d", circuitType, treeHeight, batchSize)
-
-	m.mu.RLock()
-	if ps, exists := m.batchSystems[key]; exists {
-		m.mu.RUnlock()
-		logging.Logger().Debug().
-			Str("key", key).
-			Msg("Found cached BatchProofSystem")
-		return ps, nil
-	}
-	m.mu.RUnlock()
-
-	return m.loadBatchSystem(key, circuitType, treeHeight, batchSize)
+	return load(m, m.batchSystems, key, m.keyPathOf(BatchKeyFile(circuitType, treeHeight, batchSize)))
 }
 
 func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
 	key := fmt.Sprintf("%s_%d_%d", circuitType, nInputs, nOutputs)
+	return load(m, m.transferSystems, key, m.determineTransferKeyPath(circuitType, nInputs, nOutputs))
+}
 
+type provingSystem interface {
+	BatchProofSystem | TransferProofSystem | RingProofSystem
+}
+
+// load reads a key file once, concurrent callers wait for the first.
+func load[T provingSystem](m *LazyKeyManager, cache map[string]*T, key, keyPath string) (*T, error) {
 	m.mu.RLock()
-	if ps, exists := m.transferSystems[key]; exists {
-		m.mu.RUnlock()
-		logging.Logger().Debug().
-			Str("key", key).
-			Msg("Found cached TransferProofSystem")
+	ps, exists := cache[key]
+	m.mu.RUnlock()
+	if exists {
 		return ps, nil
 	}
-	m.mu.RUnlock()
-
-	return m.loadTransferSystem(key, circuitType, nInputs, nOutputs)
-}
-
-func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, treeHeight uint32, batchSize uint32) (*BatchProofSystem, error) {
 	loadChan := m.acquireLoadingLock(key)
 	if loadChan == nil {
 		m.waitForLoading(key)
 		m.mu.RLock()
-		ps, exists := m.batchSystems[key]
+		ps, exists := cache[key]
 		m.mu.RUnlock()
 		if exists {
 			return ps, nil
@@ -127,97 +76,28 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 		return nil, fmt.Errorf("loading completed but system not found in cache")
 	}
 	defer m.releaseLoadingLock(key, loadChan)
-
-	keyPath := m.determineBatchKeyPath(circuitType, treeHeight, batchSize)
 	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for %s with height %d and batch size %d", circuitType, treeHeight, batchSize)
+		return nil, fmt.Errorf("no key file mapping for %s", key)
 	}
-
-	logging.Logger().Info().
-		Str("key_path", keyPath).
-		Str("cache_key", key).
-		Msg("Loading BatchProofSystem")
-
+	logging.Logger().Info().Str("key_path", keyPath).Str("cache_key", key).Msg("Loading proving system")
 	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
-
 	system, err := ReadSystemFromFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
 	}
-
-	ps, ok := system.(*BatchProofSystem)
+	ps, ok := system.(*T)
 	if !ok {
-		return nil, fmt.Errorf("expected BatchProofSystem but got different type")
+		return nil, fmt.Errorf("expected %T but got %T", ps, system)
 	}
-
+	if err := m.cacheSystem(keyPath, system); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
-	m.batchSystems[key] = ps
-	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
+	cache[key] = ps
 	m.mu.Unlock()
-
-	logging.Logger().Info().
-		Str("cache_key", key).
-		Uint32("tree_height", ps.TreeHeight).
-		Uint32("batch_size", ps.BatchSize).
-		Str("circuit_type", string(ps.CircuitType)).
-		Msg("BatchProofSystem loaded and cached successfully")
-
-	return ps, nil
-}
-
-func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
-	loadChan := m.acquireLoadingLock(key)
-	if loadChan == nil {
-		m.waitForLoading(key)
-		m.mu.RLock()
-		ps, exists := m.transferSystems[key]
-		m.mu.RUnlock()
-		if exists {
-			return ps, nil
-		}
-		return nil, fmt.Errorf("loading completed but system not found in cache")
-	}
-	defer m.releaseLoadingLock(key, loadChan)
-
-	keyPath := m.determineTransferKeyPath(circuitType, nInputs, nOutputs)
-	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for %s with %d inputs and %d outputs", circuitType, nInputs, nOutputs)
-	}
-
-	logging.Logger().Info().
-		Str("key_path", keyPath).
-		Str("cache_key", key).
-		Msg("Loading TransferProofSystem")
-
-	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
-		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
-	}
-
-	system, err := ReadSystemFromFile(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
-	}
-
-	ps, ok := system.(*TransferProofSystem)
-	if !ok {
-		return nil, fmt.Errorf("expected TransferProofSystem but got different type")
-	}
-
-	m.mu.Lock()
-	m.transferSystems[key] = ps
-	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
-	m.mu.Unlock()
-
-	logging.Logger().Info().
-		Str("cache_key", key).
-		Uint32("n_inputs", ps.NInputs).
-		Uint32("n_outputs", ps.NOutputs).
-		Bool("requires_p256", ps.RequiresP256).
-		Str("circuit_type", string(ps.CircuitType)).
-		Msg("TransferProofSystem loaded and cached successfully")
-
+	logging.Logger().Info().Str("cache_key", key).Msg("Proving system loaded and cached")
 	return ps, nil
 }
 
@@ -277,10 +157,6 @@ func BatchKeyFile(circuitType CircuitType, treeHeight uint32, batchSize uint32) 
 		}
 	}
 	return ""
-}
-
-func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeight uint32, batchSize uint32) string {
-	return m.keyPathOf(BatchKeyFile(circuitType, treeHeight, batchSize))
 }
 
 // transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
@@ -410,11 +286,6 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return m.keyPathOf(TransferKeyFile(circuitType, nInputs, nOutputs))
 }
 
-// RingKeyFile names a custom-ring circuit's key file, or "" for none.
-func RingKeyFile(circuitType CircuitType) string {
-	return RingKeyFiles[circuitType]
-}
-
 func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
 	return m.keyPathOf(RingKeyFile(circuitType))
 }
@@ -443,8 +314,8 @@ func keyFileCircuits() map[string]CircuitType {
 	for _, shape := range batchAddressAppendShapes {
 		files[BatchKeyFile(BatchAddressAppendCircuitType, shape[0], shape[1])] = BatchAddressAppendCircuitType
 	}
-	for circuit, file := range RingKeyFiles {
-		files[file] = circuit
+	for _, circuit := range RingCircuitTypes {
+		files[RingKeyFile(circuit)] = circuit
 	}
 	return files
 }

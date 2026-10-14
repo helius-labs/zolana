@@ -1,291 +1,176 @@
 package custom_ring
 
 import (
-	"crypto/ecdh"
 	"math/big"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
-func TestCustomRingProofVerifies(t *testing.T) {
-	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
-	params := rulesFreeParams(t)
-	proof, err := RingProof{System: loadedSystem, Parameters: params}.Prove()
+// Every accepted fixture proves under its installed key, and only for its own statement.
+func TestGoldenRequestsProveWithTheInstalledKeys(t *testing.T) {
+	files, err := filepath.Glob("testdata/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		t.Fatal(err)
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := groth16.Verify(proof.Proof, loadedSystem.VerifyingKey, witness); err != nil {
-		t.Fatal(err)
+	for _, file := range files {
+		if goldenUnsolved[filepath.Base(file)] {
+			continue
+		}
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			payload, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := common.ParseProofRequestMeta(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ps := loadRingSystem(t, meta.CircuitType)
+			assignment := goldenAssignment(t, meta.CircuitType, payload)
+			proof, err := Prove(ps, assignment, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := verifyProof(ps, proof, assignment); err != nil {
+				t.Fatal(err)
+			}
+			if verifyProof(ps, proof, withPublicInputHash(assignment, big.NewInt(1))) == nil {
+				t.Fatal("proof admitted under a different statement")
+			}
+		})
 	}
 }
 
-func TestAuditProofVerifies(t *testing.T) {
-	ps := loadRingSystem(t, common.CustomRingBaseKeyFile)
-	params := baseParams(t)
-	proof, err := RingProof{System: ps, Parameters: params}.Prove()
+// withPublicInputHash replaces the one public input, wherever the circuit nests it.
+func withPublicInputHash(assignment frontend.Circuit, value *big.Int) frontend.Circuit {
+	copied := reflect.New(reflect.TypeOf(assignment).Elem())
+	copied.Elem().Set(reflect.ValueOf(assignment).Elem())
+	target := copied.Elem()
+	for !target.FieldByName("PublicInputHash").IsValid() {
+		target = target.Field(0)
+	}
+	target.FieldByName("PublicInputHash").Set(reflect.ValueOf(frontend.Variable(value)))
+	return copied.Interface().(frontend.Circuit)
+}
+
+func TestDelegateProofDoesNotVerifyOnTheMemberRail(t *testing.T) {
+	payload, err := os.ReadFile("testdata/custom-ring-delegate-policy.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := params.CreateWitness()
+	ps := loadRingSystem(t, common.CustomRingDelegatePolicyCircuitType)
+	member := loadRingSystem(t, common.CustomRingPolicyCircuitType)
+	assignment := goldenAssignment(t, common.CustomRingDelegatePolicyCircuitType, payload)
+	proof, err := Prove(ps, assignment, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := groth16.Verify(proof.Proof, ps.VerifyingKey, witness); err != nil {
-		t.Fatal(err)
+	if verifyProof(member, proof, assignment) == nil {
+		t.Fatal("a delegate proof verified on the member rail")
 	}
 }
 
-// baseParams builds the audit statement over the same fixture scalars as
-// auditChainElements, the private_tx_hash a pass-through.
-func baseParams(t *testing.T) *BaseParameters {
-	t.Helper()
-	p := &BaseParameters{
-		PrivateTxHash: big.NewInt(0xabcdef),
-		TxViewingSk:   testScalar(0x11),
-		EphSk:         testScalar(0x22),
-		NOut:          1,
+func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
+	unknownCounters := func(p *PolicyParams) {
+		p.Record.Version = 3
+		p.Record.Commitment = fb(proofCounters(t, big.NewInt(71), p.Velocity[0].Asset.Int, p.Velocity[0].Cap.Int))
 	}
-	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	copy(p.AuditorPk[:], auditorKey.PublicKey().Bytes())
-	for i := range p.Outputs {
-		p.Outputs[i] = zeroedAuditOpening()
-	}
-	keys := audittest.DefaultKeys(t)
-	wires := keys.AuditBlockWires(p.PrivateTxHash)
-	elements := keys.ChainElementsFor(t, wires, int(p.NOut))
-	p.PublicInputHash = spptest.MustHashChain(t, elements)
-	return p
-}
-
-// rulesFreeParams opens a one input one output transfer against a length zero
-// rule table with every list fact slot disabled.
-func rulesFreeParams(t *testing.T) *PolicyParameters {
-	return rulesFreeParamsAtRoot(t, big.NewInt(0x0d))
-}
-
-func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
-	t.Helper()
-	p := &PolicyParameters{
-		NIn:                1,
-		NOut:               1,
-		AddressChain:       big.NewInt(0x77),
-		PrivateTxBlinding:  big.NewInt(0x5b1d),
-		TreeSlots:          zeroedTreeSlots(),
-		AddressTreeID:      big.NewInt(0x0f),
-		RingID:             big.NewInt(0x5a),
-		NamespaceOwnerHash: big.NewInt(0x99),
-		KeyEscrow:          KeyEscrow{Root: big.NewInt(0)},
-		Record:             zeroedRecord(),
-	}
-	p.TreeSlots[0] = TreeSlot{ID: p.AddressTreeID, UtxoRoot: root, NullifierRoot: big.NewInt(0x0e)}
-	for i := range p.Sources {
-		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
-	}
-	for i := range p.Velocity {
-		p.Velocity[i] = VelocityRow{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
-	}
-	p.TxViewingSk = testScalar(0x11)
-	p.EphSk = testScalar(0x22)
-	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	copy(p.AuditorPk[:], auditorKey.PublicKey().Bytes())
-
-	for i := range p.Inputs {
-		p.Inputs[i] = zeroedOpening()
-	}
-	for i := range p.Outputs {
-		p.Outputs[i] = zeroedOpening()
-	}
-	p.Inputs[0] = Opening{
-		Domain:        big.NewInt(protocol.UtxoDomain),
-		TreeID:        big.NewInt(0),
-		OwnerPkHash:   big.NewInt(0xb2),
-		NullifierPk:   big.NewInt(0xb3),
-		Asset:         big.NewInt(0xa5),
-		Amount:        big.NewInt(1000),
-		Blinding:      big.NewInt(0x51),
-		DataHash:      big.NewInt(0),
-		RingDataHash:  big.NewInt(0),
-		RingProgramID: big.NewInt(0),
-	}
-	p.Outputs[0] = Opening{
-		Domain:        big.NewInt(protocol.UtxoDomain),
-		TreeID:        big.NewInt(0),
-		OwnerPkHash:   big.NewInt(0xa1),
-		NullifierPk:   big.NewInt(0xa2),
-		Asset:         big.NewInt(0xa5),
-		Amount:        big.NewInt(1000),
-		Blinding:      big.NewInt(0x52),
-		DataHash:      big.NewInt(0),
-		RingDataHash:  big.NewInt(0),
-		RingProgramID: big.NewInt(0),
-	}
-	for i := range p.InlineAssets {
-		p.InlineAssets[i] = big.NewInt(0)
-		p.InlineLimits[i] = big.NewInt(0)
-	}
-	for i := range p.ListFacts {
-		p.ListFacts[i] = zeroedListFact()
-	}
-	bindRulesFreeStatement(t, p)
-	return p
-}
-
-// The tail extends the chain past the program context.
-func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int) {
-	t.Helper()
-	inputs, outputs := []*big.Int{}, []*big.Int{}
-	for i := 0; i < int(p.NIn); i++ {
-		inputs = append(inputs, openingHash(t, p.Inputs[i]))
-	}
-	for i := 0; i < int(p.NOut); i++ {
-		outputs = append(outputs, openingHash(t, p.Outputs[i]))
-	}
-	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
-		spptest.MustNonZeroHashChain(t, inputs), spptest.MustNonZeroHashChain(t, outputs),
-		p.AddressChain, p.PrivateTxBlinding,
+	ps := loadRingSystem(t, common.CustomRingCompressedPolicyCircuitType)
+	expired := compressedProofParameters(t, func(p *PolicyParams) {
+		unknownCounters(p)
+		p.Record.Window--
 	})
-	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
-	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
-	preimage := []*big.Int{tableDomain, big.NewInt(policy.PolicyVersion)}
-	for range p.Sources {
-		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
+	assignment := decodeParams(t, common.CustomRingCompressedPolicyCircuitType, expired)
+	proof, err := Prove(ps, assignment, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.VelocityCount)), new(big.Int).SetUint64(p.WindowSlots))
-	for i := 0; i < int(p.VelocityCount); i++ {
-		row := p.Velocity[i]
-		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
+	if err := verifyProof(ps, proof, assignment); err != nil {
+		t.Fatal(err)
 	}
-	policyHash := spptest.MustHashChain(t, preimage)
-	elements := audittest.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
-	slots := make([]protocol.TreeSlot, len(p.TreeSlots))
-	for i, slot := range p.TreeSlots {
-		slots[i] = protocol.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
+
+	expired.Policy.WindowIndex = expired.Policy.Record.Window
+	bindRulesFreeStatement(t, &expired.Policy, compressedDisclosure(t, expired))
+	stale := decodeParams(t, common.CustomRingCompressedPolicyCircuitType, expired)
+	if verifyProof(ps, proof, stale) == nil {
+		t.Fatal("proof admitted under the predecessor window")
 	}
-	keyEscrow := big.NewInt(0)
-	if p.KeyEscrow.Enabled {
-		keyEscrow.SetInt64(1)
+	if _, err := Prove(ps, stale, nil); err == nil {
+		t.Fatal("an expired successor was proven under the predecessor window")
 	}
-	elements = append(elements, policyHash, spptest.MustTreeSlotsHashChain(t, slots), p.AddressTreeID,
-		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0),
-		keyEscrow, p.KeyEscrow.Root, big.NewInt(0))
-	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), policy.NListFacts)...)
-	p.PublicInputHash = spptest.MustHashChain(t, append(elements, tail...))
+	live := compressedProofParameters(t, unknownCounters)
+	if _, err := Prove(ps, decodeParams(t, common.CustomRingCompressedPolicyCircuitType, live), nil); err == nil {
+		t.Fatal("a live record was proven without its counter opening")
+	}
 }
 
-func policyAuditWires(t testing.TB, p *PolicyParameters) base.AuditBlockWires {
+func compressedProofParameters(t *testing.T, configure func(*PolicyParams)) *CompressedPolicyParams {
 	t.Helper()
-	wires := base.AuditBlockWires{PrivateTxHash: p.PrivateTxHash}
-	for i, value := range p.TxViewingSk {
-		wires.TxViewingSk[i] = value
+	p := rulesFreeParams(t)
+	zero := big.NewInt(0)
+	member := p.Inputs[0].OwnerPkHash.Int
+	ownerPk, nullifierPk := big.NewInt(0xf1), spptest.MustNullifierPk(t, zero)
+	p.NamespaceOwnerHash = fb(spptest.MustOwnerHash(t, ownerPk, nullifierPk))
+	p.NIn, p.NOut, p.WindowSlots, p.WindowIndex, p.VelocityCount = 2, 2, 100, 7, 1
+	p.AddressChain = fb(spptest.MustNonZeroHashChain(t, spptest.RepeatBigInt(zero, int(p.NIn))))
+	p.Velocity[0] = VelocityRow{Asset: p.Inputs[0].Asset, Cap: fi(5000), CosignAbove: fi(2000)}
+	p.Record.Window = p.WindowIndex
+	p.Record.NextSalt = fi(99)
+	p.Record.Commitment = fb(proofCounters(t, p.Record.Salt.Int, zero, zero))
+	if configure != nil {
+		configure(p)
 	}
-	for i, value := range p.EphSk {
-		wires.EphSk[i] = value
-	}
-	for i, value := range p.AuditorPk {
-		wires.AuditorPk[i] = value
-	}
-	for i, value := range p.Salt {
-		wires.Salt[i] = int(value)
-	}
-	for i, output := range p.Outputs {
-		wires.Outputs[i] = base.AuditOutputWires{
-			Domain: output.Domain, TreeID: output.TreeID,
-			OwnerHash: spptest.MustPoseidon(t, 3, []*big.Int{output.OwnerPkHash, output.NullifierPk}),
-			Asset:     output.Asset, Amount: output.Amount, Blinding: output.Blinding,
-			DataHash: output.DataHash, RingDataHash: output.RingDataHash,
-			RingProgramID: output.RingProgramID,
+	nextCommitment := proofCounters(t, p.Record.NextSalt.Int, p.Velocity[0].Asset.Int, p.Inputs[0].Amount.Int)
+	seed := spptest.MustPoseidon(t, 3, []*big.Int{policy.SpendAddressDomain, member})
+	addressLeaf := spptest.MustUtxoHash(t, protocol.Utxo{
+		Domain: big.NewInt(protocol.AddressDomain), Owner: p.NamespaceOwnerHash.Int,
+		Asset: zero, Amount: zero, Blinding: seed, DataHash: zero, RingDataHash: zero, RingProgramID: zero,
+	}, p.AddressTreeID.Int)
+	address := spptest.MustNullifier(t, addressLeaf, seed, zero)
+	opening := func(version uint64, commitment *big.Int, blinding int64) Opening {
+		window := p.WindowIndex
+		if version == p.Record.Version {
+			window = p.Record.Window
+		}
+		return Opening{
+			Domain: fi(protocol.UtxoDomain), TreeID: p.AddressTreeID,
+			OwnerPkHash: fb(ownerPk), NullifierPk: fb(nullifierPk), Asset: fb(protocol.SolAsset()), Amount: fi(0),
+			Blinding: fi(blinding), RingProgramID: fi(0), RingDataHash: fi(0),
+			DataHash: fb(spptest.MustPoseidon(t, 7, []*big.Int{
+				policy.SpendRecordDomain, address, member,
+				new(big.Int).SetUint64(version), new(big.Int).SetUint64(window), commitment,
+			})),
 		}
 	}
-	wires.OutputCountSelected[int(p.NOut)-1] = 1
-	return wires
+	p.Inputs[1] = opening(p.Record.Version, p.Record.Commitment.Int, 101)
+	p.Outputs[1] = OutputOpening{Opening: opening(p.Record.Version+1, nextCommitment, 102)}
+	compressed := &CompressedPolicyParams{
+		CircuitType: string(common.CustomRingCompressedPolicyCircuitType), Policy: *p, TransactionSalt: make(Bytes, 16),
+	}
+	bindRulesFreeStatement(t, &compressed.Policy, compressedDisclosure(t, compressed))
+	return compressed
 }
 
-func zeroedAuditOpening() AuditOpening {
-	return AuditOpening{
-		Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
-		Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
-		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
-	}
-}
-
-func zeroedRecord() SpendRecord {
-	record := SpendRecord{
-		Commitment: big.NewInt(0),
-		Salt:       big.NewInt(0),
-		NextSalt:   big.NewInt(0),
-	}
-	for i := range record.Assets {
-		record.Assets[i] = big.NewInt(0)
-		record.Spent[i] = big.NewInt(0)
-	}
-	return record
-}
-
-func openingHash(t *testing.T, slot Opening) *big.Int {
+func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {
 	t.Helper()
-	return spptest.MustUtxoHash(t, protocol.Utxo{
-		Domain:        slot.Domain,
-		Owner:         spptest.MustOwnerHash(t, slot.OwnerPkHash, slot.NullifierPk),
-		Asset:         slot.Asset,
-		Amount:        slot.Amount,
-		Blinding:      slot.Blinding,
-		DataHash:      slot.DataHash,
-		RingDataHash:  slot.RingDataHash,
-		RingProgramID: slot.RingProgramID,
-	}, slot.TreeID)
+	elements := []*big.Int{salt, asset, spent}
+	for i := 1; i < policy.NVelocityAssets; i++ {
+		elements = append(elements, big.NewInt(0), big.NewInt(0))
+	}
+	return spptest.MustHashChain(t, elements)
 }
 
-func zeroedOpening() Opening {
-	return Opening{
-		Domain:        big.NewInt(0),
-		TreeID:        big.NewInt(0),
-		OwnerPkHash:   big.NewInt(0),
-		NullifierPk:   big.NewInt(0),
-		Asset:         big.NewInt(0),
-		Amount:        big.NewInt(0),
-		Blinding:      big.NewInt(0),
-		DataHash:      big.NewInt(0),
-		RingDataHash:  big.NewInt(0),
-		RingProgramID: big.NewInt(0),
-	}
-}
-
-// testScalar is a non zero P256 scalar below the group order.
-func testScalar(seed byte) [scalarLen]byte {
-	var out [scalarLen]byte
-	for i := range out {
-		out[i] = seed ^ byte(i)
-	}
-	out[0] = 0x01
-	return out
+func compressedDisclosure(t *testing.T, p *CompressedPolicyParams) *big.Int {
+	return (spptest.CounterDisclosure{Secret: [32]byte(p.Policy.TxViewingSk), TransactionSalt: [16]byte(p.TransactionSalt),
+		CounterSalt: p.Policy.Record.NextSalt.Int, Assets: []*big.Int{p.Policy.Velocity[0].Asset.Int},
+		Spent: []uint64{p.Policy.Inputs[0].Amount.Uint64()}}).Hash(t)
 }

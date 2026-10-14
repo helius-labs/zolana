@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"math"
 	"math/big"
 	"testing"
 
@@ -41,9 +42,14 @@ func TestCircuitSolvesVelocityTransfers(t *testing.T) {
 			v.approval = true
 		}},
 		{"an outflow at the threshold needs no approval", func(v *velocityFixture) { v.cosignAbove = transferAmount }},
-		{"an unlimited row still counts", func(v *velocityFixture) {
+		{"an unlimited row keeps a zero counter", func(v *velocityFixture) {
 			v.cap = 0
 			v.cosignAbove = transferAmount
+		}},
+		{"an unlimited row ignores a full counter", func(v *velocityFixture) {
+			v.cap = 0
+			v.cosignAbove = transferAmount
+			v.spent = math.MaxUint64
 		}},
 		{"a second row for another mint", func(v *velocityFixture) {
 			v.rows = []velocityRow{{asset: big.NewInt(0xe5), cap: 1}}
@@ -224,7 +230,7 @@ type velocityOpeningBindingCircuit struct {
 
 func (c *velocityOpeningBindingCircuit) Define(api frontend.API) error {
 	windowEnabled := api.Sub(1, api.IsZero(c.Policy.WindowSlots))
-	c.Policy.constrainTransactionContext(api, rangecheck.New(api), windowEnabled)
+	c.Policy.constrainTransaction(api, rangecheck.New(api), windowEnabled)
 	return nil
 }
 

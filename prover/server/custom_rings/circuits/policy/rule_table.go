@@ -1,237 +1,144 @@
-// Checks policy encoding and permitted rule combinations, reconstructing
-// the policy hash that binds evaluation to the ring's configuration.
-
 package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/math/bits"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-// RuleWires exposes a committed requirement for checking each applicable
-// transaction subject.
-type RuleWires struct {
-	// Only the encoded row enters the policy hash.
-	Packed  frontend.Variable
-	Subject frontend.Variable
-	Mode    frontend.Variable
-	// A zero ListMask selects inline assets, otherwise bit i selects list
-	// i+1 in Mode.
-	ListMask frontend.Variable
-	// OppositeModeListMask selects lists in the opposite mode.
-	OppositeModeListMask frontend.Variable `gnark:"AltListMask"`
-	// Amount guards waive coverage at or below the selected threshold.
-	GuardTag frontend.Variable
-	// Only GuardAboveAmount uses the scalar threshold.
-	Threshold frontend.Variable
+// ruleBits spans the packed row, from the subject byte up to the opposite mode list mask.
+const ruleBits = 104
+
+// ruleFields is a packed rule decoded once, with the predicates every check reads.
+type ruleFields struct {
+	mode, threshold, altMask        frontend.Variable
+	listBits, altBits               []frontend.Variable
+	onOwner, onAsset, onSender      frontend.Variable
+	present, absent, inline         frontend.Variable
+	always, scalarGuard, assetGuard frontend.Variable
 }
 
 type checkedPolicy struct {
-	hash          frontend.Variable
-	ruleEnabled   [NRules]frontend.Variable
-	inlineEnabled [NInlineAssets]frontend.Variable
-	velocity      velocityPolicy
+	hash        frontend.Variable
+	rules       [NRules]ruleFields
+	ruleEnabled []frontend.Variable
+	inline      base.Count
+	velocity    velocityPolicy
 }
 
-// checkPolicy binds evaluation to the committed rules, source map and inline
-// assets.
-func (c *CustomRingPolicyCircuit) checkPolicy(
-	api frontend.API,
-	rangeChecker frontend.Rangechecker,
-) checkedPolicy {
-	// 1. Select the committed rule and inline asset prefixes.
-	assertOneHot(api, c.RuleCountSelected[:])
-	assertOneHot(api, c.InlineAssetCountSelected[:])
-	inTable := suffixSums(api, c.RuleCountSelected[:])
-	inInline := suffixSums(api, c.InlineAssetCountSelected[:])
-	var ruleEnabled [NRules]frontend.Variable
-	var inlineEnabled [NInlineAssets]frontend.Variable
-	copy(ruleEnabled[:], inTable[1:])
-	copy(inlineEnabled[:], inInline[1:])
+// Byte 31 is the subject, then mode, list mask, guard tag, an 8-byte threshold and the opposite mode mask.
+func decodeRule(api frontend.API, packed frontend.Variable) ruleFields {
+	b := api.ToBinary(packed, ruleBits)
+	field := func(from, to int) frontend.Variable {
+		return bits.FromBinary(api, b[from:to], bits.WithUnconstrainedInputs())
+	}
+	is := func(value frontend.Variable, want int) frontend.Variable { return api.IsZero(api.Sub(value, want)) }
+	subject, mode, guard := field(0, 8), field(8, 16), field(24, 32)
+	return ruleFields{
+		mode: mode, threshold: field(32, 96), altMask: field(96, 104),
+		listBits: b[16:24], altBits: b[96:104],
+		onOwner: is(subject, SubjectOutputOwner), onAsset: is(subject, SubjectAsset), onSender: is(subject, SubjectSender),
+		present: is(mode, ModePresent), absent: is(mode, ModeAbsent), inline: api.IsZero(field(16, 24)),
+		always: is(guard, GuardAlways), scalarGuard: is(guard, GuardAboveAmount), assetGuard: is(guard, GuardAboveAmountByAsset),
+	}
+}
 
-	// 2. Check the namespace owner configured for each list.
+// checkPolicy binds evaluation to the committed rules, sources, inline assets and velocity rows.
+func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rangechecker) checkedPolicy {
+	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
+	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
 	sources := c.checkSources(api)
-
-	// 3. Bind valid rule fields to their encoded rows and configured
-	// sources.
-	for i, rule := range c.Rules {
-		rule.check(api, rangeChecker, ruleEnabled[i], sources)
+	for i, packed := range c.Rules {
+		checked.rules[i] = decodeRule(api, packed)
+		checked.rules[i].check(api, rules.Active[i], sources)
 	}
-
-	// 4. Bound inline limits and exclude zero members and nonzero padding.
 	for i, asset := range c.InlineAssets {
-		rangeChecker.Check(c.InlineLimits[i], amountBits)
-		shared.AssertWhen(api, inlineEnabled[i], nonZero(api, asset))
-		api.AssertIsEqual(api.Mul(api.Sub(1, inlineEnabled[i]), asset), 0)
-		api.AssertIsEqual(api.Mul(api.Sub(1, inlineEnabled[i]), c.InlineLimits[i]), 0)
+		rc.Check(c.InlineLimits[i], amountBits)
+		shared.AssertWhen(api, checked.inline.Active[i], base.NonZero(api, asset))
+		padding := api.Sub(1, checked.inline.Active[i])
+		api.AssertIsEqual(api.Mul(padding, asset), 0)
+		api.AssertIsEqual(api.Mul(padding, c.InlineLimits[i]), 0)
 	}
-
-	// 5. Establish the asset units required by amount guards.
-	c.checkGuardAssets(api, ruleEnabled, inlineEnabled)
-
-	velocity := c.checkVelocityTable(api, rangeChecker)
-
-	// 6. Commit to the checked policy fields.
-	return checkedPolicy{
-		hash:          c.policyHash(api, inlineEnabled, velocity.rowEnabled),
-		ruleEnabled:   ruleEnabled,
-		inlineEnabled: inlineEnabled,
-		velocity:      velocity,
-	}
+	c.checkGuardAssets(api, checked)
+	checked.velocity = c.checkVelocityTable(api, rc)
+	checked.hash = c.policyHash(api, rules, checked.inline.Active, checked.velocity.rows.Active)
+	return checked
 }
 
-// check binds decoded fields to the row and rejects unsupported rule
-// combinations.
-func (w RuleWires) check(api frontend.API, rangeChecker frontend.Rangechecker, enabled frontend.Variable, sources [NSources]frontend.Variable) {
-	// 1. Bound every encoded field and decode the list masks.
-	rangeChecker.Check(w.Subject, 8)
-	rangeChecker.Check(w.Mode, 8)
-	rangeChecker.Check(w.GuardTag, 8)
-	rangeChecker.Check(w.Threshold, amountBits)
-	listBits := api.ToBinary(w.ListMask, NSources)
-	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
-
-	// 2. Bind the decoded fields to Packed.
-	api.AssertIsEqual(w.Packed, api.Add(
-		w.Subject,
-		api.Mul(w.Mode, ruleWeights.mode),
-		api.Mul(w.ListMask, ruleWeights.listMask),
-		api.Mul(w.GuardTag, ruleWeights.guardTag),
-		api.Mul(w.Threshold, ruleWeights.threshold),
-		api.Mul(w.OppositeModeListMask, ruleWeights.altListMask),
-	))
-
-	// 3. Check subjects and modes, allowing OppositeModeListMask only for
-	// Present.
-	onOwner := api.IsZero(api.Sub(w.Subject, SubjectOutputOwner))
-	onAsset := api.IsZero(api.Sub(w.Subject, SubjectAsset))
-	onSender := api.IsZero(api.Sub(w.Subject, SubjectSender))
-	shared.AssertWhen(api, enabled, api.Add(onOwner, onAsset, onSender))
-	isPresent := api.IsZero(api.Sub(w.Mode, ModePresent))
-	isAbsent := api.IsZero(api.Sub(w.Mode, ModeAbsent))
-	shared.AssertWhen(api, enabled, api.Add(isPresent, isAbsent))
-	api.AssertIsEqual(api.Mul(enabled, isAbsent, w.OppositeModeListMask), 0)
-
-	// 4. Require disjoint list alternatives with configured sources.
-	for i := range listBits {
-		api.AssertIsEqual(api.Mul(enabled, listBits[i], altBits[i]), 0)
-		referenced := api.Or(listBits[i], altBits[i])
-		shared.AssertWhen(api, api.Mul(enabled, referenced), sources[i])
+// check rejects rule combinations the evaluator does not support.
+func (r ruleFields) check(api frontend.API, enabled frontend.Variable, sources [NSources]frontend.Variable) {
+	shared.AssertWhen(api, enabled, api.Add(r.onOwner, r.onAsset, r.onSender))
+	shared.AssertWhen(api, enabled, api.Add(r.present, r.absent))
+	api.AssertIsEqual(api.Mul(enabled, r.absent, r.altMask), 0)
+	for i := range r.listBits {
+		api.AssertIsEqual(api.Mul(enabled, r.listBits[i], r.altBits[i]), 0)
+		shared.AssertWhen(api, api.Mul(enabled, api.Or(r.listBits[i], r.altBits[i])), sources[i])
 	}
-
-	// 5. Restrict inline rules to asset presence without alternatives.
-	inline := api.Mul(enabled, api.IsZero(w.ListMask))
-	shared.AssertWhen(api, inline, onAsset)
-	shared.AssertWhen(api, inline, isPresent)
-	api.AssertIsEqual(api.Mul(inline, w.OppositeModeListMask), 0)
-
-	// 6. Check guard tags, thresholds and permitted subjects.
-	always := api.IsZero(api.Sub(w.GuardTag, GuardAlways))
-	scalar := api.IsZero(api.Sub(w.GuardTag, GuardAboveAmount))
-	perAsset := api.IsZero(api.Sub(w.GuardTag, GuardAboveAmountByAsset))
-	shared.AssertWhen(api, enabled, api.Add(always, scalar, perAsset))
-	shared.AssertWhen(api, api.Mul(enabled, scalar), nonZero(api, w.Threshold))
-	api.AssertIsEqual(api.Mul(enabled, api.Sub(1, scalar), w.Threshold), 0)
-	shared.AssertWhen(api, api.Mul(enabled, onSender), always)
-	shared.AssertWhen(api, api.Mul(enabled, perAsset), onOwner)
+	// Inline rules check asset presence without alternatives.
+	inline := api.Mul(enabled, r.inline)
+	shared.AssertWhen(api, inline, r.onAsset)
+	shared.AssertWhen(api, inline, r.present)
+	api.AssertIsEqual(api.Mul(inline, r.altMask), 0)
+	shared.AssertWhen(api, enabled, api.Add(r.always, r.scalarGuard, r.assetGuard))
+	shared.AssertWhen(api, api.Mul(enabled, r.scalarGuard), base.NonZero(api, r.threshold))
+	api.AssertIsEqual(api.Mul(enabled, api.Sub(1, r.scalarGuard), r.threshold), 0)
+	shared.AssertWhen(api, api.Mul(enabled, r.onSender), r.always)
+	shared.AssertWhen(api, api.Mul(enabled, r.assetGuard), r.onOwner)
 }
 
-// checkGuardAssets establishes consistent asset units for amount exemptions.
-func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, ruleEnabled [NRules]frontend.Variable, inlineEnabled [NInlineAssets]frontend.Variable) {
-	// 1. Collect asset requirements from enabled guards.
-	ownerGuard := frontend.Variable(0)
-	perAssetGuard := frontend.Variable(0)
-	unguardedInline := frontend.Variable(0)
-	for i, rule := range c.Rules {
-		onOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
-		scalar := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmount))
-		perAsset := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmountByAsset))
-		inline := api.IsZero(rule.ListMask)
-		always := api.IsZero(api.Sub(rule.GuardTag, GuardAlways))
-		ownerGuard = api.Or(ownerGuard, api.Mul(ruleEnabled[i], onOwner, scalar))
-		perAssetGuard = api.Or(perAssetGuard, api.Mul(ruleEnabled[i], perAsset))
-		unguardedInline = api.Or(unguardedInline, api.Mul(ruleEnabled[i], inline, always))
+// Amount guards need one enforced asset for owner totals and distinct limited assets for per-asset totals.
+func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, checked checkedPolicy) {
+	ownerGuard, assetGuard, unguardedInline := frontend.Variable(0), frontend.Variable(0), frontend.Variable(0)
+	for i, r := range checked.rules {
+		enabled := checked.ruleEnabled[i]
+		ownerGuard = api.Or(ownerGuard, api.Mul(enabled, r.onOwner, r.scalarGuard))
+		assetGuard = api.Or(assetGuard, api.Mul(enabled, r.assetGuard))
+		unguardedInline = api.Or(unguardedInline, api.Mul(enabled, r.inline, r.always))
 	}
-
-	// 2. Require one enforced asset for scalar owner totals.
-	shared.AssertWhen(api, ownerGuard, api.And(unguardedInline, c.InlineAssetCountSelected[1]))
-
-	// 3. Require distinct assets with positive limits for per-asset totals.
-	shared.AssertWhen(api, perAssetGuard, inlineEnabled[0])
+	shared.AssertWhen(api, ownerGuard, api.And(unguardedInline, checked.inline.OneHot[1]))
+	shared.AssertWhen(api, assetGuard, checked.inline.Active[0])
 	for i, asset := range c.InlineAssets {
-		required := api.Mul(perAssetGuard, inlineEnabled[i])
-		shared.AssertWhen(api, required, nonZero(api, c.InlineLimits[i]))
-		for j := 0; j < i; j++ {
-			shared.AssertWhen(api, api.Mul(required, inlineEnabled[j]), nonZero(api, api.Sub(asset, c.InlineAssets[j])))
+		required := api.Mul(assetGuard, checked.inline.Active[i])
+		shared.AssertWhen(api, required, base.NonZero(api, c.InlineLimits[i]))
+		for j, other := range c.InlineAssets[:i] {
+			shared.AssertWhen(api, api.Mul(required, checked.inline.Active[j]), base.NonZero(api, api.Sub(asset, other)))
 		}
 	}
 }
 
-// Section counts bind the boundaries between rule, inline asset and velocity data.
-func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NInlineAssets]frontend.Variable, velocityEnabled [NVelocityAssets]frontend.Variable) frontend.Variable {
-	// 1. Decode the committed rule count.
-	length := frontend.Variable(0)
-	for size, bit := range c.RuleCountSelected {
-		length = api.Add(length, api.Mul(bit, size))
-	}
-
-	inlineLength := frontend.Variable(0)
-	for _, bit := range inlineEnabled {
-		inlineLength = api.Add(inlineLength, bit)
-	}
-	velocityLength := frontend.Variable(0)
-	for _, bit := range velocityEnabled {
-		velocityLength = api.Add(velocityLength, bit)
-	}
-	preimage := make([]frontend.Variable, 0, 3+2*NSources)
-	preimage = append(preimage, policyTableDomain, PolicyVersion)
+// The section counts bind the boundaries between rules, inline assets and velocity rows.
+func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, rules base.Count, inlineEnabled, velocityEnabled []frontend.Variable) frontend.Variable {
+	preimage := []frontend.Variable{policyTableDomain, PolicyVersion}
 	for _, source := range c.Sources {
 		preimage = append(preimage, source.ListId, source.OwnerHash)
 	}
-	head := gadget.HashChain(api, append(preimage, length, inlineLength, velocityLength))
-
-	// 3. Append the selected packed rules.
-	packed := make([]frontend.Variable, NRules)
-	for i, rule := range c.Rules {
-		packed[i] = rule.Packed
-	}
-	hash := extendHashPrefix(api, head, packed, c.RuleCountSelected[:])
-
-	// 4. Append each active inline asset and its limit in order.
+	head := gadget.HashChain(api, append(preimage, c.PolicyLen, c.InlineCount, c.VelocityCount))
+	hash := base.ExtendHashPrefix(api, head, c.Rules[:], rules)
 	for i, asset := range c.InlineAssets {
-		next := gadget.HashChain(api, []frontend.Variable{hash, asset, c.InlineLimits[i]})
-		hash = api.Select(inlineEnabled[i], next, hash)
+		hash = api.Select(inlineEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, asset, c.InlineLimits[i]}), hash)
 	}
-
 	hash = gadget.HashChain(api, []frontend.Variable{hash, c.WindowSlots})
 	for i, row := range c.Velocity {
-		next := gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove})
-		hash = api.Select(velocityEnabled[i], next, hash)
+		hash = api.Select(velocityEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove}), hash)
 	}
 	return hash
 }
 
-// matchListAndMode selects list fact alternatives before member matching
-// against subjects.
-func (w RuleWires) matchListAndMode(api frontend.API, listFacts [NListFacts]listFact, onList [NListFacts][NSources]frontend.Variable) [NListFacts]frontend.Variable {
-	// 1. Decode the lists for each mode.
-	listBits := api.ToBinary(w.ListMask, NSources)
-	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
-	oppositeMode := api.Sub(ModePresent+ModeAbsent, w.Mode)
-
-	// 2. Match each enabled list fact to either list-and-mode alternative.
+// matchListAndMode marks the enabled facts whose list and mode meet either alternative of the rule.
+func (r ruleFields) matchListAndMode(api frontend.API, facts [NListFacts]listFact) [NListFacts]frontend.Variable {
+	opposite := api.Sub(ModePresent+ModeAbsent, r.mode)
 	var matches [NListFacts]frontend.Variable
-	for i, fact := range listFacts {
-		primary := api.Mul(listMaskContains(api, listBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, w.Mode)))
-		alternative := api.Mul(listMaskContains(api, altBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, oppositeMode)))
+	for i, fact := range facts {
+		primary := api.Mul(listMaskContains(api, r.listBits, fact.onList), api.IsZero(api.Sub(fact.mode, r.mode)))
+		alternative := api.Mul(listMaskContains(api, r.altBits, fact.onList), api.IsZero(api.Sub(fact.mode, opposite)))
 		matches[i] = api.Mul(fact.enabled, api.Or(primary, alternative))
 	}
 	return matches
 }
 
-// listMaskContains tests whether a rule mask selects the fact's list.
 func listMaskContains(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
 	selected := frontend.Variable(0)
 	for i, named := range onList {

@@ -205,3 +205,12 @@ func ScalarMul(api frontend.API, scalar [32]frontend.Variable, pointIn [65]front
 	// Convert result back to bytes
 	return pointToBytes(api, curve, result)
 }
+
+// AssertScalarInRange asserts 0 < scalar < n for 32 big-endian bytes the caller range checks.
+func AssertScalarInRange(api frontend.API, scalar [32]frontend.Variable) {
+	field, err := emulated.NewField[emulated.P256Fr](api)
+	if err != nil {
+		panic(err)
+	}
+	field.AssertIsInRange(bytesToEmulatedFr(api, scalar[:]))
+}

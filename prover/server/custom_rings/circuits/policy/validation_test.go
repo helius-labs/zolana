@@ -82,6 +82,6 @@ func TestUnconfiguredAssetFailsDespiteMatchingListFact(t *testing.T) {
 func TestDisabledRulesHaveNoPolicyRequirements(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 	c := s.assignment(t, []int{allowedActive, senderNotFrozen})
-	c.Rules[NRules-1] = rule{subject: SubjectExitDestination, mode: 0, mask: listMask(8), guardTag: 255, threshold: 12}.wires()
+	c.Rules[NRules-1] = rule{subject: SubjectExitDestination, mode: 0, mask: listMask(8), guardTag: 255, threshold: 12}.packed()
 	solve(t, testConstraintSystem(t), c)
 }

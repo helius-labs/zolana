@@ -14,8 +14,8 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -93,15 +93,15 @@ func TestConstants(t *testing.T) {
 	if solAsset.Cmp(solAssetField) != 0 {
 		t.Fatalf("Poseidon(0, 0) is %s, want the pinned SOL asset field %s", solAsset, solAssetField)
 	}
-	if emptyRingHash.Cmp(solAssetField) != 0 {
-		t.Fatal("the empty ring hash must be the same Poseidon(0, 0) value")
-	}
-
-	for _, tag := range []string{addressDomainTag, recordDomainTag, tableDomainTag} {
+	for tag, domain := range map[string]*big.Int{
+		"zolana:ring-policy:address:v1": policyAddressDomain,
+		"zolana:ring-policy:record:v1":  policyRecordDomain,
+		"zolana:ring-policy:policy:v1":  policyTableDomain,
+	} {
 		var padded [32]byte
 		copy(padded[32-len(tag):], tag)
-		if got := packedASCII(tag); got.Cmp(new(big.Int).SetBytes(padded[:])) != 0 {
-			t.Fatalf("domain %q packs to %s", tag, got)
+		if domain.Cmp(new(big.Int).SetBytes(padded[:])) != 0 {
+			t.Fatalf("domain %q packs to %s", tag, domain)
 		}
 	}
 }
@@ -181,8 +181,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "rule dropped from the table",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.RuleCountSelected[4] = big.NewInt(0)
-				c.RuleCountSelected[3] = big.NewInt(1)
+				c.PolicyLen = big.NewInt(3)
 				return c
 			},
 		},
@@ -370,8 +369,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "output count understated",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.OutputCountSelected[1] = big.NewInt(0)
-				c.OutputCountSelected[0] = big.NewInt(1)
+				c.NOut = big.NewInt(1)
 				return c
 			},
 		},
@@ -379,8 +377,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "tx scalar zero",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
-				f.keys = func(k audittest.Keys) audittest.Keys {
-					return k.WithInfinityTxScalar(big.NewInt(0))
+				f.keys = func(k ringaudit.Keys) ringaudit.Keys {
+					return k.WithTxScalar(t, big.NewInt(0))
 				}
 				return buildAssignment(t, f)
 			},
@@ -393,8 +391,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				// the packed row disagrees.
 				f := mixedFixture()
 				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
-				c := buildAssignment(t, f)
-				c.Rules[0].ListMask, c.Rules[0].OppositeModeListMask = c.Rules[0].OppositeModeListMask, c.Rules[0].ListMask
+				s := newStatement(t, f)
+				c := s.assignment(t, f.facts())
+				swapped := s.rules[0]
+				swapped.mask, swapped.altMask = swapped.altMask, swapped.mask
+				c.Rules[0] = swapped.packed()
 				return c
 			},
 		},
@@ -603,7 +604,7 @@ type fixture struct {
 	rulesFree         bool
 	dropCuratorSlot   bool
 	curatorSlotOwn    bool
-	keys              func(audittest.Keys) audittest.Keys
+	keys              func(ringaudit.Keys) ringaudit.Keys
 	// nil keeps velocity off
 	velocity *velocityFixture
 }
@@ -775,18 +776,6 @@ func (r rule) packed() *big.Int {
 	return packed
 }
 
-func (r rule) wires() RuleWires {
-	return RuleWires{
-		Packed:               r.packed(),
-		Subject:              big.NewInt(r.subject),
-		Mode:                 big.NewInt(r.mode),
-		ListMask:             big.NewInt(r.mask),
-		OppositeModeListMask: big.NewInt(r.altMask),
-		GuardTag:             big.NewInt(r.guardTag),
-		Threshold:            new(big.Int).SetUint64(r.threshold),
-	}
-}
-
 type statement struct {
 	ownOwnerHash     *big.Int
 	curatorOwnerHash *big.Int
@@ -829,7 +818,7 @@ type statement struct {
 	privateTxHash     *big.Int
 	publicInputHash   *big.Int
 
-	keys audittest.Keys
+	keys ringaudit.Keys
 }
 
 // newStatement builds a ring whose entries allow the recipient, hold no Frozen
@@ -930,7 +919,7 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.policyHash = s.policy().hash(t)
 
-	s.keys = audittest.DefaultKeys(t)
+	s.keys = ringaudit.DefaultKeys(t)
 	if f.keys != nil {
 		s.keys = f.keys(s.keys)
 	}
@@ -1043,7 +1032,10 @@ func (s *statement) deriveRecord(t *testing.T) {
 		if r.window == s.windowIndex {
 			previous = r.spent[i]
 		}
-		r.nextSpent[i] = previous + s.hostOutflow(row.asset)
+		// A row without a cap keeps a zero counter.
+		if row.cap != 0 {
+			r.nextSpent[i] = previous + s.hostOutflow(row.asset)
+		}
 	}
 	r.nextCommitment = hostCountersCommitment(t, r.nextSalt, r.assets, r.nextSpent)
 	r.nextDataHash = hostRecordDataHash(t, r.address, r.sender, r.version+1, s.windowIndex, r.nextCommitment)
@@ -1218,14 +1210,9 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyCircuit {
 	t.Helper()
 	s.updateHashes(t)
-	wires := s.keys.AuditBlockWires(s.privateTxHash)
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:    s.publicInputHash,
-		PrivateTxHash:      wires.PrivateTxHash,
-		TxViewingSk:        wires.TxViewingSk,
-		EphSk:              wires.EphSk,
-		AuditorPk:          wires.AuditorPk,
-		Salt:               wires.Salt,
+		Audit:              s.keys.Statement(s.privateTxHash).Audit,
 		AddressChain:       s.addressChain,
 		PrivateTxBlinding:  s.privateTxBlinding,
 		AddressTreeID:      big.NewInt(addressTreeID),
@@ -1243,7 +1230,6 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	}
 	for i := range c.Velocity {
 		c.Velocity[i] = VelocityRowWires{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
-		c.VelocityCountSelected[i] = big.NewInt(0)
 	}
 	for i, row := range s.velocity {
 		c.Velocity[i] = VelocityRowWires{
@@ -1252,50 +1238,43 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 			CosignAbove: new(big.Int).SetUint64(row.cosign),
 		}
 	}
-	c.VelocityCountSelected[NVelocityAssets] = big.NewInt(0)
-	c.VelocityCountSelected[len(s.velocity)] = big.NewInt(1)
+	c.VelocityCount = len(s.velocity)
 
 	for i := range c.Inputs {
 		c.Inputs[i] = zeroOpening()
-		c.InputCountSelected[i] = big.NewInt(0)
 	}
 	for i, opening := range s.inputs {
 		c.Inputs[i] = opening
 	}
-	c.InputCountSelected[len(s.inputs)-1] = big.NewInt(1)
+	c.NIn = len(s.inputs)
 
 	for k, slot := range s.treeSlots(t) {
 		c.TreeSlots[k] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
 	}
 	for i := range c.Outputs {
-		c.Outputs[i] = zeroOpening()
-		c.OutputCountSelected[i] = big.NewInt(0)
-		c.OutputKeys[i] = zeroKeyOpening()
+		c.Outputs[i] = OutputWires{UtxoWires: zeroOpening(), Key: zeroKeyOpening()}
 	}
 	for i, opening := range s.outputs {
-		c.Outputs[i] = opening
+		c.Outputs[i].UtxoWires = opening
 		if i < len(s.outputKeys) && s.outputKeys[i] != nil {
-			c.OutputKeys[i] = *s.outputKeys[i]
+			c.Outputs[i].Key = *s.outputKeys[i]
 		}
 	}
-	c.OutputCountSelected[len(s.outputs)-1] = big.NewInt(1)
+	c.NOut = len(s.outputs)
 
 	// Padding rules repeat ring_policy::Rule::disabled.
 	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}
 	for k := range c.Rules {
-		c.Rules[k] = disabled.wires()
-		c.RuleCountSelected[k] = big.NewInt(0)
+		c.Rules[k] = disabled.packed()
 	}
 	for k, r := range s.rules {
-		c.Rules[k] = r.wires()
+		c.Rules[k] = r.packed()
 	}
-	c.RuleCountSelected[NRules] = big.NewInt(0)
-	c.RuleCountSelected[len(s.rules)] = big.NewInt(1)
+	c.PolicyLen = len(s.rules)
 
 	for m := range c.InlineAssets {
 		c.InlineAssets[m] = big.NewInt(0)
 		c.InlineLimits[m] = big.NewInt(0)
-		c.InlineAssetCountSelected[m] = big.NewInt(0)
 	}
 	for m, member := range s.inlineAssets {
 		c.InlineAssets[m] = member
@@ -1303,8 +1282,7 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 			c.InlineLimits[m] = new(big.Int).SetUint64(s.inlineLimits[m])
 		}
 	}
-	c.InlineAssetCountSelected[NInlineAssets] = big.NewInt(0)
-	c.InlineAssetCountSelected[len(s.inlineAssets)] = big.NewInt(1)
+	c.InlineCount = len(s.inlineAssets)
 
 	for e := range c.ListFacts {
 		c.ListFacts[e] = disabledListFact()
@@ -1422,7 +1400,7 @@ func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
 		big.NewInt(0),
 		big.NewInt(0),
 		big.NewInt(0),
-		emptyRingHash,
+		solAssetField,
 		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, seed}),
 	})
 	return spptest.MustPoseidon(t, 4, []*big.Int{addressUtxoHash, seed, big.NewInt(0)})
@@ -1467,7 +1445,7 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 		big.NewInt(0),
 		big.NewInt(0),
 		big.NewInt(0),
-		emptyRingHash,
+		solAssetField,
 		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, seed}),
 	})
 	address := spptest.MustPoseidon(t, 4, []*big.Int{addressUtxoHash, seed, big.NewInt(0)})
@@ -1486,7 +1464,7 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 		solAssetField,
 		big.NewInt(0),
 		dataHash,
-		emptyRingHash,
+		solAssetField,
 		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, big.NewInt(r.blinding)}),
 	})
 	return derived{

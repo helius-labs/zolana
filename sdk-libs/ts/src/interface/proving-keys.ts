@@ -14,15 +14,15 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_250.key":
     "aacd3c81c4681acf0eb21e395df4f566738412da158153b1dee7ac83219dc425",
-  "custom_ring_base.key": "c4a6e3b31546317cf2448b9392dab5a3172caf5c90542230e70a7e17901d9f1f",
+  "custom_ring_base.key": "247bb8ac86106214f07946cbae3207ca6873b76aaba9b280f9d268b33560f73e",
   "custom_ring_compressed_policy.key":
-    "632fd1c05ce6e89e58aba2c96054323ed24a1d99d1c148fdeccd837cdb3ffe2f",
+    "77b0e6db880302ffd1c00de691cda75cebde6b61e66a70a7c5c5450b3c844186",
   "custom_ring_delegate_policy.key":
-    "296e64861dc2565b85a3567bd1c9ebba2757eefd08bfd10160d9fe248b86ac76",
-  "custom_ring_deposit.key": "3a385a554a49c25d1eea8e3f5368874347ccb7c457512b5f0fe42ec519c498ad",
-  "custom_ring_policy.key": "1ebc92edebf9f7e6e4c53194a8035e21b6785bee0e8c4e2f7422b1e44d1a72a1",
+    "b1d48c18beeddc69c67d8cc8269d80bfde77da1221619dc4f7c45a3ce817185a",
+  "custom_ring_deposit.key": "c4e8eb7dbfb89cde1d5443d6dea53b2005a214eb436c1d024c918ec194675d8c",
+  "custom_ring_policy.key": "4d63f7e18a7bf0dec342828a2b66d39b15e267eaae773959696aa9dd7313e18a",
   "custom_ring_register_key.key":
-    "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
+    "de9b1d239b9a921171373b72a047b3459e920ec3d09cfed9995ecbbac20f3a2a",
   "merge_24_1.key": "a0dfaa1e73d2d9e1159d2ebab82baa6d0602482d75f24dcbff596322dc389c88",
   "merge_54_1.key": "951ec83dc53d112a46a1eb9cd308e6abd933291eb3109647a479e2321fce7423",
   "merge_8_1.key": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",

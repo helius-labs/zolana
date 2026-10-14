@@ -5,9 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func TestExportAeglosRingFixtures(t *testing.T) {
@@ -16,20 +17,11 @@ func TestExportAeglosRingFixtures(t *testing.T) {
 	}
 	for variant := range 2 {
 		base := baseParams(t)
-		base.PrivateTxHash = big.NewInt(int64(1000 + variant))
-		keys := audittest.DefaultKeys(t)
-		elements := keys.ChainElementsFor(t, keys.AuditBlockWires(base.PrivateTxHash), int(base.NOut))
-		base.PublicInputHash = spptest.MustHashChain(t, elements)
-		baseWitness, err := base.CreateWitness()
-		if err != nil {
-			t.Fatal(err)
-		}
-		aeglosfixture.Write(t, "custom_ring_base.key", variant, baseWitness)
+		base.PrivateTxHash = fi(int64(1000 + variant))
+		keys := ringaudit.DefaultKeys(t)
+		base.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElements(t, base.PrivateTxHash.Int)))
+		aeglosfixture.Write(t, "custom_ring_base.key", variant, decodeParams(t, common.CustomRingBaseCircuitType, base))
 		policy := rulesFreeParamsAtRoot(t, big.NewInt(int64(13+variant)))
-		policyWitness, err := policy.CreateWitness()
-		if err != nil {
-			t.Fatal(err)
-		}
-		aeglosfixture.Write(t, "custom_ring_policy.key", variant, policyWitness)
+		aeglosfixture.Write(t, "custom_ring_policy.key", variant, decodeParams(t, common.CustomRingPolicyCircuitType, policy))
 	}
 }

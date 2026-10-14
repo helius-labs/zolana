@@ -9,7 +9,6 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
-	"github.com/helius-labs/zolana/prover/server/prover/common"
 	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	"github.com/helius-labs/zolana/prover/server/prover/transcript"
 )
@@ -20,64 +19,36 @@ type RegistryRequest struct {
 	NextIndex uint64 `json:"nextIndex"`
 }
 
-func prepareRegistry(base map[string]json.RawMessage, request *RegistryRequest) error {
-	var enabled bool
-	if json.Unmarshal(base["keyEscrow"], &enabled) != nil || enabled != (request != nil) {
+func prepareRegistry(p *ring.PolicyParams, request *RegistryRequest) error {
+	if p.KeyEscrow != (request != nil) {
 		return fmt.Errorf("invalid registry request")
 	}
-	var outputs []map[string]json.RawMessage
-	if json.Unmarshal(base["outputs"], &outputs) != nil {
-		return fmt.Errorf("invalid policy outputs")
-	}
-	for _, output := range outputs {
-		if output == nil || output["key"] != nil {
+	for _, output := range p.Outputs {
+		if output.Key != nil {
 			return fmt.Errorf("prepared output contains registry witness")
 		}
 	}
-	if !enabled {
+	if !p.KeyEscrow {
 		return nil
 	}
-	if err := validateRegistryAnchor(base, request); err != nil {
-		return err
-	}
-	// 1. Registry placeholders remain internal until membership is verified.
-	for _, output := range outputs {
-		output["key"] = registryPlaceholder()
-	}
-	base["outputs"], _ = json.Marshal(outputs)
-	return nil
+	return validateRegistryAnchor(p.KeyRegistryRoot, request)
 }
 
-func validateRegistryAnchor(base map[string]json.RawMessage, request *RegistryRequest) error {
+func validateRegistryAnchor(root ring.Field, request *RegistryRequest) error {
 	if request == nil {
 		return fmt.Errorf("missing registry anchor")
 	}
 	if _, err := decodeHash(request.Ring); err != nil {
 		return err
 	}
-	root, err := request.Root.field()
+	anchor, err := request.Root.field()
 	if err != nil || request.NextIndex < 1 || request.NextIndex > 1<<registry.Height {
 		return fmt.Errorf("invalid registry anchor")
 	}
-	var encoded string
-	if json.Unmarshal(base["keyRegistryRoot"], &encoded) != nil {
-		return fmt.Errorf("invalid registry root")
-	}
-	expected, err := common.FeFromHex(encoded)
-	if err != nil || root.Cmp(expected) != 0 {
+	if root.Int == nil || anchor.Cmp(root.Int) != 0 {
 		return fmt.Errorf("registry root mismatch")
 	}
 	return nil
-}
-
-func registryPlaceholder() json.RawMessage {
-	zero := common.ToHex(new(big.Int))
-	path := make([]string, registry.Height)
-	for i := range path {
-		path[i] = zero
-	}
-	value, _ := json.Marshal(map[string]any{"next": zero, "ctHash": zero, "index": 0, "path": path})
-	return value
 }
 
 var errMemberUnregistered = errors.New("registry member missing")
@@ -104,29 +75,26 @@ type registryEntry struct {
 	Proof      []Hash `json:"proof"`
 }
 
-func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, policy *resolvedPolicy) error {
+func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p *ring.PolicyParams) error {
 	if request.Registry == nil {
 		return nil
 	}
 	keys := make(map[Hash]*ring.RegistryKey)
-	for i := range policy.base.Outputs {
-		output := &policy.base.Outputs[i]
-		output.Key = nil
-		if i >= int(policy.base.NOut) || output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
+	for i := range p.Outputs {
+		output := &p.Outputs[i]
+		if i >= int(p.NOut) || output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
 			continue
 		}
-		owner, err := transcript.HashFields([]*big.Int{output.OwnerPkHash, output.NullifierPk})
+		owner, err := transcript.HashFields([]*big.Int{output.OwnerPkHash.Int, output.NullifierPk.Int})
 		if err != nil {
 			return err
 		}
-		if owner.Cmp(policy.base.NamespaceOwnerHash) == 0 {
+		if owner.Cmp(p.NamespaceOwnerHash.Int) == 0 {
 			continue
 		}
-		key, err := r.registryKey(ctx, request, keys, output.OwnerPkHash, output.NullifierPk)
-		if err != nil {
+		if output.Key, err = r.registryKey(ctx, request, keys, output.OwnerPkHash.Int, output.NullifierPk.Int); err != nil {
 			return err
 		}
-		output.Key = key
 	}
 	return nil
 }
@@ -163,13 +131,7 @@ func (r *Resolver) registryKey(ctx context.Context, request Request, keys map[Ha
 	if err != nil {
 		return nil, err
 	}
-	key := &ring.RegistryKey{Next: next, CtHash: ciphertext, Index: entry.Index}
-	for level, sibling := range entry.Proof {
-		key.Path[level], err = sibling.field()
-		if err != nil {
-			return nil, err
-		}
-	}
+	key := &ring.RegistryKey{Next: ring.Field{Int: next}, CtHash: ring.Field{Int: ciphertext}, Index: entry.Index, Path: hashFields(entry.Proof)}
 	// A corrupt indexer path is indistinguishable from a key mismatch here.
 	if verifyRegistryKey(member, nullifier, key, anchor.Root) != nil {
 		return nil, &UnregisteredMemberError{Member: member, mismatch: true}
@@ -182,7 +144,7 @@ func (r *Resolver) registryKey(ctx context.Context, request Request, keys map[Ha
 }
 
 func verifyRegistryKey(member Hash, nullifier *big.Int, key *ring.RegistryKey, root Hash) error {
-	keyHash, err := transcript.HashFields([]*big.Int{nullifier, key.CtHash})
+	keyHash, err := transcript.HashFields([]*big.Int{nullifier, key.CtHash.Int})
 	if err != nil {
 		return err
 	}
@@ -190,7 +152,7 @@ func verifyRegistryKey(member Hash, nullifier *big.Int, key *ring.RegistryKey, r
 	if err != nil {
 		return err
 	}
-	leaf, err := transcript.HashFields([]*big.Int{owner, key.Next, keyHash})
+	leaf, err := transcript.HashFields([]*big.Int{owner, key.Next.Int, keyHash})
 	if err != nil {
 		return err
 	}
@@ -200,7 +162,7 @@ func verifyRegistryKey(member Hash, nullifier *big.Int, key *ring.RegistryKey, r
 	}
 	path := make([]Hash, registry.Height)
 	for level, sibling := range key.Path {
-		path[level], err = hashField(sibling)
+		path[level], err = hashField(sibling.Int)
 		if err != nil {
 			return err
 		}

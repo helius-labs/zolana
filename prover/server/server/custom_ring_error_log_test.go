@@ -2,15 +2,14 @@ package server
 
 import (
 	"bytes"
-	"crypto/elliptic"
 	"encoding/json"
 	"errors"
 	"github.com/helius-labs/zolana/prover/server/logging"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -47,7 +46,7 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 		{
 			name:    "custom-ring request does not decode",
 			payload: []byte(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`),
-			cause:   "publicInputHash is not canonical hex",
+			cause:   "a value is not canonical lowercase 0x hex",
 			code:    "malformed_body",
 		},
 		{
@@ -186,7 +185,7 @@ func TestSyncPanicLogsValueAndRedactsResponse(t *testing.T) {
 // malformed_body code, which says the request was at fault, but not the decode
 // error, which can quote request values.
 func TestSyncCustomRingDecodeFailureIsRedacted(t *testing.T) {
-	const cause = "publicInputHash is not canonical hex"
+	const cause = "a value is not canonical lowercase 0x hex"
 	logs := captureLogs(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
@@ -333,29 +332,11 @@ func captureLogs(t *testing.T) *syncBuffer {
 
 func validCustomRingBasePayload(t *testing.T) []byte {
 	t.Helper()
-	params := &customring.BaseParameters{
-		PublicInputHash: big.NewInt(1),
-		PrivateTxHash:   big.NewInt(2),
-		NOut:            1,
-	}
-	for i := range params.TxViewingSk {
-		params.TxViewingSk[i] = byte(i + 1)
-		params.EphSk[i] = byte(0x20 + i)
-	}
-	curve := elliptic.P256().Params()
-	copy(params.AuditorPk[:], elliptic.Marshal(elliptic.P256(), curve.Gx, curve.Gy))
-	for i := range params.Outputs {
-		params.Outputs[i] = customring.AuditOpening{
-			Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
-			Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
-			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
-		}
-	}
-	payload, err := json.Marshal(params)
+	payload, err := os.ReadFile("../prover/custom_ring/testdata/custom-ring-base.json")
 	if err != nil {
-		t.Fatalf("marshal base parameters: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := customring.DecodeRequest(common.CustomRingBaseCircuitType, payload); err != nil {
+	if _, err := customring.Decode(common.CustomRingBaseCircuitType, payload); err != nil {
 		t.Fatalf("fixture does not decode: %v", err)
 	}
 	return payload
