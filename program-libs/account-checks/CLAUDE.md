@@ -55,7 +55,6 @@
 ### Error Handling (`error.rs`)
 - AccountError enum (codes 20000-20015, with gaps where variants were removed)
 - Automatic conversion to `solana_program_error::ProgramError::Custom(u32)`
-- `ProgramError(u32)` variant carries pass-through custom codes
 
 ## Feature Flags
 - `std` - Enables std (default); without it the crate is `no_std`
