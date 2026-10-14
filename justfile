@@ -664,7 +664,7 @@ build-cli:
     cargo build -p zolana-cli --target-dir target
 
 test-cli:
-    cargo nextest run -p zolana-cli
+    cargo nextest run -p zolana-cli -p zolana-cli-common
     cargo nextest run -p xtask
 
 # === Bench ===
