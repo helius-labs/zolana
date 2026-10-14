@@ -45,7 +45,7 @@ pub(super) async fn initialize_root(
     };
     let sentinel = MemberKey::sentinel();
     let tx = db.begin().await.unwrap();
-    let store = RingStore::new(&tx, program);
+    let store = Store::new(&tx, program);
     let computed = store
         .write_leaves(
             &root.address,
@@ -190,13 +190,13 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    let faulted = RingStore::new(&db, faulty.program)
+    let faulted = Store::new(&db, faulty.program)
         .root()
         .await
         .unwrap()
         .unwrap();
     assert!(faulted.fault.is_some());
-    assert!(RingStore::new(&db, healthy.program)
+    assert!(Store::new(&db, healthy.program)
         .root()
         .await
         .unwrap()
@@ -225,7 +225,7 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     let tx = db.begin().await.unwrap();
     storage::rollback(&tx, &mut restarted).await.unwrap();
     tx.commit().await.unwrap();
-    assert!(RingStore::new(&db, faulty.program)
+    assert!(Store::new(&db, faulty.program)
         .root()
         .await
         .unwrap()

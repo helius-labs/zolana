@@ -1,20 +1,15 @@
 use anyhow::Context;
 use custom_ring_interface::KEY_REGISTRY_CAPACITY;
-use sea_orm::{DatabaseConnection, DatabaseTransaction};
-use zolana_indexer_api::{
-    Base64String, GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse, Hash,
-    RingMemberProofRequest,
-};
+use sea_orm::DatabaseTransaction;
 use zolana_ring_indexer::key_registry::Spliced;
 
 use super::{
-    api::{self, Insertion, MemberPath},
     fault, instruction_view, proof,
-    storage::{LeafWrite, MemberRestore, RingRoot, RingStore, Undo},
+    storage::{LeafWrite, MemberRestore, RingRoot, Store, Undo},
     Invocation, ProjectError, Step,
 };
-use crate::{api::error::PhotonApiError, rpc::RpcClient};
 
+pub(crate) use super::api::{lookup, register};
 pub(crate) use zolana_ring_indexer::key_registry::{MemberKey, Registration};
 
 pub(crate) fn transition(
@@ -25,7 +20,7 @@ pub(crate) fn transition(
 }
 
 pub(crate) async fn apply(
-    store: &RingStore<'_, DatabaseTransaction>,
+    store: &Store<'_, DatabaseTransaction>,
     step: Step<'_>,
 ) -> Result<Undo, ProjectError> {
     let Step {
@@ -51,7 +46,7 @@ pub(crate) async fn apply(
         return Err(fault("duplicate member"));
     }
     let low = store.predecessor(&member).await?;
-    if proof::path(store.conn(), root, next_index).await?.leaf != [0; 32] {
+    if proof::path(store.conn, root, next_index).await?.leaf != [0; 32] {
         return Err(fault("append slot occupied"));
     }
     // 2. Rollback needs both leaves before the ordered chain changes.
@@ -69,10 +64,7 @@ pub(crate) async fn apply(
             },
         ],
         leaves: vec![
-            LeafWrite {
-                index: low.index,
-                hash: low.hash()?,
-            },
+            LeafWrite::of(&low)?,
             LeafWrite {
                 index: next_index,
                 hash: [0; 32],
@@ -85,105 +77,44 @@ pub(crate) async fn apply(
     } = transition
         .splice(low)
         .map_err(|error| fault(error.to_string()))?;
-    let computed = store
-        .write_leaves(
-            &root.address,
-            &[
-                LeafWrite {
-                    index: spliced.index,
-                    hash: spliced.hash()?,
-                },
-                LeafWrite {
-                    index: added.index,
-                    hash: added.hash()?,
-                },
-            ],
-            revision,
-        )
-        .await?;
+    let leaves = [LeafWrite::of(&spliced)?, LeafWrite::of(&added)?];
+    let computed = store.write_leaves(&root.address, &leaves, revision).await?;
     // 3. Reconstructed leaves must match the proven root before publication.
     if computed != new_root {
         return Err(fault("new root mismatch"));
     }
     store.save_member(&spliced).await?;
     store.save_member(&added).await?;
+    let next_index = next_index
+        .checked_add(1)
+        .context("append cursor overflow")?;
     store
         .save_root(&RingRoot {
             root: new_root,
-            next_index: next_index
-                .checked_add(1)
-                .context("append cursor overflow")?,
+            next_index,
             ..root.clone()
         })
         .await?;
     Ok(undo)
 }
 
-pub(crate) async fn register(
-    db: &DatabaseConnection,
-    rpc: &RpcClient,
-    request: RingMemberProofRequest,
-) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
-    let Insertion {
-        context,
-        root,
-        low,
-        low_proof,
-        new_proof,
-    } = api::insertion(db, rpc, &request).await?;
-    Ok(GetRingKeyRegistryRegisterProofResponse {
-        context,
-        root: Hash(root.root),
-        next_index: root.next_index,
-        member: request.member,
-        low_member: Hash(low.member),
-        low_next: Hash(low.next),
-        low_key_hash: Hash(low.key_hash),
-        low_index: low.index,
-        low_proof: low_proof.into_iter().map(Hash).collect(),
-        new_proof: new_proof.into_iter().map(Hash).collect(),
-    })
-}
-
-pub(crate) async fn lookup(
-    db: &DatabaseConnection,
-    rpc: &RpcClient,
-    request: RingMemberProofRequest,
-) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
-    let MemberPath {
-        context,
-        root,
-        leaf,
-        proof,
-    } = api::member_path(db, rpc, &request).await?;
-    Ok(GetRingKeyRegistryEntryResponse {
-        context,
-        root: Hash(root.root),
-        next_index: root.next_index,
-        member: request.member,
-        next: Hash(leaf.next),
-        index: leaf.index,
-        eph_pk: Base64String(leaf.eph_pk.to_vec()),
-        ciphertext: Base64String(leaf.ciphertext.to_vec()),
-        proof: proof.into_iter().map(Hash).collect(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        api::error::RingProjectionError,
+        api::error::{PhotonApiError, RingProjectionError},
         ingester::typedefs::block_info::BlockMetadata,
         ring_projection::{
             proof,
             storage::{self, BlockJournal, BlockUndo},
             tests::{field, fixture, member},
         },
+        rpc::RpcClient,
     };
     use custom_ring_interface::RegisteredKey;
     use sea_orm::TransactionTrait;
     use solana_pubkey::Pubkey;
+    use zolana_indexer_api::{Hash, RingMemberProofRequest};
     use zolana_ring_key_registry::KeyRegistryTree;
 
     fn key_hash(seed: u8) -> [u8; 32] {
@@ -214,7 +145,7 @@ mod tests {
         for seed in [5u8, 9, 2, 8] {
             let subject = member(seed);
             let tx = db.begin().await.unwrap();
-            let store = RingStore::new(&tx, root.program);
+            let store = Store::new(&tx, root.program);
             let low = store.predecessor(&subject).await.unwrap();
             let low_path = proof::path(&tx, &root, low.index).await.unwrap();
             let slot = proof::path(&tx, &root, root.next_index).await.unwrap();
@@ -238,11 +169,7 @@ mod tests {
             .await
             .unwrap();
             tx.commit().await.unwrap();
-            root = RingStore::new(&db, root.program)
-                .root()
-                .await
-                .unwrap()
-                .unwrap();
+            root = Store::new(&db, root.program).root().await.unwrap().unwrap();
             assert_eq!(root.root, reference.root());
         }
     }
@@ -260,7 +187,7 @@ mod tests {
             .unwrap();
         let tx = db.begin().await.unwrap();
         assert!(apply(
-            &RingStore::new(&tx, root.program),
+            &Store::new(&tx, root.program),
             Step {
                 root: &root,
                 transition: registration(&root, 8, field(99)),
@@ -270,13 +197,13 @@ mod tests {
         .await
         .is_err());
         tx.rollback().await.unwrap();
-        let store = RingStore::new(&db, root.program);
+        let store = Store::new(&db, root.program);
         assert!(store.member(&subject).await.unwrap().is_none());
         assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
 
         let tx = db.begin().await.unwrap();
         let undo = apply(
-            &RingStore::new(&tx, root.program),
+            &Store::new(&tx, root.program),
             Step {
                 root: &root,
                 transition: registration(&root, 8, registered.new_root),
@@ -319,7 +246,7 @@ mod tests {
 
         let tx = db.begin().await.unwrap();
         let path = proof::path(&tx, &root, 0).await.unwrap();
-        let sentinel = RingStore::new(&tx, root.program)
+        let sentinel = Store::new(&tx, root.program)
             .member(&[0; 32])
             .await
             .unwrap()
@@ -327,7 +254,7 @@ mod tests {
         assert_eq!(sentinel.hash().unwrap(), path.leaf);
         assert_eq!(path.root(0).unwrap(), root.root);
         apply(
-            &RingStore::new(&tx, root.program),
+            &Store::new(&tx, root.program),
             Step {
                 root: &root,
                 transition: registration(&root, 8, registered.new_root),

@@ -11,13 +11,14 @@ use crate::{
     },
     migration::{MigratorTrait, RingsMigrator},
     ring_projection::{
-        storage::{BlockJournal, BlockUndo},
+        storage::{self, BlockJournal, BlockUndo, ProjectionCursor},
         tests::{field, member, projector},
         Invocations, StartSlot,
     },
 };
+use custom_ring_interface::instruction::tag;
 use jsonrpsee::server::ServerHandle;
-use sea_orm::Database;
+use sea_orm::{Database, TransactionTrait};
 use serde_json::json;
 use solana_pubkey::Pubkey;
 use zolana_indexer_api::Hash;
@@ -32,7 +33,7 @@ async fn fixture() -> (DatabaseConnection, ProjectionCursor) {
     RingsMigrator::up(&db, None).await.unwrap();
     let cursor = ProjectionCursor::new(0);
     storage::save_cursor(&db, &cursor).await.unwrap();
-    SpendStore::new(&db, PROGRAM).open().await.unwrap();
+    Store::new(&db, PROGRAM).open_records().await.unwrap();
     (db, cursor)
 }
 
@@ -62,7 +63,7 @@ fn block(slot: u64) -> BlockMetadata {
 async fn register_then_transfers_keep_only_the_latest_record_until_rollback() {
     let (db, mut cursor) = fixture().await;
     let tx = db.begin().await.unwrap();
-    let store = SpendStore::new(&tx, PROGRAM);
+    let store = Store::new(&tx, PROGRAM);
     let mut undo = vec![Update::Register(row(5, 0))
         .apply(&store)
         .await
@@ -118,9 +119,9 @@ async fn register_then_transfers_keep_only_the_latest_record_until_rollback() {
     let tx = db.begin().await.unwrap();
     storage::rollback(&tx, &mut restarted).await.unwrap();
     tx.commit().await.unwrap();
-    let store = SpendStore::new(&db, PROGRAM);
+    let store = Store::new(&db, PROGRAM);
     assert!(store.record(&member(5)).await.unwrap().is_none());
-    assert!(store.ring().await.unwrap().is_some());
+    assert!(store.records_fault().await.unwrap().is_some());
     assert!(restarted.tip.is_none());
 }
 
@@ -128,7 +129,7 @@ async fn register_then_transfers_keep_only_the_latest_record_until_rollback() {
 async fn a_replayed_registration_is_idempotent_and_a_second_one_is_refused() {
     let (db, _) = fixture().await;
     let tx = db.begin().await.unwrap();
-    let store = SpendStore::new(&tx, PROGRAM);
+    let store = Store::new(&tx, PROGRAM);
     assert!(Update::Register(row(5, 0))
         .apply(&store)
         .await
@@ -150,7 +151,7 @@ async fn a_replayed_registration_is_idempotent_and_a_second_one_is_refused() {
 async fn a_transfer_cannot_move_another_members_record_or_spend_two() {
     let (db, _) = fixture().await;
     let tx = db.begin().await.unwrap();
-    let store = SpendStore::new(&tx, PROGRAM);
+    let store = Store::new(&tx, PROGRAM);
     for seed in [5, 6] {
         Update::Register(row(seed, 0)).apply(&store).await.unwrap();
     }
@@ -170,7 +171,7 @@ async fn a_transfer_cannot_move_another_members_record_or_spend_two() {
         Err(ProjectError::Fault(_))
     ));
     // Records are scoped to their ring.
-    assert!(SpendStore::new(&tx, [12; 32])
+    assert!(Store::new(&tx, [12; 32])
         .spent_by(&[row(5, 0).nullifier])
         .await
         .unwrap()
@@ -181,7 +182,7 @@ async fn a_transfer_cannot_move_another_members_record_or_spend_two() {
 async fn a_malformed_record_update_quarantines_only_its_ring_until_rollback() {
     let (db, mut cursor) = fixture().await;
     let healthy = [12; 32];
-    SpendStore::new(&db, healthy).open().await.unwrap();
+    Store::new(&db, healthy).open_records().await.unwrap();
     let garbage = |program: [u8; 32], error: Option<String>| TransactionInfo {
         signature: Signature::from([1; 64]),
         error,
@@ -227,12 +228,11 @@ async fn a_malformed_record_update_quarantines_only_its_ring_until_rollback() {
 }
 
 async fn fault_of(db: &DatabaseConnection, program: [u8; 32]) -> Option<String> {
-    SpendStore::new(db, program)
-        .ring()
+    Store::new(db, program)
+        .records_fault()
         .await
         .unwrap()
         .unwrap()
-        .fault
 }
 
 fn request(program: [u8; 32], seed: u8) -> RingSpendRecordRequest {
@@ -283,8 +283,8 @@ async fn lookups_report_the_projection_tip_and_refuse_unindexed_state() {
         .unwrap()
         .record
         .is_none());
-    SpendStore::new(&db, PROGRAM)
-        .save(&row(4, 0))
+    Store::new(&db, PROGRAM)
+        .save_record(&row(4, 0))
         .await
         .unwrap();
     assert!(matches!(

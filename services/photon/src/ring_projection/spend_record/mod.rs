@@ -1,10 +1,7 @@
 pub(super) mod parser;
 
 use anyhow::{anyhow, Result};
-use custom_ring_interface::instruction::tag;
-use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult, TransactionTrait,
-};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, QueryResult};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use solana_signature::{Signature, SIGNATURE_BYTES};
@@ -14,22 +11,19 @@ use zolana_indexer_api::{
 use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
-    api::{canonical_context, internal},
+    api::{canonical_context, internal, ready},
     fault,
-    storage::{self, statement, ProjectionCursor},
+    storage::{int, Store},
     BlockEnv, Invocation, ProjectError,
 };
 use crate::{
     api::{
         error::{PhotonApiError, RingProjectionError},
         method::rings::shielded_transaction_at,
-        set_transaction_isolation_if_needed,
     },
     rpc::RpcClient,
 };
 use parser::Rail;
-
-pub(super) const TAGS: [u8; 2] = [tag::REGISTER_SPEND, tag::TRANSACT];
 
 const RINGS_TABLE: &str = "ring_spend_record_rings";
 const RECORDS_TABLE: &str = "ring_spend_records";
@@ -61,11 +55,6 @@ pub(crate) enum SpendUndo {
     },
 }
 
-/// A quarantined ring serves no records until a rollback clears the fault.
-pub(crate) struct SpendRing {
-    pub fault: Option<String>,
-}
-
 pub(super) enum Update {
     Register(RecordRow),
     Transfer {
@@ -77,7 +66,7 @@ pub(super) enum Update {
 impl Update {
     pub(super) async fn apply(
         self,
-        store: &SpendStore<'_, DatabaseTransaction>,
+        store: &Store<'_, DatabaseTransaction>,
     ) -> Result<Option<SpendUndo>, ProjectError> {
         let (successor, before) = match self {
             Self::Register(successor) => match store.record(&successor.member).await? {
@@ -93,7 +82,7 @@ impl Update {
                 (successor, Some(spent))
             }
         };
-        store.save(&successor).await?;
+        store.save_record(&successor).await?;
         Ok(Some(SpendUndo::Recorded {
             program: store.program,
             member: successor.member,
@@ -105,19 +94,26 @@ impl Update {
 pub(super) async fn restore(tx: &DatabaseTransaction, undos: &[SpendUndo]) -> Result<()> {
     for undo in undos.iter().rev() {
         match undo {
-            SpendUndo::Opened { program } => SpendStore::new(tx, *program).close().await?,
+            SpendUndo::Opened { program } => {
+                let tables = [RECORDS_TABLE, RINGS_TABLE];
+                Store::new(tx, *program).delete_rows(&tables).await?
+            }
             SpendUndo::Quarantined { program } => {
-                SpendStore::new(tx, *program).set_fault(None).await?
+                Store::new(tx, *program).set_records_fault(None).await?
             }
             SpendUndo::Recorded {
                 program,
                 member,
                 before,
             } => {
-                let store = SpendStore::new(tx, *program);
+                let store = Store::new(tx, *program);
                 match before {
-                    Some(row) => store.save(row).await?,
-                    None => store.delete(member).await?,
+                    Some(row) => store.save_record(row).await?,
+                    None => {
+                        let sql =
+                            format!("DELETE FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2");
+                        store.exec(&sql, vec![member.to_vec().into()]).await?
+                    }
                 }
             }
         }
@@ -135,40 +131,20 @@ pub(crate) async fn lookup(
             "invalid spend record member".into(),
         ));
     }
-    let tx = db.begin().await?;
-    set_transaction_isolation_if_needed(&tx).await?;
-    let cursor = storage::cursor(&tx)
-        .await
-        .map_err(internal)?
-        .filter(ProjectionCursor::is_ready)
-        .ok_or_else(|| out_of_sync("projector is catching up or recovering"))?;
     let program = request.ring_program_id.0.to_bytes();
-    if storage::pending_ring(&tx, &program)
-        .await
-        .map_err(internal)?
-        .is_some()
-    {
-        return Err(out_of_sync("ring history is being replayed"));
-    }
-    let store = SpendStore::new(&tx, program);
-    let row = match store.ring().await.map_err(internal)? {
+    let (tx, cursor) = ready(db, &program, RingProjectionError::SpendRecordOutOfSync).await?;
+    let store = Store::new(&tx, program);
+    let row = match store.records_fault().await.map_err(internal)? {
         None => None,
-        Some(SpendRing {
-            fault: Some(reason),
-        }) => return Err(out_of_sync(format!("ring quarantined, {reason}"))),
-        Some(SpendRing { fault: None }) => {
-            store.record(&request.member.0).await.map_err(internal)?
-        }
+        Some(Some(reason)) => return Err(out_of_sync(format!("ring quarantined, {reason}"))),
+        Some(None) => store.record(&request.member.0).await.map_err(internal)?,
     };
     let record = match row {
         Some(row) => {
-            let transaction = shielded_transaction_at(
-                &tx,
-                <[u8; SIGNATURE_BYTES]>::from(row.signature.0),
-                row.event_index,
-            )
-            .await?
-            .ok_or_else(|| out_of_sync("record transaction is not indexed yet"))?;
+            let signature = <[u8; SIGNATURE_BYTES]>::from(row.signature.0);
+            let transaction = shielded_transaction_at(&tx, signature, row.event_index)
+                .await?
+                .ok_or_else(|| out_of_sync("record transaction is not indexed yet"))?;
             Some(RingSpendRecord {
                 transaction,
                 output_index: row.output_index,
@@ -183,93 +159,43 @@ pub(crate) async fn lookup(
     Ok(GetRingSpendRecordResponse { context, record })
 }
 
-pub(super) struct SpendStore<'c, C> {
-    conn: &'c C,
-    program: [u8; 32],
-}
-
-impl<'c, C: ConnectionTrait> SpendStore<'c, C> {
-    pub fn new(conn: &'c C, program: [u8; 32]) -> Self {
-        Self { conn, program }
+impl<C: ConnectionTrait> Store<'_, C> {
+    /// `None` until the ring's first registration, then the fault that quarantines its records.
+    pub async fn records_fault(&self) -> Result<Option<Option<String>>> {
+        let sql = format!("SELECT fault FROM {RINGS_TABLE} WHERE program=$1");
+        let row = self.conn.query_one(self.statement(&sql, vec![])).await?;
+        Ok(row.map(|row| row.try_get("", "fault")).transpose()?)
     }
 
-    pub async fn ring(&self) -> Result<Option<SpendRing>> {
-        self.conn
-            .query_one(statement(
-                self.conn,
-                &format!("SELECT fault FROM {RINGS_TABLE} WHERE program=$1"),
-                vec![self.program.to_vec().into()],
-            ))
-            .await?
-            .map(|row| {
-                Ok(SpendRing {
-                    fault: row.try_get("", "fault")?,
-                })
-            })
-            .transpose()
-    }
-
-    pub async fn open(&self) -> Result<SpendUndo> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("INSERT INTO {RINGS_TABLE}(program,fault) VALUES($1,NULL)"),
-                vec![self.program.to_vec().into()],
-            ))
-            .await?;
+    pub async fn open_records(&self) -> Result<SpendUndo> {
+        let sql = format!("INSERT INTO {RINGS_TABLE}(program,fault) VALUES($1,NULL)");
+        self.exec(&sql, vec![]).await?;
         Ok(SpendUndo::Opened {
             program: self.program,
         })
     }
 
-    pub async fn quarantine(&self, reason: String) -> Result<SpendUndo> {
-        log::warn!(
-            "spend records of ring {} quarantined ({reason})",
-            solana_pubkey::Pubkey::new_from_array(self.program)
-        );
-        self.set_fault(Some(reason)).await?;
+    pub async fn quarantine_records(&self, reason: String) -> Result<SpendUndo> {
+        let program = Pubkey::new_from_array(self.program);
+        log::warn!("spend records of ring {program} quarantined ({reason})");
+        self.set_records_fault(Some(reason)).await?;
         Ok(SpendUndo::Quarantined {
             program: self.program,
         })
     }
 
-    async fn set_fault(&self, fault: Option<String>) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("UPDATE {RINGS_TABLE} SET fault=$2 WHERE program=$1"),
-                vec![self.program.to_vec().into(), fault.into()],
-            ))
-            .await?;
-        Ok(())
-    }
-
-    async fn close(&self) -> Result<()> {
-        for table in [RECORDS_TABLE, RINGS_TABLE] {
-            self.conn
-                .execute(statement(
-                    self.conn,
-                    &format!("DELETE FROM {table} WHERE program=$1"),
-                    vec![self.program.to_vec().into()],
-                ))
-                .await?;
-        }
-        Ok(())
+    async fn set_records_fault(&self, fault: Option<String>) -> Result<()> {
+        let sql = format!("UPDATE {RINGS_TABLE} SET fault=$2 WHERE program=$1");
+        self.exec(&sql, vec![fault.into()]).await
     }
 
     pub async fn record(&self, member: &[u8; 32]) -> Result<Option<RecordRow>> {
-        self.conn
-            .query_one(statement(
-                self.conn,
-                &format!(
-                    "SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2"
-                ),
-                vec![self.program.to_vec().into(), member.to_vec().into()],
-            ))
-            .await?
-            .as_ref()
-            .map(record_row)
-            .transpose()
+        let sql =
+            format!("SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2");
+        let row = self
+            .conn
+            .query_one(self.statement(&sql, vec![member.to_vec().into()]));
+        row.await?.as_ref().map(record_row).transpose()
     }
 
     /// The member record among `nullifiers`, at most one per transfer.
@@ -284,18 +210,13 @@ impl<'c, C: ConnectionTrait> SpendStore<'c, C> {
             .map(|index| format!("${index}"))
             .collect::<Vec<_>>()
             .join(",");
-        let mut values = vec![self.program.to_vec().into()];
-        values.extend(nullifiers.iter().map(|nullifier| nullifier.to_vec().into()));
-        let spent = self
-            .conn
-            .query_all(statement(
-                self.conn,
-                &format!(
-                    "SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} \
-                     WHERE program=$1 AND nullifier IN ({placeholders})"
-                ),
-                values,
-            ))
+        let sql = format!(
+            "SELECT {RECORD_COLUMNS} FROM {RECORDS_TABLE} \
+             WHERE program=$1 AND nullifier IN ({placeholders})"
+        );
+        let values = nullifiers.iter().map(|nullifier| nullifier.to_vec().into());
+        let rows = self.conn.query_all(self.statement(&sql, values.collect()));
+        let spent = rows
             .await?
             .iter()
             .map(record_row)
@@ -307,46 +228,28 @@ impl<'c, C: ConnectionTrait> SpendStore<'c, C> {
         }
     }
 
-    pub async fn save(&self, row: &RecordRow) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!(
-                    "INSERT INTO {RECORDS_TABLE}(program,{RECORD_COLUMNS}) \
-                     VALUES($1,$2,$3,$4,$5,$6,$7) \
-                     ON CONFLICT(program,member) DO UPDATE SET nullifier=excluded.nullifier,\
-                     signature=excluded.signature,event_index=excluded.event_index,\
-                     output_index=excluded.output_index,slot=excluded.slot"
-                ),
-                vec![
-                    self.program.to_vec().into(),
-                    row.member.to_vec().into(),
-                    row.nullifier.to_vec().into(),
-                    <[u8; SIGNATURE_BYTES]>::from(row.signature.0)
-                        .to_vec()
-                        .into(),
-                    i32::from(row.event_index).into(),
-                    i32::from(row.output_index).into(),
-                    i64::try_from(row.slot)?.into(),
-                ],
-            ))
-            .await?;
-        Ok(())
-    }
-
-    async fn delete(&self, member: &[u8; 32]) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("DELETE FROM {RECORDS_TABLE} WHERE program=$1 AND member=$2"),
-                vec![self.program.to_vec().into(), member.to_vec().into()],
-            ))
-            .await?;
-        Ok(())
+    pub async fn save_record(&self, row: &RecordRow) -> Result<()> {
+        let sql = format!(
+            "INSERT INTO {RECORDS_TABLE}(program,{RECORD_COLUMNS}) VALUES($1,$2,$3,$4,$5,$6,$7) \
+             ON CONFLICT(program,member) DO UPDATE SET nullifier=excluded.nullifier,\
+             signature=excluded.signature,event_index=excluded.event_index,\
+             output_index=excluded.output_index,slot=excluded.slot"
+        );
+        let values = vec![
+            row.member.to_vec().into(),
+            row.nullifier.to_vec().into(),
+            <[u8; SIGNATURE_BYTES]>::from(row.signature.0)
+                .to_vec()
+                .into(),
+            i32::from(row.event_index).into(),
+            i32::from(row.output_index).into(),
+            int(row.slot)?,
+        ];
+        self.exec(&sql, values).await
     }
 }
 
-impl SpendStore<'_, DatabaseTransaction> {
+impl Store<'_, DatabaseTransaction> {
     /// A transfer is a record update only when it spends a record held here.
     pub(super) async fn advance(
         &self,
@@ -360,15 +263,15 @@ impl SpendStore<'_, DatabaseTransaction> {
         let spent = match rail {
             Rail::Register { .. } => None,
             Rail::Transfer => {
-                let nullifiers = event
+                let nullifiers: Vec<_> = event
                     .nullifiers
                     .iter()
                     .map(|input| input.nullifier)
-                    .collect::<Vec<_>>();
-                let Some(spent) = self.spent_by(&nullifiers).await? else {
-                    return Ok(None);
-                };
-                Some(spent)
+                    .collect();
+                match self.spent_by(&nullifiers).await? {
+                    None => return Ok(None),
+                    spent => spent,
+                }
             }
         };
         let policy = env.policy(&invocation.instruction.program_id).await?;

@@ -1,8 +1,9 @@
 use anyhow::{bail, Context, Result};
-use sea_orm::{ConnectionTrait, DatabaseTransaction, Statement, Value};
+use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, Statement, Value};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use thiserror::Error;
+use zolana_hasher::HasherError;
 use zolana_indexer_api::Hash;
 
 use super::{key_registry::MemberKey, spend_record::SpendUndo};
@@ -75,6 +76,15 @@ pub(crate) struct LeafWrite {
     pub hash: [u8; 32],
 }
 
+impl LeafWrite {
+    pub fn of(key: &MemberKey) -> Result<Self, HasherError> {
+        Ok(Self {
+            index: key.index,
+            hash: key.hash()?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct MemberRestore {
     pub member: [u8; 32],
@@ -87,6 +97,17 @@ pub(crate) struct Undo {
     pub before: Option<RingRoot>,
     pub members: Vec<MemberRestore>,
     pub leaves: Vec<LeafWrite>,
+}
+
+impl Undo {
+    pub fn root(program: [u8; 32], before: Option<RingRoot>) -> Self {
+        Self {
+            program,
+            before,
+            members: vec![],
+            leaves: vec![],
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -126,34 +147,25 @@ pub(crate) enum PredecessorError {
     Storage(#[from] anyhow::Error),
 }
 
-const CURSOR_TABLE: &str = "ring_projection_cursor";
-const JOURNAL_TABLE: &str = "ring_projection_blocks";
-const PENDING_TABLE: &str = "ring_projection_pending";
 const ROOTS_TABLE: &str = "ring_key_registry_roots";
 const MEMBERS_TABLE: &str = "ring_key_registry_members";
+const DELETE_MEMBER: &str = "DELETE FROM ring_key_registry_members WHERE program=$1 AND member=$2";
 
 pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!(
-            "INSERT INTO {PENDING_TABLE}(program,slot,state) VALUES($1,$2,$3) \
-             ON CONFLICT(program) DO NOTHING"
-        ),
-        vec![
-            value.program.to_vec().into(),
-            i64::try_from(value.slot)?.into(),
-            serde_json::to_string(value)?.into(),
-        ],
-    ))
-    .await?;
-    Ok(())
+    let sql = "INSERT INTO ring_projection_pending(program,slot,state) VALUES($1,$2,$3) \
+               ON CONFLICT(program) DO NOTHING";
+    let values = vec![
+        value.program.to_vec().into(),
+        int(value.slot)?,
+        json(value)?,
+    ];
+    exec(conn, sql, values).await
 }
 
 pub(crate) async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingRing>> {
     read_all(
         conn,
-        &format!("SELECT state FROM {PENDING_TABLE} ORDER BY slot"),
-        vec![],
+        "SELECT state FROM ring_projection_pending ORDER BY slot",
     )
     .await
 }
@@ -162,121 +174,64 @@ pub(crate) async fn pending_ring<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
 ) -> Result<Option<PendingRing>> {
-    read_json(
-        conn,
-        &format!("SELECT state FROM {PENDING_TABLE} WHERE program=$1"),
-        vec![program.to_vec().into()],
-    )
-    .await
+    let sql = "SELECT state FROM ring_projection_pending WHERE program=$1";
+    read_json(conn, sql, vec![program.to_vec().into()]).await
 }
 
 pub(crate) async fn checkpoint_pending<C: ConnectionTrait>(
     conn: &C,
     pending: &PendingRing,
 ) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!("UPDATE {PENDING_TABLE} SET state=$2 WHERE program=$1"),
-        vec![
-            pending.program.to_vec().into(),
-            serde_json::to_string(pending)?.into(),
-        ],
-    ))
-    .await?;
-    Ok(())
+    let sql = "UPDATE ring_projection_pending SET state=$2 WHERE program=$1";
+    let values = vec![pending.program.to_vec().into(), json(pending)?];
+    exec(conn, sql, values).await
 }
 
 pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!("DELETE FROM {PENDING_TABLE} WHERE program=$1"),
-        vec![program.to_vec().into()],
-    ))
-    .await?;
-    Ok(())
+    let sql = "DELETE FROM ring_projection_pending WHERE program=$1";
+    exec(conn, sql, vec![program.to_vec().into()]).await
 }
 
 pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<ProjectionCursor>> {
-    read_json(
-        conn,
-        &format!("SELECT state FROM {CURSOR_TABLE} WHERE id=1"),
-        vec![],
-    )
-    .await
+    let sql = "SELECT state FROM ring_projection_cursor WHERE id=1";
+    read_json(conn, sql, vec![]).await
 }
 
 pub(crate) async fn save_cursor<C: ConnectionTrait>(
     conn: &C,
     value: &ProjectionCursor,
 ) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!(
-            "INSERT INTO {CURSOR_TABLE}(id,state) VALUES(1,$1) \
-             ON CONFLICT(id) DO UPDATE SET state=excluded.state"
-        ),
-        vec![serde_json::to_string(value)?.into()],
-    ))
-    .await?;
-    Ok(())
+    let sql = "INSERT INTO ring_projection_cursor(id,state) VALUES(1,$1) \
+               ON CONFLICT(id) DO UPDATE SET state=excluded.state";
+    exec(conn, sql, vec![json(value)?]).await
 }
 
 pub(crate) async fn journal<C: ConnectionTrait>(
     conn: &C,
     slot: u64,
 ) -> Result<Option<BlockJournal>> {
-    read_json(
-        conn,
-        &format!("SELECT state FROM {JOURNAL_TABLE} WHERE slot=$1"),
-        vec![i64::try_from(slot)?.into()],
-    )
-    .await
+    let sql = "SELECT state FROM ring_projection_blocks WHERE slot=$1";
+    read_json(conn, sql, vec![int(slot)?]).await
 }
 
 pub(crate) async fn save_journal<C: ConnectionTrait>(
     conn: &C,
     journal: &BlockJournal,
 ) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!(
-            "INSERT INTO {JOURNAL_TABLE}(slot,state) VALUES($1,$2) \
-             ON CONFLICT(slot) DO UPDATE SET state=excluded.state"
-        ),
-        vec![
-            i64::try_from(journal.metadata.slot)?.into(),
-            serde_json::to_string(journal)?.into(),
-        ],
-    ))
-    .await?;
-    Ok(())
+    let sql = "INSERT INTO ring_projection_blocks(slot,state) VALUES($1,$2) \
+               ON CONFLICT(slot) DO UPDATE SET state=excluded.state";
+    exec(conn, sql, vec![int(journal.metadata.slot)?, json(journal)?]).await
 }
 
 pub(crate) async fn prune_journal<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!("DELETE FROM {JOURNAL_TABLE} WHERE slot<$1"),
-        vec![i64::try_from(below)?.into()],
-    ))
-    .await?;
-    Ok(())
-}
-
-async fn delete_journal<C: ConnectionTrait>(conn: &C, slot: u64) -> Result<()> {
-    conn.execute(statement(
-        conn,
-        &format!("DELETE FROM {JOURNAL_TABLE} WHERE slot=$1"),
-        vec![i64::try_from(slot)?.into()],
-    ))
-    .await?;
-    Ok(())
+    let sql = "DELETE FROM ring_projection_blocks WHERE slot<$1";
+    exec(conn, sql, vec![int(below)?]).await
 }
 
 pub(crate) async fn roots<C: ConnectionTrait>(conn: &C) -> Result<Vec<RingRoot>> {
     read_all(
         conn,
-        &format!("SELECT state FROM {ROOTS_TABLE} ORDER BY program"),
-        vec![],
+        "SELECT state FROM ring_key_registry_roots ORDER BY program",
     )
     .await
 }
@@ -292,12 +247,9 @@ pub(crate) async fn rollback(
     let journal = journal(tx, tip.slot)
         .await?
         .context("ring projection journal gap")?;
-    tx.execute(statement(
-        tx,
-        &format!("DELETE FROM {PENDING_TABLE} WHERE slot=$1"),
-        vec![i64::try_from(journal.metadata.slot)?.into()],
-    ))
-    .await?;
+    let slot = vec![int(journal.metadata.slot)?];
+    let sql = "DELETE FROM ring_projection_pending WHERE slot=$1";
+    exec(tx, sql, slot.clone()).await?;
     super::spend_record::restore(tx, &journal.undo.spend_records).await?;
     restore(tx, cursor, &journal.undo.key_registry).await?;
     // Partial replay must rewind with the block that advanced it.
@@ -314,7 +266,7 @@ pub(crate) async fn rollback(
             checkpoint_pending(tx, &candidate).await?;
         }
     }
-    delete_journal(tx, journal.metadata.slot).await?;
+    exec(tx, "DELETE FROM ring_projection_blocks WHERE slot=$1", slot).await?;
     cursor.tip = journal.previous_tip;
     cursor.scanned_slot = cursor
         .tip
@@ -329,132 +281,106 @@ async fn restore(
     undos: &[Undo],
 ) -> Result<()> {
     for undo in undos.iter().rev() {
-        let store = RingStore::new(tx, undo.program);
-        match &undo.before {
-            Some(before) => {
-                if !undo.leaves.is_empty() {
-                    let root = store
-                        .write_leaves(&before.address, &undo.leaves, cursor.advance_revision()?)
-                        .await?;
-                    if root != before.root {
-                        bail!("key registry rollback root mismatch");
-                    }
-                }
-                store.save_root(before).await?;
-                for restore in &undo.members {
-                    match &restore.before {
-                        Some(leaf) => store.save_member(leaf).await?,
-                        None => store.delete_member(&restore.member).await?,
-                    }
-                }
+        let store = Store::new(tx, undo.program);
+        let Some(before) = &undo.before else {
+            let created = store
+                .root()
+                .await?
+                .context("created key registry missing on rollback")?;
+            let sql = "DELETE FROM state_trees WHERE tree=$1 AND tree_kind=$2";
+            let kind = i32::from(RingsTreeKind::KeyRegistry);
+            exec(tx, sql, vec![created.address.to_vec().into(), kind.into()]).await?;
+            store.delete_rows(&[MEMBERS_TABLE, ROOTS_TABLE]).await?;
+            continue;
+        };
+        if !undo.leaves.is_empty() {
+            let revision = cursor.advance_revision()?;
+            let root = store.write_leaves(&before.address, &undo.leaves, revision);
+            if root.await? != before.root {
+                bail!("key registry rollback root mismatch");
             }
-            None => {
-                let created = store
-                    .root()
-                    .await?
-                    .context("created key registry missing on rollback")?;
-                store.delete_tree(&created.address).await?;
-                store.delete_members().await?;
-                store.delete_root().await?;
+        }
+        store.save_root(before).await?;
+        for restore in &undo.members {
+            let member = vec![restore.member.to_vec().into()];
+            match &restore.before {
+                Some(leaf) => store.save_member(leaf).await?,
+                None => store.exec(DELETE_MEMBER, member).await?,
             }
         }
     }
     Ok(())
 }
 
-pub(crate) struct RingStore<'c, C> {
-    conn: &'c C,
-    program: [u8; 32],
+/// One ring's rows across both projected families.
+pub(crate) struct Store<'c, C> {
+    pub(super) conn: &'c C,
+    pub(super) program: [u8; 32],
 }
 
-impl<'c, C: ConnectionTrait> RingStore<'c, C> {
+impl<'c, C: ConnectionTrait> Store<'c, C> {
     pub fn new(conn: &'c C, program: [u8; 32]) -> Self {
         Self { conn, program }
     }
 
-    pub fn conn(&self) -> &'c C {
-        self.conn
+    /// Binds the program as `$1` ahead of `values`.
+    pub(super) fn statement(&self, sql: &str, values: Vec<Value>) -> Statement {
+        let program = std::iter::once(self.program.to_vec().into());
+        statement(self.conn, sql, program.chain(values).collect())
     }
 
-    pub fn program(&self) -> [u8; 32] {
-        self.program
+    pub(super) async fn exec(&self, sql: &str, values: Vec<Value>) -> Result<()> {
+        self.conn.execute(self.statement(sql, values)).await?;
+        Ok(())
+    }
+
+    async fn read<T: DeserializeOwned>(&self, sql: &str, values: Vec<Value>) -> Result<Option<T>> {
+        let row = self.conn.query_one(self.statement(sql, values)).await?;
+        row.as_ref().map(state).transpose()
+    }
+
+    pub(super) async fn delete_rows(&self, tables: &[&str]) -> Result<()> {
+        for table in tables {
+            self.exec(&format!("DELETE FROM {table} WHERE program=$1"), vec![])
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn root(&self) -> Result<Option<RingRoot>> {
-        read_json(
-            self.conn,
-            &format!("SELECT state FROM {ROOTS_TABLE} WHERE program=$1"),
-            vec![self.program.to_vec().into()],
-        )
-        .await
+        let sql = "SELECT state FROM ring_key_registry_roots WHERE program=$1";
+        self.read(sql, vec![]).await
     }
 
     pub async fn save_root(&self, root: &RingRoot) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!(
-                    "INSERT INTO {ROOTS_TABLE}(program,state) VALUES($1,$2) \
-                     ON CONFLICT(program) DO UPDATE SET state=excluded.state"
-                ),
-                vec![
-                    self.program.to_vec().into(),
-                    serde_json::to_string(root)?.into(),
-                ],
-            ))
-            .await?;
-        Ok(())
+        let sql = "INSERT INTO ring_key_registry_roots(program,state) VALUES($1,$2) \
+                   ON CONFLICT(program) DO UPDATE SET state=excluded.state";
+        self.exec(sql, vec![json(root)?]).await
     }
 
-    pub async fn quarantine(&self, root: RingRoot, reason: String) -> Result<Undo> {
-        log::warn!(
-            "key registry of ring {} quarantined ({reason})",
-            Pubkey::new_from_array(self.program)
-        );
-        self.save_root(&RingRoot {
+    pub async fn quarantine_root(&self, root: RingRoot, reason: String) -> Result<Undo> {
+        let program = Pubkey::new_from_array(self.program);
+        log::warn!("key registry of ring {program} quarantined ({reason})");
+        let faulted = RingRoot {
             fault: Some(reason),
             ..root.clone()
-        })
-        .await?;
-        Ok(Undo {
-            program: root.program,
-            before: Some(root),
-            members: vec![],
-            leaves: vec![],
-        })
-    }
-
-    pub async fn delete_root(&self) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("DELETE FROM {ROOTS_TABLE} WHERE program=$1"),
-                vec![self.program.to_vec().into()],
-            ))
-            .await?;
-        Ok(())
+        };
+        self.save_root(&faulted).await?;
+        Ok(Undo::root(root.program, Some(root)))
     }
 
     pub async fn member(&self, member: &[u8; 32]) -> Result<Option<MemberKey>> {
-        read_json(
-            self.conn,
-            &format!("SELECT state FROM {MEMBERS_TABLE} WHERE program=$1 AND member=$2"),
-            vec![self.program.to_vec().into(), member.to_vec().into()],
-        )
-        .await
+        let sql = "SELECT state FROM ring_key_registry_members WHERE program=$1 AND member=$2";
+        self.read(sql, vec![member.to_vec().into()]).await
     }
 
     pub async fn predecessor(&self, member: &[u8; 32]) -> Result<MemberKey, PredecessorError> {
-        let low: MemberKey = read_json(
-            self.conn,
-            &format!(
-                "SELECT state FROM {MEMBERS_TABLE} WHERE program=$1 AND member<$2 \
-                 ORDER BY member DESC LIMIT 1"
-            ),
-            vec![self.program.to_vec().into(), member.to_vec().into()],
-        )
-        .await?
-        .context("no covering predecessor")?;
+        let sql = "SELECT state FROM ring_key_registry_members WHERE program=$1 AND member<$2 \
+                   ORDER BY member DESC LIMIT 1";
+        let low: MemberKey = self
+            .read(sql, vec![member.to_vec().into()])
+            .await?
+            .context("no covering predecessor")?;
         if !(low.member < *member && *member < low.next) {
             return Err(PredecessorError::NotAbsent);
         }
@@ -462,63 +388,15 @@ impl<'c, C: ConnectionTrait> RingStore<'c, C> {
     }
 
     pub async fn save_member(&self, leaf: &MemberKey) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!(
-                    "INSERT INTO {MEMBERS_TABLE}(program,member,leaf_index,state) \
-                     VALUES($1,$2,$3,$4) ON CONFLICT(program,member) \
-                     DO UPDATE SET leaf_index=excluded.leaf_index,state=excluded.state"
-                ),
-                vec![
-                    self.program.to_vec().into(),
-                    leaf.member.to_vec().into(),
-                    i64::try_from(leaf.index)?.into(),
-                    serde_json::to_string(leaf)?.into(),
-                ],
-            ))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_member(&self, member: &[u8; 32]) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("DELETE FROM {MEMBERS_TABLE} WHERE program=$1 AND member=$2"),
-                vec![self.program.to_vec().into(), member.to_vec().into()],
-            ))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_members(&self) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                &format!("DELETE FROM {MEMBERS_TABLE} WHERE program=$1"),
-                vec![self.program.to_vec().into()],
-            ))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_tree(&self, tree: &[u8; 32]) -> Result<()> {
-        self.conn
-            .execute(statement(
-                self.conn,
-                "DELETE FROM state_trees WHERE tree=$1 AND tree_kind=$2",
-                vec![
-                    tree.to_vec().into(),
-                    i32::from(RingsTreeKind::KeyRegistry).into(),
-                ],
-            ))
-            .await?;
-        Ok(())
+        let sql = "INSERT INTO ring_key_registry_members(program,member,leaf_index,state) \
+                   VALUES($1,$2,$3,$4) ON CONFLICT(program,member) \
+                   DO UPDATE SET leaf_index=excluded.leaf_index,state=excluded.state";
+        let values = vec![leaf.member.to_vec().into(), int(leaf.index)?, json(leaf)?];
+        self.exec(sql, values).await
     }
 }
 
-impl RingStore<'_, DatabaseTransaction> {
+impl Store<'_, DatabaseTransaction> {
     pub async fn write_leaves(
         &self,
         tree: &[u8; 32],
@@ -537,23 +415,34 @@ impl RingStore<'_, DatabaseTransaction> {
             })
             .collect();
         persist_leaf_nodes(self.conn, leaves, kind.tree_height() + 1).await?;
+        let sql = "SELECT hash FROM state_trees WHERE tree=$1 AND tree_kind=$2 AND node_idx=1";
+        let values = vec![tree.to_vec().into(), i32::from(kind).into()];
         let row = self
             .conn
-            .query_one(statement(
-                self.conn,
-                "SELECT hash FROM state_trees WHERE tree=$1 AND tree_kind=$2 AND node_idx=1",
-                vec![tree.to_vec().into(), i32::from(kind).into()],
-            ))
-            .await?
-            .context("key registry root missing")?;
+            .query_one(statement(self.conn, sql, values))
+            .await?;
+        let row = row.context("key registry root missing")?;
         let hash: Vec<u8> = row.try_get("", "hash")?;
         hash.try_into()
             .map_err(|_| anyhow::anyhow!("invalid key registry root length"))
     }
 }
 
-pub(super) fn statement<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Statement {
+fn statement<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Statement {
     Statement::from_sql_and_values(conn.get_database_backend(), sql, values)
+}
+
+async fn exec<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Result<()> {
+    conn.execute(statement(conn, sql, values)).await?;
+    Ok(())
+}
+
+fn json<T: Serialize>(value: &T) -> Result<Value> {
+    Ok(serde_json::to_string(value)?.into())
+}
+
+pub(super) fn int(value: u64) -> Result<Value> {
+    Ok(i64::try_from(value)?.into())
 }
 
 async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
@@ -561,26 +450,15 @@ async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
     sql: &str,
     values: Vec<Value>,
 ) -> Result<Option<T>> {
-    conn.query_one(statement(conn, sql, values))
-        .await?
-        .map(|row| {
-            let state: String = row.try_get("", "state")?;
-            Ok(serde_json::from_str(&state)?)
-        })
-        .transpose()
+    let row = conn.query_one(statement(conn, sql, values)).await?;
+    row.as_ref().map(state).transpose()
 }
 
-async fn read_all<T: DeserializeOwned, C: ConnectionTrait>(
-    conn: &C,
-    sql: &str,
-    values: Vec<Value>,
-) -> Result<Vec<T>> {
-    conn.query_all(statement(conn, sql, values))
-        .await?
-        .into_iter()
-        .map(|row| {
-            let state: String = row.try_get("", "state")?;
-            Ok(serde_json::from_str(&state)?)
-        })
-        .collect()
+async fn read_all<T: DeserializeOwned, C: ConnectionTrait>(conn: &C, sql: &str) -> Result<Vec<T>> {
+    let rows = conn.query_all(statement(conn, sql, vec![])).await?;
+    rows.iter().map(state).collect()
+}
+
+fn state<T: DeserializeOwned>(row: &QueryResult) -> Result<T> {
+    Ok(serde_json::from_str(&row.try_get::<String>("", "state")?)?)
 }

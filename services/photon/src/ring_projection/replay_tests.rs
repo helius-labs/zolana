@@ -276,7 +276,7 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
         .unwrap();
     assert_eq!(checkpoint.replayed_tip.unwrap().slot, 1);
     assert_eq!(
-        RingStore::new(projector.db.as_ref(), program.to_bytes())
+        Store::new(projector.db.as_ref(), program.to_bytes())
             .root()
             .await
             .unwrap()
@@ -296,7 +296,7 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
             Progress::CaughtUp
         ));
     }
-    let root = RingStore::new(restarted.db.as_ref(), program.to_bytes())
+    let root = Store::new(restarted.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
@@ -328,14 +328,14 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
             .unwrap()
             .is_none()
     );
-    assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+    assert!(Store::new(projector.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
         .is_none());
     chain.lock().unwrap().failed_block = None;
     projector.synchronize().await.unwrap();
-    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+    let root = Store::new(projector.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
@@ -441,7 +441,7 @@ async fn a_fork_rewinds_the_committed_replay_checkpoint() {
     }
     // A changed blockhash must trigger rollback during synchronization.
     projector.synchronize().await.unwrap();
-    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+    let root = Store::new(projector.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
@@ -471,7 +471,7 @@ async fn missing_archived_initialization_never_completes_a_replay() {
             .unwrap()
             .unwrap();
         assert!(checkpoint.replayed_tip.is_none());
-        assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+        assert!(Store::new(projector.db.as_ref(), program.to_bytes())
             .root()
             .await
             .unwrap()
@@ -525,7 +525,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             projector.synchronize().await.unwrap(),
             Progress::CaughtUp
         ));
-        let root = |program| RingStore::new(projector.db.as_ref(), program);
+        let root = |program| Store::new(projector.db.as_ref(), program);
         assert!(root(faulty.program)
             .root()
             .await

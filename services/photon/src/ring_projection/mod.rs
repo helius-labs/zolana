@@ -30,10 +30,10 @@ use crate::{
     rpc::{RpcClient, RpcError},
 };
 use key_registry::{MemberKey, Registration};
-use spend_record::{SpendRing, SpendStore, SpendUndo};
+use spend_record::SpendUndo;
 use storage::{
     BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
-    RingStore, Undo,
+    Store, Undo,
 };
 
 const MAX_RETRY_DELAY_SECS: u64 = 15;
@@ -378,8 +378,8 @@ impl Projector {
                     let mut journal = storage::journal(&tx, tip.slot)
                         .await?
                         .context("ring projection journal gap")?;
-                    let undo = RingStore::new(&tx, root.program)
-                        .quarantine(root, reason)
+                    let undo = Store::new(&tx, root.program)
+                        .quarantine_root(root, reason)
                         .await?;
                     journal.undo.key_registry.push(undo);
                     storage::save_journal(&tx, &journal).await?;
@@ -397,11 +397,19 @@ enum Scope {
     Ring([u8; 32]),
 }
 
-impl Scope {
-    fn covers(self, program: &[u8; 32]) -> bool {
-        match self {
-            Self::Every => true,
-            Self::Ring(ring) => ring == *program,
+/// The projected families, each with its own undo journal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Family {
+    SpendRecords,
+    KeyRegistry,
+}
+
+impl Family {
+    fn of(instruction: &Instruction) -> Option<Self> {
+        match *instruction.data.first()? {
+            tag::REGISTER_SPEND | tag::TRANSACT => Some(Self::SpendRecords),
+            tag::CREATE_KEY_REGISTRY_ROOT | tag::REGISTER_KEY => Some(Self::KeyRegistry),
+            _ => None,
         }
     }
 }
@@ -570,6 +578,10 @@ impl<'a> Invocations<'a> {
         self.instructions.iter().copied().enumerate()
     }
 
+    fn tag(&self, position: usize) -> Option<u8> {
+        self.instructions.get(position)?.data.first().copied()
+    }
+
     /// Sibling invocations cannot supply a transition's SPP event.
     fn invocation(&self, position: usize) -> Result<Invocation<'a>, ProjectError> {
         let (instruction, rest) = self
@@ -620,113 +632,94 @@ impl BlockWork<'_> {
             if transaction.error.is_some() {
                 continue;
             }
-            self.project_spend_records(transaction, &mut undo.spend_records)
-                .await?;
-            self.project_key_registry(transaction, &mut undo.key_registry)
-                .await?;
+            let invocations = Invocations::new(transaction, self.block.metadata.slot);
+            // A transaction's spend records project before its key registrations.
+            for family in [Family::SpendRecords, Family::KeyRegistry] {
+                for (position, instruction) in invocations.instructions() {
+                    let program = instruction.program_id.to_bytes();
+                    if Family::of(instruction) != Some(family) {
+                        continue;
+                    }
+                    let skip = match self.scope {
+                        Scope::Ring(ring) => ring != program,
+                        Scope::Every => storage::pending_ring(self.tx, &program).await?.is_some(),
+                    };
+                    if skip {
+                        continue;
+                    }
+                    let store = Store::new(self.tx, program);
+                    match family {
+                        Family::SpendRecords => {
+                            let undo = &mut undo.spend_records;
+                            self.spend_records(&store, &invocations, position, undo)
+                                .await?
+                        }
+                        Family::KeyRegistry => {
+                            let undo = &mut undo.key_registry;
+                            self.key_registry(&store, &invocations, position, undo)
+                                .await?
+                        }
+                    }
+                }
+            }
         }
         Ok(undo)
     }
 
-    async fn project_key_registry(
+    async fn spend_records(
         &mut self,
-        transaction: &TransactionInfo,
-        undo: &mut Vec<Undo>,
+        store: &Store<'_, DatabaseTransaction>,
+        invocations: &Invocations<'_>,
+        position: usize,
+        undo: &mut Vec<SpendUndo>,
     ) -> Result<()> {
-        let tx = self.tx;
-        let invocations = Invocations::new(transaction, self.block.metadata.slot);
-        for (position, instruction) in invocations.instructions() {
-            let program = instruction.program_id.to_bytes();
-            if !self.scope.covers(&program) {
-                continue;
-            }
-            let initializes = match instruction.data.first() {
-                Some(&tag::CREATE_KEY_REGISTRY_ROOT) => true,
-                Some(&tag::REGISTER_KEY) => false,
-                _ => continue,
-            };
-            if matches!(self.scope, Scope::Every)
-                && storage::pending_ring(tx, &program).await?.is_some()
-            {
-                continue;
-            }
-            let store = RingStore::new(tx, program);
-            if initializes {
-                if let Some(address) = initialization(instruction) {
-                    undo.extend(self.initialize(&store, address).await?);
+        match store.records_fault().await? {
+            Some(None) => {}
+            // A ring's first registration opens its records.
+            None if invocations.tag(position) == Some(tag::REGISTER_SPEND) => {
+                if !self.admit(store.program).await? {
+                    return Ok(());
                 }
-                continue;
+                undo.push(store.open_records().await?);
             }
-            let Some(root) = store.root().await? else {
-                continue;
-            };
-            if root.fault.is_some() {
-                continue;
-            }
-            let outcome = async {
-                let invocation = invocations.invocation(position)?;
-                self.advance(&root, invocation).await
-            }
-            .await;
-            match outcome {
-                Ok(Some(entry)) => undo.push(entry),
-                Ok(None) => {}
-                Err(ProjectError::Fault(reason)) => {
-                    undo.push(store.quarantine(root, reason).await?);
-                }
-                Err(ProjectError::Retry(error)) => return Err(error),
-            }
+            None | Some(Some(_)) => return Ok(()),
+        }
+        let outcome = async {
+            let invocation = invocations.invocation(position)?;
+            store.advance(&invocation, &mut self.env).await
+        }
+        .await;
+        match outcome {
+            Ok(entry) => undo.extend(entry),
+            Err(ProjectError::Fault(reason)) => undo.push(store.quarantine_records(reason).await?),
+            Err(ProjectError::Retry(error)) => return Err(error),
         }
         Ok(())
     }
 
-    async fn project_spend_records(
+    async fn key_registry(
         &mut self,
-        transaction: &TransactionInfo,
-        undo: &mut Vec<SpendUndo>,
+        store: &Store<'_, DatabaseTransaction>,
+        invocations: &Invocations<'_>,
+        position: usize,
+        undo: &mut Vec<Undo>,
     ) -> Result<()> {
-        let tx = self.tx;
-        let invocations = Invocations::new(transaction, self.block.metadata.slot);
-        for (position, instruction) in invocations.instructions() {
-            let program = instruction.program_id.to_bytes();
-            let Some(tag) = instruction.data.first().copied() else {
-                continue;
-            };
-            if !self.scope.covers(&program) || !spend_record::TAGS.contains(&tag) {
-                continue;
+        if invocations.tag(position) == Some(tag::CREATE_KEY_REGISTRY_ROOT) {
+            if let Some(address) = initialization(invocations.instructions[position]) {
+                undo.extend(self.initialize(store, address).await?);
             }
-            if matches!(self.scope, Scope::Every)
-                && storage::pending_ring(tx, &program).await?.is_some()
-            {
-                continue;
+            return Ok(());
+        }
+        let Some(root) = store.root().await?.filter(|root| root.fault.is_none()) else {
+            return Ok(());
+        };
+        let outcome = async { self.advance(&root, invocations.invocation(position)?).await }.await;
+        match outcome {
+            Ok(entry) => undo.extend(entry),
+            Err(ProjectError::Fault(reason)) => {
+                undo.push(store.quarantine_root(root, reason).await?)
             }
-            let store = SpendStore::new(tx, program);
-            // A ring's first registration opens its records.
-            let ring = match store.ring().await? {
-                Some(ring) => ring,
-                None if tag == custom_ring_interface::instruction::tag::REGISTER_SPEND => {
-                    if !self.admit(program).await? {
-                        continue;
-                    }
-                    undo.push(store.open().await?);
-                    SpendRing { fault: None }
-                }
-                None => continue,
-            };
-            if ring.fault.is_some() {
-                continue;
-            }
-            let outcome = async {
-                let invocation = invocations.invocation(position)?;
-                store.advance(&invocation, &mut self.env).await
-            }
-            .await;
-            match outcome {
-                Ok(Some(entry)) => undo.push(entry),
-                Ok(None) => {}
-                Err(ProjectError::Fault(reason)) => undo.push(store.quarantine(reason).await?),
-                Err(ProjectError::Retry(error)) => return Err(error),
-            }
+            Err(ProjectError::Retry(error)) => return Err(error),
         }
         Ok(())
     }
@@ -754,22 +747,19 @@ impl BlockWork<'_> {
 
     async fn initialize(
         &mut self,
-        store: &RingStore<'_, DatabaseTransaction>,
+        store: &Store<'_, DatabaseTransaction>,
         address: [u8; 32],
     ) -> Result<Option<Undo>> {
-        let program = Pubkey::new_from_array(store.program());
-        if !self.admit(store.program()).await? {
+        let program = Pubkey::new_from_array(store.program);
+        if !self.admit(store.program).await? {
             return Ok(None);
         }
         if let Some(existing) = store.root().await? {
-            return Ok(Some(
-                store
-                    .quarantine(existing, "initialized twice".into())
-                    .await?,
-            ));
+            let reason = "initialized twice".into();
+            return Ok(Some(store.quarantine_root(existing, reason).await?));
         }
         let root = RingRoot {
-            program: store.program(),
+            program: store.program,
             address,
             root: EMPTY_ROOT,
             next_index: 1,
@@ -778,34 +768,21 @@ impl BlockWork<'_> {
         match load_root(self.env.rpc, &program).await {
             Ok(_) => {}
             Err(ProjectError::Fault(reason)) => {
-                let mut created = store.quarantine(root, reason).await?;
+                let mut created = store.quarantine_root(root, reason).await?;
                 created.before = None;
                 return Ok(Some(created));
             }
             Err(ProjectError::Retry(error)) => return Err(error),
         }
         let sentinel = MemberKey::sentinel();
-        let computed = store
-            .write_leaves(
-                &address,
-                &[LeafWrite {
-                    index: 0,
-                    hash: sentinel.hash()?,
-                }],
-                self.cursor.advance_revision()?,
-            )
-            .await?;
-        if computed != EMPTY_ROOT {
+        let leaves = [LeafWrite::of(&sentinel)?];
+        let revision = self.cursor.advance_revision()?;
+        if store.write_leaves(&address, &leaves, revision).await? != EMPTY_ROOT {
             bail!("key registry sentinel root mismatch");
         }
         store.save_root(&root).await?;
         store.save_member(&sentinel).await?;
-        Ok(Some(Undo {
-            program: root.program,
-            before: None,
-            members: vec![],
-            leaves: vec![],
-        }))
+        Ok(Some(Undo::root(root.program, None)))
     }
 
     async fn advance(
@@ -819,7 +796,7 @@ impl BlockWork<'_> {
         let revision = self.cursor.advance_revision()?;
         let savepoint = self.tx.begin().await?;
         let applied = key_registry::apply(
-            &RingStore::new(&savepoint, root.program),
+            &Store::new(&savepoint, root.program),
             Step {
                 root,
                 transition,

@@ -6,14 +6,16 @@ use custom_ring_interface::{pda, KEY_REGISTRY_CAPACITY};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
-use zolana_indexer_api::{Context as ApiContext, RingMemberProofRequest};
+use zolana_indexer_api::{
+    Base64String, Context as ApiContext, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, Hash, RingMemberProofRequest,
+};
 use zolana_ring_key_registry::FIELD_MAX;
 
 use super::{
-    key_registry::MemberKey,
     load_root,
     proof::{self, PathOverlay},
-    storage::{self, PredecessorError, ProjectionCursor, RingRoot, RingStore},
+    storage::{self, PredecessorError, ProjectionCursor, RingRoot, Store},
 };
 use crate::{
     api::{
@@ -24,37 +26,20 @@ use crate::{
     rpc::RpcClient,
 };
 
-pub(crate) struct Insertion {
-    pub context: ApiContext,
-    pub root: RingRoot,
-    pub low: MemberKey,
-    pub low_proof: Vec<[u8; 32]>,
-    pub new_proof: Vec<[u8; 32]>,
-}
-
-pub(crate) struct MemberPath {
-    pub context: ApiContext,
-    pub root: RingRoot,
-    pub leaf: MemberKey,
-    pub proof: Vec<[u8; 32]>,
-}
-
-pub(crate) async fn insertion(
+pub(crate) async fn register(
     db: &DatabaseConnection,
     rpc: &RpcClient,
-    request: &RingMemberProofRequest,
-) -> Result<Insertion, PhotonApiError> {
+    request: RingMemberProofRequest,
+) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
     // 1. Read the requested root and both paths from one database snapshot.
-    let tx = db.begin().await?;
-    set_transaction_isolation_if_needed(&tx).await?;
-    let snapshot = snapshot(&tx, request).await?;
+    let (tx, snapshot) = snapshot(db, &request).await?;
     let root = &snapshot.root;
     if root.next_index >= KEY_REGISTRY_CAPACITY {
         return Err(PhotonApiError::ValidationError(
             "key registry capacity exhausted".into(),
         ));
     }
-    let store = RingStore::new(&tx, root.program);
+    let store = Store::new(&tx, root.program);
     if store
         .member(&request.member.0)
         .await
@@ -92,26 +77,28 @@ pub(crate) async fn insertion(
     .apply(root.next_index, &mut new_path)
     .map_err(internal)?;
     // 3. Require the proof's block and root to match the chain.
-    let context = confirm(rpc, &snapshot).await?;
-    Ok(Insertion {
-        context,
-        root: snapshot.root,
-        low,
-        low_proof: low_path.siblings,
-        new_proof: new_path.siblings,
+    Ok(GetRingKeyRegistryRegisterProofResponse {
+        context: confirm(rpc, &snapshot).await?,
+        root: Hash(root.root),
+        next_index: root.next_index,
+        member: request.member,
+        low_member: Hash(low.member),
+        low_next: Hash(low.next),
+        low_key_hash: Hash(low.key_hash),
+        low_index: low.index,
+        low_proof: low_path.siblings.into_iter().map(Hash).collect(),
+        new_proof: new_path.siblings.into_iter().map(Hash).collect(),
     })
 }
 
-pub(crate) async fn member_path(
+pub(crate) async fn lookup(
     db: &DatabaseConnection,
     rpc: &RpcClient,
-    request: &RingMemberProofRequest,
-) -> Result<MemberPath, PhotonApiError> {
-    let tx = db.begin().await?;
-    set_transaction_isolation_if_needed(&tx).await?;
-    let snapshot = snapshot(&tx, request).await?;
+    request: RingMemberProofRequest,
+) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
+    let (tx, snapshot) = snapshot(db, &request).await?;
     let root = &snapshot.root;
-    let leaf = RingStore::new(&tx, root.program)
+    let leaf = Store::new(&tx, root.program)
         .member(&request.member.0)
         .await
         .map_err(internal)?
@@ -121,13 +108,41 @@ pub(crate) async fn member_path(
         return Err(internal("key registry member disagrees with its leaf"));
     }
     tx.commit().await?;
-    let context = confirm(rpc, &snapshot).await?;
-    Ok(MemberPath {
-        context,
-        root: snapshot.root,
-        leaf,
-        proof: path.siblings,
+    Ok(GetRingKeyRegistryEntryResponse {
+        context: confirm(rpc, &snapshot).await?,
+        root: Hash(root.root),
+        next_index: root.next_index,
+        member: request.member,
+        next: Hash(leaf.next),
+        index: leaf.index,
+        eph_pk: Base64String(leaf.eph_pk.to_vec()),
+        ciphertext: Base64String(leaf.ciphertext.to_vec()),
+        proof: path.siblings.into_iter().map(Hash).collect(),
     })
+}
+
+/// Opens a read of `program` once the projection serves it at its tip.
+pub(super) async fn ready(
+    db: &DatabaseConnection,
+    program: &[u8; 32],
+    out_of_sync: fn(String) -> RingProjectionError,
+) -> Result<(DatabaseTransaction, ProjectionCursor), PhotonApiError> {
+    let tx = db.begin().await?;
+    set_transaction_isolation_if_needed(&tx).await?;
+    let stale = |reason: &str| PhotonApiError::from(out_of_sync(reason.to_owned()));
+    let cursor = storage::cursor(&tx)
+        .await
+        .map_err(internal)?
+        .filter(ProjectionCursor::is_ready)
+        .ok_or_else(|| stale("projector is catching up or recovering"))?;
+    if storage::pending_ring(&tx, program)
+        .await
+        .map_err(internal)?
+        .is_some()
+    {
+        return Err(stale("ring history is being replayed"));
+    }
+    Ok((tx, cursor))
 }
 
 async fn check_chain(rpc: &RpcClient, root: &RingRoot) -> anyhow::Result<()> {
@@ -150,9 +165,9 @@ struct Snapshot {
 }
 
 async fn snapshot(
-    tx: &DatabaseTransaction,
+    db: &DatabaseConnection,
     request: &RingMemberProofRequest,
-) -> Result<Snapshot, PhotonApiError> {
+) -> Result<(DatabaseTransaction, Snapshot), PhotonApiError> {
     if request.expected_next_index == 0
         || request.expected_next_index > KEY_REGISTRY_CAPACITY
         || request.member.0 == [0; 32]
@@ -162,19 +177,9 @@ async fn snapshot(
             "invalid key registry member or cursor".into(),
         ));
     }
-    let cursor = storage::cursor(tx)
-        .await
-        .map_err(internal)?
-        .filter(ProjectionCursor::is_ready)
-        .ok_or_else(|| out_of_sync("projector is catching up or recovering"))?;
-    if storage::pending_ring(tx, &request.ring_program_id.0.to_bytes())
-        .await
-        .map_err(internal)?
-        .is_some()
-    {
-        return Err(out_of_sync("ring history is being replayed"));
-    }
-    let root = RingStore::new(tx, request.ring_program_id.0.to_bytes())
+    let program = request.ring_program_id.0.to_bytes();
+    let (tx, cursor) = ready(db, &program, RingProjectionError::OutOfSync).await?;
+    let root = Store::new(&tx, program)
         .root()
         .await
         .map_err(internal)?
@@ -185,10 +190,8 @@ async fn snapshot(
     if root.root != request.expected_root.0 || root.next_index != request.expected_next_index {
         return Err(RingProjectionError::RootChanged.into());
     }
-    Ok(Snapshot {
-        root,
-        tip: cursor.tip,
-    })
+    let tip = cursor.tip;
+    Ok((tx, Snapshot { root, tip }))
 }
 
 /// Runs after the read transaction commits.
