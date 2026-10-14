@@ -188,13 +188,14 @@ func (s *statement) publicInputHashFor(t *testing.T, listFacts []int) *big.Int {
 
 func (s *statement) auditChainElements(t *testing.T) []*big.Int {
 	t.Helper()
-	wires := s.keys.AuditBlockWires(s.privateTxHash)
+	statement := s.keys.Statement(s.privateTxHash)
+	statement.Count = len(s.outputs)
 	for i, output := range s.outputs {
 		ownerHash := big.NewInt(0)
 		if output.Domain.(*big.Int).Int64() == protocol.UtxoDomain {
 			ownerHash = spptest.MustOwnerHash(t, spptest.AsBigInt(output.OwnerPkHash), spptest.AsBigInt(output.NullifierPk))
 		}
-		wires.Outputs[i] = base.AuditOutputWires{
+		statement.Outputs[i] = base.AuditOutputWires{
 			Domain: output.Domain, TreeID: output.TreeID,
 			OwnerHash: ownerHash,
 			Asset:     output.Asset, Amount: output.Amount, Blinding: output.Blinding,
@@ -202,7 +203,7 @@ func (s *statement) auditChainElements(t *testing.T) []*big.Int {
 			RingProgramID: output.RingProgramID,
 		}
 	}
-	return s.keys.ChainElementsFor(t, wires, len(s.outputs))
+	return s.keys.ChainElementsFor(t, statement)
 }
 
 func rejectAssignment(t *testing.T, c *CustomRingPolicyCircuit) {

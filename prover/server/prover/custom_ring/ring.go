@@ -68,9 +68,6 @@ func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, e
 
 // Assign fails for a request that leaves a circuit value unset.
 func (r RingCircuit) Assign(params any) (frontend.Circuit, error) {
-	if prepared, ok := params.(interface{ prepare() }); ok {
-		prepared.prepare()
-	}
 	assignment := r.Circuit()
 	return assignment, assign(assignment, params)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -54,17 +55,43 @@ func DefaultKeys(t testing.TB) Keys {
 // The gadget compresses its (0,0) infinity to 0x02||0^32.
 var infinityPk = [33]byte{0x02}
 
-func (k Keys) WithInfinityTxScalar(value *big.Int) Keys {
+// WithTxScalar witnesses raw scalar bytes, the keys follow value mod n as the gadgets compute them.
+func (k Keys) WithTxScalar(t testing.TB, value *big.Int) Keys {
 	value.FillBytes(k.txSk[:])
 	k.txPk = infinityPk
+	if reduced := reduce(value); reduced != nil {
+		k.txPk = compress(t, PrivateKey(t, *reduced).PublicKey().Bytes())
+	}
 	return k
 }
 
-func (k Keys) WithInfinityEphScalar(value *big.Int) Keys {
+func (k Keys) WithEphScalar(t testing.TB, value *big.Int) Keys {
 	value.FillBytes(k.ephSk[:])
-	k.ephPk = infinityPk
-	k.dh = [32]byte{}
+	k.ephPk, k.dh = infinityPk, [32]byte{}
+	if reduced := reduce(value); reduced != nil {
+		eph := PrivateKey(t, *reduced)
+		auditor, err := ecdh.P256().NewPublicKey(k.auditorPk[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		dh, err := eph.ECDH(auditor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		k.ephPk, k.dh = compress(t, eph.PublicKey().Bytes()), [32]byte(dh)
+	}
 	return k
+}
+
+// reduce is value mod n as 32 bytes, nil for zero.
+func reduce(value *big.Int) *[32]byte {
+	reduced := new(big.Int).Mod(value, p256.GroupOrder())
+	if reduced.Sign() == 0 {
+		return nil
+	}
+	var out [32]byte
+	reduced.FillBytes(out[:])
+	return &out
 }
 
 func (k Keys) EphSk() [32]byte {
@@ -107,51 +134,57 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	}
 }
 
-func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
-	w := base.AuditBlockWires{PrivateTxHash: privateTxHash}
-	setBytes(w.TxViewingSk[:], k.txSk[:])
-	setBytes(w.EphSk[:], k.ephSk[:])
-	setBytes(w.AuditorPk[:], k.auditorPk[:])
-	for i := range w.Salt {
-		w.Salt[i] = 0
-	}
-	for i := range w.Outputs {
-		w.Outputs[i] = zeroOutput()
-		w.OutputCountSelected[i] = 0
-	}
-	w.OutputCountSelected[0] = 1
-	return w
+// Statement is the audit witness with the outputs it discloses.
+type Statement struct {
+	Audit   base.Audit
+	Outputs [base.AuditOutputSlots]base.AuditOutputWires
+	Count   int
 }
 
-// ChainElements returns a one-slot zero-output audit statement.
+// Statement discloses one zero output.
+func (k Keys) Statement(privateTxHash *big.Int) Statement {
+	s := Statement{Audit: base.Audit{PrivateTxHash: privateTxHash}, Count: 1}
+	setBytes(s.Audit.TxViewingSk[:], k.txSk[:])
+	setBytes(s.Audit.EphSk[:], k.ephSk[:])
+	setBytes(s.Audit.AuditorPk[:], k.auditorPk[:])
+	setBytes(s.Audit.Salt[:], make([]byte, 16))
+	for i := range s.Outputs {
+		s.Outputs[i] = base.AuditOutputWires{
+			Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
+			Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
+			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+		}
+	}
+	return s
+}
+
+// ChainElements returns the base chain of a one-slot zero-output statement.
 func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
-	w := k.AuditBlockWires(privateTxHash)
-	return k.ChainElementsFor(t, w, 1)
+	return k.ChainElementsFor(t, k.Statement(privateTxHash))
 }
 
-func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) []*big.Int {
+func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 	t.Helper()
 	txLo, txHi := pack33(k.txPk)
 	sealed := k.Seal(t, k.txSk[:], auditEncInfo)
-	outputHashes := make([]*big.Int, count)
+	outputHashes := make([]*big.Int, s.Count)
 	plaintext := make([]*big.Int, 0, base.AuditOutputSlots*base.AuditOutputFieldCount)
-	for i, output := range w.Outputs {
-		fields := outputFields(output)
-		if i < count {
-			outputHashes[i] = spptest.MustUtxoHash(t, protocol.Utxo{
-				Domain: fields[0], Owner: fields[2], Asset: fields[3], Amount: fields[4],
-				Blinding: fields[5], DataHash: fields[6], RingDataHash: fields[7],
-				RingProgramID: fields[8],
-			}, fields[1])
-			plaintext = append(plaintext, fields...)
-		} else {
+	for i, output := range s.Outputs {
+		fields := spptest.ToBigInts([]frontend.Variable{output.Domain, output.TreeID, output.OwnerHash, output.Asset, output.Amount,
+			output.Blinding, output.DataHash, output.RingDataHash, output.RingProgramID})
+		if i >= s.Count {
 			plaintext = append(plaintext, spptest.RepeatBigInt(big.NewInt(0), base.AuditOutputFieldCount)...)
+			continue
 		}
+		outputHashes[i] = spptest.MustUtxoHash(t, protocol.Utxo{
+			Domain: fields[0], Owner: fields[2], Asset: fields[3], Amount: fields[4], Blinding: fields[5],
+			DataHash: fields[6], RingDataHash: fields[7], RingProgramID: fields[8],
+		}, fields[1])
+		plaintext = append(plaintext, fields...)
 	}
-	outputHashChain := spptest.MustHashChain4(t, outputHashes)
 	keyLo, keyHi := pack32(k.txSk)
-	salt := make([]byte, len(w.Salt))
-	for i, value := range w.Salt {
+	salt := make([]byte, len(s.Audit.Salt))
+	for i, value := range s.Audit.Salt {
 		salt[i] = byte(spptest.AsBigInt(value).Uint64())
 	}
 	ciphertext := make([]*big.Int, len(plaintext))
@@ -163,34 +196,15 @@ func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) 
 		ciphertext[i] = new(big.Int).Add(value, stream)
 		ciphertext[i].Mod(ciphertext[i], ecc.BN254.ScalarField())
 	}
-
 	return []*big.Int{
-		spptest.AsBigInt(w.PrivateTxHash),
+		spptest.AsBigInt(s.Audit.PrivateTxHash),
 		txLo, txHi,
 		sealed.AuditorLo, sealed.AuditorHi,
 		sealed.EphLo, sealed.EphHi,
 		sealed.CiphertextHash,
-		outputHashChain,
+		spptest.MustHashChain4(t, outputHashes),
 		new(big.Int).SetBytes(salt),
 		spptest.MustHashChain(t, ciphertext),
-	}
-}
-
-func zeroOutput() base.AuditOutputWires {
-	return base.AuditOutputWires{
-		Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
-		Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
-		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
-	}
-}
-
-func outputFields(output base.AuditOutputWires) []*big.Int {
-	return []*big.Int{
-		spptest.AsBigInt(output.Domain), spptest.AsBigInt(output.TreeID),
-		spptest.AsBigInt(output.OwnerHash), spptest.AsBigInt(output.Asset),
-		spptest.AsBigInt(output.Amount), spptest.AsBigInt(output.Blinding),
-		spptest.AsBigInt(output.DataHash), spptest.AsBigInt(output.RingDataHash),
-		spptest.AsBigInt(output.RingProgramID),
 	}
 }
 
@@ -236,12 +250,12 @@ func compress(t testing.TB, publicKey []byte) [33]byte {
 	return out
 }
 
-// Mirrors base.Pack32To2FECircuit.
+// Mirrors gadget.PackBytesBE over 32 bytes.
 func pack32(bytes [32]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(bytes[:31]), new(big.Int).SetUint64(uint64(bytes[31]))
 }
 
-// Mirrors base.Pack33To2FECircuit.
+// Mirrors gadget.PackBytesBE over 33 bytes.
 func pack33(key [33]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(key[:31]), new(big.Int).SetUint64(uint64(key[31])<<8 | uint64(key[32]))
 }

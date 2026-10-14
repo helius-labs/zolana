@@ -108,7 +108,7 @@ func baseParams(t *testing.T) *BaseParams {
 		Outputs: []AuditOpening{zeroAuditOpening(), zeroAuditOpening(), zeroAuditOpening(), zeroAuditOpening()},
 	}
 	keys := ringaudit.DefaultKeys(t)
-	p.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElementsFor(t, keys.AuditBlockWires(p.PrivateTxHash.Int), int(p.NOut))))
+	p.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElements(t, p.PrivateTxHash.Int)))
 	return p
 }
 
@@ -127,7 +127,7 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 		},
 		NIn: 1, NOut: 1,
 		AddressChain: fi(0x77), PrivateTxBlinding: fi(0x5b1d),
-		RuleEnc:      make([]Bytes, policy.NRules),
+		Rules:        zeros(policy.NRules),
 		InlineAssets: zeros(policy.NInlineAssets), InlineLimits: zeros(policy.NInlineAssets),
 		TreeSlots:     zeroTreeSlots(),
 		AddressTreeID: fi(0x0f), RingID: fi(0x5a), NamespaceOwnerHash: fi(0x99), KeyRegistryRoot: fi(0),
@@ -139,9 +139,6 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 	}
 	for range policy.NVelocityAssets {
 		p.Velocity = append(p.Velocity, VelocityRow{fi(0), fi(0), fi(0)})
-	}
-	for i := range p.RuleEnc {
-		p.RuleEnc[i] = make(Bytes, 32)
 	}
 	for range policy.NInputs {
 		p.Inputs = append(p.Inputs, zeroOpening())
@@ -189,7 +186,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 		preimage = append(preimage, row.Asset.Int, row.Cap.Int, row.CosignAbove.Int)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
-	elements := ringaudit.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
+	elements := ringaudit.DefaultKeys(t).ChainElementsFor(t, policyAuditStatement(t, p))
 	slots := make([]protocol.TreeSlot, len(p.TreeSlots))
 	for i, slot := range p.TreeSlots {
 		slots[i] = protocol.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
@@ -205,31 +202,22 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 	p.PublicInputHash = fb(spptest.MustHashChain(t, append(elements, tail...)))
 }
 
-func policyAuditWires(t testing.TB, p *PolicyParams) base.AuditBlockWires {
+func policyAuditStatement(t testing.TB, p *PolicyParams) ringaudit.Statement {
 	t.Helper()
-	wires := base.AuditBlockWires{PrivateTxHash: p.PrivateTxHash.Int}
-	for i, value := range p.TxViewingSk {
-		wires.TxViewingSk[i] = value
-	}
-	for i, value := range p.EphSk {
-		wires.EphSk[i] = value
-	}
-	for i, value := range p.AuditorPk {
-		wires.AuditorPk[i] = value
-	}
+	statement := ringaudit.DefaultKeys(t).Statement(p.PrivateTxHash.Int)
+	statement.Count = int(p.NOut)
 	for i, value := range p.Salt {
-		wires.Salt[i] = int(value)
+		statement.Audit.Salt[i] = int(value)
 	}
 	for i, output := range p.Outputs {
-		wires.Outputs[i] = base.AuditOutputWires{
+		statement.Outputs[i] = base.AuditOutputWires{
 			Domain: output.Domain.Int, TreeID: output.TreeID.Int,
 			OwnerHash: spptest.MustPoseidon(t, 3, []*big.Int{output.OwnerPkHash.Int, output.NullifierPk.Int}),
 			Asset:     output.Asset.Int, Amount: output.Amount.Int, Blinding: output.Blinding.Int,
 			DataHash: output.DataHash.Int, RingDataHash: output.RingDataHash.Int, RingProgramID: output.RingProgramID.Int,
 		}
 	}
-	wires.OutputCountSelected[int(p.NOut)-1] = 1
-	return wires
+	return statement
 }
 
 func openingHash(t *testing.T, slot Opening) *big.Int {

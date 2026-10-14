@@ -8,8 +8,6 @@ import (
 	"math/big"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -41,8 +39,6 @@ type BaseParams struct {
 	AuditParams
 	NOut    uint8          `json:"nOut"`
 	Outputs []AuditOpening `json:"outputs"`
-
-	OutputCountSelected []int `json:"-"`
 }
 
 type Opening struct {
@@ -123,7 +119,7 @@ type PolicyParams struct {
 	PrivateTxBlinding  Field           `json:"privateTxBlinding"`
 	Sources            []Source        `json:"sources"`
 	PolicyLen          uint8           `json:"policyLen"`
-	RuleEnc            []Bytes         `json:"ruleEnc"`
+	Rules              []Field         `json:"ruleEnc"`
 	InlineAssets       []Field         `json:"inlineAssets"`
 	InlineLimits       []Field         `json:"inlineLimits"`
 	InlineCount        uint8           `json:"inlineCount"`
@@ -140,14 +136,6 @@ type PolicyParams struct {
 	KeyRegistryRoot    Field           `json:"keyRegistryRoot"`
 	Record             SpendRecord     `json:"record"`
 	ListFacts          []ListFact      `json:"answers"`
-
-	InputCountSelected       []int          `json:"-"`
-	OutputCountSelected      []int          `json:"-"`
-	RuleCountSelected        []int          `json:"-"`
-	InlineAssetCountSelected []int          `json:"-"`
-	VelocityCountSelected    []int          `json:"-"`
-	Rules                    []rule         `json:"-"`
-	OutputKeys               []*RegistryKey `json:"-"`
 }
 
 type DelegatePolicyParams struct {
@@ -244,42 +232,3 @@ func Unmarshal(data []byte, v any) error {
 	}
 	return nil
 }
-
-type rule struct {
-	Packed                                                  Bytes
-	Subject, Mode, ListMask, GuardTag, OppositeModeListMask byte
-	Threshold                                               Bytes
-}
-
-func oneHot(size, set int) []int {
-	out := make([]int, size)
-	if set >= 0 && set < size {
-		out[set] = 1
-	}
-	return out
-}
-
-func (p *BaseParams) prepare() {
-	p.OutputCountSelected = oneHot(base.AuditOutputSlots, int(p.NOut)-1)
-}
-
-func (p *PolicyParams) prepare() {
-	p.InputCountSelected = oneHot(policy.NInputs, int(p.NIn)-1)
-	p.OutputCountSelected = oneHot(policy.NOutputs, int(p.NOut)-1)
-	p.RuleCountSelected = oneHot(policy.NRules+1, int(p.PolicyLen))
-	p.InlineAssetCountSelected = oneHot(policy.NInlineAssets+1, int(p.InlineCount))
-	p.VelocityCountSelected = oneHot(policy.NVelocityAssets+1, int(p.VelocityCount))
-	p.Rules = make([]rule, len(p.RuleEnc))
-	for i, encoded := range p.RuleEnc {
-		if len(encoded) == 32 {
-			p.Rules[i] = rule{encoded, encoded[31], encoded[30], encoded[29], encoded[28], encoded[19], encoded[20:28]}
-		}
-	}
-	p.OutputKeys = make([]*RegistryKey, len(p.Outputs))
-	for i, output := range p.Outputs {
-		p.OutputKeys[i] = output.Key
-	}
-}
-
-func (p *DelegatePolicyParams) prepare()   { p.Policy.prepare() }
-func (p *CompressedPolicyParams) prepare() { p.Policy.prepare() }

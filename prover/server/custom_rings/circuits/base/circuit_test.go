@@ -82,11 +82,12 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	cs := testConstraintSystem(t)
 
-	tests := []struct {
+	type tamperCase struct {
 		name   string
 		keys   func(ringaudit.Keys) ringaudit.Keys
 		tamper func(*testing.T, *base.CustomRingBaseCircuit)
-	}{
+	}
+	tests := []tamperCase{
 		{
 			name: "public input hash off by one",
 			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
@@ -139,30 +140,17 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "tx scalar zero",
-			keys: func(k ringaudit.Keys) ringaudit.Keys {
-				return k.WithInfinityTxScalar(big.NewInt(0))
-			},
-		},
-		{
-			name: "tx scalar at the group order",
-			keys: func(k ringaudit.Keys) ringaudit.Keys {
-				return k.WithInfinityTxScalar(p256.GroupOrder())
-			},
-		},
-		{
-			name: "eph scalar zero",
-			keys: func(k ringaudit.Keys) ringaudit.Keys {
-				return k.WithInfinityEphScalar(big.NewInt(0))
-			},
-		},
-		{
-			name: "eph scalar at the group order",
-			keys: func(k ringaudit.Keys) ringaudit.Keys {
-				return k.WithInfinityEphScalar(p256.GroupOrder())
-			},
-		},
+	}
+	for name, value := range map[string]*big.Int{
+		"zero":                       big.NewInt(0),
+		"at the group order":         p256.GroupOrder(),
+		"one above the order":        new(big.Int).Add(p256.GroupOrder(), big.NewInt(1)),
+		"a valid key plus the order": new(big.Int).Add(p256.GroupOrder(), big.NewInt(0xbeef)),
+	} {
+		tests = append(tests,
+			tamperCase{name: "tx scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithTxScalar(t, value) }},
+			tamperCase{name: "eph scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithEphScalar(t, value) }},
+		)
 	}
 
 	for _, test := range tests {
@@ -187,6 +175,13 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	}
 }
 
+// Both scalars may take the largest canonical value.
+func TestCircuitSolvesTheLargestScalars(t *testing.T) {
+	largest := new(big.Int).Sub(p256.GroupOrder(), big.NewInt(1))
+	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, largest).WithEphScalar(t, largest)
+	solve(t, testConstraintSystem(t), buildAssignment(t, keys))
+}
+
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *base.CustomRingBaseCircuit) {
 	t.Helper()
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
@@ -205,16 +200,11 @@ func validAssignment(t *testing.T) *base.CustomRingBaseCircuit {
 
 func buildAssignment(t *testing.T, keys ringaudit.Keys) *base.CustomRingBaseCircuit {
 	t.Helper()
-	privateTxHash := big.NewInt(0xabcdef)
-	wires := keys.AuditBlockWires(privateTxHash)
+	statement := keys.Statement(big.NewInt(0xabcdef))
 	return &base.CustomRingBaseCircuit{
-		PublicInputHash:     spptest.MustHashChain(t, keys.ChainElementsFor(t, wires, 1)),
-		PrivateTxHash:       wires.PrivateTxHash,
-		TxViewingSk:         wires.TxViewingSk,
-		EphSk:               wires.EphSk,
-		AuditorPk:           wires.AuditorPk,
-		Salt:                wires.Salt,
-		Outputs:             wires.Outputs,
-		OutputCountSelected: wires.OutputCountSelected,
+		PublicInputHash: spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)),
+		Audit:           statement.Audit,
+		NOut:            statement.Count,
+		Outputs:         statement.Outputs,
 	}
 }

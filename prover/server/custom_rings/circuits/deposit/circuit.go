@@ -1,25 +1,28 @@
-// Package deposit binds every deposited owner's commitment to an opening
-// encrypted for the configured auditor.
+// Package deposit binds every deposited owner commitment to an opening encrypted for the auditor.
 package deposit
 
 import (
+	"slices"
+
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
-const MaxDeposits = 8
-const OpeningBytes = 64
-const Domain uint32 = 0x43524450 // CRDP
-const EncryptionInfo = "CRING/dep1"
+const (
+	MaxDeposits    = 8
+	OpeningBytes   = 64
+	Domain         = 0x43524450 // "CRDP"
+	EncryptionInfo = "CRING/dep1"
+)
 
-// Each owner commitment must match the opening encrypted for the auditor.
+// Properties: the first Count of 1..8 owner commitments open to (owner hash, blinding) pairs that are AES-CTR
+// encrypted to AuditorPk under 0 < EphSk < n, padding slots are zero, and escrow puts every owner key in the registry.
+
 type CustomRingDepositCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	ContextHash     frontend.Variable
@@ -35,76 +38,28 @@ type CustomRingDepositCircuit struct {
 }
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
-	// 1. Prove exactly the occupied prefix with canonical zero padding.
-	var countMatches [MaxDeposits]frontend.Variable
-	validCount := frontend.Variable(0)
-	for i := range countMatches {
-		countMatches[i] = api.IsZero(api.Sub(c.Count, i+1))
-		validCount = api.Add(validCount, countMatches[i])
-	}
-	api.AssertIsEqual(validCount, 1)
-	var enabled [MaxDeposits]frontend.Variable
-	var ownerHashes [MaxDeposits]frontend.Variable
-	plaintext := make([]frontend.Variable, MaxDeposits*OpeningBytes)
+	count := base.SelectCount(api, c.Count, 1, MaxDeposits)
 	registry.AssertMode(api, c.KeyEscrow, c.KeyRegistryRoot)
-	for i := range c.OwnerPkHashes {
-		enabled[i] = frontend.Variable(0)
-		for _, count := range countMatches[i:] {
-			enabled[i] = api.Add(enabled[i], count)
+	owners := make([]frontend.Variable, MaxDeposits)
+	var plaintext []frontend.Variable
+	for i := range owners {
+		padding := api.Sub(1, count.Active[i])
+		for _, value := range []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i], c.Blindings[i]} {
+			api.AssertIsEqual(api.Mul(padding, value), 0)
 		}
-		disabled := api.Sub(1, enabled[i])
-		api.AssertIsEqual(api.Mul(disabled, c.OwnerPkHashes[i]), 0)
-		api.AssertIsEqual(api.Mul(disabled, c.NullifierPks[i]), 0)
-		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
-		c.Keys[i].AssertEscrowed(api, api.Mul(enabled[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
-		ownerHashes[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
-		owner, blinding := canonicalBytes(api, ownerHashes[i]), canonicalBytes(api, c.Blindings[i])
-		copy(plaintext[i*OpeningBytes:], owner[:])
-		copy(plaintext[i*OpeningBytes+32:], blinding[:])
+		c.Keys[i].AssertEscrowed(api, api.Mul(count.Active[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
+		owners[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
+		// The canonical field encoding keeps one plaintext per opening.
+		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, owners[i], 32), ve.FieldToBytesBE(api, c.Blindings[i], 32))
 	}
-
-	// 2. Bind the shared key to the auditor and published ephemeral key.
-	rangeChecker := rangecheck.New(api)
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range c.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	api.AssertIsEqual(c.AuditorPk[0], 4)
-	p256.PointOnCurve(api, c.AuditorPk)
-	auditor := p256.CompressPubkey(api, c.AuditorPk)
-	ephemeral := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, c.EphSk))
-	dh := p256.ECDH(api, c.EphSk, c.AuditorPk)
-	secret := base.DeriveAuditSharedSecret(api, dh, ephemeral, auditor)
-	info := make([]frontend.Variable, len(EncryptionInfo))
-	for i, b := range []byte(EncryptionInfo) {
-		info[i] = b
-	}
-	key, nonce := ve.KeySchedule(api, secret, info, len(info))
-
-	// 3. Assign distinct CTR blocks to every deposit opening.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
+	sealed := base.Envelope{Plaintext: plaintext, EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: EncryptionInfo}.Seal(api, rangecheck.New(api))
 	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
-	for i := range ownerHashes {
-		ownerCommitment := gadget.PoseidonHash(api, []frontend.Variable{ownerHashes[i], c.Blindings[i]})
-		ciphertextHash := gadget.HashBytes(api, ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])
-		chain = append(chain, api.Mul(enabled[i], ownerCommitment), api.Mul(enabled[i], ciphertextHash))
+	for i, owner := range owners {
+		commitment := gadget.PoseidonHash(api, []frontend.Variable{owner, c.Blindings[i]})
+		ciphertext := gadget.HashBytes(api, sealed.Ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])
+		chain = append(chain, api.Mul(count.Active[i], commitment), api.Mul(count.Active[i], ciphertext))
 	}
-	auditorLo, auditorHi := base.Pack33To2FECircuit(api, auditor)
-	ephLo, ephHi := base.Pack33To2FECircuit(api, ephemeral)
-	chain = append(chain, auditorLo, auditorHi, ephLo, ephHi, c.KeyEscrow, c.KeyRegistryRoot)
-	// 4. Bind disclosure to the program's SPP deposit bytes.
+	chain = slices.Concat(chain, sealed.Auditor, sealed.Eph, []frontend.Variable{c.KeyEscrow, c.KeyRegistryRoot})
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
-}
-
-// The plaintext must be the canonical field encoding.
-func canonicalBytes(api frontend.API, value frontend.Variable) [32]frontend.Variable {
-	bits := api.ToBinary(value, 256)
-	var out [32]frontend.Variable
-	for i := range out {
-		out[31-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
-	}
-	return out
 }

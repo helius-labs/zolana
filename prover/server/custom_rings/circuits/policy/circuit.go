@@ -1,6 +1,4 @@
-// Requires the transaction to satisfy the ring's policy in the same
-// proof that checks audit encryption and binds the supplied entry roots.
-
+// Package policy proves that a ring transaction satisfies the policy the ring commits to.
 package policy
 
 import (
@@ -9,79 +7,51 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-// SourceWires binds a list to its namespace owner through the policy hash.
+// Properties: the audit statement holds, every enabled rule passes for each live subject on list facts
+// that open at the slot roots, and windowed outflow stays within each cap, with output keys escrowed.
+
+type CustomRingPolicyCircuit struct {
+	PublicInputHash frontend.Variable `gnark:",public"`
+	base.Audit
+
+	NIn               frontend.Variable
+	NOut              frontend.Variable
+	Inputs            [NInputs]UtxoWires
+	Outputs           [NOutputs]OutputWires
+	AddressChain      frontend.Variable
+	PrivateTxBlinding frontend.Variable
+
+	// Slot i is empty or serves list i+1.
+	Sources   [NSources]SourceWires
+	PolicyLen frontend.Variable
+	// Each rule packs its fields as ring_policy::Rule::encoded does.
+	Rules        [NRules]frontend.Variable
+	InlineAssets [NInlineAssets]frontend.Variable
+	InlineLimits [NInlineAssets]frontend.Variable
+	InlineCount  frontend.Variable
+	// Zero caps each transfer alone, without a spend record.
+	WindowSlots   frontend.Variable
+	Velocity      [NVelocityAssets]VelocityRowWires
+	VelocityCount frontend.Variable
+
+	TreeSlots          [shared.InputTrees]shared.TreeSlot
+	AddressTreeID      frontend.Variable
+	RingID             frontend.Variable
+	NamespaceOwnerHash frontend.Variable
+	WindowIndex        frontend.Variable
+	ApprovalRequired   frontend.Variable
+	KeyEscrow          frontend.Variable
+	KeyRegistryRoot    frontend.Variable
+	Record             RecordWires
+	ListFacts          [NListFacts]ListFactWires
+}
+
 type SourceWires struct {
 	ListId    frontend.Variable
 	OwnerHash frontend.Variable
-}
-
-// CustomRingPolicyCircuit proves that transaction subjects satisfy the ring's
-// committed rules.
-type CustomRingPolicyCircuit struct {
-	// The verifier supplies a hash of the audit inputs, policy and accepted
-	// roots.
-	PublicInputHash frontend.Variable `gnark:",public"`
-
-	PrivateTxHash frontend.Variable
-	TxViewingSk   [32]frontend.Variable
-	EphSk         [32]frontend.Variable
-	AuditorPk     [65]frontend.Variable
-	Salt          [16]frontend.Variable
-
-	Inputs  [NInputs]UtxoWires
-	Outputs [NOutputs]UtxoWires
-	// Exactly one flag selects count index+1.
-	// Tags preserve the witness names stored in the proving key.
-	InputCountSelected  [NInputs]frontend.Variable  `gnark:"NInOneHot"`
-	OutputCountSelected [NOutputs]frontend.Variable `gnark:"NOutOneHot"`
-
-	AddressChain frontend.Variable
-	// Folded last into the private transaction hash, as in SPP.
-	PrivateTxBlinding frontend.Variable
-
-	// Every rule uses the same list-to-namespace map.
-	Sources [NSources]SourceWires
-	// Exactly one flag selects count index.
-	RuleCountSelected [NRules + 1]frontend.Variable `gnark:"RuleCountOneHot"`
-	Rules             [NRules]RuleWires
-	// Inline rules check asset membership, per-asset guards use matching
-	// limits.
-	InlineAssets [NInlineAssets]frontend.Variable
-	InlineLimits [NInlineAssets]frontend.Variable
-	// Exactly one flag selects count index.
-	InlineAssetCountSelected [NInlineAssets + 1]frontend.Variable `gnark:"InlineCountOneHot"`
-	// Zero selects limits per transfer without a spend record.
-	WindowSlots frontend.Variable
-	Velocity    [NVelocityAssets]VelocityRowWires
-	// Exactly one flag selects count index.
-	VelocityCountSelected [NVelocityAssets + 1]frontend.Variable `gnark:"VelocityCountOneHot"`
-
-	// Any live root per slot, a revocation target PDA check covers queued nullifiers.
-	TreeSlots [shared.InputTrees]shared.TreeSlot
-	// Every list and spend record address hashes under it.
-	AddressTreeID frontend.Variable
-	// The ring program id field, a change output stays in it.
-	RingID frontend.Variable
-	// The owner hash of the ring's namespace PDA, only spend record slots open to it.
-	NamespaceOwnerHash frontend.Variable
-	// The program derives the fixed window index, zero without a window.
-	WindowIndex frontend.Variable
-	// Set when an outflow exceeds its co-sign threshold, the program then demands the co-signer.
-	ApprovalRequired frontend.Variable
-	// Set with the delegate, every new output key must be escrowed.
-	KeyEscrow       frontend.Variable
-	KeyRegistryRoot frontend.Variable
-	OutputKeys      [NOutputs]registry.KeyOpening
-
-	// Counter openings are required only within the predecessor's window.
-	Record RecordWires
-
-	// All rules and transaction slots share these list facts.
-	ListFacts [NListFacts]ListFactWires `gnark:"Answers"`
 }
 
 type policyRail uint8
@@ -92,61 +62,42 @@ const (
 )
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _ := c.constrainPolicyRail(api, memberRail)
+	chain, _ := c.constrain(api, memberRail)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
 
-// The rail is fixed in the compiled circuit, never selected by a witness.
-func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters) {
-	// 1. Prove the audit encryption statement.
-	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
-		PrivateTxHash:       c.PrivateTxHash,
-		TxViewingSk:         c.TxViewingSk,
-		EphSk:               c.EphSk,
-		AuditorPk:           c.AuditorPk,
-		Salt:                c.Salt,
-		Outputs:             auditOutputs(api, c.Outputs),
-		OutputCountSelected: c.OutputCountSelected,
-	})
-	// Both blocks share one BSB22 commitment.
-	rangeChecker := rangecheck.New(api)
-
-	// 2. Check the policy and reconstruct its commitment.
-	checked := c.checkPolicy(api, rangeChecker)
-
-	// 3. Bind policy subjects and amounts to the SPP transaction.
+// The compiled circuit fixes the rail, no witness selects it.
+func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters) {
+	rc := rangecheck.New(api)
+	checked := c.checkPolicy(api, rc)
 	recordEnabled := checked.velocity.windowEnabled
 	if rail == delegateRail {
-		recordEnabled = frontend.Variable(0)
+		recordEnabled = 0
 	}
-	txContext := c.constrainTransactionContext(api, rangeChecker, recordEnabled)
-	c.constrainNamespace(api, txContext)
-
-	// 4. Authenticate the shared list facts.
-	listFacts, revocationTreeIndexes := c.checkListFacts(api, rangeChecker)
-
-	// 5. Require every applicable rule to pass.
-	c.constrainRules(api, txContext, listFacts, checked.ruleEnabled, checked.inlineEnabled)
-
+	tx := c.constrainTransaction(api, rc, recordEnabled)
+	c.constrainNamespace(api, tx)
+	facts, factSlots := c.checkListFacts(api, rc)
+	c.constrainRules(api, tx, facts, checked)
 	var counters successorCounters
 	if rail == delegateRail {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
 	} else {
-		counters = c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
+		counters = c.constrainVelocity(api, rc, checked.velocity, tx)
 	}
+	c.constrainOutputKeys(api, tx)
 
-	// 6. Require escrowed nullifier keys on new outputs.
-	c.constrainOutputKeys(api, txContext)
-
-	chain := append(elements[:],
-		checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
-		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
-		c.KeyEscrow, c.KeyRegistryRoot, revocationTreeIndexes,
-	)
-	for _, fact := range listFacts {
+	var openings [NOutputs]base.AuditOutputWires
+	var hashes [NOutputs]frontend.Variable
+	for i, output := range tx.outputs {
+		openings[i], hashes[i] = output.opening, output.hash
+	}
+	audit := c.Audit.Define(api, rc, openings, hashes, tx.nOut)
+	chain := append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
+		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired, c.KeyEscrow, c.KeyRegistryRoot, factSlots)
+	for _, fact := range facts {
 		chain = append(chain, fact.revocationTarget)
 	}
 	return chain, counters

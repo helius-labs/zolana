@@ -1,125 +1,57 @@
-// Requires every enabled rule to pass for each relevant transaction
-// subject through a matching alternative or a permitted amount exemption.
-
 package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-// constrainRules requires every applicable rule to be satisfied or exempt.
-func (c *CustomRingPolicyCircuit) constrainRules(
-	api frontend.API,
-	txContext transactionContext,
-	listFacts [NListFacts]listFact,
-	ruleEnabled [NRules]frontend.Variable,
-	inlineEnabled [NInlineAssets]frontend.Variable,
-) {
-	// 1. Prepare list fact comparisons for reuse across rules and
-	// transaction slots.
-	var eqOutputOwner, eqOutputAsset [NListFacts][NOutputs]frontend.Variable
-	var eqSender [NListFacts][NInputs]frontend.Variable
-	var onList [NListFacts][NSources]frontend.Variable
-	for factIndex, fact := range listFacts {
-		for outputIndex, output := range txContext.outputs {
-			eqOutputOwner[factIndex][outputIndex] = api.IsZero(api.Sub(fact.member, output.ownerPkHash))
-			eqOutputAsset[factIndex][outputIndex] = api.IsZero(api.Sub(fact.member, output.asset))
+// constrainRules requires a matching list fact or an amount exemption for every live subject of an enabled rule.
+func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transaction, facts [NListFacts]listFact, checked checkedPolicy) {
+	var sameOwner, sameAsset [NListFacts][NOutputs]frontend.Variable
+	var sameSender [NListFacts][NInputs]frontend.Variable
+	for f, fact := range facts {
+		for o, output := range tx.outputs {
+			sameOwner[f][o] = api.IsZero(api.Sub(fact.member, output.ownerPkHash))
+			sameAsset[f][o] = api.IsZero(api.Sub(fact.member, output.asset))
 		}
-		for inputIndex, input := range txContext.inputs {
-			eqSender[factIndex][inputIndex] = api.IsZero(api.Sub(fact.member, input.ownerPkHash))
-		}
-		for listIndex := range onList[factIndex] {
-			onList[factIndex][listIndex] = api.IsZero(api.Sub(fact.listId, listIndex+1))
+		for i, input := range tx.inputs {
+			sameSender[f][i] = api.IsZero(api.Sub(fact.member, input.ownerPkHash))
 		}
 	}
-
-	// 2. Exclude zero subjects and non-UTXO slots from rule obligations.
+	// Zero subjects create no obligation.
 	var liveOwner, liveAsset [NOutputs]frontend.Variable
-	for i, output := range txContext.outputs {
-		liveOwner[i] = api.Mul(output.live, nonZero(api, output.ownerPkHash))
-		liveAsset[i] = api.Mul(output.live, nonZero(api, output.asset))
+	var limits [NOutputs]assetLimit
+	for o, output := range tx.outputs {
+		liveOwner[o] = api.Mul(output.live, base.NonZero(api, output.ownerPkHash))
+		liveAsset[o] = api.Mul(output.live, base.NonZero(api, output.asset))
+		limits[o] = c.matchInlineAssets(api, output.asset, checked.inline.Active)
 	}
-	var liveSender [NInputs]frontend.Variable
-	for i, input := range txContext.inputs {
-		liveSender[i] = api.Mul(input.live, nonZero(api, input.ownerPkHash))
-	}
+	totals := sumOutputs(api, tx.outputs, liveOwner, liveAsset)
 
-	// 3. Prepare shared inline matches and grouped output amounts.
-	limits := c.resolveOutputAssetLimits(api, txContext.outputs, inlineEnabled)
-	totals := sumOutputs(api, txContext.outputs, liveOwner, liveAsset)
-
-	// 4. Match each rule's list and mode alternatives.
-	for ruleIndex, rule := range c.Rules {
-		isInline := api.IsZero(rule.ListMask)
-		hasPerAssetGuard := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmountByAsset))
-		onOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
-		onAsset := api.IsZero(api.Sub(rule.Subject, SubjectAsset))
-		onSender := api.IsZero(api.Sub(rule.Subject, SubjectSender))
-		readMatchesRule := rule.matchListAndMode(api, listFacts, onList)
-
-		// 5. Check list conditions for each output subject, including
-		// change.
-		onOutput := api.Mul(ruleEnabled[ruleIndex], api.Add(onOwner, onAsset))
-		for outputIndex := range txContext.outputs {
-			var matches [NListFacts]frontend.Variable
-			for factIndex := range listFacts {
-				sameMember := api.Select(onAsset, eqOutputAsset[factIndex][outputIndex], eqOutputOwner[factIndex][outputIndex])
-				matches[factIndex] = api.Mul(readMatchesRule[factIndex], sameMember)
+	for r, rule := range checked.rules {
+		matches := rule.matchListAndMode(api, facts)
+		onOutput := api.Mul(checked.ruleEnabled[r], api.Add(rule.onOwner, rule.onAsset))
+		for o := range tx.outputs {
+			var hits [NListFacts]frontend.Variable
+			for f := range facts {
+				hits[f] = api.Mul(matches[f], api.Select(rule.onAsset, sameAsset[f][o], sameOwner[f][o]))
 			}
-			instanceEnabled := api.Mul(onOutput, api.Select(onAsset, liveAsset[outputIndex], liveOwner[outputIndex]))
-			satisfied := api.Select(isInline, limits[outputIndex].found, anyOf(api, matches[:]))
-
-			// 6. Check the amount exemption for the output's group.
-			amounts := guardAmounts{
-				subjectOutputTotal:    api.Select(onAsset, totals[outputIndex].byAsset, totals[outputIndex].byOwner),
-				ownerAssetOutputTotal: totals[outputIndex].byOwnerAndAsset,
-				assetLimit:            limits[outputIndex],
-			}
-			exempt := rule.amountExemption(api, amounts)
-
-			// 7. Require per-asset limits even when the list
-			// condition is satisfied.
-			shared.AssertWhen(api, api.Mul(instanceEnabled, hasPerAssetGuard), limits[outputIndex].found)
-
-			// 8. Require the list condition or an amount exemption.
-			assertSatisfiedOrExempt(api, instanceEnabled, satisfied, exempt)
+			enabled := api.Mul(onOutput, api.Select(rule.onAsset, liveAsset[o], liveOwner[o]))
+			satisfied := api.Select(rule.inline, limits[o].found, base.AnyOf(api, hits[:]...))
+			// Per-asset limits apply even when the list condition holds.
+			shared.AssertWhen(api, api.Mul(enabled, rule.assetGuard), limits[o].found)
+			subjectTotal := api.Select(rule.onAsset, totals[o].byAsset, totals[o].byOwner)
+			shared.AssertWhen(api, enabled, api.Or(satisfied, rule.amountExemption(api, subjectTotal, totals[o].byOwnerAndAsset, limits[o])))
 		}
-
-		// 9. Require a matching list fact for each sender without
-		// amount exemptions.
-		onInput := api.Mul(ruleEnabled[ruleIndex], onSender)
-		for inputIndex := range txContext.inputs {
-			var matches [NListFacts]frontend.Variable
-			for factIndex := range listFacts {
-				matches[factIndex] = api.Mul(readMatchesRule[factIndex], eqSender[factIndex][inputIndex])
+		onInput := api.Mul(checked.ruleEnabled[r], rule.onSender)
+		for i, input := range tx.inputs {
+			var hits [NListFacts]frontend.Variable
+			for f := range facts {
+				hits[f] = api.Mul(matches[f], sameSender[f][i])
 			}
-			instanceEnabled := api.Mul(onInput, liveSender[inputIndex])
-			satisfied := anyOf(api, matches[:])
-			assertSatisfied(api, instanceEnabled, satisfied)
+			shared.AssertWhen(api, api.Mul(onInput, input.live, base.NonZero(api, input.ownerPkHash)), base.AnyOf(api, hits[:]...))
 		}
 	}
-}
-
-// assertSatisfiedOrExempt permits an amount exemption for an enabled instance.
-func assertSatisfiedOrExempt(api frontend.API, instanceEnabled, satisfied, exempt frontend.Variable) {
-	assertSatisfied(api, instanceEnabled, api.Or(satisfied, exempt))
-}
-
-// assertSatisfied requires the condition only for an enabled rule instance.
-func assertSatisfied(api frontend.API, instanceEnabled, satisfied frontend.Variable) {
-	shared.AssertWhen(api, instanceEnabled, satisfied)
-}
-
-func anyOf(api frontend.API, terms []frontend.Variable) frontend.Variable {
-	result := frontend.Variable(0)
-	for _, term := range terms {
-		result = api.Or(result, term)
-	}
-	return result
-}
-
-func nonZero(api frontend.API, value frontend.Variable) frontend.Variable {
-	return api.Sub(1, api.IsZero(value))
 }

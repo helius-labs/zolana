@@ -74,10 +74,6 @@ func variable(src any) (frontend.Variable, error) {
 		if v != nil {
 			return v, nil
 		}
-	case Bytes:
-		if v != nil {
-			return new(big.Int).SetBytes(v), nil
-		}
 	case bool:
 		if v {
 			return 1, nil
