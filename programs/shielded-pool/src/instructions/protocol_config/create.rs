@@ -1,13 +1,24 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_account_checks::{upgrade_authority::is_upgrade_authority, AccountIterator};
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::CreateProtocolConfigData, state::ProtocolConfig,
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
+    BPF_LOADER_UPGRADEABLE_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 use super::init::ProtocolConfigInitParams;
 use crate::instructions::shared::{verify_pda, CreatePdaAccount};
+
+/// Decode the loader-v3 account state with the canonical agave type (bincode
+/// legacy layout). Returns `None` for malformed or non-loader state; callers
+/// map that to their fail-closed error. bincode 2.x reads only the enum
+/// fields, so the ProgramData account's trailing ELF bytecode is untouched.
+fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {
+    bincode::serde::decode_from_slice(data, bincode::config::legacy())
+        .ok()
+        .map(|(state, _)| state)
+}
 
 pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = *bytemuck::try_from_bytes::<CreateProtocolConfigData>(data)
@@ -74,7 +85,40 @@ fn check_initialization_authority(
     program: &AccountView,
     program_data: &AccountView,
 ) -> ProgramResult {
-    if !is_upgrade_authority(&crate::ID, initialization_authority, program, program_data)? {
+    if program.address() != &crate::ID {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    if program.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    let program_state = program
+        .try_borrow()
+        .map_err(|_| ProgramError::AccountBorrowFailed)?;
+    let Some(UpgradeableLoaderState::Program {
+        programdata_address,
+    }) = decode_loader_state(&program_state)
+    else {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    };
+    if program_data.address().as_array() != programdata_address.as_array()
+        || program_data.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID
+    {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    let program_data_state = program_data
+        .try_borrow()
+        .map_err(|_| ProgramError::AccountBorrowFailed)?;
+    let Some(UpgradeableLoaderState::ProgramData {
+        upgrade_authority_address: Some(upgrade_authority),
+        ..
+    }) = decode_loader_state(&program_data_state)
+    else {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    };
+    let upgrade_authority = upgrade_authority.to_bytes();
+    if upgrade_authority == [0u8; 32]
+        || upgrade_authority != *initialization_authority.address().as_array()
+    {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     Ok(())

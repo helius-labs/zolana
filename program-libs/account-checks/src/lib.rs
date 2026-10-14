@@ -11,7 +11,6 @@
 //! | [`checks`] | Owner, signer, writable, and rent-exempt checks |
 //! | [`discriminator`] | Account discriminator constants and validation |
 //! | [`packed_accounts`] | Packed account struct deserialization |
-//! | `upgrade_authority` | Loader-v3 upgrade authority check (feature `upgrade-authority`) |
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -21,8 +20,6 @@ pub mod checks;
 pub mod discriminator;
 pub mod error;
 pub mod packed_accounts;
-#[cfg(feature = "upgrade-authority")]
-pub mod upgrade_authority;
 
 pub use account_info::AccountView;
 pub use account_iterator::AccountIterator;

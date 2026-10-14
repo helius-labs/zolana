@@ -7005,6 +7005,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "arrayvec",
+ "bincode 2.0.1",
  "borsh",
  "bytemuck",
  "groth16-solana",
@@ -7013,6 +7014,7 @@ dependencies = [
  "pinocchio 0.11.2",
  "pinocchio-system",
  "serde_json",
+ "solana-loader-v3-interface 8.0.1",
  "solana-msg",
  "spl-token-2022-interface 2.1.0",
  "tinyvec",
@@ -11618,14 +11620,11 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 name = "zolana-account-checks"
 version = "0.8.0"
 dependencies = [
- "bincode 2.0.1",
  "rand 0.8.8",
  "solana-account-view 2.0.0",
  "solana-address 2.6.1",
- "solana-loader-v3-interface 8.0.1",
  "solana-msg",
  "solana-program-error",
- "solana-sdk-ids",
  "thiserror 2.0.20",
 ]
 

@@ -12,16 +12,12 @@ default = ["std", "msg"]
 std = []
 msg = ["dep:solana-msg"]
 test-only = ["dep:rand", "std"]
-upgrade-authority = ["dep:bincode", "dep:solana-loader-v3-interface", "dep:solana-sdk-ids"]
 
 [dependencies]
-bincode = { workspace = true, optional = true }
 solana-account-view = { workspace = true }
 solana-address = { workspace = true }
 solana-program-error = { workspace = true }
-solana-loader-v3-interface = { workspace = true, optional = true, features = ["serde"] }
 solana-msg = { workspace = true, optional = true, features = ["alloc"] }
-solana-sdk-ids = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rand = { workspace = true, optional = true }
 
