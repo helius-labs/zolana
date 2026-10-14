@@ -35,7 +35,7 @@ import {
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
-import { isZolanaGateway } from "../../endpoint.js";
+import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -47,9 +47,16 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
+import {
+  TransportFailure,
+  checkedFetch,
+  isLoopbackHost,
+  readBoundedJson,
+} from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import { DEFAULT_TEE_POLICY_FILE } from "./tee/default.js";
+import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -160,11 +167,30 @@ export interface ProvingKeyReport {
   readonly keys: readonly ProvingKeyCheck[];
 }
 
+/**
+ * The session a prover gets: the caller's policy, none for `false`, else the
+ * pinned default deployment except on loopback and on the Helius gateway, which
+ * cannot relay encrypted requests.
+ */
+function teeSession(
+  tee: TeePolicy | false | undefined,
+  url: URL,
+  gateway: boolean,
+): TeeSession | undefined {
+  if (tee === false) return undefined;
+  if (tee !== undefined) return new TeeSession(tee);
+  if (gateway || isLoopbackHost(url.hostname) || DEFAULT_TEE_POLICY_FILE.deployment === null) {
+    return undefined;
+  }
+  return new TeeSession(defaultTeePolicy());
+}
+
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
   /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
   readonly #keyless: boolean;
+  readonly #indexed: boolean;
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
 
@@ -177,9 +203,11 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy.
+       * attests to the policy. Left out, a remote prover other than the Helius
+       * gateway gets `defaultTeePolicy()`; `false` sends plaintext, which carries
+       * every proof's witness.
        */
-      tee?: TeePolicy;
+      tee?: TeePolicy | false;
     }>,
   ) {
     const candidate: unknown = input;
@@ -188,6 +216,7 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     this.#keyless = isZolanaGateway(url);
+    this.#indexed = !this.#keyless && !isDefaultTeeProver(url);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
       this.#fetch = checkedFetch(input.fetch);
@@ -197,7 +226,15 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+    this.#tee = teeSession(input.tee, url, this.#keyless);
+  }
+
+  /**
+   * Whether the prover reads proof data from its own indexer. The Helius
+   * gateway and the default TEE prover have no `/indexed` route.
+   */
+  get hasIndexedRoute(): boolean {
+    return this.#indexed;
   }
 
   /** Attests the prover now against the `tee` policy. */
@@ -439,7 +476,7 @@ export class ProverClient {
     key: ExpectedProvingKey,
     context?: RequestContext,
   ): Promise<unknown> {
-    if (route === "indexed" && this.#keyless) {
+    if (route === "indexed" && !this.#indexed) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
     const url = this.#keyUrl(key);

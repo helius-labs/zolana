@@ -12,6 +12,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
+use zolana_client::ProverClient;
 use zolana_transaction::SOL_MINT;
 
 use crate::{
@@ -177,9 +178,22 @@ pub struct Urls {
     /// When set, `init` accepts an auditor key only under this service key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_rpc_pubkey: Option<String>,
+    /// `false` sends `prover` plaintext requests, which carry every proof's
+    /// witness; only for a prover the operator runs. Unset keeps the SDK
+    /// default, which requires a remote prover to attest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prover_tee: Option<bool>,
 }
 
 impl Urls {
+    pub fn prover_client(&self) -> ProverClient {
+        let prover = ProverClient::new(self.prover.clone());
+        match self.prover_tee {
+            Some(false) => prover.without_tee(),
+            Some(true) | None => prover,
+        }
+    }
+
     pub fn port(url: &str) -> Option<u16> {
         let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
         let authority = rest.split(['/', '?']).next().unwrap_or_default();
@@ -492,6 +506,27 @@ indexer = "http://127.0.0.1:8784"
 prover = "http://127.0.0.1:3001"
 ring_rpc = "http://127.0.0.1:8785"
 "#;
+
+    #[test]
+    fn prover_tee_false_sends_a_remote_prover_plaintext() {
+        let urls = |prover_tee: Option<bool>| Urls {
+            rpc: "https://api.devnet.solana.com".to_owned(),
+            indexer: "https://indexer.example".to_owned(),
+            prover: "https://prover.example".to_owned(),
+            ring_rpc: "https://ring-rpc.example".to_owned(),
+            ring_rpc_pubkey: None,
+            prover_tee,
+        };
+        assert!(!urls(Some(false)).prover_client().has_tee());
+        assert!(urls(None).prover_client().has_tee());
+        assert!(urls(Some(true)).prover_client().has_tee());
+
+        let parsed: Urls = toml::from_str(
+            "rpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"g\"\nprover_tee = false\n",
+        )
+        .expect("ring.toml urls");
+        assert_eq!(parsed.prover_tee, Some(false));
+    }
 
     #[test]
     fn port_reads_the_authority_only() {

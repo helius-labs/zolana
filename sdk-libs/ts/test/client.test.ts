@@ -159,7 +159,7 @@ function proofFixture(
       highElementIndex: 1n,
       root: bytes(6),
       rootSeq: 1n,
-      rootIndex: 7,
+      rootIndex: 2,
     },
   };
   const dummyProofs = dummyInputs.map((dummy): NonInclusionProof => ({
@@ -172,7 +172,7 @@ function proofFixture(
     highElementIndex: 1n,
     root: bytes(6),
     rootSeq: 1n,
-    rootIndex: 7,
+    rootIndex: 2,
   }));
   return { proofInputs, spendProof, dummyProofs, keypair };
 }
@@ -208,6 +208,7 @@ async function serviceRequestUrls(
   const instance = new ZolanaClient({
     solanaRpcUrl,
     proofDataSource: "client",
+    proverTee: false,
     ...overrides,
     tree: TREE,
     fetch,
@@ -276,11 +277,16 @@ describe("ZolanaClient", () => {
 
   it("builds against tree 0 by default and follows an explicit tree id", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
-    const byDefault = new ZolanaClient({ solanaRpcUrl: RPC_URL, fetch });
+    const byDefault = new ZolanaClient({ proverTee: false, solanaRpcUrl: RPC_URL, fetch });
     expect(byDefault.treeId).toBe(0);
     expect(byDefault.tree).toBe(treeAddress(0));
 
-    const explicit = new ZolanaClient({ solanaRpcUrl: RPC_URL, treeId: 3, fetch });
+    const explicit = new ZolanaClient({
+      proverTee: false,
+      solanaRpcUrl: RPC_URL,
+      treeId: 3,
+      fetch,
+    });
     expect(explicit.treeId).toBe(3);
     expect(explicit.tree).toBe(treeAddress(3));
     expect(fetch).not.toHaveBeenCalled();
@@ -295,7 +301,7 @@ describe("ZolanaClient", () => {
     ] satisfies readonly Pick<ZolanaClientConfig, "tree" | "treeId">[]) {
       let error: unknown;
       try {
-        new ZolanaClient({ solanaRpcUrl: RPC_URL, ...config });
+        new ZolanaClient({ proverTee: false, solanaRpcUrl: RPC_URL, ...config });
       } catch (cause) {
         error = cause;
       }
@@ -421,6 +427,7 @@ describe("ZolanaClient", () => {
       let error: unknown;
       try {
         new ZolanaClient({
+          proverTee: false,
           solanaRpcUrl: RPC_URL,
           [field]: `http://${field}.example.com`,
         });
@@ -450,7 +457,9 @@ describe("ZolanaClient", () => {
         }),
       );
     }
-    expect(new ZolanaClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
+    expect(new ZolanaClient({ proverTee: false, solanaRpcUrl: RPC_URL }).proofDataSource).toBe(
+      "prover",
+    );
   });
 
   it("allows plaintext non-loopback URLs only when asked explicitly", () => {
@@ -460,6 +469,7 @@ describe("ZolanaClient", () => {
     expect(
       () =>
         new ZolanaClient({
+          proverTee: false,
           solanaRpcUrl: RPC_URL,
           indexerUrl: "http://indexer.internal:8784",
           proverUrl: "http://prover.internal:3001",
@@ -478,6 +488,7 @@ describe("ZolanaClient", () => {
       expect(
         () =>
           new ZolanaClient({
+            proverTee: false,
             solanaRpcUrl: RPC_URL,
             indexerUrl,
             allowInsecureHttp: true,
@@ -1241,6 +1252,7 @@ describe("prover indexer fetching", () => {
         );
       });
       const instance = new ZolanaClient({
+        proverTee: false,
         proofDataSource: "prover",
         proverUrl: "https://prover.test/v1/zolana?api-key=secret",
         fetch,
@@ -1307,7 +1319,7 @@ describe("prover indexer fetching", () => {
       if (corruption === "index")
         resolution.trees[0] = { ...resolution.trees[0]!, utxoRootIndex: 500 };
       if (corruption === "nullifierIndex")
-        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 100 };
+        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 5 };
       if (corruption === "modulus")
         resolution.trees[0] = {
           ...resolution.trees[0]!,

@@ -116,7 +116,7 @@ func LoadConstraintSystem(filepath string) (constraint.ConstraintSystem, error) 
 func GetKeys(keysDir string, runMode RunMode, circuits []string) []string {
 	var keys []string
 
-	addressAppendKeys := []string{filepath.Join(keysDir, "batch_address-append_40_250.key")}
+	addressAppendKeys := []string{filepath.Join(keysDir, "batch_address-append_40_4999.key")}
 	addressAppendTestKeys := []string{filepath.Join(keysDir, "batch_address-append_40_10.key")}
 
 	switch runMode {

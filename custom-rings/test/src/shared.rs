@@ -21,8 +21,9 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::SERVER_ADDRESS, ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient,
-    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+    prover::{indexed::ProofDataSource, SERVER_ADDRESS},
+    ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient, ProverLaunch, Rpc,
+    SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     pda,
@@ -385,18 +386,22 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     .collect();
     validator.start_with_upgradeable_programs(&deployments)?;
 
+    // A prover that takes its proof data from the client needs no indexer.
+    let indexer = match ProverClient::local().proof_data_source() {
+        ProofDataSource::Client => IndexerRequirement::Optional,
+        ProofDataSource::Prover => IndexerRequirement::Required,
+    };
     if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
         let photon = localnet_indexer_url();
         ProverLaunch::new_with_cli(&validator.cli_bin)
             .and_then(|launch| launch.with_keys_dir(keys))
-            .and_then(|launch| {
-                launch
-                    .with_indexer(photon, IndexerRequirement::Required)
-                    .spawn()
+            .and_then(|launch| match indexer {
+                IndexerRequirement::Required => launch.with_indexer(photon, indexer).spawn(),
+                IndexerRequirement::Optional => launch.spawn(),
             })
             .context("start the isolated ring prover")?;
     } else {
-        spawn_workspace_prover(IndexerRequirement::Required);
+        spawn_workspace_prover(indexer);
     }
 
     let rpc_url = localnet_rpc_url();

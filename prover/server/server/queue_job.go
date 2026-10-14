@@ -18,18 +18,14 @@ const (
 	// JobExpirationTimeout should match the forester's max_wait_time (600 seconds)
 	JobExpirationTimeout = 600 * time.Second
 
-	// Memory estimates per circuit type (in GB)
-	// Based on live measurements: ~11GB per batch-500 proof
-	// batch_update_32_500:        ~11GB (8M constraints)
-	// batch_append_32_500:        ~11GB (7.8M constraints)
-	// batch_address-append_40_250: ~15GB (larger tree height)
-	//
-	// For safety, we use the largest (address-append) as the baseline
-	MemoryPerProofGB = 15
+	// Memory one proof needs on top of its loaded key, in GB. The largest
+	// circuit sets it: batch_address-append_40_4999 (211M constraints) peaked
+	// ~140GB above its loaded key when measured.
+	MemoryPerProofGB = 150
 
-	// MemoryReserveGB is memory to reserve for OS, proving keys, and other processes
-	// Proving keys can be 10-20GB depending on which circuits are loaded
-	MemoryReserveGB = 20
+	// MemoryReserveGB is memory to reserve for the OS and the loaded proving
+	// keys. The batch_address-append_40_4999 key alone is ~205GB resident.
+	MemoryReserveGB = 220
 
 	// NumQueueWorkers is the number of queue workers (update, append, address-append)
 	NumQueueWorkers = 3

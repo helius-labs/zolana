@@ -179,7 +179,7 @@ describe("compressed ring prover contracts", () => {
     async (kind) => {
       const proof = proofFor({ circuitType: `custom-ring-${kind}-policy` });
       const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
-      const prover = new ProverClient({ url: "https://prover.example", fetch });
+      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
       const policy = ringRequest(p256.getPublicKey(bytes(4), false));
       const prove = () =>
         kind === "compressed"
@@ -251,7 +251,7 @@ describe("compressed ring prover contracts", () => {
     );
     const proof = proofFor({ circuitType: "custom-ring-register-key" });
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     await expect(prover.proveCustomRingRegisterKey(request)).resolves.toEqual(parseProof(proof));
     fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
     await expect(prover.proveCustomRingRegisterKey(request)).rejects.toMatchObject({
@@ -263,6 +263,7 @@ describe("compressed ring prover contracts", () => {
   it("keeps delegate policy rows but sends no velocity charge", async () => {
     const bodies: unknown[] = [];
     const prover = new ProverClient({
+      tee: false,
       url: "https://prover.example",
       fetch: async (_url, init) => {
         bodies.push(JSON.parse(String(init?.body)));
@@ -478,7 +479,7 @@ async function sentBody(
       headers: { "content-type": "application/json" },
     });
   }) as typeof globalThis.fetch;
-  await send(new ProverClient({ url: "https://prover.example", fetch }));
+  await send(new ProverClient({ tee: false, url: "https://prover.example", fetch }));
   return JSON.parse(raw[0] ?? "") as Record<string, unknown>;
 }
 
@@ -539,7 +540,7 @@ describe("prover request routing", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => {
       throw new Error("network reached");
     });
-    const proofs = new ProverClient({ url: "https://prover.example", fetch });
+    const proofs = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     const keys = LocalKeys.fromKeypair(other, proofs);
     const { userNullifierSecret, ...incomplete } = mergeInputs();
     expect(userNullifierSecret).toBe(0n);
@@ -568,7 +569,7 @@ describe("prover request routing", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => {
       throw new Error("network reached");
     });
-    const proofs = new ProverClient({ url: "https://prover.example", fetch });
+    const proofs = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     await expect(proofs.proveMerge(incomplete)).rejects.toMatchObject({
       code: "CLIENT_MISSING_NULLIFIER_SECRET",
     });
@@ -588,7 +589,7 @@ describe("prover request routing", () => {
         posted = JSON.parse(String(init?.body));
         return new Response(JSON.stringify(proofFor(posted)), { headers: json });
       }) as typeof globalThis.fetch;
-      await new ProverClient({ url: "https://prover.example", fetch }).prove(inputs);
+      await new ProverClient({ tee: false, url: "https://prover.example", fetch }).prove(inputs);
       expect(posted).toMatchObject({ circuitType });
 
       if (circuitType === "transfer-confidential") continue;
@@ -597,7 +598,7 @@ describe("prover request routing", () => {
         async () => new Response(JSON.stringify(TRANSFER_PROOF), { headers: json }),
       ) as typeof globalThis.fetch;
       await expect(
-        new ProverClient({ url: "https://prover.example", fetch: wrong }).prove(inputs),
+        new ProverClient({ tee: false, url: "https://prover.example", fetch: wrong }).prove(inputs),
       ).rejects.toMatchObject({ code: "CLIENT_PROVING_KEY_MISMATCH", details: { keyName } });
     }
   });
@@ -610,7 +611,9 @@ describe("prover request routing", () => {
       posted = JSON.parse(String(init?.body));
       return new Response(JSON.stringify(proofFor(posted)), { headers: json });
     }) as typeof globalThis.fetch;
-    await new ProverClient({ url: "https://prover.example", fetch }).proveMerge(ringMerge);
+    await new ProverClient({ tee: false, url: "https://prover.example", fetch }).proveMerge(
+      ringMerge,
+    );
     expect(posted).toMatchObject({ circuitType: "merge-ring" });
 
     // A proof from the plain merge key is refused.
@@ -619,7 +622,9 @@ describe("prover request routing", () => {
       async () => new Response(JSON.stringify(plainProof), { headers: json }),
     ) as typeof globalThis.fetch;
     await expect(
-      new ProverClient({ url: "https://prover.example", fetch: plain }).proveMerge(ringMerge),
+      new ProverClient({ tee: false, url: "https://prover.example", fetch: plain }).proveMerge(
+        ringMerge,
+      ),
     ).rejects.toMatchObject({
       code: "CLIENT_PROVING_KEY_MISMATCH",
       details: { keyName: "merge_ring_24_1.key" },
@@ -641,6 +646,7 @@ describe("prover request routing", () => {
       });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({
+      tee: false,
       url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
       fetch,
     });
@@ -665,7 +671,7 @@ describe("prover request routing", () => {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
@@ -795,7 +801,7 @@ describe("prover request routing", () => {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
     await prover.proveCustomRingBase(auditRequest(auditorPublicKey));
@@ -955,7 +961,7 @@ describe("prover request routing", () => {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
 
     await prover.prove(transferInputs());
 
@@ -972,7 +978,7 @@ describe("prover request routing", () => {
           { status: 400, headers: { "content-type": "application/json" } },
         ),
     ) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
 
     await expect(prover.prove(transferInputs())).rejects.toMatchObject({
       code: "CLIENT_PROVER_HTTP",
@@ -989,7 +995,9 @@ describe("prover request routing", () => {
       async () => new Response("<html>502</html>", { status: 502 }),
     ) as typeof globalThis.fetch;
     await expect(
-      new ProverClient({ url: "https://prover.example", fetch: html }).prove(transferInputs()),
+      new ProverClient({ tee: false, url: "https://prover.example", fetch: html }).prove(
+        transferInputs(),
+      ),
     ).rejects.toMatchObject({
       code: "CLIENT_PROVER_HTTP",
       details: { method: "prove", status: 502 },
@@ -1008,7 +1016,11 @@ describe("prover request routing", () => {
         { headers: { "content-type": "application/json" } },
       );
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example/base?tenant=alpha", fetch });
+    const prover = new ProverClient({
+      tee: false,
+      url: "https://prover.example/base?tenant=alpha",
+      fetch,
+    });
     const health = await prover.health();
     expect(health).toEqual({
       status: "ok",
@@ -1033,6 +1045,7 @@ describe("prover request routing", () => {
           });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({
+      tee: false,
       url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
       fetch,
     });
@@ -1062,6 +1075,7 @@ describe("prover request routing", () => {
           });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({
+      tee: false,
       url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
       fetch,
     });
@@ -1090,7 +1104,7 @@ describe("proving key check", () => {
       const body = queued ? { status: "completed", result: proof } : proof;
       return new Response(JSON.stringify(body), { headers: json });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     try {
       return await prover.prove(transferInputs());
     } catch (error) {
@@ -1154,7 +1168,7 @@ describe("proving key check", () => {
 
   it("refuses a shape without a committed verifying key before any request", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     await expect(prover.prove(INPUTS)).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -1189,6 +1203,7 @@ describe("prover proving keys check", () => {
       return new Response(JSON.stringify(body), { headers: json, ...init });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({
+      tee: false,
       url: "https://gateway.example/zolana?api-key=k%2B1",
       fetch,
     });
@@ -1293,7 +1308,7 @@ describe("prover proving keys check", () => {
       init?.signal?.throwIfAborted();
       return new Response(JSON.stringify(matchingReport()), { headers: json });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     await expect(prover.checkProvingKeys({ signal: controller.signal })).rejects.toBeInstanceOf(
       ClientError,
     );
@@ -1332,7 +1347,7 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
     utxoRoot: bytes(8),
     nullifierRoot: bytes(9),
     utxoRootIndex: 7,
-    nullifierRootIndex: 8,
+    nullifierRootIndex: 3,
   };
   const inputs: IndexedPolicyInputs = {
     circuit,
@@ -1378,7 +1393,7 @@ describe("indexed policy proofs", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({ ...proof, resolution }),
     );
-    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     const result = await prover.proveIndexedPolicy(inputs);
     expect(result.resolution.publicInputHash).toEqual(hash);
     expect(String(fetch.mock.calls[0]?.[0])).toContain(
@@ -1430,6 +1445,7 @@ describe("indexed prover failures", () => {
 
   function prove(fetch: typeof globalThis.fetch): Promise<unknown> {
     const prover = new ProverClient({
+      tee: false,
       url: "https://prover.example",
       fetch,
       asyncPoll: { pollIntervalCapMs: 1, maxWaitMs: 1_000 },

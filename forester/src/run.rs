@@ -190,11 +190,15 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         .settings
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
     let member = config.signer()?;
-    let prover = ProverClient::new(prover_url).with_proof_data_source(if opts.client_proof_data {
-        ProofDataSource::Client
-    } else {
-        ProofDataSource::Prover
-    });
+    // Batch proofs carry only public tree data, so the forester's prover runs
+    // outside an enclave.
+    let prover = ProverClient::new(prover_url)
+        .without_tee()
+        .with_proof_data_source(if opts.client_proof_data {
+            ProofDataSource::Client
+        } else {
+            ProofDataSource::Prover
+        });
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
@@ -1074,7 +1078,7 @@ mod tests {
                 mismatches: vec!["transfer_ring_2_2.key".into()],
             },
             ClientError::ProvingKeyMismatch {
-                key: "batch_address-append_40_250.key".into(),
+                key: "batch_address-append_40_4999.key".into(),
                 expected: "aa".into(),
                 reported: "bb".into(),
             },

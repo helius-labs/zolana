@@ -1,10 +1,13 @@
 //! Prover URLs, and keeping a gateway `api-key` out of printed ones.
 
-use url::Url;
+use url::{Host, Url};
 
 use crate::{
     error::ClientError,
-    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
+    prover::{
+        tee::{ATTESTATION_PATH, DEFAULT_PROVER_URL},
+        ExpectedProvingKey,
+    },
 };
 
 const API_KEY: &str = "api-key";
@@ -40,6 +43,29 @@ impl ProverEndpoint {
             });
             helius && url.path().trim_end_matches('/') == ZOLANA_GATEWAY_PATH
         })
+    }
+
+    /// Whether the prover runs on this machine, where its requests never leave
+    /// the host.
+    pub(crate) fn is_loopback(&self) -> bool {
+        self.base.as_ref().is_some_and(|url| match url.host() {
+            Some(Host::Domain(host)) => {
+                let host = host.trim_end_matches('.');
+                host == "localhost" || host.ends_with(".localhost")
+            }
+            Some(Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        })
+    }
+
+    /// Whether this is [`DEFAULT_PROVER_URL`], whose enclave has no indexer.
+    pub(crate) fn is_default_tee_prover(&self) -> bool {
+        let default = Url::parse(DEFAULT_PROVER_URL).ok();
+        self.base
+            .as_ref()
+            .zip(default.as_ref())
+            .is_some_and(|(url, default)| url.host() == default.host())
     }
 
     /// `path` is slash-separated segments, such as `/prove/merge_24_1`.

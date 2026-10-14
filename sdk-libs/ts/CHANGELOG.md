@@ -1,36 +1,76 @@
 # Changelog
 
-## 0.4.1-alpha — unreleased
+## 0.5.0-alpha — unreleased
+
+Proofs go encrypted to an attested Nitro Enclave prover by default. A client
+given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
+pins, and any other remote prover must attest to that pin unless the caller
+opts out. One private transfer can pay several recipients.
+
+Breaking
+
+- `ProverClient` and `ZolanaClient` now require a remote prover other than the
+  Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
+  it, so a self-hosted plaintext prover fails attestation → pass `tee: false`
+  to `ProverClient` or `proverTee: false` to `ZolanaClient` for a prover you
+  run, or a policy of its own.
+- `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
+  through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
+  refuses `"prover"` → set `proverUrl` to keep another prover.
+- Approval handlers receive a new `multiTransfer` intent for a transfer with
+  several payments → handle it, or refuse it explicitly.
+
+Added
+
+- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
+  one asset in one private transfer, each a `TransferPayment` in order (a
+  single payment stays a `transfer` intent), and accepts a `feePayer` other
+  than the wallet owner like `buildTransferTransaction`.
+- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
+  `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
+  fifteen, or holds a malformed payment.
+- `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
+  client that names its prover.
+- `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
+  its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+
+Changed
+
+- `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
+  its measurements and encryption key included, where it threw before.
+
+## 0.4.1-alpha — 2026-10-08
 
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
-path. A Nitro Enclave prover can be held to one encryption key, a sponsor
-can pay the fee of a private transfer, withdrawal, or split, and one private
-transfer can pay several recipients.
+path. A Nitro Enclave prover can be held to one encryption key, and a
+sponsor can pay the fee of a private transfer, withdrawal, or split. Nullifier
+trees append 4,999 nullifiers per proof, which shrinks a tree account to two
+creation instructions.
 
 Breaking
 
 - `TransactionErrorCode` no longer includes `TRANSACTION_ED25519_PAYER_MISMATCH`,
   since a fee payer other than the owner is now accepted → remove it from
   exhaustive switches.
-- Approval handlers receive a new `multiTransfer` intent for a transfer with
-  several payments → handle it, or refuse it explicitly.
+- `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE` is 4999 (was 250) and
+  `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 24,995 (was 25,000), so
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 5, `TREE_ACCOUNT_SIZE` is 18,608
+  and `TREE_CREATION_STEP_COUNT` is 2 → point the client at a deployment
+  created with this release, since tree accounts of the previous layout no
+  longer decode.
+- `PROVING_KEY_SHA256S` pins `batch_address-append_40_4999.key` in place of
+  `batch_address-append_40_250.key` → run a prover with the matching key set.
 
 Added
 
 - `AwsNitroPolicy.hpkePublicKey` optionally pins the prover's encryption key, and
   `proverTee` then refuses an attestation that offers any other key.
-- `buildTransferTransaction`, `buildMultiTransferTransaction`,
-  `buildWithdrawalTransaction` and `buildSplitTransaction` accept a `feePayer`
-  other than the wallet owner and
+- `buildTransferTransaction`, `buildWithdrawalTransaction` and
+  `buildSplitTransaction` accept a `feePayer` other than the wallet owner and
   return a transaction the owner co-signs, and `transactInstruction` takes
   `ownerSigners` to list those co-signers.
-- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
-  one asset in one private transfer, each a `TransferPayment` in order (a
-  single payment stays a `transfer` intent), and `WalletErrorCode` adds
-  `WALLET_INVALID_PAYMENT_COUNT` and `WALLET_INVALID_PAYMENT` for a payment
-  list that is empty, longer than fifteen, or holds a malformed payment.
 
 Changed
 
