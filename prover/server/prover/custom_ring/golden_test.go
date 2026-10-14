@@ -17,9 +17,9 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
@@ -195,7 +195,7 @@ func keyRegisterParams(t *testing.T) *KeyRegisterParameters {
 		nullifierSecret[i] = byte(0x40 ^ i)
 	}
 	nullifierPk := spptest.MustNullifierPk(t, new(big.Int).SetBytes(nullifierSecret[:]))
-	keys := audittest.DefaultKeys(t)
+	keys := ringaudit.DefaultKeys(t)
 	sealed := keys.Seal(t, nullifierSecret[:], policy.NfKeyEncInfo)
 	keyHash := spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, sealed.CiphertextHash})
 	insertion := spptest.NewKeyRegistryTree(t, registry.Height).Register(t, member, keyHash)

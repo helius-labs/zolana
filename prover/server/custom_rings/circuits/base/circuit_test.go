@@ -13,7 +13,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
@@ -84,7 +84,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		keys   func(audittest.Keys) audittest.Keys
+		keys   func(ringaudit.Keys) ringaudit.Keys
 		tamper func(*testing.T, *base.CustomRingBaseCircuit)
 	}{
 		{
@@ -132,8 +132,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			// public input hash commits to.
 			name: "valid but different auditor key",
 			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
-				other := audittest.PrivateKey(t, audittest.Scalar(0x44))
-				substitute := audittest.Uncompressed(t, other.PublicKey().Bytes())
+				other := ringaudit.PrivateKey(t, ringaudit.Scalar(0x44))
+				substitute := ringaudit.Uncompressed(t, other.PublicKey().Bytes())
 				for i, value := range substitute {
 					c.AuditorPk[i] = value
 				}
@@ -141,25 +141,25 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "tx scalar zero",
-			keys: func(k audittest.Keys) audittest.Keys {
+			keys: func(k ringaudit.Keys) ringaudit.Keys {
 				return k.WithInfinityTxScalar(big.NewInt(0))
 			},
 		},
 		{
 			name: "tx scalar at the group order",
-			keys: func(k audittest.Keys) audittest.Keys {
+			keys: func(k ringaudit.Keys) ringaudit.Keys {
 				return k.WithInfinityTxScalar(p256.GroupOrder())
 			},
 		},
 		{
 			name: "eph scalar zero",
-			keys: func(k audittest.Keys) audittest.Keys {
+			keys: func(k ringaudit.Keys) ringaudit.Keys {
 				return k.WithInfinityEphScalar(big.NewInt(0))
 			},
 		},
 		{
 			name: "eph scalar at the group order",
-			keys: func(k audittest.Keys) audittest.Keys {
+			keys: func(k ringaudit.Keys) ringaudit.Keys {
 				return k.WithInfinityEphScalar(p256.GroupOrder())
 			},
 		},
@@ -167,7 +167,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			keys := audittest.DefaultKeys(t)
+			keys := ringaudit.DefaultKeys(t)
 			if test.keys != nil {
 				keys = test.keys(keys)
 			}
@@ -200,10 +200,10 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *base.Custom
 
 func validAssignment(t *testing.T) *base.CustomRingBaseCircuit {
 	t.Helper()
-	return buildAssignment(t, audittest.DefaultKeys(t))
+	return buildAssignment(t, ringaudit.DefaultKeys(t))
 }
 
-func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCircuit {
+func buildAssignment(t *testing.T, keys ringaudit.Keys) *base.CustomRingBaseCircuit {
 	t.Helper()
 	privateTxHash := big.NewInt(0xabcdef)
 	wires := keys.AuditBlockWires(privateTxHash)

@@ -10,8 +10,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -76,7 +76,7 @@ func baseParams(t *testing.T) *BaseParameters {
 	for i := range p.Outputs {
 		p.Outputs[i] = zeroedAuditOpening()
 	}
-	keys := audittest.DefaultKeys(t)
+	keys := ringaudit.DefaultKeys(t)
 	wires := keys.AuditBlockWires(p.PrivateTxHash)
 	elements := keys.ChainElementsFor(t, wires, int(p.NOut))
 	p.PublicInputHash = spptest.MustHashChain(t, elements)
@@ -186,7 +186,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
-	elements := audittest.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
+	elements := ringaudit.DefaultKeys(t).ChainElementsFor(t, policyAuditWires(t, p), int(p.NOut))
 	slots := make([]protocol.TreeSlot, len(p.TreeSlots))
 	for i, slot := range p.TreeSlots {
 		slots[i] = protocol.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}

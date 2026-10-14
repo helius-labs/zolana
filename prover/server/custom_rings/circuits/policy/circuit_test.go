@@ -14,8 +14,8 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -379,7 +379,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "tx scalar zero",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
-				f.keys = func(k audittest.Keys) audittest.Keys {
+				f.keys = func(k ringaudit.Keys) ringaudit.Keys {
 					return k.WithInfinityTxScalar(big.NewInt(0))
 				}
 				return buildAssignment(t, f)
@@ -603,7 +603,7 @@ type fixture struct {
 	rulesFree         bool
 	dropCuratorSlot   bool
 	curatorSlotOwn    bool
-	keys              func(audittest.Keys) audittest.Keys
+	keys              func(ringaudit.Keys) ringaudit.Keys
 	// nil keeps velocity off
 	velocity *velocityFixture
 }
@@ -829,7 +829,7 @@ type statement struct {
 	privateTxHash     *big.Int
 	publicInputHash   *big.Int
 
-	keys audittest.Keys
+	keys ringaudit.Keys
 }
 
 // newStatement builds a ring whose entries allow the recipient, hold no Frozen
@@ -930,7 +930,7 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.policyHash = s.policy().hash(t)
 
-	s.keys = audittest.DefaultKeys(t)
+	s.keys = ringaudit.DefaultKeys(t)
 	if f.keys != nil {
 		s.keys = f.keys(s.keys)
 	}

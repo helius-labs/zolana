@@ -1,5 +1,5 @@
-// Package audittest recomputes the audit block of package base on the host.
-package audittest
+// Package ringaudit recomputes the audit block of package base on the host.
+package ringaudit
 
 import (
 	stdaes "crypto/aes"

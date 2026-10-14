@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
@@ -17,7 +17,7 @@ func TestExportAeglosRingFixtures(t *testing.T) {
 	for variant := range 2 {
 		base := baseParams(t)
 		base.PrivateTxHash = big.NewInt(int64(1000 + variant))
-		keys := audittest.DefaultKeys(t)
+		keys := ringaudit.DefaultKeys(t)
 		elements := keys.ChainElementsFor(t, keys.AuditBlockWires(base.PrivateTxHash), int(base.NOut))
 		base.PublicInputHash = spptest.MustHashChain(t, elements)
 		baseWitness, err := base.CreateWitness()
