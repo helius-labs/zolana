@@ -1,5 +1,3 @@
-use borsh::BorshDeserialize;
-use zolana_event::OutputDataEncoding;
 use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
 
 use super::{
@@ -9,12 +7,8 @@ use super::{
 use crate::{
     error::TransactionError,
     keys::{DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::{
-        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        UtxoSerialization,
-    },
     utxo::SppProofInputUtxo,
-    EncryptedScheme, SppProofOutputUtxo,
+    SppProofOutputUtxo,
 };
 
 impl MergeTransaction {
@@ -98,36 +92,7 @@ impl MergeTransaction {
         }
         output_utxo.blinding = output_blinding;
         let salt = random_salt();
-        let mut output_data = Confidential::encode_plaintext(
-            &ConfidentialOutputPlaintext {
-                asset_id: output_utxo.asset.asset_id,
-                amount: output_utxo.amount,
-                blinding: output_utxo.blinding,
-                ring_program_id: output_utxo.ring_program_id,
-                data: output_utxo.data.clone(),
-            },
-            sender.signing_pubkey.confidential_view_tag()?,
-            &ConfidentialEncode {
-                tx: tx_viewing_key.clone(),
-                recipient_pubkey: sender.viewing_pubkey,
-                salt,
-                slot_index: 0,
-            },
-        )?;
-        if ring_program_id.is_some() {
-            let OutputDataEncoding::Encrypted(mut blob) =
-                OutputDataEncoding::try_from_slice(&output_data.data)
-                    .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-            else {
-                return Err(TransactionError::BadDiscriminator(
-                    EncryptedScheme::Confidential.as_byte(),
-                ));
-            };
-            *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                EncryptedScheme::RingConfidential.as_byte();
-            output_data.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-        }
+        let output_data = output_utxo.seal(0, tx_viewing_key, salt)?;
         let mut input_utxos = inputs.into_iter().map(SppProofInputUtxo::from).collect();
         pad_with_compact(
             &mut input_utxos,

@@ -1,6 +1,4 @@
-use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
 
@@ -14,7 +12,7 @@ use crate::{
         UtxoSerialization,
     },
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
-    Data, EncryptedScheme, SOL_ASSET_ID,
+    Data, SOL_ASSET_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,40 +101,10 @@ impl ConfidentialTransaction {
             .iter()
             .enumerate()
             .map(|(slot_index, output)| {
-                let Some(address) = output.owner_address else {
-                    return Ok(None);
-                };
-                let mut message = Confidential::encode_plaintext(
-                    &ConfidentialOutputPlaintext {
-                        asset_id: output.asset.asset_id,
-                        amount: output.amount,
-                        blinding: output.blinding,
-                        ring_program_id: output.ring_program_id,
-                        data: output.data.clone(),
-                    },
-                    address.signing_pubkey.confidential_view_tag()?,
-                    &ConfidentialEncode {
-                        tx: tx_viewing_key.clone(),
-                        recipient_pubkey: address.viewing_pubkey,
-                        salt,
-                        slot_index: slot_index as u32,
-                    },
-                )?;
-                if output.ring_program_id.is_some() {
-                    let OutputDataEncoding::Encrypted(mut blob) =
-                        OutputDataEncoding::try_from_slice(&message.data)
-                            .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-                    else {
-                        return Err(TransactionError::BadDiscriminator(
-                            EncryptedScheme::Confidential.as_byte(),
-                        ));
-                    };
-                    *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                        EncryptedScheme::RingConfidential.as_byte();
-                    message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                        .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-                }
-                Ok(Some(message))
+                output
+                    .owner_address
+                    .map(|_| output.seal(slot_index as u32, tx_viewing_key, salt))
+                    .transpose()
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
         let dummy_len = if self
