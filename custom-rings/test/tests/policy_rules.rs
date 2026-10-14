@@ -21,7 +21,6 @@ use custom_ring_test_validator::{
 };
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::ProverClient;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{AuditedTransaction, RingScan};
 use zolana_ring_policy::{EntryState, ListId, Member};
@@ -62,7 +61,6 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let prover = ProverClient::local();
     RegisterRing {
         ring,
         payer: &env.payer,
@@ -70,7 +68,7 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
         tier: Tier::policy(&RELEASED, env.tree),
     }
     .send(rpc)?;
-    let pinned = policy_config(ring, rpc)?;
+    let pinned = policy_config(ring, &env)?;
     assert_eq!(
         policy_config_table(&pinned)?,
         RELEASED,
@@ -113,20 +111,20 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
         env: &env,
     }
     .deposit()?;
-    enrol(ListId::Allow, sender_member).send(&prover)?;
+    enrol(ListId::Allow, sender_member).send()?;
     egress.input_utxo(sender, &notes[0]).expect_refusal()?;
-    enrol(ListId::Allow, owner_member(recipient)?).send(&prover)?;
-    egress.input_utxo(sender, &notes[0]).land(&prover)?;
+    enrol(ListId::Allow, owner_member(recipient)?).send()?;
+    egress.input_utxo(sender, &notes[0]).land()?;
 
     // 2. A Frozen sender is refused until its entry clears.
-    let frozen = enrol(ListId::Frozen, sender_member).send(&prover)?;
+    let frozen = enrol(ListId::Frozen, sender_member).send()?;
     egress.input_utxo(sender, &notes[1]).expect_refusal()?;
-    clear(frozen).send(&prover)?;
-    egress.input_utxo(sender, &notes[1]).land(&prover)?;
+    clear(frozen).send()?;
+    egress.input_utxo(sender, &notes[1]).land()?;
 
     // 3. Deposits are ungoverned ingress, the rows bound egress, and Block
     //    refuses the party's own change output even once Allow admits it.
-    let block = enrol(ListId::Block, blocked_member).send(&prover)?;
+    let block = enrol(ListId::Block, blocked_member).send()?;
     let note = RingNotes {
         ring,
         owner: &blocked,
@@ -139,10 +137,10 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     .next()
     .ok_or_else(|| anyhow!("the Block party's note"))?;
     egress.input_utxo(&blocked, &note).expect_refusal()?;
-    enrol(ListId::Allow, blocked_member).send(&prover)?;
+    enrol(ListId::Allow, blocked_member).send()?;
     egress.input_utxo(&blocked, &note).expect_refusal()?;
-    clear(block).send(&prover)?;
-    egress.input_utxo(&blocked, &note).land(&prover)?;
+    clear(block).send()?;
+    egress.input_utxo(&blocked, &note).land()?;
 
     Ok(())
 }
@@ -154,7 +152,6 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let prover = ProverClient::local();
     RegisterRing {
         ring,
         payer: &env.payer,
@@ -196,7 +193,7 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
         fee_payer: &env.payer,
         env: &env,
     }
-    .send(&prover)?;
+    .send()?;
     transfer(&notes[0]).expect_refusal()?;
     let cleared = EntryWrite {
         ring,
@@ -205,9 +202,9 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
         fee_payer: &env.payer,
         env: &env,
     }
-    .send_to(&prover, second)?;
+    .send_to(second)?;
     assert_eq!(cleared.tree_id, second.id);
-    let proven = transfer(&notes[0]).prove(&prover)?;
+    let proven = transfer(&notes[0]).prove(&env.client)?;
     let policy = proven
         .policy
         .as_ref()
@@ -216,7 +213,7 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
         policy.trees.iter().any(|tree| tree.tree == second.address),
         "the cleared entry binds the second tree"
     );
-    transfer(&notes[1]).land(&prover)?;
+    transfer(&notes[1]).land()?;
     Ok(())
 }
 
@@ -224,14 +221,12 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
 #[test]
 fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()> {
     let env = setup()?;
-    let rpc = env.client.rpc();
-    let indexer = env.client.indexer();
     let demo = DemoRing::init(&env, RELEASED_TOML)?;
     let ring = demo.ring;
 
     // 1. `init` pins the rows verbatim at generation 1 and registers the ring.
-    let config = ring
-        .read_config(rpc)?
+    let config = env
+        .run(ring.config(env.client.as_async()))?
         .ok_or_else(|| anyhow!("config after init"))?;
     assert_eq!(
         config.authority,
@@ -239,7 +234,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         "the config authority holds the config"
     );
     assert!(config.has_policy, "policy tier");
-    let policy = policy_config(ring, rpc)?;
+    let policy = policy_config(ring, &env)?;
     assert_eq!(
         policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"
@@ -266,20 +261,18 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         ));
     };
     assert_eq!(transfer.outputs.len(), 2, "change and recipient");
-    let address_tree_id = ring
-        .read_policy_config(env.client.rpc())?
-        .ok_or_else(|| anyhow!("policy config of {}", ring.program_id()))?
-        .address_tree_id();
+    let address_tree_id = policy_config(ring, &env)?.address_tree_id();
     for output in &transfer.outputs {
         assert_eq!(output.ring_program_id, Some(ring.program_id()));
-        let live = ReadEntry::new(
+        let read = ReadEntry::new(
             address_tree_id,
             ring.namespace_pda(),
             ListId::Allow,
             Member::owner_tag(&output.owner_tag)?,
-        )
-        .read(indexer)?
-        .ok_or_else(|| anyhow!("Allow entry of slot {}", output.slot_index))?;
+        );
+        let live = env
+            .run(read.read(env.client.as_async()))?
+            .ok_or_else(|| anyhow!("Allow entry of slot {}", output.slot_index))?;
         assert_eq!(
             live.entry.state,
             EntryState::Active,
@@ -314,11 +307,10 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
 #[test]
 fn a_blocked_token_refuses_every_transfer() -> Result<()> {
     let env = setup()?;
-    let rpc = env.client.rpc();
     let demo = DemoRing::init(&env, TOKEN_BLOCK_TOML)?;
 
     // 1. `init` pins the asset row at generation 1.
-    let policy = policy_config(demo.ring, rpc)?;
+    let policy = policy_config(demo.ring, &env)?;
     assert_eq!(
         policy.address_tree, demo.tree,
         "the policy pins the cli's default tree"

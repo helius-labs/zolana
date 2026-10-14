@@ -10,9 +10,6 @@ anyhow = { workspace = true }
 bincode = { workspace = true }
 custom-ring-cli = { path = "../cli" }
 custom-ring-interface = { workspace = true }
-# The auditor side under test: `audit_ring_transactions` is the call whose
-# returned plaintexts the lifecycle asserts against what the sender sent.
-custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
 hex = { workspace = true }
 solana-address = { workspace = true }

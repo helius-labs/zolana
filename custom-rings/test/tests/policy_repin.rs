@@ -3,8 +3,8 @@
 //! Approval entries.
 
 use anyhow::{anyhow, Result};
-use custom_ring_program::CustomRingError;
-use custom_ring_sdk::{policy_config_table, CustomRing, SetPolicyRules};
+use custom_ring_interface::CustomRingError;
+use custom_ring_sdk::{policy_config_table, CustomRing};
 use custom_ring_test_validator::{
     cli::{ListMember, ListWrite, RingProject, RingToml},
     policy::{
@@ -14,7 +14,6 @@ use custom_ring_test_validator::{
     shared::{send_expecting_rejection, ExpectRejection, TestEnv},
 };
 use solana_signer::Signer;
-use zolana_client::ProverClient;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_ring_policy::{EntryState, ListId};
@@ -56,7 +55,6 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     let env = &rings.env;
     let rpc = env.client.rpc();
     let ring = rings.subscriber;
-    let prover = ProverClient::local();
     let sender = &env.sender.keypair;
     let blocked = &env.recipient.keypair;
     let clean = ShieldedKeypair::new_ed25519()?;
@@ -64,7 +62,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
 
     // 1. `init` pins the Block row from `ring.toml` at generation 1.
     let project = init_subscriber(&rings, &block(FORBID_BLOCK_TOML, &rings))?;
-    let pinned = policy_config(ring, rpc)?;
+    let pinned = policy_config(ring, env)?;
     assert_eq!(policy_config_table(&pinned)?, BLOCK_ONLY);
     assert_eq!(pinned.generation(), 1);
     assert!(pinned.generation_slot() > 0);
@@ -90,7 +88,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     egress.to(blocked, &notes[0]).expect_refusal()?;
     let stale = egress
         .to(&clean, &notes[1])
-        .prove(&prover)
+        .prove(&env.client)
         .map_err(|error| anyhow!("proof under the pinned table failed {error}"))?;
 
     // 3. `policy check` reports the edited `ring.toml` until `policy set` lands
@@ -110,7 +108,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         project.policy_check()?.status.success(),
         "policy check disagrees after the re-pin"
     );
-    let repinned = policy_config(ring, rpc)?;
+    let repinned = policy_config(ring, env)?;
     assert_eq!(policy_config_table(&repinned)?, APPROVAL_OR_UNBLOCKED);
     assert_eq!(repinned.generation(), 2);
     assert!(repinned.generation_slot() > pinned.generation_slot());
@@ -139,25 +137,19 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         member: ListMember::Owner(blocked),
         state: EntryState::Active,
     })?;
-    egress.to(blocked, &notes[0]).land(&prover)?;
+    egress.to(blocked, &notes[0]).land()?;
 
     // 6. Only the upgrade authority re-pins.
     let stranger = env.funded_keypair()?;
     let rejection = ExpectRejection {
         payer: &stranger,
-        instructions: &[SetPolicyRules {
-            ring,
-            authority: stranger.pubkey(),
-            rules: &BLOCK_ONLY,
-            shared_sources: Vec::new(),
-        }
-        .instruction()?],
+        instructions: &[ring.set_policy_rules(stranger.pubkey(), &BLOCK_ONLY, &[])?],
     }
     .send(rpc)?;
     Rejection::custom(CustomRingError::UnauthorizedInitializer as u32)
         .at(0)
         .assert_client(&rejection);
-    let unchanged = policy_config(ring, rpc)?;
+    let unchanged = policy_config(ring, env)?;
     assert_eq!(
         unchanged.generation(),
         2,
@@ -175,7 +167,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         "--curator",
         &rings.curator.program_id().to_string(),
     ])?;
-    let repointed = policy_config(ring, rpc)?;
+    let repointed = policy_config(ring, env)?;
     assert_eq!(repointed.generation(), 3);
     assert!(repointed.generation_slot() > repinned.generation_slot());
     assert_eq!(
@@ -183,7 +175,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         Some(rings.curator.namespace_pda())
     );
     assert_eq!(policy_config_table(&repointed)?, APPROVAL_OR_UNBLOCKED);
-    egress.to(&clean, &notes[1]).land(&prover)?;
+    egress.to(&clean, &notes[1]).land()?;
     project.remove()?;
     Ok(())
 }
@@ -192,9 +184,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
 fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Result<()> {
     let rings = CuratedRings::setup()?;
     let env = &rings.env;
-    let rpc = env.client.rpc();
     let ring = rings.subscriber;
-    let prover = ProverClient::local();
     let sender = &env.sender.keypair;
     let recipient = &env.recipient.keypair;
     let egress = Egress { ring, sender, env };
@@ -208,7 +198,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
 
     // 1. The subscriber pins the mixed group with Block read from the curator.
     let project = init_subscriber(&rings, &block(CURATED_BLOCK_TOML, &rings))?;
-    let pinned = policy_config(ring, rpc)?;
+    let pinned = policy_config(ring, env)?;
     assert_eq!(policy_config_table(&pinned)?, APPROVAL_OR_UNBLOCKED);
     assert_eq!(pinned.generation(), 1);
     assert!(pinned.generation_slot() > 0);
@@ -238,7 +228,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
         },
         EntryState::Active,
     )
-    .send(&prover)?;
+    .send()?;
     egress.to(recipient, &notes[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
@@ -247,7 +237,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
         member: ListMember::Owner(recipient),
         state: EntryState::Active,
     })?;
-    egress.to(recipient, &notes[0]).land(&prover)?;
+    egress.to(recipient, &notes[0]).land()?;
 
     // 3. A cleared Approval entry admits nothing, the curator's Block entry
     //    refuses again.
@@ -262,8 +252,8 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
 
     // 4. The curator clearing its entry admits through the cleared-entry
     //    absence branch.
-    curator_block(EntryTarget::Successor(blocked), EntryState::Cleared).send(&prover)?;
-    egress.to(recipient, &notes[1]).land(&prover)?;
+    curator_block(EntryTarget::Successor(blocked), EntryState::Cleared).send()?;
+    egress.to(recipient, &notes[1]).land()?;
     project.remove()?;
     Ok(())
 }
