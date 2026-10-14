@@ -11982,7 +11982,6 @@ dependencies = [
  "zolana-hasher",
  "zolana-indexer-api",
  "zolana-interface",
- "zolana-ring-key-registry",
  "zolana-ring-policy",
 ]
 

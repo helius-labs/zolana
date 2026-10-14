@@ -6,7 +6,7 @@ use custom_ring_interface::{
 };
 use solana_address::Address;
 use zolana_indexer_api::ShieldedTransaction;
-use zolana_ring_policy::{entry_nullifier, spend_record_message_tag, ListNamespace, SpendRecord};
+use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
 pub enum Rail {
     Register { blinding: [u8; 32] },
@@ -83,7 +83,7 @@ impl Reconstruction<'_> {
             },
         )?;
         let nullifier = entry_nullifier(&output.output_context.hash.0, &spend.blinding)
-            .map_err(|error| anyhow::anyhow!("record nullifier derivation failed ({error:?})"))?;
+            .context("record nullifier derivation failed")?;
         let member = *spend.member.as_bytes();
         match rail {
             Rail::Register { blinding } => {
@@ -91,10 +91,8 @@ impl Reconstruction<'_> {
                     .accounts
                     .get(accounts::REGISTER_SPEND_PAYER)
                     .context("registration payer missing")?;
-                let expected_member = zolana_ring_policy::Member::owner_tag(&payer.to_bytes())
-                    .map_err(|error| {
-                        anyhow::anyhow!("registration member derivation failed ({error:?})")
-                    })?;
+                let expected_member = Member::owner_tag(&payer.to_bytes())
+                    .context("registration member derivation failed")?;
                 if member != *expected_member.as_bytes()
                     || spend.version != 0
                     || spend.blinding != blinding
@@ -104,10 +102,10 @@ impl Reconstruction<'_> {
                 }
             }
             Rail::Transfer => {
-                let ring_auth = zolana_interface::pda::ring_auth(instruction.program_id)
-                    .0
-                    .to_bytes();
-                if event.ring_config.as_ref().map(|key| key.0.to_bytes()) != Some(ring_auth) {
+                let ring_auth = zolana_interface::pda::ring_auth(instruction.program_id).0;
+                if event.ring_config.as_ref().map(|key| key.0.to_bytes())
+                    != Some(ring_auth.to_bytes())
+                {
                     bail!("SPP event belongs to another ring");
                 }
             }
@@ -137,42 +135,35 @@ pub fn successor(
     if output.view_tag.0 != context.namespace {
         bail!("spend-record output belongs to another namespace");
     }
-    let spend = match context.rail {
-        Rail::Register { .. } => SpendRecord::from_output_data(&output.payload.0)
-            .context("malformed registration spend record")?,
-        Rail::Transfer => {
-            if output.payload.0.first() != Some(&zolana_event::OutputDataEncoding::ENCRYPTED_TAG) {
-                bail!("transfer spend-record output is not confidential");
-            }
-            let tag = spend_record_message_tag(&context.namespace).map_err(|error| {
-                anyhow::anyhow!("spend-record message tag derivation failed ({error:?})")
-            })?;
-            let mut messages = event
-                .messages
-                .iter()
-                .filter(|message| message.view_tag.0 == tag);
-            let message = messages.next().context("spend-record message missing")?;
-            if messages.next().is_some() {
-                bail!("duplicate spend-record messages");
-            }
-            SpendRecord::from_output_data(&message.payload.0)
-                .context("malformed spend-record message")?
-        }
-    };
-    let owner = ListNamespace::new(&context.namespace)
-        .map_err(|error| anyhow::anyhow!("spend-record namespace derivation failed ({error:?})"))?;
-    let address = owner
-        .spend_address(&spend.member, context.address_tree_id)
-        .map_err(|error| anyhow::anyhow!("spend-record address derivation failed ({error:?})"))?;
+    if matches!(context.rail, Rail::Transfer)
+        && output.payload.0.first() != Some(&zolana_event::OutputDataEncoding::ENCRYPTED_TAG)
+    {
+        bail!("transfer spend-record output is not confidential");
+    }
     let tree_id = output.output_context.tree_id;
     if output.output_context.tree.0.to_bytes() != zolana_interface::pda::tree(tree_id).to_bytes() {
         bail!("spend-record output names a tree its id does not derive");
     }
-    let leaf = spend
-        .utxo_hash(&owner, &address, tree_id)
-        .map_err(|error| anyhow::anyhow!("spend-record leaf hash failed ({error:?})"))?;
-    if output.output_context.hash.0 != leaf {
-        bail!("spend-record message does not open its successor output");
-    }
-    Ok(spend)
+    let owner = ListNamespace::new(&context.namespace)
+        .context("spend-record namespace derivation failed")?;
+    let leaf = &output.output_context.hash.0;
+    Ok(match context.rail {
+        Rail::Register { .. } => {
+            let spend = SpendRecord::from_output_data(&output.payload.0)
+                .context("malformed registration spend record")?;
+            spend.opens(&owner, context.address_tree_id, leaf, tree_id)?;
+            spend
+        }
+        Rail::Transfer => SpendRecord::open_carrier(
+            &context.namespace,
+            &owner,
+            context.address_tree_id,
+            event
+                .messages
+                .iter()
+                .map(|message| (&message.view_tag.0, message.payload.0.as_slice())),
+            leaf,
+            tree_id,
+        )?,
+    })
 }

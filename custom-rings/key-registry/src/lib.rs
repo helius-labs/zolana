@@ -1,16 +1,10 @@
 //! Reconstructs key registry insertions against the root and append cursor stored on chain.
 
+pub use custom_ring_interface::FIELD_MAX;
 use custom_ring_interface::{KeyRegistryLeaf, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
 use thiserror::Error;
-use zolana_hasher::{primitives::BN254_SCALAR_MODULUS_BE, HasherError, Poseidon};
+use zolana_hasher::{HasherError, Poseidon};
 use zolana_merkle_tree::{MerkleTree, ReferenceMerkleTreeError};
-
-/// BN254 scalar field order minus one, the sentinel high member closing the list.
-pub const FIELD_MAX: [u8; 32] = {
-    let mut max = BN254_SCALAR_MODULUS_BE;
-    max[31] -= 1;
-    max
-};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum KeyRegistryError {
