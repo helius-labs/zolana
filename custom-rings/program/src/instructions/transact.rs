@@ -80,7 +80,6 @@ impl Rail {
         mut rest: AccountIterator<'_>,
         data: &[u8],
     ) -> ProgramResult {
-        // 1. Decode the statement and refuse public settlement on the delegate rail.
         let decoded: Box<CustomRingTransactIxData> = parse(data)?;
         let CustomRingTransactIxData {
             proof,
@@ -104,7 +103,6 @@ impl Rail {
             tree_indexes: revocation_tree_indexes,
         };
 
-        // 2. Select the statement from ring state, read the policy trees and the escrow registry.
         let config = *load::<RingProgramConfig>(program_id, controls.config)?;
         let policy = if config.has_policy != 0 {
             let binding = PolicyBinding::load(program_id, rest.next_account("policy_config")?)?;
@@ -154,7 +152,6 @@ impl Rail {
             None => revocations.require_empty()?,
         }
 
-        // 3. Enforce approval and public mint caps against the actual settlement legs.
         let rest = rest.remaining_mut()?;
         let leg_count = transact.interface_transfers.len();
         if rest.len() < leg_count {
@@ -191,7 +188,6 @@ impl Rail {
         }
         legs.apply_windows(program_id, windows)?;
 
-        // 4. Bind auditor disclosure to the SPP statement and its unique audit message.
         if !self.accepts(transact.circuit) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
@@ -220,7 +216,7 @@ impl Rail {
             disclosure: &message.disclosure,
         };
 
-        // 5. Verify the statement and the spend record before granting the namespace signature.
+        // The spend record is verified before the namespace signs.
         let (public_input, verifying_key, signers) = match (policy, namespace) {
             (Some((binding, trees, key_registry_root)), Some(namespace)) => {
                 let signers = match counters {
@@ -279,7 +275,7 @@ impl Rail {
         };
         verify_groth16(proof, public_input, verifying_key)?;
 
-        // 6. Settle through SPP, a failure rolls the window counters back.
+        // A failed settlement rolls the window counters back.
         let mut instruction_data = vec![self.spp_tag()];
         instruction_data.extend_from_slice(
             &transact

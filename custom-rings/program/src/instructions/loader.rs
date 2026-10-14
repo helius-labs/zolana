@@ -74,19 +74,6 @@ pub fn load_authorized_config<'a>(
     Ok(config)
 }
 
-#[inline(always)]
-pub fn load_authorized_config_mut<'a>(
-    program_id: &Address,
-    config: &'a mut AccountView,
-    authority: &AccountView,
-) -> Result<RefMut<'a, RingProgramConfig>, ProgramError> {
-    let config = load_mut::<RingProgramConfig>(program_id, config)?;
-    if authority.address() != &config.authority {
-        return Err(CustomRingError::UnauthorizedAuthority.into());
-    }
-    Ok(config)
-}
-
 /// A foreign-owned empty setting cannot switch the requirement off either.
 pub fn load_deposit_audit<'a>(
     program_id: &Address,

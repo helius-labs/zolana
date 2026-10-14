@@ -52,7 +52,7 @@ pub(crate) fn verify_deposit_disclosure(
     audited: &AuditedDeposit<'_>,
     deposit: &RingDepositIxDataRef<'_>,
 ) -> ProgramResult {
-    // 1. One capsule per output at its own index, all under one ephemeral key.
+    // One capsule per output at its own index, all under one ephemeral key.
     let invalid = CustomRingError::InvalidDepositDisclosure;
     let count = deposit.deposits.len();
     if !(1..=MAX_RING_DEPOSIT_AUDIT_SLOTS).contains(&count) {
@@ -72,7 +72,6 @@ pub(crate) fn verify_deposit_disclosure(
         owners[slot] = *entry.owner_utxo_hash;
         ciphertexts[slot] = *capsule.ciphertext;
     }
-    // 2. Bind the statement to this ring, the tree and the full SPP deposit bytes.
     let context_hash = DepositContext {
         program_id: program_id.as_array(),
         tree: tree.as_array(),
@@ -90,6 +89,6 @@ pub(crate) fn verify_deposit_disclosure(
     }
     .hash()
     .map_err(CustomRingError::from)?;
-    // 3. The auditor can recover the opening of each deposited owner commitment.
+    // The auditor can recover the opening of each deposited owner commitment.
     verify_groth16(&audited.proof, public_input, &VERIFYINGKEY)
 }

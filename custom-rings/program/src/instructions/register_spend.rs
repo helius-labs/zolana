@@ -19,12 +19,10 @@ pub fn process_register_spend_ix(
     data: &[u8],
 ) -> ProgramResult {
     let ix: RegisterSpendIxData = parse(data)?;
-    // 1. Require windowed velocity before claiming a member record.
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts, MutationKind::Claim)?;
     let window = FixedWindow {
         slots: NonZeroU64::new(parsed.window_slots).ok_or(CustomRingError::VelocityDisabled)?,
     };
-    // 2. The signer's genesis record, zero counters in the current window.
     let member =
         Member::owner_tag(parsed.payer.as_array()).map_err(|_| CustomRingError::HashingFailed)?;
     let address = parsed
@@ -40,7 +38,7 @@ pub fn process_register_spend_ix(
             .map_err(CustomRingError::from)?,
         blinding: ix.blinding,
     };
-    // 3. The address nullifier admits one record lineage per member.
+    // The address nullifier admits one record lineage per member.
     NamespaceWrite {
         output_hash: record
             .utxo_hash(&parsed.owner, &address, parsed.trees.output)

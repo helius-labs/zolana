@@ -38,10 +38,8 @@ pub fn process_set_spend_window_ix(
     let window_account = iter.next_mut("window")?;
     let system_program = iter.next_account("system_program")?;
 
-    // 1. Authorize the config signer before changing public settlement limits.
     check_system_program(system_program)?;
     load_authorized_config(program_id, config, authority)?;
-    // 2. Create or replace the mint's window, counters reset to the current period.
     let window_start_slot = window.start(Clock::get()?.slot).to_le_bytes();
     upsert(
         program_id,

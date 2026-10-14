@@ -27,7 +27,6 @@ pub fn process_register_key_ix(
     let config = iter.next_account("config")?;
     let root_account = iter.next_mut("key_registry_root")?;
 
-    // 1. Bind enrollment to the member signer, the current root and the append position.
     let mut root = load_mut::<KeyRegistryRoot>(program_id, root_account)?;
     let transition = RootTransition {
         expected_root: &ix.registry_old_root,
@@ -38,7 +37,6 @@ pub fn process_register_key_ix(
     let member = Member::owner_tag(member_signer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
     let auditor_pubkey = load::<RingProgramConfig>(program_id, config)?.auditor_pubkey;
-    // 2. Prove key encryption to the pinned auditor and insertion under the signed member.
     let public_input = RegisterKeyPublicInput {
         registry_old_root: &ix.registry_old_root,
         registry_new_root: &ix.registry_new_root,
@@ -56,7 +54,7 @@ pub fn process_register_key_ix(
         public_input,
         &register_key_verifying_key::VERIFYINGKEY,
     )?;
-    // 3. Commit the registry transition only after proof verification.
+    // The registry moves only after the proof verifies.
     transition.apply(&mut root);
     Ok(())
 }

@@ -26,7 +26,6 @@ pub fn process_create_key_registry_root_ix(
     let root = iter.next_mut("key_registry_root")?;
     let system_program = iter.next_account("system_program")?;
 
-    // The config authority initializes the shared registry once, it is never reset.
     check_system_program(system_program)?;
     load_authorized_config(program_id, config, authority)?;
     let bump = create_pda::<KeyRegistryRoot, 1>(program_id, payer, root, &[KeyRegistryRoot::SEED])?;

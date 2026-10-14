@@ -147,13 +147,11 @@ impl<'a> PublicLegs<'a> {
         program_id: &Address,
         windows: &mut [AccountView],
     ) -> ProgramResult {
-        // 1. Repeated mint legs must name the same window account.
         for (leg, window) in windows.iter().enumerate() {
             if window.address() != windows[self.first_leg(leg)].address() {
                 return Err(CustomRingError::InvalidSpendWindow.into());
             }
         }
-        // 2. Charge each mint's aggregate flows to its canonical window once.
         let slot = Clock::get()?.slot;
         for (leg, window) in windows.iter_mut().enumerate() {
             if self.first_leg(leg) != leg {

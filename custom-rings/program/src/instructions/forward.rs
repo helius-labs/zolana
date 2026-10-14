@@ -28,7 +28,6 @@ impl Forward {
         accounts: &mut [AccountView],
         data: &[u8],
     ) -> ProgramResult {
-        // 1. Load ring controls, disclosure is required by the deposit setting or key escrow.
         let mut iter = AccountIterator::new(accounts);
         let controls = Controls::next(&mut iter)?;
         let config = *load::<RingProgramConfig>(program_id, controls.config)?;
@@ -71,8 +70,6 @@ impl Forward {
         let (windows, spp_accounts) = rest.split_at_mut(leg_count);
         validate_spp_program(spp_accounts)?;
 
-        // 2. Verify disclosure against the actual destination, deposit bytes and
-        // registry root, then apply public approval and caps.
         if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
             let tree = spp_accounts
                 .first()
@@ -110,7 +107,7 @@ impl Forward {
         }
         legs.apply_windows(program_id, windows)?;
 
-        // 3. Authorize SPP settlement, any failure rolls the window counters back.
+        // A failed settlement rolls the window counters back.
         cpi_spp(program_id, spp_accounts, data, SppSigners::RingAuth)
     }
 }

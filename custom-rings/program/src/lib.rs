@@ -9,16 +9,7 @@ pub use custom_ring_interface::CustomRingError;
 use custom_ring_interface::InstructionTag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::instructions::{
-    forward::Forward, process_clear_cosigner_ix, process_clear_spend_window_ix,
-    process_create_config_ix, process_create_entry_ix, process_create_key_registry_root_ix,
-    process_create_policy_ix, process_delegate_transact_ix, process_grant_read_access_ix,
-    process_init_spp_ring_config_ix, process_register_key_ix, process_register_spend_ix,
-    process_revoke_read_access_ix, process_set_authority_ix, process_set_cosigner_ix,
-    process_set_delegate_ix, process_set_deposit_audit_ix, process_set_paused_ix,
-    process_set_policy_rules_ix, process_set_policy_source_ix, process_set_spend_window_ix,
-    process_transact_ix, process_update_entry_ix,
-};
+use crate::instructions::{forward::Forward, *};
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
 mod entrypoint {

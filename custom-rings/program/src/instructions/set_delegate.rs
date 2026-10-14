@@ -35,16 +35,15 @@ pub fn process_set_delegate_ix(
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
-    // 1. Only the upgrade authority installs a delegate, apart from auditor key ownership.
     check_system_program(system_program)?;
     check_upgrade_authority(program_id, authority, program, program_data)?;
-    // 2. Refuse replacement, permanence holds for the instructions of the deployed binary.
+    // The delegate is permanent for the instructions of the deployed binary.
     if delegate_account.data_len() != 0 {
         load::<Delegate>(program_id, delegate_account)?;
         return Err(CustomRingError::DelegateAlreadySet.into());
     }
     let bump = create_pda::<Delegate, 1>(program_id, payer, delegate_account, &[Delegate::SEED])?;
-    // 3. Escrow every output key in the registry the delegate recovers nullifier secrets from.
+    // The delegate recovers nullifier secrets from the registry every output key enrolls in.
     let mut ring = load_mut::<RingProgramConfig>(program_id, config)?;
     if ring.has_policy == 0 {
         return Err(CustomRingError::DelegateRequiresPolicy.into());

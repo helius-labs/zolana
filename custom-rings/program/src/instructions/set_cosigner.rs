@@ -17,7 +17,6 @@ pub fn process_set_cosigner_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    // 1. Validate the signer, supported scope and unique per-mint thresholds.
     let SetCoSignerIxData {
         signer,
         scope,
@@ -51,7 +50,6 @@ pub fn process_set_cosigner_ix(
     let cosigner = iter.next_mut("cosigner")?;
     let system_program = iter.next_account("system_program")?;
 
-    // 2. Only the config authority creates or replaces the requirement.
     check_system_program(system_program)?;
     load_authorized_config(program_id, config, authority)?;
     upsert(program_id, payer, cosigner, &[CoSigner::SEED], |bump| {
