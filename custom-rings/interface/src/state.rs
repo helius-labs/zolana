@@ -5,19 +5,144 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
+use crate::{error::CustomRingError, ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
 
-pub const CONFIG_PDA_SEED: &[u8] = b"config";
-pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
-/// Discriminator of [`RingProgramConfig`]. Value 0 stays reserved for
-/// uninitialized accounts.
-pub const RING_PROGRAM_CONFIG: u8 = 1;
-pub const READ_ACCESS_RECORD: u8 = 2;
+pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
+pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
+/// One slot per list the enum can name, all eight enter the hash.
+pub const N_SOURCE_SLOTS: usize = zolana_ring_policy::MAX_SOURCES;
 
-pub const DEPOSIT_AUDIT: u8 = 8;
+/// Root of the sentinel-only indexed tree, the value a fresh registry initializes to.
+pub const KEY_REGISTRY_EMPTY_ROOT: [u8; 32] = [
+    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
+    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
+];
 
-/// Optional ring setting requiring proven auditor disclosure on direct
-/// deposits.
+/// An account of the ring program, created only at its canonical PDA, so an
+/// owned account with the discriminator needs no address check.
+pub trait RingAccount: Pod + sealed::Sealed {
+    const DISCRIMINATOR: u8;
+    const SEED: &'static [u8];
+    const SIZE: usize = core::mem::size_of::<Self>();
+    /// Not an initialized account of the program.
+    const INVALID: CustomRingError;
+    /// Creation over an existing account.
+    const EXISTS: CustomRingError;
+    /// Not the canonical address.
+    const ADDRESS: CustomRingError;
+
+    fn bump(&self) -> u8;
+
+    /// Field invariants the setters keep.
+    fn valid(&self) -> bool {
+        true
+    }
+
+    /// The initialized account in `data`, `None` for another length or discriminator.
+    fn from_data(data: &[u8]) -> Option<&Self> {
+        bytemuck::try_from_bytes::<Self>(data)
+            .ok()
+            .filter(|account| data[0] == Self::DISCRIMINATOR && account.valid())
+    }
+
+    fn from_data_mut(data: &mut [u8]) -> Option<&mut Self> {
+        let initialized = data.first() == Some(&Self::DISCRIMINATOR);
+        bytemuck::try_from_bytes_mut::<Self>(data)
+            .ok()
+            .filter(|account| initialized && account.valid())
+    }
+
+    /// `program`'s initialized account for off-chain readers.
+    fn decode(owner: &Address, program: &Address, data: &[u8]) -> Option<Self> {
+        (owner == program)
+            .then(|| Self::from_data(data).copied())
+            .flatten()
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! ring_accounts {
+    ($(
+        $ty:ident = $disc:ident: $disc_value:literal, $seed:ident: $seed_value:literal,
+        $invalid:ident, $exists:ident, $address:ident $(, $valid:expr)?;
+    )*) => {$(
+        pub const $disc: u8 = $disc_value;
+        pub const $seed: &[u8] = $seed_value;
+
+        impl sealed::Sealed for $ty {}
+
+        impl $ty {
+            pub const SEED: &'static [u8] = $seed;
+            pub const SIZE: usize = core::mem::size_of::<Self>();
+        }
+
+        impl RingAccount for $ty {
+            const DISCRIMINATOR: u8 = $disc;
+            const SEED: &'static [u8] = $seed;
+            const INVALID: CustomRingError = CustomRingError::$invalid;
+            const EXISTS: CustomRingError = CustomRingError::$exists;
+            const ADDRESS: CustomRingError = CustomRingError::$address;
+
+            fn bump(&self) -> u8 {
+                self.bump
+            }
+
+            $(fn valid(&self) -> bool {
+                ($valid)(self)
+            })?
+        }
+
+        // Byte fields only, the `Pod` image is the account data with no padding.
+        const _: () = assert!(core::mem::align_of::<$ty>() == 1);
+    )*};
+}
+
+// Discriminator zero marks an uninitialized account.
+ring_accounts! {
+    RingProgramConfig = RING_PROGRAM_CONFIG: 1, CONFIG_PDA_SEED: b"config",
+        ConfigNotInitialized, ConfigAlreadyInitialized, InvalidConfigPda;
+    ReadAccessRecord = READ_ACCESS_RECORD: 2, READ_ACCESS_RECORD_PDA_SEED: b"reader",
+        InvalidReadAccessRecord, ReadAccessRecordAlreadyExists, InvalidReadAccessRecord;
+    PolicyConfig = POLICY_CONFIG: 3, POLICY_CONFIG_PDA_SEED: b"policy",
+        PolicyConfigNotInitialized, PolicyConfigAlreadyInitialized, InvalidPolicyConfigPda;
+    CoSigner = CO_SIGNER: 4, CO_SIGNER_PDA_SEED: b"cosigner",
+        InvalidCoSigner, InvalidCoSigner, InvalidCoSigner,
+        |signer: &CoSigner| usize::from(signer.threshold_count) <= MAX_CO_SIGNER_THRESHOLDS;
+    SpendWindow = SPEND_WINDOW: 5, SPEND_WINDOW_PDA_SEED: b"window",
+        InvalidSpendWindow, InvalidSpendWindow, InvalidSpendWindow;
+    Delegate = DELEGATE: 6, DELEGATE_PDA_SEED: b"delegate",
+        InvalidDelegate, DelegateAlreadySet, InvalidDelegate;
+    KeyRegistryRoot = KEY_REGISTRY_ROOT: 7, KEY_REGISTRY_ROOT_PDA_SEED: b"keyreg",
+        InvalidKeyRegistryRoot, KeyRegistryRootAlreadyExists, InvalidKeyRegistryRoot;
+    DepositAudit = DEPOSIT_AUDIT: 8, DEPOSIT_AUDIT_PDA_SEED: b"deposit_audit",
+        InvalidDepositAudit, InvalidDepositAudit, InvalidDepositAudit,
+        |audit: &DepositAudit| audit.required <= 1;
+}
+
+macro_rules! le_getters {
+    ($($ty:ident { $($field:ident: $int:ty),* })*) => {$(
+        impl $ty {
+            $(pub const fn $field(&self) -> $int {
+                <$int>::from_le_bytes(self.$field)
+            })*
+        }
+    )*};
+}
+
+le_getters! {
+    WithdrawalThresholdRow { amount: u64 }
+    KeyRegistryRoot { next_index: u64 }
+    SpendWindow {
+        window_slots: u64, deposit_cap: u64, withdrawal_cap: u64, window_start_slot: u64,
+        deposited: u64, withdrawn: u64
+    }
+    PolicyConfig { address_tree_id: u16, generation: u32, generation_slot: u64 }
+}
+
+/// Optional ring setting requiring proven auditor disclosure on direct deposits.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct DepositAudit {
@@ -26,16 +151,7 @@ pub struct DepositAudit {
     pub bump: u8,
 }
 
-impl DepositAudit {
-    pub const SEED: &'static [u8] = b"deposit_audit";
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-}
-
-const _: () = assert!(DepositAudit::SIZE == 3);
-
-/// The ring's singleton config: who may register the ring with SPP, and the
-/// auditor key every `transact` must verifiably encrypt the transaction viewing
-/// secret key to.
+/// Who may register the ring with SPP, and the auditor every `transact` encrypts to.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct RingProgramConfig {
@@ -55,18 +171,7 @@ pub enum KeyEscrow {
     Registry,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
-#[repr(C)]
-pub struct ReadAccessRecord {
-    pub discriminator: u8,
-    pub reader: ReaderKeyBytes,
-    pub bump: u8,
-}
-
 impl RingProgramConfig {
-    pub const SEED: &'static [u8] = CONFIG_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
     /// Any nonzero byte reads as on, escrow fails closed.
     pub const fn key_escrow(&self) -> KeyEscrow {
         match self.key_escrow {
@@ -76,27 +181,19 @@ impl RingProgramConfig {
     }
 }
 
-impl ReadAccessRecord {
-    pub const SEED: &'static [u8] = READ_ACCESS_RECORD_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct ReadAccessRecord {
+    pub discriminator: u8,
+    pub reader: ReaderKeyBytes,
+    pub bump: u8,
+}
 
+impl ReadAccessRecord {
     pub fn seed_hash(reader: &ReaderKeyBytes) -> Result<[u8; 32], HasherError> {
         Sha256::hash(reader)
     }
 }
-
-// Every field is byte-typed (`Address` is a 32-byte, align-1 newtype), so the
-// struct carries no padding: its `Pod` image is exactly its field bytes and
-// `SIZE` is the on-chain account length.
-const _: () = assert!(RingProgramConfig::SIZE == 69);
-const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
-const _: () = assert!(ReadAccessRecord::SIZE == 36);
-const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
-
-pub const CO_SIGNER_PDA_SEED: &[u8] = b"cosigner";
-/// First byte of an initialized co-signer account.
-pub const CO_SIGNER: u8 = 4;
-pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
 
 /// Nonzero subset of the class bits.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -145,8 +242,7 @@ pub struct WithdrawalThresholdRow {
     pub amount: [u8; 8],
 }
 
-/// Configured second signer and the public operation classes requiring
-/// approval.
+/// Configured second signer and the public operation classes requiring approval.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct CoSigner {
@@ -158,22 +254,16 @@ pub struct CoSigner {
     pub bump: u8,
 }
 
-impl WithdrawalThresholdRow {
-    pub const fn amount(&self) -> u64 {
-        u64::from_le_bytes(self.amount)
-    }
-}
-
 impl CoSigner {
-    pub const SEED: &'static [u8] = CO_SIGNER_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
     pub const fn scope(&self) -> CoSignScope {
         CoSignScope(self.scope)
     }
 
+    /// Empty for an overlong count, an unlisted mint always needs the co-signer.
     pub fn thresholds(&self) -> &[WithdrawalThresholdRow] {
-        &self.thresholds[..usize::from(self.threshold_count)]
+        self.thresholds
+            .get(..usize::from(self.threshold_count))
+            .unwrap_or_default()
     }
 
     pub fn threshold(&self, mint: &Address) -> Option<u64> {
@@ -184,15 +274,7 @@ impl CoSigner {
     }
 }
 
-const _: () = assert!(CoSigner::SIZE == 356);
-const _: () = assert!(core::mem::align_of::<CoSigner>() == 1);
-
-pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
-/// First byte of an initialized delegate account.
-pub const DELEGATE: u8 = 6;
-
-/// Solana signer authorized to move ring notes, separate from the auditor
-/// viewing key.
+/// Solana signer authorized to move ring notes, separate from the auditor viewing key.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Delegate {
@@ -200,25 +282,6 @@ pub struct Delegate {
     pub delegate: Address,
     pub bump: u8,
 }
-
-impl Delegate {
-    pub const SEED: &'static [u8] = DELEGATE_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-}
-
-const _: () = assert!(Delegate::SIZE == 34);
-const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
-
-/// Root of the sentinel-only indexed tree, the value a fresh registry initializes to.
-pub const KEY_REGISTRY_EMPTY_ROOT: [u8; 32] = [
-    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
-    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
-];
-
-pub const KEY_REGISTRY_ROOT_PDA_SEED: &[u8] = b"keyreg";
-/// First byte of an initialized key registry root account.
-pub const KEY_REGISTRY_ROOT: u8 = 7;
-pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
@@ -234,13 +297,6 @@ pub struct KeyRegistryRoot {
 }
 
 impl KeyRegistryRoot {
-    pub const SEED: &'static [u8] = KEY_REGISTRY_ROOT_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn next_index(&self) -> u64 {
-        u64::from_le_bytes(self.next_index)
-    }
-
     pub fn root(&self) -> Option<[u8; 32]> {
         self.root_at(self.history_cursor)
     }
@@ -254,19 +310,7 @@ impl KeyRegistryRoot {
     }
 }
 
-const _: () = assert!(KeyRegistryRoot::SIZE == 1035);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 1);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history_cursor) == 10);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history) == 11);
-const _: () = assert!(KEY_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
-const _: () = assert!(core::mem::align_of::<KeyRegistryRoot>() == 1);
-
-pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
-/// First byte of an initialized spend window.
-pub const SPEND_WINDOW: u8 = 5;
-
-/// Ring-wide public deposit and withdrawal counters for one mint and fixed
-/// window.
+/// Ring-wide public deposit and withdrawal counters for one mint and fixed window.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SpendWindow {
@@ -282,38 +326,6 @@ pub struct SpendWindow {
     pub withdrawn: [u8; 8],
     pub bump: u8,
 }
-
-impl SpendWindow {
-    pub const SEED: &'static [u8] = SPEND_WINDOW_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn window_slots(&self) -> u64 {
-        u64::from_le_bytes(self.window_slots)
-    }
-
-    pub const fn deposit_cap(&self) -> u64 {
-        u64::from_le_bytes(self.deposit_cap)
-    }
-
-    pub const fn withdrawal_cap(&self) -> u64 {
-        u64::from_le_bytes(self.withdrawal_cap)
-    }
-
-    pub const fn window_start_slot(&self) -> u64 {
-        u64::from_le_bytes(self.window_start_slot)
-    }
-
-    pub const fn deposited(&self) -> u64 {
-        u64::from_le_bytes(self.deposited)
-    }
-
-    pub const fn withdrawn(&self) -> u64 {
-        u64::from_le_bytes(self.withdrawn)
-    }
-}
-
-const _: () = assert!(SpendWindow::SIZE == 82);
-const _: () = assert!(core::mem::align_of::<SpendWindow>() == 1);
 
 /// Windows start at multiples of `slots`, the counters reset at each start.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -331,15 +343,7 @@ impl FixedWindow {
     }
 }
 
-/// Seed of the account pinning the policy hash and the source map.
-pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
-/// First byte of an initialized policy config.
-pub const POLICY_CONFIG: u8 = 3;
-/// One slot per list the enum can name, all eight enter the hash.
-pub const N_SOURCE_SLOTS: usize = zolana_ring_policy::MAX_SOURCES;
-
-/// One list's source, slot `i` is empty (`list_id == 0`) or serves list
-/// `i + 1`.
+/// One list's source, slot `i` is empty (`list_id == 0`) or serves list `i + 1`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SourceSlot {
@@ -372,26 +376,10 @@ pub struct PolicyConfig {
 }
 
 impl PolicyConfig {
-    pub const SEED: &'static [u8] = POLICY_CONFIG_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub fn address_tree_id(&self) -> u16 {
-        u16::from_le_bytes(self.address_tree_id)
-    }
-
-    /// The namespace owner serving `list_id`, `None` when the table does not
-    /// reference it.
+    /// The namespace serving `list_id`, `None` when the table does not reference it.
     pub fn source_for(&self, list_id: ListId) -> Option<Address> {
         let slot = self.sources[list_id.slot()];
         (slot.list_id != 0).then_some(slot.namespace)
-    }
-
-    pub const fn generation(&self) -> u32 {
-        u32::from_le_bytes(self.generation)
-    }
-
-    pub const fn generation_slot(&self) -> u64 {
-        u64::from_le_bytes(self.generation_slot)
     }
 
     pub fn rule_table(&self) -> Result<RuleTable, RuleTableError> {
@@ -399,9 +387,19 @@ impl PolicyConfig {
     }
 }
 
+const _: () = assert!(DepositAudit::SIZE == 3);
+const _: () = assert!(RingProgramConfig::SIZE == 69);
+const _: () = assert!(ReadAccessRecord::SIZE == 36);
+const _: () = assert!(CoSigner::SIZE == 356);
+const _: () = assert!(Delegate::SIZE == 34);
+const _: () = assert!(KeyRegistryRoot::SIZE == 1035);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 1);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history_cursor) == 10);
+const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history) == 11);
+const _: () = assert!(KEY_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
+const _: () = assert!(SpendWindow::SIZE == 82);
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
 const _: () = assert!(PolicyConfig::SIZE == 1604);
-const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, address_tree) == 33);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, address_tree_id) == 65);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 365);

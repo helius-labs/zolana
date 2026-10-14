@@ -32,3 +32,18 @@ fn ring_dispatch_tags_do_not_collide_with_forwarded_spp_tags() {
     let unique: std::collections::BTreeSet<_> = tags.into_iter().collect();
     assert_eq!(unique.len(), tags.len());
 }
+
+#[test]
+fn every_tag_names_one_instruction_and_its_budget() {
+    use custom_ring_interface::{compute_unit_limit, InstructionTag};
+    for value in 0..=u8::MAX {
+        if let Ok(tag) = InstructionTag::try_from(value) {
+            assert_eq!(tag as u8, value);
+            assert!((50_000..=1_400_000).contains(&compute_unit_limit(tag)));
+        }
+    }
+    assert_eq!(InstructionTag::try_from(0), Err(()));
+    assert_eq!(compute_unit_limit(InstructionTag::SetPaused), 50_000);
+    assert_eq!(compute_unit_limit(InstructionTag::CreatePolicy), 150_000);
+    assert_eq!(compute_unit_limit(InstructionTag::Transact), 1_400_000);
+}

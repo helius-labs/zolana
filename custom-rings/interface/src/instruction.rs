@@ -1,4 +1,6 @@
 use core::mem::MaybeUninit;
+
+use bytemuck::{Pod, Zeroable};
 use wincode::{
     config::ConfigCore,
     containers,
@@ -11,38 +13,6 @@ use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
 
 use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
-pub mod tag {
-    pub const CREATE_CONFIG: u8 = 1;
-    pub const INIT_SPP_RING_CONFIG: u8 = 2;
-    pub const TRANSACT: u8 = 3;
-    /// Rejected when verified deposit disclosure is required.
-    pub const DEPOSIT: u8 = zolana_interface::instruction::tag::RING_DEPOSIT;
-    /// SPP ring merge wire tag.
-    pub const MERGE: u8 = zolana_interface::instruction::tag::RING_MERGE_TRANSACT;
-    pub const GRANT_READ_ACCESS: u8 = 4;
-    pub const REVOKE_READ_ACCESS: u8 = 5;
-    pub const SET_AUTHORITY: u8 = 6;
-    pub const CREATE_POLICY: u8 = 7;
-    pub const CREATE_ENTRY: u8 = 8;
-    pub const UPDATE_ENTRY: u8 = 9;
-    pub const SET_POLICY_SOURCE: u8 = 10;
-    pub const SET_PAUSED: u8 = 11;
-    pub const SET_POLICY_RULES: u8 = 12;
-    /// Ring-local tags must not collide with the forwarded SPP deposit and merge tags.
-    pub const SET_CO_SIGNER: u8 = 27;
-    pub const CLEAR_CO_SIGNER: u8 = 21;
-    pub const SET_SPEND_WINDOW: u8 = 22;
-    pub const CLEAR_SPEND_WINDOW: u8 = 23;
-    pub const SET_DELEGATE: u8 = 24;
-    /// Tag 3 data over the SPP authority rail, signed by the delegate.
-    pub const DELEGATE_TRANSACT: u8 = 25;
-    pub const REGISTER_SPEND: u8 = 26;
-    pub const CREATE_KEY_REGISTRY_ROOT: u8 = 28;
-    pub const REGISTER_KEY: u8 = 29;
-    pub const SET_DEPOSIT_AUDIT: u8 = 30;
-    pub const AUDITED_DEPOSIT: u8 = 31;
-}
-
 /// Account slot indices the processors and the indexer agree on.
 pub mod accounts {
     pub const REGISTER_SPEND_PAYER: usize = 2;
@@ -52,17 +22,102 @@ pub mod accounts {
     pub const CREATE_KEY_REGISTRY_ROOT_ROOT: usize = 3;
 }
 
-pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_DELEGATE_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+macro_rules! instruction_tags {
+    ($($(#[$doc:meta])* $variant:ident = $tag:ident: $value:expr => $units:expr,)*) => {
+        pub mod tag {
+            $($(#[$doc])* pub const $tag: u8 = $value;)*
+        }
+
+        /// The first byte of the instruction data.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum InstructionTag {
+            $($variant = tag::$tag,)*
+        }
+
+        impl TryFrom<u8> for InstructionTag {
+            type Error = ();
+
+            fn try_from(value: u8) -> Result<Self, ()> {
+                match value {
+                    $(tag::$tag => Ok(Self::$variant),)*
+                    _ => Err(()),
+                }
+            }
+        }
+
+        /// The compute budget one instruction of `tag` declares.
+        pub const fn compute_unit_limit(tag: InstructionTag) -> u32 {
+            match tag {
+                $(InstructionTag::$variant => $units,)*
+            }
+        }
+    };
+}
+
+const ACCOUNT_UNITS: u32 = 50_000;
+/// One policy hash plus up to eight curator config loads.
+const POLICY_UNITS: u32 = 150_000;
+/// A ring proof, most also CPI into SPP and its own proof.
+const PROOF_UNITS: u32 = 1_400_000;
+
+instruction_tags! {
+    CreateConfig = CREATE_CONFIG: 1 => ACCOUNT_UNITS,
+    InitSppRingConfig = INIT_SPP_RING_CONFIG: 2 => ACCOUNT_UNITS,
+    Transact = TRANSACT: 3 => PROOF_UNITS,
+    /// Rejected when verified deposit disclosure is required.
+    Deposit = DEPOSIT: zolana_interface::instruction::tag::RING_DEPOSIT => 200_000,
+    Merge = MERGE: zolana_interface::instruction::tag::RING_MERGE_TRANSACT => PROOF_UNITS,
+    GrantReadAccess = GRANT_READ_ACCESS: 4 => ACCOUNT_UNITS,
+    RevokeReadAccess = REVOKE_READ_ACCESS: 5 => ACCOUNT_UNITS,
+    SetAuthority = SET_AUTHORITY: 6 => ACCOUNT_UNITS,
+    CreatePolicy = CREATE_POLICY: 7 => POLICY_UNITS,
+    CreateEntry = CREATE_ENTRY: 8 => PROOF_UNITS,
+    UpdateEntry = UPDATE_ENTRY: 9 => PROOF_UNITS,
+    SetPolicySource = SET_POLICY_SOURCE: 10 => POLICY_UNITS,
+    SetPaused = SET_PAUSED: 11 => ACCOUNT_UNITS,
+    SetPolicyRules = SET_POLICY_RULES: 12 => POLICY_UNITS,
+    /// Ring-local tags must not collide with the forwarded SPP deposit and merge tags.
+    SetCoSigner = SET_CO_SIGNER: 27 => ACCOUNT_UNITS,
+    ClearCoSigner = CLEAR_CO_SIGNER: 21 => ACCOUNT_UNITS,
+    SetSpendWindow = SET_SPEND_WINDOW: 22 => ACCOUNT_UNITS,
+    ClearSpendWindow = CLEAR_SPEND_WINDOW: 23 => ACCOUNT_UNITS,
+    SetDelegate = SET_DELEGATE: 24 => ACCOUNT_UNITS,
+    /// Tag 3 data over the SPP authority rail, signed by the delegate.
+    DelegateTransact = DELEGATE_TRANSACT: 25 => PROOF_UNITS,
+    RegisterSpend = REGISTER_SPEND: 26 => PROOF_UNITS,
+    CreateKeyRegistryRoot = CREATE_KEY_REGISTRY_ROOT: 28 => ACCOUNT_UNITS,
+    RegisterKey = REGISTER_KEY: 29 => PROOF_UNITS,
+    SetDepositAudit = SET_DEPOSIT_AUDIT: 30 => ACCOUNT_UNITS,
+    AuditedDeposit = AUDITED_DEPOSIT: 31 => PROOF_UNITS,
+}
+
+macro_rules! unit_limits {
+    ($($name:ident = $variant:ident,)*) => {
+        $(pub const $name: u32 = compute_unit_limit(InstructionTag::$variant);)*
+    };
+}
+
+// Names of the current callers, `compute_unit_limit` replaces them.
+unit_limits! {
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT = CreateConfig,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT = GrantReadAccess,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = InitSppRingConfig,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT = SetAuthority,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT = SetPaused,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT = SetCoSigner,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT = SetSpendWindow,
+    SET_DELEGATE_COMPUTE_UNIT_LIMIT = SetDelegate,
+    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT = CreateKeyRegistryRoot,
+    SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT = SetDepositAudit,
+    AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT = AuditedDeposit,
+    CREATE_POLICY_COMPUTE_UNIT_LIMIT = CreatePolicy,
+    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = SetPolicyRules,
+    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = CreateEntry,
+    REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RegisterSpend,
+    REGISTER_KEY_COMPUTE_UNIT_LIMIT = RegisterKey,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = SetPolicySource,
+}
 
 /// Config-authority change to the direct-deposit disclosure requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -115,10 +170,9 @@ pub struct SetSpendWindowIxData {
     pub withdrawal_cap: u64,
 }
 
-/// Groth16 proof of the custom-ring circuit. The circuit's emulated P256
-/// arithmetic adds one BSB22 commitment, so the commitment and its
-/// proof-of-knowledge are not optional here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+/// Emulated P256 adds one BSB22 commitment, its point and proof of knowledge are mandatory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable, SchemaRead, SchemaWrite)]
+#[repr(C)]
 pub struct CustomRingProof {
     pub groth16: PlainGroth16Proof,
     pub commitment: [u8; 32],
@@ -126,11 +180,14 @@ pub struct CustomRingProof {
 }
 
 impl CustomRingProof {
-    pub const SIZE: usize = 192;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
 }
 
+const _: () = assert!(CustomRingProof::SIZE == 192);
+
 /// Compressed Groth16 points without the audited circuits' BSB22 commitment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable, SchemaRead, SchemaWrite)]
+#[repr(C)]
 pub struct PlainGroth16Proof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
@@ -143,8 +200,7 @@ pub struct KeyRegistryTransition {
     pub new_root: [u8; 32],
 }
 
-/// Wire format of tag 3, the ring's own proof followed by the SPP content this
-/// ring forwards verbatim.
+/// Tag 3, the ring's own proof followed by the SPP content it forwards verbatim.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
     pub proof: CustomRingProof,
@@ -210,47 +266,15 @@ fn revocation_target_prefix_len(targets: &[[u8; 32]; ANSWER_SLOTS]) -> usize {
         .map_or(0, |index| index + 1)
 }
 
-/// Covers one v2 hash pin plus up to eight curator config loads.
-pub const CREATE_POLICY_COMPUTE_UNIT_LIMIT: u32 = 150_000;
-pub const SET_POLICY_RULES_COMPUTE_UNIT_LIMIT: u32 = 150_000;
-/// Entry mutations CPI a full SPP transact with its proof verification.
-pub const ENTRY_MUTATION_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
-
-/// `source` 0 is the ring's own entries, `1 + i` the `i`-th trailing curator
-/// policy config account.
+/// `source` 0 is the ring's own entries, `1 + i` the `i`-th trailing curator policy config.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SourceSpec {
     pub list_id: u8,
     pub source: u8,
 }
 
-/// Private outflow cap and per-transfer approval threshold for one asset.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct VelocityRowIxData {
-    pub asset: [u8; 32],
-    pub cap: u64,
-    pub cosign_above: u64,
-}
-
-impl From<&VelocityRowIxData> for VelocityRow {
-    fn from(row: &VelocityRowIxData) -> Self {
-        Self {
-            asset: row.asset,
-            cap: row.cap,
-            cosign_above: row.cosign_above,
-        }
-    }
-}
-
-impl From<&VelocityRow> for VelocityRowIxData {
-    fn from(row: &VelocityRow) -> Self {
-        Self {
-            asset: row.asset,
-            cap: row.cap,
-            cosign_above: row.cosign_above,
-        }
-    }
-}
+/// The row type `PolicyTableIxData` carries.
+pub type VelocityRowIxData = VelocityRow;
 
 /// Policy parameters must reproduce the configured policy hash.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -264,11 +288,9 @@ pub struct PolicyTableIxData {
     #[wincode(with = "containers::Vec<u64, FixIntLen<u8>>")]
     pub inline_limits: Vec<u64>,
     pub window_slots: u64,
-    #[wincode(with = "containers::Vec<VelocityRowIxData, FixIntLen<u8>>")]
-    pub velocity: Vec<VelocityRowIxData>,
+    #[wincode(with = "containers::Vec<VelocityRow, FixIntLen<u8>>")]
+    pub velocity: Vec<VelocityRow>,
 }
-
-pub const REGISTER_SPEND_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterSpendIxData {
@@ -280,11 +302,7 @@ pub struct RegisterSpendIxData {
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
 }
 
-/// One BSB22 verify over the audited encryption of a member's nullifier key.
-pub const REGISTER_KEY_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
-
-/// Proven enrollment of a member's auditor-encrypted nullifier key in the
-/// registry.
+/// Proven enrollment of a member's auditor-encrypted nullifier key in the registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterKeyIxData {
     pub proof: CustomRingProof,
@@ -299,11 +317,7 @@ pub struct RegisterKeyIxData {
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
-/// One hash over the stored rows plus one curator verification.
-pub const SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT: u32 = 150_000;
-
-/// `source` 0 is the ring's own entries, 1 the single trailing curator policy
-/// config account.
+/// `source` 0 is the ring's own entries, 1 the single trailing curator policy config.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPolicySourceIxData {
     pub list_id: u8,
@@ -325,8 +339,7 @@ pub struct CreateEntryIxData {
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
 }
 
-/// The spent fields reconstruct the live version, a wrong reconstruction is a
-/// leaf the SPP proof cannot include.
+/// The spent fields rebuild the live version, a wrong one is a leaf no SPP proof includes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UpdateEntryIxData {
     pub list_id: u8,

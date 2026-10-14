@@ -191,6 +191,17 @@ fn zeroed_upgrade_authority_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedInitializer));
 }
 
+/// The zero address holds no key, a zero authority locks initialization.
+#[test]
+fn a_zero_upgrade_authority_cannot_initialize_as_itself() {
+    let (mollusk, _) = setup_mollusk();
+    let zero = Pubkey::new_from_array([0; 32]);
+    let mut fixture = create_config_fixture_deployed_by(auditor_pubkey(2), Some(&zero));
+    fixture.substitute("authority", zero);
+    fixture.sign("authority");
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedInitializer));
+}
+
 #[test]
 fn foreign_program_data_account_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

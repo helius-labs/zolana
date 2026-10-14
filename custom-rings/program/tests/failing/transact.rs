@@ -171,21 +171,25 @@ fn non_canonical_config_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
 
+/// Owner and discriminator stand in for the address, the program creates
+/// configs only at the canonical PDA.
 #[test]
-fn config_with_a_wrong_bump_is_rejected_exactly() {
+fn a_foreign_owned_or_mistagged_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut config = valid_config();
-    let state =
-        bytemuck::from_bytes_mut::<custom_ring_interface::RingProgramConfig>(&mut config.data);
-    state.bump ^= 1;
-    let fixture = transact_fixture(
-        config,
-        instruction_data(
-            bogus_proof(),
-            transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]),
-        ),
-    );
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidConfigPda));
+    let mut foreign = valid_config();
+    foreign.owner = Pubkey::new_from_array([69; 32]);
+    let mut mistagged = valid_config();
+    mistagged.data[0] = custom_ring_interface::POLICY_CONFIG;
+    for config in [foreign, mistagged] {
+        let fixture = transact_fixture(
+            config,
+            instruction_data(
+                bogus_proof(),
+                transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]),
+            ),
+        );
+        fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
+    }
 }
 
 #[test]
@@ -325,6 +329,25 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
     )];
     let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+}
+
+#[test]
+fn confidential_output_to_a_reserved_derivation_key_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    for key in [
+        zolana_interface::P_CONST_SEC1,
+        zolana_interface::P_DERIVE_SEC1,
+        zolana_interface::P_PDA_SEC1,
+    ] {
+        let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+        data.outputs = vec![confidential_output(
+            RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+            key,
+            &[9],
+        )];
+        let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
+        fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+    }
 }
 
 #[test]

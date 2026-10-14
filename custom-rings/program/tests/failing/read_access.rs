@@ -228,12 +228,14 @@ fn revoke_of_a_non_canonical_record_is_rejected() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
+/// Owner, discriminator and the stored reader stand in for the address.
 #[test]
-fn revoke_of_a_record_with_a_wrong_bump_is_rejected() {
+fn revoke_of_a_mistagged_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = revoke_read_access_fixture(&reader());
     let mut entry = initialized_reader_account(&reader());
-    bytemuck::from_bytes_mut::<ReadAccessRecord>(&mut entry.data).bump ^= 1;
+    bytemuck::from_bytes_mut::<ReadAccessRecord>(&mut entry.data).discriminator =
+        custom_ring_interface::CO_SIGNER;
     fixture.set_account("read_access_record", entry);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }

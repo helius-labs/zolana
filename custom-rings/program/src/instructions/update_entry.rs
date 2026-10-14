@@ -1,26 +1,20 @@
-use custom_ring_interface::UpdateEntryIxData;
+use custom_ring_interface::{CustomRingError, UpdateEntryIxData};
 use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TreeContext};
-use zolana_program::TransactInputs;
 use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 
-use crate::{
-    error::CustomRingError,
-    instructions::policy_shared::{
-        cpi_spp_namespace_signed, EntryTransition, MutationAccounts, MutationKind,
-    },
+use crate::instructions::{
+    policy_shared::{MutationAccounts, MutationKind, NamespaceWrite, Spend},
+    shared::parse,
 };
 
-/// Spends the live version and recreates the entry at the same address with
-/// the version raised by one, in one SPP transact.
+/// Spends the live version and recreates the entry at its address one version up.
 #[inline(never)]
 pub fn process_update_entry_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: UpdateEntryIxData =
-        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let ix: UpdateEntryIxData = parse(data)?;
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
     let spent_state =
         EntryState::try_from(ix.spent_state).map_err(|_| CustomRingError::InvalidEntryState)?;
@@ -32,9 +26,7 @@ pub fn process_update_entry_ix(
     }
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts, MutationKind::Replace)?;
-    parsed.check_source(list_id)?;
-    parsed.check_mutator(list_id, &member)?;
-
+    parsed.check_writer(list_id, &member)?;
     let spent = ListEntry {
         list_id,
         member,
@@ -43,41 +35,25 @@ pub fn process_update_entry_ix(
         content_hash: ix.spent_content_hash,
         blinding: ix.spent_blinding,
     };
-    let (spent_hash, nullifier) = parsed.trees.spent_entry(&parsed.owner, &spent)?;
-    let version = ix
-        .spent_version
-        .checked_add(1)
-        .ok_or(CustomRingError::EntryVersionOverflow)?;
-    let transact = EntryTransition {
-        entry: ListEntry {
-            list_id,
-            member,
-            state,
-            version,
-            content_hash: ix.content_hash,
-            blinding: ix.blinding,
-        },
-        inputs: TransactInputs {
-            inputs: vec![InputUtxo {
-                nullifier_hash: nullifier,
-                tree_index: 0,
-            }],
-            tree_contexts: vec![TreeContext {
-                utxo_tree_root_index: ix.utxo_tree_root_index,
-                nullifier_tree_root_index: ix.nullifier_tree_root_index,
-            }],
-        },
-        input_hash: spent_hash,
-        address_nullifier: [0u8; 32],
+    let (leaf, nullifier) = parsed.trees.spent_entry(&parsed.owner, &spent)?;
+    let entry = ListEntry {
+        state,
+        version: ix
+            .spent_version
+            .checked_add(1)
+            .ok_or(CustomRingError::EntryVersionOverflow)?,
+        content_hash: ix.content_hash,
+        blinding: ix.blinding,
+        ..spent
+    };
+    NamespaceWrite {
+        output_hash: parsed.trees.written_entry(&parsed.owner, &entry)?,
+        content: &entry.to_output_data(),
+        spend: Spend::Replace { leaf, nullifier },
         private_tx_blinding: ix.private_tx_blinding,
+        nullifier_tree_root_index: ix.nullifier_tree_root_index,
+        utxo_tree_root_index: ix.utxo_tree_root_index,
         proof: ix.proof,
     }
-    .into_transact(&parsed)?;
-
-    cpi_spp_namespace_signed(
-        &parsed.namespace_address,
-        parsed.namespace_bump,
-        accounts,
-        &transact,
-    )
+    .send(program_id, &parsed, accounts)
 }

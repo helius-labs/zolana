@@ -1,14 +1,15 @@
-use custom_ring_interface::Delegate;
+use custom_ring_interface::{
+    CustomRingError, Delegate, KeyRegistryRoot, RingProgramConfig, DELEGATE,
+};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
-    error::CustomRingError,
     instructions::{
-        loader::{load_config_mut, load_delegate, load_key_registry_root, UpgradeAuthorityCheck},
-        shared::PdaCreate,
+        loader::{check_upgrade_authority, load, load_mut},
+        shared::{check_system_program, create_pda},
     },
-    state::DelegateInitParams,
+    state::Init,
 };
 
 #[inline(never)]
@@ -27,51 +28,34 @@ pub fn process_set_delegate_ix(
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
-    let config_account = iter.next_mut("config")?;
+    let config = iter.next_mut("config")?;
     let delegate_account = iter.next_mut("delegate_pda")?;
     let key_registry_root = iter.next_account("key_registry_root")?;
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
-    // 1. Only the upgrade authority may install a delegate, separate from
-    // auditor key ownership.
-    if !pinocchio_system::check_id(system_program.address()) {
-        return Err(CustomRingError::InvalidSystemProgram.into());
-    }
-    UpgradeAuthorityCheck {
-        program_id,
-        authority,
-        program,
-        program_data,
-    }
-    .verify()?;
-    // 2. Refuse replacement, permanence holds for the instructions in the
-    // deployed binary.
-    if load_delegate(program_id, delegate_account)?.is_some() {
+    // 1. Only the upgrade authority installs a delegate, apart from auditor key ownership.
+    check_system_program(system_program)?;
+    check_upgrade_authority(program_id, authority, program, program_data)?;
+    // 2. Refuse replacement, permanence holds for the instructions of the deployed binary.
+    if delegate_account.data_len() != 0 {
+        load::<Delegate>(program_id, delegate_account)?;
         return Err(CustomRingError::DelegateAlreadySet.into());
     }
-    // 3. Escrow every output key in the registry the delegate recovers
-    // nullifier secrets from.
-    let mut config = load_config_mut(program_id, config_account)?;
-    if config.has_policy == 0 {
+    let bump = create_pda::<Delegate, 1>(program_id, payer, delegate_account, &[Delegate::SEED])?;
+    // 3. Escrow every output key in the registry the delegate recovers nullifier secrets from.
+    let mut ring = load_mut::<RingProgramConfig>(program_id, config)?;
+    if ring.has_policy == 0 {
         return Err(CustomRingError::DelegateRequiresPolicy.into());
     }
-    load_key_registry_root(program_id, key_registry_root)?;
-    config.key_escrow = 1;
-    drop(config);
-
-    // 4. Store the Solana signer at the canonical delegate PDA.
-    let bump = PdaCreate {
-        program_id,
-        payer,
-        seeds: &[Delegate::SEED],
-        mismatch: CustomRingError::InvalidDelegate,
-    }
-    .create::<Delegate>(delegate_account)?;
-    DelegateInitParams {
+    load::<KeyRegistryRoot>(program_id, key_registry_root)?;
+    ring.key_escrow = 1;
+    drop(ring);
+    Init(&Delegate {
+        discriminator: DELEGATE,
         delegate: Address::new_from_array(delegate),
         bump,
-    }
+    })
     .init(delegate_account)
 }

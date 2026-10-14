@@ -1,3 +1,4 @@
+use custom_ring_interface::CustomRingError;
 use pinocchio::{error::ProgramError, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
@@ -6,10 +7,7 @@ use zolana_interface::{
 };
 use zolana_ring_policy::ANSWER_SLOTS;
 
-use crate::{
-    error::CustomRingError,
-    instructions::{loader::load_policy_tree_slot, shared::PdaCheck},
-};
+use crate::instructions::{loader::load_policy_tree_slot, shared::verify_pda};
 
 /// Distinct SPP trees a policy statement reads list facts from, in slot order.
 pub(crate) struct PolicyTrees {
@@ -66,13 +64,12 @@ impl RevocationTargets<'_> {
                 .get(usize::from(index))
                 .ok_or(CustomRingError::InvalidRevocationTreeIndex)?;
             let account = accounts.next_account("revocation_target")?;
-            PdaCheck {
-                program_id: &spp,
-                address: account.address(),
-                seeds: &[NULLIFIER_PDA_SEED, tree.as_array(), target],
-                mismatch: CustomRingError::InvalidRevocationTarget,
-            }
-            .verify()?;
+            verify_pda(
+                &spp,
+                account.address(),
+                &[NULLIFIER_PDA_SEED, tree.as_array(), target],
+                CustomRingError::InvalidRevocationTarget,
+            )?;
             if !pinocchio_system::check_id(account.owner()) || account.data_len() != 0 {
                 return Err(CustomRingError::PolicyFactRevoked.into());
             }

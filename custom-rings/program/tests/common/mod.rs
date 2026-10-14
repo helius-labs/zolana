@@ -1192,7 +1192,7 @@ pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxDa
         inline_assets: rules.inline_assets().to_vec(),
         inline_limits: rules.inline_limits().to_vec(),
         window_slots: rules.window_slots(),
-        velocity: rules.velocity().iter().map(Into::into).collect(),
+        velocity: rules.velocity().to_vec(),
     }
 }
 

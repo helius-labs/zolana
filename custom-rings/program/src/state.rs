@@ -1,110 +1,47 @@
-use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
-    WithdrawalThresholdRow, CO_SIGNER, DELEGATE, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_EMPTY_ROOT,
-    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
-    POLICY_CONFIG, SPEND_WINDOW,
+    CustomRingError, KeyRegistryRoot, ReaderKeyBytes, RingAccount, KEY_REGISTRY_CAPACITY,
+    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, READER_KEY_ED25519,
+    READER_KEY_P256,
 };
-use custom_ring_interface::{DepositAudit, DEPOSIT_AUDIT};
-use custom_ring_interface::{
-    ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
-    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-};
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
 };
-use zolana_ring_policy::EncodedRuleTable;
 
-use crate::error::CustomRingError;
+/// Writes `T` into a freshly created account.
+pub(crate) struct Init<'a, T>(pub &'a T);
 
-pub(crate) trait Account: Pod + sealed::Sealed {
-    const DISCRIMINATOR: u8;
-    const SIZE: usize = core::mem::size_of::<Self>();
-    const NOT_INITIALIZED: CustomRingError;
-    const ALREADY_INITIALIZED: CustomRingError;
-    const WRONG_SIZE: CustomRingError;
-
-    fn discriminator(&self) -> u8;
-    fn bump(&self) -> u8;
-}
-
-impl Account for DepositAudit {
-    const DISCRIMINATOR: u8 = DEPOSIT_AUDIT;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDepositAudit;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidDepositAudit;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDepositAudit;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Initial disclosure requirement stored at the canonical deposit-audit PDA.
-pub(crate) struct DepositAuditInit {
-    pub required: u8,
-    pub bump: u8,
-}
-
-impl DepositAuditInit {
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            DepositAudit {
-                discriminator: DEPOSIT_AUDIT,
-                required: self.required,
-                bump: self.bump,
-            },
-        )
-    }
-}
-
-impl Account for RingProgramConfig {
-    const DISCRIMINATOR: u8 = RING_PROGRAM_CONFIG;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::ConfigNotInitialized;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ConfigAlreadyInitialized;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidConfigPda;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Values written into a freshly created config account.
-pub(crate) struct RingProgramConfigInitParams {
-    pub authority: Address,
-    pub auditor_pubkey: [u8; 33],
-    pub bump: u8,
-    pub has_policy: u8,
-}
-
-impl RingProgramConfigInitParams {
+impl<T: RingAccount> Init<'_, T> {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            RingProgramConfig {
-                discriminator: RING_PROGRAM_CONFIG,
-                authority: self.authority,
-                auditor_pubkey: self.auditor_pubkey,
-                bump: self.bump,
-                has_policy: self.has_policy,
-                key_escrow: 0,
-            },
-        )
+        let mut data = account.try_borrow_mut().map_err(|_| T::EXISTS)?;
+        if data.len() != T::SIZE {
+            return Err(T::ADDRESS.into());
+        }
+        // A nonzero first byte is a live discriminator, never overwrite it.
+        if data[0] != 0 {
+            return Err(T::EXISTS.into());
+        }
+        data.copy_from_slice(bytemuck::bytes_of(self.0));
+        Ok(())
     }
 }
 
-/// Curve membership is the sdk's job, an off-curve key only fails its own ring closed.
+/// Leaf 0 holds the sentinel, appends start at index 1.
+pub(crate) const fn empty_key_registry_root(bump: u8) -> KeyRegistryRoot {
+    let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
+    history[0] = KEY_REGISTRY_EMPTY_ROOT;
+    KeyRegistryRoot {
+        discriminator: KEY_REGISTRY_ROOT,
+        next_index: 1u64.to_le_bytes(),
+        bump,
+        history_cursor: 0,
+        history,
+    }
+}
+
+/// Curve membership is the SDK's job, an off-curve key only fails its own ring closed.
 pub(crate) fn is_p256_key(key: &[u8; 33]) -> bool {
     matches!(key[0], 0x02 | 0x03) && !zolana_interface::is_reserved_p256_derivation_point(key)
 }
@@ -144,252 +81,6 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
         && multiply_edwards(&SUBGROUP_ORDER_MINUS_ONE, &point)
             .and_then(|multiple| add_edwards(&multiple, &point))
             .is_some_and(|point| point == IDENTITY)
-}
-
-impl Account for ReadAccessRecord {
-    const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Authorizes a reader to query the ring's auditor view.
-pub(crate) struct ReadAccessRecordInitParams {
-    pub reader: ReaderKeyBytes,
-    pub bump: u8,
-}
-
-impl ReadAccessRecordInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            ReadAccessRecord {
-                discriminator: READ_ACCESS_RECORD,
-                reader: self.reader,
-                bump: self.bump,
-            },
-        )
-    }
-}
-
-impl Account for PolicyConfig {
-    const DISCRIMINATOR: u8 = POLICY_CONFIG;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::PolicyConfigNotInitialized;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::PolicyConfigAlreadyInitialized;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidPolicyConfigPda;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Written field by field, a whole `PolicyConfig` exceeds the SBF stack frame.
-pub(crate) struct PolicyConfigInit<'a> {
-    pub policy_hash: [u8; 32],
-    pub address_tree: Address,
-    pub address_tree_id: u16,
-    pub namespace_bump: u8,
-    pub bump: u8,
-    pub namespace_owner_hash: [u8; 32],
-    pub sources: &'a [SourceSlot; N_SOURCE_SLOTS],
-    pub rules: &'a EncodedRuleTable,
-    pub generation_slot: u64,
-}
-
-impl PolicyConfigInit<'_> {
-    pub fn write(self, account: &mut AccountView) -> ProgramResult {
-        init_account_with(account, |config: &mut PolicyConfig| {
-            config.discriminator = POLICY_CONFIG;
-            config.policy_hash = self.policy_hash;
-            config.address_tree = self.address_tree;
-            config.address_tree_id = self.address_tree_id.to_le_bytes();
-            config.namespace_bump = self.namespace_bump;
-            config.bump = self.bump;
-            config.namespace_owner_hash = self.namespace_owner_hash;
-            config.sources = *self.sources;
-            config.rules = *self.rules;
-            config.generation = 1u32.to_le_bytes();
-            config.generation_slot = self.generation_slot.to_le_bytes();
-        })
-    }
-}
-
-impl Account for CoSigner {
-    const DISCRIMINATOR: u8 = CO_SIGNER;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidCoSigner;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Validated signer and public thresholds for creating or replacing co-signing
-/// controls.
-pub(crate) struct CoSignerInitParams {
-    pub signer: Address,
-    pub scope: u8,
-    pub thresholds: [WithdrawalThresholdRow; MAX_CO_SIGNER_THRESHOLDS],
-    pub threshold_count: u8,
-    pub bump: u8,
-}
-
-impl CoSignerInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(account, self.value())
-    }
-
-    pub const fn value(self) -> CoSigner {
-        CoSigner {
-            discriminator: CO_SIGNER,
-            signer: self.signer,
-            scope: self.scope,
-            threshold_count: self.threshold_count,
-            thresholds: self.thresholds,
-            bump: self.bump,
-        }
-    }
-}
-
-impl Account for Delegate {
-    const DISCRIMINATOR: u8 = DELEGATE;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDelegate;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::DelegateAlreadySet;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDelegate;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Solana spend authority installed once, independent of the auditor viewing
-/// key.
-pub(crate) struct DelegateInitParams {
-    pub delegate: Address,
-    pub bump: u8,
-}
-
-impl DelegateInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            Delegate {
-                discriminator: DELEGATE,
-                delegate: self.delegate,
-                bump: self.bump,
-            },
-        )
-    }
-}
-
-impl Account for SpendWindow {
-    const DISCRIMINATOR: u8 = SPEND_WINDOW;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidSpendWindow;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Per-mint public caps initialized with empty counters in the current fixed
-/// window.
-pub(crate) struct SpendWindowInitParams {
-    pub mint: Address,
-    pub window_slots: u64,
-    pub deposit_cap: u64,
-    pub withdrawal_cap: u64,
-    pub window_start_slot: u64,
-    pub bump: u8,
-}
-
-impl SpendWindowInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(account, self.value())
-    }
-
-    pub(crate) const fn value(self) -> SpendWindow {
-        SpendWindow {
-            discriminator: SPEND_WINDOW,
-            mint: self.mint,
-            window_slots: self.window_slots.to_le_bytes(),
-            deposit_cap: self.deposit_cap.to_le_bytes(),
-            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
-            window_start_slot: self.window_start_slot.to_le_bytes(),
-            deposited: [0; 8],
-            withdrawn: [0; 8],
-            bump: self.bump,
-        }
-    }
-}
-
-impl Account for KeyRegistryRoot {
-    const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::KeyRegistryRootAlreadyExists;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-
-    fn bump(&self) -> u8 {
-        self.bump
-    }
-}
-
-/// Leaf 0 holds the sentinel, appends start at index 1.
-pub(crate) struct KeyRegistryRootInit {
-    pub bump: u8,
-}
-
-impl KeyRegistryRootInit {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(account, self.value())
-    }
-
-    pub(crate) const fn value(self) -> KeyRegistryRoot {
-        let mut history = [[0u8; 32]; KEY_REGISTRY_ROOT_HISTORY];
-        history[0] = KEY_REGISTRY_EMPTY_ROOT;
-        KeyRegistryRoot {
-            discriminator: KEY_REGISTRY_ROOT,
-            next_index: 1u64.to_le_bytes(),
-            bump: self.bump,
-            history_cursor: 0,
-            history,
-        }
-    }
 }
 
 #[must_use]
@@ -433,52 +124,12 @@ impl CheckedRootTransition {
     }
 }
 
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for super::DepositAudit {}
-    impl Sealed for super::RingProgramConfig {}
-    impl Sealed for super::ReadAccessRecord {}
-    impl Sealed for super::PolicyConfig {}
-    impl Sealed for super::CoSigner {}
-    impl Sealed for super::Delegate {}
-    impl Sealed for super::SpendWindow {}
-    impl Sealed for super::KeyRegistryRoot {}
-}
-
-#[inline(always)]
-fn init_account<T: Account>(account: &mut AccountView, value: T) -> ProgramResult {
-    init_account_with(account, |slot: &mut T| *slot = value)
-}
-
-#[inline(always)]
-fn init_account_with<T: Account>(
-    account: &mut AccountView,
-    write: impl FnOnce(&mut T),
-) -> ProgramResult {
-    let mut data = account
-        .try_borrow_mut()
-        .map_err(|_| T::ALREADY_INITIALIZED)?;
-    // The account was just allocated with exactly `SIZE` bytes; any other
-    // length means this is not the account this program created.
-    if data.len() != T::SIZE {
-        return Err(T::WRONG_SIZE.into());
-    }
-    // A nonzero first byte is a live discriminator: never overwrite an
-    // existing account.
-    if data.first() != Some(&0) {
-        return Err(T::ALREADY_INITIALIZED.into());
-    }
-    // Length is checked above and each account is align 1, so this cannot panic.
-    write(from_bytes_mut::<T>(&mut data[..]));
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn root(root: [u8; 32], next_index: u64) -> KeyRegistryRoot {
-        let mut state = KeyRegistryRootInit { bump: 254 }.value();
+        let mut state = empty_key_registry_root(254);
         state.history[0] = root;
         state.next_index = next_index.to_le_bytes();
         state
@@ -525,7 +176,7 @@ mod tests {
 
     #[test]
     fn the_sentinel_root_is_the_first_history_entry() {
-        let state = KeyRegistryRootInit { bump: 254 }.value();
+        let state = empty_key_registry_root(254);
         assert_eq!(state.root(), Some(KEY_REGISTRY_EMPTY_ROOT));
         assert_eq!(state.root_at(1), None);
         assert_eq!(state.root_at(KEY_REGISTRY_ROOT_HISTORY as u8), None);

@@ -280,6 +280,16 @@ fn a_transfer_in_scope_needs_the_cosigner_signature() {
 }
 
 #[test]
+fn an_overlong_threshold_count_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut overlong = cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 1)]);
+    bytemuck::from_bytes_mut::<CoSigner>(&mut overlong.data).threshold_count =
+        MAX_CO_SIGNER_THRESHOLDS as u8 + 1;
+    with_cosigner(gated_transact(Vec::new(), Vec::new()), overlong, true)
+        .expect_err(&mollusk, custom(CustomRingError::InvalidCoSigner));
+}
+
+#[test]
 fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(CoSignScope::DEPOSITS, &[]);

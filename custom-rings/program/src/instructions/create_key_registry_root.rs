@@ -1,11 +1,13 @@
-use custom_ring_interface::KeyRegistryRoot;
+use custom_ring_interface::{CustomRingError, KeyRegistryRoot};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
-    error::CustomRingError,
-    instructions::{loader::load_authorized_config, shared::PdaCreate},
-    state::KeyRegistryRootInit,
+    instructions::{
+        loader::load_authorized_config,
+        shared::{check_system_program, create_pda},
+    },
+    state::{empty_key_registry_root, Init},
 };
 
 #[inline(never)]
@@ -20,24 +22,13 @@ pub fn process_create_key_registry_root_ix(
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
-    let config_account = iter.next_account("config")?;
-    let root_account = iter.next_mut("key_registry_root")?;
+    let config = iter.next_account("config")?;
+    let root = iter.next_mut("key_registry_root")?;
     let system_program = iter.next_account("system_program")?;
 
-    // 1. Require the config authority before initializing shared compressed
-    // state.
-    if !pinocchio_system::check_id(system_program.address()) {
-        return Err(CustomRingError::InvalidSystemProgram.into());
-    }
-    load_authorized_config(program_id, config_account, authority)?;
-
-    // 2. Initialize the canonical root once, never reset an existing registry.
-    let bump = PdaCreate {
-        program_id,
-        payer,
-        seeds: &[KeyRegistryRoot::SEED],
-        mismatch: CustomRingError::InvalidKeyRegistryRoot,
-    }
-    .create::<KeyRegistryRoot>(root_account)?;
-    KeyRegistryRootInit { bump }.init(root_account)
+    // The config authority initializes the shared registry once, it is never reset.
+    check_system_program(system_program)?;
+    load_authorized_config(program_id, config, authority)?;
+    let bump = create_pda::<KeyRegistryRoot, 1>(program_id, payer, root, &[KeyRegistryRoot::SEED])?;
+    Init(&empty_key_registry_root(bump)).init(root)
 }

@@ -1,15 +1,12 @@
-use bytemuck::from_bytes_mut;
-use custom_ring_interface::{PolicyConfig, SetPolicySourceIxData, SourceSlot};
+use custom_ring_interface::{CustomRingError, PolicyConfig, SetPolicySourceIxData, SourceSlot};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_ring_policy::ListId;
 
-use crate::{
-    error::CustomRingError,
-    instructions::{
-        loader::{load_authorized_config, load_policy_config},
-        policy_shared::{load_curator_policy_config, namespace_pda, repin, Repin},
-    },
+use crate::instructions::{
+    loader::{load_authorized_config, load_curator_policy_config, load_mut},
+    policy_shared::repin,
+    shared::{namespace_address, parse},
 };
 
 /// Only a list the stored table references has a slot to re-point.
@@ -19,8 +16,7 @@ pub fn process_set_policy_source_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: SetPolicySourceIxData =
-        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let ix: SetPolicySourceIxData = parse(data)?;
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
@@ -29,29 +25,22 @@ pub fn process_set_policy_source_ix(
     let curators = iter.remaining_unchecked()?;
 
     load_authorized_config(program_id, config, authority)?;
-    let (address_tree, mut sources) = {
-        let stored = load_policy_config(program_id, policy_config)?;
-        (stored.address_tree, stored.sources)
-    };
-
+    let mut live = load_mut::<PolicyConfig>(program_id, policy_config)?;
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
-    let index = list_id.slot();
-    if sources[index].list_id == 0 {
+    let mut sources = live.sources;
+    if sources[list_id.slot()].list_id == 0 {
         return Err(CustomRingError::InvalidSource.into());
     }
-    let entries = match (ix.source, curators) {
-        (0, []) => namespace_pda(program_id)?.0,
-        (1, [curator]) => load_curator_policy_config(curator, &address_tree)?
+    let namespace = match (ix.source, curators) {
+        (0, []) => namespace_address(program_id, live.namespace_bump),
+        (1, [curator]) => load_curator_policy_config(curator, &live.address_tree)?
             .source_for(list_id)
             .ok_or(CustomRingError::CuratorSourceMissing)?,
         _ => return Err(CustomRingError::InvalidSource.into()),
     };
-    sources[index] = SourceSlot {
+    sources[list_id.slot()] = SourceSlot {
         list_id: list_id as u8,
-        namespace: entries,
+        namespace,
     };
-
-    let mut data = policy_config.try_borrow_mut()?;
-    let live: &mut PolicyConfig = from_bytes_mut(&mut data);
-    repin(live, Repin::Sources(&sources))
+    repin(&mut live, &sources)
 }
