@@ -41,6 +41,10 @@ Fixed
   accepted a recovered transaction viewing key at or above the P-256 group
   order and read the output disclosures under another key, they now refuse a
   key of zero or at or above the order with `RING_AUDIT_NONCANONICAL_KEY`.
+- `proveCustomRingTransfer` and `buildRingTransferTransaction` charged a
+  velocity row without a cap, so a co-sign-only row could overflow and block
+  its member, such a row now keeps a zero counter and still asks the co-signer
+  above its threshold.
 
 ## 0.4.1-alpha — 2026-10-08
 
