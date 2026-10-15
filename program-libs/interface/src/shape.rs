@@ -207,7 +207,29 @@ impl Shape {
         }
         false
     }
+
+    /// Whether the anonymous RingEd25519 rail has keys for this shape, see
+    /// [`RING_ED25519_SHAPES`].
+    pub const fn is_ring_ed25519(self) -> bool {
+        let mut shapes: &[Shape] = &RING_ED25519_SHAPES;
+        while let Some((shape, rest)) = shapes.split_first() {
+            if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
+                return true;
+            }
+            shapes = rest;
+        }
+        false
+    }
 }
+
+/// Shapes the RingEd25519 rail has keys for. Its audit disclosure fits a
+/// transaction only at these.
+pub const RING_ED25519_SHAPES: [Shape; 4] = [
+    Shape::IN2_OUT2,
+    Shape::IN2_OUT4,
+    Shape::IN3_OUT4,
+    Shape::IN4_OUT2,
+];
 
 /// Square widths the ring authority rail has keys for, ascending.
 pub const RING_AUTHORITY_WIDTHS: [usize; 2] = [2, 4];

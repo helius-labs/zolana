@@ -1,5 +1,5 @@
 use zolana_interface::{
-    shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
+    shape::{Shape, RING_AUTHORITY_WIDTHS, RING_ED25519_SHAPES, SPP_SUPPORTED_SHAPES},
     verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
@@ -108,6 +108,54 @@ fn accessors_and_behavior_match_variants() {
     );
     assert_eq!(p256.bsb22_commitment(), Some(&COMMITMENT));
     assert_eq!(p256.default_p256_owner_tag(), None);
+    assert!(p256.signs_message_digest());
+    assert!(!ring.signs_message_digest());
+
+    let ed25519 = CircuitId::RingEd25519(2, 4, 3, COMMITMENT);
+    assert_eq!(ed25519.shape(), (2, 4, 3));
+    assert!(ed25519.is_ring());
+    assert!(ed25519.is_confidential());
+    assert!(!ed25519.is_p256());
+    assert!(!ed25519.is_authority());
+    assert!(ed25519.signs_message_digest());
+    assert!(ed25519.requires_input_signatures());
+    assert_eq!(ed25519.uncached(), ed25519);
+    assert!(ed25519.cache_access().is_none());
+    assert_eq!(ed25519.bsb22_commitment(), Some(&COMMITMENT));
+    assert_eq!(ed25519.default_p256_owner_tag(), None);
+    assert_eq!(
+        ed25519.output_owner_mode(),
+        OutputOwnerMode::ConfidentialMarked
+    );
+}
+
+/// Appending a selector moves no existing tag. Each variant keeps its
+/// declaration index, and RingEd25519 carries only its BSB22 commitment.
+#[test]
+fn circuit_id_tags_are_stable() {
+    let selectors = [
+        CircuitId::ConfidentialEddsa(2, 2, 3),
+        CircuitId::RingEddsa(2, 2, 3),
+        CircuitId::RingAuthority(2, 2, 3),
+        CircuitId::RingP256(2, 2, 3, P256_PROOF_DATA),
+        CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
+        CircuitId::RingEddsaCached(2, 2, 3, CACHE),
+        CircuitId::RingP256Cached(2, 2, 3, P256_PROOF_DATA, CACHE),
+        CircuitId::RingEd25519(2, 2, 3, COMMITMENT),
+    ];
+    for (tag, circuit) in selectors.into_iter().enumerate() {
+        let bytes = wincode::serialize(&circuit).unwrap();
+        assert_eq!(bytes[..2], (tag as u16).to_le_bytes(), "{circuit:?}");
+    }
+    let bytes = wincode::serialize(&CircuitId::RingEd25519(2, 4, 3, COMMITMENT)).unwrap();
+    let mut expected = 7u16.to_le_bytes().to_vec();
+    expected.extend_from_slice(&[2, 4, 3]);
+    expected.extend_from_slice(&COMMITMENT.commitment);
+    expected.extend_from_slice(&COMMITMENT.commitment_pok);
+    assert_eq!(bytes, expected);
+    let mut unknown = bytes;
+    unknown[0] = 8;
+    assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
 }
 
 #[test]
@@ -151,6 +199,36 @@ fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
             assert!(circuit.is_supported(), "{circuit:?}");
         }
     }
+}
+
+/// RingEd25519 is supported only on its own shapes, and only once their keys
+/// are generated into this crate.
+#[cfg(feature = "verifying-keys")]
+#[test]
+fn ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
+    assert_eq!(
+        RING_ED25519_SHAPES,
+        [
+            Shape::IN2_OUT2,
+            Shape::IN2_OUT4,
+            Shape::IN3_OUT4,
+            Shape::IN4_OUT2
+        ]
+    );
+    for shape in SPP_SUPPORTED_SHAPES {
+        let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
+        let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
+        let circuit = CircuitId::RingEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, COMMITMENT);
+        let listed = RING_ED25519_SHAPES.contains(&shape);
+        assert_eq!(shape.is_ring_ed25519(), listed, "{circuit:?}");
+        assert_eq!(
+            circuit.is_supported(),
+            listed && circuit.verifying_key().is_some(),
+            "{circuit:?}"
+        );
+        assert!(listed || circuit.verifying_key().is_none(), "{circuit:?}");
+    }
+    assert!(!CircuitId::RingEd25519(2, 2, PUBLIC_ASSET_SLOTS - 1, COMMITMENT).is_supported());
 }
 
 #[cfg(feature = "verifying-keys")]

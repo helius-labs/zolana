@@ -9,6 +9,10 @@ use crate::{shape::Shape, state::cache::CACHE_CAPACITY};
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
+/// The RingEd25519 verifying keys come with its production setup. Until then the
+/// rail is unsupported and its `circuit_key_item!` arms compile out.
+const RING_ED25519_KEYS: bool = false;
+
 /// Selects `$item` from the verifying key module a [`CircuitId`] names, or
 /// returns `None` from the enclosing function. One table serves both the
 /// verifying key and the proving-key sha256 generated next to it.
@@ -60,11 +64,18 @@ macro_rules! circuit_key_item {
                 (2, 2) => transfer_ring_authority_2_2;
                 (4, 4) => transfer_ring_authority_4_4;
             }
+            ring_ed25519 {
+                (2, 2) => transfer_ed25519_ring_2_2;
+                (2, 4) => transfer_ed25519_ring_2_4;
+                (3, 4) => transfer_ed25519_ring_3_4;
+                (4, 2) => transfer_ed25519_ring_4_2;
+            }
         )
     };
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $p256:ident;)* }
         authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
+        ring_ed25519 { $(($ei:literal, $eo:literal) => $ed25519:ident;)* }
     ) => {{
         use super::*;
 
@@ -78,6 +89,11 @@ macro_rules! circuit_key_item {
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
+            )*
+            $(
+                // Compiled out until the production keys add the modules, see RING_ED25519_KEYS.
+                #[cfg(any())]
+                CircuitId::RingEd25519($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$ed25519::$item,
             )*
             _ => return None,
         }
@@ -270,6 +286,8 @@ pub enum CircuitId {
     ConfidentialEddsaCached(u8, u8, u8, CacheAccess),
     RingEddsaCached(u8, u8, u8, CacheAccess),
     RingP256Cached(u8, u8, u8, RingP256ProofData, CacheAccess),
+    /// The anonymous ring rail. Its circuit forbids cache reads, so it has no cached twin.
+    RingEd25519(u8, u8, u8, Bsb22Commitment),
 }
 
 impl CircuitId {
@@ -306,7 +324,8 @@ impl CircuitId {
             | Self::RingP256(n, _, _, _)
             | Self::ConfidentialEddsaCached(n, _, _, _)
             | Self::RingEddsaCached(n, _, _, _)
-            | Self::RingP256Cached(n, _, _, _, _) => n,
+            | Self::RingP256Cached(n, _, _, _, _)
+            | Self::RingEd25519(n, _, _, _) => n,
         }
     }
 
@@ -318,7 +337,8 @@ impl CircuitId {
             | Self::RingP256(_, n, _, _)
             | Self::ConfidentialEddsaCached(_, n, _, _)
             | Self::RingEddsaCached(_, n, _, _)
-            | Self::RingP256Cached(_, n, _, _, _) => n,
+            | Self::RingP256Cached(_, n, _, _, _)
+            | Self::RingEd25519(_, n, _, _) => n,
         }
     }
 
@@ -330,7 +350,8 @@ impl CircuitId {
             | Self::RingP256(_, _, n, _)
             | Self::ConfidentialEddsaCached(_, _, n, _)
             | Self::RingEddsaCached(_, _, n, _)
-            | Self::RingP256Cached(_, _, n, _, _) => n,
+            | Self::RingP256Cached(_, _, n, _, _)
+            | Self::RingEd25519(_, _, n, _) => n,
         }
     }
 
@@ -345,14 +366,20 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self.uncached(),
-            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..)
+            Self::ConfidentialEddsa(..)
+                | Self::RingEddsa(..)
+                | Self::RingP256(..)
+                | Self::RingEd25519(..)
         )
     }
 
     pub const fn is_ring(self) -> bool {
         matches!(
             self.uncached(),
-            Self::RingEddsa(..) | Self::RingAuthority(..) | Self::RingP256(..)
+            Self::RingEddsa(..)
+                | Self::RingAuthority(..)
+                | Self::RingP256(..)
+                | Self::RingEd25519(..)
         )
     }
 
@@ -364,11 +391,18 @@ impl CircuitId {
         matches!(self.uncached(), Self::RingP256(..))
     }
 
+    /// Whether the circuit verifies an owner signature over
+    /// `sha256(private_tx_hash || external_data_hash)`.
+    pub const fn signs_message_digest(self) -> bool {
+        matches!(self.uncached(), Self::RingP256(..) | Self::RingEd25519(..))
+    }
+
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
             Self::RingP256(_, _, _, proof_data) | Self::RingP256Cached(_, _, _, proof_data, _) => {
                 Some(&proof_data.bsb22_commitment)
             }
+            Self::RingEd25519(_, _, _, commitment) => Some(commitment),
             _ => None,
         }
     }
@@ -392,7 +426,8 @@ impl CircuitId {
             Self::RingEddsa(..)
             | Self::RingP256(..)
             | Self::RingEddsaCached(..)
-            | Self::RingP256Cached(..) => OutputOwnerMode::ConfidentialMarked,
+            | Self::RingP256Cached(..)
+            | Self::RingEd25519(..) => OutputOwnerMode::ConfidentialMarked,
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
@@ -412,6 +447,7 @@ impl CircuitId {
             | Self::RingEddsaCached(..)
             | Self::RingP256Cached(..) => shape.is_supported(),
             Self::RingAuthority(..) => shape.is_ring_authority(),
+            Self::RingEd25519(..) => RING_ED25519_KEYS && shape.is_ring_ed25519(),
         }
     }
 
