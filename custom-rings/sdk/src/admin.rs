@@ -1,9 +1,11 @@
 //! Instructions of the ring authority and the upgrade authority.
 
+use core::num::NonZeroU64;
+
 use custom_ring_interface::{
-    compute_unit_limit, tag, CoSignScope, CreateConfigIxData, InstructionTag, PolicyTableIxData,
-    ReaderIxData, SetCoSignerIxData, SetDepositAuditIxData, SetPausedIxData, SetPolicySourceIxData,
-    SetSpendWindowIxData, SourceSpec, WithdrawalThreshold,
+    compute_unit_limit, tag, CoSignScope, CreateConfigIxData, CustomRingError, InstructionTag,
+    PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetDepositAuditIxData, SetPausedIxData,
+    SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, WithdrawalThreshold,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -35,7 +37,7 @@ pub struct SetSpendWindow {
     pub mint: Address,
     /// Nonzero, windows start at multiples of it.
     pub window_slots: u64,
-    /// Zero leaves the direction uncapped.
+    /// Zero leaves the direction uncapped, at least one cap is nonzero.
     pub deposit_cap: u64,
     pub withdrawal_cap: u64,
 }
@@ -43,13 +45,20 @@ pub struct SetSpendWindow {
 impl SetSpendWindow {
     pub fn instruction(self) -> Result<Instruction, RingError> {
         let pda = self.ring.spend_window_pda(&self.mint);
+        let (deposit_cap, withdrawal_cap) = (
+            NonZeroU64::new(self.deposit_cap),
+            NonZeroU64::new(self.withdrawal_cap),
+        );
+        if deposit_cap.is_none() && withdrawal_cap.is_none() {
+            return Err(CustomRingError::UncappedSpendWindow.into());
+        }
         let data = tagged(
             tag::SET_SPEND_WINDOW,
             &SetSpendWindowIxData {
                 mint: self.mint.to_bytes(),
                 window_slots: self.window_slots,
-                deposit_cap: self.deposit_cap,
-                withdrawal_cap: self.withdrawal_cap,
+                deposit_cap,
+                withdrawal_cap,
             },
         )?;
         Ok(self.ring.ix(
@@ -75,7 +84,7 @@ impl CustomRing {
             tag::CREATE_CONFIG,
             &CreateConfigIxData {
                 auditor_pubkey: *auditor_pubkey.as_bytes(),
-                has_policy: u8::from(has_policy),
+                has_policy,
             },
         )?;
         let mut accounts = vec![
@@ -163,12 +172,7 @@ impl CustomRing {
     }
 
     pub fn set_paused(self, authority: Address, paused: bool) -> Result<Instruction, RingError> {
-        let data = tagged(
-            tag::SET_PAUSED,
-            &SetPausedIxData {
-                paused: u8::from(paused),
-            },
-        )?;
+        let data = tagged(tag::SET_PAUSED, &SetPausedIxData { paused })?;
         let accounts = vec![
             AccountMeta::new_readonly(authority, true),
             AccountMeta::new_readonly(self.config_pda(), false),
@@ -229,12 +233,7 @@ impl CustomRing {
         authority: Address,
         required: bool,
     ) -> Result<Instruction, RingError> {
-        let data = tagged(
-            tag::SET_DEPOSIT_AUDIT,
-            &SetDepositAuditIxData {
-                required: u8::from(required),
-            },
-        )?;
+        let data = tagged(tag::SET_DEPOSIT_AUDIT, &SetDepositAuditIxData { required })?;
         Ok(self.ix(
             self.upsert_metas(payer, authority, self.deposit_audit_pda()),
             data,

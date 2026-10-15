@@ -199,6 +199,7 @@ describe("spend registration", () => {
       inputTree: TREE,
       outputTree: TREE,
       blinding: filled(7),
+      windowIndex: 0x0102n,
       proof: {
         proof: proof(),
         utxoTreeRootIndex: 0,
@@ -208,8 +209,9 @@ describe("spend registration", () => {
       },
     });
     const data = instruction.data ?? new Uint8Array();
-    expect(data).toHaveLength(1 + 32 + 32 + 2 + 2 + 32 + 128 + 32);
+    expect(data).toHaveLength(1 + 32 + 8 + 32 + 2 + 2 + 32 + 128 + 32);
     expect(data.subarray(1, 33)).toEqual(filled(7));
+    expect(Array.from(data.subarray(33, 41))).toEqual([2, 1, 0, 0, 0, 0, 0, 0]);
     expect(data.subarray(data.length - 32)).toEqual(filled(3));
   });
 });

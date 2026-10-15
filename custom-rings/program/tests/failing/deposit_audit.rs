@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    tag, CustomRingError, CustomRingProof, DepositAudit, RingDepositAuditCapsule, DEPOSIT_AUDIT,
-    KEY_REGISTRY_ROOT_HISTORY,
+    tag, AuditedDepositPrefix, CustomRingError, CustomRingProof, DepositAudit,
+    RingDepositAuditCapsule, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT_HISTORY,
 };
 use mollusk_svm::result::ProgramResult;
 use solana_account::Account;
@@ -61,6 +61,8 @@ fn setter(required: u8, existing: Account) -> Fixture {
 
 /// Offset of the key registry root index in the audited wire.
 const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
+/// Offset of the forwarded SPP deposit instruction.
+const SPP_DATA: usize = core::mem::size_of::<AuditedDepositPrefix>();
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -89,7 +91,7 @@ fn audited_fixture(count: usize) -> Fixture {
 }
 
 fn mutate_deposit(fixture: &mut Fixture, change: impl FnOnce(&mut RingDepositIxData)) {
-    let body = REGISTRY_INDEX + 2;
+    let body = SPP_DATA + 1;
     let mut deposit = RingDepositIxData::deserialize(&fixture.instruction().data[body..]).unwrap();
     change(&mut deposit);
     fixture.data_mut().truncate(body);
@@ -125,9 +127,7 @@ fn proven_fixture(count: usize) -> Fixture {
     );
     fixture.set_account("config", audit_only_config_account(authority(), auditor));
     fixture.set_account("deposit_audit", audit_account(1));
-    let mut wire = bytes.to_vec();
-    wire.insert(REGISTRY_INDEX, 0);
-    *fixture.data_mut() = wire;
+    *fixture.data_mut() = bytes.to_vec();
     fixture
 }
 
@@ -240,7 +240,7 @@ fn setter_requires_the_config_authority_signature() {
 #[test]
 fn setter_rejects_invalid_mode_system_and_pda() {
     let (mollusk, _) = setup_mollusk();
-    setter(2, account(0)).expect_err(&mollusk, custom(CustomRingError::InvalidDepositAudit));
+    setter(2, account(0)).expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
     let mut system = setter(1, account(0));
     system.substitute("system_program", Pubkey::new_from_array([99; 32]));
     system.expect_err(&mollusk, custom(CustomRingError::InvalidSystemProgram));
@@ -312,8 +312,8 @@ fn audited_tag_rejects_truncated_proofs_and_nested_non_deposits() {
     truncated.data_mut().truncate(CustomRingProof::SIZE);
     truncated.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
     let mut other = audited_fixture(1);
-    other.data_mut()[REGISTRY_INDEX + 1] = tag::MERGE;
-    other.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+    other.data_mut()[SPP_DATA] = tag::MERGE;
+    other.expect_err(&mollusk, custom(CustomRingError::InvalidAuditedDeposit));
 }
 
 #[test]
@@ -371,7 +371,7 @@ fn a_registry_index_without_escrow_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = audited_fixture(1);
     fixture.data_mut()[REGISTRY_INDEX] = 1;
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
 }
 
 fn deposit_audit_pda() -> (Pubkey, u8) {

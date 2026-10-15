@@ -496,6 +496,7 @@ describe("delegate policy rail", () => {
     expect(proved.window).toBeUndefined();
     expect(proved.approvalRequired).toBe(false);
     expect(proved.policy?.keyRegistryRootIndex).toBe(1);
+    expect(proved.policy?.keyRegistryRoot).toEqual(registry.root);
     expect(policy?.keyRegistryRoot).toEqual(registry.root);
     auditor.destroy();
   });
@@ -1320,6 +1321,7 @@ describe("ring proof folded fields", () => {
       treeContexts: [{ utxoTreeRootIndex: 7, nullifierTreeRootIndex: 8 }],
     });
     expect(proven.policy).not.toHaveProperty("keyRegistryRootIndex");
+    expect(proven.policy).not.toHaveProperty("keyRegistryRoot");
     expect(proven.inputTrees).toEqual([RING]);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
     expect(proven.ownerSigners).toEqual([]);

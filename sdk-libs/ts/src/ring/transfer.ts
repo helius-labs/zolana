@@ -115,9 +115,9 @@ import {
   type VelocityPlan,
 } from "./velocity.js";
 import {
+  boundRegistryRoot,
   checkRetainedEntries,
   RingTransactionSubmission,
-  windowChangedOn,
   type RingSubmissionAttempt,
   type RingSubmissionBuildState,
 } from "./submission.js";
@@ -258,8 +258,8 @@ export async function createRingTransferSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingSend({ params, destination: "ring", retry }, context),
-      windowChanged: windowChangedOn(params.client),
     },
     context,
   );
@@ -277,8 +277,8 @@ export async function createRingExitSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingSend({ params, destination: "default", retry }, context),
-      windowChanged: windowChangedOn(params.client),
     },
     context,
   );
@@ -292,8 +292,8 @@ export async function createRingWithdrawalSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingWithdrawal({ params, retry }, context),
-      windowChanged: windowChangedOn(params.client),
     },
     context,
   );
@@ -533,6 +533,7 @@ async function buildRingSpend<R>(
         proof: proven.proof,
         data: proven.data,
         approvalRequired: proven.approvalRequired,
+        ...(proven.window === undefined ? {} : { windowIndex: proven.window.index }),
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
         ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
         ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
@@ -557,7 +558,7 @@ async function buildRingSpend<R>(
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
       intentHash: plannedIntent,
       ringInstructionIndex: plan.setupInstructions?.length ?? 0,
-      ...(proven.window === undefined ? {} : { window: proven.window }),
+      ...boundRegistryRoot(params.ringProgramId, proven.policy),
     });
   } catch (cause) {
     if (reservation !== undefined) params.wallet._releaseReservation(reservation.id);
@@ -1046,7 +1047,9 @@ async function proveRingTransferStatement(
                 utxoTreeRootIndex: tree.utxoRootIndex,
                 nullifierTreeRootIndex: tree.nullifierRootIndex,
               })),
-        ...(escrow === undefined ? {} : { keyRegistryRootIndex: escrow.rootIndex }),
+        ...(escrow === undefined
+          ? {}
+          : { keyRegistryRootIndex: escrow.rootIndex, keyRegistryRoot: escrow.root }),
         revocationTargets: policyRound.revocationTargets,
         revocationTreeIndexes: policyRound.revocationTreeIndexes,
       }),

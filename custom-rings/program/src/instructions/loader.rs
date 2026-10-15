@@ -116,7 +116,7 @@ pub fn load_escrow_root(
     accounts: &mut AccountIterator<'_>,
 ) -> Result<Option<[u8; 32]>, ProgramError> {
     match escrow {
-        KeyEscrow::Off if index != 0 => Err(CustomRingError::InvalidInstructionData.into()),
+        KeyEscrow::Off if index != 0 => Err(CustomRingError::UnexpectedKeyRegistryRoot.into()),
         KeyEscrow::Off => Ok(None),
         KeyEscrow::Registry => {
             let account = accounts.next_account("key_registry_root")?;

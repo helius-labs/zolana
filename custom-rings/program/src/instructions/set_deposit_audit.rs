@@ -1,4 +1,4 @@
-use custom_ring_interface::{CustomRingError, DepositAudit, SetDepositAuditIxData, DEPOSIT_AUDIT};
+use custom_ring_interface::{DepositAudit, SetDepositAuditIxData, DEPOSIT_AUDIT};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
@@ -14,9 +14,6 @@ pub fn process_set_deposit_audit_ix(
     data: &[u8],
 ) -> ProgramResult {
     let SetDepositAuditIxData { required } = parse(data)?;
-    if required > 1 {
-        return Err(CustomRingError::InvalidDepositAudit.into());
-    }
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
@@ -29,7 +26,7 @@ pub fn process_set_deposit_audit_ix(
     upsert(program_id, payer, audit, &[DepositAudit::SEED], |bump| {
         DepositAudit {
             discriminator: DEPOSIT_AUDIT,
-            required,
+            required: u8::from(required),
             bump,
         }
     })

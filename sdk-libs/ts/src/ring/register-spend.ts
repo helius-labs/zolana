@@ -26,11 +26,7 @@ import {
   type RingRecordTrees,
 } from "./policy.js";
 import { findCurrentSpendRecord } from "./spend-record-reader.js";
-import {
-  RingTransactionSubmission,
-  windowChangedOn,
-  type RingSubmissionAttempt,
-} from "./submission.js";
+import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
 import { ringTreeIdResolver } from "./trees.js";
 import { readVelocityFacts, type VelocityFacts } from "./velocity.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -172,17 +168,13 @@ async function registrationSubmission(
     intentHash: intent,
     ringInstructionIndex: 0,
   });
-  return new RingTransactionSubmission({
-    first: await build(context),
-    build,
-    windowChanged: windowChangedOn(held.params.client),
-  });
+  return new RingTransactionSubmission({ first: await build(context), build });
 }
 
 async function buildRegistrationAttempt(
   input: RegistrationBuild,
   context?: RequestContext,
-): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight" | "window">> {
+): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight">> {
   const { params, registration } = input;
   const { policy, payer, member } = registration;
   const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
@@ -205,6 +197,7 @@ async function buildRegistrationAttempt(
     inputTree: addressTree.tree,
     outputTree: addressTree.tree,
     blinding: entry.record.blinding,
+    windowIndex,
     proof: entry.proof,
   });
   const lifetime = await params.client.getLatestBlockhash(context);
@@ -217,9 +210,5 @@ async function buildRegistrationAttempt(
       ? {}
       : { priorityFeeLamports: params.priorityFeeLamports }),
   });
-  return {
-    transaction,
-    lastValidBlockHeight: lifetime.lastValidBlockHeight,
-    window: { index: windowIndex, slots: policy.windowSlots },
-  };
+  return { transaction, lastValidBlockHeight: lifetime.lastValidBlockHeight };
 }

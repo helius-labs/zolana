@@ -382,12 +382,14 @@ export async function setRingSpendWindowInstruction(
     mint: Address;
     /** Nonzero, windows start at multiples of it. */
     windowSlots: bigint;
-    /** Zero leaves the direction uncapped. */
+    /** Zero or absent leaves the direction uncapped, at least one cap is nonzero. */
     depositCap?: bigint;
     withdrawalCap?: bigint;
   }>,
 ): Promise<Instruction> {
-  if (input.windowSlots === 0n) {
+  const depositCap = input.depositCap === 0n ? undefined : input.depositCap;
+  const withdrawalCap = input.withdrawalCap === 0n ? undefined : input.withdrawalCap;
+  if (input.windowSlots === 0n || (depositCap === undefined && withdrawalCap === undefined)) {
     throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint: input.mint } });
   }
   const [config, window] = await Promise.all([
@@ -398,8 +400,8 @@ export async function setRingSpendWindowInstruction(
     .u8(SET_SPEND_WINDOW_TAG, "tag")
     .bytes(addressBytes(input.mint, "mint"), 32, "mint")
     .u64(input.windowSlots, "windowSlots")
-    .u64(input.depositCap ?? 0n, "depositCap")
-    .u64(input.withdrawalCap ?? 0n, "withdrawalCap")
+    .option(depositCap, (writer, cap) => writer.u64(cap, "depositCap"))
+    .option(withdrawalCap, (writer, cap) => writer.u64(cap, "withdrawalCap"))
     .finish();
   return {
     programAddress: input.ringProgramId,

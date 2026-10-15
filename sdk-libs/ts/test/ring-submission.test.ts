@@ -10,7 +10,10 @@ import {
   RingTransactionSubmission,
   type RingSubmissionAttempt,
 } from "../src/ring/submission.js";
+import { ringKeyRegistryRootPda } from "../src/interface/pda/index.js";
 import { BLOCKHASH, kitReads } from "./helpers/clients.js";
+import { keyRegistryRootData } from "./helpers/key-registry.js";
+import { ownedAccount } from "./helpers/ring-accounts.js";
 
 const HASH = new Uint8Array(32) as Bytes32;
 const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
@@ -20,10 +23,11 @@ const STALE_ROOT: RingSubmissionStatus = {
   customCode: RingProgramError.staleKeyRegistryRoot,
 };
 
-async function fixture() {
+async function fixture(keyRegistryRoot?: RingSubmissionAttempt["keyRegistryRoot"]) {
   const payer = await generateKeyPairSigner();
   let version = 0;
   const build = vi.fn(async (): Promise<RingSubmissionAttempt> => ({
+    ...(keyRegistryRoot === undefined ? {} : { keyRegistryRoot }),
     transaction: compileUnsignedTransaction({
       feePayer: payer.address,
       lifetime: BLOCKHASH,
@@ -33,22 +37,19 @@ async function fixture() {
     lastValidBlockHeight: 100n,
     intentHash: HASH,
     ringInstructionIndex: 0,
-    window: { index: 1n, slots: 10n },
   }));
   const release = vi.fn();
   const extend = vi.fn();
-  const windowChanged = vi.fn(async () => true);
   const submission = new RingTransactionSubmission({
     first: await build(),
     build,
     reservation: { release, extend },
-    windowChanged,
   });
   const send = vi.fn(async (): Promise<RingSubmissionStatus | undefined> => undefined);
   const sign = vi.fn(async (transaction: RingSubmissionAttempt["transaction"]) =>
     signTransactionWithSigners([payer], transaction),
   );
-  return { submission, build, release, extend, windowChanged, send, sign };
+  return { submission, build, release, extend, send, sign };
 }
 
 describe("ring submission ownership", () => {
@@ -148,20 +149,70 @@ describe("ring submission ownership", () => {
     expect(f.build).toHaveBeenCalledTimes(1);
   });
 
-  it("requires an actual window change before retrying a rejected policy proof", async () => {
-    const f = await fixture();
-    f.windowChanged.mockResolvedValue(false);
-    const result = await f.submission.send({
-      sign: f.sign,
-      send: f.send,
+  it("rebuilds an elapsed window and never a rejected policy proof", async () => {
+    const elapsed = await fixture();
+    const result = await elapsed.submission.send({
+      sign: elapsed.sign,
+      send: elapsed.send,
+      status: async () => ({
+        kind: "failed",
+        instructionIndex: 0,
+        customCode: RingProgramError.windowElapsed,
+      }),
+    });
+    expect(result).toMatchObject({ kind: "failed", attempts: 3 });
+    expect(elapsed.build).toHaveBeenCalledTimes(3);
+    const rejected = await fixture();
+    const proof = await rejected.submission.send({
+      sign: rejected.sign,
+      send: rejected.send,
       status: async () => ({
         kind: "failed",
         instructionIndex: 0,
         customCode: RingProgramError.proofVerificationFailed,
       }),
     });
-    expect(result).toMatchObject({ kind: "failed", attempts: 1 });
-    expect(f.windowChanged).toHaveBeenCalledTimes(1);
+    expect(proof).toMatchObject({ kind: "failed", attempts: 1 });
+    expect(rejected.build).toHaveBeenCalledTimes(1);
+  });
+
+  it("rebuilds a rejected escrowed proof only when its registry slot holds another root", async () => {
+    const ringProgramId = address("Ring111111111111111111111111111111111111111");
+    const [, bump] = await ringKeyRegistryRootPda(ringProgramId);
+    const bound = new Uint8Array(32).fill(7) as Bytes32;
+    for (const [held, attempts] of [
+      [new Uint8Array(32).fill(8) as Bytes32, 3],
+      [bound, 1],
+    ] as const) {
+      const f = await fixture({ ringProgramId, index: 3, root: bound });
+      const history = Array.from({ length: 32 }, () => new Uint8Array(32) as Bytes32);
+      history[3] = held;
+      const registry = {
+        getAccount: vi.fn(async () =>
+          ownedAccount(
+            ringProgramId,
+            keyRegistryRootData({ root: held, nextIndex: 40n, bump, cursor: 3, history }),
+          ),
+        ),
+      };
+      const submission = new RingTransactionSubmission({
+        first: await f.build(),
+        build: f.build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const result = await submission.send({
+        sign: f.sign,
+        send: f.send,
+        status: async () => ({
+          kind: "failed",
+          instructionIndex: 0,
+          customCode: RingProgramError.proofVerificationFailed,
+        }),
+      });
+      expect(result).toMatchObject({ kind: "failed", attempts });
+      expect(registry.getAccount).toHaveBeenCalledTimes(attempts);
+    }
   });
 
   it("refuses changed retry intent before signing or sending it", async () => {

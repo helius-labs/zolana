@@ -97,6 +97,7 @@ fn owner_transact(
         proof: CustomRingProof::zeroed(),
         transact: transact(Vec::new()),
         approval_required,
+        window_index: 0,
     }
 }
 
@@ -110,7 +111,10 @@ fn delegate_transact(
         payer: payer(),
         input_trees: vec![pda::tree(0)],
         output_tree: pda::tree(0),
-        policy: reads(EscrowBinding::Registry { root_index: 5 }),
+        policy: reads(EscrowBinding::Registry {
+            root_index: 5,
+            root: [5; 32],
+        }),
         cosigner,
         delegate: delegate(),
         proof: CustomRingProof::zeroed(),
@@ -150,16 +154,16 @@ fn an_approved_transfer_carries_the_bit_and_the_cosigner_signs() {
     assert_eq!(owner.data[0], tag::TRANSACT);
     assert_eq!(delegated.data[0], tag::DELEGATE_TRANSACT);
     for instruction in [owner, delegated] {
-        assert_eq!(data(&instruction).approval_required, 1);
+        assert!(data(&instruction).approval_required);
         assert_eq!(
-            instruction.accounts[3],
+            instruction.accounts[2],
             AccountMeta::new_readonly(cosigner(), true)
         );
     }
     let unapproved = delegate_transact(Some(cosigner()), false, Vec::new())
         .instruction()
         .unwrap();
-    assert_eq!(data(&unapproved).approval_required, 0);
+    assert!(!data(&unapproved).approval_required);
 }
 
 #[test]
@@ -167,9 +171,8 @@ fn an_unset_cosigner_repeats_its_pda_unsigned() {
     let instruction = owner_transact(None, false, None).instruction().unwrap();
     let pda = ring().cosigner_pda();
     assert_eq!(
-        instruction.accounts[..4],
+        instruction.accounts[..3],
         [
-            AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new_readonly(pda, false),
             AccountMeta::new_readonly(pda, false),
@@ -201,7 +204,7 @@ fn the_delegate_rail_reads_policy_then_escrow_then_revocations_in_their_trees() 
         .map(|meta| meta.pubkey)
         .collect();
     assert_eq!(
-        keys[4..11],
+        keys[3..10],
         [
             ring().delegate_pda(),
             delegate(),
@@ -212,11 +215,12 @@ fn the_delegate_rail_reads_policy_then_escrow_then_revocations_in_their_trees() 
             pda::nullifier_pda(&pda::tree(9), &[0x21; 32]).0,
         ]
     );
-    assert_eq!(keys[11], pda::nullifier_pda(&pda::tree(0), &[0x23; 32]).0);
-    assert!(instruction.accounts[5].is_signer);
+    assert_eq!(keys[10], pda::nullifier_pda(&pda::tree(0), &[0x23; 32]).0);
+    assert!(instruction.accounts[4].is_signer);
     let decoded = data(&instruction);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert_eq!(decoded.key_registry_root_index, 5);
+    assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.revocation_tree_indexes[0], 1);
     assert_eq!(decoded.revocation_targets[2], [0x23; 32]);
 }
@@ -286,4 +290,11 @@ fn a_public_leg_writes_its_window_and_the_namespace_never_signs() {
         .accounts
         .iter()
         .any(|meta| meta.pubkey == recipient));
+}
+
+#[test]
+fn a_windowed_statement_carries_the_window_it_proves() {
+    let mut transfer = owner_transact(None, false, Some(reads(EscrowBinding::Off)));
+    transfer.window_index = 7;
+    assert_eq!(data(&transfer.instruction().unwrap()).window_index, 7);
 }

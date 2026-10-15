@@ -36,7 +36,7 @@ pub(super) async fn initialize_root(
 ) -> RingRoot {
     let root = RingRoot {
         program,
-        address: pda::key_registry_root(&Pubkey::new_from_array(program))
+        address: key_registry_root_pda(&Pubkey::new_from_array(program))
             .0
             .to_bytes(),
         root: EMPTY_ROOT,

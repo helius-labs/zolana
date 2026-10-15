@@ -95,7 +95,6 @@ export type {
   RingSubmissionAttempt,
   RingSubmissionBuild,
   RingSubmissionResult,
-  RingSubmissionWindowChanged,
 } from "./submission.js";
 export { RingProgramError } from "./error.js";
 export type {

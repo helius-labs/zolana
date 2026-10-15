@@ -503,13 +503,13 @@ fn the_policy_transact_carries_the_policy_config() {
         },
         transact: transact_payload(),
         approval_required: false,
+        window_index: 0,
     }
     .instruction()
     .expect("build the policy transact");
-    assert_eq!(instruction.accounts[0].pubkey, [1u8; 32].into());
-    assert_eq!(instruction.accounts[1].pubkey, ring.config_pda());
-    assert_eq!(instruction.accounts[2].pubkey, ring.cosigner_pda());
-    assert_eq!(instruction.accounts[4].pubkey, ring.policy_config_pda());
+    assert_eq!(instruction.accounts[0].pubkey, ring.config_pda());
+    assert_eq!(instruction.accounts[1].pubkey, ring.cosigner_pda());
+    assert_eq!(instruction.accounts[3].pubkey, ring.policy_config_pda());
 }
 
 fn transact_payload() -> zolana_interface::instruction::instruction_data::transact::TransactIxData {

@@ -105,7 +105,6 @@ it("retains unknown submissions after the lease interval and confirmation until 
   vi.spyOn(Date, "now").mockImplementation(() => now);
   const submission = await RingTransactionSubmission.fromBuilder({
     wallet: f.wallet,
-    windowChanged: async () => false,
     build: async (retry) => {
       retry.entries = [f.entry];
       retry.reservation = reserveEntries(f.wallet, retry.entries, retry.lifetime);
@@ -175,7 +174,6 @@ async function persistedFixture(count = 1) {
   const payer = await generateKeyPairSigner();
   const submission = await RingTransactionSubmission.fromBuilder({
     wallet: f.wallet,
-    windowChanged: async () => false,
     build: async (retry) => {
       retry.entries = f.wallet.utxos();
       retry.reservation ??= reserveEntries(f.wallet, retry.entries, retry.lifetime);

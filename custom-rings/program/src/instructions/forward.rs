@@ -59,7 +59,7 @@ impl Forward {
         let deposit = match self {
             Forward::Deposit | Forward::AuditedDeposit => Some(
                 RingDepositIxDataRef::from_bytes(data.get(1..).unwrap_or_default())
-                    .map_err(|_| CustomRingError::InvalidInstructionData)?,
+                    .map_err(|_| CustomRingError::InvalidDepositData)?,
             ),
             Forward::Merge => None,
         };

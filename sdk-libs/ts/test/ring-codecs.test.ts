@@ -646,7 +646,8 @@ describe("ring config", () => {
       "16" +
         Buffer.from(addressBytes(mint, "mint")).toString("hex") +
         "6400000000000000" +
-        "0000000000000000" +
+        "00" +
+        "01" +
         "0900000000000000",
     );
     const clear = await clearRingSpendWindowInstruction({
@@ -671,6 +672,18 @@ describe("ring config", () => {
         authority: AUTHORITY,
         mint,
         windowSlots: 0n,
+        depositCap: 1n,
+      }),
+    ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
+    // The program refuses a window without a cap.
+    await expect(
+      setRingSpendWindowInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        mint,
+        windowSlots: 100n,
+        depositCap: 0n,
       }),
     ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
   });
@@ -1376,8 +1389,7 @@ describe("ring transact", () => {
       data: transactData(),
     });
     expect(escrowed.data?.[0]).toBe(25);
-    expect(escrowed.accounts?.slice(0, 10).map((meta) => [meta.address, meta.role])).toEqual([
-      [PAYER, AccountRole.WRITABLE_SIGNER],
+    expect(escrowed.accounts?.slice(0, 9).map((meta) => [meta.address, meta.role])).toEqual([
       [RING_CONFIG, AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
@@ -1450,7 +1462,7 @@ describe("ring transact", () => {
       },
     });
     const window = await ringSpendWindowAddress(RING, SOL_MINT);
-    expect(instruction.accounts?.slice(4, 7).map((meta) => [meta.address, meta.role])).toEqual([
+    expect(instruction.accounts?.slice(3, 6).map((meta) => [meta.address, meta.role])).toEqual([
       [window, AccountRole.WRITABLE],
       [window, AccountRole.WRITABLE],
       [PAYER, AccountRole.WRITABLE_SIGNER],
@@ -1488,9 +1500,9 @@ describe("ring transact", () => {
       (meta) =>
         meta.role === AccountRole.WRITABLE_SIGNER || meta.role === AccountRole.READONLY_SIGNER,
     );
-    // The payer signs twice, the ring's own account list and the wrapped pool list.
-    expect(signers.map((meta) => meta.address)).toEqual([PAYER, PAYER, owner]);
-    expect(signers[2]?.role).toBe(AccountRole.READONLY_SIGNER);
+    // The payer signs once, in the wrapped pool list.
+    expect(signers.map((meta) => meta.address)).toEqual([PAYER, owner]);
+    expect(signers[1]?.role).toBe(AccountRole.READONLY_SIGNER);
   });
 
   it("wraps the pool's account list and data like Rust `CustomRingTransactIxData`", async () => {
@@ -1510,7 +1522,6 @@ describe("ring transact", () => {
     });
     expect(instruction.programAddress).toBe(RING);
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
-      [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_CONFIG, AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
@@ -1529,6 +1540,7 @@ describe("ring transact", () => {
         "333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737" +
         "01" +
         "00000000" +
+        "00".repeat(8) +
         "00" +
         "00" +
         "01" +
@@ -1559,20 +1571,23 @@ describe("ring transact", () => {
         revocationTargets: targets,
         revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       }),
+      windowIndex: 0x0102n,
       proof: customRingProof(),
       data: transactData(),
     });
-    expect(instruction.accounts?.slice(5, 10).map((meta) => meta.address)).toEqual([
+    expect(instruction.accounts?.slice(4, 9).map((meta) => meta.address)).toEqual([
       ADDRESS_TREE,
       TREE,
       await ringKeyRegistryRootAddress(RING),
       await nullifierPdaAddress(TREE, filled(66, 32)),
       await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
     ]);
-    expect(Array.from((instruction.data ?? new Uint8Array()).slice(193, 204))).toEqual([
-      2, 2, 1, 4, 3, 6, 5, 8, 7, 9, 0,
+    const data = instruction.data ?? new Uint8Array();
+    // Policy trees, window index, key registry root index, then the approval bit.
+    expect(Array.from(data.slice(193, 212))).toEqual([
+      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0, 9, 0,
     ]);
-    const indexes = 204 + 1 + 2 * 32;
+    const indexes = 212 + 1 + 2 * 32;
     expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
       [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     );

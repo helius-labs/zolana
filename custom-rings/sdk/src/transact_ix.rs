@@ -24,22 +24,22 @@ pub struct PolicyTreeContext {
 pub enum EscrowBinding {
     #[default]
     Off,
-    Registry {
-        root_index: u8,
-    },
+    /// The statement names `root` by its history slot, a later registration may overwrite it.
+    Registry { root_index: u8, root: [u8; 32] },
 }
 
 impl EscrowBinding {
     pub(crate) fn of(root: Option<CurrentKeyRegistryRoot>) -> Self {
         root.map_or(Self::Off, |root| Self::Registry {
             root_index: root.history_index,
+            root: root.root,
         })
     }
 
     pub(crate) const fn root_index(self) -> u8 {
         match self {
             Self::Off => 0,
-            Self::Registry { root_index } => root_index,
+            Self::Registry { root_index, .. } => root_index,
         }
     }
 
@@ -115,11 +115,12 @@ pub(crate) fn window_metas(
         .map(move |mint| AccountMeta::new(ring.spend_window_pda(&mint), false))
 }
 
-/// `[payer, config, cosigner_pda, cosigner]`, the policy reads, one window per public
+/// `[config, cosigner_pda, cosigner]`, the policy reads, one window per public
 /// leg, then SPP's `RING_TRANSACT` list. The program signs `ring_config`.
 #[must_use]
 pub struct CustomRingTransact {
     pub ring: CustomRing,
+    /// SPP's fee payer.
     pub payer: Address,
     /// One per input tree, in first-use order.
     pub input_trees: Vec<Address>,
@@ -136,6 +137,8 @@ pub struct CustomRingTransact {
     pub transact: TransactIxData,
     /// The dual control bit the velocity statement proves, the co-signer then signs.
     pub approval_required: bool,
+    /// The window a windowed statement proves, zero otherwise.
+    pub window_index: u64,
 }
 
 /// The delegate rail runs on policy rings with key escrow on only.
@@ -178,10 +181,10 @@ impl CustomRingTransact {
         accounts.splice(0..0, windows);
         RingStatement {
             ring: self.ring,
-            payer: self.payer,
             cosigner: self.cosigner,
             policy: self.policy.as_ref(),
             approval_required: self.approval_required,
+            window_index: self.window_index,
             proof: self.proof,
         }
         .instruction(tag::TRANSACT, Vec::new(), accounts, spp.data)
@@ -207,10 +210,10 @@ impl CustomRingDelegateTransact {
         ];
         RingStatement {
             ring: self.ring,
-            payer: self.payer,
             cosigner: self.cosigner,
             policy: Some(&self.policy),
             approval_required: self.approval_required,
+            window_index: 0,
             proof: self.proof,
         }
         .instruction(
@@ -224,10 +227,10 @@ impl CustomRingDelegateTransact {
 
 struct RingStatement<'a> {
     ring: CustomRing,
-    payer: Address,
     cosigner: Option<Address>,
     policy: Option<&'a PolicyReads>,
     approval_required: bool,
+    window_index: u64,
     proof: CustomRingProof,
 }
 
@@ -243,8 +246,7 @@ impl RingStatement<'_> {
         if self.approval_required && self.cosigner.is_none() {
             return Err(RingError::ApprovalWithoutCoSigner);
         }
-        let mut accounts = vec![AccountMeta::new(self.payer, true)];
-        accounts.extend(ring_prefix(self.ring, self.cosigner));
+        let mut accounts = ring_prefix(self.ring, self.cosigner).to_vec();
         accounts.extend(rail);
         if let Some(policy) = self.policy {
             accounts.extend(policy.metas(self.ring)?);
@@ -257,8 +259,9 @@ impl RingStatement<'_> {
             policy_trees: policy
                 .map(|policy| policy.trees.iter().map(|tree| tree.context).collect())
                 .unwrap_or_default(),
+            window_index: self.window_index,
             key_registry_root_index: policy.map_or(0, |policy| policy.escrow.root_index()),
-            approval_required: u8::from(self.approval_required),
+            approval_required: self.approval_required,
             revocation_targets: policy
                 .map_or([[0; 32]; ANSWER_SLOTS], |policy| policy.revocation_targets),
             revocation_tree_indexes: policy

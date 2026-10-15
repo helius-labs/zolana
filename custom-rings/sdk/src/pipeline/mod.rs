@@ -43,6 +43,7 @@ use crate::{
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
     request::{BaseBody, PolicyEnvelope},
+    submission::BoundRoot,
     to_instruction_proof,
     trees::{spend_trees, SpendTrees},
     witness::WitnessInput,
@@ -93,8 +94,8 @@ pub struct ProvenRingTransfer {
     /// The eddsa owners of the spent UTXOs, empty on the delegate rail.
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// `(window_slots, window_index)` of a windowed statement.
-    pub(crate) window: Option<(u64, u64)>,
+    /// The window a windowed statement proves, zero otherwise.
+    window_index: u64,
     payer: Address,
     delegate: Option<Address>,
     trees: SpendTrees,
@@ -215,10 +216,10 @@ impl<R: Rail> RingTransfer<R> {
             outputs,
             owner_signers: staged.owner_signers,
             interface_transfer_accounts: staged.interface_transfer_accounts,
-            window: staged
+            window_index: staged
                 .record
                 .and(staged.velocity)
-                .map(|velocity| (velocity.window_slots, velocity.window_index)),
+                .map_or(0, |velocity| velocity.window_index),
             payer: staged.proof_inputs.payer,
             delegate: staged.delegate,
             trees,
@@ -591,6 +592,10 @@ impl Spp {
 }
 
 impl ProvenRingTransfer {
+    pub(crate) fn bound_root(&self) -> Option<BoundRoot> {
+        BoundRoot::of(self.ring, self.policy.as_ref()?.escrow)
+    }
+
     pub fn instruction(&self) -> Result<Instruction, RingError> {
         match self.delegate {
             None => CustomRingTransact {
@@ -605,6 +610,7 @@ impl ProvenRingTransfer {
                 proof: self.proof,
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
+                window_index: self.window_index,
             }
             .instruction(),
             Some(delegate) => CustomRingDelegateTransact {

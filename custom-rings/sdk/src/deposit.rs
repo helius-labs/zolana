@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    tag, CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
-    MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    tag, AuditedDepositPrefix, CustomRingProof, DepositContext, DepositPublicInput,
+    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -22,6 +22,7 @@ use crate::{
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
     request::DepositBody,
+    submission::BoundRoot,
     to_instruction_proof,
     transact_ix::{ring_prefix, window_metas},
     CustomRing, EscrowBinding, RingError, RingSubmission, SettledSubmission,
@@ -211,6 +212,14 @@ impl PreparedRingDeposit {
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<Instruction, RingError> {
+        Ok(self.prove_bound(client).await?.0)
+    }
+
+    /// The instruction and the registry root its proof binds.
+    pub(crate) async fn prove_bound<R: AsyncRpc, I: AsyncIndexer>(
+        &self,
+        client: &AsyncZolanaClient<R, I>,
+    ) -> Result<(Instruction, Option<BoundRoot>), RingError> {
         let Some(disclosure) = &self.disclosure else {
             return self.instruction(None, None);
         };
@@ -246,17 +255,19 @@ impl PreparedRingDeposit {
         &self,
         proof: Option<CustomRingProof>,
         escrow: Option<EscrowedKeys>,
-    ) -> Result<Instruction, RingError> {
-        Deposit {
+    ) -> Result<(Instruction, Option<BoundRoot>), RingError> {
+        let escrow = EscrowBinding::of(escrow.map(|escrow| escrow.root));
+        let instruction = Deposit {
             ring: self.ring,
             tree: self.tree,
             depositor: self.depositor,
             deposits: vec![self.deposit.clone()],
             proof,
-            escrow: EscrowBinding::of(escrow.map(|escrow| escrow.root)),
+            escrow,
             cosigner: self.cosigner,
         }
-        .instruction()
+        .instruction()?;
+        Ok((instruction, BoundRoot::of(self.ring, escrow)))
     }
 }
 
@@ -319,11 +330,12 @@ impl Deposit {
         }
         .instruction()?;
         if let Some(proof) = self.proof {
-            let mut data = vec![tag::AUDITED_DEPOSIT];
-            data.extend(wincode::serialize(&proof)?);
-            data.push(self.escrow.root_index());
-            data.extend_from_slice(&instruction.data);
-            instruction.data = data;
+            let prefix = AuditedDepositPrefix {
+                tag: tag::AUDITED_DEPOSIT,
+                proof,
+                key_registry_root_index: self.escrow.root_index(),
+            };
+            instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
         }
         let mut prefix = ring_prefix(self.ring, self.cosigner).to_vec();
         prefix.push(AccountMeta::new_readonly(

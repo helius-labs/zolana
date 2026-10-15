@@ -31,6 +31,7 @@ import { TRANSFER_DEMAND, checkRingCoSigner } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringDelegateTransactInstruction } from "./instructions.js";
 import {
+  boundRegistryRoot,
   checkRetainedEntries,
   RingTransactionSubmission,
   type RingSubmissionAttempt,
@@ -110,9 +111,9 @@ export async function createRingDelegateSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: input.wallet,
+      registry: input.client,
       build: (retry, context) =>
         buildDelegateTransaction({ move: input, wallet: input.wallet, source, retry }, context),
-      windowChanged: async () => false,
     },
     context,
   );
@@ -139,9 +140,9 @@ export async function createRingDelegateRecoveredSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet,
+      registry: input.client,
       build: (retry, context) =>
         buildDelegateTransaction({ move: input, wallet, source, retry }, context),
-      windowChanged: async () => false,
     },
     context,
   );
@@ -327,6 +328,7 @@ async function buildDelegateTransaction(
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
       intentHash: hash,
       ringInstructionIndex: 0,
+      ...boundRegistryRoot(move.ringProgramId, proven.policy),
     });
   } catch (cause) {
     if (reservation !== undefined) wallet._releaseReservation(reservation.id);

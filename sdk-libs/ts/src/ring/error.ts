@@ -108,6 +108,16 @@ export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
 export const RingProgramError = Object.freeze({
   proofVerificationFailed: 8101,
   staleKeyRegistryRoot: 8161,
+  windowElapsed: 8173,
+  invalidWindowIndex: 8174,
+  unexpectedKeyRegistryRoot: 8175,
+  unexpectedApproval: 8176,
+  invalidSettlementAccounts: 8177,
+  tooManyPublicLegs: 8178,
+  invalidAuditedDeposit: 8179,
+  invalidDepositData: 8180,
+  unexpectedRevocationTarget: 8181,
+  uncappedSpendWindow: 8182,
 } as const);
 
 export class RingError extends Error {

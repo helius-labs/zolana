@@ -32,7 +32,7 @@ pub fn process_register_spend_ix(
     let record = SpendRecord {
         member,
         version: 0,
-        window: window.index(Clock::get()?.slot),
+        window: window.check_index(Clock::get()?.slot, ix.window_index)?,
         counters_commitment: SpendCounters::EMPTY
             .commitment()
             .map_err(CustomRingError::from)?,

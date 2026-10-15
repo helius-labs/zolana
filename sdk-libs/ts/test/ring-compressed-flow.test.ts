@@ -7,6 +7,7 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { ClientError } from "../src/client/error.js";
+import { RingProgramError } from "../src/ring/error.js";
 import type { TransferInputs } from "../src/client/prover/types.js";
 import type { RingSpendRegistrationClient } from "../src/ring/register-spend.js";
 import {
@@ -205,7 +206,7 @@ describe("compressed registration flow", () => {
       send,
       status: async () =>
         statuses++ === 0
-          ? { kind: "failed", instructionIndex: 0, customCode: 8101 }
+          ? { kind: "failed", instructionIndex: 0, customCode: RingProgramError.windowElapsed }
           : { kind: "confirmed", slot: 801n },
     });
     expect(result).toMatchObject({ kind: "confirmed", attempts: 2 });

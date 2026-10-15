@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use anyhow::Context as _;
 
-use custom_ring_interface::{pda, FIELD_MAX, KEY_REGISTRY_CAPACITY};
+use custom_ring_interface::{FIELD_MAX, KEY_REGISTRY_CAPACITY};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
@@ -12,7 +12,7 @@ use zolana_indexer_api::{
 };
 
 use super::{
-    load_root,
+    key_registry_root_pda, load_root,
     proof::{self, PathOverlay},
     storage::{self, PredecessorError, ProjectionCursor, RingRoot, Store},
 };
@@ -139,7 +139,7 @@ pub(super) async fn ready(
 async fn check_chain(rpc: &RpcClient, root: &RingRoot) -> anyhow::Result<()> {
     let program = Pubkey::new_from_array(root.program);
     anyhow::ensure!(
-        pda::key_registry_root(&program).0.to_bytes() == root.address,
+        key_registry_root_pda(&program).0.to_bytes() == root.address,
         "noncanonical key registry address"
     );
     let chain = load_root(rpc, &program).await?;

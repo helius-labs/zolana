@@ -21,7 +21,7 @@ use crate::common::{
 use crate::transact::{body, transact_data};
 
 /// Stateless caps do not confine transaction trees.
-fn transfer_cap_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
+fn transfer_cap_fixture(approval_required: bool, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
         body(0, 0, approval_required, transact),
@@ -33,7 +33,7 @@ fn transfer_cap_fixture(approval_required: u8, transact: TransactIxData) -> Fixt
 #[test]
 fn a_cap_ring_reaches_the_proof_without_a_record() {
     let (mollusk, _) = setup_mollusk();
-    transfer_cap_fixture(0, transact_data())
+    transfer_cap_fixture(false, transact_data())
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
@@ -42,7 +42,7 @@ fn a_plaintext_record_output_is_a_money_output_without_a_window() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.outputs.push(spend_record_output([61u8; 32]));
-    transfer_cap_fixture(0, content)
+    transfer_cap_fixture(false, content)
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
 }
 
@@ -51,8 +51,8 @@ fn a_deposit_leg_is_rejected_exactly_without_a_window() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
-    let mut fixture = transfer_cap_fixture(0, content);
-    fixture.insert(6, window_slot(Pubkey::new_from_array([0; 32]), None));
+    let mut fixture = transfer_cap_fixture(false, content);
+    fixture.insert_windows(vec![window_slot(Pubkey::new_from_array([0; 32]), None)]);
     for byte in [53u8, 54] {
         fixture.push(Slot {
             label: "settlement",
@@ -68,7 +68,7 @@ fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
-    let mut data = body(0, 0, 0, content);
+    let mut data = body(0, 0, false, content);
     data[0] = tag::DELEGATE_TRANSACT;
     let mut fixture = policy_delegate_transact_fixture(data);
     fixture.set_account("policy_config", transfer_cap_policy_config_account());
@@ -78,10 +78,10 @@ fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
 #[test]
 fn an_approval_needs_the_configured_cosigner_without_a_window() {
     let (mollusk, _) = setup_mollusk();
-    transfer_cap_fixture(1, transact_data())
+    transfer_cap_fixture(true, transact_data())
         .expect_err(&mollusk, custom(CustomRingError::ApprovalWithoutCoSigner));
 
-    let mut signed = transfer_cap_fixture(1, transact_data());
+    let mut signed = transfer_cap_fixture(true, transact_data());
     signed.set_account("cosigner_pda", cosigner_account(CoSignScope::DEPOSITS, &[]));
     signed.sign("cosigner");
     signed.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));

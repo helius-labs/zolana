@@ -1,22 +1,12 @@
-use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
-    deposit_verifying_key::VERIFYINGKEY, tag, CustomRingError, CustomRingProof, DepositContext,
-    DepositPublicInput, RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
-    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
+    deposit_verifying_key::VERIFYINGKEY, tag, AuditedDepositPrefix, CustomRingError,
+    CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
+    MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
 };
 use pinocchio::{Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
 
 use crate::instructions::verifier::verify_groth16;
-
-/// `tag || proof || key_registry_root_index`, then the SPP deposit instruction unchanged.
-#[derive(Clone, Copy, Pod, Zeroable)]
-#[repr(C)]
-struct AuditedPrefix {
-    tag: u8,
-    proof: CustomRingProof,
-    key_registry_root_index: u8,
-}
 
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
@@ -26,13 +16,12 @@ pub(crate) struct AuditedDeposit<'a> {
 
 impl<'a> AuditedDeposit<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self, CustomRingError> {
-        let invalid = CustomRingError::InvalidInstructionData;
         let (prefix, spp_data) = data
-            .split_at_checked(core::mem::size_of::<AuditedPrefix>())
-            .ok_or(invalid)?;
-        let prefix: &AuditedPrefix = bytemuck::from_bytes(prefix);
+            .split_at_checked(core::mem::size_of::<AuditedDepositPrefix>())
+            .ok_or(CustomRingError::InvalidInstructionData)?;
+        let prefix: &AuditedDepositPrefix = bytemuck::from_bytes(prefix);
         if prefix.tag != tag::AUDITED_DEPOSIT || spp_data.first() != Some(&tag::DEPOSIT) {
-            return Err(invalid);
+            return Err(CustomRingError::InvalidAuditedDeposit);
         }
         Ok(Self {
             proof: prefix.proof,

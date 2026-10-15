@@ -11,7 +11,7 @@ use std::{collections::HashMap, ops::RangeInclusive, sync::Arc, time::Duration};
 use anyhow::{bail, ensure, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    pda, KeyRegistryRoot, PolicyConfig, RingAccount,
+    KeyRegistryRoot, PolicyConfig, RingAccount,
 };
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
@@ -455,11 +455,16 @@ pub(crate) struct ChainRoot {
     pub next_index: u64,
 }
 
+/// The canonical key registry root of `program`.
+pub(crate) fn key_registry_root_pda(program: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[KeyRegistryRoot::SEED], program)
+}
+
 pub(crate) async fn load_root(
     rpc: &RpcClient,
     program: &Pubkey,
 ) -> Result<ChainRoot, ProjectError> {
-    let (address, bump) = pda::key_registry_root(program);
+    let (address, bump) = key_registry_root_pda(program);
     let account = ring_account(rpc.get_account(&address).await)?;
     let root = KeyRegistryRoot::decode(&account.owner, program, &account.data)
         .filter(|root| root.bump == bump)
@@ -772,7 +777,7 @@ impl BlockWork<'_> {
 }
 
 fn initialization(instruction: &Instruction) -> Option<[u8; 32]> {
-    let root = pda::key_registry_root(&instruction.program_id).0;
+    let root = key_registry_root_pda(&instruction.program_id).0;
     let named = instruction
         .accounts
         .get(accounts::CREATE_KEY_REGISTRY_ROOT_ROOT);
