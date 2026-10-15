@@ -26,7 +26,7 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-The SDK pins `devnet-d-tee-2`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
+The SDK pins `devnet-d-tee-2`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
 The enclave was built from prover source commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`, with build tooling from `92a2e088c300f6b62722dd699b68288d6150332e`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39738684498). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 Every prover client requires a remote prover to attest to that pin and encrypts each call to it, except a loopback prover and the Helius gateway, which cannot relay encrypted requests.
 In Rust, `ProverClient::without_tee` and `AsyncProverClient::without_tee` send plaintext and `with_tee` takes another policy; `ProverClient::attest` returns the verified `AttestedProver` on demand.
@@ -95,7 +95,7 @@ explicitly with `with_tee`, `proverTee`, or the xtask's `--policy` option.
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
-The SDK release pins the deployment the operator released, in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The SDK release pins the deployment the operator released, in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
 The client verifies the attestation against that pin and encrypts each call.
 Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 

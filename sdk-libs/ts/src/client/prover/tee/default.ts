@@ -1,4 +1,4 @@
-/** Mirrors `sdk-libs/client/src/prover/tee/policy.json`, kept equal by a test. */
+/** Mirrors `sdk-libs/prover-tee/src/policy.json`, kept equal by a test. */
 export const DEFAULT_TEE_POLICY_FILE: Readonly<{ deployment: unknown }> = Object.freeze({
   deployment: {
     platform: "aws-nitro",

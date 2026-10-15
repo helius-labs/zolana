@@ -101,7 +101,7 @@ describe("TEE policy", () => {
   };
 
   it("mirrors the Rust SDK's pinned policy file", () => {
-    expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
+    expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/policy.json"));
   });
 
   it("authenticates devnet-d-tee-2 with the default pin and refuses changed bindings", () => {
