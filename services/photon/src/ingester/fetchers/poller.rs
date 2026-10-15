@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{atomic::Ordering, Arc, Mutex, PoisonError},
+    time::Duration,
 };
 
 use async_stream::stream;
@@ -174,13 +175,45 @@ impl BlockAssembler {
     }
 }
 
+/// Deadline for each `getBlock` attempt until one misses it; later attempts run
+/// under the client's 90 s timeout. A healthy RPC answers in about a second.
+const BLOCK_FETCH_DEADLINE: Duration = Duration::from_secs(10);
+
 pub async fn fetch_block_with_infinite_retries(
     rpc_client: Arc<RpcClient>,
     fetch: Fetch,
 ) -> Option<BlockInfo> {
+    fetch_block(rpc_client, fetch, BLOCK_FETCH_DEADLINE).await
+}
+
+async fn fetch_block(
+    rpc_client: Arc<RpcClient>,
+    fetch: Fetch,
+    deadline: Duration,
+) -> Option<BlockInfo> {
     let slot = fetch.slot;
+    let mut deadline = Some(deadline);
     loop {
-        match rpc_client.get_block(slot, TransactionDetails::Full).await {
+        let request = rpc_client.get_block(slot, TransactionDetails::Full);
+        let response = match deadline {
+            None => request.await,
+            Some(limit) => match tokio::time::timeout(limit, request).await {
+                Ok(response) => response,
+                Err(_) => {
+                    metric! {
+                        statsd_count!("rpc_block_fetch_timed_out", 1);
+                    }
+                    log::warn!(
+                        "getBlock for slot {} missed its {:?} deadline; retrying",
+                        slot,
+                        limit
+                    );
+                    deadline = None;
+                    continue;
+                }
+            },
+        };
+        match response {
             Ok(block) => {
                 metric! {
                     statsd_count!("rpc_block_fetched", 1);
@@ -226,7 +259,33 @@ pub async fn fetch_block_with_infinite_retries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ingester::typedefs::block_info::BlockMetadata;
+    use crate::{
+        ingester::typedefs::block_info::BlockMetadata, rpc::fake_node::serve_after_unanswered,
+    };
+
+    #[tokio::test]
+    async fn retries_a_block_fetch_that_misses_its_deadline() {
+        let (url, node) = serve_after_unanswered(
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"result":{"blockhash":"11111111111111111111111111111111","previousBlockhash":"11111111111111111111111111111111","parentSlot":41,"blockTime":1,"blockHeight":42}}"#,
+        );
+        let fetch = Fetch {
+            slot: 42,
+            confirmed: false,
+        };
+        let block = tokio::time::timeout(
+            Duration::from_secs(5),
+            fetch_block(
+                Arc::new(RpcClient::new(url)),
+                fetch,
+                Duration::from_millis(200),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(block.map(|block| block.metadata.parent_slot), Some(41));
+        assert_eq!(node.join().unwrap().len(), 2);
+    }
 
     fn block(slot: u64, parent_slot: u64) -> BlockInfo {
         BlockInfo {
