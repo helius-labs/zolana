@@ -1,7 +1,6 @@
 use std::num::NonZeroU64;
 
 use anyhow::Result;
-use custom_ring_cli::transact;
 use custom_ring_sdk::{
     CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset, ReadSpendRecord,
     RegisterSpend, RingDeposit,
@@ -71,7 +70,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
             cosigner: None,
         };
         let deposit = env.run(deposit.send(client))?;
-        transact::wait_for_indexed_transaction(indexer, deposit.signature)?;
+        custom_ring_cli::wait_for_indexed_transaction(&env.client, deposit.signature)?;
         let input = zolana_test_utils::utxo::indexed(
             deposit.utxo,
             &member.nullifier_key,
@@ -154,7 +153,7 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
             cosigner: None,
         };
         let deposit = env.run(deposit.send(client))?;
-        transact::wait_for_indexed_transaction(indexer, deposit.signature)?;
+        custom_ring_cli::wait_for_indexed_transaction(&env.client, deposit.signature)?;
         let input = zolana_test_utils::utxo::indexed(
             deposit.utxo,
             &member.nullifier_key,

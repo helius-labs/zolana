@@ -27,7 +27,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::transact::{self, Probe};
+use custom_ring_cli::{wait_for, Probe};
 use custom_ring_interface::{
     CustomRingError, RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG,
 };
@@ -478,7 +478,6 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
 #[test]
 fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
     let env = setup()?;
-    let indexer = env.client.indexer();
     let tree = env.register_default_tree()?;
     let ring = CustomRing::new(custom_ring_program_id()?);
     let auditor = ViewingKey::new();
@@ -512,7 +511,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
             cosigner: None,
         };
         let receipt = env.run(deposit.send(env.client.as_async()))?;
-        transact::wait_for_indexed_transaction(indexer, receipt.signature)?;
+        custom_ring_cli::wait_for_indexed_transaction(&env.client, receipt.signature)?;
     }
 
     let output = project.run(&["merge", "--count", "2"])?;
@@ -2599,7 +2598,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         .context("key registry")?;
     assert_eq!(root.next_index, 2, "one registered member plus sentinel");
     let member_tag = Member::owner_tag(member.pubkey().as_array())?;
-    let sealed = transact::wait_for("the registered key".to_owned(), || {
+    let sealed = wait_for("the registered key", || {
         let read = ReadSealedKey {
             ring,
             member: member_tag,
@@ -2607,8 +2606,8 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         };
         match env.run(read.read(env.client.as_async())) {
             Ok(entry) => Ok(Probe::Ready(entry)),
-            Err(error @ RingError::Client(_)) => Ok(Probe::Retry(error)),
-            Err(error) => Err(error),
+            Err(error @ RingError::Client(_)) => Ok(Probe::Retry(error.into())),
+            Err(error) => Err(error.into()),
         }
     })?;
     let nullifier_key = sealed.open(&auditor)?;

@@ -2089,7 +2089,6 @@ name = "custom-ring-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 2.0.1",
  "bytemuck",
  "clap",
  "console",
@@ -2116,7 +2115,7 @@ dependencies = [
  "thiserror 2.0.20",
  "toml",
  "toml_edit 0.22.27",
- "wincode",
+ "zolana-cli-common",
  "zolana-client",
  "zolana-indexer-api",
  "zolana-interface",

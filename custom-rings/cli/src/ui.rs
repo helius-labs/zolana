@@ -1,126 +1,51 @@
 //! The look of every printed line and the dialogue behind every question.
 
-use std::{collections::VecDeque, fmt::Display, io::IsTerminal, sync::LazyLock};
+use std::{fmt::Display, io::IsTerminal};
 
+use anyhow::{bail, Context as _, Result};
 use console::Style;
 use dialoguer::theme::ColorfulTheme;
-use thiserror::Error;
 
 const SAGE: u8 = 108;
 const AMBER: u8 = 179;
 const RED: u8 = 167;
 
-pub struct Theme {
-    pub label: Style,
-    pub value: Style,
-    pub done: Style,
-    pub skipped: Style,
-    pub waiting: Style,
-    pub refused: Style,
-    pub heading: Style,
-    pub hint: Style,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tone {
-    Done,
-    Skipped,
-    Waiting,
-    Refused,
-}
-
 /// One glyph per section heading or final line, never per row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Icon {
-    Ring,
-    Policy,
-    Lists,
-    Curator,
-    Tree,
-    Pin,
-    Auditor,
-    Pause,
-    Resume,
-    Wizard,
-}
-
-#[derive(Debug, Error)]
-pub enum AskError {
-    #[error("cannot read the answer to {prompt}")]
-    Terminal {
-        prompt: String,
-        #[source]
-        source: dialoguer::Error,
-    },
-    #[error("no scripted answer for {prompt}")]
-    NoAnswer { prompt: String },
-    #[error("the scripted answer to {prompt} has the wrong kind")]
-    WrongKind { prompt: String },
-    #[error("the answer to {prompt} is refused, {reason}")]
-    Refused { prompt: String, reason: String },
+pub mod icon {
+    pub const RING: &str = "🪐";
+    pub const POLICY: &str = "📜";
+    pub const LISTS: &str = "🗂";
+    pub const CURATOR: &str = "🤝";
+    pub const TREE: &str = "🌳";
+    pub const PIN: &str = "🔏";
+    pub const AUDITOR: &str = "🧾";
+    pub const PAUSE: &str = "⏸";
+    pub const RESUME: &str = "▶";
+    pub const WIZARD: &str = "🧭";
 }
 
 /// The `check` reason is shown to the operator.
-pub struct Text<'a> {
-    pub prompt: &'a str,
-    pub default: Option<String>,
-    pub empty: bool,
-    pub check: &'a dyn Fn(&str) -> Result<(), String>,
-}
-
-pub struct Pick<'a> {
-    pub prompt: &'a str,
-    pub items: &'a [String],
-    pub default: usize,
-}
-
-pub struct PickMany<'a> {
-    pub prompt: &'a str,
-    pub items: &'a [String],
-}
+pub type Check<'a> = &'a dyn Fn(&str) -> Result<(), String>;
 
 /// Every question a command asks goes through one of these.
 pub trait Ask {
     fn interactive(&self) -> bool;
-    fn text(&mut self, text: Text<'_>) -> Result<String, AskError>;
-    fn pick(&mut self, pick: Pick<'_>) -> Result<usize, AskError>;
-    fn pick_many(&mut self, pick: PickMany<'_>) -> Result<Vec<usize>, AskError>;
-    fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, AskError>;
+    fn text(
+        &mut self,
+        prompt: &str,
+        default: Option<String>,
+        empty: bool,
+        check: Check<'_>,
+    ) -> Result<String>;
+    fn pick(&mut self, prompt: &str, items: &[String], default: usize) -> Result<usize>;
+    fn pick_many(&mut self, prompt: &str, items: &[String]) -> Result<Vec<usize>>;
+    fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool>;
 }
 
 pub struct Terminal;
 
 /// Every question takes its default, a choice picks nothing.
 pub struct Defaults;
-
-/// Answers in question order, a text answers `pick` by its item label.
-pub struct Scripted {
-    answers: VecDeque<Answer>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Answer {
-    Text(String),
-    Many(Vec<String>),
-    Yes(bool),
-}
-
-static THEME: LazyLock<Theme> = LazyLock::new(Theme::new);
-
-const OUTCOMES: [(&str, Tone); 8] = [
-    ("created", Tone::Done),
-    ("registered", Tone::Done),
-    ("replaced", Tone::Done),
-    ("transferred", Tone::Done),
-    ("already present", Tone::Skipped),
-    ("paused", Tone::Done),
-    ("resumed", Tone::Done),
-    ("refused", Tone::Refused),
-];
-
-pub fn theme() -> &'static Theme {
-    &THEME
-}
 
 /// Prompts draw on stderr, both it and stdin must be terminals to ask.
 pub fn ask_for(silent: bool) -> Box<dyn Ask> {
@@ -137,103 +62,70 @@ pub fn accept(_answer: &str) -> Result<(), String> {
 
 /// The aligned label of every status line, an outcome word takes its tone.
 pub fn line(label: &str, value: impl Display) {
-    let theme = theme();
     let text = value.to_string();
-    let styled = match outcome_tone(&text) {
-        Some(tone) => theme.tone(tone).apply_to(text),
-        None => theme.value.apply_to(text),
-    };
-    println!("{}{styled}", theme.label.apply_to(format!("{label:<12}")));
+    let styled = tone(&text).unwrap_or_default().apply_to(text);
+    println!("{}{styled}", dim().apply_to(format!("{label:<12}")));
 }
 
-pub fn heading(icon: Icon, text: &str) {
-    println!("{} {}", icon.glyph(), theme().heading.apply_to(text));
+pub fn heading(icon: &str, text: &str) {
+    println!("{icon} {}", Style::new().bold().apply_to(text));
 }
 
 pub fn hint(text: impl Display) {
-    println!("{}", theme().hint.apply_to(text));
+    println!("{}", dim().italic().apply_to(text));
 }
 
 pub fn warn(text: impl Display) {
-    println!("{}", theme().waiting.apply_to(text));
+    println!("{}", Style::new().color256(AMBER).apply_to(text));
 }
 
 pub fn refusal(text: impl Display) {
-    println!("{}", theme().refused.apply_to(text));
+    println!("{}", Style::new().color256(RED).apply_to(text));
 }
 
-fn outcome_tone(text: &str) -> Option<Tone> {
-    OUTCOMES
-        .iter()
-        .find(|(word, _)| *word == text)
-        .map(|(_, tone)| *tone)
+fn dim() -> Style {
+    Style::new().dim()
 }
 
-impl Theme {
-    fn new() -> Self {
-        Self {
-            label: Style::new().dim(),
-            value: Style::new(),
-            done: Style::new().color256(SAGE),
-            skipped: Style::new().dim(),
-            waiting: Style::new().color256(AMBER),
-            refused: Style::new().color256(RED),
-            heading: Style::new().bold(),
-            hint: Style::new().dim().italic(),
+fn tone(text: &str) -> Option<Style> {
+    match text {
+        "created" | "registered" | "replaced" | "transferred" | "paused" | "resumed" => {
+            Some(Style::new().color256(SAGE))
         }
-    }
-
-    pub fn tone(&self, tone: Tone) -> &Style {
-        match tone {
-            Tone::Done => &self.done,
-            Tone::Skipped => &self.skipped,
-            Tone::Waiting => &self.waiting,
-            Tone::Refused => &self.refused,
-        }
-    }
-
-    /// Prompts render on stderr, every style marked for it.
-    pub fn dialoguer(&self) -> ColorfulTheme {
-        let stderr = |style: &Style| style.clone().for_stderr();
-        let mark = |text: &str, style: &Style| stderr(style).apply_to(text.to_owned());
-        ColorfulTheme {
-            defaults_style: stderr(&self.hint),
-            prompt_style: stderr(&self.heading),
-            prompt_prefix: mark("?", &self.waiting),
-            prompt_suffix: mark("›", &self.label),
-            success_prefix: mark("·", &self.done),
-            success_suffix: mark("·", &self.label),
-            error_prefix: mark("!", &self.refused),
-            error_style: stderr(&self.refused),
-            hint_style: stderr(&self.hint),
-            values_style: stderr(&self.done),
-            active_item_style: stderr(&self.done),
-            inactive_item_style: stderr(&self.value),
-            active_item_prefix: mark("›", &self.done),
-            inactive_item_prefix: mark(" ", &self.value),
-            checked_item_prefix: mark("[x]", &self.done),
-            unchecked_item_prefix: mark("[ ]", &self.label),
-            picked_item_prefix: mark("›", &self.done),
-            unpicked_item_prefix: mark(" ", &self.value),
-        }
+        "already present" => Some(dim()),
+        "refused" => Some(Style::new().color256(RED)),
+        _ => None,
     }
 }
 
-impl Icon {
-    pub const fn glyph(self) -> &'static str {
-        match self {
-            Self::Ring => "🪐",
-            Self::Policy => "📜",
-            Self::Lists => "🗂",
-            Self::Curator => "🤝",
-            Self::Tree => "🌳",
-            Self::Pin => "🔏",
-            Self::Auditor => "🧾",
-            Self::Pause => "⏸",
-            Self::Resume => "▶",
-            Self::Wizard => "🧭",
-        }
+/// Prompts render on stderr, every style marked for it.
+fn prompt_theme() -> ColorfulTheme {
+    let (done, plain) = (Style::new().color256(SAGE), Style::new());
+    let mark = |text: &str, style: &Style| style.clone().for_stderr().apply_to(text.to_owned());
+    ColorfulTheme {
+        defaults_style: dim().italic().for_stderr(),
+        prompt_style: Style::new().bold().for_stderr(),
+        prompt_prefix: mark("?", &Style::new().color256(AMBER)),
+        prompt_suffix: mark("›", &dim()),
+        success_prefix: mark("·", &done),
+        success_suffix: mark("·", &dim()),
+        error_prefix: mark("!", &Style::new().color256(RED)),
+        error_style: Style::new().color256(RED).for_stderr(),
+        hint_style: dim().italic().for_stderr(),
+        values_style: done.clone().for_stderr(),
+        active_item_style: done.clone().for_stderr(),
+        inactive_item_style: plain.clone().for_stderr(),
+        active_item_prefix: mark("›", &done),
+        inactive_item_prefix: mark(" ", &plain),
+        checked_item_prefix: mark("[x]", &done),
+        unchecked_item_prefix: mark("[ ]", &dim()),
+        picked_item_prefix: mark("›", &done),
+        unpicked_item_prefix: mark(" ", &plain),
     }
+}
+
+fn unread(prompt: &str) -> String {
+    format!("cannot read the answer to {prompt}")
 }
 
 impl Ask for Terminal {
@@ -241,56 +133,47 @@ impl Ask for Terminal {
         true
     }
 
-    fn text(&mut self, text: Text<'_>) -> Result<String, AskError> {
-        let theme = theme().dialoguer();
+    fn text(
+        &mut self,
+        prompt: &str,
+        default: Option<String>,
+        empty: bool,
+        check: Check<'_>,
+    ) -> Result<String> {
+        let theme = prompt_theme();
         let mut input = dialoguer::Input::<String>::with_theme(&theme)
-            .with_prompt(text.prompt)
-            .allow_empty(text.empty)
-            .validate_with(|answer: &String| (text.check)(answer));
-        if let Some(default) = text.default {
+            .with_prompt(prompt)
+            .allow_empty(empty)
+            .validate_with(|answer: &String| check(answer));
+        if let Some(default) = default {
             input = input.default(default);
         }
-        input.interact_text().map_err(|source| AskError::Terminal {
-            prompt: text.prompt.to_owned(),
-            source,
-        })
+        input.interact_text().with_context(|| unread(prompt))
     }
 
-    fn pick(&mut self, pick: Pick<'_>) -> Result<usize, AskError> {
-        let theme = theme().dialoguer();
-        dialoguer::Select::with_theme(&theme)
-            .with_prompt(pick.prompt)
-            .items(pick.items)
-            .default(pick.default)
+    fn pick(&mut self, prompt: &str, items: &[String], default: usize) -> Result<usize> {
+        dialoguer::Select::with_theme(&prompt_theme())
+            .with_prompt(prompt)
+            .items(items)
+            .default(default)
             .interact()
-            .map_err(|source| AskError::Terminal {
-                prompt: pick.prompt.to_owned(),
-                source,
-            })
+            .with_context(|| unread(prompt))
     }
 
-    fn pick_many(&mut self, pick: PickMany<'_>) -> Result<Vec<usize>, AskError> {
-        let theme = theme().dialoguer();
-        dialoguer::MultiSelect::with_theme(&theme)
-            .with_prompt(pick.prompt)
-            .items(pick.items)
+    fn pick_many(&mut self, prompt: &str, items: &[String]) -> Result<Vec<usize>> {
+        dialoguer::MultiSelect::with_theme(&prompt_theme())
+            .with_prompt(prompt)
+            .items(items)
             .interact()
-            .map_err(|source| AskError::Terminal {
-                prompt: pick.prompt.to_owned(),
-                source,
-            })
+            .with_context(|| unread(prompt))
     }
 
-    fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, AskError> {
-        let theme = theme().dialoguer();
-        dialoguer::Confirm::with_theme(&theme)
+    fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool> {
+        dialoguer::Confirm::with_theme(&prompt_theme())
             .with_prompt(prompt)
             .default(default)
             .interact()
-            .map_err(|source| AskError::Terminal {
-                prompt: prompt.to_owned(),
-                source,
-            })
+            .with_context(|| unread(prompt))
     }
 }
 
@@ -299,134 +182,156 @@ impl Ask for Defaults {
         false
     }
 
-    fn text(&mut self, text: Text<'_>) -> Result<String, AskError> {
-        let answer = text.default.unwrap_or_default();
-        if answer.is_empty() && !text.empty {
-            return Err(AskError::NoAnswer {
-                prompt: text.prompt.to_owned(),
-            });
+    fn text(
+        &mut self,
+        prompt: &str,
+        default: Option<String>,
+        empty: bool,
+        check: Check<'_>,
+    ) -> Result<String> {
+        let answer = default.unwrap_or_default();
+        if answer.is_empty() && !empty {
+            bail!("no default answers {prompt}");
         }
-        (text.check)(&answer).map_err(|reason| AskError::Refused {
-            prompt: text.prompt.to_owned(),
-            reason,
-        })?;
+        if let Err(reason) = check(&answer) {
+            bail!("the answer to {prompt} is refused, {reason}");
+        }
         Ok(answer)
     }
 
-    fn pick(&mut self, pick: Pick<'_>) -> Result<usize, AskError> {
-        Ok(pick.default)
+    fn pick(&mut self, _prompt: &str, _items: &[String], default: usize) -> Result<usize> {
+        Ok(default)
     }
 
-    fn pick_many(&mut self, _pick: PickMany<'_>) -> Result<Vec<usize>, AskError> {
+    fn pick_many(&mut self, _prompt: &str, _items: &[String]) -> Result<Vec<usize>> {
         Ok(Vec::new())
     }
 
-    fn confirm(&mut self, _prompt: &str, default: bool) -> Result<bool, AskError> {
+    fn confirm(&mut self, _prompt: &str, default: bool) -> Result<bool> {
         Ok(default)
     }
 }
 
-impl Scripted {
-    pub fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
-        Self {
-            answers: answers.into_iter().collect(),
+#[cfg(test)]
+pub use scripted::{Answer, Scripted};
+
+#[cfg(test)]
+mod scripted {
+    use std::collections::VecDeque;
+
+    use anyhow::{bail, Context as _, Result};
+
+    use super::{Ask, Check};
+
+    /// Answers in question order, a text answers `pick` by its item label.
+    pub struct Scripted {
+        answers: VecDeque<Answer>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        Text(String),
+        Many(Vec<String>),
+        Yes(bool),
+    }
+
+    impl Scripted {
+        pub fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
+            Self {
+                answers: answers.into_iter().collect(),
+            }
+        }
+
+        pub fn is_drained(&self) -> bool {
+            self.answers.is_empty()
+        }
+
+        fn next(&mut self, prompt: &str) -> Result<Answer> {
+            self.answers
+                .pop_front()
+                .with_context(|| format!("no scripted answer for {prompt}"))
+        }
+
+        fn text_answer(&mut self, prompt: &str) -> Result<String> {
+            match self.next(prompt)? {
+                Answer::Text(answer) => Ok(answer),
+                _ => bail!("the scripted answer to {prompt} has the wrong kind"),
+            }
         }
     }
 
-    pub fn is_drained(&self) -> bool {
-        self.answers.is_empty()
-    }
-
-    fn next(&mut self, prompt: &str) -> Result<Answer, AskError> {
-        self.answers.pop_front().ok_or_else(|| AskError::NoAnswer {
-            prompt: prompt.to_owned(),
-        })
-    }
-}
-
-fn wrong_kind(prompt: &str) -> AskError {
-    AskError::WrongKind {
-        prompt: prompt.to_owned(),
-    }
-}
-
-fn index_of(items: &[String], label: &str, prompt: &str) -> Result<usize, AskError> {
-    items
-        .iter()
-        .position(|item| item == label)
-        .ok_or_else(|| AskError::Refused {
-            prompt: prompt.to_owned(),
-            reason: format!("{label} is not an item"),
-        })
-}
-
-impl Ask for Scripted {
-    fn interactive(&self) -> bool {
-        true
-    }
-
-    fn text(&mut self, text: Text<'_>) -> Result<String, AskError> {
-        let Answer::Text(answer) = self.next(text.prompt)? else {
-            return Err(wrong_kind(text.prompt));
-        };
-        let answer = if answer.is_empty() {
-            text.default.unwrap_or(answer)
-        } else {
-            answer
-        };
-        if answer.is_empty() && !text.empty {
-            return Err(AskError::Refused {
-                prompt: text.prompt.to_owned(),
-                reason: "an answer is needed".to_owned(),
-            });
-        }
-        (text.check)(&answer).map_err(|reason| AskError::Refused {
-            prompt: text.prompt.to_owned(),
-            reason,
-        })?;
-        Ok(answer)
-    }
-
-    fn pick(&mut self, pick: Pick<'_>) -> Result<usize, AskError> {
-        let Answer::Text(label) = self.next(pick.prompt)? else {
-            return Err(wrong_kind(pick.prompt));
-        };
-        index_of(pick.items, &label, pick.prompt)
-    }
-
-    fn pick_many(&mut self, pick: PickMany<'_>) -> Result<Vec<usize>, AskError> {
-        let Answer::Many(labels) = self.next(pick.prompt)? else {
-            return Err(wrong_kind(pick.prompt));
-        };
-        labels
+    fn index_of(items: &[String], label: &str, prompt: &str) -> Result<usize> {
+        items
             .iter()
-            .map(|label| index_of(pick.items, label, pick.prompt))
-            .collect()
+            .position(|item| item == label)
+            .with_context(|| format!("the answer to {prompt} is refused, {label} is not an item"))
     }
 
-    fn confirm(&mut self, prompt: &str, _default: bool) -> Result<bool, AskError> {
-        match self.next(prompt)? {
-            Answer::Yes(answer) => Ok(answer),
-            _ => Err(wrong_kind(prompt)),
+    impl Ask for Scripted {
+        fn interactive(&self) -> bool {
+            true
+        }
+
+        fn text(
+            &mut self,
+            prompt: &str,
+            default: Option<String>,
+            empty: bool,
+            check: Check<'_>,
+        ) -> Result<String> {
+            let answer = self.text_answer(prompt)?;
+            let answer = match default {
+                Some(default) if answer.is_empty() => default,
+                _ => answer,
+            };
+            if answer.is_empty() && !empty {
+                bail!("the answer to {prompt} is refused, an answer is needed");
+            }
+            if let Err(reason) = check(&answer) {
+                bail!("the answer to {prompt} is refused, {reason}");
+            }
+            Ok(answer)
+        }
+
+        fn pick(&mut self, prompt: &str, items: &[String], _default: usize) -> Result<usize> {
+            let label = self.text_answer(prompt)?;
+            index_of(items, &label, prompt)
+        }
+
+        fn pick_many(&mut self, prompt: &str, items: &[String]) -> Result<Vec<usize>> {
+            let Answer::Many(labels) = self.next(prompt)? else {
+                bail!("the scripted answer to {prompt} has the wrong kind");
+            };
+            labels
+                .iter()
+                .map(|label| index_of(items, label, prompt))
+                .collect()
+        }
+
+        fn confirm(&mut self, prompt: &str, _default: bool) -> Result<bool> {
+            match self.next(prompt)? {
+                Answer::Yes(answer) => Ok(answer),
+                _ => bail!("the scripted answer to {prompt} has the wrong kind"),
+            }
         }
     }
-}
 
-impl From<&str> for Answer {
-    fn from(text: &str) -> Self {
-        Self::Text(text.to_owned())
+    impl From<&str> for Answer {
+        fn from(text: &str) -> Self {
+            Self::Text(text.to_owned())
+        }
     }
-}
 
-impl From<bool> for Answer {
-    fn from(yes: bool) -> Self {
-        Self::Yes(yes)
+    impl From<bool> for Answer {
+        fn from(yes: bool) -> Self {
+            Self::Yes(yes)
+        }
     }
-}
 
-impl<const N: usize> From<[&str; N]> for Answer {
-    fn from(labels: [&str; N]) -> Self {
-        Self::Many(labels.iter().map(|label| (*label).to_owned()).collect())
+    impl<const N: usize> From<[&str; N]> for Answer {
+        fn from(labels: [&str; N]) -> Self {
+            Self::Many(labels.iter().map(|label| (*label).to_owned()).collect())
+        }
     }
 }
 
@@ -446,39 +351,14 @@ mod tests {
             Answer::from(["allow"]),
             Answer::from(true),
         ]);
-        let text = ask
-            .text(Text {
-                prompt: "t",
-                default: None,
-                empty: false,
-                check: &accept,
-            })
-            .expect("text");
-        assert_eq!(text, "x");
+        assert_eq!(ask.text("t", None, false, &accept).expect("text"), "x");
         let items = items();
-        assert_eq!(
-            ask.pick(Pick {
-                prompt: "p",
-                items: &items,
-                default: 0
-            })
-            .expect("pick"),
-            1
-        );
-        assert_eq!(
-            ask.pick_many(PickMany {
-                prompt: "m",
-                items: &items
-            })
-            .expect("many"),
-            vec![0]
-        );
+        assert_eq!(ask.pick("p", &items, 0).expect("pick"), 1);
+        assert_eq!(ask.pick_many("m", &items).expect("many"), vec![0]);
         assert!(ask.confirm("c", false).expect("confirm"));
         assert!(ask.is_drained());
-        assert!(matches!(
-            ask.confirm("c", false),
-            Err(AskError::NoAnswer { prompt }) if prompt == "c"
-        ));
+        let error = ask.confirm("c", false).expect_err("drained");
+        assert_eq!(error.to_string(), "no scripted answer for c");
     }
 
     #[test]
@@ -491,32 +371,13 @@ mod tests {
                 .map_err(|_| "not a number".to_owned())
         };
         let with_default = ask
-            .text(Text {
-                prompt: "n",
-                default: Some("7".to_owned()),
-                empty: false,
-                check: &numeric,
-            })
+            .text("n", Some("7".to_owned()), false, &numeric)
             .expect("default fills an empty answer");
         assert_eq!(with_default, "7");
-        assert!(matches!(
-            ask.text(Text {
-                prompt: "n",
-                default: None,
-                empty: false,
-                check: &numeric,
-            }),
-            Err(AskError::Refused { reason, .. }) if reason == "not a number"
-        ));
+        let refused = ask.text("n", None, false, &numeric).expect_err("refused");
+        assert!(refused.to_string().ends_with("not a number"), "{refused}");
         let items = items();
-        assert!(matches!(
-            ask.pick(Pick {
-                prompt: "p",
-                items: &items,
-                default: 0
-            }),
-            Err(AskError::Refused { .. })
-        ));
+        assert!(ask.pick("p", &items, 0).is_err());
     }
 
     #[test]
@@ -524,42 +385,21 @@ mod tests {
         let mut ask = Defaults;
         assert!(!ask.interactive());
         let items = items();
-        assert_eq!(
-            ask.pick(Pick {
-                prompt: "p",
-                items: &items,
-                default: 1
-            })
-            .expect("default index"),
-            1
-        );
-        assert!(ask
-            .pick_many(PickMany {
-                prompt: "m",
-                items: &items
-            })
-            .expect("nothing picked")
-            .is_empty());
+        assert_eq!(ask.pick("p", &items, 1).expect("default index"), 1);
+        assert!(ask.pick_many("m", &items).expect("nothing").is_empty());
         assert!(!ask.confirm("c", false).expect("default"));
-        assert!(matches!(
-            ask.text(Text {
-                prompt: "t",
-                default: None,
-                empty: false,
-                check: &accept,
-            }),
-            Err(AskError::NoAnswer { .. })
-        ));
+        assert!(ask.text("t", None, false, &accept).is_err());
     }
 
     #[test]
     fn only_the_outcome_words_take_a_tone() {
-        assert_eq!(outcome_tone("created"), Some(Tone::Done));
-        assert_eq!(outcome_tone("replaced"), Some(Tone::Done));
-        assert_eq!(outcome_tone("transferred"), Some(Tone::Done));
-        assert_eq!(outcome_tone("already present"), Some(Tone::Skipped));
-        assert_eq!(outcome_tone("refused"), Some(Tone::Refused));
-        assert_eq!(outcome_tone("already paused"), None);
-        assert_eq!(outcome_tone("deployed"), None);
+        let done = Some(Style::new().color256(SAGE));
+        assert_eq!(tone("created"), done);
+        assert_eq!(tone("replaced"), done);
+        assert_eq!(tone("transferred"), done);
+        assert_eq!(tone("already present"), Some(dim()));
+        assert_eq!(tone("refused"), Some(Style::new().color256(RED)));
+        assert_eq!(tone("already paused"), None);
+        assert_eq!(tone("deployed"), None);
     }
 }

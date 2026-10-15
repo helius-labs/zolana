@@ -1,87 +1,92 @@
 //! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
+mod macros;
+
 pub mod assets;
 pub mod authority;
 pub mod catalogue;
 pub mod config;
-pub mod cosigner;
+pub mod controls;
 pub mod delegate;
 pub mod deploy;
-pub mod deposit_audit;
-pub mod error;
 pub mod file;
 pub mod fund;
 pub mod init;
-pub mod key;
 pub mod keys;
 pub mod list;
 pub mod localnet;
+pub mod member;
 pub mod merge;
 pub mod new;
 pub mod pipeline;
 pub mod policy;
 pub mod probe;
-pub mod reader;
 pub mod release;
 pub mod ring_rpc;
-pub mod spend;
 pub mod status;
-pub mod step;
 pub mod tool;
 pub mod transact;
 pub mod ui;
-pub mod window;
 pub mod wizard;
 mod workspace;
 
-use std::path::{Path, PathBuf};
+use std::{
+    cell::{OnceCell, RefCell},
+    fmt::Display,
+    path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
+};
 
-use clap::{Args, Parser, Subcommand};
-use custom_ring_sdk::{CustomRing, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
+use anyhow::{bail, ensure, Context as _, Result};
+use clap::{Args, FromArgMatches, Parser, Subcommand};
+use custom_ring_interface::{compute_unit_limit, CustomRingError, InstructionTag};
+use custom_ring_sdk::{
+    CustomRing, RingError, RingOperation, RingSubmission, SettledSubmission,
+    MERGE_DEFAULT_INPUT_COUNT,
+};
 use solana_address::Address;
+use solana_instruction::{error::InstructionError, Instruction};
 use solana_keypair::Keypair;
+use solana_signature::Signature;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer};
+use solana_transaction_error::TransactionError;
+use zolana_client::{
+    AsyncZolanaClient, Blocking, BlockingIndexer, BlockingInsideRuntime, BlockingRpc, ClientError,
+    ComputeBudgetConfig, IndexerPollConfig, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+};
+use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::ShieldedAddress;
 use zolana_ring_client::ReaderKey;
 
 pub use crate::{
-    config::{ConfigError, RingConfig, Target, RING_TOML},
-    error::CliError,
-    fund::FundError,
-    init::InitError,
+    config::{CoSignClass, Mint, RingConfig, Service, Target, ThresholdSpec, RING_TOML},
     list::MemberArg,
     policy::ListName,
     ring_rpc::{RingRpcClient, Trust},
     ui::{line, Ask},
 };
 
-/// A ring account read through its interface layout, owner and discriminator checked.
-pub fn read_account<A: custom_ring_interface::RingAccount>(
-    rpc: &impl Rpc,
-    ring: CustomRing,
-    address: Address,
-) -> Result<Option<A>, custom_ring_sdk::RingError> {
-    rpc.get_account(address)?
-        .map(|account| {
-            A::decode(&account.owner, &ring.program_id(), &account.data)
-                .ok_or(custom_ring_sdk::RingError::InvalidAccount { address })
-        })
-        .transpose()
-}
-
 /// The blocking client the SDK's `async` operations run on.
 pub type Zolana = ZolanaClient<SolanaRpc, ZolanaIndexer>;
-
-/// What localnet tops the authority up to.
-const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
+pub type Chain = AsyncZolanaClient<Blocking<SolanaRpc>, Blocking<ZolanaIndexer>>;
 
 pub const PROGRAM_KEYPAIR_FILE: &str = "keys/program-keypair.json";
 pub const AUDITOR_KEY_FILE: &str = "keys/auditor.key";
 pub const AUDITOR_PUBKEY_FILE: &str = "keys/auditor.key.pub";
 pub const SENDER_KEYPAIR_FILE: &str = "keys/sender-keypair.json";
 pub const DEFAULT_TRANSACT_AMOUNT: u64 = 100_000_000;
+/// What localnet tops an account up to.
+const LOCALNET_BALANCE: u64 = 100_000_000_000;
+const MAX_COMPUTE_UNITS: u32 = 1_400_000;
+const WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+const WAIT_POLL: Duration = Duration::from_millis(500);
+/// About two and a half minutes, the backoff doubling to four seconds.
+const INDEXER_POLL: IndexerPollConfig = IndexerPollConfig {
+    num_retries: 40,
+    delay_ms: 500,
+    max_delay_ms: 4_000,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "zolana-ring", about = "Operate a custom ring")]
@@ -165,26 +170,11 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum ListCommand {
     /// Claim or reactivate the member's entry of the list.
-    Add {
-        #[arg(value_enum)]
-        list_id: ListName,
-        #[command(flatten)]
-        member: MemberArg,
-    },
+    Add(EntryArgs),
     /// Clear the member's entry, leaving the address claimed.
-    Clear {
-        #[arg(value_enum)]
-        list_id: ListName,
-        #[command(flatten)]
-        member: MemberArg,
-    },
+    Clear(EntryArgs),
     /// Print the member's live entry.
-    Show {
-        #[arg(value_enum)]
-        list_id: ListName,
-        #[command(flatten)]
-        member: MemberArg,
-    },
+    Show(EntryArgs),
     /// Point the list at the ring's own namespace or a curator ring's.
     SetSource {
         #[arg(value_enum)]
@@ -196,6 +186,14 @@ pub enum ListCommand {
         #[arg(long)]
         own: bool,
     },
+}
+
+#[derive(Debug, Args)]
+pub struct EntryArgs {
+    #[arg(value_enum)]
+    pub list_id: ListName,
+    #[command(flatten)]
+    pub member: MemberArg,
 }
 
 #[derive(Debug, Subcommand)]
@@ -221,10 +219,10 @@ pub enum CoSignerCommand {
         signer: Option<Address>,
         /// Operation classes the co-signer gates.
         #[arg(long, value_delimiter = ',', requires = "signer")]
-        scope: Vec<cosigner::CoSignClass>,
+        scope: Vec<CoSignClass>,
         /// `<mint>=<amount>` per mint, `sol` for the native token, withdrawals above it need the co-signer.
         #[arg(long, requires = "signer")]
-        threshold: Vec<config::ThresholdSpec>,
+        threshold: Vec<ThresholdSpec>,
     },
     /// Close the co-signer account, the rent returns to the authority.
     Clear,
@@ -254,13 +252,20 @@ pub struct DelegateMoveArgs {
     pub amount: u64,
     /// The mint moved, `sol` by default.
     #[arg(long)]
-    pub mint: Option<config::Mint>,
+    pub mint: Option<Mint>,
     #[arg(long)]
     pub delegate_keypair: PathBuf,
     /// The P256 auditor read key, separate from the Solana delegate signer.
     #[arg(long, default_value = AUDITOR_KEY_FILE)]
     pub auditor_key: PathBuf,
-    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[command(flatten)]
+    pub cosigner: CosignerArg,
+}
+
+/// The co-signer of a ring whose scope covers the operation.
+#[derive(Debug, Default, Args)]
+pub struct CosignerArg {
+    /// The co-signer keypair when the ring's co-signer scope covers the operation.
     #[arg(long)]
     pub cosigner_keypair: Option<PathBuf>,
 }
@@ -284,7 +289,7 @@ pub enum WindowCommand {
     Set {
         /// A mint address, `sol` for the native token.
         #[arg(long)]
-        mint: config::Mint,
+        mint: Mint,
         /// Window length, windows start at multiples of it.
         #[arg(long)]
         slots: u64,
@@ -298,11 +303,11 @@ pub enum WindowCommand {
     /// Close the window account, the rent returns to the authority.
     Clear {
         #[arg(long)]
-        mint: config::Mint,
+        mint: Mint,
     },
     Show {
         #[arg(long)]
-        mint: config::Mint,
+        mint: Mint,
     },
 }
 
@@ -312,14 +317,6 @@ pub enum ReaderCommand {
     Grant { reader: ReaderKey },
     /// Close the reader's record, the rent returns to the authority.
     Revoke { reader: ReaderKey },
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum Service {
-    Rpc,
-    Indexer,
-    Prover,
-    RingRpc,
 }
 
 #[derive(Debug, Subcommand)]
@@ -385,8 +382,7 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
-    /// Record whether first init must require an auditor disclosure proof for
-    /// deposits.
+    /// Record whether first init must require an auditor disclosure proof for deposits.
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
@@ -409,8 +405,7 @@ pub enum DepositAuditCommand {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Override the deposit proof requirement, ring.toml applies only on first
-    /// init.
+    /// Override the deposit proof requirement, ring.toml applies only on first init.
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub deposit_audit: Option<bool>,
     /// Hex SEC1 compressed auditor key, created by the ring RPC and written here when absent.
@@ -430,9 +425,8 @@ pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
-    /// The co-signer keypair when the ring's co-signer scope covers the demo.
-    #[arg(long)]
-    pub cosigner_keypair: Option<PathBuf>,
+    #[command(flatten)]
+    pub cosigner: CosignerArg,
 }
 
 #[derive(Debug, Args)]
@@ -444,168 +438,216 @@ pub struct TransferArgs {
     pub amount: u64,
     /// Registered mint, `sol` by default.
     #[arg(long)]
-    pub mint: Option<config::Mint>,
+    pub mint: Option<Mint>,
     /// Payer's SPL funding account, its ATA by default.
     #[arg(long)]
     pub token_account: Option<Address>,
-    /// The co-signer keypair when the ring's co-signer scope covers the transfer.
-    #[arg(long)]
-    pub cosigner_keypair: Option<PathBuf>,
+    #[command(flatten)]
+    pub cosigner: CosignerArg,
 }
 
 #[derive(Debug, Args)]
 pub struct MergeArgs {
-    /// Mint to merge; SOL when omitted.
+    /// Mint to merge, `sol` by default.
     #[arg(long)]
-    pub mint: Option<Address>,
-    /// Maximum number of notes to merge, from 2 through 54; 24 by default.
-    #[arg(long, default_value_t = MERGE_DEFAULT_INPUT_COUNT, value_parser = parse_merge_count)]
-    pub count: usize,
-    /// The co-signer keypair when the ring's co-signer scope covers transfers.
-    #[arg(long)]
-    pub cosigner_keypair: Option<PathBuf>,
+    pub mint: Option<Mint>,
+    /// Maximum number of notes to merge, from 2 through 54.
+    #[arg(
+        long,
+        default_value_t = MERGE_DEFAULT_INPUT_COUNT as u64,
+        value_parser = clap::value_parser!(u64).range(2..=custom_ring_sdk::MAX_MERGE_INPUTS as u64)
+    )]
+    pub count: u64,
+    #[command(flatten)]
+    pub cosigner: CosignerArg,
 }
 
-fn parse_merge_count(value: &str) -> Result<usize, String> {
-    let count = value
-        .parse::<usize>()
-        .map_err(|_| format!("count must be an integer from 2 through {MAX_MERGE_INPUTS}"))?;
-    (2..=MAX_MERGE_INPUTS)
-        .contains(&count)
-        .then_some(count)
-        .ok_or_else(|| format!("count must be from 2 through {MAX_MERGE_INPUTS}"))
-}
-
-// The pipeline runs each step with the answers its command defaults to.
-
-impl Default for DeployArgs {
-    fn default() -> Self {
-        Self {
-            deposit_audit: None,
-            program_so: None,
-            program_keypair: PathBuf::from(PROGRAM_KEYPAIR_FILE),
-        }
-    }
-}
-
-impl Default for InitArgs {
-    fn default() -> Self {
-        Self {
-            deposit_audit: None,
-            auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
-            trust_ring_rpc: false,
-            local_auditor: false,
-        }
-    }
-}
-
-impl Default for TransactArgs {
-    fn default() -> Self {
-        Self {
-            cosigner_keypair: None,
-            amount: DEFAULT_TRANSACT_AMOUNT,
-        }
-    }
+/// The arguments a command defaults to, what the pipeline runs each step with.
+pub fn defaults<T: Args + FromArgMatches>() -> T {
+    let command = T::augment_args(clap::Command::new("defaults"));
+    T::from_arg_matches(&command.get_matches_from(["defaults"]))
+        .expect("every argument has a default")
 }
 
 pub struct Context {
     pub config_path: PathBuf,
-    pub project_root: ProjectRoot,
+    /// The directory of ring.toml, relative key paths resolve against it.
+    pub root: PathBuf,
     pub config: RingConfig,
     pub ring: CustomRing,
-    pub rpc: SolanaRpc,
-    pub ask: Box<dyn Ask>,
+    pub zolana: Zolana,
     /// The `--catalogue` override, `None` for the bundled file.
     pub catalogue: Option<String>,
+    ask: RefCell<Box<dyn Ask>>,
+    authority: OnceCell<Keypair>,
 }
 
-pub struct Session {
-    pub config_path: PathBuf,
-    pub config: RingConfig,
-    pub ask: Box<dyn Ask>,
-    pub catalogue: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProjectRoot(PathBuf);
-
-#[derive(Debug, Error)]
-pub enum ContextError {
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-    #[error(transparent)]
-    Fund(#[from] FundError),
-    #[error("the authority holds {balance} lamports, {required} are needed")]
-    AuthorityUnderfunded { required: u64, balance: u64 },
-    #[error(transparent)]
-    Client(Box<ClientError>),
-}
-
-impl Session {
-    pub fn load(self) -> Context {
-        let Self {
-            config_path,
-            mut config,
-            ask,
-            catalogue,
-        } = self;
-        let project_root = ProjectRoot::for_config(&config_path);
-        config.resolve_keypair_paths(&project_root);
-        let ring = CustomRing::new(config.program_id);
-        let rpc = SolanaRpc::new(config.urls().rpc.clone());
-        Context {
-            config_path,
-            project_root,
-            config,
-            ring,
-            rpc,
-            ask,
-            catalogue,
-        }
-    }
+pub enum Probe<T> {
+    Ready(T),
+    NotYet,
+    Retry(anyhow::Error),
 }
 
 impl Context {
-    /// For a step that only pays fees and small rent.
-    pub fn funded_authority(&mut self) -> Result<Keypair, ContextError> {
-        self.authority_funded_for(fund::MIN_AUTHORITY_BALANCE)
-    }
-
-    pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
-        let authority = self.config.config_authority()?;
-        self.fund_authority(&authority, required)?;
-        Ok(authority)
-    }
-
-    pub fn authority_with_balance(&self, required: u64) -> Result<Keypair, ContextError> {
-        let authority = self.config.config_authority()?;
-        let balance = self.rpc.get_balance(authority.pubkey())?;
-        if balance < required {
-            return Err(ContextError::AuthorityUnderfunded { required, balance });
+    pub fn new(
+        config_path: PathBuf,
+        mut config: RingConfig,
+        ask: Box<dyn Ask>,
+        catalogue: Option<String>,
+    ) -> Self {
+        let root = config_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        config.resolve_keypair_paths(|path| resolve(&root, path));
+        let urls = config.urls();
+        let zolana = ZolanaClient::new(
+            SolanaRpc::new(urls.rpc.clone()),
+            ZolanaIndexer::new(&urls.indexer),
+            urls.prover_client(),
+        );
+        Self {
+            ring: CustomRing::new(config.program_id.0),
+            config_path,
+            root,
+            config,
+            zolana,
+            catalogue,
+            ask: RefCell::new(ask),
+            authority: OnceCell::new(),
         }
+    }
+
+    /// Relative to the ring directory, an absolute or `~` path as given.
+    pub fn path(&self, path: &Path) -> PathBuf {
+        resolve(&self.root, path)
+    }
+
+    pub fn rpc(&self) -> &SolanaRpc {
+        self.zolana.rpc()
+    }
+
+    pub fn chain(&self) -> &Chain {
+        self.zolana.as_async()
+    }
+
+    pub fn block<T, E: From<BlockingInsideRuntime>>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        self.zolana.block_on(future)
+    }
+
+    /// The config authority, read once.
+    pub fn authority(&self) -> Result<&Keypair> {
+        if let Some(authority) = self.authority.get() {
+            return Ok(authority);
+        }
+        let authority = self.config.config_authority()?;
+        Ok(self.authority.get_or_init(|| authority))
+    }
+
+    /// For a step that only pays fees and small rent.
+    pub fn funded_authority(&self) -> Result<&Keypair> {
+        let authority = self.authority()?;
+        self.fund(authority.pubkey(), fund::MIN_AUTHORITY_BALANCE)?;
         Ok(authority)
     }
 
     /// Localnet airdrops what the step spends, devnet waits at the faucet.
-    pub fn fund_authority(
-        &mut self,
-        authority: &Keypair,
-        required: u64,
-    ) -> Result<(), ContextError> {
+    pub fn fund(&self, who: Address, required: u64) -> Result<()> {
         match self.config.target {
             Target::Localnet => {
-                let balance = self.rpc.get_balance(authority.pubkey())?;
-                if balance < required.max(LOCALNET_AUTHORITY_BALANCE / 2) {
-                    self.rpc.airdrop(
-                        &authority.pubkey(),
-                        required.max(LOCALNET_AUTHORITY_BALANCE),
-                    )?;
+                if self.rpc().get_balance(who)? < required.max(LOCALNET_BALANCE / 2) {
+                    SolanaRpc::new(self.config.urls().rpc.clone())
+                        .airdrop(&who, required.max(LOCALNET_BALANCE))?;
                 }
+                Ok(())
             }
             Target::Devnet => {
-                fund::wait_for_balance(&self.rpc, self.ask.as_mut(), authority.pubkey(), required)?
+                fund::wait_for_balance(self.rpc(), &mut **self.ask.borrow_mut(), who, required)
             }
         }
+    }
+
+    /// No airdrop, for a step that must not move the operator's funds itself.
+    pub fn require_balance(&self, who: Address, required: u64) -> Result<()> {
+        let balance = self.rpc().get_balance(who)?;
+        ensure!(
+            balance >= required,
+            "{who} holds {balance} lamports, {required} are needed"
+        );
+        Ok(())
+    }
+
+    /// Kept between runs, earlier change stays spendable with it.
+    pub fn sender(&self) -> Result<Keypair> {
+        file::read_or_create_keypair(&self.path(Path::new(SENDER_KEYPAIR_FILE)))
+    }
+
+    /// `signers[0]` pays, each ring instruction brings its own compute budget.
+    pub fn send(&self, signers: &[&dyn Signer], instructions: &[Instruction]) -> Result<Signature> {
+        let payer = signers.first().context("a transaction needs a payer")?;
+        let units = instructions
+            .iter()
+            .map(|instruction| self.compute_units(instruction))
+            .fold(0u32, u32::saturating_add)
+            .min(MAX_COMPUTE_UNITS);
+        self.rpc()
+            .create_and_send_transaction(
+                instructions,
+                payer.pubkey(),
+                signers,
+                ComputeBudgetConfig::new(units),
+            )
+            .map_err(|error| match hint(&error) {
+                Some(hint) => anyhow::Error::new(error).context(hint),
+                None => error.into(),
+            })
+    }
+
+    /// Resent until the cluster settles it, a stale root or a crossed window is proved again.
+    pub fn submit<'a>(
+        &self,
+        operation: impl Into<RingOperation<'a>>,
+        payer: &(dyn Signer + Sync),
+        signers: &[&(dyn Signer + Sync)],
+    ) -> Result<Signature> {
+        let mut submission = RingSubmission::new(operation);
+        match self.block(submission.send_until_settled(self.chain(), payer, signers))? {
+            SettledSubmission::Confirmed { signature, .. } => Ok(signature),
+            SettledSubmission::Failed { signature, error } => {
+                Err(RingError::Rejected { signature, error }.into())
+            }
+        }
+    }
+
+    pub fn wait_for_indexed(&self, signature: Signature) -> Result<()> {
+        wait_for_indexed_transaction(&self.zolana, signature)
+    }
+
+    pub fn interactive(&self) -> bool {
+        self.ask.borrow().interactive()
+    }
+
+    pub fn ask_yes(&self, prompt: &str, default: bool) -> Result<bool> {
+        self.ask.borrow_mut().confirm(prompt, default)
+    }
+
+    /// `--yes` skips the question, without a terminal `needs_yes` is the error.
+    pub fn confirm(
+        &self,
+        yes: bool,
+        prompt: &str,
+        needs_yes: impl Display,
+        declined: impl Display,
+    ) -> Result<()> {
+        if yes {
+            return Ok(());
+        }
+        ensure!(self.interactive(), "{needs_yes}");
+        ensure!(self.ask_yes(prompt, false)?, "{declined}");
         Ok(())
     }
 
@@ -613,153 +655,151 @@ impl Context {
         RingRpcClient::new(&self.config.urls().ring_rpc)
     }
 
-    /// Pins a ring rpc authority signature to the cluster the configured RPC serves.
-    pub fn genesis_hash(&self) -> Result<[u8; 32], ContextError> {
-        Ok(self.rpc.genesis_hash()?)
-    }
-
-    pub fn project_path(&self, path: &Path) -> PathBuf {
-        self.project_root.resolve(path)
-    }
-
-    pub fn indexer(&self) -> ZolanaIndexer {
-        ZolanaIndexer::new(&self.config.urls().indexer)
-    }
-
-    pub fn prover(&self) -> ProverClient {
-        self.config.urls().prover_client()
-    }
-
-    /// The ring's services behind one blocking client, for the SDK's `async` calls.
-    pub fn zolana(&self) -> Zolana {
-        let rpc = SolanaRpc::new(self.config.urls().rpc.clone());
-        ZolanaClient::new(rpc, self.indexer(), self.prover())
-    }
-
     /// `unpinned` applies only when ring.toml pins no service key.
-    pub fn trust(&self, unpinned: Trust) -> Result<Trust, ConfigError> {
+    pub fn trust(&self, unpinned: Trust) -> Result<Trust> {
         match self.config.urls().ring_rpc_pubkey.as_deref() {
             Some(key) => key
                 .parse()
                 .map(Trust::Pinned)
-                .map_err(|_| ConfigError::RingRpcPubkey {
-                    key: key.to_owned(),
-                }),
+                .with_context(|| format!("ring_rpc_pubkey {key} is not a base58 key")),
             None => Ok(unpinned),
         }
     }
+
+    fn compute_units(&self, instruction: &Instruction) -> u32 {
+        instruction
+            .data
+            .first()
+            .filter(|_| instruction.program_id == self.ring.program_id())
+            .and_then(|tag| InstructionTag::try_from(*tag).ok())
+            .map_or(
+                ComputeBudgetConfig::for_instruction_count(1).cu_limit,
+                compute_unit_limit,
+            )
+    }
 }
 
-impl ProjectRoot {
-    pub fn for_config(config_path: &Path) -> Self {
-        Self(
-            config_path
-                .parent()
-                .filter(|path| !path.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf(),
-        )
+fn resolve(root: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() || path.starts_with("~") {
+        path.to_path_buf()
+    } else {
+        root.join(path)
     }
+}
 
-    pub fn resolve(&self, path: &Path) -> PathBuf {
-        if path.is_absolute() || path.starts_with("~") {
-            path.to_path_buf()
-        } else {
-            self.0.join(path)
+/// What a program refusal means for the operator.
+fn hint(error: &ClientError) -> Option<&'static str> {
+    let Some(TransactionError::InstructionError(_, InstructionError::Custom(code))) =
+        error.transaction_error()
+    else {
+        return None;
+    };
+    [
+        (CustomRingError::UnauthorizedInitializer as u32, "the program was deployed with an upgrade authority and only that key may create the config"),
+        (CustomRingError::UnauthorizedAuthority as u32, "the config is held by another authority, `status` shows it"),
+        (CustomRingError::InvalidPolicyRules as u32, "the program refuses the compiled rows, the program log names the refusal"),
+        (ShieldedPoolError::UnauthorizedCaller as u32, "ring creation on this cluster is gated by the SPP ring creation authority"),
+    ]
+    .into_iter()
+    .find_map(|(known, hint)| (known == code).then_some(hint))
+}
+
+/// An `Err` from `probe` is final, the last `Retry` explains a timeout.
+pub fn wait_for<T>(label: impl Display, mut probe: impl FnMut() -> Result<Probe<T>>) -> Result<T> {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut last = None;
+    while Instant::now() < deadline {
+        match probe()? {
+            Probe::Ready(value) => return Ok(value),
+            Probe::NotYet => {}
+            Probe::Retry(error) => last = Some(error),
         }
+        thread::sleep(WAIT_POLL);
     }
-
-    pub fn as_path(&self) -> &Path {
-        &self.0
-    }
+    let timeout = format!("timed out waiting for {label}");
+    Err(match last {
+        Some(error) => error.context(timeout),
+        None => anyhow::anyhow!(timeout),
+    })
 }
 
-pub fn parse_and_run() -> Result<(), CliError> {
+/// Only an error the indexer calls transient is polled again.
+pub fn wait_for_indexed_transaction<R: BlockingRpc, I: BlockingIndexer>(
+    zolana: &ZolanaClient<R, I>,
+    signature: Signature,
+) -> Result<()> {
+    zolana
+        .wait_for_indexed_transaction(signature, INDEXER_POLL)
+        .with_context(|| format!("the indexer did not index {signature}"))
+}
+
+pub fn parse_and_run() -> Result<()> {
     run(Cli::parse())
 }
 
 /// `New` runs before any ring.toml exists, `Target` and `Url` before any RPC client.
-pub fn run(cli: Cli) -> Result<(), CliError> {
+pub fn run(cli: Cli) -> Result<()> {
     let silent = matches!(&cli.command, Command::New(args) if args.silent);
     let mut ask = ui::ask_for(silent);
     if let Command::New(args) = cli.command {
-        return Ok(new::run(args, ask.as_mut(), cli.catalogue.as_deref())?);
+        return new::run(args, ask.as_mut(), cli.catalogue.as_deref());
     }
     let mut config = RingConfig::load(&cli.config)?;
-    match cli.command {
-        Command::Target { target } => {
-            RingConfig::set_target(&cli.config, target)?;
-            line("target", target.as_str());
-            return Ok(());
-        }
-        Command::Devnet => {
-            RingConfig::set_target(&cli.config, Target::Devnet)?;
-            config.target = Target::Devnet;
-            probe::run_devnet(&config)?;
-            return Ok(());
-        }
-        Command::Localnet(args) => {
-            RingConfig::set_target(&cli.config, Target::Localnet)?;
-            config.target = Target::Localnet;
-            localnet::run(&cli.config, &config, args)?;
-            return Ok(());
-        }
-        _ => {}
-    }
-    if let Some(target) = cli.target {
+    let recorded = match &cli.command {
+        Command::Target { target } => Some(*target),
+        Command::Devnet => Some(Target::Devnet),
+        Command::Localnet(_) => Some(Target::Localnet),
+        _ => None,
+    };
+    if let Some(target) = recorded {
+        RingConfig::set_target(&cli.config, target)?;
+        config.target = target;
+    } else if let Some(target) = cli.target {
         config.target = target;
     }
-    if let Command::Url { service } = cli.command {
-        let urls = config.urls();
-        println!(
-            "{}",
-            match service {
-                Service::Rpc => &urls.rpc,
-                Service::Indexer => &urls.indexer,
-                Service::Prover => &urls.prover,
-                Service::RingRpc => &urls.ring_rpc,
-            }
-        );
-        return Ok(());
-    }
-    let mut ctx = Session {
-        config_path: cli.config,
-        config,
-        ask,
-        catalogue: cli.catalogue,
-    }
-    .load();
     match cli.command {
-        Command::Status => status::run(&ctx),
-        Command::Deploy(args) => {
-            localnet::ensure(&ctx)?;
-            deploy::run(&mut ctx, args)?;
+        Command::Target { target } => line("target", target),
+        Command::Devnet => probe::run_devnet(&config)?,
+        Command::Localnet(args) => localnet::run(&cli.config, &config, args)?,
+        Command::Url { service } => println!("{}", config.urls().service(service)),
+        command => {
+            let mut ctx = Context::new(cli.config, config, ask, cli.catalogue);
+            dispatch(&mut ctx, command)?;
         }
-        Command::Init(args) => init::run(&mut ctx, args)?,
-        Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
-        Command::Transact(args) => transact::run(&mut ctx, args)?,
-        Command::Transfer(args) => transact::run_transfer(&mut ctx, args)?,
-        Command::Merge(args) => merge::run(&mut ctx, args)?,
-        Command::RpcCheck => ring_rpc::run_check(&ctx)?,
-        Command::Authority(command) => authority::run(&mut ctx, command)?,
-        Command::Reader(command) => reader::run(&mut ctx, command)?,
-        Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
-        Command::DepositAudit(command) => deposit_audit::run(&mut ctx, command)?,
-        Command::Window(command) => window::run(&mut ctx, command)?,
-        Command::Delegate(command) => delegate::run(&mut ctx, command)?,
-        Command::Spend(command) => spend::run(&mut ctx, command)?,
-        Command::Key(command) => key::run(&mut ctx, command)?,
-        Command::List(command) => list::run(&mut ctx, command)?,
-        Command::Policy(command) => policy::run(&mut ctx, command)?,
-        Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
-        // Handled before the context loads.
+    }
+    Ok(())
+}
+
+fn dispatch(ctx: &mut Context, command: Command) -> Result<()> {
+    match command {
+        Command::Status => status::run(ctx),
+        Command::Deploy(args) => {
+            localnet::ensure(ctx)?;
+            deploy::run(ctx, args)
+        }
+        Command::Init(args) => init::run(ctx, args),
+        Command::Pipeline(args) => pipeline::run(ctx, args),
+        Command::Transact(args) => transact::run(ctx, args),
+        Command::Transfer(args) => transact::run_transfer(ctx, args),
+        Command::Merge(args) => merge::run(ctx, args),
+        Command::RpcCheck => ring_rpc::run_check(ctx),
+        Command::Authority(command) => authority::run(ctx, command),
+        Command::Reader(command) => controls::reader(ctx, command),
+        Command::Cosigner(command) => controls::cosigner(ctx, command),
+        Command::DepositAudit(command) => controls::deposit_audit(ctx, command),
+        Command::Window(command) => controls::window(ctx, command),
+        Command::Delegate(command) => controls::delegate(ctx, command),
+        Command::Spend(command) => member::spend(ctx, command),
+        Command::Key(command) => member::key(ctx, command),
+        Command::List(command) => list::run(ctx, command),
+        Command::Policy(command) => policy::run(ctx, command),
+        Command::AuditorKey(args) => keys::run(&ctx.path(&args.key_file), args.create),
         Command::New(_)
         | Command::Target { .. }
         | Command::Url { .. }
         | Command::Devnet
-        | Command::Localnet(_) => {}
+        | Command::Localnet(_) => bail!("handled before the context loads"),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -841,25 +881,26 @@ mod tests {
     }
 
     #[test]
-    fn merge_takes_an_optional_mint_and_a_bounded_count() {
+    fn merge_takes_an_optional_mint_in_any_spelling_and_a_bounded_count() {
         let mint = Address::new_from_array([7; 32]);
-        let Command::Merge(args) = Cli::try_parse_from([
-            "zolana-ring",
-            "merge",
-            "--mint",
-            &mint.to_string(),
-            "--count",
-            "4",
-        ])
-        .expect("merge parses")
-        .command
-        else {
-            panic!("merge");
+        let parse = |args: &[&str]| {
+            let argv = ["zolana-ring", "merge"].iter().chain(args).copied();
+            match Cli::try_parse_from(argv).map(|cli| cli.command) {
+                Ok(Command::Merge(args)) => Ok(args),
+                Ok(_) => panic!("merge"),
+                Err(error) => Err(error),
+            }
         };
-        assert_eq!(args.mint, Some(mint));
-        assert_eq!(args.count, 4);
-        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "54"]).is_ok());
-        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "55"]).is_err());
+        let args = parse(&["--mint", &mint.to_string(), "--count", "4"]).expect("parses");
+        assert_eq!((args.mint, args.count), (Some(Mint(mint)), 4));
+        for sol in ["sol", "SOL"] {
+            let args = parse(&["--mint", sol]).expect("sol");
+            assert_eq!(args.mint, Some(Mint(zolana_transaction::SOL_MINT)));
+        }
+        assert_eq!(parse(&[]).expect("defaults").count, 24);
+        assert!(parse(&["--count", "54"]).is_ok());
+        assert!(parse(&["--count", "55"]).is_err());
+        assert!(parse(&["--count", "1"]).is_err());
     }
 
     #[test]
@@ -886,14 +927,14 @@ mod tests {
         else {
             panic!("transfer");
         };
-        assert_eq!(args.mint, Some(config::Mint(mint)));
+        assert_eq!(args.mint, Some(Mint(mint)));
         assert_eq!(args.token_account, Some(token));
         assert_eq!(args.amount, 123);
     }
 
     #[test]
-    fn the_pipeline_init_arguments_are_the_command_defaults() {
-        let pipeline = InitArgs::default();
+    fn the_pipeline_runs_init_with_the_command_defaults() {
+        let pipeline: InitArgs = defaults();
         let Command::Init(command) = Cli::try_parse_from(["zolana-ring", "init"])
             .expect("parses")
             .command
@@ -904,52 +945,121 @@ mod tests {
         assert_eq!(command.trust_ring_rpc, pipeline.trust_ring_rpc);
         assert_eq!(command.local_auditor, pipeline.local_auditor);
         assert_eq!(
-            ProjectRoot::for_config(Path::new("ring/ring.toml"))
-                .resolve(&pipeline.auditor_pubkey_file),
+            resolve(Path::new("ring"), &pipeline.auditor_pubkey_file),
             Path::new("ring/keys/auditor.key.pub")
         );
+        let transact: TransactArgs = defaults();
+        assert_eq!(transact.amount, DEFAULT_TRANSACT_AMOUNT);
+        assert!(transact.cosigner.cosigner_keypair.is_none());
+    }
+
+    fn transaction_error(error: TransactionError) -> ClientError {
+        ClientError::SolanaRpcTransaction {
+            operation: "test",
+            source: solana_rpc_client_api::client_error::Error {
+                request: None,
+                kind: Box::new(
+                    solana_rpc_client_api::client_error::ErrorKind::TransactionError(error),
+                ),
+            },
+        }
     }
 
     #[test]
-    fn explicit_config_roots_local_key_output() {
-        let root = std::env::temp_dir().join(format!("ring-config-root-{}", std::process::id()));
-        let config_path = root.join(RING_TOML);
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("temp root");
-        std::fs::write(
-            &config_path,
-            r#"name = "rooted"
-target = "localnet"
-program_id = "11111111111111111111111111111111"
-authority_keypair = "keys/authority.json"
+    fn only_a_known_custom_instruction_error_yields_a_hint() {
+        let custom = |code| {
+            transaction_error(TransactionError::InstructionError(
+                1,
+                InstructionError::Custom(code),
+            ))
+        };
+        assert!(hint(&custom(CustomRingError::UnauthorizedAuthority as u32))
+            .is_some_and(|hint| hint.contains("another authority")));
+        assert_eq!(hint(&custom(1)), None);
+        assert_eq!(
+            hint(&transaction_error(TransactionError::AlreadyProcessed)),
+            None
+        );
+        assert_eq!(hint(&ClientError::Rpc(String::new())), None);
+    }
 
-[localnet]
-rpc = "http://127.0.0.1:8899"
-indexer = "http://127.0.0.1:8784"
-prover = "http://127.0.0.1:3001"
-ring_rpc = "http://127.0.0.1:8785"
+    #[test]
+    fn the_indexer_wait_retries_only_a_transient_failure() {
+        use std::sync::atomic::{AtomicU8, Ordering};
 
-[devnet]
-rpc = "https://api.devnet.solana.com"
-indexer = "i"
-prover = "p"
-ring_rpc = "r"
-"#,
-        )
-        .expect("write config");
+        use zolana_client::{
+            GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction,
+            IndexerRpcConfig, ProverClient, ShieldedTransaction, WitnessReader,
+        };
 
-        run(Cli {
-            config: config_path,
-            target: None,
-            catalogue: None,
-            command: Command::AuditorKey(AuditorKeyArgs {
-                key_file: PathBuf::from(AUDITOR_KEY_FILE),
-                create: true,
-            }),
-        })
-        .expect("create rooted key");
+        /// Fails once, transiently when `transient`, then indexes the signature.
+        struct Indexer {
+            calls: AtomicU8,
+            transient: bool,
+        }
 
-        assert!(root.join(AUDITOR_KEY_FILE).is_file());
-        std::fs::remove_dir_all(root).expect("cleanup");
+        impl WitnessReader for Indexer {}
+
+        impl Rpc for Indexer {
+            fn should_retry(&self, error: &ClientError) -> bool {
+                matches!(error, ClientError::IndexerUnavailable(_))
+            }
+
+            fn get_shielded_transactions_by_signature(
+                &self,
+                _signature: Signature,
+                _config: Option<IndexerRpcConfig>,
+            ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+                if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                    return Err(match self.transient {
+                        true => ClientError::IndexerUnavailable("restarting".to_owned()),
+                        false => ClientError::Rpc("refused".to_owned()),
+                    });
+                }
+                Ok(GetShieldedTransactionsBySignatureResponse {
+                    context: zolana_client::Context {
+                        block_time: 0,
+                        slot: 1,
+                    },
+                    output_tree_id: None,
+                    transactions: vec![IndexedShieldedTransaction {
+                        event_index: 0,
+                        transaction: ShieldedTransaction {
+                            slot: 1,
+                            tx_signature: Signature::default(),
+                            event_index: None,
+                            tx_viewing_pk: None,
+                            salt: None,
+                            output_slots: Vec::new(),
+                            messages: Vec::new(),
+                            nullifiers: Vec::new(),
+                            proofless: true,
+                            ring_config: None,
+                            ring_program_id: None,
+                        },
+                    }],
+                })
+            }
+        }
+
+        struct NoRpc;
+        impl Rpc for NoRpc {}
+
+        let client = |transient| {
+            ZolanaClient::new(
+                NoRpc,
+                Indexer {
+                    calls: AtomicU8::new(0),
+                    transient,
+                },
+                ProverClient::local(),
+            )
+        };
+        let transient = client(true);
+        wait_for_indexed_transaction(&transient, Signature::default()).expect("indexed");
+        assert_eq!(transient.indexer().calls.load(Ordering::Relaxed), 2);
+        let permanent = client(false);
+        assert!(wait_for_indexed_transaction(&permanent, Signature::default()).is_err());
+        assert_eq!(permanent.indexer().calls.load(Ordering::Relaxed), 1);
     }
 }
