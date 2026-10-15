@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, RingProgramConfig, RING_PROGRAM_CONFIG};
+use custom_ring_interface::{tag, RingMode, RingProgramConfig, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_instruction::Instruction;
@@ -8,9 +8,10 @@ use zolana_account_checks::AccountError;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, auditor_pubkey, authority, config_pda, create_config_data,
+    account, auditor_pubkey, authority, config_pda, create_config_data, create_config_data_with,
     create_config_data_with_tier, create_config_fixture, create_config_fixture_deployed_by,
-    initialized_config_account, program_data_account, program_id, setup_mollusk,
+    initialized_config_account, legacy_auditor_pubkey, program_data_account, program_id,
+    setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -43,7 +44,7 @@ fn create_config_writes_the_config_account() {
             auditor_pubkey: auditor_pubkey(4),
             bump,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         }
     );
 }
@@ -136,14 +137,26 @@ fn zero_prefix_auditor_pubkey_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
 }
 
+/// A low-order or non-canonical u would give the auditor a keystream that
+/// ignores the ephemeral secret.
 #[test]
-fn reserved_auditor_keys_are_rejected_exactly() {
-    for key in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
-        let (mollusk, _) = setup_mollusk();
+fn low_order_and_non_canonical_auditor_keys_are_rejected_exactly() {
+    let mut one = [0u8; 32];
+    one[0] = 1;
+    let mut minus_one = [0xff; 32];
+    minus_one[0] = 0xec;
+    minus_one[31] = 0x7f;
+    let mut modulus = minus_one;
+    modulus[0] = 0xed;
+    let order_eight: [u8; 32] =
+        hex::decode("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800")
+            .expect("hex")
+            .try_into()
+            .expect("32 bytes");
+    let (mollusk, _) = setup_mollusk();
+    for u in [[0u8; 32], one, minus_one, modulus, order_eight] {
+        let mut key = [4u8; 33];
+        key[1..].copy_from_slice(&u);
         let fixture = create_config_fixture(key);
         fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
     }
@@ -295,7 +308,7 @@ fn create_config_stores_an_audit_only_tier() {
             auditor_pubkey: auditor_pubkey(4),
             bump,
             has_policy: 0,
-            key_escrow: 0,
+            mode: 0,
         }
     );
 }
@@ -313,4 +326,27 @@ fn noncanonical_x25519_auditor_keys_are_rejected_exactly() {
         create_config_fixture(key)
             .expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
     }
+fn create_config_stores_an_anonymous_ring() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(4));
+    *fixture.data_mut() = create_config_data_with(auditor_pubkey(4), 1, 1);
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &config_pda().0)
+        .map(|(_, account)| account.clone())
+        .expect("config account in result");
+    let config = bytemuck::from_bytes::<RingProgramConfig>(&written.data);
+    assert_eq!(config.mode(), Some(RingMode::Anonymous));
+    assert!(!config.has_legacy_auditor_key());
+}
+
+#[test]
+fn an_anonymous_flag_above_one_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(4));
+    *fixture.data_mut() = create_config_data_with(auditor_pubkey(4), 1, 2);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }

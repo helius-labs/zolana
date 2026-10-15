@@ -69,7 +69,7 @@ impl KeyRegistry {
 
     pub fn of(ring: CustomRing, config: &CustomRingConfig) -> Option<Self> {
         match config.key_escrow {
-            KeyEscrow::Off => None,
+            KeyEscrow::Off | KeyEscrow::Anonymous => None,
             KeyEscrow::Registry => Some(Self { ring }),
         }
     }

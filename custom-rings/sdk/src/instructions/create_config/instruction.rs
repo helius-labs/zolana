@@ -44,6 +44,7 @@ impl CreateConfig {
         data.extend_from_slice(&wincode::serialize(&CreateConfigIxData {
             auditor_pubkey: *auditor_pubkey.as_bytes(),
             has_policy: u8::from(has_policy),
+            anonymous: 0,
         })?);
 
         Ok(Instruction {

@@ -3,8 +3,9 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    auditor_pubkey, authority, escrowed_config_account, initialized_config_account, merge_fixture,
-    merge_fixture_with, setup_mollusk,
+    anonymous_config_account, auditor_pubkey, authority, escrowed_config_account,
+    initialized_config_account, legacy_auditor_pubkey, merge_fixture, merge_fixture_with,
+    merge_ring_data, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -43,4 +44,51 @@ fn a_policy_merge_keeps_its_tree_choice() {
     merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(4)))
         .expect_spp_cpi(&mollusk);
     merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
+}
+
+/// An anonymous ring merge stays visible to the auditor through its envelope.
+#[test]
+fn an_anonymous_merge_carries_the_envelope_to_the_auditor() {
+    let (mollusk, _) = setup_mollusk();
+    let mut audited = merge_fixture_with(anonymous_config_account());
+    *audited.data_mut() = merge_ring_data(Some(auditor_pubkey(4)));
+    audited.expect_spp_cpi(&mollusk);
+    merge_fixture_with(anonymous_config_account())
+        .expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
+    let mut other = merge_fixture_with(anonymous_config_account());
+    let mut recipient = auditor_pubkey(4);
+    recipient[9] ^= 1;
+    *other.data_mut() = merge_ring_data(Some(recipient));
+    other.expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
+}
+
+#[test]
+fn only_an_anonymous_ring_takes_the_audited_merge_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    for config in [
+        initialized_config_account(authority(), auditor_pubkey(4)),
+        escrowed_config_account(),
+    ] {
+        let mut fixture = merge_fixture_with(config);
+        *fixture.data_mut() = merge_ring_data(Some(auditor_pubkey(4)));
+        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
+    }
+}
+
+#[test]
+fn malformed_merge_data_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = merge_fixture();
+    fixture.data_mut().truncate(40);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+}
+
+#[test]
+fn a_legacy_auditor_key_refuses_the_merge_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    merge_fixture_with(initialized_config_account(
+        authority(),
+        legacy_auditor_pubkey(),
+    ))
+    .expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
 }

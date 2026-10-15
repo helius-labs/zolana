@@ -185,6 +185,7 @@ impl PendingCustomRingProof {
                 output_hashes: &output_hashes,
                 salt: &salt,
                 disclosure: message.disclosure(),
+                anonymous: false,
             },
             policy_hash,
             tree_slots: &tree_slots,
@@ -286,6 +287,7 @@ impl PendingCustomRingProof {
             output_hashes: &output_hashes,
             salt: &salt,
             disclosure: message.disclosure(),
+            anonymous: false,
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;

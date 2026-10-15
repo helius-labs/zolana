@@ -12,6 +12,7 @@ pub mod deposit;
 pub mod deposit_audit;
 #[cfg(feature = "verifying-keys")]
 pub mod deposit_verifying_key;
+pub mod disclosure;
 pub mod instruction;
 pub mod key_registry;
 #[cfg(not(target_os = "solana"))]
@@ -53,8 +54,14 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     ),
 ];
 
-pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
+pub use base_public_input::{
+    pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair,
+};
 pub use deposit::{DepositContext, DepositPublicInput};
+pub use disclosure::{
+    pack_disclosure, unpack_disclosure, DisclosureShape, AUDIT_INPUT_SLOTS, AUDIT_OUTPUT_SLOTS,
+    DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
+};
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
     CustomRingTransactIxData, KeyRegistryTransition, PlainGroth16Proof, PolicyTableIxData,
@@ -78,26 +85,29 @@ pub use key_registry::{
 };
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
-    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
+    RingMode, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED,
+    CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, KEY_REGISTRY_EMPTY_ROOT,
+    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    SPEND_WINDOW_PDA_SEED,
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 
 /// SEC1-compressed P256 key length, also retained by tagged X25519 envelopes.
 pub const COMPRESSED_P256_KEY_LEN: usize = 33;
+/// X25519 public key `0x04 || u`, with u little endian.
+pub const VIEWING_PUBKEY_LEN: usize = 33;
+pub const VIEWING_PUBKEY_TAG: u8 = 4;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;
+/// The auditor message before its disclosure fields.
+pub const AUDITOR_MESSAGE_PREFIX_LEN: usize = VIEWING_PUBKEY_LEN + AUDIT_CIPHERTEXT_LEN;
 pub const AUDIT_OUTPUT_FIELD_COUNT: usize = 9;
-pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 pub const AUDIT_DISCLOSURE_FIELD_COUNT: usize = AUDIT_OUTPUT_FIELD_COUNT * AUDIT_OUTPUT_SLOTS;
 pub const AUDIT_DISCLOSURE_LEN: usize = 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-pub const AUDITOR_MESSAGE_LEN: usize =
-    COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEXT_LEN + AUDIT_DISCLOSURE_LEN;
+pub const AUDITOR_MESSAGE_LEN: usize = AUDITOR_MESSAGE_PREFIX_LEN + AUDIT_DISCLOSURE_LEN;
 
 pub const READER_KEY_P256: u8 = 0x00;
 pub const READER_KEY_ED25519: u8 = 0x01;

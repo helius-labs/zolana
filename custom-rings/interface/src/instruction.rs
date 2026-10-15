@@ -9,7 +9,7 @@ use wincode::{
 use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
 use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
 
-use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, VIEWING_PUBKEY_LEN};
 
 pub mod tag {
     pub const CREATE_CONFIG: u8 = 1;
@@ -73,9 +73,11 @@ pub struct SetDepositAuditIxData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
     /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
-    pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pubkey: [u8; VIEWING_PUBKEY_LEN],
     /// One selects a policy ring, zero an audit-only ring.
     pub has_policy: u8,
+    /// One selects an anonymous ring, fixed for the ring's life.
+    pub anonymous: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -294,7 +296,7 @@ pub struct RegisterKeyIxData {
     /// The member's nullifier public key, bound by the proof to the ciphertext.
     pub nullifier_pk: [u8; 32],
     /// Tagged X25519 ephemeral key the auditor rederives the shared secret from.
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    pub eph_pk: [u8; VIEWING_PUBKEY_LEN],
     /// AES-256-CTR ciphertext of the nullifier secret, sealed to the auditor.
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }

@@ -2164,6 +2164,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "thiserror 2.0.20",
  "wincode",
+ "x25519-dalek",
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",

@@ -10,10 +10,10 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, address_tree, consumed, curator_policy_config_account_with, curator_slot,
-    curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
-    namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
-    program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
+    account, address_tree, anonymous_config_account, consumed, curator_policy_config_account_with,
+    curator_slot, curator_source_slots, initialized_curator_policy_config_account, largest_table,
+    mixed_sources, namespace_pda, own_source_slots, own_specs, policy_config_account_with,
+    policy_hash_for, program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
     specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
     PINNED_RULES, RELEASED_RULES, TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS,
     WARPED_SLOT,
@@ -227,4 +227,23 @@ fn a_short_account_list_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
+}
+
+/// Spend records name their member, so an anonymous ring keeps only
+/// per-transfer caps.
+#[test]
+fn an_anonymous_ring_refuses_a_windowed_table_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let windowed = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &windowed);
+    fixture.set_account("config", anonymous_config_account());
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::UnsupportedAnonymousPolicy),
+    );
+    let capped = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &capped);
+    fixture.set_account("config", anonymous_config_account());
+    let config = stored_policy_config(&mollusk, &fixture);
+    assert_eq!(config.rules, TRANSFER_CAP_RULES.encode());
 }

@@ -9,9 +9,6 @@ use crate::{shape::Shape, state::cache::CACHE_CAPACITY};
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
-/// The RingEd25519 verifying keys come with its production setup. Until then the
-/// rail is unsupported and its `circuit_key_item!` arms compile out.
-const RING_ED25519_KEYS: bool = false;
 
 /// Selects `$item` from the verifying key module a [`CircuitId`] names, or
 /// returns `None` from the enclosing function. One table serves both the
@@ -91,8 +88,6 @@ macro_rules! circuit_key_item {
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
             )*
             $(
-                // Compiled out until the production keys add the modules, see RING_ED25519_KEYS.
-                #[cfg(any())]
                 CircuitId::RingEd25519($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$ed25519::$item,
             )*
             _ => return None,
@@ -447,7 +442,7 @@ impl CircuitId {
             | Self::RingEddsaCached(..)
             | Self::RingP256Cached(..) => shape.is_supported(),
             Self::RingAuthority(..) => shape.is_ring_authority(),
-            Self::RingEd25519(..) => RING_ED25519_KEYS && shape.is_ring_ed25519(),
+            Self::RingEd25519(..) => shape.is_ring_ed25519(),
         }
     }
 

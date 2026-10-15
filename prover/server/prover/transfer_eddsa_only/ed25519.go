@@ -253,7 +253,7 @@ func SetupEd25519Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProo
 		CircuitType:      common.TransferEd25519RingCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
-		RequiresP256:     true,
+		RequiresP256:     false,
 		Confidential:     true,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,

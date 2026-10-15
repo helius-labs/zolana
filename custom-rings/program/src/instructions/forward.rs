@@ -1,7 +1,10 @@
-use custom_ring_interface::KeyEscrow;
+use custom_ring_interface::{RingMode, VIEWING_PUBKEY_LEN};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use wincode::{config::DefaultConfig, SchemaRead};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
+use zolana_interface::instruction::instruction_data::{
+    deposit::RingDepositIxDataRef, merge_ring::MergeRingIxDataRef,
+};
 
 use crate::{
     error::CustomRingError,
@@ -9,7 +12,7 @@ use crate::{
         cosign::{require_cosigner, CoSignerRequirement},
         deposit_audit::{AuditedDeposit, DepositVerification},
         key_escrow::EscrowRoot,
-        loader::{load_config, load_deposit_audit, validate_spp_program},
+        loader::{load_audited_config, load_deposit_audit, validate_spp_program},
         public_legs::PublicLegs,
         shared::{cpi_spp_signed, SppSigners},
     },
@@ -38,10 +41,13 @@ impl Forward {
         let config_account = iter.next_account("config")?;
         let cosigner_account = iter.next_account("cosigner_pda")?;
         let cosigner = iter.next_account("cosigner")?;
-        let config = *load_config(program_id, config_account)?;
-        let escrow = config.key_escrow();
-        if matches!(self, Forward::Deposit) && escrow == KeyEscrow::Registry {
+        let config = load_audited_config(program_id, config_account)?;
+        let anonymous = config.mode == RingMode::Anonymous;
+        if matches!(self, Forward::Deposit) && config.mode != RingMode::Off {
             return Err(CustomRingError::DepositAuditRequired.into());
+        }
+        if matches!(self, Forward::Merge) {
+            check_merge_disclosure(data, anonymous.then_some(&config.auditor_pubkey))?;
         }
         let audited = match self {
             Forward::AuditedDeposit => Some(AuditedDeposit::parse(data)?),
@@ -58,7 +64,7 @@ impl Forward {
         let key_registry_root = match &audited {
             Some(audited) => EscrowRoot {
                 program_id,
-                escrow,
+                mode: config.mode,
                 index: audited.key_registry_root_index,
             }
             .load(&mut iter)?,
@@ -72,6 +78,17 @@ impl Forward {
             ),
             Forward::Merge => None,
         };
+        // Public deposit fields in an anonymous ring would name the recipient.
+        if anonymous
+            && deposit.as_ref().is_some_and(|deposit| {
+                deposit
+                    .deposits
+                    .iter()
+                    .any(|entry| entry.view_tag != &[0; 32] || entry.ring_data_hash != &[0; 32])
+            })
+        {
+            return Err(CustomRingError::InvalidAnonymousOutput.into());
+        }
         let leg_count = deposit.as_ref().map_or(0, |deposit| deposit.assets.len());
         if rest.len() < leg_count {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -80,7 +97,7 @@ impl Forward {
         validate_spp_program(spp_accounts)?;
         // 2. Verify supplied disclosure against the actual destination, deposit
         // bytes and escrow registry root, then apply public approval and caps.
-        if let Some(audited) = &audited {
+        if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
             let tree = spp_accounts
                 .first()
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -90,9 +107,7 @@ impl Forward {
                 auditor_pk: &config.auditor_pubkey,
                 key_registry_root: key_registry_root.as_ref(),
                 audited,
-                deposit: deposit
-                    .as_ref()
-                    .ok_or(CustomRingError::InvalidInstructionData)?,
+                deposit,
             }
             .verify()?;
         }
@@ -113,5 +128,24 @@ impl Forward {
         // 3. Authorize SPP settlement, any failure rolls back the public window
         // counters.
         cpi_spp_signed(program_id, spp_accounts, data, SppSigners::RingAuth)
+    }
+}
+
+/// An anonymous ring merge carries the audited layout, the plain layout plus
+/// the auditor key and its envelope. Any other ring forwards the plain layout.
+fn check_merge_disclosure(
+    data: &[u8],
+    auditor_pk: Option<&[u8; VIEWING_PUBKEY_LEN]>,
+) -> ProgramResult {
+    let mut appended = data
+        .get(1..)
+        .ok_or(CustomRingError::InvalidInstructionData)?;
+    <MergeRingIxDataRef<'_> as SchemaRead<'_, DefaultConfig>>::get(&mut appended)
+        .map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let recipient = appended.get(..VIEWING_PUBKEY_LEN);
+    match auditor_pk {
+        Some(auditor_pk) if recipient == Some(auditor_pk.as_slice()) => Ok(()),
+        None if appended.is_empty() => Ok(()),
+        _ => Err(CustomRingError::InvalidMergeDisclosure.into()),
     }
 }

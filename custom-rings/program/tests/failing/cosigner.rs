@@ -1,8 +1,6 @@
 //! Pins signer authorization and per mint withdrawal thresholds.
 
-use custom_ring_interface::{
-    CoSignScope, CoSigner, AUDITOR_MESSAGE_LEN, CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS,
-};
+use custom_ring_interface::{CoSignScope, CoSigner, CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use pinocchio::Address;
@@ -11,10 +9,11 @@ use solana_pubkey::Pubkey;
 use zolana_interface::instruction::InterfaceTransfer;
 
 use crate::common::{
-    account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
-    clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, custom, deposit_fixture,
-    merge_fixture, rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
-    sol_settlement, spl_settlement, stored, window_slot, Fixture, Slot, SOL, USDC,
+    account, audit_only_config_account, audit_transact_fixture, auditor_message_len,
+    auditor_pubkey, authority, clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda,
+    custom, deposit_fixture, merge_fixture, rent_recipient, set_cosigner_data,
+    set_cosigner_fixture, setup_mollusk, sol_settlement, spl_settlement, stored, window_slot,
+    Fixture, Slot, SOL, USDC,
 };
 use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
@@ -221,7 +220,7 @@ fn clear_cosigner_with_trailing_data_is_rejected_exactly() {
 
 /// Signer checks run before the deliberately invalid proof.
 fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixture {
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut content = transact(vec![auditor_message(auditor_message_len(1))]);
     content.interface_transfers = legs;
     let mut fixture = audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(4)),

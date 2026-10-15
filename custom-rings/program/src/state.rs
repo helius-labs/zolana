@@ -7,14 +7,15 @@ use custom_ring_interface::{
 };
 use custom_ring_interface::{DepositAudit, DEPOSIT_AUDIT};
 use custom_ring_interface::{
-    ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
-    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    ReadAccessRecord, ReaderKeyBytes, RingMode, RingProgramConfig, READER_KEY_ED25519,
+    READER_KEY_P256, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, VIEWING_PUBKEY_TAG,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
 };
+use zolana_hasher::primitives::is_canonical_x25519_public_key;
 use zolana_ring_policy::EncodedRuleTable;
 
 use crate::error::CustomRingError;
@@ -85,6 +86,7 @@ pub(crate) struct RingProgramConfigInitParams {
     pub auditor_pubkey: [u8; 33],
     pub bump: u8,
     pub has_policy: u8,
+    pub mode: RingMode,
 }
 
 impl RingProgramConfigInitParams {
@@ -98,7 +100,7 @@ impl RingProgramConfigInitParams {
                 auditor_pubkey: self.auditor_pubkey,
                 bump: self.bump,
                 has_policy: self.has_policy,
-                key_escrow: 0,
+                mode: self.mode as u8,
             },
         )
     }
@@ -106,7 +108,7 @@ impl RingProgramConfigInitParams {
 
 /// Accepts a canonical auditor key only when clamped ECDH can be contributory.
 /// Low-order peers yield zero DH for every secret and cannot satisfy the proof.
-pub(crate) fn is_x25519_key(key: &[u8; 33]) -> bool {
+pub(crate) fn is_x25519_viewing_key(key: &[u8; 33]) -> bool {
     const LOW_ORDER_U: [[u8; 32]; 5] = [
         [0; 32],
         {
@@ -132,10 +134,11 @@ pub(crate) fn is_x25519_key(key: &[u8; 33]) -> bool {
         },
     ];
 
-    key[0] == 4
+    key[0] == VIEWING_PUBKEY_TAG
         && <&[u8; 32]>::try_from(&key[1..]).is_ok_and(|u| {
-            zolana_hasher::primitives::is_canonical_x25519_public_key(u) && !LOW_ORDER_U.contains(u)
+            is_canonical_x25519_public_key(u) && !LOW_ORDER_U.contains(u)
         })
+}
 }
 
 /// Curve membership is the sdk's job, an off-curve key only fails its own ring closed.
@@ -614,5 +617,29 @@ mod tests {
             ),
             Err(custom(CustomRingError::InvalidKeyRegistryCursor))
         );
+    }
+
+    #[test]
+    fn auditor_keys_must_be_tagged_canonical_and_of_large_order() {
+        let key = |u: [u8; 32]| {
+            let mut key = [VIEWING_PUBKEY_TAG; 33];
+            key[1..].copy_from_slice(&u);
+            key
+        };
+        let secret = x25519_dalek::StaticSecret::from([9u8; 32]);
+        let public = *x25519_dalek::PublicKey::from(&secret).as_bytes();
+        assert!(is_x25519_viewing_key(&key(public)));
+        let mut sec1 = key(public);
+        sec1[0] = 2;
+        assert!(!is_x25519_viewing_key(&sec1));
+        let mut modulus = [0xff; 32];
+        modulus[0] = 0xed;
+        modulus[31] = 0x7f;
+        assert!(!is_x25519_viewing_key(&key(modulus)));
+        for u in LOW_ORDER_U {
+            let shared = secret.diffie_hellman(&x25519_dalek::PublicKey::from(u));
+            assert!(!shared.was_contributory());
+            assert!(!is_x25519_viewing_key(&key(u)));
+        }
     }
 }
