@@ -1,11 +1,8 @@
 //! `devnet`, the target switch with service probes.
 
-use std::{
-    io::{self, Write},
-    time::Duration,
-};
+use std::{io::Write, time::Duration};
 
-use thiserror::Error;
+use anyhow::{Context as _, Result};
 use zolana_client::prover::redact_api_key;
 
 use crate::config::{redact_url, RingConfig};
@@ -13,19 +10,8 @@ use crate::config::{redact_url, RingConfig};
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Error)]
-pub enum ProbeError {
-    #[error("devnet {service} at {url} is not ready")]
-    NotReady {
-        service: &'static str,
-        url: String,
-        #[source]
-        source: reqwest::Error,
-    },
-}
-
 /// Every service is already deployed, the probes only confirm them.
-pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
+pub fn run_devnet(config: &RingConfig) -> Result<()> {
     print_urls(config);
     println!();
     let http = http(CONNECT_TIMEOUT, TOTAL_TIMEOUT);
@@ -34,20 +20,13 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
         ("indexer", &urls.indexer, "/readiness"),
         ("prover", &urls.prover, "/health"),
     ] {
-        let url = service_url(base, path);
-        print!("probing {service:<8} {} ... ", redact_api_key(&url));
-        let _ = io::stdout().flush();
-        match check(&http, &url) {
-            Ok(()) => println!("ready"),
-            Err(source) => {
-                println!("not ready");
-                return Err(ProbeError::NotReady {
-                    service,
-                    url: redact_api_key(&url),
-                    source,
-                });
-            }
-        }
+        let full = service_url(base, path);
+        let url = redact_api_key(&full);
+        print!("probing {service:<8} {url} ... ");
+        let _ = std::io::stdout().flush();
+        let probed = check(&http, &full);
+        println!("{}", if probed.is_ok() { "ready" } else { "not ready" });
+        probed.with_context(|| format!("devnet {service} at {url} is not ready"))?;
     }
     println!("devnet services ready");
     println!();
@@ -62,7 +41,7 @@ pub fn print_urls(config: &RingConfig) {
     } else {
         "(hosted, it serves this ring)"
     };
-    println!("{} points at {}", config.name, config.target.as_str());
+    println!("{} points at {}", config.name, config.target);
     println!("  rpc       {}", redact_url(&urls.rpc));
     println!("  indexer   {}", redact_url(&urls.indexer));
     println!("  prover    {}", redact_url(&urls.prover));
@@ -78,8 +57,8 @@ pub fn http(connect: Duration, total: Duration) -> reqwest::blocking::Client {
         .expect("reqwest client")
 }
 
-pub fn check(http: &reqwest::blocking::Client, url: &str) -> Result<(), reqwest::Error> {
-    http.get(url).send().and_then(|r| r.error_for_status())?;
+pub fn check(http: &reqwest::blocking::Client, url: &str) -> Result<()> {
+    http.get(url).send()?.error_for_status()?;
     Ok(())
 }
 

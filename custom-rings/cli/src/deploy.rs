@@ -1,133 +1,35 @@
-//! The Solana CLI owns the loader v3 write protocol.
+//! `deploy`, the Solana CLI writes the buffer, every other loader call is ours.
 
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
     thread,
     time::{Duration, Instant},
 };
 
-use custom_ring_sdk::{CustomRing, PolicyConfig};
+use anyhow::{bail, ensure, Context as _, Result};
+use custom_ring_sdk::PolicyConfig;
 use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
-use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_keypair::Keypair;
+use solana_loader_v3_interface::{instruction::extend_program, state::UpgradeableLoaderState};
 use solana_sbpf::elf_parser::{
     consts::{ELFOSABI_NONE, EM_BPF, EM_SBPF, ET_DYN, PF_X, PT_LOAD},
-    Elf64, ElfParserError,
+    Elf64,
 };
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc};
+use zolana_client::{ProgramData, Rpc};
 
 use crate::{
-    config::expand_tilde,
-    file::{self, FileError},
-    line,
-    release::{ReleaseError, RingProgram},
-    tool::{ToolError, SOLANA},
-    workspace::{Workspace, WorkspaceError},
-    Context, ContextError, DeployArgs, Target,
+    config::{expand_tilde, RingConfig},
+    file, line,
+    release::RingProgram,
+    status::audit_label,
+    tool::SOLANA,
+    workspace::Workspace,
+    Context, DeployArgs, Target,
 };
-
-pub struct Deploy<'a> {
-    pub ring: CustomRing,
-    pub authority_keypair: &'a Path,
-    pub authority: Address,
-    /// Read on the first deploy only.
-    pub program_keypair: &'a Path,
-    pub program_so: &'a Path,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeployOutcome {
-    Deployed,
-    Upgraded,
-    Present,
-}
-
-pub struct ProgramDataInfo {
-    pub upgrade_authority: Option<Address>,
-    pub capacity: usize,
-    /// The loader serves the program only after this slot.
-    pub slot: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProgramBinary {
-    pub len: usize,
-    pub sha256: [u8; 32],
-}
-
-pub enum DeployPlan {
-    Present,
-    Upload {
-        binary: ProgramBinary,
-        /// `None` on the first deploy.
-        deployed: Option<ProgramDataInfo>,
-        required_balance: u64,
-    },
-}
-
-#[derive(Debug, Error)]
-pub enum DeployError {
-    #[error(transparent)]
-    Ask(#[from] crate::ui::AskError),
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error("{label} not found at {path}")]
-    MissingFile { label: &'static str, path: PathBuf },
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error("invalid SBF binary")]
-    InvalidBinary(#[from] ElfParserError),
-    #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
-    ForeignAuthority {
-        program: Address,
-        authority: Address,
-        expected: Address,
-    },
-    #[error("program {program} is immutable, it cannot be upgraded")]
-    Immutable { program: Address },
-    #[error("program keypair not found at {path}, the first deploy needs it")]
-    MissingProgramKeypair { path: PathBuf },
-    #[error("program keypair is {found}, ring.toml names {expected}")]
-    ProgramKeypairMismatch { expected: Address, found: Address },
-    #[error(transparent)]
-    Tool(#[from] ToolError),
-    #[error(transparent)]
-    Release(#[from] ReleaseError),
-    #[error("program {program} is not executable after deploy")]
-    NotExecutable {
-        program: Address,
-        #[source]
-        source: Box<ClientError>,
-    },
-    #[error("{address} is not a ProgramData account")]
-    ProgramData { address: Address },
-    #[error(
-        "program {program} deployed at slot {slot} stays unusable, the validator does not advance"
-    )]
-    NotUsable { program: Address, slot: u64 },
-    #[error("program {program} holds {found} on chain, expected {expected}")]
-    DeployedMismatch {
-        program: Address,
-        expected: String,
-        found: String,
-    },
-    #[error("program {program} keeps a policy config of {found} bytes, the release needs {expected}, deploy a fresh ring")]
-    IncompatiblePolicyConfig {
-        program: Address,
-        found: usize,
-        expected: usize,
-    },
-    #[error("program {program} has an incompatible policy commitment, deploy a fresh ring")]
-    IncompatiblePolicyVersion { program: Address },
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
-}
 
 /// The smallest growth of `ProgramData` the loader accepts.
 const MIN_EXTEND_BYTES: usize = 10_240;
@@ -136,227 +38,170 @@ const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 const USABLE_TIMEOUT: Duration = Duration::from_secs(60);
 const SLOT_POLL: Duration = Duration::from_millis(400);
 
-pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProgramBinary {
+    pub len: usize,
+    pub sha256: [u8; 32],
+}
+
+pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
+    let prompt = "require an auditor disclosure proof on direct deposits?";
     let deposit_audit = match args.deposit_audit {
         Some(required) => required,
-        None => ctx.ask.confirm(
-            "require an auditor disclosure proof on direct deposits?",
-            ctx.config.deposit_audit,
-        )?,
+        None => ctx.ask_yes(prompt, ctx.config.deposit_audit)?,
     };
     let workspace = Workspace::from_env()?;
-    if workspace.is_some() && ctx.config.target != Target::Localnet {
-        return Err(WorkspaceError::WrongTarget.into());
-    }
-    let program_so = match args.program_so {
-        Some(path) => ctx.project_path(&path),
-        None => match workspace {
-            Some(workspace) => workspace.ring_program_so()?,
-            None => released_program_so()?,
-        },
+    ensure!(
+        workspace.is_none() || ctx.config.target == Target::Localnet,
+        "workspace artifacts are only supported on localnet"
+    );
+    let program_so = match (args.program_so, workspace) {
+        (Some(path), _) => ctx.path(&path),
+        (None, Some(workspace)) => workspace.ring_program_so()?,
+        (None, None) => {
+            let program = RingProgram::from_lock()?;
+            let release = format!("{} {}", program.tag, program.asset.name);
+            line("release", release);
+            program.ensure()?
+        }
     };
     line("binary", program_so.display());
-    let program_keypair = ctx.project_path(&args.program_keypair);
-    let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
-    let authority_keypair =
-        expand_tilde(ctx.config.upgrade_authority_keypair()).map_err(ContextError::from)?;
-    let deploy = Deploy {
-        ring: ctx.ring,
-        authority_keypair: &authority_keypair,
-        authority: authority.pubkey(),
-        program_keypair: &program_keypair,
-        program_so: &program_so,
-    };
-    let planned = deploy.plan(&ctx.rpc)?;
-    if let DeployPlan::Upload {
-        required_balance, ..
-    } = &planned
-    {
-        // A short balance fails before the loader writes.
-        ctx.fund_authority(&authority, *required_balance)?;
-    }
-    let outcome = deploy.apply(&ctx.rpc, planned)?;
-    crate::config::RingConfig::set_deposit_audit(&ctx.config_path, deposit_audit)
-        .map_err(ContextError::from)?;
+    let authority = ctx.config.upgrade_authority()?;
+    let program_keypair = ctx.path(&args.program_keypair);
+    let outcome = upload(ctx, &authority, &program_keypair, &program_so)?;
+    RingConfig::set_deposit_audit(&ctx.config_path, deposit_audit)?;
     ctx.config.deposit_audit = deposit_audit;
-    line(
-        "deposit audit",
-        format_args!(
-            "{} on first init",
-            if deposit_audit {
-                "required"
-            } else {
-                "optional"
+    let audit = audit_label(deposit_audit);
+    line("deposit audit", format_args!("{audit} on first init"));
+    let program = ctx.ring.program_id();
+    println!("{outcome} {program} under {}", authority.pubkey());
+    Ok(())
+}
+
+/// The first deploy reads the program keypair, an upgrade checks the policy config it keeps.
+fn upload(
+    ctx: &Context,
+    authority: &Keypair,
+    program_keypair: &Path,
+    program_so: &Path,
+) -> Result<&'static str> {
+    let binary = ProgramBinary::read(program_so)?;
+    let program = ctx.ring.program_id();
+    let deployed = program_data(ctx)?;
+    match &deployed {
+        Some(data) => {
+            check_upgrade_authority(program, data, authority.pubkey())?;
+            if binary.deployed_sha256(ctx)? == Some(binary.sha256) {
+                return Ok("present");
             }
-        ),
-    );
-    println!(
-        "{} {} under {}",
-        match outcome {
-            DeployOutcome::Deployed => "deployed",
-            DeployOutcome::Upgraded => "upgraded",
-            DeployOutcome::Present => "present",
-        },
-        ctx.ring.program_id(),
-        authority.pubkey()
+            let policy_config = ctx.rpc().get_account(ctx.ring.policy_config_pda())?;
+            ensure_policy_config_compatible(program, policy_config.as_ref())?;
+        }
+        None => {
+            let found = file::read_keypair(program_keypair)
+                .context("the first deploy needs the program keypair")?
+                .pubkey();
+            ensure!(
+                found == program,
+                "program keypair is {found}, ring.toml names {program}"
+            );
+        }
+    }
+    // A short balance fails before the loader writes.
+    let required = required_balance(ctx.rpc(), binary.len, deployed.as_ref())?;
+    ctx.fund(authority.pubkey(), required)?;
+    if let Some(data) = deployed.filter(|data| binary.len > data.capacity) {
+        let bytes = (binary.len - data.capacity).max(MIN_EXTEND_BYTES);
+        println!("extending program data by {bytes} bytes");
+        let extend = extend_program(&program, Some(&authority.pubkey()), u32::try_from(bytes)?);
+        ctx.send(&[authority], &[extend])?;
+    }
+    let authority_keypair = expand_tilde(ctx.config.upgrade_authority_keypair())?;
+    let mut command = Command::new("solana");
+    // RPC only, the TPU client wants a websocket port another service may hold.
+    command
+        .args(["program", "deploy", "--use-rpc", "--url"])
+        .arg(&ctx.config.urls().rpc)
+        .arg("--keypair")
+        .arg(&authority_keypair)
+        .arg("--upgrade-authority")
+        .arg(&authority_keypair)
+        .arg("--program-id");
+    match deployed {
+        Some(_) => command.arg(program.to_string()),
+        None => command.arg(program_keypair),
+    };
+    SOLANA
+        .named("solana program deploy")
+        .run(command.arg(program_so))?;
+    ctx.rpc()
+        .assert_executable(&program)
+        .with_context(|| format!("program {program} is not executable after deploy"))?;
+    binary.verify_deployed(ctx)?;
+    let slot = program_data(ctx)?
+        .with_context(|| not_program_data(ctx))?
+        .slot;
+    wait_until_usable(ctx.rpc(), program, slot)?;
+    Ok(deployed.map_or("deployed", |_| "upgraded"))
+}
+
+/// `None` when the program is not deployed under the upgradeable loader.
+pub(crate) fn program_data(ctx: &Context) -> Result<Option<ProgramData>> {
+    if ctx.rpc().get_account(ctx.ring.program_id())?.is_none() {
+        return Ok(None);
+    }
+    let Some(account) = ctx.rpc().get_account(ctx.ring.program_data_pda())? else {
+        return Ok(None);
+    };
+    let mut data = zolana_client::program_data(&account).with_context(|| not_program_data(ctx))?;
+    data.upgrade_authority = data
+        .upgrade_authority
+        .filter(|authority| *authority != Address::default());
+    Ok(Some(data))
+}
+
+/// Only the upgrade authority ring.toml names may move the program.
+pub(crate) fn check_upgrade_authority(
+    program: Address,
+    data: &ProgramData,
+    expected: Address,
+) -> Result<()> {
+    let Some(authority) = data.upgrade_authority else {
+        bail!("program {program} is immutable, it cannot be upgraded");
+    };
+    ensure!(
+        authority == expected,
+        "program {program} is upgradeable by {authority}, ring.toml names {expected}"
     );
     Ok(())
 }
 
-impl Deploy<'_> {
-    pub fn plan(&self, rpc: &SolanaRpc) -> Result<DeployPlan, DeployError> {
-        for (label, path) in [
-            ("authority keypair", self.authority_keypair),
-            ("program binary", self.program_so),
-        ] {
-            if !path.exists() {
-                return Err(DeployError::MissingFile {
-                    label,
-                    path: path.to_path_buf(),
-                });
-            }
-        }
-        let binary = ProgramBinary::read(self.program_so)?;
-        let program = self.ring.program_id();
-
-        let deployed = read_program_data(rpc, self.ring)?;
-        if let Some(info) = &deployed {
-            match info.upgrade_authority {
-                Some(authority) if authority == self.authority => {}
-                Some(authority) => {
-                    return Err(DeployError::ForeignAuthority {
-                        program,
-                        authority,
-                        expected: self.authority,
-                    })
-                }
-                None => return Err(DeployError::Immutable { program }),
-            }
-        } else {
-            self.check_program_keypair()?;
-        }
-        if deployed.is_some() && binary.deployed_sha256(rpc, self.ring)? == Some(binary.sha256) {
-            return Ok(DeployPlan::Present);
-        }
-        if deployed.is_some() {
-            let account = rpc.get_account(self.ring.policy_config_pda())?;
-            ensure_policy_config_compatible(program, account.as_ref())?;
-        }
-        let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
-        Ok(DeployPlan::Upload {
-            binary,
-            deployed,
-            required_balance,
-        })
-    }
-
-    pub fn apply(self, rpc: &SolanaRpc, plan: DeployPlan) -> Result<DeployOutcome, DeployError> {
-        let DeployPlan::Upload {
-            binary, deployed, ..
-        } = plan
-        else {
-            return Ok(DeployOutcome::Present);
-        };
-        let program = self.ring.program_id();
-        if let Some(info) = &deployed {
-            if binary.len > info.capacity {
-                self.extend(
-                    rpc.client().url(),
-                    (binary.len - info.capacity).max(MIN_EXTEND_BYTES),
-                )?;
-            }
-        }
-
-        let mut command = Command::new("solana");
-        // RPC only, the TPU client wants a websocket port another service may hold.
-        command
-            .args([
-                "program",
-                "deploy",
-                "--use-rpc",
-                "--url",
-                &rpc.client().url(),
-                "--keypair",
-            ])
-            .arg(self.authority_keypair)
-            .arg("--upgrade-authority")
-            .arg(self.authority_keypair)
-            .arg("--program-id");
-        if deployed.is_some() {
-            command.arg(program.to_string());
-        } else {
-            command.arg(self.program_keypair);
-        }
-        SOLANA
-            .named("solana program deploy")
-            .run(command.arg(self.program_so))?;
-        rpc.assert_executable(&program)
-            .map_err(|source| DeployError::NotExecutable {
-                program,
-                source: Box::new(source),
-            })?;
-        binary.verify_deployed(rpc, self.ring)?;
-        let upgraded = deployed.is_some();
-        let deployed = read_program_data(rpc, self.ring)?.ok_or(DeployError::ProgramData {
-            address: self.ring.program_data_pda(),
-        })?;
-        wait_until_usable(rpc, program, deployed.slot)?;
-        Ok(if upgraded {
-            DeployOutcome::Upgraded
-        } else {
-            DeployOutcome::Deployed
-        })
-    }
-
-    fn check_program_keypair(&self) -> Result<(), DeployError> {
-        if !self.program_keypair.exists() {
-            return Err(DeployError::MissingProgramKeypair {
-                path: self.program_keypair.to_path_buf(),
-            });
-        }
-        let found = file::read_keypair(self.program_keypair)?.pubkey();
-        if found != self.ring.program_id() {
-            return Err(DeployError::ProgramKeypairMismatch {
-                expected: self.ring.program_id(),
-                found,
-            });
-        }
-        Ok(())
-    }
-
-    fn extend(&self, url: String, additional_bytes: usize) -> Result<(), DeployError> {
-        println!("extending program data by {additional_bytes} bytes");
-        Ok(SOLANA.named("solana program extend").run(
-            Command::new("solana")
-                .args(["program", "extend", "--url", &url, "--keypair"])
-                .arg(self.authority_keypair)
-                .arg(self.ring.program_id().to_string())
-                .arg(additional_bytes.to_string()),
-        )?)
-    }
+fn not_program_data(ctx: &Context) -> String {
+    let address = ctx.ring.program_data_pda();
+    format!("{address} is not a ProgramData account")
 }
 
 impl ProgramBinary {
-    pub fn read(path: &Path) -> Result<Self, DeployError> {
-        let bytes = std::fs::read(path).map_err(|source| FileError::Read {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    pub(crate) fn read(path: &Path) -> Result<Self> {
+        let bytes =
+            std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
         Self::parse(&bytes)
     }
 
-    fn parse(bytes: &[u8]) -> Result<Self, DeployError> {
-        let elf = Elf64::parse(bytes)?;
+    fn parse(bytes: &[u8]) -> Result<Self> {
+        let elf = Elf64::parse(bytes).context("invalid SBF binary")?;
         let header = elf.file_header();
-        if header.e_ident.ei_osabi != ELFOSABI_NONE
-            || header.e_type != ET_DYN
-            || !matches!(header.e_machine, EM_BPF | EM_SBPF)
-            || !elf.program_header_table().iter().any(|segment| {
-                segment.p_type == PT_LOAD && segment.p_flags & PF_X != 0 && segment.p_filesz != 0
-            })
-        {
-            return Err(ElfParserError::InvalidFileHeader.into());
-        }
+        ensure!(
+            header.e_ident.ei_osabi == ELFOSABI_NONE
+                && header.e_type == ET_DYN
+                && matches!(header.e_machine, EM_BPF | EM_SBPF)
+                && elf.program_header_table().iter().any(|segment| {
+                    segment.p_type == PT_LOAD
+                        && segment.p_flags & PF_X != 0
+                        && segment.p_filesz != 0
+                }),
+            "invalid SBF binary"
+        );
         Ok(Self {
             len: bytes.len(),
             sha256: Sha256::digest(bytes).into(),
@@ -364,30 +209,22 @@ impl ProgramBinary {
     }
 
     /// Unused loader capacity must contain only zero bytes.
-    pub fn deployed_sha256<R: Rpc>(
-        &self,
-        rpc: &R,
-        ring: CustomRing,
-    ) -> Result<Option<[u8; 32]>, DeployError> {
-        let address = ring.program_data_pda();
-        let account = rpc
-            .get_account(address)?
-            .ok_or(DeployError::ProgramData { address })?;
+    fn deployed_sha256(&self, ctx: &Context) -> Result<Option<[u8; 32]>> {
+        let account = ctx.rpc().get_account(ctx.ring.program_data_pda())?;
+        let account = account.with_context(|| not_program_data(ctx))?;
         Ok(deployed_bytes(&account.data, self.len).map(|deployed| Sha256::digest(deployed).into()))
     }
 
-    pub fn verify_deployed<R: Rpc>(&self, rpc: &R, ring: CustomRing) -> Result<(), DeployError> {
-        let address = ring.program_data_pda();
-        let found = self
-            .deployed_sha256(rpc, ring)?
-            .ok_or(DeployError::ProgramData { address })?;
-        if found != self.sha256 {
-            return Err(DeployError::DeployedMismatch {
-                program: ring.program_id(),
-                expected: hex::encode(self.sha256),
-                found: hex::encode(found),
-            });
-        }
+    pub(crate) fn verify_deployed(&self, ctx: &Context) -> Result<()> {
+        let found = self.deployed_sha256(ctx)?;
+        let found = found.with_context(|| not_program_data(ctx))?;
+        ensure!(
+            found == self.sha256,
+            "program {} holds {} on chain, expected {}",
+            ctx.ring.program_id(),
+            hex::encode(found),
+            hex::encode(self.sha256)
+        );
         Ok(())
     }
 }
@@ -396,35 +233,30 @@ impl ProgramBinary {
 fn ensure_policy_config_compatible(
     program: Address,
     policy_config: Option<&Account>,
-) -> Result<(), DeployError> {
+) -> Result<()> {
     let Some(account) = policy_config.filter(|account| account.owner == program) else {
         return Ok(());
     };
-    if account.data.len() != PolicyConfig::SIZE {
-        return Err(DeployError::IncompatiblePolicyConfig {
-            program,
-            found: account.data.len(),
-            expected: PolicyConfig::SIZE,
-        });
-    }
-    let config = bytemuck::try_from_bytes::<PolicyConfig>(&account.data)
-        .map_err(|_| DeployError::IncompatiblePolicyVersion { program })?;
-    if config.discriminator != custom_ring_interface::POLICY_CONFIG
-        || custom_ring_sdk::policy_config_table(config).is_err()
-    {
-        return Err(DeployError::IncompatiblePolicyVersion { program });
-    }
+    ensure!(
+        account.data.len() == PolicyConfig::SIZE,
+        "program {program} keeps a policy config of {} bytes, the release needs {}, deploy a fresh ring",
+        account.data.len(),
+        PolicyConfig::SIZE
+    );
+    let compatible = bytemuck::try_from_bytes::<PolicyConfig>(&account.data).is_ok_and(|config| {
+        config.discriminator == custom_ring_interface::POLICY_CONFIG
+            && custom_ring_sdk::policy_config_table(config).is_ok()
+    });
+    ensure!(
+        compatible,
+        "program {program} has an incompatible policy commitment, deploy a fresh ring"
+    );
     Ok(())
 }
 
-/// A first deploy pays rent for the program and its data account, an upgrade
-/// only for the growth. Both pay for the write buffer, refunded when the
-/// deploy finishes.
-pub fn required_balance<R: Rpc>(
-    rpc: &R,
-    so_len: usize,
-    deployed: Option<&ProgramDataInfo>,
-) -> Result<u64, DeployError> {
+/// A first deploy pays rent for the program and its data account, an upgrade only for the
+/// growth. Both pay for the write buffer, refunded when the deploy finishes.
+fn required_balance<R: Rpc>(rpc: &R, so_len: usize, deployed: Option<&ProgramData>) -> Result<u64> {
     let rent = |bytes: usize| rpc.get_minimum_balance_for_rent_exemption(bytes);
     let mut lamports = DEPLOY_FEE_BUDGET + rent(UpgradeableLoaderState::size_of_buffer(so_len))?;
     match deployed {
@@ -432,75 +264,28 @@ pub fn required_balance<R: Rpc>(
             lamports += rent(UpgradeableLoaderState::size_of_program())?;
             lamports += rent(UpgradeableLoaderState::size_of_programdata(so_len))?;
         }
-        Some(info) if so_len > info.capacity => {
-            let grown = (so_len - info.capacity).max(MIN_EXTEND_BYTES);
-            lamports += rent(UpgradeableLoaderState::size_of_programdata(
-                info.capacity + grown,
-            ))?
-            .saturating_sub(rent(UpgradeableLoaderState::size_of_programdata(
-                info.capacity,
-            ))?);
+        Some(data) if so_len > data.capacity => {
+            let grown = data.capacity + (so_len - data.capacity).max(MIN_EXTEND_BYTES);
+            lamports += rent(UpgradeableLoaderState::size_of_programdata(grown))?.saturating_sub(
+                rent(UpgradeableLoaderState::size_of_programdata(data.capacity))?,
+            );
         }
         Some(_) => {}
     }
     Ok(lamports)
 }
 
-/// `None` when the program is not deployed under the upgradeable loader.
-pub fn read_program_data<R: Rpc>(
-    rpc: &R,
-    ring: CustomRing,
-) -> Result<Option<ProgramDataInfo>, DeployError> {
-    if rpc.get_account(ring.program_id())?.is_none() {
-        return Ok(None);
-    }
-    let address = ring.program_data_pda();
-    let Some(account) = rpc.get_account(address)? else {
-        return Ok(None);
-    };
-    let (state, _) = bincode::serde::decode_from_slice::<UpgradeableLoaderState, _>(
-        &account.data,
-        bincode::config::legacy(),
-    )
-    .map_err(|_| DeployError::ProgramData { address })?;
-    let UpgradeableLoaderState::ProgramData {
-        slot,
-        upgrade_authority_address,
-    } = state
-    else {
-        return Err(DeployError::ProgramData { address });
-    };
-    Ok(Some(ProgramDataInfo {
-        upgrade_authority: upgrade_authority_address
-            .map(|key| Address::new_from_array(key.to_bytes()))
-            .filter(|key| *key != Address::default()),
-        capacity: account
-            .data
-            .len()
-            .saturating_sub(UpgradeableLoaderState::size_of_programdata_metadata()),
-        slot,
-    }))
-}
-
 /// The loader refuses a program in the slot it was deployed in.
-fn wait_until_usable<R: Rpc>(
-    rpc: &R,
-    program: Address,
-    deployed_slot: u64,
-) -> Result<(), DeployError> {
+fn wait_until_usable<R: Rpc>(rpc: &R, program: Address, deployed_slot: u64) -> Result<()> {
     let started = Instant::now();
-    loop {
-        if rpc.get_slot()? > deployed_slot {
-            return Ok(());
-        }
-        if started.elapsed() > USABLE_TIMEOUT {
-            return Err(DeployError::NotUsable {
-                program,
-                slot: deployed_slot,
-            });
-        }
+    while rpc.get_slot()? <= deployed_slot {
+        ensure!(
+            started.elapsed() <= USABLE_TIMEOUT,
+            "program {program} deployed at slot {deployed_slot} stays unusable, the validator does not advance"
+        );
         thread::sleep(SLOT_POLL);
     }
+    Ok(())
 }
 
 /// The loader writes the binary as given, padded to the account's capacity.
@@ -513,18 +298,11 @@ fn deployed_bytes(program_data: &[u8], so_len: usize) -> Option<&[u8]> {
     program_data.get(start..end)
 }
 
-fn released_program_so() -> Result<PathBuf, ReleaseError> {
-    let program = RingProgram::from_lock()?;
-    line(
-        "release",
-        format_args!("{} {}", program.tag, program.asset.name),
-    );
-    program.ensure()
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+
+    use zolana_client::ClientError;
 
     use super::*;
 
@@ -613,6 +391,32 @@ mod tests {
     }
 
     #[test]
+    fn only_the_recorded_upgrade_authority_may_move_the_program() {
+        let check = |upgrade_authority| {
+            let data = ProgramData {
+                slot: 0,
+                upgrade_authority,
+                capacity: 0,
+            };
+            check_upgrade_authority(
+                Address::new_from_array([1; 32]),
+                &data,
+                Address::new_from_array([2; 32]),
+            )
+        };
+        assert!(check(Some(Address::new_from_array([2; 32]))).is_ok());
+        let foreign = check(Some(Address::new_from_array([3; 32]))).expect_err("foreign");
+        assert!(
+            foreign.to_string().contains("is upgradeable by"),
+            "{foreign}"
+        );
+        let immutable = check(None).expect_err("immutable");
+        assert!(immutable
+            .to_string()
+            .ends_with("is immutable, it cannot be upgraded"));
+    }
+
+    #[test]
     fn an_incompatible_policy_config_refuses_the_upgrade() {
         use bytemuck::Zeroable;
         let program = Address::from([7u8; 32]);
@@ -640,22 +444,25 @@ mod tests {
             Some(&account(foreign, &[0; PolicyConfig::SIZE - 1]))
         )
         .is_ok());
-        assert!(matches!(
-            ensure_policy_config_compatible(
-                program,
-                Some(&account(program, &[0; PolicyConfig::SIZE - 1]))
-            ),
-            Err(DeployError::IncompatiblePolicyConfig { found, expected, .. })
-                if found == PolicyConfig::SIZE - 1 && expected == PolicyConfig::SIZE
-        ));
+        let short = ensure_policy_config_compatible(
+            program,
+            Some(&account(program, &[0; PolicyConfig::SIZE - 1])),
+        )
+        .expect_err("short");
+        assert!(short.to_string().contains(&format!(
+            "of {} bytes, the release needs {}",
+            PolicyConfig::SIZE - 1,
+            PolicyConfig::SIZE
+        )));
         current.policy_hash[0] ^= 1;
-        assert!(matches!(
-            ensure_policy_config_compatible(
-                program,
-                Some(&account(program, bytemuck::bytes_of(&current)))
-            ),
-            Err(DeployError::IncompatiblePolicyVersion { .. })
-        ));
+        let drifted = ensure_policy_config_compatible(
+            program,
+            Some(&account(program, bytemuck::bytes_of(&current))),
+        )
+        .expect_err("drifted");
+        assert!(drifted
+            .to_string()
+            .contains("incompatible policy commitment"));
     }
 
     #[test]
@@ -672,7 +479,7 @@ mod tests {
 
     #[test]
     fn an_upgrade_pays_the_buffer_and_only_the_growth() {
-        let deployed = ProgramDataInfo {
+        let deployed = ProgramData {
             upgrade_authority: None,
             capacity: 300_000,
             slot: 0,
