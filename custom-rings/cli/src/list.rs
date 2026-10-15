@@ -1,51 +1,25 @@
-use std::{fmt, str::FromStr};
+//! `list`, the entries of the ring's policy lists and where each list reads them.
 
+use anyhow::{bail, Context as _, Result};
 use clap::Args;
 use custom_ring_sdk::{
-    compute_unit_limit, CreateEntry, CustomRing, InstructionTag, LiveEntry, PolicyConfig, PoolTree,
-    ReadEntry, RingError, SourceOwner, UpdateEntry,
+    CreateEntry, LiveEntry, PolicyConfig, PoolTree, ReadEntry, SourceOwner, UpdateEntry,
 };
-use solana_address::{error::ParseAddressError, Address};
+use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, IndexerRpcConfig, Rpc};
-use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
-use zolana_transaction::SOL_MINT;
+use zolana_client::{IndexerRpcConfig, Rpc};
+use zolana_ring_policy::{EntryState, ListId, Member};
 
 use crate::{
-    catalogue::{Catalogue, CatalogueError, CuratorCheck, CuratorError},
+    catalogue::{check_curator, Catalogue},
+    config::Mint,
     line,
-    policy::list_name,
-    step::{no_hint, IdempotentStep, Observed, StepError},
-    ui::{self, Icon},
-    Context, ContextError, ListCommand, Zolana,
+    ui::{self, icon},
+    Context, EntryArgs, ListCommand,
 };
 
-#[derive(Debug, Error)]
-pub enum ListError {
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error(transparent)]
-    Ring(#[from] Box<RingError>),
-    #[error(transparent)]
-    Member(#[from] MemberError),
-    #[error("pass --owner or --asset")]
-    MemberFlag,
-    #[error(transparent)]
-    Step(#[from] StepError),
-    #[error(transparent)]
-    Catalogue(#[from] Box<CatalogueError>),
-    #[error(transparent)]
-    Curator(#[from] CuratorError),
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error("the ring has no policy config, run `zolana-ring init` first")]
-    NoPolicy,
-    #[error("{} entry for {member} does not exist", list_name(*list_id))]
-    NoEntry { list_id: ListId, member: MemberKind },
-    #[error("the {} list reads curator {curator} entries, mutate it on the curator ring", list_name(*list_id))]
-    SharedList { list_id: ListId, curator: Address },
-}
+const NO_POLICY: &str = "the ring has no policy config, run `zolana-ring init` first";
 
 #[derive(Debug, Clone, Copy, Args)]
 #[group(required = true, multiple = false)]
@@ -58,347 +32,163 @@ pub struct MemberArg {
     asset: Option<Mint>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Mint(Address);
-
-#[derive(Debug, Clone, Copy)]
-pub enum MemberKind {
-    Owner(Address),
-    Asset(Mint),
-}
-
-const SOL: &str = "sol";
-
-#[must_use]
-pub struct EntryMutation<'a> {
-    pub ring: CustomRing,
-    pub authority: &'a dyn Signer,
-    pub list_id: ListId,
-    pub member: Member,
-    pub state: EntryState,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[must_use]
 pub struct EntryOutcome {
     pub version: u64,
-    pub change: EntryChange,
+    /// `already there`, `claimed` or `moved`.
+    pub change: &'static str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryChange {
-    Unchanged,
-    Claimed,
-    Moved,
-}
-
-impl From<RingError> for ListError {
-    fn from(error: RingError) -> Self {
-        Self::Ring(Box::new(error))
+impl MemberArg {
+    pub fn member(&self) -> Result<(Member, String)> {
+        Ok(match (self.owner, self.asset) {
+            (Some(tag), None) => (Member::owner_tag(tag.as_array())?, format!("owner {tag}")),
+            (None, Some(mint)) => (Member::asset(&mint.0)?, format!("asset {mint}")),
+            _ => bail!("pass --owner or --asset"),
+        })
     }
 }
 
-impl From<CatalogueError> for ListError {
-    fn from(error: CatalogueError) -> Self {
-        Self::Catalogue(Box::new(error))
-    }
-}
-
-impl From<ClientError> for ListError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
-}
-
-pub fn run(ctx: &mut Context, command: ListCommand) -> Result<(), ListError> {
+pub fn run(ctx: &Context, command: ListCommand) -> Result<()> {
     match command {
-        ListCommand::Add { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .set(ctx, EntryState::Active),
-        ListCommand::Clear { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .set(ctx, EntryState::Cleared),
-        ListCommand::Show { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .show(ctx),
+        ListCommand::Add(entry) => set(ctx, entry, EntryState::Active),
+        ListCommand::Clear(entry) => set(ctx, entry, EntryState::Cleared),
+        ListCommand::Show(EntryArgs { list_id, member }) => show(ctx, list_id.id(), member),
         ListCommand::SetSource {
             list_id,
             curator,
             own,
         } => {
-            let source = match (curator, own) {
-                (Some(curator), false) => SourceOwner::Shared(
+            let source = match curator.filter(|_| !own) {
+                Some(curator) => SourceOwner::Shared(
                     Catalogue::load(ctx.catalogue.as_deref())?
                         .resolve(ctx.config.target, &curator)?,
                 ),
-                _ => SourceOwner::Own,
+                None => SourceOwner::Own,
             };
             set_source(ctx, list_id.id(), source)
         }
     }
 }
 
-impl TryFrom<MemberArg> for MemberKind {
-    type Error = ListError;
-
-    fn try_from(arg: MemberArg) -> Result<Self, ListError> {
-        match (arg.owner, arg.asset) {
-            (Some(tag), None) => Ok(Self::Owner(tag)),
-            (None, Some(mint)) => Ok(Self::Asset(mint)),
-            _ => Err(ListError::MemberFlag),
-        }
-    }
+fn set(ctx: &Context, entry: EntryArgs, state: EntryState) -> Result<()> {
+    let (member, label) = entry.member.member()?;
+    let authority = ctx.funded_authority()?;
+    line("entry", format_args!("{} {label}", entry.list_id));
+    let outcome = set_entry(ctx, authority, entry.list_id.id(), member, state)?;
+    line("state", format_args!("{state:?} {}", outcome.change));
+    line("version", outcome.version);
+    Ok(())
 }
 
-impl MemberKind {
-    pub fn member(&self) -> Result<Member, MemberError> {
-        match self {
-            Self::Owner(tag) => Member::owner_tag(tag.as_array()),
-            Self::Asset(Mint(mint)) => Member::asset(mint),
-        }
-    }
-}
-
-impl fmt::Display for MemberKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Owner(tag) => write!(f, "owner {tag}"),
-            Self::Asset(mint) => write!(f, "asset {mint}"),
-        }
-    }
-}
-
-impl FromStr for Mint {
-    type Err = ParseAddressError;
-
-    fn from_str(text: &str) -> Result<Self, ParseAddressError> {
-        if text == SOL {
-            return Ok(Self(SOL_MINT));
-        }
-        text.parse().map(Self)
-    }
-}
-
-impl fmt::Display for Mint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0 == SOL_MINT {
-            f.write_str(SOL)
-        } else {
-            fmt::Display::fmt(&self.0, f)
-        }
-    }
-}
-
-impl EntryMutation<'_> {
-    pub fn apply(self, zolana: &Zolana) -> Result<EntryOutcome, ListError> {
-        let (rpc, client) = (zolana.rpc(), zolana.as_async());
-        let config =
-            crate::read_account::<PolicyConfig>(rpc, self.ring, self.ring.policy_config_pda())?
-                .ok_or(ListError::NoPolicy)?;
-        // Mutations serve the ring's own entries only, the program refuses the rest.
-        if let Some(curator) = config
-            .source_for(self.list_id)
-            .filter(|entries| *entries != self.ring.namespace_pda())
-        {
-            return Err(ListError::SharedList {
-                list_id: self.list_id,
-                curator,
-            });
-        }
-        let address_tree = PoolTree::address_tree(&config);
-        // An indexer behind the last update would read back the state before
-        // it, and a request for that state would end here unapplied.
-        let live = ReadEntry::new(
-            address_tree.id,
-            self.ring.namespace_pda(),
-            self.list_id,
-            self.member,
-        )
-        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?));
-        let live = zolana.block_on(live.read(client))?;
-        let proven = match live {
-            None => {
-                let create = CreateEntry {
-                    ring: self.ring,
-                    payer: self.authority.pubkey(),
-                    address_tree,
-                    output_tree: address_tree,
-                    list_id: self.list_id,
-                    member: self.member,
-                    state: self.state,
-                    content_hash: [0u8; 32],
-                };
-                zolana.block_on(create.prove(client))?
-            }
-            Some(LiveEntry { entry, .. }) if entry.state == self.state => {
-                return Ok(EntryOutcome {
-                    version: entry.version,
-                    change: EntryChange::Unchanged,
-                });
-            }
-            Some(spent) => {
-                let update = UpdateEntry {
-                    ring: self.ring,
-                    payer: self.authority.pubkey(),
-                    address_tree,
-                    output_tree: address_tree,
-                    spent,
-                    state: self.state,
-                    content_hash: [0u8; 32],
-                };
-                zolana.block_on(update.prove(client))?
-            }
-        };
-        let version = proven.entry().version;
-        IdempotentStep {
-            rpc,
-            authority: self.authority,
-            co_signers: &[],
-            name: "entry_mutation",
-            compute_unit_limit: compute_unit_limit(InstructionTag::CreateEntry),
-            hint: no_hint,
-        }
-        .ensure_present(Observed::Absent, &[proven.instruction()?])?;
-        Ok(EntryOutcome {
-            version,
-            change: match live {
-                None => EntryChange::Claimed,
-                Some(_) => EntryChange::Moved,
-            },
-        })
-    }
-}
-
-impl EntryChange {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Unchanged => "already there",
-            Self::Claimed => "claimed",
-            Self::Moved => "moved",
-        }
-    }
-}
-
-struct EntryArg {
+/// Writes the ring's own entries only, the program refuses a list a curator serves.
+pub(crate) fn set_entry(
+    ctx: &Context,
+    authority: &Keypair,
     list_id: ListId,
-    member: MemberKind,
-}
-
-impl EntryArg {
-    fn set(self, ctx: &mut Context, state: EntryState) -> Result<(), ListError> {
-        let authority = ctx.funded_authority()?;
-        let zolana = ctx.zolana();
-        line(
-            "entry",
-            format_args!("{} {}", list_name(self.list_id), self.member),
+    member: Member,
+    state: EntryState,
+) -> Result<EntryOutcome> {
+    let (config, own) = (policy_config(ctx)?, ctx.ring.namespace_pda());
+    if let Some(curator) = config.source_for(list_id).filter(|entries| *entries != own) {
+        bail!(
+            "the {} list reads curator {curator} entries, mutate it on the curator ring",
+            list_id.name()
         );
-        let outcome = EntryMutation {
-            ring: ctx.ring,
-            authority: &authority,
-            list_id: self.list_id,
-            member: self.member.member()?,
-            state,
+    }
+    let tree = PoolTree::address_tree(&config);
+    // An indexer behind the last update would read back the state before it.
+    let live = ReadEntry::new(tree.id, own, list_id, member)
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
+    let live = ctx.block(live.read(ctx.chain()))?;
+    let (proven, change) = match live {
+        Some(LiveEntry { entry, .. }) if entry.state == state => {
+            return Ok(EntryOutcome {
+                version: entry.version,
+                change: "already there",
+            })
         }
-        .apply(&zolana)?;
-        line(
-            "state",
-            format_args!("{state:?} {}", outcome.change.label()),
-        );
-        line("version", outcome.version);
-        Ok(())
-    }
-
-    fn show(self, ctx: &Context) -> Result<(), ListError> {
-        let config = policy_config(ctx)?;
-        let live = ReadEntry::new(
-            config.address_tree_id(),
-            config
-                .source_for(self.list_id)
-                .unwrap_or_else(|| ctx.ring.namespace_pda()),
-            self.list_id,
-            self.member.member()?,
-        )
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?));
-        let zolana = ctx.zolana();
-        let live = zolana
-            .block_on(live.read(zolana.as_async()))?
-            .ok_or(ListError::NoEntry {
-                list_id: self.list_id,
-                member: self.member,
-            })?;
-        line(
-            "entry",
-            format_args!("{} {}", list_name(self.list_id), self.member),
-        );
-        line("state", format_args!("{:?}", live.entry.state));
-        line("version", live.entry.version);
-        Ok(())
-    }
+        None => {
+            let create = CreateEntry {
+                ring: ctx.ring,
+                payer: authority.pubkey(),
+                address_tree: tree,
+                output_tree: tree,
+                list_id,
+                member,
+                state,
+                content_hash: [0; 32],
+            };
+            (ctx.block(create.prove(ctx.chain()))?, "claimed")
+        }
+        Some(spent) => {
+            let update = UpdateEntry {
+                ring: ctx.ring,
+                payer: authority.pubkey(),
+                address_tree: tree,
+                output_tree: tree,
+                spent,
+                state,
+                content_hash: [0; 32],
+            };
+            (ctx.block(update.prove(ctx.chain()))?, "moved")
+        }
+    };
+    let version = proven.entry().version;
+    ctx.send(&[authority], &[proven.instruction()?])?;
+    Ok(EntryOutcome { version, change })
 }
 
-fn policy_config(ctx: &Context) -> Result<PolicyConfig, ListError> {
-    crate::read_account::<PolicyConfig>(&ctx.rpc, ctx.ring, ctx.ring.policy_config_pda())?
-        .ok_or(ListError::NoPolicy)
+fn show(ctx: &Context, list_id: ListId, member: MemberArg) -> Result<()> {
+    let config = policy_config(ctx)?;
+    let (member, label) = member.member()?;
+    let namespace = config
+        .source_for(list_id)
+        .unwrap_or_else(|| ctx.ring.namespace_pda());
+    let live = ReadEntry::new(config.address_tree_id(), namespace, list_id, member)
+        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
+    let live = ctx
+        .block(live.read(ctx.chain()))?
+        .with_context(|| format!("{} entry for {label} does not exist", list_id.name()))?;
+    line("entry", format_args!("{} {label}", list_id.name()));
+    line("state", format_args!("{:?}", live.entry.state));
+    line("version", live.entry.version);
+    Ok(())
 }
 
-fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result<(), ListError> {
+fn policy_config(ctx: &Context) -> Result<PolicyConfig> {
+    ctx.block(ctx.ring.policy_config(ctx.chain()))?
+        .context(NO_POLICY)
+}
+
+fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()> {
     let config = policy_config(ctx)?;
     let expected = match source {
         SourceOwner::Own => ctx.ring.namespace_pda(),
         SourceOwner::Shared(curator) => {
-            CuratorCheck {
-                curator,
-                list: list_id,
-                address_tree: config.address_tree,
-            }
-            .run(&ctx.rpc)?;
+            check_curator(ctx, curator, list_id, config.address_tree)?;
             curator.namespace_pda()
         }
     };
-    let observed = if config.source_for(list_id) == Some(expected) {
-        Observed::Present
-    } else {
-        Observed::Absent
-    };
     let authority = ctx.funded_authority()?;
-    let outcome = IdempotentStep {
-        rpc: &ctx.rpc,
-        authority: &authority,
-        co_signers: &[],
-        name: "set_policy_source",
-        compute_unit_limit: compute_unit_limit(InstructionTag::SetPolicySource),
-        hint: no_hint,
-    }
-    .ensure_present(
-        observed,
-        &[ctx
+    let outcome = if config.source_for(list_id) == Some(expected) {
+        "already present"
+    } else {
+        let point = ctx
             .ring
-            .set_source_owner(authority.pubkey(), list_id, source)?],
-    )?;
-    let entries = policy_config(ctx)?
-        .source_for(list_id)
-        .ok_or(ListError::NoPolicy)?;
-    match source {
-        SourceOwner::Own => ui::heading(
-            Icon::Lists,
-            &format!("the {} list reads its own entries", list_name(list_id)),
-        ),
-        SourceOwner::Shared(curator) => ui::heading(
-            Icon::Curator,
-            &format!(
-                "the {} list reads curator {}",
-                list_name(list_id),
-                curator.program_id()
-            ),
-        ),
-    }
-    line("source", outcome.label());
+            .set_source_owner(authority.pubkey(), list_id, source)?;
+        ctx.send(&[authority], &[point])?;
+        "created"
+    };
+    let entries = policy_config(ctx)?.source_for(list_id).context(NO_POLICY)?;
+    let (glyph, reads) = match source {
+        SourceOwner::Own => (icon::LISTS, "its own entries".to_owned()),
+        SourceOwner::Shared(curator) => {
+            (icon::CURATOR, format!("curator {}", curator.program_id()))
+        }
+    };
+    ui::heading(glyph, &format!("the {} list reads {reads}", list_id.name()));
+    line("source", outcome);
     line("entries", entries);
     Ok(())
 }
@@ -406,6 +196,7 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
 #[cfg(test)]
 mod tests {
     use clap::{error::ErrorKind, Parser};
+    use zolana_transaction::SOL_MINT;
 
     use super::*;
     use crate::{Cli, Command, ListCommand};
@@ -413,7 +204,7 @@ mod tests {
     const TAG: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
     const MINT: &str = "So11111111111111111111111111111111111111112";
 
-    fn parse(verb: &str, flags: &[&str]) -> Result<MemberKind, clap::Error> {
+    fn parse(verb: &str, flags: &[&str]) -> Result<(Member, String), clap::Error> {
         let argv = ["zolana-ring", "list", verb, "block"]
             .into_iter()
             .chain(flags.iter().copied());
@@ -421,12 +212,12 @@ mod tests {
             panic!("a list command");
         };
         let member = match command {
-            ListCommand::Add { member, .. }
-            | ListCommand::Clear { member, .. }
-            | ListCommand::Show { member, .. } => member,
+            ListCommand::Add(entry) | ListCommand::Clear(entry) | ListCommand::Show(entry) => {
+                entry.member
+            }
             ListCommand::SetSource { .. } => panic!("an entry command"),
         };
-        Ok(MemberKind::try_from(member).expect("one flag"))
+        Ok(member.member().expect("one flag"))
     }
 
     #[test]
@@ -435,29 +226,21 @@ mod tests {
         let mint = Member::asset(&Address::from_str_const(MINT)).expect("member");
         for verb in ["add", "clear", "show"] {
             let owner = parse(verb, &["--owner", TAG]).expect(verb);
-            assert_eq!(owner.member().expect("member"), tag);
-            assert_eq!(owner.to_string(), format!("owner {TAG}"));
+            assert_eq!(owner, (tag, format!("owner {TAG}")));
             let asset = parse(verb, &["--asset", MINT]).expect(verb);
-            assert_eq!(asset.member().expect("member"), mint);
-            assert_eq!(asset.to_string(), format!("asset {MINT}"));
+            assert_eq!(asset, (mint, format!("asset {MINT}")));
         }
     }
 
     #[test]
-    fn sol_names_the_native_token() {
-        let sol = Member::asset(&SOL_MINT).expect("member");
-        let literal = parse("add", &["--asset", "sol"]).expect("sol");
-        assert_eq!(literal.member().expect("member"), sol);
-        assert_eq!(literal.to_string(), "asset sol");
-        let zero = parse("add", &["--asset", &SOL_MINT.to_string()]).expect("zero mint");
-        assert_eq!(zero.member().expect("member"), sol);
-        assert_eq!(zero.to_string(), "asset sol");
-        assert_eq!(
-            parse("add", &["--asset", "SOL"])
-                .expect_err("lowercase only")
-                .kind(),
-            ErrorKind::ValueValidation
+    fn sol_in_any_case_names_the_native_token() {
+        let sol = (
+            Member::asset(&SOL_MINT).expect("member"),
+            "asset sol".to_owned(),
         );
+        for spelling in ["sol", "SOL", &SOL_MINT.to_string()] {
+            assert_eq!(parse("add", &["--asset", spelling]).expect("sol"), sol);
+        }
     }
 
     #[test]

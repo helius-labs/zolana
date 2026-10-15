@@ -1,6 +1,8 @@
 //! Funding checks run before paid instructions.
 
+use anyhow::{anyhow, ensure, Result};
 use custom_ring_sdk::{DepositAsset, DepositSplAccounts};
+use solana_account::Account;
 use solana_address::Address;
 use spl_token_2022_interface::{
     extension::{
@@ -9,192 +11,122 @@ use spl_token_2022_interface::{
     },
     pod::{PodAccount, PodMint},
 };
-use thiserror::Error;
-use zolana_client::{ClientError, ProgramAccountsFilter, Rpc, SolanaRpc};
+use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
-    pda,
-    state::{discriminator::SPL_ASSET_REGISTRY, SplAssetRegistry},
-    SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
+    pda, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_transaction::{AssetRegistry, TransactionError, SOL_MINT};
-
-#[derive(Debug, Error)]
-pub enum AssetError {
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Transaction(#[from] TransactionError),
-    #[error("mint {0} is not registered with SPP")]
-    NotRegistered(Address),
-    #[error("invalid SPP asset registry account {0}")]
-    InvalidRegistry(Address),
-    #[error("mint {0} is not a valid SPL or Token-2022 mint")]
-    UnsupportedMint(Address),
-    #[error("mint {0} charges transfer fees that SPP deposits do not support")]
-    TransferFeeDeposit(Address),
-    #[error("token account {0} is missing, frozen, or does not belong to the payer and mint")]
-    InvalidTokenAccount(Address),
-    #[error("token account {account} holds {held} base units, the deposit needs {needed}")]
-    InsufficientTokens {
-        account: Address,
-        held: u64,
-        needed: u64,
-    },
-    #[error("--token-account applies only to an SPL mint")]
-    TokenAccountForSol,
-}
+use zolana_transaction::{AssetRegistry, SOL_MINT};
 
 pub struct ResolvedAsset {
     pub mint: Address,
     pub registry: AssetRegistry,
-    token_program: Option<Address>,
-    transfer_fee: Option<TransferFeeConfig>,
+    /// The token program and the fee schedule of an SPL mint.
+    token: Option<(Address, Option<TransferFeeConfig>)>,
 }
 
-pub struct DepositFunding {
-    pub payer: Address,
-    pub token_account: Option<Address>,
-    pub amount: u64,
-}
-
-pub fn resolve(rpc: &SolanaRpc, mint: Address) -> Result<ResolvedAsset, AssetError> {
-    let mut registry = AssetRegistry::default();
-    let filter =
-        ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);
-    let program = pda::shielded_pool_program_id();
-    for (address, account) in rpc.get_program_accounts_filtered(program, &filter)? {
-        let entry = SplAssetRegistry::from_account_bytes(&account.data)
-            .map_err(|_| AssetError::InvalidRegistry(address))?;
-        if account.owner != program || address != pda::spl_asset_registry(&entry.mint) {
-            return Err(AssetError::InvalidRegistry(address));
-        }
-        registry.insert(entry.asset_id, entry.mint)?;
-    }
-    if registry.asset_id(&mint).is_err() {
-        return Err(AssetError::NotRegistered(mint));
-    }
-    let mut transfer_fee = None;
-    let token_program = if mint == SOL_MINT {
-        None
-    } else {
-        let account = rpc
-            .get_account(mint)?
-            .ok_or(AssetError::UnsupportedMint(mint))?;
-        if ![SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID].contains(account.owner.as_array()) {
-            return Err(AssetError::UnsupportedMint(mint));
-        }
-        let state = PodStateWithExtensions::<PodMint>::unpack(&account.data)
-            .map_err(|_| AssetError::UnsupportedMint(mint))?;
-        if !bool::from(state.base.is_initialized) {
-            return Err(AssetError::UnsupportedMint(mint));
-        }
-        if state
-            .get_extension_types()
-            .map_err(|_| AssetError::UnsupportedMint(mint))?
-            .contains(&ExtensionType::TransferFeeConfig)
-        {
-            transfer_fee = Some(
-                *state
-                    .get_extension::<TransferFeeConfig>()
-                    .map_err(|_| AssetError::UnsupportedMint(mint))?,
-            );
-        }
-        Some(account.owner)
-    };
+/// The registry is read strictly, one invalid entry fails the whole read.
+pub fn resolve(rpc: &SolanaRpc, mint: Address) -> Result<ResolvedAsset> {
+    let registry = rpc.asset_registry()?;
+    ensure!(
+        registry.asset_id(&mint).is_ok(),
+        "mint {mint} is not registered with SPP"
+    );
+    let token = (mint != SOL_MINT).then(|| token(rpc, mint)).transpose()?;
     Ok(ResolvedAsset {
         mint,
         registry,
-        token_program,
-        transfer_fee,
+        token,
     })
 }
 
+fn token(rpc: &SolanaRpc, mint: Address) -> Result<(Address, Option<TransferFeeConfig>)> {
+    let unsupported = || anyhow!("mint {mint} is not a valid SPL or Token-2022 mint");
+    let account = rpc.get_account(mint)?.ok_or_else(unsupported)?;
+    let state = PodStateWithExtensions::<PodMint>::unpack(&account.data)
+        .ok()
+        .filter(|state| bool::from(state.base.is_initialized))
+        .filter(|_| {
+            [SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID].contains(account.owner.as_array())
+        })
+        .ok_or_else(unsupported)?;
+    let types = state.get_extension_types().map_err(|_| unsupported())?;
+    let fee = match types.contains(&ExtensionType::TransferFeeConfig) {
+        true => Some(
+            *state
+                .get_extension::<TransferFeeConfig>()
+                .map_err(|_| unsupported())?,
+        ),
+        false => None,
+    };
+    Ok((account.owner, fee))
+}
+
 impl ResolvedAsset {
+    /// The payer's associated token account unless `token_account` names another.
     pub fn deposit(
         &self,
         rpc: &SolanaRpc,
-        funding: DepositFunding,
-    ) -> Result<DepositAsset, AssetError> {
-        let DepositFunding {
-            payer,
-            token_account,
-            amount,
-        } = funding;
-        let Some(token_program) = self.token_program else {
-            return if token_account.is_some() {
-                Err(AssetError::TokenAccountForSol)
-            } else {
-                Ok(DepositAsset::Sol)
-            };
+        payer: Address,
+        token_account: Option<Address>,
+        amount: u64,
+    ) -> Result<DepositAsset> {
+        let Some((token_program, fee)) = self.token else {
+            ensure!(
+                token_account.is_none(),
+                "--token-account applies only to an SPL mint"
+            );
+            return Ok(DepositAsset::Sol);
         };
-        if let Some(fee) = &self.transfer_fee {
-            let epoch = rpc
-                .client()
-                .get_epoch_info()
-                .map_err(|error| ClientError::Rpc(error.to_string()))?
-                .epoch;
-            if deposit_fee_active(fee, epoch) {
-                return Err(AssetError::TransferFeeDeposit(self.mint));
-            }
+        if let Some(fee) = &fee {
+            ensure!(
+                !deposit_fee_active(fee, rpc.client().get_epoch_info()?.epoch),
+                "mint {} charges transfer fees that SPP deposits do not support",
+                self.mint
+            );
         }
-        let token_account = token_account.unwrap_or_else(|| {
-            pda::associated_token_address_with_program(&payer, &self.mint, &token_program)
-        });
-        let account = rpc
-            .get_account(token_account)?
-            .ok_or(AssetError::InvalidTokenAccount(token_account))?;
-        FundingAccount {
-            address: token_account,
-            token_program,
-            payer,
+        let spl = DepositSplAccounts {
             mint: self.mint,
-            amount,
-        }
-        .validate(account.owner, &account.data)?;
-        Ok(DepositAsset::Spl(DepositSplAccounts {
-            mint: self.mint,
-            user_token: token_account,
+            user_token: token_account.unwrap_or_else(|| {
+                pda::associated_token_address_with_program(&payer, &self.mint, &token_program)
+            }),
             token_program,
-        }))
+        };
+        let account = rpc.get_account(spl.user_token)?;
+        validate_funding(&spl, account.as_ref(), payer, amount)?;
+        Ok(DepositAsset::Spl(spl))
     }
 }
 
-struct FundingAccount {
-    address: Address,
-    token_program: Address,
+fn validate_funding(
+    spl: &DepositSplAccounts,
+    account: Option<&Account>,
     payer: Address,
-    mint: Address,
     amount: u64,
-}
-
-impl FundingAccount {
-    fn validate(self, owner: Address, data: &[u8]) -> Result<(), AssetError> {
-        let Self {
-            address,
-            token_program,
-            payer,
-            mint,
-            amount,
-        } = self;
-        let state = PodStateWithExtensions::<PodAccount>::unpack(data)
-            .map_err(|_| AssetError::InvalidTokenAccount(address))?;
-        if owner != token_program
-            || state.base.mint.to_bytes() != mint.to_bytes()
-            || state.base.owner.to_bytes() != payer.to_bytes()
-            || state.base.state != SPL_TOKEN_ACCOUNT_INITIALIZED
-        {
-            return Err(AssetError::InvalidTokenAccount(address));
-        }
-        let held = u64::from(state.base.amount);
-        if held < amount {
-            return Err(AssetError::InsufficientTokens {
-                account: address,
-                held,
-                needed: amount,
-            });
-        }
-        Ok(())
-    }
+) -> Result<()> {
+    let invalid = || {
+        anyhow!(
+            "token account {} is missing, frozen, or does not belong to the payer and mint",
+            spl.user_token
+        )
+    };
+    let account = account.ok_or_else(invalid)?;
+    let state =
+        PodStateWithExtensions::<PodAccount>::unpack(&account.data).map_err(|_| invalid())?;
+    let base = state.base;
+    ensure!(
+        account.owner == spl.token_program
+            && base.mint.to_bytes() == spl.mint.to_bytes()
+            && base.owner.to_bytes() == payer.to_bytes()
+            && base.state == SPL_TOKEN_ACCOUNT_INITIALIZED,
+        invalid()
+    );
+    let held = u64::from(base.amount);
+    ensure!(
+        held >= amount,
+        "token account {} holds {held} base units, the deposit needs {amount}",
+        spl.user_token
+    );
+    Ok(())
 }
 
 fn deposit_fee_active(config: &TransferFeeConfig, epoch: u64) -> bool {
@@ -204,8 +136,9 @@ fn deposit_fee_active(config: &TransferFeeConfig, epoch: u64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use zolana_interface::{SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET};
+
+    use super::*;
 
     #[test]
     fn deposit_fee_check_uses_the_active_epoch_schedule() {
@@ -218,11 +151,12 @@ mod tests {
         config.newer_transfer_fee.maximum_fee = 0u64.into();
         assert!(!deposit_fee_active(&config, 7));
     }
+
     #[test]
     fn funding_account_checks_both_token_programs_and_never_crosses_mints() {
         let payer = Address::new_from_array([3; 32]);
         let mint = Address::new_from_array([4; 32]);
-        let account = Address::new_from_array([5; 32]);
+        let address = Address::new_from_array([5; 32]);
         for program in [SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID] {
             let program = Address::new_from_array(program);
             let mut data = vec![0; SPL_TOKEN_ACCOUNT_LEN];
@@ -230,29 +164,27 @@ mod tests {
             data[32..64].copy_from_slice(payer.as_array());
             data[64..72].copy_from_slice(&17u64.to_le_bytes());
             data[SPL_TOKEN_ACCOUNT_STATE_OFFSET] = SPL_TOKEN_ACCOUNT_INITIALIZED;
-            let funding = |mint, amount| FundingAccount {
-                address: account,
-                token_program: program,
-                payer,
-                mint,
-                amount,
+            let account = |owner, data: &[u8]| Account {
+                owner,
+                data: data.to_vec(),
+                ..Account::default()
             };
-            assert!(funding(mint, 17).validate(program, &data).is_ok());
-            assert!(matches!(
-                funding(mint, 18).validate(program, &data),
-                Err(AssetError::InsufficientTokens { .. })
-            ));
-            assert!(funding(Address::default(), 1)
-                .validate(program, &data)
-                .is_err());
-            assert!(funding(mint, 1)
-                .validate(Address::default(), &data)
-                .is_err());
-            assert!(funding(mint, 1)
-                .validate(program, &data[..SPL_TOKEN_ACCOUNT_LEN - 1])
-                .is_err());
+            let funding = |owner, data: &[u8], mint, amount| {
+                let spl = DepositSplAccounts {
+                    mint,
+                    user_token: address,
+                    token_program: program,
+                };
+                validate_funding(&spl, Some(&account(owner, data)), payer, amount)
+            };
+            assert!(funding(program, &data, mint, 17).is_ok());
+            let short = funding(program, &data, mint, 18).expect_err("short");
+            assert!(short.to_string().contains("holds 17 base units"), "{short}");
+            assert!(funding(program, &data, Address::default(), 1).is_err());
+            assert!(funding(Address::default(), &data, mint, 1).is_err());
+            assert!(funding(program, &data[..SPL_TOKEN_ACCOUNT_LEN - 1], mint, 1).is_err());
             data[SPL_TOKEN_ACCOUNT_STATE_OFFSET] = 2;
-            assert!(funding(mint, 1).validate(program, &data).is_err());
+            assert!(funding(program, &data, mint, 1).is_err());
         }
     }
 }
