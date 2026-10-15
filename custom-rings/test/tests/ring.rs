@@ -2079,17 +2079,22 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         ring_program_id: Some(ring_program),
         data: Data::default(),
     };
-    let proven = prove(prepare(vec![change_note.clone()], SECOND_SEND)?, None)?;
+    assert!(
+        matches!(
+            prove(prepare(vec![change_note.clone()], SECOND_SEND)?, None),
+            Err(RingError::ApprovalWithoutCoSigner)
+        ),
+        "the SDK refuses an approval without a co-signer before proving"
+    );
+    // The co-signer is not in the statement, so a placeholder proves the on-chain refusal.
+    let placeholder = Some(Address::new_unique());
+    let proven = prove(
+        prepare(vec![change_note.clone()], SECOND_SEND)?,
+        placeholder,
+    )?;
     assert!(
         proven.approval_required,
         "a send above the threshold needs approval"
-    );
-    assert!(
-        matches!(
-            proven.instruction(),
-            Err(RingError::ApprovalWithoutCoSigner)
-        ),
-        "the builder refuses an approval without a co-signer"
     );
     let rejection = send_expecting_rejection(rpc, sender, without_cosigner(ring, proven)?)?;
     Rejection::custom(CustomRingError::ApprovalWithoutCoSigner as u32)
@@ -2107,7 +2112,10 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             &[],
         )?],
     )?;
-    let proven = prove(prepare(vec![change_note.clone()], SECOND_SEND)?, None)?;
+    let proven = prove(
+        prepare(vec![change_note.clone()], SECOND_SEND)?,
+        placeholder,
+    )?;
     let rejection = send_expecting_rejection(rpc, sender, without_cosigner(ring, proven)?)?;
     Rejection::custom(CustomRingError::MissingCoSigner as u32)
         .at(0)
@@ -2225,7 +2233,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     let stale = prove(prepare(vec![third.clone()], 1)?, None)?;
     advance_local_clock(rpc, (window + 1) * WINDOW_SLOTS)?;
     let rejection = send_expecting_rejection(rpc, sender, stale.instruction()?)?;
-    Rejection::custom(CustomRingError::ProofVerificationFailed as u32)
+    Rejection::custom(CustomRingError::WindowElapsed as u32)
         .at(0)
         .assert_client(&rejection);
     wait_for_spend_record(read_record, 2)?;
@@ -3049,9 +3057,15 @@ fn land<'a>(
 
 /// The proven instruction with its co-signer slot left unset, the SDK builder refuses it.
 fn without_cosigner(ring: CustomRing, mut proven: ProvenTransfer) -> Result<Instruction> {
-    proven.cosigner = Some(Address::new_unique());
+    let cosigner = Address::new_unique();
+    proven.cosigner = Some(cosigner);
     let mut instruction = proven.instruction()?;
-    instruction.accounts[3] = AccountMeta::new_readonly(ring.cosigner_pda(), false);
+    let slot = instruction
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == cosigner)
+        .context("the instruction names the co-signer")?;
+    *slot = AccountMeta::new_readonly(ring.cosigner_pda(), false);
     Ok(instruction)
 }
 
