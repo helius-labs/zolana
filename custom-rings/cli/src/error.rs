@@ -9,7 +9,7 @@ use crate::{
     ring_rpc::RingRpcClientError, spend::SpendError, tool::ToolError, transact::TransactError,
     window::WindowError,
 };
-use zolana_ring_rpc::KeyFileError;
+use zolana_ring_client::rpc::KeyFileError;
 
 #[derive(Debug, Error)]
 pub enum CliError {

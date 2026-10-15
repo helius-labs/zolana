@@ -13,7 +13,7 @@ use std::{
 
 use serde::Deserialize;
 use thiserror::Error;
-use zolana_ring_rpc::KeyFileError;
+use zolana_ring_client::rpc::KeyFileError;
 
 use crate::{
     config::{ConfigError, RingConfig, Target, Urls},

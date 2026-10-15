@@ -11,9 +11,9 @@ use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc};
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ViewingKey};
+use zolana_ring_client::rpc::KeyFileError;
 use zolana_ring_client::{AuditError, RingRecovery, SourceMember};
 use zolana_ring_policy::Member;
-use zolana_ring_rpc::KeyFileError;
 use zolana_transaction::{utxo::SppProofInputUtxo, WalletUtxo, SOL_MINT};
 
 use crate::{

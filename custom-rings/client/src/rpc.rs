@@ -1,34 +1,52 @@
+//! The ring rpc wire: requests, responses, the signed attestations and the auditor key files.
+
+use std::path::{Path, PathBuf};
+
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
+use zeroize::Zeroizing;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
-use zolana_keypair::P256Pubkey;
-use zolana_ring_client::{ReaderKey, ReaderKeyError};
+use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
+use zolana_secret_file::{
+    create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
+};
 
-use crate::{error::RingRpcError, keys::KeyMode, upstream::DepositHistory};
+use crate::{AuditedTransaction, ReaderKey, ReaderKeyError, RingWithdrawal};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
-pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
-pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
-pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
-pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
+pub const AUDIT_CURSOR_LIMIT: usize = 256;
+pub const AUDIT_PAGE_LIMIT: u64 = 100;
+pub const DEPOSITS_PAGE_LIMIT: u32 = 50;
+pub const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
+const KEY_HEX_LEN: u64 = 64;
+const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
 
 /// One cursor rule for the request builder, the page and the indexer response check.
-pub(crate) fn cursor_in_bounds(cursor: &[u8]) -> bool {
+pub fn cursor_in_bounds(cursor: &[u8]) -> bool {
     !cursor.is_empty() && cursor.len() <= AUDIT_CURSOR_LIMIT
 }
 
-pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
+pub fn limit_in_bounds(limit: &Limit) -> bool {
     limit.value() <= AUDIT_PAGE_LIMIT
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyMode {
+    Local,
+    Derived,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,38 +120,6 @@ pub struct RingDepositsResponse {
     /// Slot of the oldest signature examined, absent when the page examined nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oldest_slot: Option<u64>,
-}
-
-impl RingDepositsRequest {
-    pub fn page_limit(&self) -> usize {
-        self.limit
-            .unwrap_or(DEPOSITS_PAGE_LIMIT)
-            .clamp(1, MAX_DEPOSITS_PAGE_LIMIT) as usize
-    }
-
-    /// The Solana `before` bound the cursor carries.
-    pub fn before(&self) -> Result<Option<Signature>, RingRpcError> {
-        self.cursor
-            .as_ref()
-            .map(|cursor| {
-                <[u8; 64]>::try_from(cursor.0.as_slice())
-                    .map(Signature::from)
-                    .map_err(|_| RingRpcError::InvalidPage)
-            })
-            .transpose()
-    }
-}
-
-impl From<DepositHistory> for RingDepositsResponse {
-    fn from(history: DepositHistory) -> Self {
-        Self {
-            deposits: history.deposits,
-            cursor: history
-                .cursor
-                .map(|signature| signature.as_ref().to_vec().into()),
-            oldest_slot: history.oldest_slot,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,19 +315,6 @@ pub enum SkippedReason {
     InvalidAuditData,
 }
 
-const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
-const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
-const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
-
-pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
-    [
-        ATTESTATION_DOMAIN,
-        ring_program_id.as_ref(),
-        auditor_pubkey.as_bytes(),
-    ]
-    .concat()
-}
-
 /// What a signed request covers, besides its timestamp and nonce.
 pub trait Attestation {
     fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8>;
@@ -369,6 +342,109 @@ pub struct SignedRequest<A> {
 
 pub type ReadRequest = SignedRequest<ReadAttestation>;
 pub type AuditorKeyRequest = SignedRequest<AuditorKeyAttestation>;
+
+#[derive(Debug, Error)]
+pub enum KeyFileError {
+    #[error(transparent)]
+    File(#[from] SecretFileError),
+    #[error("public key file is not 66 hex characters")]
+    PubkeyEncoding,
+    #[error("key path must name a file")]
+    InvalidPath,
+    #[error("auditor key is not a valid P256 secret key because {0}")]
+    Key(#[from] KeypairError),
+}
+
+pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
+    [
+        ATTESTATION_DOMAIN,
+        ring_program_id.as_ref(),
+        auditor_pubkey.as_bytes(),
+    ]
+    .concat()
+}
+
+impl RingDepositsRequest {
+    pub fn page_limit(&self) -> usize {
+        self.limit
+            .unwrap_or(DEPOSITS_PAGE_LIMIT)
+            .clamp(1, MAX_DEPOSITS_PAGE_LIMIT) as usize
+    }
+
+    /// The Solana `before` bound the cursor carries.
+    pub fn before(&self) -> Result<Option<Signature>, ReadBuildError> {
+        self.cursor
+            .as_ref()
+            .map(|cursor| {
+                <[u8; 64]>::try_from(cursor.0.as_slice())
+                    .map(Signature::from)
+                    .map_err(|_| ReadBuildError::Cursor)
+            })
+            .transpose()
+    }
+}
+
+impl DecryptedTransaction {
+    /// The opened values with the indexed nullifiers and the transaction's public legs.
+    pub fn new(
+        audited: AuditedTransaction,
+        nullifiers: Vec<[u8; 32]>,
+        signers: Vec<Address>,
+        withdrawals: Vec<RingWithdrawal>,
+    ) -> Self {
+        let outputs = audited.outputs.into_iter().map(|output| DecryptedOutput {
+            slot_index: output.slot_index,
+            recipient_viewing_pk: output.recipient_viewing_pk.as_bytes().to_vec().into(),
+            owner_tag: output.owner_tag.into(),
+            asset: output.asset.to_bytes().into(),
+            amount: output.amount,
+            ring_program_id: output.ring_program_id.map(|id| id.to_bytes().into()),
+        });
+        let withdrawals = withdrawals
+            .into_iter()
+            .map(|withdrawal| DecryptedWithdrawal {
+                recipient: withdrawal.recipient.to_bytes().into(),
+                asset: withdrawal.asset.to_bytes().into(),
+                amount: withdrawal.amount,
+            });
+        let spend_records = audited.spend_records.into_iter().map(|spend| {
+            // A zero asset marks an empty counter slot.
+            let counters = spend.counters.map(|counters| {
+                (0u8..)
+                    .zip(counters.assets.iter().zip(counters.spent))
+                    .filter(|(_, (asset, _))| **asset != [0; 32])
+                    .map(|(slot, (asset, spent))| DecryptedSpendCounter {
+                        slot,
+                        asset: (*asset).into(),
+                        spent,
+                    })
+                    .collect()
+            });
+            DecryptedSpendRecord {
+                slot_index: spend.slot_index,
+                member: (*spend.record.member.as_bytes()).into(),
+                version: spend.record.version,
+                window: spend.record.window,
+                counters_commitment: spend.record.counters_commitment.into(),
+                counters,
+            }
+        });
+        Self {
+            slot: audited.slot,
+            tx_signature: audited.tx_signature.into(),
+            tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
+            outputs: outputs.collect(),
+            undecryptable_slots: audited.undecryptable_slots,
+            nullifiers: nullifiers.into_iter().map(Into::into).collect(),
+            signers: signers
+                .into_iter()
+                .map(|key| key.to_bytes().into())
+                .collect(),
+            withdrawals: withdrawals.collect(),
+            spend_records: spend_records.collect(),
+        }
+    }
+}
 
 impl Attestation for ReadAttestation {
     fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
@@ -558,106 +634,52 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
         .map_err(|_| RequestBuildError::Clock)
 }
 
+/// Lowercase hex, with the public key beside it in `<file>.pub`.
+pub fn read_auditor_key(path: &Path, access: Access) -> Result<ViewingKey, KeyFileError> {
+    let secret = read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?;
+    Ok(ViewingKey::from_bytes(&secret)?)
+}
+
+/// Neither file remains when either cannot be written.
+pub fn write_auditor_key(out: &Path) -> Result<ViewingKey, KeyFileError> {
+    let public_path = public_key_path(out)?;
+    let key = ViewingKey::new();
+    let secret = Zeroizing::new(hex::encode(*key.secret_bytes()));
+    let public = hex::encode(key.pubkey().as_bytes());
+    create_pair((out, secret.as_bytes()), (&public_path, public.as_bytes()))?;
+    Ok(key)
+}
+
+pub fn write_auditor_pubkey(path: &Path, pubkey: &P256Pubkey) -> Result<(), KeyFileError> {
+    let public = hex::encode(pubkey.as_bytes());
+    Ok(create_new(path, public.as_bytes(), Visibility::Public)?)
+}
+
+pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
+    let text = std::fs::read_to_string(path).map_err(|source| SecretFileError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let bytes = hex::decode(text.trim())
+        .ok()
+        .and_then(|bytes| <[u8; 33]>::try_from(bytes).ok())
+        .ok_or(KeyFileError::PubkeyEncoding)?;
+    Ok(P256Pubkey::from_bytes(bytes)?)
+}
+
+pub fn public_key_path(secret: &Path) -> Result<PathBuf, KeyFileError> {
+    let mut name = secret
+        .file_name()
+        .ok_or(KeyFileError::InvalidPath)?
+        .to_os_string();
+    name.push(".pub");
+    Ok(secret.with_file_name(name))
+}
+
 fn base64(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auditor_key_request_attestation_is_stable() {
-        let attestation = AuditorKeyAttestation {
-            genesis_hash: [9; 32],
-            ring: Address::new_from_array([5; 32]),
-        }
-        .message(1_700_000_000, &[7; 32]);
-        assert_eq!(
-            String::from_utf8(attestation).expect("utf8"),
-            "zolana/ring-rpc-auditor-key-request/v1\n\
-             genesis: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN\n\
-             ring: LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\n\
-             timestamp: 1700000000\n\
-             nonce: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
-        );
-    }
-
-    fn deposits_request(limit: Option<u32>, cursor: Option<Vec<u8>>) -> RingDepositsRequest {
-        RingDepositsRequest {
-            ring_program_id: Address::new_from_array([5; 32]).to_bytes().into(),
-            limit,
-            cursor: cursor.map(Into::into),
-        }
-    }
-
-    /// `Limit` cannot hold zero, so the smallest audit page the wire carries is one.
-    #[test]
-    fn an_audit_page_holds_at_its_cursor_and_limit_bounds() {
-        assert!(!cursor_in_bounds(&[]));
-        assert!(cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT]));
-        assert!(!cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT + 1]));
-
-        assert!(limit_in_bounds(&Limit::new(1).expect("indexer limit")));
-        assert!(limit_in_bounds(
-            &Limit::new(AUDIT_PAGE_LIMIT).expect("indexer limit")
-        ));
-        assert!(!limit_in_bounds(
-            &Limit::new(AUDIT_PAGE_LIMIT + 1).expect("indexer limit")
-        ));
-    }
-
-    /// The deposits limit counts signatures examined, so it is clamped, never refused.
-    #[test]
-    fn a_deposits_page_clamps_its_limit_into_range() {
-        for (limit, expected) in [
-            (None, DEPOSITS_PAGE_LIMIT),
-            (Some(0), 1),
-            (Some(1), 1),
-            (Some(MAX_DEPOSITS_PAGE_LIMIT), MAX_DEPOSITS_PAGE_LIMIT),
-            (Some(MAX_DEPOSITS_PAGE_LIMIT + 1), MAX_DEPOSITS_PAGE_LIMIT),
-            (Some(u32::MAX), MAX_DEPOSITS_PAGE_LIMIT),
-        ] {
-            assert_eq!(
-                deposits_request(limit, None).page_limit(),
-                expected as usize
-            );
-        }
-    }
-
-    /// The deposits cursor is a Solana signature, unlike the opaque audit cursor.
-    #[test]
-    fn a_deposits_cursor_is_exactly_one_signature() {
-        assert_eq!(
-            deposits_request(None, Some(vec![1; 64]))
-                .before()
-                .expect("cursor"),
-            Some(Signature::from([1; 64]))
-        );
-        assert_eq!(
-            deposits_request(None, None).before().expect("no cursor"),
-            None
-        );
-        for length in [0, 63, 65, AUDIT_CURSOR_LIMIT] {
-            assert!(matches!(
-                deposits_request(None, Some(vec![1; length])).before(),
-                Err(RingRpcError::InvalidPage)
-            ));
-        }
-    }
-
-    #[test]
-    fn read_attestation_is_stable() {
-        let message = ReadAttestation {
-            ring: Address::new_from_array([7; 32]),
-            cursor: Some(vec![1, 2, 3].into()),
-            limit: Some(Limit::new(5).expect("in range")),
-        }
-        .message(1_700_000_000, &[4; 32]);
-        assert_eq!(
-            String::from_utf8(message).expect("text"),
-            "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
-        );
-    }
-}
+mod tests;

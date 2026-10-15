@@ -23,13 +23,14 @@ use thiserror::Error;
 use tower::Service;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use zolana_ring_client::rpc::{
+    auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+    GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest, RingDepositsResponse,
+    RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
+    GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+};
+
 use crate::{
-    api::{
-        auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-        GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest, RingDepositsResponse,
-        RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
-        GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
-    },
     audit::{AuditRead, Page},
     error::RingRpcError,
     hub::{Hub, Lane, ReadinessStatus},
@@ -150,7 +151,10 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         &mut module,
         RING_DEPOSITS,
         |hub, request: RingDepositsRequest| async move {
-            let (limit, before) = (request.page_limit(), request.before()?);
+            let (limit, before) = (
+                request.page_limit(),
+                request.before().map_err(|_| RingRpcError::InvalidPage)?,
+            );
             let ring = request.ring_program_id.0;
             hub.validate_ring(ring)?;
             let _scan = hub.admit(Lane::Deposits(limit))?;
@@ -289,14 +293,15 @@ mod tests {
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
     use zolana_keypair::ViewingKey;
-    use zolana_ring_client::{AuditError, RingOrigin};
+    use zolana_ring_client::{
+        rpc::{KeyMode, DEPOSITS_PAGE_LIMIT},
+        AuditError, RingOrigin,
+    };
     use zolana_transaction::AssetRegistry;
 
     use crate::{
-        api::DEPOSITS_PAGE_LIMIT,
         config::RootSecret,
         error::RingRpcError,
-        keys::KeyMode,
         limits::{
             MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS, MAX_CONCURRENT_READS,
             MAX_REQUEST_UNITS_PER_SECOND,

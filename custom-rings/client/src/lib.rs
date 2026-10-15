@@ -9,6 +9,8 @@ mod error;
 mod origin;
 mod reader;
 mod recover;
+#[cfg(feature = "rpc")]
+pub mod rpc;
 mod scan;
 mod types;
 

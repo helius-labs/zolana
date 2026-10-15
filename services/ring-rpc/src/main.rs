@@ -3,11 +3,13 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use log::info;
-use zolana_ring_client::auditor_view_tag;
+use zolana_ring_client::{
+    auditor_view_tag,
+    rpc::{public_key_path, read_auditor_key, write_auditor_key, KeyMode},
+};
 use zolana_ring_rpc::{
-    public_key_path, run_server, write_auditor_key, write_root_secret, ChainSource, Cli, Command,
-    Hub, KeyFile, KeyKind, KeyMode, KeygenArgs, OriginPolicy, ServeArgs, ServerOptions,
-    TransactionSource, Upstreams,
+    read_root_secret, run_server, write_root_secret, ChainSource, Cli, Command, Hub, KeyKind,
+    KeygenArgs, OriginPolicy, ServeArgs, ServerOptions, TransactionSource, Upstreams,
 };
 
 #[tokio::main]
@@ -75,14 +77,12 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             let ring = args
                 .ring_program_id
                 .ok_or_else(|| anyhow::anyhow!("--ring-program-id must name the served ring"))?;
-            let auditor = KeyFile { path, access }
-                .auditor_key()
+            let auditor = read_auditor_key(path, access)
                 .with_context(|| format!("loading {}", path.display()))?;
             builder.local(ring, auditor)?
         }
         (None, Some(path)) => {
-            let root = KeyFile { path, access }
-                .root_secret()
+            let root = read_root_secret(path, access)
                 .with_context(|| format!("loading {}", path.display()))?;
             builder.derived(root)?
         }

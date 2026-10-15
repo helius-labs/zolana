@@ -1,17 +1,9 @@
-use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
 use zolana_keypair::{KeypairError, ViewingKey};
 
 use crate::{config::RootSecret, error::RingRpcError};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum KeyMode {
-    Local,
-    Derived,
-}
 
 /// The auditor and service domains must stay distinct.
 const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";

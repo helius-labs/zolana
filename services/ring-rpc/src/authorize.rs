@@ -4,13 +4,12 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_indexer_api::Base64String;
-use zolana_ring_client::ReaderKey;
-
-use crate::{
-    api::{Attestation, AuditorKeyAttestation, AuthorityAuth, ReadAuth},
-    origins::Origins,
-    webauthn,
+use zolana_ring_client::{
+    rpc::{Attestation, AuditorKeyAttestation, AuthorityAuth, ReadAuth},
+    ReaderKey,
 };
+
+use crate::{origins::Origins, webauthn};
 
 pub const AUTH_SKEW: Duration = Duration::from_secs(60);
 
@@ -125,7 +124,7 @@ mod tests {
     use solana_signer::Signer;
     use zolana_keypair::ViewingKey;
 
-    use crate::api::{unix_now, GetDecryptedTransactionsRequest, ReadAttestation};
+    use zolana_ring_client::rpc::{unix_now, GetDecryptedTransactionsRequest, ReadAttestation};
 
     use super::*;
 
@@ -158,8 +157,8 @@ mod tests {
         check_read(auth, &attestation, now, &Origins::default())
     }
 
-    fn assertion() -> crate::api::WebAuthnAssertion {
-        crate::api::WebAuthnAssertion {
+    fn assertion() -> zolana_ring_client::rpc::WebAuthnAssertion {
+        zolana_ring_client::rpc::WebAuthnAssertion {
             authenticator_data: vec![1; 37].into(),
             client_data_json: b"{}".to_vec().into(),
         }

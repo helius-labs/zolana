@@ -19,17 +19,22 @@ use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditorEncryption, ReaderKey, RingOrigin, RingWithdrawal,
+    auditor_view_tag,
+    rpc::{
+        auditor_key_attestation, unix_now, Attestation, CreateAuditorKeyRequest,
+        CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord,
+        GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse, KeyMode,
+        ReadAttestation, ReadAuth, ReadBuildError, ReadSignature, ReadSigner, RingDepositsRequest,
+        RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
+        WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
+        RING_STATUS,
+    },
+    AuditError, AuditorEncryption, ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
-    auditor_key_attestation, check_read, rpc_module, unix_now, Attestation, AuditRead, Clock,
-    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedWithdrawal, DepositHistory,
-    DepositPage, DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, ReadAttestation, ReadAuth,
-    ReadBuildError, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
-    RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
-    RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    check_read, rpc_module, AuditRead, Clock, DepositHistory, DepositPage, Hub, OriginPolicy,
+    Origins, Page, ReaderGrant, RingConfiguration, RingRpcError, RootSecret, TransactionPage,
+    TransactionSource, Unauthorized, AUTH_SKEW,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},

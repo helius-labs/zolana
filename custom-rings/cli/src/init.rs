@@ -12,7 +12,7 @@ use thiserror::Error;
 use zolana_client::SolanaRpc;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::P256Pubkey;
-use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
+use zolana_ring_client::rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
     catalogue::{CuratorCheck, CuratorError},

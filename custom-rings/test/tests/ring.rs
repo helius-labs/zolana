@@ -83,13 +83,12 @@ use zolana_program::instruction::{
 };
 use zolana_program_test::Rejection;
 use zolana_ring_client::{
-    auditor_view_tag, find_counters_message, open_counters, AuditedOutput, AuditedTransaction,
-    RingRecovery, RingScan, SourceMember,
+    auditor_view_tag, find_counters_message, open_counters, rpc::CreateAuditorKeyRequest,
+    AuditedOutput, AuditedTransaction, RingRecovery, RingScan, SourceMember,
 };
 use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
-    ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
-    Unauthorized, Upstreams,
+    ChainSource, Hub, RingRpcError, RootSecret, TransactionSource, Unauthorized, Upstreams,
 };
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{

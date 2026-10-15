@@ -15,17 +15,28 @@ solana-rpc = [
     "dep:solana-transaction-status-client-types",
     "dep:tokio",
 ]
+rpc = [
+    "dep:base64",
+    "dep:rand",
+    "dep:serde",
+    "dep:solana-signer",
+    "dep:zolana-secret-file",
+]
 
 [dependencies]
+base64 = { workspace = true, optional = true }
 hex = { workspace = true }
 num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
+rand = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-commitment-config = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
+solana-signer = { workspace = true, optional = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
@@ -39,6 +50,7 @@ zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-policy = { workspace = true }
+zolana-secret-file = { workspace = true, optional = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
@@ -46,6 +58,8 @@ async-trait = { workspace = true }
 bs58 = { workspace = true }
 zolana-ring-key-registry = { workspace = true }
 serde_json = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signature = { workspace = true, features = ["verify"] }
 solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true }
-zolana-ring-client = { path = ".", features = ["solana-rpc"] }
+zolana-ring-client = { path = ".", features = ["rpc", "solana-rpc"] }

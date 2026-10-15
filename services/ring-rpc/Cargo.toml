@@ -48,7 +48,7 @@ zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-secret-file = { workspace = true }
-zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-client = { workspace = true, features = ["rpc", "solana-rpc"] }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]

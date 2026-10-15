@@ -4,7 +4,9 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zolana_keypair::P256Pubkey;
 
-use crate::{api::WebAuthnAssertion, authorize::Unauthorized, origins::Origins};
+use zolana_ring_client::rpc::WebAuthnAssertion;
+
+use crate::{authorize::Unauthorized, origins::Origins};
 
 const FLAG_USER_PRESENT: u8 = 0x01;
 const FLAG_USER_VERIFIED: u8 = 0x04;

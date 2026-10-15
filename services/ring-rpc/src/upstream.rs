@@ -20,7 +20,9 @@ use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{ring_deposits_in, AuditError, ReaderKey, RingOrigin, TransactionOrigin};
 use zolana_transaction::AssetRegistry;
 
-use crate::{api::DepositRecord, audit::Page};
+use zolana_ring_client::rpc::{DepositRecord, RingDepositsResponse};
+
+use crate::audit::Page;
 
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
@@ -87,6 +89,18 @@ pub struct DepositHistory {
     /// Slot of the oldest signature examined, absent when the page examined
     /// nothing.
     pub oldest_slot: Option<u64>,
+}
+
+impl From<DepositHistory> for RingDepositsResponse {
+    fn from(history: DepositHistory) -> Self {
+        Self {
+            deposits: history.deposits,
+            cursor: history
+                .cursor
+                .map(|signature| signature.as_ref().to_vec().into()),
+            oldest_slot: history.oldest_slot,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

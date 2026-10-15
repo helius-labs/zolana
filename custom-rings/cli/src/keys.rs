@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use zolana_keypair::ViewingKey;
-use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
+use zolana_ring_client::rpc::{self, write_auditor_key, KeyFileError};
 
 use crate::{AuditorKeyArgs, ProjectRoot};
 
@@ -24,9 +24,5 @@ pub fn run(project_root: &ProjectRoot, args: AuditorKeyArgs) -> Result<(), KeyFi
 }
 
 pub(crate) fn read_auditor_key(path: &Path) -> Result<ViewingKey, KeyFileError> {
-    KeyFile {
-        path,
-        access: KeyAccess::OwnerOnly,
-    }
-    .auditor_key()
+    rpc::read_auditor_key(path, zolana_secret_file::Access::OwnerOnly)
 }

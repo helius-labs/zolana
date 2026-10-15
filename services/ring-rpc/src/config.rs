@@ -10,10 +10,8 @@ use rand::RngCore;
 use solana_address::Address;
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
-pub use zolana_secret_file::Access as KeyAccess;
 use zolana_secret_file::{
-    create_new, create_pair, read_hex32, read_private, SecretFileError, Visibility,
+    create_new, read_hex32, read_private, Access, SecretFileError, Visibility,
 };
 
 use crate::{origins::OriginTransport, server::BindPolicy};
@@ -119,11 +117,11 @@ impl ServeArgs {
         }
     }
 
-    pub fn key_access(&self) -> KeyAccess {
+    pub fn key_access(&self) -> Access {
         if self.allow_shared_key_file {
-            KeyAccess::Shared
+            Access::Shared
         } else {
-            KeyAccess::OwnerOnly
+            Access::OwnerOnly
         }
     }
 
@@ -136,32 +134,14 @@ impl ServeArgs {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum KeyFileError {
-    #[error(transparent)]
-    File(#[from] SecretFileError),
-    #[error("public key file is not 66 hex characters")]
-    PubkeyEncoding,
-    #[error("key path must name a file")]
-    InvalidPath,
-    #[error("auditor key is not a valid P256 secret key because {0}")]
-    Key(#[from] KeypairError),
-    #[error(transparent)]
-    Root(#[from] RootSecretError),
-}
-
-#[must_use]
-pub struct KeyFile<'a> {
-    pub path: &'a Path,
-    pub access: KeyAccess,
-}
-
 pub struct RootSecret(Zeroizing<[u8; 32]>);
 
 #[derive(Debug, Error)]
 pub enum RootSecretError {
     #[error("root secret cannot be zero")]
     Zero,
+    #[error(transparent)]
+    File(#[from] SecretFileError),
 }
 
 impl RootSecret {
@@ -187,64 +167,13 @@ impl RootSecret {
     }
 }
 
-impl KeyFile<'_> {
-    pub fn auditor_key(self) -> Result<ViewingKey, KeyFileError> {
-        let secret = self.secret()?;
-        Ok(ViewingKey::from_bytes(&secret)?)
-    }
-
-    pub fn root_secret(self) -> Result<RootSecret, KeyFileError> {
-        Ok(RootSecret::from_bytes(*self.secret()?)?)
-    }
-
-    fn secret(self) -> Result<Zeroizing<[u8; 32]>, KeyFileError> {
-        Ok(read_hex32(&read_private(
-            self.path,
-            self.access,
-            KEY_HEX_LEN,
-        )?)?)
-    }
+pub fn read_root_secret(path: &Path, access: Access) -> Result<RootSecret, RootSecretError> {
+    RootSecret::from_bytes(*read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?)
 }
 
-/// Neither file remains when either cannot be written.
-pub fn write_auditor_key(out: &Path) -> Result<ViewingKey, KeyFileError> {
-    let public_path = public_key_path(out)?;
-    let key = ViewingKey::new();
-    let secret = Zeroizing::new(hex::encode(*key.secret_bytes()));
-    let public = hex::encode(key.pubkey().as_bytes());
-    create_pair((out, secret.as_bytes()), (&public_path, public.as_bytes()))?;
-    Ok(key)
-}
-
-pub fn write_root_secret(out: &Path) -> Result<(), KeyFileError> {
+pub fn write_root_secret(out: &Path) -> Result<(), RootSecretError> {
     let root = Zeroizing::new(hex::encode(RootSecret::random().as_bytes()));
     Ok(create_new(out, root.as_bytes(), Visibility::Secret)?)
-}
-
-pub fn write_auditor_pubkey(path: &Path, pubkey: &P256Pubkey) -> Result<(), KeyFileError> {
-    let public = hex::encode(pubkey.as_bytes());
-    Ok(create_new(path, public.as_bytes(), Visibility::Public)?)
-}
-
-pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
-    let text = std::fs::read_to_string(path).map_err(|source| SecretFileError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let bytes = hex::decode(text.trim())
-        .ok()
-        .and_then(|bytes| <[u8; 33]>::try_from(bytes).ok())
-        .ok_or(KeyFileError::PubkeyEncoding)?;
-    Ok(P256Pubkey::from_bytes(bytes)?)
-}
-
-pub fn public_key_path(secret: &Path) -> Result<PathBuf, KeyFileError> {
-    let mut name = secret
-        .file_name()
-        .ok_or(KeyFileError::InvalidPath)?
-        .to_os_string();
-    name.push(".pub");
-    Ok(secret.with_file_name(name))
 }
 
 #[cfg(test)]
@@ -258,72 +187,20 @@ mod tests {
         dir
     }
 
-    fn key_file(path: &Path) -> KeyFile<'_> {
-        KeyFile {
-            path,
-            access: KeyAccess::OwnerOnly,
-        }
-    }
-
     #[test]
-    fn keygen_writes_a_secret_the_loader_reads_and_a_matching_public_key() {
-        let dir = temp_dir("keygen");
-        let secret = dir.join("auditor.key");
-        let key = write_auditor_key(&secret).expect("keygen");
-        assert_eq!(
-            key_file(&secret).auditor_key().expect("load").pubkey(),
-            key.pubkey()
-        );
-        let public_path = public_key_path(&secret).expect("public path");
-        assert_eq!(
-            std::fs::read_to_string(&public_path).expect("pub file"),
-            hex::encode(key.pubkey().as_bytes())
-        );
-        assert_eq!(
-            read_auditor_pubkey(&public_path).expect("pubkey"),
-            key.pubkey()
-        );
-        assert!(matches!(
-            write_auditor_key(&secret),
-            Err(KeyFileError::File(SecretFileError::Write { .. }))
-        ));
-        std::fs::remove_dir_all(dir).expect("cleanup");
-    }
-
-    #[test]
-    fn public_key_files_round_trip_and_reject_other_lengths() {
-        let dir = temp_dir("pubkey");
-        let path = dir.join("nested").join("auditor.key.pub");
-        let key = ViewingKey::new();
-        write_auditor_pubkey(&path, &key.pubkey()).expect("write");
-        assert_eq!(read_auditor_pubkey(&path).expect("read"), key.pubkey());
-        let short = dir.join("short.pub");
-        std::fs::write(&short, "02ab").expect("short");
-        assert!(matches!(
-            read_auditor_pubkey(&short),
-            Err(KeyFileError::PubkeyEncoding)
-        ));
-        std::fs::remove_dir_all(dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_zero_or_malformed_secret_is_refused() {
+    fn a_zero_or_malformed_root_secret_is_refused() {
         let dir = temp_dir("zero");
         let zero = dir.join("zero.key");
         create_new(&zero, "00".repeat(32).as_bytes(), Visibility::Secret).expect("zero");
         assert!(matches!(
-            key_file(&zero).auditor_key(),
-            Err(KeyFileError::Key(_))
-        ));
-        assert!(matches!(
-            key_file(&zero).root_secret(),
-            Err(KeyFileError::Root(RootSecretError::Zero))
+            read_root_secret(&zero, Access::OwnerOnly),
+            Err(RootSecretError::Zero)
         ));
         let upper = dir.join("upper.key");
         create_new(&upper, "AA".repeat(32).as_bytes(), Visibility::Secret).expect("upper");
         assert!(matches!(
-            key_file(&upper).root_secret(),
-            Err(KeyFileError::File(SecretFileError::Hex))
+            read_root_secret(&upper, Access::OwnerOnly),
+            Err(RootSecretError::File(SecretFileError::Hex))
         ));
         std::fs::remove_dir_all(dir).expect("cleanup");
     }
@@ -333,7 +210,7 @@ mod tests {
         let dir = temp_dir("root-keygen");
         let secret = dir.join("nested/root.key");
         write_root_secret(&secret).expect("keygen");
-        let root = key_file(&secret).root_secret().expect("root");
+        let root = read_root_secret(&secret, Access::OwnerOnly).expect("root");
         assert!(root.as_bytes().iter().any(|byte| *byte != 0));
         std::fs::remove_dir_all(dir).expect("cleanup");
     }

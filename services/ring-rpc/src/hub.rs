@@ -12,16 +12,19 @@ use thiserror::Error;
 use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 use zolana_client::ClientError;
 use zolana_keypair::ViewingKey;
-use zolana_ring_client::{auditor_view_tag, ReaderKey};
+use zolana_ring_client::{
+    auditor_view_tag,
+    rpc::{unix_now, KeyMode},
+    ReaderKey,
+};
 use zolana_transaction::AssetRegistry;
 
 use crate::{
-    api::unix_now,
     audit::{AuditService, ASSET_REFRESH_INTERVAL},
     authorize::Unauthorized,
     config::RootSecret,
     error::RingRpcError,
-    keys::{derive_auditor_key, service_keypair, KeyMode, KeySource},
+    keys::{derive_auditor_key, service_keypair, KeySource},
     limits::{
         PublicRequest, RequestRate, MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS,
         MAX_CONCURRENT_READS,

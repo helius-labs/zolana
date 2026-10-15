@@ -7,7 +7,7 @@ use thiserror::Error;
 use zolana_indexer_api::Hash;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::auditor_view_tag;
-use zolana_ring_rpc::{
+use zolana_ring_client::rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
     DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
     ReadBuildError, RequestBuildError, RingState, RingStatusRequest, RingStatusResponse,

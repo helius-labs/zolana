@@ -2123,7 +2123,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-ring-client",
  "zolana-ring-policy",
- "zolana-ring-rpc",
+ "zolana-secret-file",
  "zolana-transaction",
 ]
 
@@ -11948,18 +11948,23 @@ name = "zolana-ring-client"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "borsh",
  "bs58",
  "curve25519-dalek 4.1.3",
  "custom-ring-interface",
  "hex",
  "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-commitment-config",
+ "solana-keypair",
  "solana-rpc-client-api",
  "solana-signature",
+ "solana-signer",
  "solana-transaction-status-client-types",
  "thiserror 2.0.20",
  "tokio",
@@ -11974,6 +11979,7 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-key-registry",
  "zolana-ring-policy",
+ "zolana-secret-file",
  "zolana-transaction",
 ]
 

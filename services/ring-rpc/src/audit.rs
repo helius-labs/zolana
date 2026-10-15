@@ -6,17 +6,17 @@ use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
+    auditor_view_tag,
+    rpc::{
+        cursor_in_bounds, limit_in_bounds, Attestation, AuthorityAuth, DecryptedTransaction,
+        DecryptedTransactionsPage, GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth,
+        SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+    },
+    AuditError, AuditedTransaction, RingOrigin, TransactionAudit,
 };
 use zolana_transaction::{instructions::transact::canonical_shape, AssetRegistry};
 
 use crate::{
-    api::{
-        cursor_in_bounds, limit_in_bounds, Attestation, AuthorityAuth, DecryptedOutput,
-        DecryptedSpendCounter, DecryptedSpendRecord, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
-    },
     authorize::{self, check_authority, check_read, Unauthorized},
     error::RingRpcError,
     hub::Shared,
@@ -239,7 +239,7 @@ impl<S: TransactionSource> AuditService<S> {
                 result = self.audit(&tx, &assets);
             }
             match result {
-                Ok(opened) => items.push(decrypted_transaction(
+                Ok(opened) => items.push(DecryptedTransaction::new(
                     opened,
                     tx.nullifiers,
                     origin.signers,
@@ -301,63 +301,4 @@ fn validate_indexer_response(
         return Err(RingRpcError::InvalidIndexerResponse);
     }
     Ok(())
-}
-
-fn decrypted_transaction(
-    audited: AuditedTransaction,
-    nullifiers: Vec<[u8; 32]>,
-    signers: Vec<Address>,
-    withdrawals: Vec<RingWithdrawal>,
-) -> DecryptedTransaction {
-    let outputs = audited.outputs.into_iter().map(|output| DecryptedOutput {
-        slot_index: output.slot_index,
-        recipient_viewing_pk: output.recipient_viewing_pk.as_bytes().to_vec().into(),
-        owner_tag: output.owner_tag.into(),
-        asset: output.asset.to_bytes().into(),
-        amount: output.amount,
-        ring_program_id: output.ring_program_id.map(|id| id.to_bytes().into()),
-    });
-    let withdrawals = withdrawals
-        .into_iter()
-        .map(|withdrawal| DecryptedWithdrawal {
-            recipient: withdrawal.recipient.to_bytes().into(),
-            asset: withdrawal.asset.to_bytes().into(),
-            amount: withdrawal.amount,
-        });
-    let spend_records = audited.spend_records.into_iter().map(|spend| {
-        // A zero asset marks an empty counter slot.
-        let counters = spend.counters.map(|counters| {
-            (0u8..)
-                .zip(counters.assets.iter().zip(counters.spent))
-                .filter(|(_, (asset, _))| **asset != [0; 32])
-                .map(|(slot, (asset, spent))| DecryptedSpendCounter {
-                    slot,
-                    asset: (*asset).into(),
-                    spent,
-                })
-                .collect()
-        });
-        DecryptedSpendRecord {
-            slot_index: spend.slot_index,
-            member: (*spend.record.member.as_bytes()).into(),
-            version: spend.record.version,
-            window: spend.record.window,
-            counters_commitment: spend.record.counters_commitment.into(),
-            counters,
-        }
-    });
-    DecryptedTransaction {
-        slot: audited.slot,
-        tx_signature: audited.tx_signature.into(),
-        tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
-        outputs: outputs.collect(),
-        undecryptable_slots: audited.undecryptable_slots,
-        nullifiers: nullifiers.into_iter().map(Into::into).collect(),
-        signers: signers
-            .into_iter()
-            .map(|key| key.to_bytes().into())
-            .collect(),
-        withdrawals: withdrawals.collect(),
-        spend_records: spend_records.collect(),
-    }
 }
