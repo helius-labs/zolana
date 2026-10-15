@@ -149,6 +149,24 @@ fn reserved_auditor_keys_are_rejected_exactly() {
     }
 }
 
+/// Prevents a ring from storing an auditor key whose ECDH result is always zero.
+#[test]
+fn low_order_auditor_keys_are_rejected_exactly() {
+    for u_hex in [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0100000000000000000000000000000000000000000000000000000000000000",
+        "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+        "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    ] {
+        let mut key = [4; 33];
+        key[1..].copy_from_slice(&hex::decode(u_hex).expect("valid low-order u"));
+        let (mollusk, _) = setup_mollusk();
+        create_config_fixture(key)
+            .expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
+    }
+}
+
 #[test]
 fn non_canonical_config_pda_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
