@@ -137,3 +137,22 @@ func AssertDefaultP256Owner(
 		assertZeroWhen(api, hasRingP256, api.IsZero(api.Sub(published, p256PkHash)))
 	}
 }
+
+// AssertHiddenRingOwner keeps the hidden owner out of public data. An address
+// nullifier is computable from (owner, seed), so no slot may create an address.
+func AssertHiddenRingOwner(
+	api frontend.API,
+	inputs []Input,
+	ownerPkHashes []frontend.Variable,
+	signers Signers,
+	hiddenOwner frontend.Variable,
+) {
+	for i, in := range inputs {
+		api.AssertIsDifferent(in.Utxo.Domain, AddressDomain)
+		hidden := api.Mul(in.isUtxo(api), api.IsZero(ownerPkHashes[i]))
+		AssertWhen(api, hidden, api.Sub(1, api.IsZero(in.Utxo.RingProgramID)))
+	}
+	for _, signer := range signers {
+		api.AssertIsDifferent(signer, hiddenOwner)
+	}
+}
