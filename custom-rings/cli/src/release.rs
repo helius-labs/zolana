@@ -1,275 +1,105 @@
 //! The release the binary was built from.
 
 use std::{
-    env, fs,
-    io::{self, Read},
+    collections::BTreeMap,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
+use anyhow::{Context as _, Result};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
-use thiserror::Error;
-
-use crate::file::{self, FileError};
+use zolana_cli_common::release::{ensure_at, ensure_cached, Asset, BinaryAsset};
 
 const LOCK_JSON: &str = include_str!("../release-artifacts.lock");
-const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/helius-labs/zolana/releases/download";
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Every asset is optional, a missing one fails at use.
+#[derive(Debug, Deserialize)]
+pub struct RingRelease {
+    #[serde(rename = "release_tag")]
+    pub tag: String,
+    #[serde(default)]
+    binaries: Vec<BinaryAsset>,
+    #[serde(flatten)]
+    assets: BTreeMap<String, Asset>,
+}
 
 pub struct RingProgram {
     pub tag: String,
     pub asset: Asset,
 }
 
-/// Everything a custom-rings release ships, parsed from the embedded lock.
-pub struct RingRelease {
-    pub tag: String,
-    /// Absent from a lock older than the ring program.
-    pub program: Option<Asset>,
-    /// Absent from a lock older than the key.
-    pub proving_key: Option<Asset>,
-    /// Absent from a lock older than the audit key.
-    pub audit_key: Option<Asset>,
-    pub compressed_policy_key: Option<Asset>,
-    pub delegate_policy_key: Option<Asset>,
-    pub register_key: Option<Asset>,
-    pub deposit_key: Option<Asset>,
-    pub binaries: Vec<Binary>,
-}
-
+/// A ring proving key by its release lock section and its prover circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RingKey {
-    Policy,
-    Base,
-    CompressedPolicy,
-    DelegatePolicy,
-    RegisterKey,
-    Deposit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Asset {
-    #[serde(rename = "asset")]
-    pub name: String,
-    pub size: u64,
-    pub sha256: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Binary {
-    pub role: String,
-    pub os: String,
-    pub arch: String,
-    #[serde(flatten)]
-    pub asset: Asset,
-}
-
-#[derive(Debug, Error)]
-pub enum ReleaseError {
-    #[error("release {tag} ships no key for {circuit}, use a complete custom-rings release")]
-    MissingCircuitKey { tag: String, circuit: &'static str },
-    #[error("the embedded release lock does not parse")]
-    Lock(#[from] serde_json::Error),
-    #[error("release {tag} ships no ring program, pass --program-so")]
-    NoRingProgram { tag: String },
-    #[error("release {tag} ships no proving key for the prover")]
-    NoProvingKey { tag: String },
-    #[error("release {tag} ships no audit proving key for the prover")]
-    NoAuditKey { tag: String },
-    #[error("release {tag} ships no {role} for {os}-{arch}")]
-    NoBinary {
-        tag: String,
-        role: String,
-        os: &'static str,
-        arch: &'static str,
-    },
-    #[error("unsupported platform {os} {arch}")]
-    Platform { os: String, arch: String },
-    #[error("cannot download {url}")]
-    Download {
-        url: String,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("cannot read {url}")]
-    Body {
-        url: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("{name} is {found} bytes, the release lock pins {expected}")]
-    Size {
-        name: String,
-        expected: u64,
-        found: u64,
-    },
-    #[error("{name} hashes to {found}, the release lock pins {expected}")]
-    Digest {
-        name: String,
-        expected: String,
-        found: String,
-    },
-    #[error(transparent)]
-    File(#[from] FileError),
-}
-
-/// Every asset is optional, a missing one fails at use.
-#[derive(Debug, Deserialize)]
-struct ReleaseLock {
-    release_tag: String,
-    #[serde(default)]
-    ring_program: Option<Asset>,
-    #[serde(default)]
-    proving_key: Option<Asset>,
-    #[serde(default)]
-    audit_key: Option<Asset>,
-    #[serde(default)]
-    compressed_policy_key: Option<Asset>,
-    #[serde(default)]
-    delegate_policy_key: Option<Asset>,
-    #[serde(default)]
-    register_key: Option<Asset>,
-    #[serde(default)]
-    deposit_key: Option<Asset>,
-    #[serde(default)]
-    binaries: Vec<Binary>,
-}
-
-impl From<ReleaseLock> for RingRelease {
-    fn from(lock: ReleaseLock) -> Self {
-        Self {
-            tag: lock.release_tag,
-            program: lock.ring_program,
-            proving_key: lock.proving_key,
-            audit_key: lock.audit_key,
-            compressed_policy_key: lock.compressed_policy_key,
-            delegate_policy_key: lock.delegate_policy_key,
-            register_key: lock.register_key,
-            deposit_key: lock.deposit_key,
-            binaries: lock.binaries,
-        }
-    }
-}
+pub struct RingKey(&'static str, &'static str);
 
 impl RingKey {
     pub const ALL: [Self; 6] = [
-        Self::Policy,
-        Self::Base,
-        Self::CompressedPolicy,
-        Self::DelegatePolicy,
-        Self::RegisterKey,
-        Self::Deposit,
+        Self("proving_key", "custom-ring-policy"),
+        Self("audit_key", "custom-ring-base"),
+        Self("compressed_policy_key", "custom-ring-compressed-policy"),
+        Self("delegate_policy_key", "custom-ring-delegate-policy"),
+        Self("register_key", "custom-ring-register-key"),
+        Self("deposit_key", "custom-ring-deposit"),
     ];
 
     /// Also the key's name in proving-keys.lock.
-    pub const fn file_name(self) -> &'static str {
-        match self {
-            Self::Policy => "custom_ring_policy.key",
-            Self::Base => "custom_ring_base.key",
-            Self::CompressedPolicy => "custom_ring_compressed_policy.key",
-            Self::DelegatePolicy => "custom_ring_delegate_policy.key",
-            Self::RegisterKey => "custom_ring_register_key.key",
-            Self::Deposit => "custom_ring_deposit.key",
-        }
+    pub fn file_name(self) -> String {
+        format!("{}.key", self.1.replace('-', "_"))
     }
 
     /// The prover's circuit type, the name its health lists.
     pub const fn circuit(self) -> &'static str {
-        match self {
-            Self::Policy => "custom-ring-policy",
-            Self::Base => "custom-ring-base",
-            Self::CompressedPolicy => "custom-ring-compressed-policy",
-            Self::DelegatePolicy => "custom-ring-delegate-policy",
-            Self::RegisterKey => "custom-ring-register-key",
-            Self::Deposit => "custom-ring-deposit",
-        }
+        self.1
     }
 }
 
 impl RingRelease {
-    pub fn key(&self, key: RingKey) -> Result<&Asset, ReleaseError> {
-        let asset = match key {
-            RingKey::Policy => &self.proving_key,
-            RingKey::Base => &self.audit_key,
-            RingKey::CompressedPolicy => &self.compressed_policy_key,
-            RingKey::DelegatePolicy => &self.delegate_policy_key,
-            RingKey::RegisterKey => &self.register_key,
-            RingKey::Deposit => &self.deposit_key,
-        };
-        asset
-            .as_ref()
-            .ok_or_else(|| ReleaseError::MissingCircuitKey {
-                tag: self.tag.clone(),
-                circuit: key.circuit(),
-            })
-    }
-
-    pub fn from_lock() -> Result<Self, ReleaseError> {
+    pub fn from_lock() -> Result<Self> {
         Self::parse(LOCK_JSON)
     }
 
-    fn parse(lock_json: &str) -> Result<Self, ReleaseError> {
-        Ok(serde_json::from_str::<ReleaseLock>(lock_json)?.into())
+    fn parse(lock: &str) -> Result<Self> {
+        serde_json::from_str(lock).context("the embedded release lock does not parse")
     }
 
-    pub fn program(&self) -> Result<&Asset, ReleaseError> {
-        self.program
-            .as_ref()
-            .ok_or_else(|| ReleaseError::NoRingProgram {
-                tag: self.tag.clone(),
-            })
+    pub fn program(&self) -> Result<&Asset> {
+        self.assets.get("ring_program").with_context(|| {
+            format!(
+                "release {} ships no ring program, pass --program-so",
+                self.tag
+            )
+        })
     }
 
-    pub fn proving_key(&self) -> Result<&Asset, ReleaseError> {
-        self.proving_key
-            .as_ref()
-            .ok_or_else(|| ReleaseError::NoProvingKey {
-                tag: self.tag.clone(),
-            })
+    pub fn key(&self, key: RingKey) -> Result<&Asset> {
+        self.assets.get(key.0).with_context(|| {
+            format!(
+                "release {} ships no key for {}, use a complete custom-rings release",
+                self.tag,
+                key.circuit()
+            )
+        })
     }
 
-    pub fn audit_key(&self) -> Result<&Asset, ReleaseError> {
-        self.audit_key
-            .as_ref()
-            .ok_or_else(|| ReleaseError::NoAuditKey {
-                tag: self.tag.clone(),
-            })
-    }
-
-    pub fn binary(
-        &self,
-        role: &str,
-        os: &'static str,
-        arch: &'static str,
-    ) -> Result<&Asset, ReleaseError> {
+    pub fn binary(&self, role: &str, os: &str, arch: &str) -> Result<&Asset> {
         self.binaries
             .iter()
             .find(|binary| binary.role == role && binary.os == os && binary.arch == arch)
             .map(|binary| &binary.asset)
-            .ok_or_else(|| ReleaseError::NoBinary {
-                tag: self.tag.clone(),
-                role: role.to_owned(),
-                os,
-                arch,
-            })
+            .with_context(|| format!("release {} ships no {role} for {os}-{arch}", self.tag))
     }
 
-    pub fn ensure(&self, asset: &Asset) -> Result<PathBuf, ReleaseError> {
+    pub fn ensure(&self, asset: &Asset) -> Result<PathBuf> {
         ensure_cached(&self.tag, asset)
     }
 
-    pub fn ensure_as(&self, asset: &Asset, path: &Path) -> Result<(), ReleaseError> {
+    pub fn ensure_as(&self, asset: &Asset, path: &Path) -> Result<()> {
         ensure_at(&self.tag, asset, path)
     }
 }
 
 impl RingProgram {
-    pub fn from_lock() -> Result<Self, ReleaseError> {
-        Self::of(RingRelease::from_lock()?)
-    }
-
-    fn of(release: RingRelease) -> Result<Self, ReleaseError> {
+    pub fn from_lock() -> Result<Self> {
+        let release = RingRelease::from_lock()?;
         let asset = release.program()?.clone();
         Ok(Self {
             tag: release.tag,
@@ -277,138 +107,21 @@ impl RingProgram {
         })
     }
 
-    pub fn ensure(&self) -> Result<PathBuf, ReleaseError> {
+    pub fn ensure(&self) -> Result<PathBuf> {
         ensure_cached(&self.tag, &self.asset)
     }
 }
 
-/// A cached file is verified on every use, only a missing or wrong one is downloaded.
-fn ensure_cached(tag: &str, asset: &Asset) -> Result<PathBuf, ReleaseError> {
-    let path = cache_dir(tag).join(&asset.name);
-    ensure_at(tag, asset, &path)?;
-    Ok(path)
-}
-
-fn ensure_at(tag: &str, asset: &Asset, path: &Path) -> Result<(), ReleaseError> {
-    if fs::read(path).is_ok_and(|bytes| verify(&bytes, asset).is_ok()) {
-        return Ok(());
-    }
-    let url = format!("{}/{}/{}", release_base_url(), tag, asset.name);
-    crate::line("download", &url);
-    let bytes = download(&url, asset)?;
-    verify(&bytes, asset)?;
-    if let Some(parent) = path.parent() {
-        file::create_dir_all(parent)?;
-    }
-    file::write(path, &bytes)?;
-    Ok(())
-}
-
-/// The `os-arch` pair the release names its binaries by.
-pub fn host_platform() -> Result<(&'static str, &'static str), ReleaseError> {
-    let platform = |os: String, arch: String| ReleaseError::Platform { os, arch };
-    let os = match std::env::consts::OS {
-        "linux" => "linux",
-        "macos" => "darwin",
-        other => {
-            return Err(platform(
-                other.to_owned(),
-                std::env::consts::ARCH.to_owned(),
-            ))
-        }
-    };
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "x64",
-        "aarch64" => "arm64",
-        other => return Err(platform(os.to_owned(), other.to_owned())),
-    };
-    Ok((os, arch))
-}
-
-/// The same cache the `zolana` cli fills.
-fn cache_dir(tag: &str) -> PathBuf {
-    config_dir().join("cache").join(tag)
-}
-
-pub fn config_dir() -> PathBuf {
-    match env::var_os("ZOLANA_CONFIG_DIR") {
-        Some(path) => PathBuf::from(path),
-        None => match env::var_os("HOME") {
-            Some(home) => PathBuf::from(home).join(".config").join("zolana"),
-            None => PathBuf::from(".zolana"),
-        },
-    }
-}
-
-fn release_base_url() -> String {
-    env::var("ZOLANA_RELEASE_URL").unwrap_or_else(|_| DEFAULT_RELEASE_BASE_URL.to_owned())
-}
-
-/// Reads at most one byte past the pinned size, a longer body fails on size.
-fn download(url: &str, asset: &Asset) -> Result<Vec<u8>, ReleaseError> {
-    let failed = |source| ReleaseError::Download {
-        url: url.to_owned(),
-        source,
-    };
-    let client = reqwest::blocking::Client::builder()
-        .timeout(DOWNLOAD_TIMEOUT)
-        .build()
-        .map_err(failed)?;
-    let response = client
-        .get(url)
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(failed)?;
-    if let Some(length) = response
-        .content_length()
-        .filter(|length| *length != asset.size)
-    {
-        return Err(ReleaseError::Size {
-            name: asset.name.clone(),
-            expected: asset.size,
-            found: length,
-        });
-    }
-    let mut bytes = Vec::with_capacity(asset.size as usize);
-    response
-        .take(asset.size.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|source| ReleaseError::Body {
-            url: url.to_owned(),
-            source,
-        })?;
-    Ok(bytes)
-}
-
-pub(crate) fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {
-    if bytes.len() as u64 != asset.size {
-        return Err(ReleaseError::Size {
-            name: asset.name.clone(),
-            expected: asset.size,
-            found: bytes.len() as u64,
-        });
-    }
-    let found = hex::encode(Sha256::digest(bytes));
-    if found != asset.sha256 {
-        return Err(ReleaseError::Digest {
-            name: asset.name.clone(),
-            expected: asset.sha256.clone(),
-            found,
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+    };
 
-    #[test]
-    fn the_embedded_lock_parses() {
-        let release = RingRelease::from_lock().expect("lock");
-        assert!(!release.tag.is_empty());
-        release.program().expect("the ring program");
-    }
+    use sha2::{Digest, Sha256};
+
+    use super::*;
 
     const BINARIES_ONLY_LOCK: &str = r#"{
         "release_tag": "v1",
@@ -423,24 +136,32 @@ mod tests {
     }"#;
 
     #[test]
+    fn the_embedded_lock_parses_and_ships_every_ring_asset() {
+        assert_eq!(
+            RingKey::ALL[2].file_name(),
+            "custom_ring_compressed_policy.key"
+        );
+        let release = RingRelease::from_lock().expect("lock");
+        assert!(!release.tag.is_empty());
+        release.program().expect("the ring program");
+        for key in RingKey::ALL {
+            release.key(key).expect("ring key");
+        }
+    }
+
+    #[test]
     fn a_missing_asset_fails_at_use_and_never_at_parse() {
         let release = RingRelease::parse(BINARIES_ONLY_LOCK).expect("parses");
-        assert!(matches!(
-            release.program(),
-            Err(ReleaseError::NoRingProgram { tag }) if tag == "v1"
-        ));
-        assert!(matches!(
-            RingProgram::of(RingRelease::parse(BINARIES_ONLY_LOCK).expect("parses")),
-            Err(ReleaseError::NoRingProgram { tag }) if tag == "v1"
-        ));
-        assert!(matches!(
-            release.audit_key(),
-            Err(ReleaseError::NoAuditKey { tag }) if tag == "v1"
-        ));
-        assert!(matches!(
-            release.proving_key(),
-            Err(ReleaseError::NoProvingKey { tag }) if tag == "v1"
-        ));
+        let program = release.program().expect_err("no program").to_string();
+        assert_eq!(
+            program,
+            "release v1 ships no ring program, pass --program-so"
+        );
+        let key = release
+            .key(RingKey::ALL[1])
+            .expect_err("no key")
+            .to_string();
+        assert!(key.contains("ships no key for custom-ring-base"), "{key}");
         assert_eq!(
             release
                 .binary("ring_rpc", "linux", "x64")
@@ -448,78 +169,71 @@ mod tests {
                 .name,
             "ring-rpc-linux-x64-v1"
         );
-    }
-
-    #[test]
-    fn a_full_release_serves_every_asset() {
-        let release = RingRelease::parse(FULL_LOCK).expect("parses");
-        assert_eq!(
-            release.program().expect("program").name,
-            "custom-ring-program-v1.so"
-        );
-        assert_eq!(
-            release.proving_key().expect("proving key").name,
-            "custom-ring-key-v1.key"
-        );
-        assert_eq!(
-            release.audit_key().expect("audit key").name,
-            "custom-ring-audit-key-v1.key"
-        );
-        let program = RingProgram::of(release).expect("program");
-        assert_eq!(program.tag, "v1");
+        assert!(release.binary("ring_rpc", "darwin", "x64").is_err());
     }
 
     #[test]
     fn every_ring_key_is_served_or_named_as_missing() {
         let mut lock: serde_json::Value = serde_json::from_str(FULL_LOCK).expect("json");
         for key in RingKey::ALL {
-            let section = match key {
-                RingKey::Policy => "proving_key",
-                RingKey::Base => "audit_key",
-                RingKey::CompressedPolicy => "compressed_policy_key",
-                RingKey::DelegatePolicy => "delegate_policy_key",
-                RingKey::RegisterKey => "register_key",
-                RingKey::Deposit => "deposit_key",
-            };
-            lock[section] = serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
+            lock[key.0] = serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
         }
         let release = RingRelease::parse(&lock.to_string()).expect("parses");
         for key in RingKey::ALL {
             assert_eq!(release.key(key).expect("served").name, key.file_name());
         }
         let partial = RingRelease::parse(FULL_LOCK).expect("parses");
-        assert!(matches!(
-            partial.key(RingKey::RegisterKey),
-            Err(ReleaseError::MissingCircuitKey {
-                circuit: "custom-ring-register-key",
-                ..
-            })
-        ));
-        assert!(matches!(
-            partial.key(RingKey::Deposit),
-            Err(ReleaseError::MissingCircuitKey {
-                circuit: "custom-ring-deposit",
-                ..
-            })
-        ));
+        assert_eq!(
+            partial.program().expect("program").name,
+            "custom-ring-program-v1.so"
+        );
+        for missing in [RingKey::ALL[4], RingKey::ALL[5]] {
+            let error = partial.key(missing).expect_err("missing").to_string();
+            assert!(error.contains(missing.circuit()), "{error}");
+        }
+    }
+
+    /// Answers every request with `body`, the release server the cache downloads from.
+    fn serve(body: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let _ = stream.read(&mut [0; 4096]);
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        url
     }
 
     #[test]
-    fn verify_pins_size_and_digest() {
-        let bytes = b"ring";
-        let asset = Asset {
+    fn a_release_asset_is_cached_whole_or_not_at_all() {
+        std::env::set_var("ZOLANA_RELEASE_URL", serve(b"ring"));
+        let dir = std::env::temp_dir().join(format!("ring-release-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let release = RingRelease::parse(BINARIES_ONLY_LOCK).expect("parses");
+        let asset = |sha256: String| Asset {
             name: "ring.so".to_owned(),
             size: 4,
-            sha256: hex::encode(Sha256::digest(bytes)),
+            sha256,
         };
-        verify(bytes, &asset).expect("matches");
-        assert!(matches!(
-            verify(b"rings", &asset),
-            Err(ReleaseError::Size { found: 5, .. })
-        ));
-        assert!(matches!(
-            verify(b"rung", &asset),
-            Err(ReleaseError::Digest { .. })
-        ));
+        let pinned = asset(hex::encode(Sha256::digest(b"ring")));
+        release
+            .ensure_as(&pinned, &dir.join("ring.so"))
+            .expect("downloaded");
+        assert_eq!(std::fs::read(dir.join("ring.so")).expect("cached"), b"ring");
+        let wrong = asset(hex::encode(Sha256::digest(b"rung")));
+        assert!(release.ensure_as(&wrong, &dir.join("rung.so")).is_err());
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .expect("dir")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(names, ["ring.so"], "no part file and no refused download");
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 }

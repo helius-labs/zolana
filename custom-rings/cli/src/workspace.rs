@@ -1,22 +1,19 @@
 use std::{
-    collections::BTreeMap,
-    env,
-    fs::{self, File},
-    io,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
-use serde::Deserialize;
-use thiserror::Error;
-
-use crate::{
-    release::{self, Asset, RingKey},
-    tool::{Tool, ToolError},
+use anyhow::{bail, ensure, Context as _, Result};
+use zolana_cli_common::{
+    process::PROCESS_SCOPE_ENV,
+    release::{verify, Asset},
 };
 
-pub(crate) const WORKSPACE_ENV: &str = "ZOLANA_RING_WORKSPACE";
-pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
+use crate::{release::RingKey, tool::Tool};
+
+const WORKSPACE_ENV: &str = "ZOLANA_RING_WORKSPACE";
+pub(crate) const WRONG_TARGET: &str = "workspace artifacts are only supported on localnet";
 const SURFPOOL_ENV: &str = "SURFPOOL_BIN";
 const PROVER_KEYS_ENV: &str = "ZOLANA_PROVER_KEYS_DIR";
 const ZOLANA_BIN: &str = "target/debug/zolana";
@@ -29,73 +26,35 @@ const RING_PROGRAM_SO: &str = "target/deploy/custom_ring_program.so";
 const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
 const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
 
+/// Local builds of every service, run in a dedicated process scope.
 pub(crate) struct Workspace {
-    pub root: PathBuf,
-    pub scope: PathBuf,
+    root: PathBuf,
+    scope: PathBuf,
     surfpool: PathBuf,
     keys_dir: PathBuf,
 }
 
-#[derive(Debug, Error)]
-pub enum WorkspaceError {
-    #[error("local artifacts require {WORKSPACE_ENV} and {PROCESS_SCOPE_ENV}")]
-    MissingEnvironment,
-    #[error("workspace artifacts are only supported on localnet")]
-    WrongTarget,
-    #[error("{0} is not a dedicated absolute process scope directory")]
-    InvalidScope(PathBuf),
-    #[error("local artifact {0} is missing or outside the workspace")]
-    MissingArtifact(PathBuf),
-    #[error("set {SURFPOOL_ENV} to the pinned local surfpool binary")]
-    MissingSurfpool,
-    #[error("local key {0} disagrees with the workspace proving key manifest")]
-    KeyMismatch(String),
-    #[error("the workspace proving key manifest does not parse")]
-    Manifest(#[from] serde_json::Error),
-    #[error("cannot read local artifact {path}")]
-    Io { path: PathBuf, source: io::Error },
-    #[error(transparent)]
-    Tool(#[from] ToolError),
-    #[error("scratch account directory already exists at {0}")]
-    ExistingAccounts(PathBuf),
-}
-
-#[derive(Deserialize)]
-struct KeyManifest {
-    keys: BTreeMap<String, KeyPin>,
-}
-
-#[derive(Deserialize)]
-struct KeyPin {
-    size: u64,
-    sha256: String,
-}
-
 impl Workspace {
     /// `Ok(None)` outside a workspace, both variables or neither.
-    pub fn from_env() -> Result<Option<Self>, WorkspaceError> {
-        let root = env::var_os(WORKSPACE_ENV);
-        let scope = env::var_os(PROCESS_SCOPE_ENV);
-        if root.is_none() && scope.is_none() {
-            return Ok(None);
-        }
-        let root = PathBuf::from(root.ok_or(WorkspaceError::MissingEnvironment)?);
-        let scope = PathBuf::from(scope.ok_or(WorkspaceError::MissingEnvironment)?);
+    pub fn from_env() -> Result<Option<Self>> {
+        let (root, scope) = match (env::var_os(WORKSPACE_ENV), env::var_os(PROCESS_SCOPE_ENV)) {
+            (None, None) => return Ok(None),
+            (Some(root), Some(scope)) => (PathBuf::from(root), PathBuf::from(scope)),
+            _ => bail!("local artifacts require {WORKSPACE_ENV} and {PROCESS_SCOPE_ENV}"),
+        };
         let root =
-            fs::canonicalize(&root).map_err(|source| WorkspaceError::Io { path: root, source })?;
+            fs::canonicalize(&root).with_context(|| format!("cannot read {}", root.display()))?;
         validate_scope(&scope, &root)?;
         let surfpool = env::var_os(SURFPOOL_ENV)
             .map(PathBuf::from)
             .filter(|path| path.is_absolute() && path.is_file())
-            .ok_or(WorkspaceError::MissingSurfpool)?;
-        let keys_dir = env::var_os(PROVER_KEYS_ENV)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| root.join(PROVING_KEYS_DIR));
-        if !keys_dir.is_absolute() {
-            return Err(WorkspaceError::MissingArtifact(keys_dir));
-        }
+            .with_context(|| format!("set {SURFPOOL_ENV} to the pinned local surfpool binary"))?;
         let keys_dir =
-            fs::canonicalize(&keys_dir).map_err(|_| WorkspaceError::MissingArtifact(keys_dir))?;
+            env::var_os(PROVER_KEYS_ENV).map_or_else(|| root.join(PROVING_KEYS_DIR), PathBuf::from);
+        let keys_dir = fs::canonicalize(&keys_dir)
+            .ok()
+            .filter(|_| keys_dir.is_absolute())
+            .with_context(|| missing(&keys_dir))?;
         Ok(Some(Self {
             root,
             scope,
@@ -104,19 +63,20 @@ impl Workspace {
         }))
     }
 
-    pub fn ring_program_so(&self) -> Result<PathBuf, WorkspaceError> {
+    pub fn ring_program_so(&self) -> Result<PathBuf> {
         self.artifact(RING_PROGRAM_SO)
     }
 
-    pub fn shielded_pool_so(&self) -> Result<PathBuf, WorkspaceError> {
+    pub fn shielded_pool_so(&self) -> Result<PathBuf> {
         self.artifact(SHIELDED_POOL_SO)
     }
 
-    pub fn ring_rpc(&self) -> Result<PathBuf, WorkspaceError> {
+    pub fn ring_rpc(&self) -> Result<PathBuf> {
         self.artifact(RING_RPC_BIN)
     }
 
-    pub fn command(&self) -> Result<Command, WorkspaceError> {
+    /// The workspace `zolana` cli, pointed at the workspace services and keys.
+    pub fn command(&self) -> Result<Command> {
         let mut command = Command::new(self.artifact(ZOLANA_BIN)?);
         command
             .current_dir(&self.root)
@@ -128,18 +88,17 @@ impl Workspace {
         Ok(command)
     }
 
-    pub fn account_snapshots(&self) -> Result<PathBuf, WorkspaceError> {
+    pub fn account_snapshots(&self) -> Result<PathBuf> {
         let accounts = self
             .scope
             .join(format!("ring-accounts-{}", std::process::id()));
-        if accounts.exists() {
-            return Err(WorkspaceError::ExistingAccounts(accounts));
-        }
-        Tool {
-            name: "local account snapshots",
-            install: "build the workspace xtask",
-        }
-        .run(
+        let shown = accounts.display();
+        ensure!(
+            !accounts.exists(),
+            "scratch account directory already exists at {shown}"
+        );
+        let snapshots = Tool::new("local account snapshots", "build the workspace xtask");
+        snapshots.run(
             Command::new(self.artifact(XTASK_BIN)?)
                 .arg("generate-account-snapshots")
                 .arg("--deploy-dir")
@@ -150,7 +109,8 @@ impl Workspace {
         Ok(accounts)
     }
 
-    pub fn check_artifacts(&self) -> Result<(), WorkspaceError> {
+    /// Every binary is built and each ring key matches the workspace lockfile.
+    pub fn check_artifacts(&self) -> Result<()> {
         for file in [
             "Cargo.toml",
             ZOLANA_BIN,
@@ -163,65 +123,57 @@ impl Workspace {
         ] {
             self.artifact(file)?;
         }
-        let path = self.artifact(PROVING_KEYS_LOCK)?;
-        let file = File::open(&path).map_err(|source| WorkspaceError::Io { path, source })?;
-        let manifest: KeyManifest = serde_json::from_reader(file)?;
+        let lock: serde_json::Value =
+            serde_json::from_slice(&fs::read(self.artifact(PROVING_KEYS_LOCK)?)?)?;
         for key in RingKey::ALL {
             let name = key.file_name();
-            let pin = manifest
-                .keys
-                .get(name)
-                .ok_or_else(|| WorkspaceError::KeyMismatch(name.into()))?;
-            let path = self.keys_dir.join(name);
-            let resolved = fs::canonicalize(&path)
-                .map_err(|_| WorkspaceError::MissingArtifact(path.clone()))?;
-            if !resolved.starts_with(&self.keys_dir) || !resolved.is_file() {
-                return Err(WorkspaceError::MissingArtifact(path));
-            }
-            let bytes =
-                fs::read(&resolved).map_err(|source| WorkspaceError::Io { path, source })?;
-            release::verify(&bytes, &pin.asset(name))
-                .map_err(|_| WorkspaceError::KeyMismatch(name.into()))?;
+            let pin = &lock["keys"][&name];
+            let pinned = Asset {
+                name: name.clone(),
+                size: pin["size"].as_u64().unwrap_or_default(),
+                sha256: pin["sha256"].as_str().unwrap_or_default().to_owned(),
+            };
+            let bytes = fs::read(within(&self.keys_dir, &self.keys_dir.join(&name))?)?;
+            verify(&bytes, &pinned).with_context(|| {
+                format!("local key {name} disagrees with the workspace proving key manifest")
+            })?;
         }
         Ok(())
     }
 
-    fn artifact(&self, relative: &str) -> Result<PathBuf, WorkspaceError> {
-        let path = self.root.join(relative);
-        let resolved =
-            fs::canonicalize(&path).map_err(|_| WorkspaceError::MissingArtifact(path.clone()))?;
-        if !resolved.starts_with(&self.root) || !resolved.is_file() {
-            return Err(WorkspaceError::MissingArtifact(path));
-        }
-        Ok(resolved)
+    fn artifact(&self, relative: &str) -> Result<PathBuf> {
+        within(&self.root, &self.root.join(relative))
     }
 }
 
-impl KeyPin {
-    fn asset(&self, name: &str) -> Asset {
-        Asset {
-            name: name.to_owned(),
-            size: self.size,
-            sha256: self.sha256.clone(),
-        }
-    }
+/// The resolved file, refused when a link leads outside `root`.
+fn within(root: &Path, path: &Path) -> Result<PathBuf> {
+    fs::canonicalize(path)
+        .ok()
+        .filter(|resolved| resolved.starts_with(root) && resolved.is_file())
+        .with_context(|| missing(path))
 }
 
-fn validate_scope(scope: &Path, root: &Path) -> Result<(), WorkspaceError> {
-    let metadata =
-        fs::symlink_metadata(scope).map_err(|_| WorkspaceError::InvalidScope(scope.into()))?;
-    let canonical =
-        fs::canonicalize(scope).map_err(|_| WorkspaceError::InvalidScope(scope.into()))?;
-    if !scope.is_absolute()
-        || !metadata.is_dir()
-        || metadata.file_type().is_symlink()
-        || canonical.parent().is_none()
-        || scope == root
-        || canonical == root
-        || env::var_os("HOME").is_some_and(|home| canonical == home)
-    {
-        return Err(WorkspaceError::InvalidScope(scope.into()));
-    }
+fn missing(path: &Path) -> String {
+    let path = path.display();
+    format!("local artifact {path} is missing or outside the workspace")
+}
+
+fn validate_scope(scope: &Path, root: &Path) -> Result<()> {
+    let shown = scope.display();
+    let refused = || format!("{shown} is not a dedicated absolute process scope directory");
+    let metadata = fs::symlink_metadata(scope).with_context(refused)?;
+    let canonical = fs::canonicalize(scope).with_context(refused)?;
+    ensure!(
+        scope.is_absolute()
+            && metadata.is_dir()
+            && !metadata.file_type().is_symlink()
+            && canonical.parent().is_some()
+            && scope != root
+            && canonical != root
+            && env::var_os("HOME").is_none_or(|home| canonical != home),
+        refused()
+    );
     Ok(())
 }
 
@@ -240,9 +192,14 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
         assert!(validate_scope(&root, &root).is_err());
         assert!(validate_scope(&root, Path::new("/workspace")).is_ok());
         assert!(validate_scope(Path::new("relative"), Path::new("/workspace")).is_err());
-        fs::remove_dir(root).unwrap();
+        let file = root.join("file");
+        fs::write(&file, b"x").unwrap();
+        assert!(within(&root, &file).is_ok());
+        assert!(within(&root.join("nested"), &file).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }
