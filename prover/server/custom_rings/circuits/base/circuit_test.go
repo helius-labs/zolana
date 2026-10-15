@@ -110,13 +110,13 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "auditor key off curve",
+			name: "auditor key high bit set",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
-				c.AuditorPk[64] = 0
+				c.AuditorPk[31] = 128
 			},
 		},
 		{
-			name: "auditor key uncompressed prefix not 4",
+			name: "auditor key byte changed",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.AuditorPk[0] = 6
 			},
@@ -132,8 +132,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			// public input hash commits to.
 			name: "valid but different auditor key",
 			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
-				other := audittest.PrivateKey(t, audittest.Scalar(0x44))
-				substitute := audittest.Uncompressed(t, other.PublicKey().Bytes())
+				other := audittest.XPrivateKey(t, audittest.Scalar(0x44))
+				substitute := other.PublicKey().Bytes()
 				for i, value := range substitute {
 					c.AuditorPk[i] = value
 				}
@@ -152,15 +152,15 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "eph scalar zero",
+			name: "forged infinity for zero ephemeral secret",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityEphScalar(big.NewInt(0))
+				return k.WithForgedInfinityEphScalar(big.NewInt(0))
 			},
 		},
 		{
-			name: "eph scalar at the group order",
+			name: "forged infinity for P256-order ephemeral secret",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityEphScalar(p256.GroupOrder())
+				return k.WithForgedInfinityEphScalar(p256.GroupOrder())
 			},
 		},
 	}
@@ -216,5 +216,18 @@ func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCirc
 		Salt:                wires.Salt,
 		Outputs:             wires.Outputs,
 		OutputCountSelected: wires.OutputCountSelected,
+	}
+}
+
+// X25519 secrets are byte strings, not P-256 scalars. These inputs must clamp.
+func TestCircuitAcceptsClampedEphemeralSecrets(t *testing.T) {
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &base.CustomRingBaseCircuit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order [32]byte
+	p256.GroupOrder().FillBytes(order[:])
+	for _, secret := range [][32]byte{{}, order} {
+		solve(t, cs, buildAssignment(t, audittest.DefaultKeys(t).WithEphScalar(t, secret)))
 	}
 }

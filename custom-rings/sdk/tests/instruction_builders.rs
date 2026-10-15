@@ -27,7 +27,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey};
+use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -49,8 +49,8 @@ fn authority() -> Address {
     Address::new_from_array([12; 32])
 }
 
-fn auditor_pubkey() -> P256Pubkey {
-    ViewingKey::new().pubkey()
+fn auditor_pubkey() -> X25519Pubkey {
+    X25519Secret::new().pubkey()
 }
 
 fn sol_deposit_entry() -> RingAssetDeposit {
@@ -117,19 +117,7 @@ fn create_config_rejects_reserved_auditor_keys() {
         zolana_interface::P_DERIVE_SEC1,
         zolana_interface::P_PDA_SEC1,
     ] {
-        let auditor_pubkey = P256Pubkey::from_bytes(bytes).expect("reserved point");
-        let result = CreateConfig {
-            ring: ring(),
-            payer: payer(),
-            authority: authority(),
-            auditor_pubkey,
-            has_policy: true,
-        }
-        .instruction();
-        assert!(matches!(
-            result,
-            Err(custom_ring_sdk::CreateConfigError::ReservedAuditorKey)
-        ));
+        assert!(X25519Pubkey::from_bytes(bytes).is_err());
     }
 }
 
@@ -222,7 +210,7 @@ fn reader() -> ReaderKey {
 }
 
 fn p256_reader() -> ReaderKey {
-    ReaderKey::p256(auditor_pubkey()).expect("reader key")
+    ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader key")
 }
 
 #[test]

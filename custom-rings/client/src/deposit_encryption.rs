@@ -3,7 +3,7 @@ use custom_ring_interface::{
     RING_DEPOSIT_AUDIT_INFO,
 };
 use zeroize::Zeroizing;
-use zolana_keypair::{symmetric_apply, P256Pubkey, ViewingKey};
+use zolana_keypair::{symmetric_apply, X25519Pubkey, X25519Secret};
 
 use crate::encryption::{AuditEncryptionError, AuditSharedSecret};
 
@@ -16,32 +16,32 @@ pub struct DepositOpening {
 /// Batch ciphertexts and the ephemeral secret needed by the disclosure proof.
 pub struct DepositEncryption {
     pub ephemeral_sk: Zeroizing<[u8; 32]>,
-    pub ephemeral_pk: P256Pubkey,
+    pub ephemeral_pk: X25519Pubkey,
     pub ciphertexts: Vec<[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]>,
 }
 
 /// Encrypts deposit openings under the ring's pinned auditor key.
 pub struct DepositSeal<'a> {
     pub openings: &'a [DepositOpening],
-    pub auditor_pk: &'a P256Pubkey,
+    pub auditor_pk: &'a X25519Pubkey,
 }
 
 impl DepositSeal<'_> {
     pub fn seal(self) -> Result<DepositEncryption, AuditEncryptionError> {
-        self.seal_with_key(ViewingKey::new())
+        self.seal_with_key(X25519Secret::new())
     }
 
     fn seal_with_key(
         self,
-        ephemeral: ViewingKey,
+        ephemeral: X25519Secret,
     ) -> Result<DepositEncryption, AuditEncryptionError> {
         if self.openings.is_empty() || self.openings.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(AuditEncryptionError::DepositCount(self.openings.len()));
         }
         let ephemeral_sk = ephemeral.secret_bytes();
         let ephemeral_pk = ephemeral.pubkey();
-        // 1. CR_S binds the shared secret to both P256 public keys.
-        let dh = Zeroizing::new(ephemeral.ecdh(self.auditor_pk)?);
+        // 1. CR_S binds the shared secret to both tagged X25519 public keys.
+        let dh = ephemeral.ecdh(self.auditor_pk)?;
         let shared_secret = AuditSharedSecret {
             diffie_hellman_x: &dh,
             ephemeral_key: &ephemeral_pk,
@@ -84,7 +84,7 @@ impl DepositSeal<'_> {
 /// Authenticates an auditor opening against the deposited owner commitment.
 pub struct DepositOpen<'a> {
     pub capsule: RingDepositAuditCapsule<'a>,
-    pub auditor: &'a ViewingKey,
+    pub auditor: &'a X25519Secret,
     pub owner_utxo_hash: &'a [u8; 32],
 }
 
@@ -94,9 +94,9 @@ impl DepositOpen<'_> {
         if slot_index >= MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(AuditEncryptionError::DepositSlot(slot_index));
         }
-        let ephemeral_pk = P256Pubkey::from_bytes(*self.capsule.eph_pk)?;
+        let ephemeral_pk = X25519Pubkey::from_bytes(*self.capsule.eph_pk)?;
         let auditor_pk = self.auditor.pubkey();
-        let dh = Zeroizing::new(self.auditor.ecdh(&ephemeral_pk)?);
+        let dh = self.auditor.ecdh(&ephemeral_pk)?;
         let shared_secret = AuditSharedSecret {
             diffie_hellman_x: &dh,
             ephemeral_key: &ephemeral_pk,
@@ -136,8 +136,8 @@ mod tests {
 
     #[test]
     fn deposit_encryption_and_public_hash_match_the_typescript_vector() {
-        let auditor = ViewingKey::from_bytes(&[0x11; 32]).unwrap();
-        let ephemeral = ViewingKey::from_bytes(&[0x22; 32]).unwrap();
+        let auditor = X25519Secret::from_bytes(&[0x11; 32]).unwrap();
+        let ephemeral = X25519Secret::from_bytes(&[0x22; 32]).unwrap();
         let word = |value| {
             let mut bytes = [0; 32];
             bytes[31] = value;
@@ -161,14 +161,14 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(auditor.pubkey().as_bytes()),
-            "020217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed"
+            "047b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13"
         );
         assert_eq!(
             hex::encode(sealed.ephemeral_pk.as_bytes()),
-            "03d65a93977caa3d1b081852ff57a79e465f1660577304baead505dd3a48589cf3"
+            "040faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20"
         );
-        assert_eq!(hex::encode(sealed.ciphertexts[0]), "146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5");
-        assert_eq!(hex::encode(sealed.ciphertexts[1]), "74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c");
+        assert_eq!(hex::encode(sealed.ciphertexts[0]), "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144");
+        assert_eq!(hex::encode(sealed.ciphertexts[1]), "24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820");
         let context_hash = custom_ring_interface::DepositContext {
             program_id: &[0x33; 32],
             tree: &[0x44; 32],
@@ -195,13 +195,13 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(public_hash),
-            "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030"
+            "0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef"
         );
     }
 
     #[test]
     fn every_slot_uses_its_batch_stream_offset() {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let openings: Vec<_> = (0..MAX_RING_DEPOSIT_AUDIT_SLOTS)
             .map(|index| DepositOpening {
                 owner_hash: [index as u8; 32],
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn empty_and_oversized_batches_are_rejected() {
-        let auditor = ViewingKey::new().pubkey();
+        let auditor = X25519Secret::new().pubkey();
         assert!(matches!(
             DepositSeal {
                 openings: &[],

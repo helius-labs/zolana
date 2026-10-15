@@ -5,7 +5,6 @@ use core::future::Future;
 use custom_ring_interface::PolicyConfig;
 use custom_ring_interface::{RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS};
 use futures::future::try_join;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
 use solana_account::Account;
@@ -35,8 +34,8 @@ use zolana_interface::{
     MAX_INPUT_TREES, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    random_blinding, KeypairError, NullifierKey, P256Pubkey, ShieldedAddress, ShieldedKeypair,
-    ViewingKey,
+    random_blinding, KeypairError, NullifierKey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+    X25519Pubkey,
 };
 use zolana_program::instruction::{
     DepositAsset, DepositBuildError, RingAssetDeposit, TransactInterfaceTransferAccounts,
@@ -613,7 +612,7 @@ impl<'a> CustomRingTransfer<'a> {
     /// Record openings and auditor ciphertext must precede the shared transaction hash.
     fn stage(
         self,
-        auditor_pk: P256Pubkey,
+        auditor_pk: X25519Pubkey,
         limit: &SpendLimit<VelocityFacts>,
     ) -> Result<StagedTransfer, TransferError> {
         let transaction = self.transaction;
@@ -1957,9 +1956,7 @@ impl RingDeposit<'_> {
             .hash()
             .map_err(|_| DepositError::Hashing)?;
             let address = self.recipient.shielded_address()?;
-            let uncompressed = config.auditor_pubkey.to_p256()?.to_encoded_point(false);
-            let mut auditor_uncompressed = [0; 65];
-            auditor_uncompressed.copy_from_slice(uncompressed.as_bytes());
+            let auditor_coordinate = config.auditor_pubkey.u();
             let mut blindings = Zeroizing::new([[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]);
             blindings[0] = blinding;
             Some(DepositDisclosure {
@@ -1972,7 +1969,7 @@ impl RingDeposit<'_> {
                 blindings,
                 encryption,
                 auditor: config.auditor_pubkey,
-                auditor_uncompressed,
+                auditor_coordinate,
                 key_registry,
             })
         } else {
@@ -2043,8 +2040,8 @@ struct DepositDisclosure {
     key: OutputKey,
     blindings: Zeroizing<[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]>,
     encryption: DepositEncryption,
-    auditor: P256Pubkey,
-    auditor_uncompressed: [u8; 65],
+    auditor: X25519Pubkey,
+    auditor_coordinate: [u8; 32],
     key_registry: Option<KeyRegistry>,
 }
 
@@ -2255,7 +2252,7 @@ impl DepositDisclosure {
             keys: &statement.keys,
             key_registry_root: statement.key_registry_root.as_ref(),
             ephemeral_sk: &self.encryption.ephemeral_sk,
-            auditor_pk: &self.auditor_uncompressed,
+            auditor_pk: &self.auditor_coordinate,
         }
     }
 }

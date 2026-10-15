@@ -16,7 +16,7 @@ use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc};
 use zolana_indexer_api::{GetRingKeyRegistryEntryResponse, RingMemberProofRequest};
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_transaction::RingDepositPlaintext;
 
 struct DepositRpc {
@@ -42,7 +42,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: recipient.pubkey(),
-        auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 0,
         key_escrow: 0,
@@ -147,7 +147,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: recipient.pubkey(),
-        auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 1,
         key_escrow: 1,

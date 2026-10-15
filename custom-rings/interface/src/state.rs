@@ -41,7 +41,7 @@ const _: () = assert!(DepositAudit::SIZE == 3);
 pub struct RingProgramConfig {
     pub discriminator: u8,
     pub authority: Address,
-    /// Auditor P256 public key in SEC1 compressed form (`0x02`/`0x03 || x`).
+    /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.

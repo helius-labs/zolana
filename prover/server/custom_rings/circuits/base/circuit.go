@@ -35,8 +35,8 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/v2/aes"
 )
 
 // auditEncInfo is the key-schedule info string. It MUST equal the Rust
@@ -45,12 +45,8 @@ const auditEncInfo = "CRING/adt1"
 
 // CustomRingBaseCircuit is the audit-only custom-ring proof.
 //
-// Both scalars are witnessed as 32 big-endian bytes and the auditor key as the
-// 65-byte uncompressed SEC1 point, because that is what the p256 gadgets
-// consume and what the witness assigner supports. Every one of those 129 bytes
-// is range-checked in Define: p256's byte-to-limb conversion does not
-// range-check, so unconstrained bytes would let a prover feed unnormalized
-// limbs into the emulated field.
+// TxViewingSk retains its P-256 big-endian encoding. EphSk and AuditorPk
+// are RFC 7748 byte strings; the envelope owns their validation.
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -63,13 +59,13 @@ type CustomRingBaseCircuit struct {
 	// AES plaintext and the scalar whose public key is chain elements 2 and 3.
 	TxViewingSk [32]frontend.Variable
 
-	// EphSk is a fresh ephemeral scalar, big-endian. Encrypting under an
+	// EphSk is a fresh X25519 secret byte string. Encrypting under an
 	// ephemeral key keeps the encryption out of the key-dependent-message
 	// setting that ECDH(TxViewingSk, AuditorPk) would create.
 	EphSk [32]frontend.Variable
 
-	// AuditorPk is the auditor key as 0x04 || x || y.
-	AuditorPk           [65]frontend.Variable
+	// AuditorPk is the canonical 32-byte little-endian X25519 coordinate.
+	AuditorPk           [32]frontend.Variable
 	Salt                [16]frontend.Variable
 	Outputs             [AuditOutputSlots]AuditOutputWires
 	OutputCountSelected [AuditOutputSlots]frontend.Variable
@@ -80,7 +76,7 @@ type AuditBlockWires struct {
 	PrivateTxHash       frontend.Variable
 	TxViewingSk         [32]frontend.Variable
 	EphSk               [32]frontend.Variable
-	AuditorPk           [65]frontend.Variable
+	AuditorPk           [32]frontend.Variable
 	Salt                [16]frontend.Variable
 	Outputs             [AuditOutputSlots]AuditOutputWires
 	OutputCountSelected [AuditOutputSlots]frontend.Variable
@@ -104,26 +100,11 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 
 // DefineAuditBlock constrains the audit statement and returns its chain elements.
 func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
-	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
-	// the range checker the emulated P-256 arithmetic already instantiates, so
-	// these checks share its lookup table.
+	// (a) P-256 viewing-key binding still needs its plaintext byte bounds.
 	rangeChecker := rangecheck.New(api)
 	for _, b := range w.TxViewingSk {
 		rangeChecker.Check(b, 8)
 	}
-	for _, b := range w.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range w.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	// The p256 compression gadget derives the SEC1 prefix from the y parity and
-	// ignores byte 0, so the uncompressed prefix has to be constrained here.
-	api.AssertIsEqual(w.AuditorPk[0], 4)
-
-	// (b) Never trust a witnessed point: an off-curve auditor key would make the
-	// ECDH output attacker-chosen.
-	p256.PointOnCurve(api, w.AuditorPk)
 
 	// (c) Chain elements 2 and 3. This is the binding that the transaction's
 	// published tx_viewing_pk equals TxViewingSk * G, which is what makes the
@@ -157,7 +138,7 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 type Envelope struct {
 	Plaintext [32]frontend.Variable
 	EphSk     [32]frontend.Variable
-	AuditorPk [65]frontend.Variable
+	AuditorPk [32]frontend.Variable
 	Info      string
 }
 
@@ -169,20 +150,11 @@ type Sealed struct {
 	CiphertextHash frontend.Variable
 }
 
-// The caller range checks every byte and checks the auditor point first.
+// Seal owns the envelope's byte, canonical-key, and nonzero-DH checks.
 func (e Envelope) Seal(api frontend.API) Sealed {
-	// (d) Chain elements 4 and 5: the auditor key the program reads from its
-	// config account.
-	auditorCompressed := p256.CompressPubkey(api, e.AuditorPk)
+	auditorCompressed, ephCompressed, dh := AgreeAuditKey(api, e.EphSk, e.AuditorPk)
 	auditorLo, auditorHi := Pack33To2FECircuit(api, auditorCompressed)
-
-	// (e) Chain elements 6 and 7: the ephemeral key that rides in the message
-	// data, so the auditor can rederive the shared secret.
-	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, e.EphSk))
 	ephLo, ephHi := Pack33To2FECircuit(api, ephCompressed)
-
-	// (f) ECDH: the 32-byte big-endian x-coordinate of EphSk * AuditorPk.
-	dh := p256.ECDH(api, e.EphSk, e.AuditorPk)
 
 	// (g) Bind the raw ECDH output to both public keys (see pack.go).
 	sharedSecret := DeriveAuditSharedSecret(api, dh, ephCompressed, auditorCompressed)
@@ -193,7 +165,7 @@ func (e Envelope) Seal(api frontend.API) Sealed {
 
 	// (i) AES-256-CTR over the 32-byte plaintext scalar. Ciphertext integrity
 	// comes from the hash in (j), not from a GCM tag.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, e.Plaintext[:])
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, e.Plaintext[:])
 
 	// (j) Chain element 8.
 	ciphertextHash := gadget.HashBytes(api, ciphertext)

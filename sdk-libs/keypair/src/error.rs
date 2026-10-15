@@ -7,6 +7,8 @@ use zolana_hasher::HasherError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum KeypairError {
+    #[error("X25519 agreement with a low-order key")]
+    NonContributoryKey,
     #[error("invalid public key")]
     InvalidPublicKey,
 

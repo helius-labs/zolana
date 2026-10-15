@@ -531,7 +531,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 }
 
 func TestNonzeroRevocationTailVector(t *testing.T) {
-	baseHash, _ := new(big.Int).SetString("25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093", 16)
+	baseHash, _ := new(big.Int).SetString("2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779", 16)
 	repeatedTarget, _ := new(big.Int).SetString("1111111111111111111111111111111111111111111111111111111111111111", 16)
 	filled := func(value byte) *big.Int {
 		data := make([]byte, 32)
@@ -547,7 +547,7 @@ func TestNonzeroRevocationTailVector(t *testing.T) {
 		big.NewInt(0x42), repeatedTarget,
 	}
 	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), NListFacts-2)...)
-	if got := hex32(spptest.MustHashChain(t, elements)); got != "0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e" {
+	if got := hex32(spptest.MustHashChain(t, elements)); got != "2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c" {
 		t.Fatalf("nonzero revocation tail %s", got)
 	}
 }

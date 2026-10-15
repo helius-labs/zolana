@@ -7,7 +7,7 @@ use thiserror::Error;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 use crate::{error::RingRpcError, keys::KeyMode, upstream::DepositHistory};
@@ -188,7 +188,7 @@ pub enum RingState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AuditorPubkey(P256Pubkey);
+pub struct AuditorPubkey(X25519Pubkey);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -373,7 +373,10 @@ pub enum SkippedReason {
 
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
 
-pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
+pub fn auditor_key_attestation(
+    ring_program_id: &Address,
+    auditor_pubkey: &X25519Pubkey,
+) -> Vec<u8> {
     [
         ATTESTATION_DOMAIN,
         ring_program_id.as_ref(),
@@ -383,13 +386,13 @@ pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256P
 }
 
 impl AuditorPubkey {
-    pub fn as_key(&self) -> &P256Pubkey {
+    pub fn as_key(&self) -> &X25519Pubkey {
         &self.0
     }
 }
 
-impl From<P256Pubkey> for AuditorPubkey {
-    fn from(value: P256Pubkey) -> Self {
+impl From<X25519Pubkey> for AuditorPubkey {
+    fn from(value: X25519Pubkey) -> Self {
         Self(value)
     }
 }
@@ -407,7 +410,7 @@ impl<'de> Deserialize<'de> for AuditorPubkey {
             .0
             .try_into()
             .map_err(|_| serde::de::Error::custom("auditor public key length is invalid"))?;
-        P256Pubkey::from_bytes(bytes)
+        X25519Pubkey::from_bytes(bytes)
             .map(Self)
             .map_err(|_| serde::de::Error::custom("auditor public key is invalid"))
     }

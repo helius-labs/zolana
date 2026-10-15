@@ -2,7 +2,6 @@
 //! request's, the policy fields open the transaction's slots and the entries
 //! the rules are checked against.
 
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_client::{
@@ -10,7 +9,7 @@ use zolana_client::{
     ClientError, ProofInputUtxo,
 };
 use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_policy::{
     VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
     POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
@@ -185,8 +184,8 @@ pub struct CustomRingPolicyProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
-    pub ephemeral_key: ViewingKey,
-    pub auditor_key: P256Pubkey,
+    pub ephemeral_key: X25519Secret,
+    pub auditor_key: X25519Pubkey,
     pub salt: [u8; 16],
     pub n_in: u8,
     pub n_out: u8,
@@ -214,8 +213,8 @@ pub struct CustomRingBaseProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
-    pub ephemeral_key: ViewingKey,
-    pub auditor_key: P256Pubkey,
+    pub ephemeral_key: X25519Secret,
+    pub auditor_key: X25519Pubkey,
     pub salt: [u8; 16],
     pub outputs: Vec<ProofInputUtxo>,
 }
@@ -230,11 +229,7 @@ impl ProveRequest for CustomRingBaseProofRequest {
         }
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
-        let auditor_key = self
-            .auditor_key
-            .to_p256()
-            .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
-        let auditor_pk = auditor_key.to_encoded_point(false);
+        let auditor_pk = self.auditor_key.u();
         let mut outputs: Vec<_> = self.outputs.iter().map(audit_opening_json).collect();
         outputs.resize_with(POLICY_OUTPUT_SLOTS, AuditOpeningJson::zero);
         let json = CustomRingBaseProofRequestJson {
@@ -243,7 +238,7 @@ impl ProveRequest for CustomRingBaseProofRequest {
             private_tx_hash: field_hex(&self.private_tx_hash),
             tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
             eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
-            auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            auditor_pk: bytes_to_hex(&auditor_pk),
             salt: bytes_to_hex(&self.salt),
             n_out: self.outputs.len() as u8,
             outputs,
@@ -289,18 +284,14 @@ impl CustomRingPolicyProofRequest {
     pub(crate) fn json(&self) -> Result<CustomRingPolicyProofRequestJson, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
-        let auditor_key = self
-            .auditor_key
-            .to_p256()
-            .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
-        let auditor_pk = auditor_key.to_encoded_point(false);
+        let auditor_pk = self.auditor_key.u();
         Ok(CustomRingPolicyProofRequestJson {
             circuit_type: "custom-ring-policy",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
             tx_viewing_sk: SecretHex::new(tx_viewing_secret.as_slice()),
             eph_sk: SecretHex::new(ephemeral_secret.as_slice()),
-            auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+            auditor_pk: bytes_to_hex(&auditor_pk),
             salt: bytes_to_hex(&self.salt),
             n_in: self.n_in,
             n_out: self.n_out,
@@ -647,8 +638,8 @@ mod tests {
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
             tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),
-            ephemeral_key: ViewingKey::from_bytes(&[4u8; 32]).expect("ephemeral key"),
-            auditor_key: ViewingKey::from_bytes(&[5u8; 32])
+            ephemeral_key: X25519Secret::from_bytes(&[4u8; 32]).expect("ephemeral key"),
+            auditor_key: X25519Secret::from_bytes(&[5u8; 32])
                 .expect("auditor key")
                 .pubkey(),
             salt: [10u8; 16],

@@ -222,7 +222,7 @@ fn create_policy_on_an_audit_only_ring_is_rejected_exactly() {
     let mut fixture = create_policy_fixture();
     fixture.set_account(
         "config",
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyOnAuditOnlyRing));
 }

@@ -37,7 +37,7 @@ func depositFixture(t *testing.T, count uint32) (depositVector, []*big.Int) {
 	t.Helper()
 	p := &DepositParameters{ContextHash: big.NewInt(0xabcdef), Count: count, EphSk: testScalar(0x22)}
 	auditorSk := testScalar(0x33)
-	auditor, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditor, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +71,11 @@ func encryptDepositVector(t *testing.T, p *DepositParameters) (depositVector, []
 // Seals the owner hashes as given, the shared vector pins raw values.
 func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (depositVector, []*big.Int) {
 	t.Helper()
-	auditor, err := ecdh.P256().NewPublicKey(p.AuditorPk[:])
+	auditor, err := ecdh.X25519().NewPublicKey(p.AuditorPk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	ephemeral, err := ecdh.P256().NewPrivateKey(p.EphSk[:])
+	ephemeral, err := ecdh.X25519().NewPrivateKey(p.EphSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	if err != nil {
 		t.Fatal(err)
 	}
-	compress := func(raw []byte) []byte { return append([]byte{2 + raw[64]&1}, raw[1:33]...) }
+	compress := func(raw []byte) []byte { return append([]byte{4}, raw...) }
 	ephemeralPk, auditorPk := compress(ephemeral.PublicKey().Bytes()), compress(auditor.Bytes())
 	ephLo, ephHi := new(big.Int).SetBytes(ephemeralPk[:31]), new(big.Int).SetBytes(ephemeralPk[31:])
 	auditorLo, auditorHi := new(big.Int).SetBytes(auditorPk[:31]), new(big.Int).SetBytes(auditorPk[31:])
@@ -143,7 +143,7 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 	for i := range auditorSk {
 		auditorSk[i], p.EphSk[i] = 0x11, 0x22
 	}
-	auditor, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditor, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,15 +162,15 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 	}
 	vector, _ := sealDeposits(t, p, owners)
 	want := []string{
-		"146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5",
-		"74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c",
+		"006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144",
+		"24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820",
 	}
 	for i := range want {
 		if vector.Ciphertexts[i] != want[i] {
-			t.Fatalf("ciphertext %d differs from the Rust/TypeScript vector", i)
+			t.Errorf("ciphertext %d: got %s want %s", i, vector.Ciphertexts[i], want[i])
 		}
 	}
-	if common.ToHex(p.PublicInputHash) != "0x0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030" {
+	if common.ToHex(p.PublicInputHash) != "0x0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef" {
 		t.Fatalf("public hash %s differs from the Rust/TypeScript vector", common.ToHex(p.PublicInputHash))
 	}
 }
@@ -219,7 +219,7 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 				p.NullifierPks[7] = big.NewInt(99)
 			case "auditor":
 				sk := testScalar(0x44)
-				key, err := ecdh.P256().NewPrivateKey(sk[:])
+				key, err := ecdh.X25519().NewPrivateKey(sk[:])
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -244,7 +244,7 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 
 func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 	vector, _ := depositFixture(t, 2)
-	for _, name := range []string{"count", "short", "long", "alias", "padding", "zero_ephemeral", "off_curve", "short_keys", "padding_key", "unescrowed", "zero_key_unescrowed", "root_without_escrow"} {
+	for _, name := range []string{"count", "short", "long", "alias", "padding", "low_order_auditor", "legacy_p256_length", "short_keys", "padding_key", "unescrowed", "zero_key_unescrowed", "root_without_escrow"} {
 		t.Run(name, func(t *testing.T) {
 			encoded, err := json.Marshal(vector.Params)
 			if err != nil {
@@ -276,9 +276,9 @@ func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 				raw.NullifierPks[0] = common.ToHex(registry.ZeroNullifierPk)
 			case "root_without_escrow":
 				raw.KeyRegistryRoot = raw.ContextHash
-			case "zero_ephemeral":
-				raw.EphSk = "0x" + hex.EncodeToString(make([]byte, 32))
-			case "off_curve":
+			case "low_order_auditor":
+				raw.AuditorPk = "0x" + hex.EncodeToString(make([]byte, 32))
+			case "legacy_p256_length":
 				raw.AuditorPk = "0x" + hex.EncodeToString(make([]byte, 65))
 			}
 			encoded, err = json.Marshal(raw)

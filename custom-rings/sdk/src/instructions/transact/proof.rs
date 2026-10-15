@@ -28,7 +28,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGro
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
-use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
+use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
 
 use super::request::CustomRingPrivateTxHash;
 
@@ -70,7 +70,7 @@ pub struct CustomRingProofParams {
     /// The transaction viewing key used as the AES plaintext.
     pub tx_viewing_key: ViewingKey,
     /// The auditor key stored in the ring's config account.
-    pub auditor_pk: P256Pubkey,
+    pub auditor_pk: X25519Pubkey,
     pub salt: [u8; 16],
     pub outputs: Vec<ProofInputUtxo>,
 }
@@ -85,7 +85,7 @@ pub struct EncryptedAudit {
 pub struct PendingCustomRingProof {
     tx_viewing_key: ViewingKey,
     tx_viewing_pk: P256Pubkey,
-    auditor_pk: P256Pubkey,
+    auditor_pk: X25519Pubkey,
     ephemeral_sk: Zeroizing<[u8; 32]>,
     message: AuditorMessage,
     salt: [u8; 16],
@@ -233,7 +233,7 @@ impl PendingCustomRingProof {
                 public_input_hash,
                 private_tx_hash: *private_tx_hash.as_ref(),
                 tx_viewing_key,
-                ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
+                ephemeral_key: X25519Secret::from_bytes(&ephemeral_sk)?,
                 auditor_key: auditor_pk,
                 salt,
                 n_in: witness.n_in,
@@ -294,7 +294,7 @@ impl PendingCustomRingProof {
             public_input_hash,
             private_tx_hash: *private_tx_hash.as_ref(),
             tx_viewing_key,
-            ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
+            ephemeral_key: X25519Secret::from_bytes(&ephemeral_sk)?,
             auditor_key: auditor_pk,
             salt,
             outputs,
@@ -413,7 +413,9 @@ mod tests {
     fn finish_binds_the_public_input_the_program_recomputes() {
         let tx_key = key(TX_SK);
         let tx_pk = tx_key.pubkey();
-        let auditor_pk = key(AUDITOR_SK).pubkey();
+        let auditor_pk = X25519Secret::from_bytes(&key(AUDITOR_SK).secret_bytes())
+            .unwrap()
+            .pubkey();
         let salt = [3u8; 16];
         let outputs = vec![ProofInputUtxo::default()];
         let EncryptedAudit { pending, message } = CustomRingProofParams {

@@ -11,11 +11,8 @@ use solana_account::Account;
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{AsyncRpc, ClientError, Rpc};
-use zolana_interface::{
-    is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
-    RING_AUTH_PDA_SEED,
-};
-use zolana_keypair::P256Pubkey;
+use zolana_interface::{pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
+use zolana_keypair::X25519Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_ring_policy::{
     ListId, ListNamespace, PolicyHashError, RuleTable, RuleTableError, SourceMap, SourceOwner,
@@ -31,7 +28,7 @@ pub struct CustomRing {
 
 pub struct CustomRingConfig {
     pub authority: Address,
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     /// A policy ring enforces its compiled rules, an audit-only ring proves only
     /// the audit statement.
     pub has_policy: bool,
@@ -317,10 +314,10 @@ impl CustomRing {
             return Ok(None);
         };
         let bump = Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).1;
-        if config.bump != bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
+        if config.bump != bump {
             return Err(AccountReadError::InvalidAccount { address });
         }
-        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+        let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
             .map_err(|_| AccountReadError::InvalidAccount { address })?;
         Ok(Some(CustomRingConfig {
             authority: config.authority,
@@ -818,7 +815,7 @@ mod tests {
         RingProgramConfig {
             discriminator: RING_PROGRAM_CONFIG,
             authority: Address::new_from_array([3u8; 32]),
-            auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+            auditor_pubkey: *zolana_keypair::X25519Secret::new().pubkey().as_bytes(),
             bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
             has_policy: 1,
             key_escrow: 0,

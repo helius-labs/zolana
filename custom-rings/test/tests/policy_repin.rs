@@ -15,7 +15,7 @@ use custom_ring_test_validator::{
 };
 use solana_signer::Signer;
 use zolana_client::ProverClient;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::Rejection;
 use zolana_ring_policy::{EntryState, ListId};
 use zolana_transaction::Utxo;
@@ -277,7 +277,7 @@ fn block(literal: &str, rings: &CuratedRings) -> String {
 
 /// After `init` the project's config authority holds the config.
 fn init_subscriber(rings: &CuratedRings, policy: &str) -> Result<RingProject> {
-    let project = RingProject::create(&rings.env, &ViewingKey::new().pubkey())?;
+    let project = RingProject::create(&rings.env, &zolana_keypair::X25519Secret::new().pubkey())?;
     project.write_config(RingToml {
         env: &rings.env,
         ring_rpc: RING_RPC,

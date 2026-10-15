@@ -198,7 +198,7 @@ async function buildRingDepositOnce(
         blindings: firstSlot(blinding, ZERO_32),
         keys: firstSlot(escrow?.keys[0], undefined),
         ephemeralSecret: sealed.ephemeralSecret,
-        auditorPublicKey: auditorPublicKey.toUncompressed(),
+        auditorPublicKey: auditorPublicKey.u(),
         ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
       };
       let proof: Uint8Array;

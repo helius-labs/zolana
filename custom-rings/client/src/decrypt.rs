@@ -15,7 +15,8 @@ use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::event::OutputDataEncoding;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
@@ -36,7 +37,7 @@ use crate::{
 /// Opens every confidential output slot of `transaction` with the transaction
 /// viewing key the auditor message carries.
 pub struct TransactionAudit<'a> {
-    pub auditor: &'a ViewingKey,
+    pub auditor: &'a X25519Secret,
     pub transaction: &'a ShieldedTransaction,
     pub assets: &'a AssetRegistry,
 }
@@ -158,7 +159,7 @@ impl TransactionAudit<'_> {
 /// message.
 pub fn auditor_message(
     tx: &ShieldedTransaction,
-    auditor_pk: &P256Pubkey,
+    auditor_pk: &X25519Pubkey,
 ) -> Result<AuditorMessage, AuditError> {
     let view_tag = auditor_view_tag(auditor_pk);
     let mut tagged = tx
@@ -179,7 +180,7 @@ pub fn auditor_message(
 
 /// Decrypts the auditor message into the transaction viewing key.
 pub fn recover_tx_viewing_key(
-    auditor: &ViewingKey,
+    auditor: &X25519Secret,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
     let recovered = message.decrypt(auditor)?;
@@ -314,7 +315,7 @@ mod tests {
     /// canonical transaction viewing key.
     #[test]
     fn recovery_reduces_a_noncanonical_scalar() {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let mut scalar = [0u8; 32];
         scalar[24..].copy_from_slice(&0x0123_4567_89ab_cdefu64.to_be_bytes());
         let viewing_key = ViewingKey::from_bytes(&scalar).expect("viewing key");
@@ -324,10 +325,10 @@ mod tests {
         let mut plaintext = [0u8; 32];
         plaintext.copy_from_slice(shifted.as_slice());
 
-        let ephemeral = ViewingKey::new();
+        let ephemeral = X25519Secret::new();
         let ephemeral_key = ephemeral.pubkey();
         let auditor_key = auditor.pubkey();
-        let diffie_hellman_x = Zeroizing::new(ephemeral.ecdh(&auditor_key).expect("ecdh"));
+        let diffie_hellman_x = ephemeral.ecdh(&auditor_key).expect("ecdh");
         let shared = AuditSharedSecret {
             diffie_hellman_x: &diffie_hellman_x,
             ephemeral_key: &ephemeral_key,

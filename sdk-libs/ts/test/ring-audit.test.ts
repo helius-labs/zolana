@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
 import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
@@ -49,16 +50,16 @@ const EPH_SK = hex("01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f
 const AUDITOR_SK = hex(
   "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c",
 ) as Bytes32;
-const EPH_PK = hex("038bd43dcdaea72a1db879b1ca6faac09593fd17893d22eeef926b5c1c245a133c") as Bytes33;
+const EPH_PK = hex("048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966") as Bytes33;
 const AUDITOR_PK = hex(
-  "039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec",
+  "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a",
 ) as Bytes33;
-const DH = hex("0adc4a9b4fc9112518acab2c346559372e9a5c2a9d8b93fb1b7650ea1edd4823") as Bytes32;
+const DH = hex("464b33b122dc1346a6012199742d7e14b2ee6436589c454a579fdda24feec92c") as Bytes32;
 const SHARED_SECRET = hex(
-  "009926f6e6fefd31699816632ef553197a3695424ddd9589e3d074518c40d605",
+  "2590b2b949a2f87b9201e4d065167ea9282c4bd06a32e888e24e33c5bddae54f",
 ) as Bytes32;
 const CIPHERTEXT = hex(
-  "6de7c18c3c3676ca517647a25df33a7150ace3e07b410bc296fac11b1355382b",
+  "02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314",
 ) as Bytes32;
 
 // Fixture from custom-rings/program/src/instructions/transact.rs.
@@ -66,15 +67,15 @@ const TX_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee95
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093");
+const PUBLIC_INPUT_HASH = hex("2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 describe("ring audit encryption", () => {
   it("matches the Go vectors", () => {
-    const ephemeral = ViewingKey.fromBytes(EPH_SK);
-    const auditor = P256PublicKey.fromBytes(AUDITOR_PK);
+    const ephemeral = X25519Secret.fromBytes(EPH_SK);
+    const auditor = X25519PublicKey.fromBytes(AUDITOR_PK);
     expect(ephemeral.publicKey().toBytes()).toEqual(EPH_PK);
-    expect(ViewingKey.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
+    expect(X25519Secret.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
     const dh = ephemeral.ecdh(auditor);
     expect(dh).toEqual(DH);
     expect(auditSharedSecret(dh, ephemeral.publicKey(), auditor)).toEqual(SHARED_SECRET);
@@ -83,17 +84,17 @@ describe("ring audit encryption", () => {
       ciphertext: CIPHERTEXT,
       disclosure: ZERO_DISCLOSURE,
     };
-    expect(decryptTransactionViewingSecret(ViewingKey.fromBytes(AUDITOR_SK), message)).toEqual(
+    expect(decryptTransactionViewingSecret(X25519Secret.fromBytes(AUDITOR_SK), message)).toEqual(
       TX_SK,
     );
   });
 
   it("round-trips under a fresh ephemeral key and publishes the complete audit message", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const encrypted = encryptTransactionViewingSecret(TX_SK, auditor.publicKey());
     expect(decryptTransactionViewingSecret(auditor, encrypted.message)).toEqual(TX_SK);
     const data = auditorMessageData(encrypted.message, auditor.publicKey());
-    expect(data.viewTag).toEqual(auditor.publicKey().x());
+    expect(data.viewTag).toEqual(auditor.publicKey().u());
     expect(data.data).toHaveLength(AUDITOR_MESSAGE_LENGTH);
     const parsed = parseAuditorMessage(data.data);
     expect(parsed.ciphertext).toEqual(encrypted.message.ciphertext);
@@ -108,9 +109,9 @@ describe("ring audit encryption", () => {
         auditPublicInputHash({
           privateTxHash: PRIVATE_TX_HASH,
           txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
-          auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
+          auditorPublicKey: X25519PublicKey.fromBytes(AUDITOR_PK),
           message: {
-            ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
+            ephemeralPublicKey: X25519PublicKey.fromBytes(EPH_PK),
             ciphertext: CIPHERTEXT,
             disclosure: ZERO_DISCLOSURE,
           },
@@ -144,7 +145,7 @@ describe("ring audit encryption", () => {
         ...revocationTargets,
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e",
+      "2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c",
     );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
@@ -154,9 +155,9 @@ describe("ring audit encryption", () => {
     const input = {
       privateTxHash: PRIVATE_TX_HASH,
       txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
-      auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
+      auditorPublicKey: X25519PublicKey.fromBytes(AUDITOR_PK),
       message: {
-        ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
+        ephemeralPublicKey: X25519PublicKey.fromBytes(EPH_PK),
         ciphertext: CIPHERTEXT,
         disclosure: ZERO_DISCLOSURE,
       },
@@ -181,20 +182,18 @@ describe("ring audit encryption", () => {
     ).toThrow(RangeError);
   });
 
-  it("decompresses the auditor key to the 65-byte point the circuit witnesses", () => {
-    const auditor = P256PublicKey.fromBytes(AUDITOR_PK);
-    const uncompressed = auditor.toUncompressed();
-    expect(uncompressed).toHaveLength(65);
-    expect(uncompressed[0]).toBe(4);
-    expect(uncompressed.subarray(1, 33)).toEqual(auditor.x());
-    expect(P256PublicKey.fromUncompressed(uncompressed).equals(auditor)).toBe(true);
+  it("witnesses the canonical 32-byte X25519 coordinate", () => {
+    const auditor = X25519PublicKey.fromBytes(AUDITOR_PK);
+    expect(auditor.u()).toHaveLength(32);
+    expect(auditor.toBytes()[0]).toBe(4);
+    expect(auditor.u()).toEqual(auditor.toBytes().subarray(1));
   });
 });
 
 await initializePoseidon();
 
 describe("ring audit spend records", () => {
-  const auditor = ViewingKey.generate();
+  const auditor = X25519Secret.generate();
   const tx = ViewingKey.generate();
   const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
   const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);

@@ -5,7 +5,6 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
@@ -25,7 +24,7 @@ type KeyRegisterCircuit struct {
 	// Byte 0 is zero, the 31-byte packing stays below the field order.
 	NullifierSecret [32]frontend.Variable
 	EphSk           [32]frontend.Variable
-	AuditorPk       [65]frontend.Variable
+	AuditorPk       [32]frontend.Variable
 
 	LowMember frontend.Variable
 	LowNext   frontend.Variable
@@ -41,15 +40,7 @@ func (c *KeyRegisterCircuit) Define(api frontend.API) error {
 	for _, b := range c.NullifierSecret {
 		rangeChecker.Check(b, 8)
 	}
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range c.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	api.AssertIsEqual(c.AuditorPk[0], 4)
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
-	p256.PointOnCurve(api, c.AuditorPk)
 
 	// 2. Bind the encrypted secret to the registered nullifier public key.
 	secretFE := frontend.Variable(0)

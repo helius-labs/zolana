@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { readFileSync } from "node:fs";
@@ -325,7 +326,7 @@ describe("ring transact settlement", () => {
 
 describe("ring config", () => {
   const AUTHORITY = addressOf(12);
-  const AUDITOR = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
+  const AUDITOR = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
 
   it("builds create config like Rust `CreateConfig`", async () => {
     const instruction = await createRingConfigInstruction({
@@ -348,21 +349,15 @@ describe("ring config", () => {
       [RING, AccountRole.READONLY],
       [programData, AccountRole.READONLY],
     ]);
-    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(`01${P256_HEX}01`);
+    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
+      `01${Buffer.from(AUDITOR.toBytes()).toString("hex")}01`,
+    );
     expect(RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT).toBe(50_000);
   });
 
-  it("refuses a reserved auditor key like Rust `CreateConfig`", async () => {
+  it("rejects P-256 keys at the auditor key boundary", () => {
     for (const reserved of [P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1]) {
-      await expect(
-        createRingConfigInstruction({
-          ringProgramId: RING,
-          payer: PAYER,
-          authority: AUTHORITY,
-          auditorPublicKey: P256PublicKey.fromBytes(reserved as Bytes33),
-          hasPolicy: true,
-        }),
-      ).rejects.toMatchObject({ code: "RING_RESERVED_AUDITOR_KEY" });
+      expect(() => X25519PublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
     }
   });
 
@@ -411,7 +406,7 @@ describe("ring config", () => {
   });
 
   it("decodes the config account and rejects another layout", () => {
-    const data = Uint8Array.from([1, ...filled(12, 32), ...hex(P256_HEX), 254, 1, 0]);
+    const data = Uint8Array.from([1, ...filled(12, 32), ...AUDITOR.toBytes(), 254, 1, 0]);
     const config = decodeRingProgramConfig(data);
     expect(config.authority).toBe(AUTHORITY);
     expect(config.auditorPublicKey.equals(AUDITOR)).toBe(true);
@@ -1003,7 +998,9 @@ describe("ring status", () => {
       result: {
         ringProgramId: addressOf(7),
         state: "foreignAuditor",
-        configAuditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
+        configAuditorPubkey: Buffer.from(
+          X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+        ).toString("base64"),
         servicePubkey: addressOf(22),
       },
     };
@@ -1016,7 +1013,9 @@ describe("ring status", () => {
     }).ringStatus(addressOf(7));
 
     expect(status.state).toBe("foreignAuditor");
-    expect(status.configAuditorPublicKey?.toBytes()).toEqual(hex(P256_HEX));
+    expect(status.configAuditorPublicKey?.toBytes()).toEqual(
+      X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+    );
     expect(status.servicePublicKey).toBe(addressOf(22));
   });
 
@@ -2159,12 +2158,12 @@ describe("ring read request", () => {
 
   const serviceSecret = filled(9, 32);
   const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
-  const auditor = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
+  const auditor = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
   const genesisHash = filled(4, 32) as Bytes32;
   const auditorKeyResult = (signature: Uint8Array) => ({
     ringProgramId: RING,
     auditorPubkey: Buffer.from(auditor.toBytes()).toString("base64"),
-    auditorViewTag: getAddressDecoder().decode(auditor.x()),
+    auditorViewTag: getAddressDecoder().decode(auditor.u()),
     servicePubkey: servicePublicKey,
     signature: getBase58Decoder().decode(signature),
   });
@@ -2221,7 +2220,7 @@ describe("ring read request", () => {
       allowInsecureHttp: true,
     }).createAuditorKey({ ringProgramId: RING, genesisHash, authority });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
-    expect(key.auditorViewTag).toEqual(auditor.x());
+    expect(key.auditorViewTag).toEqual(auditor.u());
     expect(key.servicePublicKey).toBe(servicePublicKey);
 
     await expect(

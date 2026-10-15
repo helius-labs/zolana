@@ -231,7 +231,6 @@ mod tests {
         Base64String, Context as RegistryContext, GetRingKeyRegistryEntryResponse, Hash,
         RingMemberProofRequest,
     };
-    use zolana_keypair::ViewingKey;
 
     use crate::ui::{Answer, Scripted};
 
@@ -316,7 +315,7 @@ mod tests {
     fn registered_entry(member: &ShieldedKeypair) -> RegisteredEntry {
         let envelope = zolana_ring_client::NullifierKeyEnvelope::new(
             &member.nullifier_key,
-            &ViewingKey::new().pubkey(),
+            &zolana_keypair::X25519Secret::new().pubkey(),
         )
         .unwrap();
         let member_tag = Member::owner_tag(member.pubkey().as_array()).unwrap();

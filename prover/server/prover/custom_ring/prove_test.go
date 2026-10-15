@@ -68,7 +68,7 @@ func baseParams(t *testing.T) *BaseParameters {
 		NOut:          1,
 	}
 	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditorKey, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
 	p.TxViewingSk = testScalar(0x11)
 	p.EphSk = testScalar(0x22)
 	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditorKey, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,7 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{loader::UpgradeAuthorityCheck, shared::PdaCheck},
-    state::{is_p256_key, RingProgramConfigInitParams},
+    state::{is_x25519_key, RingProgramConfigInitParams},
 };
 
 /// Creates the ring's singleton config account (authority + auditor key).
@@ -48,10 +48,8 @@ pub fn process_create_config_ix(
         program_data,
     }
     .verify()?;
-    // Only SEC1-compressed points are stored: the circuit witnesses the
-    // uncompressed auditor key and re-compresses it in-circuit, so a key with
-    // any other prefix could never match a proof.
-    if !is_p256_key(&auditor_pubkey) {
+    // The envelope proves agreement with this tagged canonical X25519 key.
+    if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
 

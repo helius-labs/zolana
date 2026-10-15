@@ -90,14 +90,14 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
     }
 }
 
-/// Split a 33-byte SEC1-compressed P256 key into the two BN254 field elements
+/// Split a 33-byte tagged key (P256 viewing or X25519 envelope) into the two BN254 field elements
 /// the auditor circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit` in
 /// `prover/server/custom_rings/circuits/base/pack.go`.
 ///
 /// ```text
-/// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)
+/// lo = 0x00 || key[0..31]        (the key tag is the most significant data byte)
 /// hi = key[31] * 256 + key[32]
 /// ```
 ///

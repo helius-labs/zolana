@@ -4,6 +4,7 @@ use std::{
     collections::HashSet,
     num::{NonZeroU32, NonZeroUsize},
 };
+use zolana_keypair::X25519Secret;
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
@@ -11,7 +12,7 @@ use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_event::EncryptedRingDepositOutput;
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
-use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{NullifierKey, ShieldedAddress};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
     instructions::merge::{merge_circuit_width, merge_dummy_nullifier, merge_output_blinding},
@@ -39,7 +40,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(1000) {
 #[must_use = "run the recovery explicitly"]
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Secret,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -84,7 +85,7 @@ pub struct RecoveredNotes {
 }
 
 impl<'a> RingRecovery<'a> {
-    pub fn new(ring_program_id: Address, auditor: &'a ViewingKey) -> Self {
+    pub fn new(ring_program_id: Address, auditor: &'a X25519Secret) -> Self {
         Self {
             ring_program_id,
             auditor,

@@ -29,7 +29,7 @@ type CustomRingPolicyCircuit struct {
 	PrivateTxHash frontend.Variable
 	TxViewingSk   [32]frontend.Variable
 	EphSk         [32]frontend.Variable
-	AuditorPk     [65]frontend.Variable
+	AuditorPk     [32]frontend.Variable
 	Salt          [16]frontend.Variable
 
 	Inputs  [NInputs]UtxoWires

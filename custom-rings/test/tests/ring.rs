@@ -26,6 +26,7 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
+use zolana_keypair::X25519Secret;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_cli::transact::{self, Probe};
@@ -75,7 +76,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair};
 use zolana_program::instruction::{
     AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
     TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
@@ -430,7 +431,7 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let project = RingProject::create(&env, &auditor.pubkey())?;
     let init = || project.run(&["init"]);
 
@@ -485,7 +486,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
     let indexer = env.client.indexer();
     let tree = env.register_default_tree()?;
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let project = RingProject::create(&env, &auditor.pubkey())?;
     project.write_config(RingToml {
         env: &env,
@@ -549,7 +550,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 1. The auditor is off chain. Only its public key ever reaches the program;
     //    the secret never leaves this test and is what the final decryption uses.
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_pk = auditor.pubkey();
     let auditor_pubkey = *auditor_pk.as_bytes();
 
@@ -1050,7 +1051,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
 
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_pk = auditor.pubkey();
 
     RegisterRing {
@@ -1252,7 +1253,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     RegisterRing {
         ring,
@@ -1488,7 +1489,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     RegisterRing {
         ring,
@@ -1997,7 +1998,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     advance_local_clock(rpc, (rpc.get_slot()? / WINDOW_SLOTS + 1) * WINDOW_SLOTS)?;
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -2487,7 +2488,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -2680,7 +2681,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -3009,7 +3010,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
@@ -3150,7 +3151,7 @@ fn a_transfer_outputs_apart_from_the_address_tree() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
@@ -3524,7 +3525,7 @@ fn nullifier_hashes(proven: &ProvenTransfer) -> Vec<[u8; 32]> {
 
 struct AuditLookup<'a> {
     ring_program: Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Secret,
     signature: Signature,
 }
 

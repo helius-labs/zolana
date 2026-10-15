@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -51,7 +52,7 @@ describe("LocalShieldedKeys on the ring rail", () => {
   it("seals the transaction viewing secret to the auditor in a custom-ring transfer", async () => {
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed(8)));
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const firstNullifier = seed(9);
     const encrypted = await withTransactionKey(keys, firstNullifier, (tx) =>
       encryptCustomRingTransfer(tx, {
@@ -73,7 +74,7 @@ describe("LocalShieldedKeys on the ring rail", () => {
     );
     // Same transaction viewing key as an unaudited transfer of the same inputs.
     expect(encrypted.txViewingPublicKey.toBytes()).toEqual(plain.txViewingPublicKey.toBytes());
-    expect(encrypted.auditorMessage.viewTag).toEqual(auditor.publicKey().x());
+    expect(encrypted.auditorMessage.viewTag).toEqual(auditor.publicKey().u());
     const message = parseAuditorMessage(encrypted.auditorMessage.data);
     const recovered = decryptTransactionViewingSecret(auditor, message);
     expect(recovered).toEqual(encrypted.audit.txViewingSecret);

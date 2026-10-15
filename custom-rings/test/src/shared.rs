@@ -8,6 +8,7 @@
 //! with the mint authority parked on the payer.
 
 use std::path::PathBuf;
+use zolana_keypair::X25519Pubkey;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_cli::transact::{self, Probe};
@@ -30,7 +31,7 @@ use zolana_interface::{
     state::{default_tree_fees, nullifier_tree_params, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{P256Pubkey, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program::instruction::SetRingActivation;
 use zolana_program_test::{
@@ -208,7 +209,7 @@ impl Tier {
 pub struct RegisterRing<'a> {
     pub ring: CustomRing,
     pub payer: &'a Keypair,
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     pub tier: Tier,
 }
 

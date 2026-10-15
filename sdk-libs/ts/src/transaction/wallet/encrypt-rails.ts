@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
 import { addressBytes } from "../../interface/internal.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
@@ -113,7 +114,7 @@ export function encryptCustomRingTransfer(
   input: Readonly<{
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
-    auditorPublicKey: P256PublicKey;
+    auditorPublicKey: X25519PublicKey;
     outputTreeId: TreeId;
     recordOutputIndex?: number;
     sealedMessages?: readonly SealedMessageInput[];

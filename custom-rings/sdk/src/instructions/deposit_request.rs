@@ -24,7 +24,7 @@ pub struct RingDepositProofRequest<'a> {
     /// `None` with escrow off.
     pub key_registry_root: Option<&'a [u8; 32]>,
     pub ephemeral_sk: &'a [u8; 32],
-    pub auditor_pk: &'a [u8; 65],
+    pub auditor_pk: &'a [u8; 32],
 }
 
 impl Serialize for RingDepositProofRequest<'_> {
@@ -119,7 +119,7 @@ mod tests {
             keys: &keys,
             key_registry_root: Some(&[9; 32]),
             ephemeral_sk: &[3; 32],
-            auditor_pk: &[4; 65],
+            auditor_pk: &[4; 32],
         };
         let body = request.body().unwrap();
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -138,7 +138,7 @@ mod tests {
         assert!(json["keys"][1].is_null());
         assert_eq!(json["keyEscrow"], true);
         assert_eq!(json["keyRegistryRoot"], format!("0x{}", "09".repeat(32)));
-        assert_eq!(json["auditorPk"].as_str().unwrap().len(), 132);
+        assert_eq!(json["auditorPk"].as_str().unwrap().len(), 66);
 
         use zolana_client::prover::indexed::{IndexedDepositRequest, IndexedRegistry};
         let registry = IndexedRegistry {
@@ -197,7 +197,7 @@ mod tests {
             keys: &[None; MAX_RING_DEPOSIT_AUDIT_SLOTS],
             key_registry_root: None,
             ephemeral_sk: &[3; 32],
-            auditor_pk: &[4; 65],
+            auditor_pk: &[4; 32],
         }
         .body()
         .unwrap();

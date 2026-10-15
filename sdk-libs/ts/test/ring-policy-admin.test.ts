@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   AccountRole,
   getAddressDecoder,
@@ -298,7 +299,9 @@ describe("policy admin transactions", () => {
           RING,
           ringProgramConfigData({
             authority: AUTHORITY,
-            auditorPublicKey: new Uint8Array(33).fill(2),
+            auditorPublicKey: X25519Secret.fromBytes(new Uint8Array(32).fill(9))
+              .publicKey()
+              .toBytes(),
             bump: configBump,
             hasPolicy: input.hasPolicy ?? true,
           }),

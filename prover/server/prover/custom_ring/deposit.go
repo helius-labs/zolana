@@ -20,7 +20,7 @@ type DepositParameters struct {
 	// Absent for the zero key, with escrow off or in padding.
 	Keys      [deposit.MaxDeposits]*RegistryKey
 	EphSk     [scalarLen]byte
-	AuditorPk [uncompressedPubkeyLen]byte
+	AuditorPk [32]byte
 	KeyEscrow KeyEscrow
 }
 
@@ -107,13 +107,10 @@ func (p *DepositParameters) UnmarshalJSON(data []byte) error {
 	if err := bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
 		return err
 	}
-	if err := validateP256Scalar(p.EphSk[:], "ephSk"); err != nil {
-		return err
-	}
 	if err := bytesFromHex(p.AuditorPk[:], raw.AuditorPk, "auditorPk"); err != nil {
 		return err
 	}
-	return validateP256Point(p.AuditorPk[:], "auditorPk")
+	return validateX25519Point(p.AuditorPk[:], "auditorPk")
 }
 
 func (p *DepositParameters) CreateWitness() (*deposit.CustomRingDepositCircuit, error) {

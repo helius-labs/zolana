@@ -52,7 +52,7 @@ fn set_delegate_on_an_audit_only_ring_is_rejected_exactly() {
     let mut fixture = set_delegate_fixture(set_delegate_data(delegate()), None);
     fixture.set_account(
         "config",
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
 }
@@ -147,7 +147,7 @@ fn an_audit_only_ring_refuses_the_delegate_rail_exactly() {
     let mut data = audit_instruction_data(bogus_proof(), content);
     data[0] = tag::DELEGATE_TRANSACT;
     delegate_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         data,
     )
     .expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
@@ -160,7 +160,7 @@ fn the_delegate_rail_requires_the_key_registry() {
     let mut unescrowed = delegate_move(Vec::new());
     unescrowed.set_account(
         "config",
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
     );
     unescrowed.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
     let mut missing = delegate_move(Vec::new());
@@ -220,7 +220,7 @@ fn the_authority_circuit_on_the_member_rail_is_rejected_exactly() {
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     crate::common::audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         audit_instruction_data(bogus_proof(), content),
     )
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));

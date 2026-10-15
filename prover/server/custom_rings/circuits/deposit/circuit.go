@@ -4,12 +4,10 @@ package deposit
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/v2/aes"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
@@ -28,7 +26,7 @@ type CustomRingDepositCircuit struct {
 	NullifierPks    [MaxDeposits]frontend.Variable
 	Blindings       [MaxDeposits]frontend.Variable
 	EphSk           [32]frontend.Variable
-	AuditorPk       [65]frontend.Variable
+	AuditorPk       [32]frontend.Variable
 	KeyEscrow       frontend.Variable
 	KeyRegistryRoot frontend.Variable
 	Keys            [MaxDeposits]registry.KeyOpening
@@ -64,18 +62,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	}
 
 	// 2. Bind the shared key to the auditor and published ephemeral key.
-	rangeChecker := rangecheck.New(api)
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range c.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	api.AssertIsEqual(c.AuditorPk[0], 4)
-	p256.PointOnCurve(api, c.AuditorPk)
-	auditor := p256.CompressPubkey(api, c.AuditorPk)
-	ephemeral := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, c.EphSk))
-	dh := p256.ECDH(api, c.EphSk, c.AuditorPk)
+	auditor, ephemeral, dh := base.AgreeAuditKey(api, c.EphSk, c.AuditorPk)
 	secret := base.DeriveAuditSharedSecret(api, dh, ephemeral, auditor)
 	info := make([]frontend.Variable, len(EncryptionInfo))
 	for i, b := range []byte(EncryptionInfo) {
@@ -84,7 +71,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	key, nonce := ve.KeySchedule(api, secret, info, len(info))
 
 	// 3. Assign distinct CTR blocks to every deposit opening.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
 	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
 	for i := range ownerHashes {
 		ownerCommitment := gadget.PoseidonHash(api, []frontend.Variable{ownerHashes[i], c.Blindings[i]})

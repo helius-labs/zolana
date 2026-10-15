@@ -40,7 +40,7 @@ fn merge_requires_the_custom_ring_authority() {
 #[test]
 fn a_policy_merge_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
-    merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
+    merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(4)))
         .expect_spp_cpi(&mollusk);
     merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
 }

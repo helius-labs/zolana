@@ -1,3 +1,4 @@
+import { X25519Secret } from "../../src/keypair/x25519.js";
 // Deploys a fresh ring program from the built binaries, upgrades it in place
 // and registers its config. Reads RING_PROGRAM_SO and USER_REGISTRY_PROGRAM_SO.
 import { readFile } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { address, generateKeyPairSigner } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { createZolanaClient } from "../../src/index.js";
-import { ViewingKey } from "../../src/keypair/viewing-key.js";
+
 import {
   createRingConfigInstruction,
   deployRingProgram,
@@ -73,7 +74,7 @@ describe("ring program", () => {
         ringProgramId: program.address,
         payer: operator,
         authority: operator,
-        auditorPublicKey: ViewingKey.generate().publicKey(),
+        auditorPublicKey: X25519Secret.generate().publicKey(),
         hasPolicy: false,
       }),
       operator,

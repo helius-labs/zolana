@@ -1,5 +1,6 @@
 use custom_ring_interface::RingDepositAuditCapsule;
 use std::cell::{Cell, RefCell};
+use zolana_keypair::X25519Secret;
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -28,7 +29,7 @@ const SALT: [u8; 16] = [7; 16];
 struct Fixture {
     member: ShieldedKeypair,
     address: ShieldedAddress,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     sequence: Cell<u8>,
 }
 
@@ -38,7 +39,7 @@ impl Fixture {
         Self {
             address: member.shielded_address().expect("address"),
             member,
-            auditor: ViewingKey::new(),
+            auditor: X25519Secret::new(),
             sequence: Cell::new(0),
         }
     }

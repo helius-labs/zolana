@@ -88,7 +88,7 @@ pub use state::{
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 
-/// SEC1-compressed public key length.
+/// SEC1-compressed P256 key length, also retained by tagged X25519 envelopes.
 pub const COMPRESSED_P256_KEY_LEN: usize = 33;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;

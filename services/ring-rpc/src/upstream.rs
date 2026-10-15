@@ -26,7 +26,7 @@ use zolana_interface::{
     is_reserved_p256_derivation_point, state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
     ring_deposits_in, ConfirmedTransaction, OriginError, ReaderKey, RingOrigin,
     ORIGIN_TRANSACTION_CONFIG,
@@ -114,7 +114,7 @@ pub struct ReaderGrant {
 
 #[derive(Clone, Copy)]
 pub struct RingConfiguration {
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     pub authority: Address,
 }
 
@@ -366,7 +366,7 @@ impl ConfigAccount<'_> {
                 "custom ring config account is invalid".to_owned(),
             ));
         }
-        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+        let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
             .map_err(|_| ClientError::Rpc("custom ring config account is invalid".to_owned()))?;
         Ok(RingConfiguration {
             auditor_pubkey,
@@ -541,7 +541,7 @@ mod tests {
     fn config_accounts_require_the_canonical_layout() {
         let ring = Address::new_from_array([9; 32]);
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
-        let key = ViewingKey::new().pubkey();
+        let key = zolana_keypair::X25519Secret::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
         assert_eq!(
             ConfigAccount {

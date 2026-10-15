@@ -4,7 +4,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
     AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
 };
@@ -43,7 +43,7 @@ pub struct PageOptions {
 
 pub struct AuditService<S> {
     pub(crate) ring: Address,
-    pub(crate) auditor: ViewingKey,
+    pub(crate) auditor: X25519Secret,
     pub(crate) view_tag: [u8; 32],
     pub(crate) shared: Arc<Shared<S>>,
 }
@@ -112,7 +112,7 @@ impl<S: TransactionSource> AuditService<S> {
         self.ring
     }
 
-    pub fn auditor_pubkey(&self) -> P256Pubkey {
+    pub fn auditor_pubkey(&self) -> X25519Pubkey {
         self.auditor.pubkey()
     }
 
@@ -123,7 +123,7 @@ impl<S: TransactionSource> AuditService<S> {
     /// The auditor key the ring's config names, `None` until the config exists.
     /// The config fixes it forever, so a ring whose key is not this service's
     /// can never be read here.
-    pub async fn configured_auditor(&self) -> Result<Option<P256Pubkey>, RingRpcError> {
+    pub async fn configured_auditor(&self) -> Result<Option<X25519Pubkey>, RingRpcError> {
         Ok(self
             .shared
             .source

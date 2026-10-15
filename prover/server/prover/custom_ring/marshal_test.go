@@ -2,7 +2,6 @@ package custom_ring
 
 import (
 	"bytes"
-	"crypto/elliptic"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -30,7 +29,7 @@ func sampleBaseParams() *BaseParameters {
 		p.TxViewingSk[i] = byte(i)
 		p.EphSk[i] = byte(0x20 + i)
 	}
-	copy(p.AuditorPk[:], elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy))
+	p.AuditorPk[0] = 9
 	for i := range p.Outputs {
 		p.Outputs[i] = zeroedAuditOpening()
 	}
@@ -240,7 +239,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 	for key, length := range map[string]int{
 		"publicInputHash": 2 + 2 + 64,
 		"txViewingSk":     2 + 2 + 64,
-		"auditorPk":       2 + 2 + 130,
+		"auditorPk":       2 + 2 + 64,
 	} {
 		if got := len(raw[key]); got != length {
 			t.Fatalf("%s: got %d chars, want %d", key, got, length)
@@ -288,10 +287,8 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		"long auditor pk":      func(m map[string]interface{}) { m["auditorPk"] = m["auditorPk"].(string) + "00" },
 		"non hex":              func(m map[string]interface{}) { m["ephSk"] = strings.Repeat("zz", 33) },
 		"missing prefix":       func(m map[string]interface{}) { m["ephSk"] = strings.TrimPrefix(m["ephSk"].(string), "0x") },
-		"uppercase":            func(m map[string]interface{}) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) },
+		"uppercase":            func(m map[string]interface{}) { m["auditorPk"] = strings.ToUpper(m["txViewingSk"].(string)) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
-		"zero scalar":          func(m map[string]interface{}) { m["ephSk"] = zeroScalarHex },
-		"scalar at order":      func(m map[string]interface{}) { m["ephSk"] = orderScalarHex() },
 		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
 		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
@@ -383,8 +380,6 @@ func TestBaseParametersRejectBadInput(t *testing.T) {
 		"foreign circuit type": func(m map[string]interface{}) { m["circuitType"] = "transfer" },
 		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
 		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
-		"zero eph scalar":      func(m map[string]interface{}) { m["ephSk"] = zeroScalarHex },
-		"eph scalar at order":  func(m map[string]interface{}) { m["ephSk"] = orderScalarHex() },
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
 	}

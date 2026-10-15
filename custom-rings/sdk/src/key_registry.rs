@@ -5,7 +5,6 @@ use custom_ring_interface::{
     RegisterKeyIxData, RegisterKeyPublicInput, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
     COMPRESSED_P256_KEY_LEN, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
 };
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -21,7 +20,7 @@ use zolana_indexer_api::{
     RingMemberProofRequest, SerializablePubkey,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{KeypairError, NullifierKey, ShieldedKeypair, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{AuditEncryptionError, NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
@@ -179,7 +178,7 @@ impl RegisterKey<'_> {
     /// Registration binds the submitted key, not the keys of future notes.
     fn stage(
         self,
-        auditor: P256Pubkey,
+        auditor: X25519Pubkey,
         root: CurrentKeyRegistryRoot,
     ) -> Result<StagedKeyRegistration, KeyRegistrationError> {
         let address = Address::new_from_array(self.member.signing_pubkey().as_ed25519()?);
@@ -205,7 +204,7 @@ impl RegisterKey<'_> {
 struct StagedKeyRegistration {
     ring: CustomRing,
     member: Address,
-    auditor: P256Pubkey,
+    auditor: X25519Pubkey,
     envelope: NullifierKeyEnvelope,
     secret: Zeroizing<[u8; 32]>,
     query: RingMemberProofRequest,
@@ -375,7 +374,7 @@ impl ReadSealedKey {
             .try_into()
             .map_err(|_| KeyRegistrationError::InvalidEntryProof)?;
         let sealed = SealedNullifierKey {
-            eph_pk: P256Pubkey::from_bytes(eph_pk)
+            eph_pk: X25519Pubkey::from_bytes(eph_pk)
                 .map_err(|_| KeyRegistrationError::InvalidEntryProof)?,
             ciphertext: response
                 .ciphertext
@@ -397,7 +396,7 @@ impl ReadSealedKey {
 
 impl SealedKeyEntry {
     /// The opened key must reproduce the leaf under the root read from Solana.
-    pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey, KeyRegistrationError> {
+    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey, KeyRegistrationError> {
         // 1. The auditor recovers the nullifier key without an owner signing
         // key.
         let nullifier_key = self.sealed.open(auditor)?;
@@ -482,7 +481,7 @@ impl CustomRing {
 
 pub(crate) struct KeySeal<'a> {
     pub envelope: &'a NullifierKeyEnvelope,
-    pub auditor: P256Pubkey,
+    pub auditor: X25519Pubkey,
     /// The 31-byte secret right aligned, high byte zero pins it below the field order.
     pub secret: Zeroizing<[u8; 32]>,
 }
@@ -543,8 +542,8 @@ impl KeySeal<'_> {
         }
         .hash()
         .map_err(|_| KeyRegistrationError::Hashing)?;
-        // The circuit witnesses the auditor key SEC1 uncompressed, the packing hashes it compressed.
-        let auditor_uncompressed = self.auditor.to_p256()?.to_encoded_point(false);
+        // The witness uses the raw coordinate; the transcript hashes the tagged key.
+        let auditor_coordinate = self.auditor.u();
         Ok(KeyRegistration {
             request: RegisterKeyProofRequest {
                 public_input_hash: field_hex(&public_input),
@@ -554,7 +553,7 @@ impl KeySeal<'_> {
                 new_index: index_hex(response.next_index),
                 nullifier_secret: self.secret,
                 eph_sk: self.envelope.ephemeral_sk.clone(),
-                auditor_pk: bytes_to_hex(auditor_uncompressed.as_bytes()),
+                auditor_pk: bytes_to_hex(&auditor_coordinate),
                 low_member: field_hex(&response.low_member.0),
                 low_next: field_hex(&response.low_next.0),
                 low_key: field_hex(&response.low_key_hash.0),
@@ -641,7 +640,7 @@ struct RegisterKeyProofRequestJson<'a> {
 #[cfg(test)]
 mod tests {
     use zolana_indexer_api::{Base64String, Context};
-    use zolana_keypair::{NullifierKey, ViewingKey};
+    use zolana_keypair::{NullifierKey, X25519Secret};
     use zolana_ring_key_registry::{KeyRegistryTree, Registration};
     use zolana_ring_policy::ZERO_NULLIFIER_PK;
 
@@ -656,7 +655,7 @@ mod tests {
         member: Member,
         query: RingMemberProofRequest,
         response: GetRingKeyRegistryRegisterProofResponse,
-        auditor: ViewingKey,
+        auditor: X25519Secret,
         nullifier_key: NullifierKey,
         envelope: NullifierKeyEnvelope,
         tree: KeyRegistryTree,
@@ -667,7 +666,7 @@ mod tests {
         /// One sealed key at index 1 above the sentinel, the response an indexer serves for it.
         fn new() -> Self {
             let ring = CustomRing::new(Address::new_from_array([5; 32]));
-            let auditor = ViewingKey::new();
+            let auditor = X25519Secret::new();
             let nullifier_key = NullifierKey::from_secret([7u8; 31]);
             let envelope =
                 NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("seal");
@@ -799,8 +798,8 @@ mod tests {
         let secret = json["nullifierSecret"].as_str().expect("secret");
         assert_eq!(secret.len(), 66);
         assert!(secret.starts_with("0x00"));
-        // The auditor key is witnessed SEC1 uncompressed, 65 bytes behind the `0x`.
-        assert_eq!(json["auditorPk"].as_str().expect("auditor").len(), 132);
+        // The auditor coordinate is witnessed as 32 little-endian bytes behind `0x`.
+        assert_eq!(json["auditorPk"].as_str().expect("auditor").len(), 66);
         assert_eq!(json["ephSk"].as_str().expect("eph").len(), 66);
     }
 
@@ -841,7 +840,7 @@ mod tests {
             fixture.nullifier_key.secret().as_slice()
         );
         assert!(matches!(
-            entry.open(&ViewingKey::new()),
+            entry.open(&X25519Secret::new()),
             Err(
                 KeyRegistrationError::Envelope(AuditEncryptionError::NullifierPad)
                     | KeyRegistrationError::InvalidEntryProof

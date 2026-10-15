@@ -125,7 +125,7 @@ describe("key registry wire", () => {
     next: TAG,
     index: 1,
     ephPk: Buffer.from(
-      "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5",
+      "040900000000000000000000000000000000000000000000000000000000000000",
       "hex",
     ).toString("base64"),
     ciphertext: Buffer.alloc(32, 7).toString("base64"),
@@ -169,7 +169,7 @@ describe("key registry wire", () => {
       });
     }
     const decoded = await indexerFor({ result: entry }).getRingKeyRegistryEntry(request);
-    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x02);
+    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x04);
     expect(decoded.ciphertext).toEqual(new Uint8Array(32).fill(7));
     for (const changed of [
       { ciphertext: Buffer.alloc(31, 7).toString("base64") },

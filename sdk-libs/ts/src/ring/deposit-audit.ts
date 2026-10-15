@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
 import { pack33 } from "../interface/merge-utils.js";
@@ -10,8 +11,6 @@ import type { Address, Bytes32, Bytes64 } from "../interface/types.js";
 import { auditSharedSecret } from "../keypair/audit.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { symmetricApply } from "../keypair/merge/index.js";
-import { P256PublicKey } from "../keypair/public-key.js";
-import { ViewingKey } from "../keypair/viewing-key.js";
 import { bigIntBytes, equal, hashChain } from "../transaction/internal.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
@@ -30,7 +29,7 @@ export interface RingDepositOpening {
 
 export function sealRingDepositOpenings(
   openings: readonly RingDepositOpening[],
-  auditor: P256PublicKey,
+  auditor: X25519PublicKey,
 ): Readonly<{
   capsules: readonly RingDepositCapsule[];
   payloads: readonly Uint8Array[];
@@ -38,7 +37,7 @@ export function sealRingDepositOpenings(
 }> {
   if (openings.length < 1 || openings.length > RING_DEPOSIT_AUDIT_SLOTS)
     throw new RingError("RING_BUILD_DEPOSIT", { details: { reason: "deposit count" } });
-  const ephemeral = ViewingKey.generate();
+  const ephemeral = X25519Secret.generate();
   const plaintext = new Uint8Array(PAYLOAD_LENGTH);
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
@@ -82,7 +81,7 @@ export function sealRingDepositOpenings(
 
 export function openRingDepositOpening(
   capsule: RingDepositCapsule,
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   ownerCommitment: Bytes32,
 ): Readonly<{ ownerHash: Bytes32; blinding: Bytes32 }> {
   encodeRingDepositCapsule(capsule);
@@ -92,7 +91,7 @@ export function openRingDepositOpening(
   let shared: Bytes32 | undefined;
   let plaintext: Uint8Array | undefined;
   try {
-    const ephemeral = P256PublicKey.fromBytes(capsule.ephemeralPublicKey);
+    const ephemeral = X25519PublicKey.fromBytes(capsule.ephemeralPublicKey);
     dh = auditor.ecdh(ephemeral);
     shared = auditSharedSecret(dh, ephemeral, auditor.publicKey());
     plaintext = symmetricApply(shared, INFO, ciphertext);
@@ -135,7 +134,7 @@ export function ringDepositPublicInputHash(
     contextHash: Bytes32;
     ownerCommitments: readonly Bytes32[];
     capsules: readonly RingDepositCapsule[];
-    auditorPublicKey: P256PublicKey;
+    auditorPublicKey: X25519PublicKey;
     /** Present exactly when deposited nullifier keys must be enrolled under it. */
     keyRegistryRoot?: Bytes32;
   }>,
@@ -150,7 +149,7 @@ export function ringDepositPublicInputHash(
   )
     throw new RingError("RING_BUILD_DEPOSIT", { details: { reason: "deposit count" } });
   if (!isCanonicalField(input.contextHash)) throw new RingError("RING_BUILD_DEPOSIT");
-  P256PublicKey.fromBytes(first.ephemeralPublicKey);
+  X25519PublicKey.fromBytes(first.ephemeralPublicKey);
   const elements = [
     bigIntBytes(0x43524450n) as Bytes32,
     input.contextHash,

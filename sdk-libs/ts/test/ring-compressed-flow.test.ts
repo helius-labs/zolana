@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   getAddressDecoder,
   getProgramDerivedAddress,
@@ -19,7 +20,7 @@ import { ringConfigAddress, ringPolicyConfigAddress } from "../src/interface/pda
 import { addressBytes } from "../src/interface/internal.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
-import { ViewingKey } from "../src/keypair/viewing-key.js";
+
 import {
   buildRuleTable,
   memberOfAsset,
@@ -69,7 +70,7 @@ async function fixture(payer = PAYER) {
     programAddress: RING,
     seeds: [new TextEncoder().encode("policy")],
   });
-  const auditor = ViewingKey.fromBytes(field(2));
+  const auditor = X25519Secret.fromBytes(field(2));
   const table = buildRuleTable({
     rules: [],
     windowSlots: 100n,

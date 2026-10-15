@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
 import { p256 } from "@noble/curves/nist.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 
@@ -91,7 +92,7 @@ const P256_ORDER = p256.Point.Fn.ORDER;
 /** Mirrors Rust `auditor_message`, the program accepts the tagged message only as the unique last entry. */
 export function auditorMessage(
   transaction: IndexedShieldedTransaction,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): AuditorMessage {
   const viewTag = auditorViewTag(auditorPublicKey);
   const tagged = transaction.messages.flatMap((message, index) =>
@@ -121,7 +122,7 @@ export function auditorMessage(
  * canonical key.
  */
 export function recoverTransactionViewingKey(
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   message: AuditorMessage,
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
@@ -135,7 +136,7 @@ export function recoverTransactionViewingKey(
 /** Mirrors Rust `TransactionAudit::run`. */
 export function auditRingTransaction(
   input: Readonly<{
-    auditor: ViewingKey;
+    auditor: X25519Secret;
     transaction: IndexedShieldedTransaction;
     assets: AssetRegistry;
   }>,
@@ -235,7 +236,7 @@ export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTra
 export async function auditRing(
   input: Readonly<{
     client: RingAuditReader;
-    auditor: ViewingKey;
+    auditor: X25519Secret;
     ringProgramId: Address;
     assets: AssetRegistry;
     origin?: TransactionOrigin;

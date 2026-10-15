@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   address,
   assertIsFullySignedTransaction,
@@ -1160,7 +1161,7 @@ describe("selectRingInputs", () => {
 });
 
 describe("ring approval summary", () => {
-  async function approvalClient(keypair: ShieldedKeypair) {
+  async function approvalClient(_keypair: ShieldedKeypair) {
     const [config, bump] = await ringConfigPda(RING);
     return ringTransferClient({
       tree: TREE,
@@ -1171,7 +1172,9 @@ describe("ring approval summary", () => {
               lamports: 1n,
               data: ringProgramConfigData({
                 authority: PAYER,
-                auditorPublicKey: keypair.viewingPublicKey().toBytes(),
+                auditorPublicKey: X25519Secret.fromBytes(new Uint8Array(32).fill(9))
+                  .publicKey()
+                  .toBytes(),
                 bump,
                 hasPolicy: false,
               }),

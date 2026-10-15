@@ -1,7 +1,6 @@
 package custom_ring
 
 import (
-	"crypto/elliptic"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -17,7 +16,7 @@ type BaseParameters struct {
 	PrivateTxHash   *big.Int
 	TxViewingSk     [scalarLen]byte
 	EphSk           [scalarLen]byte
-	AuditorPk       [uncompressedPubkeyLen]byte
+	AuditorPk       [32]byte
 	Salt            [16]byte
 	NOut            uint8
 	Outputs         [base.AuditOutputSlots]AuditOpening
@@ -97,14 +96,11 @@ func (p *BaseParameters) UnmarshalJSON(data []byte) error {
 	if err = bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
 		return err
 	}
-	if err = validateP256Scalar(p.EphSk[:], "ephSk"); err != nil {
-		return err
-	}
 	if err = bytesFromHex(p.AuditorPk[:], raw.AuditorPk, "auditorPk"); err != nil {
 		return err
 	}
-	if x, y := elliptic.Unmarshal(elliptic.P256(), p.AuditorPk[:]); x == nil || y == nil {
-		return fmt.Errorf("custom-ring: auditorPk is not a P256 point")
+	if err := validateX25519Point(p.AuditorPk[:], "auditorPk"); err != nil {
+		return err
 	}
 	if err = bytesFromHex(p.Salt[:], raw.Salt, "salt"); err != nil {
 		return err

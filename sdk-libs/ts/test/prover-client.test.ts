@@ -1,4 +1,5 @@
-import { p256 } from "@noble/curves/nist.js";
+import { x25519 } from "@noble/curves/ed25519.js";
+
 import { address, getBase58Decoder } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,9 +105,8 @@ function transferInputs(): ProverInputs {
   };
 }
 
-/** The uncompressed P-256 point of the scalar [4; 32]. */
-const AUDITOR_PK_HEX =
-  "0x0473103ec30b3ccf57daae08e93534aef144a35940cf6bbba12a0cf7cbd5d65a64d82c8c99e9d3c45f9245ba9b27982c9aea8ec1db94b19c44795942c0eb22aa32";
+/** Canonical X25519 coordinate of the secret [4; 32]. */
+const AUDITOR_PK_HEX = `0x${Buffer.from(x25519.getPublicKey(new Uint8Array(32).fill(4))).toString("hex")}`;
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -180,7 +180,7 @@ describe("compressed ring prover contracts", () => {
       const proof = proofFor({ circuitType: `custom-ring-${kind}-policy` });
       const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
       const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-      const policy = ringRequest(p256.getPublicKey(bytes(4), false));
+      const policy = ringRequest(x25519.getPublicKey(bytes(4)));
       const prove = () =>
         kind === "compressed"
           ? prover.proveCustomRingCompressedPolicy({
@@ -197,7 +197,7 @@ describe("compressed ring prover contracts", () => {
 
   it("nests the member policy beside the transaction salt only", () => {
     const request = {
-      policy: ringRequest(p256.getPublicKey(bytes(4), false)),
+      policy: ringRequest(x25519.getPublicKey(bytes(4))),
       transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
     };
     const body = customRingCompressedPolicyProofRequest(request);
@@ -225,7 +225,7 @@ describe("compressed ring prover contracts", () => {
       newProof: Array.from({ length: 40 }, () => bytes(0)),
       nullifierSecret,
       ephemeralSecret: bytes(6),
-      auditorPublicKey: p256.getPublicKey(bytes(4), false),
+      auditorPublicKey: x25519.getPublicKey(bytes(4)),
     };
     const body = customRingRegisterKeyProofRequest(request);
     expect(body).toMatchObject({
@@ -234,7 +234,7 @@ describe("compressed ring prover contracts", () => {
       nullifierSecret: `0x${"0".repeat(62)}07`,
       ephSk: fieldHex(6),
     });
-    expect(String(body["auditorPk"])).toHaveLength(132);
+    expect(String(body["auditorPk"])).toHaveLength(66);
     expect(String(body["ephSk"])).toHaveLength(66);
     expect(body).not.toHaveProperty("key");
     expect(body["registryNewRoot"]).toBe(fieldHex(2));
@@ -270,7 +270,7 @@ describe("compressed ring prover contracts", () => {
         return Response.json(proofFor(String(init?.body)));
       },
     });
-    const request = ringRequest(p256.getPublicKey(bytes(4), false));
+    const request = ringRequest(x25519.getPublicKey(bytes(4)));
     const velocity = {
       ...request.velocity,
       windowSlots: 100n,
@@ -673,7 +673,7 @@ describe("prover request routing", () => {
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
-    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+    const auditorPublicKey = x25519.getPublicKey(bytes(4));
 
     await prover.proveCustomRingPolicy(ringRequest(auditorPublicKey));
 
@@ -716,7 +716,7 @@ describe("prover request routing", () => {
       "windowSlots",
     ]);
     expect(body["circuitType"]).toBe("custom-ring-policy");
-    expect(body["auditorPk"]).toHaveLength(132);
+    expect(body["auditorPk"]).toHaveLength(66);
     expect(body["publicInputHash"]).toHaveLength(66);
     const answers = body["answers"] as Record<string, unknown>[];
     expect(answers).toHaveLength(10);
@@ -730,7 +730,7 @@ describe("prover request routing", () => {
       await expect(
         prover.proveCustomRingPolicy(ringRequest(auditorPublicKey)),
       ).rejects.toMatchObject({
-        code: "CLIENT_INVALID_P256_KEY",
+        code: "CLIENT_INVALID_PROOF_INPUTS",
       });
     }
     // The server rejects `answers.len() != 10`, an unpadded answers array must not leave the client.
@@ -749,7 +749,7 @@ describe("prover request routing", () => {
   });
 
   it("sends each escrowed output key beside its opening like Go `writeRegistryKey`", async () => {
-    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+    const auditorPublicKey = x25519.getPublicKey(bytes(4));
     const key = {
       next: bytes(12),
       ctHash: bytes(13),
@@ -802,7 +802,7 @@ describe("prover request routing", () => {
       });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+    const auditorPublicKey = x25519.getPublicKey(bytes(4));
 
     await prover.proveCustomRingBase(auditRequest(auditorPublicKey));
 
@@ -822,12 +822,12 @@ describe("prover request routing", () => {
       "txViewingSk",
     ]);
     expect(body["circuitType"]).toBe("custom-ring-base");
-    expect(body["auditorPk"]).toHaveLength(132);
+    expect(body["auditorPk"]).toHaveLength(66);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(
         prover.proveCustomRingBase(auditRequest(auditorPublicKey)),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
     }
     expect(raw).toHaveLength(1);
   });
@@ -1340,7 +1340,7 @@ describe("dummy prover inputs", () => {
 
 /** A policy request whose `resolution` the prover would answer with. */
 function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
-  const policy = ringRequest(p256.getPublicKey(bytes(4), false));
+  const policy = ringRequest(x25519.getPublicKey(bytes(4)));
   const tree = {
     tree: treeAddress(3),
     id: 3,

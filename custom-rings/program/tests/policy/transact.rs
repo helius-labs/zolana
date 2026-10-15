@@ -65,7 +65,7 @@ pub(crate) fn transact_data() -> TransactIxData {
         ring_data_hash: None,
         outputs: vec![confidential_output()],
         messages: vec![MessageData {
-            view_tag: auditor_pubkey(2)[1..33].try_into().expect("view tag"),
+            view_tag: auditor_pubkey(4)[1..33].try_into().expect("view tag"),
             data: {
                 let mut data = vec![0u8; AUDITOR_MESSAGE_LEN];
                 data[0] = 0x02;
@@ -164,7 +164,7 @@ fn revocation_fixture(nullifier_root_index: u16, target: RevocationTarget) -> Fi
 
 fn revocation_fixture_with(ix: CustomRingTransactIxData, target: RevocationTarget) -> Fixture {
     let fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &revoking(ix)),
     );
     with_target(fixture, target)
@@ -250,14 +250,14 @@ const NULLIFIER_ROTATIONS: u16 = (NULLIFIER_TREE_ROOT_HISTORY_CAPACITY - 2) as u
 
 fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
     transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         transact_body(state_root_index, nullifier_root_index),
     )
 }
 
 fn policy_fixture_with(ix: CustomRingTransactIxData) -> Fixture {
     transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     )
 }
@@ -268,7 +268,7 @@ fn policy_fixture_with(ix: CustomRingTransactIxData) -> Fixture {
 fn an_audit_only_ring_reaches_the_audit_proof() {
     let (mollusk, _) = setup_mollusk();
     let fixture = audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         encode_transact(
             tag::TRANSACT,
             &audit_ix_data(bogus_proof(), transact_data()),
@@ -283,7 +283,7 @@ fn an_audit_only_ring_reaches_the_audit_proof() {
 fn a_policy_ring_cannot_spend_through_the_audit_layout() {
     let (mollusk, _) = setup_mollusk();
     let fixture = audit_transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         transact_body(0, 0),
     );
     fixture.expect_err(
@@ -321,7 +321,7 @@ fn a_policy_tree_count_outside_the_slots_is_rejected_exactly() {
         let mut ix = ix_data(0, 0, 0, transact_data());
         ix.policy_trees = vec![ix.policy_trees[0]; count];
         transact_fixture(
-            initialized_config_account(authority(), auditor_pubkey(2)),
+            initialized_config_account(authority(), auditor_pubkey(4)),
             encode_transact(tag::TRANSACT, &ix),
         )
         .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTrees));
@@ -335,7 +335,7 @@ fn more_contexts_than_tree_accounts_are_rejected_exactly() {
     let mut ix = ix_data(0, 0, 0, transact_data());
     ix.policy_trees.push(ix.policy_trees[0]);
     transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     )
     .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTrees));
@@ -347,7 +347,7 @@ fn a_repeated_policy_tree_is_rejected_exactly() {
     let mut ix = ix_data(0, 0, 0, transact_data());
     ix.policy_trees.push(ix.policy_trees[0]);
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     );
     insert_after_policy_trees(
@@ -367,7 +367,7 @@ fn a_second_policy_tree_reaches_the_proof() {
     let mut ix = ix_data(0, 0, 0, transact_data());
     ix.policy_trees.push(ix.policy_trees[0]);
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     );
     insert_after_policy_trees(&mut fixture, other_tree_slot());
@@ -383,7 +383,7 @@ fn a_stale_index_into_a_second_policy_tree_is_rejected_exactly() {
         nullifier_tree_root_index: 5,
     });
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     );
     insert_after_policy_trees(&mut fixture, other_tree_slot());
@@ -433,7 +433,7 @@ fn an_index_on_an_empty_revocation_slot_is_rejected_exactly() {
     let mut audit = audit_ix_data(bogus_proof(), transact_data());
     audit.revocation_tree_indexes[0] = 1;
     audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &audit),
     )
     .expect_err(
@@ -446,7 +446,7 @@ fn an_index_on_an_empty_revocation_slot_is_rejected_exactly() {
 fn an_audit_only_ring_takes_no_policy_trees() {
     let (mollusk, _) = setup_mollusk();
     audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         transact_body(0, 0),
     )
     .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTrees));
@@ -486,7 +486,7 @@ fn a_registry_index_without_escrow_is_rejected_exactly() {
     let mut audit = audit_ix_data(bogus_proof(), transact_data());
     audit.key_registry_root_index = 1;
     audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &audit),
     )
     .expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));

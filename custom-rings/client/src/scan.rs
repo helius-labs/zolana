@@ -17,10 +17,10 @@ use std::{
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
 };
+use zolana_keypair::{X25519Pubkey, X25519Secret};
 
 use solana_signature::Signature;
 use zolana_client::{IndexerRpcConfig, Rpc};
-use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -58,7 +58,7 @@ pub struct AuditedPage {
 /// matches output tags and message tags.
 pub struct RingScan<'a> {
     ring_program_id: solana_address::Address,
-    auditor_key: &'a P256Pubkey,
+    auditor_key: &'a X25519Pubkey,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -69,7 +69,7 @@ pub struct RingScan<'a> {
 /// Scans and audits the bounded page range in one operation.
 pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Secret,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -86,7 +86,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(100) {
 };
 
 impl<'a> RingScan<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor_key: &'a P256Pubkey) -> Self {
+    pub fn new(ring_program_id: solana_address::Address, auditor_key: &'a X25519Pubkey) -> Self {
         Self {
             ring_program_id,
             auditor_key,
@@ -192,7 +192,7 @@ impl<'a> RingScan<'a> {
 }
 
 impl<'a> RingAudit<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor: &'a ViewingKey) -> Self {
+    pub fn new(ring_program_id: solana_address::Address, auditor: &'a X25519Secret) -> Self {
         Self {
             ring_program_id,
             auditor,

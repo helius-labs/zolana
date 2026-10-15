@@ -14,7 +14,7 @@ type KeyRegisterParameters struct {
 	registryInsertion
 	NullifierSecret [scalarLen]byte
 	EphSk           [scalarLen]byte
-	AuditorPk       [uncompressedPubkeyLen]byte
+	AuditorPk       [32]byte
 }
 
 type keyRegisterParametersJSON struct {
@@ -60,13 +60,10 @@ func (p *KeyRegisterParameters) UnmarshalJSON(data []byte) error {
 	if err := bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
 		return err
 	}
-	if err := validateP256Scalar(p.EphSk[:], "ephSk"); err != nil {
-		return err
-	}
 	if err := bytesFromHex(p.AuditorPk[:], raw.AuditorPk, "auditorPk"); err != nil {
 		return err
 	}
-	if err := validateP256Point(p.AuditorPk[:], "auditorPk"); err != nil {
+	if err := validateX25519Point(p.AuditorPk[:], "auditorPk"); err != nil {
 		return err
 	}
 	return p.registryInsertion.decode(raw.registryInsertionJSON, rail)

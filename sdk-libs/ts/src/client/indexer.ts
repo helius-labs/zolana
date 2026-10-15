@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
 import { ZolanaApi, ApiError } from "../api/index.js";
@@ -188,7 +189,7 @@ export class ZolanaIndexer {
         nextIndex: response.nextIndex,
         next: hashBytes(response.next),
         index: response.index,
-        ephemeralPublicKey: decodeP256(response.ephPk, method, "$.ephPk"),
+        ephemeralPublicKey: decodeX25519(response.ephPk, method, "$.ephPk"),
         ciphertext: decodeCiphertext(response.ciphertext, method, "$.ciphertext"),
         proof: Object.freeze(response.proof.map(hashBytes)),
       });
@@ -618,6 +619,15 @@ function decodeP256(value: string, method: string, path: string): P256PublicKey 
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
   try {
     return P256PublicKey.fromBytes(bytes as Bytes33);
+  } catch {
+    throw invalidResponse(method, path);
+  }
+}
+function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
+  const bytes = decodeBase64(value, path);
+  if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
+  try {
+    return X25519PublicKey.fromBytes(bytes as Bytes33);
   } catch {
     throw invalidResponse(method, path);
   }

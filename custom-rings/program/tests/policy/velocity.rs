@@ -58,7 +58,7 @@ fn velocity_transact() -> TransactIxData {
 
 fn velocity_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, approval_required, transact),
     );
     fixture.set_account("policy_config", velocity_policy_config_account());
@@ -215,7 +215,7 @@ fn an_approval_needs_the_configured_cosigner() {
 fn an_approval_outside_velocity_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, 1, transact_data()),
     )
     .expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));

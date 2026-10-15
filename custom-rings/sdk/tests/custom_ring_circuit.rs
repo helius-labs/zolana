@@ -5,7 +5,7 @@
 
 use custom_ring_interface::policy_verifying_key::VERIFYINGKEY;
 use custom_ring_sdk::AuditorMessage;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::X25519Secret;
 
 /// The `go_vectors.rs` fixture, also the Go circuit test's (scalars 0x11 / 0x22
 /// / 0x33).
@@ -18,12 +18,8 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
     <[u8; N]>::try_from(decoded.as_slice()).expect("expected byte length")
 }
 
-fn viewing_key(hex_str: &str) -> ViewingKey {
-    ViewingKey::from_bytes(&hex_bytes::<32>(hex_str)).expect("valid P-256 scalar")
-}
-
 fn fixture_ciphertext() -> [u8; 32] {
-    hex_bytes::<32>("6de7c18c3c3676ca517647a25df33a7150ace3e07b410bc296fac11b1355382b")
+    hex_bytes::<32>("02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314")
 }
 
 /// One public input plus the emulated-P256 gadget's BSB22 commitment, `vk_ic`
@@ -39,8 +35,12 @@ fn the_committed_verifying_key_carries_a_bsb22_commitment() {
 /// would decrypt nothing.
 #[test]
 fn the_auditor_recovers_the_exact_scalar() {
-    let recovered = AuditorMessage::new(viewing_key(EPH_SK).pubkey(), fixture_ciphertext())
-        .decrypt(&viewing_key(AUDITOR_SK))
+    let recovered = AuditorMessage::new(envelope_key(EPH_SK).pubkey(), fixture_ciphertext())
+        .decrypt(&envelope_key(AUDITOR_SK))
         .expect("auditor decrypt");
     assert_eq!(*recovered, hex_bytes::<32>(TX_SK));
+}
+
+fn envelope_key(s: &str) -> X25519Secret {
+    X25519Secret::from_bytes(&hex_bytes::<32>(s)).unwrap()
 }

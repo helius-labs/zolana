@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { decryptRingDepositUtxo } from "../src/ring/deposit-payload.js";
 import { address, AccountRole, getAddressDecoder, type Signature } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -46,10 +47,10 @@ beforeAll(initializePoseidon);
 
 describe("deposit disclosure", () => {
   it("pins the shared Rust and Go encryption and statement vector", () => {
-    const auditor = ViewingKey.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
+    const auditor = X25519Secret.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
     const generate = vi
-      .spyOn(ViewingKey, "generate")
-      .mockImplementation(() => ViewingKey.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
+      .spyOn(X25519Secret, "generate")
+      .mockImplementation(() => X25519Secret.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
     const sealed = sealRingDepositOpenings(
       [
         { ownerHash: field(1n), blinding: field(3n), recipientCiphertext: Uint8Array.of(1) },
@@ -69,8 +70,8 @@ describe("deposit disclosure", () => {
       expect(
         sealed.capsules.map((capsule) => Buffer.from(capsule.ciphertext).toString("hex")),
       ).toEqual([
-        "146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5",
-        "74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c",
+        "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144",
+        "24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820",
       ]);
       const hash = ringDepositPublicInputHash({
         contextHash,
@@ -82,7 +83,7 @@ describe("deposit disclosure", () => {
         auditorPublicKey: auditor.publicKey(),
       });
       expect(Buffer.from(hash).toString("hex")).toBe(
-        "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030",
+        "0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef",
       );
     } finally {
       generate.mockRestore();
@@ -91,7 +92,7 @@ describe("deposit disclosure", () => {
     }
   });
   it("opens every slot of one shared stream and preserves recipient ciphertext", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const openings = Array.from({ length: 8 }, (_, index) => ({
       ownerHash: field(BigInt(index + 1)),
       blinding: field(BigInt(index + 11)),
@@ -139,7 +140,7 @@ describe("deposit disclosure", () => {
   });
 
   it("binds the entire SPP wire, both program addresses, commitments, and ciphertext", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const sealed = sealRingDepositOpenings(
       [{ ownerHash: field(1n), blinding: field(2n), recipientCiphertext: Uint8Array.of(3) }],
       auditor.publicKey(),
@@ -172,7 +173,7 @@ describe("deposit disclosure", () => {
   });
 
   it("accepts legacy recipient ciphertext and unwraps disclosed deposits", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const envelope = ViewingKey.generate();
     const recipient = ShieldedKeypair.generate();
     const r = field(15n);
@@ -220,7 +221,7 @@ describe("deposit disclosure", () => {
   });
 
   it("wraps one proof around eight capsules and leaves the SPP deposit bytes intact", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const sealed = sealRingDepositOpenings(
       Array.from({ length: 8 }, () => ({
         ownerHash: field(1n),
@@ -290,8 +291,8 @@ describe("deposit disclosure", () => {
   });
 
   it("serializes the queued circuit contract and rejects noncanonical fields or padding", async () => {
-    const auditor = ViewingKey.generate();
-    const ephemeral = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
+    const ephemeral = X25519Secret.generate();
     const input: CustomRingDepositProofRequest = {
       publicInputHash: field(1n),
       contextHash: field(2n),
@@ -301,7 +302,7 @@ describe("deposit disclosure", () => {
       blindings: [field(4n), ...Array.from({ length: 7 }, () => field(0n))],
       keys: Array.from({ length: 8 }, () => undefined),
       ephemeralSecret: ephemeral.secretBytes(),
-      auditorPublicKey: auditor.publicKey().toUncompressed(),
+      auditorPublicKey: auditor.publicKey().u(),
     };
     try {
       expect(customRingDepositProofRequest(input)).toMatchObject({
@@ -322,9 +323,9 @@ describe("deposit disclosure", () => {
       ).toThrow(invalidInputs);
       expect(() => customRingDepositProofRequest({ ...input, count: 0 })).toThrow(invalidInputs);
       expect(() => customRingDepositProofRequest({ ...input, count: 9 })).toThrow(invalidInputs);
-      expect(() => customRingDepositProofRequest({ ...input, ephemeralSecret: field(0n) })).toThrow(
-        invalidInputs,
-      );
+      expect(() =>
+        customRingDepositProofRequest({ ...input, auditorPublicKey: new Uint8Array(32).fill(255) }),
+      ).toThrow(invalidInputs);
       expect(() =>
         customRingDepositProofRequest({ ...input, auditorPublicKey: new Uint8Array(65) }),
       ).toThrow(invalidInputs);
@@ -449,7 +450,7 @@ describe("deposit audit control", () => {
   });
 
   it("sets the control with config authority and enables it only on opt-in initialization", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     try {
       const input = {
         ringProgramId: RING,
@@ -482,7 +483,7 @@ describe("deposit audit control", () => {
     { required: true, fails: false },
     { required: true, fails: true },
   ])("honors the deposit setting and wipes proof inputs %o", async ({ required, fails }) => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const recipient = ShieldedKeypair.generate();
     const [config, bump] = await ringConfigPda(RING);
     const [setting, settingBump] = await ringDepositAuditPda(RING);
@@ -541,7 +542,7 @@ describe("deposit audit control", () => {
 
 describe("deposit recovery", () => {
   it("refuses a ring history truncated by the page budget", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const source = ShieldedKeypair.generate();
     const key = source.nullifierKey();
     const client = {
@@ -574,7 +575,7 @@ describe("deposit recovery", () => {
     }
   });
   it("recovers disclosed deposits with committed metadata and follows their ring merges", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const source = ShieldedKeypair.generate();
     const address = source.shieldedAddress();
     const key = source.nullifierKey();
