@@ -45,7 +45,11 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		{"transfer_p256_confidential_2_4.key", true, true, TransferConfidentialCircuitType},
 	}
 
-	dir := t.TempDir()
+	// A parent directory named like another rail must not change the result.
+	dir := filepath.Join(t.TempDir(), "ring-merge-transfer")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	for _, tc := range cases {
 		ps := &TransferProofSystem{
 			NInputs:          2,

@@ -279,8 +279,9 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	lowerPath := strings.ToLower(path)
-	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
+	// Classify by file name only, a parent directory name must not pick the rail.
+	name := strings.ToLower(filepath.Base(path))
+	if circuitType, ok := ringCircuitOfKeyFile(name); ok {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,
 		}
@@ -290,7 +291,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.ProvingKeySha256 = digest
 		return ps, nil
-	} else if strings.Contains(lowerPath, "transfer") {
+	} else if strings.Contains(name, "transfer") {
 		ps := new(TransferProofSystem)
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
@@ -299,12 +300,12 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		ps.ProvingKeySha256 = digest
 		// Transfer variants are resolved from canonical key filenames. The
 		// RequiresP256 header is retained as a consistency check for P256 keys.
-		ring := strings.Contains(strings.ToLower(path), "ring")
-		p256Ring := strings.Contains(strings.ToLower(path), "p256_ring")
+		ring := strings.Contains(name, "ring")
+		p256Ring := strings.Contains(name, "p256_ring")
 		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "ring" case: the name contains both
 		// "transfer" (matched this branch) and "ring".
-		ringAuthority := strings.Contains(strings.ToLower(path), "ring_authority")
+		ringAuthority := strings.Contains(name, "ring_authority")
 		switch {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
@@ -317,7 +318,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.Confidential = !ringAuthority
 		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "merge") {
+	} else if strings.Contains(name, "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
 		// (merge_24_1.key) carries no "transfer" substring, so it needs its own
 		// branch or it would fall through to the unrecognized-file error.
@@ -329,13 +330,13 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		ps.ProvingKeySha256 = digest
 		// merge_ring_24_1.key is the policy-ring variant; the default merge file is
 		// merge_24_1.key.
-		if strings.Contains(strings.ToLower(path), "ring") {
+		if strings.Contains(name, "ring") {
 			ps.CircuitType = MergeRingCircuitType
 		} else {
 			ps.CircuitType = MergeCircuitType
 		}
 		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "address-append") {
+	} else if strings.Contains(name, "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
