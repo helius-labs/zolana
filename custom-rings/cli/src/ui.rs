@@ -64,7 +64,8 @@ pub fn accept(_answer: &str) -> Result<(), String> {
 pub fn line(label: &str, value: impl Display) {
     let text = value.to_string();
     let styled = tone(&text).unwrap_or_default().apply_to(text);
-    println!("{}{styled}", dim().apply_to(format!("{label:<12}")));
+    let width = label.len().max(11) + 1;
+    println!("{}{styled}", dim().apply_to(format!("{label:<width$}")));
 }
 
 pub fn heading(icon: &str, text: &str) {
