@@ -46,6 +46,8 @@ fn merge_data() -> MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0u8; 32],
+        output_ciphertext_salt: [0u8; 16],
+        output_ciphertext: [[0u8; 32]; 3],
         eddsa_owner: true,
         private_tx_hash: [0u8; 32],
         nullifiers: merge_nullifiers(),

@@ -151,6 +151,7 @@ pub(crate) fn process_merge_core(
         let forester_fee = tree
             .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;
+        tree.record_nullifier_pdas_created(ix.nullifiers.len() as u64);
         (
             InputTreeResult {
                 input_tree: InputTreeSequence {

@@ -9,7 +9,9 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
-    state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig},
+    state::{
+        default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig, MAX_FEE_PER_NULLIFIER,
+    },
 };
 use zolana_program::instruction::{
     CreateAssetCounter, CreateProtocolConfig, CreateRingConfig, CreateTree,
@@ -189,12 +191,15 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
         ..canonical
     };
 
+    // The first step rejects them, before it allocates the account and takes
+    // the creation lamports: later steps must repeat the first step's bytes,
+    // so a bad first step would otherwise strand the tree id.
     let err = pool
         .rpc
         .create_tree_with_nullifier_params(&pool.authority, wrong_zkp_ratio)
         .expect_err("non-canonical nullifier params must fail");
     Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(1)
+        .at(0)
         .assert_litesvm(err);
 }
 
@@ -674,4 +679,61 @@ fn asset_counter_creation_rejects_a_non_canonical_pda() {
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("non-canonical counter PDA must fail");
     Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
+}
+
+#[test]
+fn tree_creation_rejects_a_fee_above_the_cap() {
+    let mut pool = Pool::initialized();
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let mut create = create_tree_steps(&pool, tree_id);
+    create.fees.fee_per_nullifier = MAX_FEE_PER_NULLIFIER + 1;
+
+    let err = pool
+        .rpc
+        .create_and_send_default_payer_transaction(&create.instructions(), &[&pool.authority])
+        .expect_err("a fee above the cap must fail");
+    Rejection::pool(ShieldedPoolError::TreeFeeTooHigh).assert_litesvm(err);
+    assert!(pool.rpc.account_data(&create.tree()).is_none());
+}
+
+/// A tree creation spread over several transactions is bound to
+/// the payer and the instruction data of its first step.
+#[test]
+fn tree_creation_steps_must_repeat_the_first_steps_payload() {
+    let mut pool = Pool::initialized();
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let create = create_tree_steps(&pool, tree_id);
+    pool.rpc
+        .create_and_send_default_payer_transaction(&[create.allocation_step()], &[&pool.authority])
+        .expect("first allocation step");
+
+    let mut other_fees = create_tree_steps(&pool, tree_id);
+    other_fees.fees.fee_per_nullifier += 1;
+    let err = pool
+        .rpc
+        .create_and_send_default_payer_transaction(
+            &[other_fees.allocation_step()],
+            &[&pool.authority],
+        )
+        .expect_err("a later step with other fees must fail");
+    Rejection::pool(ShieldedPoolError::TreeCreationMismatch).assert_litesvm(err);
+
+    let other_payer = pool.funded_signer(1_000_000_000_000);
+    let mut other_payer_create = create_tree_steps(&pool, tree_id);
+    other_payer_create.payer = other_payer.pubkey();
+    let err = pool
+        .rpc
+        .create_and_send_transaction(
+            &other_payer_create.instructions()[1..],
+            &other_payer.pubkey(),
+            &[&other_payer, &pool.authority],
+        )
+        .expect_err("another payer cannot finish the tree");
+    Rejection::pool(ShieldedPoolError::TreeCreationMismatch).assert_litesvm(err);
+
+    pool.rpc
+        .create_and_send_default_payer_transaction(&create.instructions()[1..], &[&pool.authority])
+        .expect("the first payer finishes the tree with the same payload");
+    let tree = pool.rpc.account_data(&create.tree()).expect("tree");
+    assert_eq!(tree.get(1), Some(&zolana_tree::INITIALIZED));
 }

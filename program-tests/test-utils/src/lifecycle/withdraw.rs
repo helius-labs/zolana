@@ -62,8 +62,7 @@ impl LifecycleHarness {
         let recipient_before = self.rpc.client().get_balance(&recipient.pubkey())?;
 
         let from_keypair = self.actor(from).keypair.clone();
-        // An eddsa actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer).
+        // An eddsa actor pays for its own spend and signs it as the input owner.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -124,6 +123,7 @@ impl LifecycleHarness {
             })
             .collect();
 
+        let owner_signers = proof_inputs.owner_signer_pubkeys()?;
         let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
         let ix_data = assembled.with_proof(proof);
@@ -132,7 +132,7 @@ impl LifecycleHarness {
             payer: fee_payer.pubkey(),
             input_trees: vec![self.tree],
             output_tree: self.tree,
-            owner_signers: Vec::new(),
+            owner_signers,
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: recipient.pubkey(),

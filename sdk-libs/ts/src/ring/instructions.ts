@@ -203,7 +203,7 @@ type RingTransactCommon = RingTransactTrees &
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
-      /** Non-payer input owners, the ed25519 rail adds them as signers. */
+      /** Ed25519 input owners in signer-vector order, the fee payer too when it owns an input. */
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
       withdrawal?: TransactWithdrawal;

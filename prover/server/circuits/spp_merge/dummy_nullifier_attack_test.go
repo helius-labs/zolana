@@ -41,8 +41,8 @@ func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID)
 }
 
-// refreshPublicInputHash hashes the common public columns followed by the
-// rail-specific tail.
+// refreshPublicInputHash hashes the common public columns, the rail-specific
+// tail, then the salt and the output ciphertext.
 func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
 	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {
@@ -52,7 +52,7 @@ func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.I
 		}
 		return out
 	}
-	f.publicInputHash = hashChain4(t, append([]*big.Int{
+	preimage := append([]*big.Int{
 		spptest.MustRightHashChain4(t, asBigInts(f.public.Nullifiers)),
 		f.public.OutputHash.(*big.Int),
 		spptest.MustTreeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
@@ -60,7 +60,11 @@ func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.I
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
-	}, tail...))
+	}, tail...)
+	preimage = append(preimage, f.public.OutputCiphertextSalt.(*big.Int))
+	preimage = append(preimage, f.outputCiphertext...)
+	f.publicInputPreimage = preimage
+	f.publicInputHash = hashChain4(t, preimage)
 }
 
 // TestMergeRejectsVictimNullifierInDummySlot (INV-MERGE-16): publishing the first real

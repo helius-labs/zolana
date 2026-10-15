@@ -624,6 +624,7 @@ describe("address and instruction builders", () => {
       payer,
       inputTree: TREE,
       outputTree: OWNER,
+      ownerSigners: [],
       data: {
         expiryUnixTs: 0n,
         privateTxHash: new Uint8Array(32) as Bytes32,

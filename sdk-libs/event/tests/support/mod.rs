@@ -62,12 +62,36 @@ pub fn transact_ix(
     }
 }
 
+pub const MERGE_CIPHERTEXT_SALT: [u8; 16] = [0x5a; 16];
+
+pub const MERGE_CIPHERTEXT: [[u8; 32]; 3] = [[0x61; 32], [0x62; 32], [0x63; 32]];
+
+/// The data slot a rebuilt merge output carries, spelled out byte by byte:
+/// borsh `OutputDataEncoding::VerifiablyEncrypted` (variant 2, u32 LE length),
+/// scheme 6, the `merge_ring` output ring data hash, the salt, the ciphertext.
+pub fn merge_output_data(ring_data_hash: Option<[u8; 32]>) -> Vec<u8> {
+    let mut blob = vec![6u8];
+    if let Some(ring_data_hash) = ring_data_hash {
+        blob.extend_from_slice(&ring_data_hash);
+    }
+    blob.extend_from_slice(&MERGE_CIPHERTEXT_SALT);
+    for element in MERGE_CIPHERTEXT {
+        blob.extend_from_slice(&element);
+    }
+    let mut data = vec![2u8];
+    data.extend_from_slice(&u32::try_from(blob.len()).expect("blob").to_le_bytes());
+    data.extend_from_slice(&blob);
+    data
+}
+
 pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,
+        output_ciphertext_salt: MERGE_CIPHERTEXT_SALT,
+        output_ciphertext: MERGE_CIPHERTEXT,
         eddsa_owner: true,
         private_tx_hash: [7u8; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)

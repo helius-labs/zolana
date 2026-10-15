@@ -35,6 +35,7 @@ pub fn process_close_nullifier_pdas(accounts: &mut [AccountView], data: &[u8]) -
             tree_id: tree_account.tree_id(),
             close_before_index: tree_account.close_before_index(),
         };
+        tree_account.record_nullifier_pdas_closed(closed);
         let paid = tree_account.take_close_reimbursement(closed);
         (close, paid)
     };

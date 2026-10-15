@@ -180,6 +180,9 @@ impl ConfidentialTransaction {
         Ok(Some(owner.signing_pubkey.confidential_view_tag()?))
     }
 
+    /// The first input owner other than the fee payer. A dummy output may name
+    /// any owner signer; skipping the payer keeps a self-paid transaction's
+    /// dummies naming its change output.
     fn named_input_owner_tag(&self) -> Result<Option<[u8; 32]>, TransactionError> {
         let payer = self.payer.to_bytes();
         for input in self

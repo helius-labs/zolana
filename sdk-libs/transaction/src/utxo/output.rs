@@ -96,6 +96,11 @@ impl SppProofOutputUtxo {
         self
     }
 
+    /// Attach application data and its commitment. SPP commits `data_hash`
+    /// unchecked: nothing verifies that it hashes `utxo_data`, so a reader must
+    /// recompute it under the application's encoding before trusting the
+    /// payload, and must reject non-empty data with a zero `data_hash`, which
+    /// no owner authorized.
     pub fn with_utxo_data(mut self, utxo_data: Vec<u8>, data_hash: [u8; 32]) -> Self {
         self.data_hash = Some(data_hash);
         self.set_data_record(DataRecord::UtxoData(utxo_data));

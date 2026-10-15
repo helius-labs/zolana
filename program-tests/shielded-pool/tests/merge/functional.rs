@@ -1,5 +1,5 @@
 use shielded_pool_tests::support::{
-    merge::RealMergeProof,
+    merge::{RealMerge, RealMergeProof},
     transact::{proof_env, tree_progress},
 };
 
@@ -7,10 +7,12 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program_test::Rejection;
 use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, assert_nullifier_pdas_absent, nullifier_pda_addresses,
     nullifier_pda_rent, tree_fees,
@@ -22,13 +24,13 @@ const MERGE_8_CU_CEILING: u64 = 225_000;
 
 const MERGE_24_CU_CEILING: u64 = 300_000;
 
-const MERGE_54_CU_CEILING: u64 = 450_000;
+const MERGE_52_CU_CEILING: u64 = 450_000;
 
 fn merge_cu_ceiling(input_count: usize) -> u64 {
     match input_count {
         8 => MERGE_8_CU_CEILING,
         24 => MERGE_24_CU_CEILING,
-        54 => MERGE_54_CU_CEILING,
+        52 => MERGE_52_CU_CEILING,
         other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
     }
 }
@@ -73,6 +75,61 @@ fn merge_with_compact_padding_spends_only_the_real_inputs() {
         assert_nullifier_pdas_absent(&pool.rpc, &tree, &[[0u8; 32]])
             .expect("no nullifier PDA for compact padding");
     }
+}
+
+/// The proof binds the salt and every ciphertext element as public inputs, so
+/// a relayer cannot swap in a ciphertext the owner cannot decrypt.
+#[test]
+fn merge_rejects_a_tampered_output_ciphertext_or_salt() {
+    let mut pool = proof_env();
+    let tree = pool.tree;
+    let merge = RealMergeProof {
+        input_count: 8,
+        real_input_count: 3,
+    }
+    .build_compact(&mut pool);
+    let tree_before = pool.rpc.account_data(&tree).expect("tree data");
+    let mut tampered = Vec::new();
+    for element in 0..3 {
+        let mut data = merge.data.clone();
+        let byte = data
+            .output_ciphertext
+            .get_mut(element)
+            .and_then(|element| element.last_mut())
+            .expect("ciphertext element byte");
+        *byte ^= 1;
+        tampered.push((format!("ciphertext element {element}"), data));
+    }
+    let mut data = merge.data.clone();
+    *data.output_ciphertext_salt.last_mut().expect("salt byte") ^= 1;
+    tampered.push(("salt".to_string(), data));
+
+    for (label, data) in tampered {
+        let ix = RealMerge {
+            data,
+            nullifiers: merge.nullifiers.clone(),
+            user_record: merge.user_record,
+            cache: merge.cache,
+        }
+        .instruction(&pool);
+        let error = pool
+            .rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &[],
+                ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+            )
+            .err()
+            .unwrap_or_else(|| panic!("a tampered {label} must not verify"));
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+            .at(0)
+            .assert_litesvm(error);
+    }
+    assert_eq!(
+        pool.rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "rejected merges leave the tree untouched"
+    );
 }
 
 fn merge_at_input_count(input_count: usize, real_input_count: usize) {

@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use zolana_client::{ClientError, Rpc};
@@ -130,15 +129,15 @@ pub fn decode_nullifier_pda(
         *nullifier_pda, expected_nullifier_pda,
         "nullifier PDA address"
     );
-    let decoded = NullifierPda::try_from_slice(&account.data)
-        .unwrap_or_else(|error| panic!("decode nullifier PDA {nullifier_pda}: {error}"));
+    let decoded = NullifierPda::read_from(&account.data)
+        .unwrap_or_else(|| panic!("decode nullifier PDA {nullifier_pda}"));
     let expected_nullifier_pda = NullifierPda {
         queue_index: decoded.queue_index,
         tree_id,
     };
     let expected_account = Account {
         lamports: nullifier_pda_rent,
-        data: borsh::to_vec(&expected_nullifier_pda).expect("serialize expected nullifier PDA"),
+        data: expected_nullifier_pda.to_account_data().to_vec(),
         owner: PROGRAM_ID_PUBKEY,
         executable: false,
         rent_epoch: account.rent_epoch,

@@ -73,6 +73,7 @@ fn error_codes_are_stable() {
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
+        (MissingFundingSigner as u32, 8173),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +153,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | PolicyFactRevoked
         | DelegateRequiresPolicy
         | InvalidRevocationTreeIndex
-        | InvalidPolicyTrees => {}
+        | InvalidPolicyTrees
+        | MissingFundingSigner => {}
     }
 }

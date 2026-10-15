@@ -793,7 +793,8 @@ function mergeProverRequest(
         }
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
-    asset: hex(inputs.output.circuit.asset, "asset"),
+    mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
+    outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt"),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),

@@ -41,8 +41,8 @@ type OutputParams struct {
 
 // MergeParameters is the flat, pre-computed witness for the n-in/1-out merge
 // circuit. The prover does no hashing: the client computes every field (utxo
-// hashes, nullifiers, tree roots/proofs, the private-tx hash, the encryption,
-// and the public-input hash) and sends them here.
+// hashes, nullifiers, tree roots/proofs, the private-tx hash, the mint chunks,
+// and the public-input hash over the output ciphertext) and sends them here.
 type MergeParameters struct {
 	// CircuitType selects the rail: MergeCircuitType (default) or
 	// MergeRingCircuitType (policy ring). It chooses which circuit the witness is
@@ -62,8 +62,10 @@ type MergeParameters struct {
 	// slot's tree.
 	OutputTreeID *big.Int
 
-	// Asset is the single asset shared by every real input and the merged output.
-	Asset *big.Int
+	// MintChunks are the hash_bytes_32 chunks of the mint shared by every real
+	// input and the merged output; the circuit derives the asset from them and
+	// encrypts them for the owner.
+	MintChunks [2]*big.Int
 
 	// RingProgramID is the policy-ring merge circuit's top-level public
 	// RingProgramID input (the ring program's pk_field). Every real input and the
@@ -88,6 +90,10 @@ type MergeParameters struct {
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int
+
+	// OutputCiphertextSalt is the per-proof pad nonce of the output ciphertext,
+	// carried in the instruction data.
+	OutputCiphertextSalt *big.Int
 
 	PublicInputHash *big.Int
 }

@@ -15,6 +15,7 @@ pub mod asset;
 pub mod data;
 pub mod decrypt;
 pub mod error;
+pub mod field;
 pub mod history;
 pub mod indexer_types;
 pub mod instructions;
@@ -27,8 +28,8 @@ pub mod utxo;
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
-    decrypt, decrypt_spendable, rebuild_merge, verify_owned, verify_spendable, DecryptionResult,
-    MergeRebuild, OwnedUtxos, SpendableDecryptionResult,
+    decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
+    SpendableDecryptionResult,
 };
 pub use error::TransactionError;
 pub use history::{History, HistoryEntry, HistoryKind};

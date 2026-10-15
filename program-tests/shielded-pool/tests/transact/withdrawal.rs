@@ -89,7 +89,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         payer: payer.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint: other_mint,
@@ -226,10 +226,9 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
 
     // The withdrawal spends the full amount, so slot 0 is a real zero-amount
-    // change output owned by the payer and slots 1-2 are dummies naming it.
-    // `AssertDummyTags` rejects a dummy tag that names only the payer, and the
-    // payer is this transaction's sole signer, so an all-dummy output set is
-    // unprovable; a wallet emits the same zero-amount change output.
+    // change output owned by the payer and slots 1-2 are dummies naming it, the
+    // same zero-amount change output a wallet builds. `AssertDummyTags` only
+    // accepts a dummy tag that names an owner signer or a real output's owner.
     let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let change_nullifier_pk = change_nullifier_key
         .pubkey()
@@ -328,7 +327,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         payer: payer.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -495,7 +494,8 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
             .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(AMOUNT as i64));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
+    // Both inputs are dummies, so no owner signs and the signer vector is all
+    // padding. The fee payer only owns the deposited output.
 
     let public_input_hash = PublicInputs {
         nullifiers: &nullifiers,
@@ -510,7 +510,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         },
         ring_program_id: &zero,
         input_flags: &fe(1),
-        signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
+        signer_pk_hashes: &[zero, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
         cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
@@ -526,7 +526,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: vec![payer_pubkey_hash],
+        signer_pk_hashes: Vec::new(),
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -688,7 +688,6 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
             .hash()
             .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(SPL_AMOUNT as i64));
-    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     let mint_bytes = mint.to_bytes();
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
@@ -705,7 +704,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         },
         ring_program_id: &zero,
         input_flags: &fe(1),
-        signer_pk_hashes: &[payer_hash, zero, zero],
+        // Both inputs are dummies: no owner signs.
+        signer_pk_hashes: &[zero, zero, zero],
         output_owner_pk_hashes: Some(&output_owner_hashes),
         cached_inputs: empty_cached_input_fields(nullifiers.len()).expect("cache selection"),
     }
@@ -721,7 +721,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: vec![payer_hash],
+        signer_pk_hashes: Vec::new(),
         public_input_hash: public_hash,
     });
     data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL deposit")
@@ -1044,7 +1044,7 @@ fn phase_transfer_to_recipient(
         payer: payer.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -1161,9 +1161,8 @@ fn phase_withdraw_recipient_utxo(
         dummy_input(&[21u8; 31], &nf_tree, tree_id).expect("withdraw dummy input");
     // The withdrawal spends the full transferred amount, so slot 0 is a real
     // zero-amount change output owned by the recipient (this transaction's only
-    // signer) and slots 1-2 are dummies naming it. `AssertDummyTags` rejects a
-    // dummy tag that names only the payer, so an all-dummy output set here is
-    // unprovable.
+    // owner signer) and slots 1-2 are dummies naming it. `AssertDummyTags` only
+    // accepts a dummy tag that names an owner signer or a real output's owner.
     let withdraw_change_nullifier_key = NullifierKey::from_secret([23u8; 31]);
     let withdraw_change_nullifier_pk = withdraw_change_nullifier_key
         .pubkey()
@@ -1263,7 +1262,7 @@ fn phase_withdraw_recipient_utxo(
         payer: recipient_owner.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![recipient_owner.pubkey()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

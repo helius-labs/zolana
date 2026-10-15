@@ -101,7 +101,6 @@ export async function buildRingListWriteTransaction(
         ringProgramId: params.ringProgramId,
         addressTree,
         outputTree,
-        payer: params.payer,
         entry: {
           listId: params.listId,
           member: params.member,

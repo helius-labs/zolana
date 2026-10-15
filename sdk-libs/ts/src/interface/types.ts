@@ -289,6 +289,13 @@ export interface MergeTransactInstructionData {
     c: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;
+  /**
+   * The output's amount and mint encrypted for the owner under a per-proof
+   * salt, so the owner rebuilds the output from this instruction alone. Both
+   * are public inputs of the merge proof.
+   */
+  readonly outputCiphertextSalt: Bytes16;
+  readonly outputCiphertext: readonly [Bytes32, Bytes32, Bytes32];
   readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];

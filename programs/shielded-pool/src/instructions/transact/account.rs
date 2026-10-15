@@ -95,7 +95,9 @@ impl<'a> TransactAccounts<'a> {
             .iter()
             .position(|account| !account.is_signer())
             .unwrap_or(remaining.len());
-        if signer_count > owner_signer_slots(usize::from(ix.circuit.num_inputs()))
+        // An owner that also pays takes no extra address, so the vector has
+        // one slot beyond `owner_signer_slots`.
+        if signer_count > owner_signer_slots(usize::from(ix.circuit.num_inputs())) + 1
             || (!allow_owner_signers && signer_count != 0)
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());

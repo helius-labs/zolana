@@ -8,7 +8,7 @@
 /** Input slots of the middle merge proof, the width an automatic merge sweeps. */
 export const MERGE_INPUT_COUNT = 24;
 
-export const MAX_MERGE_INPUTS = 54;
+export const MAX_MERGE_INPUTS = 52;
 
 export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
   8,

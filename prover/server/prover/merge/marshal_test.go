@@ -74,13 +74,15 @@ func TestMergeParametersJSONKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId"} {
+	for _, key := range []string{"treeSlots", "outputTreeId", "mintChunks", "outputCiphertextSalt"} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, data)
 		}
 	}
-	if _, ok := fields["privateTxBlinding"]; ok {
-		t.Fatal("privateTxBlinding must not be on the wire; the circuit derives it")
+	for _, key := range []string{"privateTxBlinding", "asset"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("%s must not be on the wire; the circuit derives it", key)
+		}
 	}
 
 	var slots []map[string]json.RawMessage
@@ -131,6 +133,19 @@ func TestMergeParametersRejectMissingUserNullifierSecret(t *testing.T) {
 	var got MergeParameters
 	if err := json.Unmarshal(stripped, &got); err == nil {
 		t.Fatal("expected an omitted userNullifierSecret to be rejected")
+	}
+}
+
+// The mint is exactly two hash_bytes_32 chunks; any other count would leave a
+// circuit signal unassigned or drop part of the mint.
+func TestMergeParametersRejectWrongMintChunkCount(t *testing.T) {
+	for _, chunks := range [][]string{nil, {"0x01"}, {"0x01", "0x02", "0x03"}} {
+		params := sampleParams().CreateMergeParametersJSON()
+		params.MintChunks = chunks
+		var got MergeParameters
+		if err := got.UpdateWithJSON(params); err == nil {
+			t.Fatalf("accepted %d mint chunks", len(chunks))
+		}
 	}
 }
 
@@ -237,20 +252,21 @@ func sampleParams() *MergeParameters {
 		NullifierRoot: big.NewInt(13),
 	}
 	return &MergeParameters{
-		Inputs:              inputs,
-		Output:              OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
-		TreeSlots:           treeSlots,
-		OutputTreeID:        big.NewInt(11),
-		Asset:               big.NewInt(1),
-		OwnerPkHash:         big.NewInt(0x1212),
-		UserNullifierPk:     big.NewInt(0x3333),
-		UserNullifierSecret: big.NewInt(0x4444),
-		OutputRingDataHash:  big.NewInt(0),
-		ExternalDataHash:    big.NewInt(0x6666),
-		PrivateTxHash:       big.NewInt(0x7777),
-		AllowDummyInputs:    big.NewInt(1),
-		PublicInputHash:     big.NewInt(0x8888),
-		RingProgramID:       big.NewInt(0),
+		Inputs:               inputs,
+		Output:               OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
+		TreeSlots:            treeSlots,
+		OutputTreeID:         big.NewInt(11),
+		MintChunks:           [2]*big.Int{big.NewInt(0x0102), big.NewInt(0x20)},
+		OwnerPkHash:          big.NewInt(0x1212),
+		UserNullifierPk:      big.NewInt(0x3333),
+		UserNullifierSecret:  big.NewInt(0x4444),
+		OutputRingDataHash:   big.NewInt(0),
+		ExternalDataHash:     big.NewInt(0x6666),
+		PrivateTxHash:        big.NewInt(0x7777),
+		AllowDummyInputs:     big.NewInt(1),
+		OutputCiphertextSalt: big.NewInt(0x5a17),
+		PublicInputHash:      big.NewInt(0x8888),
+		RingProgramID:        big.NewInt(0),
 	}
 }
 

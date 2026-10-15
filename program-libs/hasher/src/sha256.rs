@@ -1,6 +1,6 @@
 use crate::{
     errors::HasherError,
-    zero_bytes::{sha256::ZERO_BYTES, ZeroBytes},
+    zero_bytes::{sha256::ZERO_BYTES, sha256_be::ZERO_BYTES as ZERO_BYTES_BE, ZeroBytes},
     Hash, Hasher,
 };
 
@@ -67,6 +67,6 @@ impl Hasher for Sha256BE {
     }
 
     fn zero_bytes() -> &'static ZeroBytes {
-        &ZERO_BYTES
+        &ZERO_BYTES_BE
     }
 }

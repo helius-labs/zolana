@@ -433,7 +433,7 @@ async function transactAccounts(
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    ownerSigners?: readonly SignerAccount[];
+    ownerSigners: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
     cache?: TransactCacheAccounts;
     data: TransactInstructionData;
@@ -451,7 +451,7 @@ async function transactAccounts(
       input.inputTree,
       inputs.map((spent) => spent.nullifierHash),
     )),
-    ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
+    ...input.ownerSigners.map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
     ...cacheAccountMetas(input.cache),
   ];
@@ -459,15 +459,16 @@ async function transactAccounts(
 
 /**
  * Mirrors Rust `Transact::instruction`. `ownerSigners` are the Ed25519 input
- * owners other than `payer`; they sign after the nullifier PDAs, so a sponsor
- * can pay for a spend it does not own.
+ * owners in proof signer-vector order, listed as readonly signers right after
+ * the nullifier PDAs. An owner that also pays is listed here too: paying alone
+ * authorizes no spend, so a sponsor can pay for a spend it does not own.
  */
 export async function transactInstruction(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    ownerSigners?: readonly SignerAccount[];
+    ownerSigners: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
     cache?: TransactCacheAccounts;
     data: TransactInstructionData;

@@ -12,6 +12,7 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
+  mergeOutputKey,
   mergePrivateTxBlinding,
 } from "../src/keypair/merge/index.js";
 import { Merge, PreparedMerge } from "../src/transaction/instructions/builders.js";
@@ -66,6 +67,7 @@ function merge(inputs: readonly ProofInputUtxo[], outputTreeId = 7): Merge {
       dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
         mergeDummyNullifier(key, first.nullifier(), slot),
       ),
+      outputKey: mergeOutputKey(key, first.nullifier()),
     });
   } finally {
     key.destroy();
@@ -287,7 +289,7 @@ describe("ring merge", () => {
     }
   });
 
-  it("merges up to maxInputs ring notes and refuses a width outside 2 through 54", async () => {
+  it("merges up to maxInputs ring notes and refuses a width outside 2 through 52", async () => {
     const wallet = ringWallet(Array.from({ length: 10 }, (_, index) => BigInt(index + 1)));
     const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared }) => {
       const data = provenMerge(prepared);
@@ -328,8 +330,8 @@ describe("ring merge", () => {
     [8, 8],
     [9, 24],
     [24, 24],
-    [25, 54],
-    [54, 54],
+    [25, 52],
+    [52, 52],
   ])("preserves owner, asset, value and ring for %s fragmented inputs", (count, width) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
@@ -345,7 +347,7 @@ describe("ring merge", () => {
     expect(prepared.outputTreeId).toBe(7);
   });
 
-  it.each([2, 25, 54])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
+  it.each([2, 25, 52])("zeroes padding in the private tx hash of a %i-input merge", (count) => {
     const inputs = Array.from({ length: count }, (_, index) => input(BigInt(index + 1)));
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
@@ -383,7 +385,7 @@ describe("ring merge", () => {
     expect(assembly.outputHash).not.toEqual(prepared.output.hash(7));
   });
 
-  it("refuses foreign rings, owner data, and more than 54 inputs", () => {
+  it("refuses foreign rings, owner data, and more than 52 inputs", () => {
     expect(() => merge([input(3n), input(5n, treeAddress(1))])).toThrow(
       "TRANSACTION_MERGE_INPUT_RING_MISMATCH",
     );

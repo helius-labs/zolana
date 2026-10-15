@@ -64,7 +64,8 @@ func AssertPublishedOutputOwners(
 // output's published owner. Every entry of publicIdentities must itself be a
 // public input, which is what makes a dummy tag unable to disclose a private
 // identity such as a policy-ring recipient or the shared P256 owner during a
-// ring spend. See AssertDummyTags for why the payer is not a nameable identity.
+// ring spend. The fee payer is nameable only when it is also an owner
+// signer; otherwise it is not in the signer vector.
 //
 // A compact padding output (outputIsCompact, see CompactSlots) must publish
 // tag 0: SPP pads the owner tag chain with zeros for the outputs the
@@ -99,17 +100,13 @@ func AssertMaskedDummyOutputTags(
 }
 
 // AssertDummyTags constrains the public owner tag of every dummy output to
-// name a transaction participant: an owner signer other than the payer, or a
-// real output owner. A pad slot must be indistinguishable from a real one, so
-// its tag stays a free choice. An unconstrained tag would let the prover show
-// a payment to a third party who took no part in the transaction.
-// Self-attribution is available anyway (change and recipient outputs look
-// exactly like this), so the constraint costs no privacy. The payer is
-// excluded because a fee payer signs without taking part in the shielded
-// transfer and must not be shown as a recipient. A self-paying owner is still
-// nameable through the tag of its own change output, and a wallet that pads a
-// self-paid transaction without change adds a zero-amount change output
-// instead of a dummy. Callers pass the signer vector without the payer.
+// name a transaction participant: an owner signer or a real output owner. A
+// pad slot must be indistinguishable from a real one, so its tag stays a free
+// choice. An unconstrained tag would let the prover show a payment to a third
+// party who took no part in the transaction. Self-attribution is available
+// anyway (change and recipient outputs look exactly like this), so the
+// constraint costs no privacy. A fee payer that owns no input is not in the
+// signer vector, so a dummy cannot name it as a recipient.
 //
 // A compact padding output (outputIsCompact, see CompactSlots) instead
 // publishes tag 0: SPP pads the owner tag chain with zeros for the outputs the

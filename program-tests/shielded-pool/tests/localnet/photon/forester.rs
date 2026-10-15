@@ -360,6 +360,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         .first()
         .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
         .nullifier;
+    // The payer owns the inputs, so it signs as their owner as well.
+    let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
     let mut assembled = zolana_client::assemble(
         proof_inputs,
@@ -382,7 +384,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         payer: env.payer.pubkey(),
         input_trees: vec![env.tree_pubkey],
         output_tree: env.tree_pubkey,
-        owner_signers: Vec::new(),
+        owner_signers,
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }

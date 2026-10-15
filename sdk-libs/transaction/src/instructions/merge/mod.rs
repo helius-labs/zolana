@@ -5,12 +5,16 @@ mod blinding;
 mod encryption;
 mod inputs;
 mod ring;
+mod serialization;
 mod transaction;
 
 pub use blinding::{
-    merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
-    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+    merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
+    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOMAIN_MERGE_OUTPUT_CIPHERTEXT,
+    DOMAIN_MERGE_OUTPUT_KEY,
 };
+pub use encryption::MergeOutputSecrets;
+pub use serialization::{MergeOutputCiphertext, MergeOutputPlaintext};
 pub use transaction::MergeProofInputs;
 pub use zolana_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,

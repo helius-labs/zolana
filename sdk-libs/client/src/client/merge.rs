@@ -1,4 +1,4 @@
-//! Merging a wallet's UTXOs. A merge takes up to 54 plain UTXOs of one owner,
+//! Merging a wallet's UTXOs. A merge takes up to 52 plain UTXOs of one owner,
 //! one asset and one tree, and appends one UTXO holding their sum. The owner
 //! signs nothing: once its user record enables merging, a merge proved with its
 //! nullifier secret is valid from any fee payer.
@@ -33,8 +33,8 @@ use super::{
     UnsignedMessage, ZolanaClient,
 };
 
-/// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 54x1"
-/// in `program-tests/shielded-pool/CU_BENCHMARK.md`, measures 296,879 CU; the
+/// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
+/// in `program-tests/shielded-pool/CU_BENCHMARK.md`, measures 293,555 CU; the
 /// ceiling is the transaction-wide maximum.
 pub const MERGE_CU_LIMIT: u32 = 1_400_000;
 

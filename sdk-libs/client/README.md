@@ -70,7 +70,7 @@ proof's witness, so use it only for a prover you run or trust with it;
 
 ## Merging
 
-A merge turns up to 54 plain UTXOs of one asset on one tree into one. The
+A merge turns up to 52 plain UTXOs of one asset on one tree into one. The
 owner enables it once with `set_merging_enabled_instruction(owner, true)`,
 which the owner signs; after that a merge needs no owner signature.
 
@@ -130,6 +130,13 @@ data by the client. Custom-ring proof environments read it from the prover
 client they are given.
 Both modes support cached spends and merge outputs. The forester selects
 client fetching with `--client-proof-data`.
+
+The cache and its selected slots are public, so a one-input spend that reads
+one slot, publishes no UTXO root and withdraws publicly reveals which cached
+output it spends. Use the cache for short-lived batch work such as merges that
+feed dependent proofs.
+When a spend needs unlinkability, wait for tree inclusion and select no cache
+slot. See "Cache privacy" in `docs/spec.md`.
 
 Prover fetching sends locally prepared inputs to `/prove/<key>/indexed`. The prover
 resolves Merkle paths and root contexts. The SDK binds the returned roots to

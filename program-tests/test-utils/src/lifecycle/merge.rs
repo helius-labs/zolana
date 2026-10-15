@@ -260,8 +260,8 @@ impl LifecycleHarness {
         // A real wallet would already have discovered the deposits it selected
         // for this merge. This local lifecycle harness keeps deposits only in its
         // spendable list, so seed any missing input notes before replaying the
-        // merge event; reconstruction needs their amounts, assets, and first
-        // blinding.
+        // merge event, so the merge's nullifiers mark them spent. The merged
+        // output itself decrypts from the merge transaction alone.
         for input in &inputs {
             let input_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if self
@@ -275,10 +275,10 @@ impl LifecycleHarness {
             }
             let proof = wait_for_merkle_proof(&self.indexer, self.tree_address, input_hash);
             // The harness never indexed the deposit that published this note, so
-            // its publication coordinates are placeholders. Only the commitment,
-            // the nullifier and the amounts feed merge reconstruction, and the
-            // same value is seeded into the wallet and into `expected`, so the
-            // full-struct assert still compares like for like.
+            // its publication coordinates are placeholders. Only the commitment
+            // and the nullifier matter to the merge, and the same value is
+            // seeded into the wallet and into `expected`, so the full-struct
+            // assert still compares like for like.
             let note = WalletUtxo {
                 utxo: input.clone(),
                 nullifier_pubkey: nullifier_pk,

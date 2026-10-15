@@ -8,8 +8,8 @@
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
-    SplTransfer, TransactEvent,
+    encode_merge_output_data, tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent,
+    MergeOutputDataRef, MessageData, OutputUtxo, SplTransfer, TransactEvent,
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
@@ -165,27 +165,32 @@ fn settlement_transfers(
 }
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
-/// the emitted view tag, the instruction's `output_utxo_hash`, and, for
-/// `merge_ring`, the output `ring_data_hash` as its payload.
+/// the emitted view tag, the instruction's `output_utxo_hash`, and as its data
+/// the proof-bound output ciphertext, led on `merge_ring` by the output
+/// `ring_data_hash`.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, output_data) = match source_tag {
+    let (merge, ring_data_hash) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, Vec::new())
+            (merge, None)
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.merge, output_data)
+            (ring.merge, Some(ring.output_ring_data_hash))
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };
+    let output_data = encode_merge_output_data(MergeOutputDataRef {
+        salt: merge.output_ciphertext_salt,
+        ciphertext: merge.output_ciphertext,
+        ring_data_hash,
+    });
 
     let input_tree = single_input_tree(&event.input_trees)?;
     let inputs = inputs_from_nullifiers(input_tree, merge.nullifiers.iter())?;

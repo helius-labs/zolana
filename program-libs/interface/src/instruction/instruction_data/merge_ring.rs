@@ -58,6 +58,8 @@ mod tests {
                     c: [3u8; 32],
                 },
                 output_utxo_hash: [1u8; 32],
+                output_ciphertext_salt: [5u8; 16],
+                output_ciphertext: [[6u8; 32], [7u8; 32], [8u8; 32]],
                 nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
                     .map(|i| [i; 32])
                     .collect(),
@@ -78,6 +80,7 @@ mod tests {
         let view = MergeRingIxDataRef::from_bytes(&bytes).unwrap();
         assert_eq!(view.output_ring_data_hash, &owned.output_ring_data_hash);
         assert_eq!(view.merge.proof.a, &owned.merge.proof.a);
+        assert_eq!(view.merge.output_ciphertext, &owned.merge.output_ciphertext);
         assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
     }
 

@@ -382,6 +382,8 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),
+            output_ciphertext_salt: [0; 16],
+            output_ciphertext: [fe(10), fe(11), fe(12)],
             eddsa_owner: !p256,
             private_tx_hash: [0; 32],
             nullifiers: (1..=8).map(fe).collect(),

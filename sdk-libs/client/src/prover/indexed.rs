@@ -425,8 +425,9 @@ impl IndexedCircuit {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
             Self::TransferP256Ring => 19,
-            Self::Merge => 8,
-            Self::MergeRing => 8,
+            // The prefix without the tree hash, the rail tail, the ciphertext
+            // salt and the three ciphertext elements.
+            Self::Merge | Self::MergeRing => 12,
         }
     }
 }

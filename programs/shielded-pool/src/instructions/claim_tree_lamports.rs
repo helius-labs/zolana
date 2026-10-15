@@ -6,7 +6,7 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
-    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_working_capital_lamports},
+    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_liquid_working_capital_lamports},
     NULLIFIER_PDA_SIZE,
 };
 use zolana_tree::TreeAccount;
@@ -17,9 +17,10 @@ use crate::instructions::{
 };
 
 /// Move every lamport above the tree's reserve to `recipient`. The reserve is
-/// the tree's rent exemption, the forester fee balance, and the full nullifier
-/// PDA working capital, all at the current rent, so a claim never starves
-/// nullifier PDA creation and never touches forester money.
+/// the tree's rent exemption, the forester fee balance, and the rent for every
+/// nullifier PDA the working capital may still have to fund beyond those
+/// already open, all at the current rent, so a claim never starves nullifier
+/// PDA creation and never touches forester money.
 #[inline(never)]
 pub fn process_claim_tree_lamports(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if !data.is_empty() {
@@ -44,8 +45,9 @@ pub fn process_claim_tree_lamports(accounts: &mut [AccountView], data: &[u8]) ->
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        let working_capital = tree_working_capital_lamports(
+        let working_capital = tree_liquid_working_capital_lamports(
             tree_account.nullifier_tree().batch_size,
+            tree_account.live_nullifier_pdas(),
             nullifier_pda_rent_minimum,
         )
         .ok_or(ProgramError::ArithmeticOverflow)?;

@@ -149,7 +149,9 @@ fn main() -> Result<()> {
             payer: sender.pubkey(),
             input_trees: vec![pda::tree(transfer_utxo.tree_id())],
             output_tree: pda::tree(tree_id),
-            owner_signers: Vec::new(),
+            // The sender owns the spent note and also pays, so it signs as an
+            // owner too.
+            owner_signers: vec![sender.pubkey()],
             interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
@@ -212,7 +214,7 @@ fn main() -> Result<()> {
             payer: sender.pubkey(),
             input_trees: vec![pda::tree(withdrawal_utxo.tree_id())],
             output_tree: pda::tree(tree_id),
-            owner_signers: Vec::new(),
+            owner_signers: vec![sender.pubkey()],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: sender.pubkey(),

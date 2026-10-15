@@ -299,6 +299,8 @@ describe("compact padding", () => {
         nullifierPublicKey: prepared.nullifierPublicKey,
         dummyNullifiers,
         privateTxBlinding: prepared.privateTxBlinding(),
+        outputCiphertextSalt: prepared.outputCiphertextSalt(),
+        outputCiphertext: prepared.outputCiphertext(),
         outputTreeId: prepared.outputTreeId,
       });
     const compact = () => ProofInputUtxo.compact(prepared.inputTreeId);
@@ -316,12 +318,12 @@ describe("compact padding", () => {
         details: { side: "input", index: 4 },
       }),
     );
-    // Three sent nullifiers select the 8-input circuit, not the 54-input one.
-    const tooWide = [...inputs, ...Array.from({ length: 51 }, compact)];
+    // Three sent nullifiers select the 8-input circuit, not the 52-input one.
+    const tooWide = [...inputs, ...Array.from({ length: 49 }, compact)];
     expect(() => rebuilt(tooWide, prepared.dummyNullifiers())).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_UNSUPPORTED_SHAPE",
-        details: { inputs: 54, sent: 3 },
+        details: { inputs: 52, sent: 3 },
       }),
     );
     // Compact padding still takes one dummy nullifier per padded slot.

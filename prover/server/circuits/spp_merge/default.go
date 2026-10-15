@@ -17,8 +17,10 @@ import (
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The output UTXO is derived completely deterministically from the
-// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
+// 7. The output's amount and mint are published under a ciphertext only the
+// owner can decrypt, and every other output field is derived from the owner's keys
+// and the first nullifier, so the owner rebuilds the output from the merge
+// transaction alone, even when the merger folded in a note the owner never saw.
 
 type (
 	Input  = mergeshared.Input
@@ -38,7 +40,7 @@ type Circuit struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -65,7 +67,7 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
@@ -81,13 +83,17 @@ func (c *Circuit) Define(api frontend.API) error {
 	}
 
 	assertDefaultRing(api, tx.Inputs, tx.Output)
-	if _, err := tx.Constrain(api); err != nil {
+	derived, err := tx.Constrain(api)
+	if err != nil {
 		return err
 	}
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
+	// Both rails end with the salt, then the output ciphertext.
+	fields = append(fields, c.OutputCiphertextSalt)
+	fields = append(fields, derived.OutputCiphertext...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

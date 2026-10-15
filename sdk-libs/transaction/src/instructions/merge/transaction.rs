@@ -1,8 +1,9 @@
 use solana_address::Address;
-use zolana_event::MessageData;
-use zolana_keypair::{constants::SALT_LEN, PublicKey};
+use zolana_keypair::{viewing_key::Salt, PublicKey};
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
+
+use super::MergeOutputCiphertext;
 
 #[derive(Clone)]
 pub struct MergeProofInputs {
@@ -12,9 +13,11 @@ pub struct MergeProofInputs {
     pub signing_pubkey: PublicKey,
     pub output_tree_id: u16,
     pub ring_program_id: Option<Address>,
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; SALT_LEN],
-    pub output_data: MessageData,
+    /// Fresh per proof: a merge rebuilt on the same first nullifier keeps its
+    /// key, and the salt keeps its pads from repeating.
+    pub output_ciphertext_salt: Salt,
+    /// The output's amount and mint under the per-merge key; the proof binds it.
+    pub output_ciphertext: MergeOutputCiphertext,
 }
 
 impl MergeProofInputs {

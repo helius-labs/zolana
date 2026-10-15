@@ -23,6 +23,16 @@ const FIELD_BYTES = 32;
 export const BN254_SCALAR_ORDER =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
+/** `a + b` in the BN254 scalar field, for the additive Poseidon-pad ciphers. */
+export function fieldAdd(a: bigint, b: bigint): bigint {
+  return (((a + b) % BN254_SCALAR_ORDER) + BN254_SCALAR_ORDER) % BN254_SCALAR_ORDER;
+}
+
+/** `a - b` in the BN254 scalar field. */
+export function fieldSub(a: bigint, b: bigint): bigint {
+  return (((a - b) % BN254_SCALAR_ORDER) + BN254_SCALAR_ORDER) % BN254_SCALAR_ORDER;
+}
+
 /** The widest digest supported by both the runtime and the Solana verifier. */
 export const MAX_POSEIDON_INPUTS = 12;
 

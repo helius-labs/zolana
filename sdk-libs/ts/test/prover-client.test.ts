@@ -415,6 +415,9 @@ function mergeInputs(): MergeInputs {
     ),
     treeSlots: TREE_SLOTS,
     outputTreeId: asField(0n),
+    // The all-zero mint above splits into two zero chunks.
+    mintChunks: [asField(0n), asField(0n)],
+    outputCiphertextSalt: asField(0n),
     ownerPublicKeyHash: asField(0n),
     userNullifierPublicKey: asField(0n),
     userNullifierSecret: asField(0n),
@@ -843,7 +846,7 @@ describe("prover request routing", () => {
         "output",
         "treeSlots",
         "outputTreeId",
-        "asset",
+        "mintChunks",
         "ownerPkHash",
         "userNullifierPk",
         "userNullifierSecret",
@@ -851,6 +854,7 @@ describe("prover request routing", () => {
         "privateTxHash",
         "publicInputHash",
         "allowDummyInputs",
+        "outputCiphertextSalt",
         "outputRingDataHash",
         "ringProgramId",
       ].sort(),
@@ -872,6 +876,11 @@ describe("prover request routing", () => {
       ].sort(),
     );
     expect(keysOf(body["output"])).toEqual(["ringDataHash", "hash"].sort());
+    // The circuit derives the asset from the two mint chunks, so the request
+    // carries the chunks and no separate asset.
+    expect(body["mintChunks"]).toEqual(["0x0", "0x0"]);
+    expect(body["outputCiphertextSalt"]).toBe("0x0");
+    expect(body).not.toHaveProperty("asset");
     expectTreeSlotContract(body);
     // The merge circuit derives every blinding from userNullifierSecret, so
     // the transfer-only root seed is not part of this request.
@@ -1247,16 +1256,16 @@ describe("prover proving keys check", () => {
 
   it("reports a key the prover lacks or cannot load without failing", async () => {
     const report = matchingReport();
-    report.keys = report.keys.filter((key) => key["name"] !== "merge_54_1.key");
+    report.keys = report.keys.filter((key) => key["name"] !== "merge_52_1.key");
     entry(report, "transfer_ring_49_2.key")["available"] = false;
 
     const result = (await check(report)) as {
       keys: { name: string; served: boolean; available: boolean }[];
     };
     expect(
-      result.keys.filter((key) => ["merge_54_1.key", "transfer_ring_49_2.key"].includes(key.name)),
+      result.keys.filter((key) => ["merge_52_1.key", "transfer_ring_49_2.key"].includes(key.name)),
     ).toEqual([
-      { name: "merge_54_1.key", served: false, available: false, loaded: false },
+      { name: "merge_52_1.key", served: false, available: false, loaded: false },
       { name: "transfer_ring_49_2.key", served: true, available: false, loaded: false },
     ]);
   });

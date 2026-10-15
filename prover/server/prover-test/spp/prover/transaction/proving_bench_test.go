@@ -18,7 +18,7 @@ func BenchmarkProveByShape(b *testing.B) {
 }
 
 func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, _, err := benchmarkTransaction(shape)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}

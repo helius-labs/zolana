@@ -443,6 +443,9 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         root_index,
     );
 
+    let owner_signers = spp_proof_inputs
+        .owner_signer_pubkeys()
+        .expect("owner signers");
     let prover = ProverClient::local();
     let (transact, spp_dur) = prove_transact_timed(
         spp_proof_inputs,
@@ -455,7 +458,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         payer: maker_payer.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: vec![taker_payer.pubkey()],
+        owner_signers,
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }

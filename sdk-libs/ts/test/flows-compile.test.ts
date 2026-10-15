@@ -1,4 +1,5 @@
 import {
+  AccountRole,
   address,
   compileTransaction,
   createTransactionMessage,
@@ -73,6 +74,28 @@ describe("transaction compiler", () => {
       computeUnitLimit: 1_400_000,
       loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
     });
+  });
+
+  it("takes one signature from a payer that is also listed as an owner signer", () => {
+    const transaction = compileUnsignedTransaction({
+      feePayer: PAYER,
+      lifetime: LIFETIME,
+      computeUnitLimit: 200_000,
+      instructions: [
+        {
+          programAddress: PROGRAM,
+          accounts: [
+            { address: PAYER, role: AccountRole.WRITABLE_SIGNER },
+            { address: PAYER, role: AccountRole.READONLY_SIGNER },
+          ],
+        },
+      ],
+    });
+    expect(Object.keys(transaction.signatures)).toEqual([PAYER]);
+    expect(decompiled(transaction).instructions[0]?.accounts?.map((meta) => meta.address)).toEqual([
+      PAYER,
+      PAYER,
+    ]);
   });
 
   it("compiles a payload the legacy packet could not carry", () => {

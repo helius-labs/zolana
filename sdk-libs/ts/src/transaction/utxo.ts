@@ -558,6 +558,13 @@ export interface ProofOutputUtxo {
   hash(outputTreeId: TreeId): Bytes32;
   isDummy(): boolean;
   isCompact(): boolean;
+  /**
+   * Attach application data and its commitment. SPP commits `dataHash`
+   * unchecked: nothing verifies that it hashes `utxoData`, so a reader must
+   * recompute it under the application's encoding before trusting the payload,
+   * and must reject non-empty data with a zero `dataHash`, which no owner
+   * authorized.
+   */
   withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
   /**
    * A memo rides in the recipient's UTXO but no commitment covers it, so unlike

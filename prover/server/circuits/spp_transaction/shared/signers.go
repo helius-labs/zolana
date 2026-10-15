@@ -15,13 +15,6 @@ func (s Signers) Contains(api frontend.API, identity frontend.Variable) frontend
 	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(identity)))
 }
 
-// WithoutPayer drops the payer, leaving the owner signers and the zero padding.
-// The host builds the vector with the payer first and the owner signers
-// deduplicated; the circuit checks neither.
-func (s Signers) WithoutPayer() Signers {
-	return s[1:]
-}
-
 // ContainsEach returns one bit per identity, set when that identity signed.
 func (signers Signers) ContainsEach(api frontend.API, identities []frontend.Variable) []frontend.Variable {
 	signed := make([]frontend.Variable, len(identities))
@@ -45,8 +38,8 @@ func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend
 }
 
 // AuthorizedEddsaInputOwners resolves the private per-input owner identities and
-// requires every content-bearing input to be authorized by the unified signer
-// vector. The vector contains the payer first, then appended Solana signers.
+// requires every content-bearing input to be authorized by the signer vector:
+// the deduplicated owner-signer accounts, zero-padded. The payer is not in it.
 func AuthorizedEddsaInputOwners(
 	api frontend.API,
 	inputs []Input,

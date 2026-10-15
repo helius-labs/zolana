@@ -7,7 +7,10 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
 };
-use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
+use zolana_event::{
+    encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositOutput,
+    MergeOutputDataRef,
+};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_ring_client::{
     AuditError, AuditedOutput, AuditorEncryption, DepositOpening, DepositSeal, MemberRecovery,
@@ -189,11 +192,17 @@ impl Fixture {
             output_slots: vec![OutputSlot {
                 view_tag: first,
                 output_context: output_context(&held),
-                payload: prepared
-                    .output_utxo
-                    .ring_data_hash
-                    .expect("ring hash")
-                    .to_vec(),
+                payload: encode_merge_output_data(MergeOutputDataRef {
+                    salt: &prepared.output_ciphertext_salt,
+                    ciphertext: &prepared.output_ciphertext,
+                    ring_data_hash: Some(
+                        prepared
+                            .output_utxo
+                            .ring_data_hash
+                            .as_ref()
+                            .expect("ring hash"),
+                    ),
+                }),
             }],
             messages: Vec::new(),
             nullifiers,
@@ -430,7 +439,7 @@ fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message() {
 }
 
 #[test]
-fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs() {
+fn a_merge_found_through_one_held_input_decrypts_with_the_whole_total() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -441,8 +450,9 @@ fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs
             ..Default::default()
         };
         let recovered = fixture.run(fixture.recovery(), &history).expect("recover");
-        assert!(recovered.utxos.is_empty());
-        assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
+        assert_eq!(recovered.utxos, vec![merged.clone()]);
+        assert_eq!(merged.utxo.amount, 9);
+        assert!(recovered.unopened.is_empty());
     }
 }
 

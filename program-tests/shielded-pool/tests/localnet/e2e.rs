@@ -289,7 +289,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         resolved_transfers: Vec::new(),
         private_tx_inputs: [shielded.utxo_hash, zero],
         public_sol_amount: zero,
-        payer_pubkey_hash: solana_owner_identity(&payer_bytes)?,
+        owner_pubkey_hash: solana_owner_identity(&payer_bytes)?,
         label: "transfer",
     })?;
     let recipient_blinding = transfer_output_blindings
@@ -301,7 +301,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         payer: cycle.payer.pubkey(),
         input_trees: vec![cycle.tree_pubkey],
         output_tree: cycle.tree_pubkey,
-        owner_signers: Vec::new(),
+        owner_signers: vec![cycle.payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -391,9 +391,9 @@ fn phase_unshield(
         single_tree_slots(tree_id, transferred.utxo_root, transferred.nullifier_root);
     let (withdraw_dummy_input, _) = dummy_input(&[21u8; 31], &cycle.nf_tree, tree_id)?;
     // A full withdrawal moves all of its value out through the public SOL slot,
-    // so it has no real recipient output. `AssertDummyTags` refuses a dummy tag
-    // that names only the payer, so slot 0 is a real zero-amount change output
-    // owned by the withdrawing owner and the dummy names it.
+    // so it has no real recipient output. Slot 0 is a real zero-amount change
+    // output owned by the withdrawing owner, as a wallet builds it, and the
+    // dummy names it.
     let withdraw_change_nullifier_key = NullifierKey::from_secret([23u8; 31]);
     let withdraw_change_nullifier_pk = withdraw_change_nullifier_key.pubkey()?;
     let withdraw_outputs = change_and_dummy_outputs(
@@ -422,7 +422,7 @@ fn phase_unshield(
         resolved_transfers: vec![sol_leg(&public_recipient)],
         private_tx_inputs: [transferred_hash, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
-        payer_pubkey_hash: solana_owner_identity(&recipient_bytes)?,
+        owner_pubkey_hash: solana_owner_identity(&recipient_bytes)?,
         label: "withdraw",
     })?;
 
@@ -430,7 +430,7 @@ fn phase_unshield(
         payer: cycle.recipient_owner.pubkey(),
         input_trees: vec![cycle.tree_pubkey],
         output_tree: cycle.tree_pubkey,
-        owner_signers: Vec::new(),
+        owner_signers: vec![cycle.recipient_owner.pubkey()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

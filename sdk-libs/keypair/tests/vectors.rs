@@ -99,6 +99,11 @@ struct MergeRecovery {
     dummy_slot_index: u8,
     dummy_nullifier: String,
     private_tx_blinding: String,
+    output_key: String,
+    output_ciphertext_salt: String,
+    output_amount: u64,
+    output_mint: String,
+    output_ciphertext: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]

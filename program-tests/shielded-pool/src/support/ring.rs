@@ -64,6 +64,9 @@ pub struct RingTransactProof {
     pub ring_program: Pubkey,
     pub ring_config: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
+    /// The Ed25519 input owners in the proof's signer vector: the payer on the
+    /// Eddsa rail, none on the P256 rail.
+    pub owner_signers: Vec<Pubkey>,
 }
 
 impl RingTransactProof {
@@ -72,7 +75,7 @@ impl RingTransactProof {
             payer,
             input_trees: vec![tree],
             output_tree: tree,
-            owner_signers: Vec::new(),
+            owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             data: self.data.clone(),
         }
@@ -224,7 +227,16 @@ impl RealRingTransact {
         .hash()
         .expect("private tx hash");
 
-        let mut signer_pk_hashes = vec![payer_hash];
+        // The payer owns the Eddsa rail's real input and signs as its owner. A
+        // P256 owner signs in the proof, so that rail's vector is all padding.
+        let owner_signers = match rail {
+            RingRail::Eddsa => vec![payer.pubkey()],
+            RingRail::P256 => Vec::new(),
+        };
+        let mut signer_pk_hashes = match rail {
+            RingRail::Eddsa => vec![payer_hash],
+            RingRail::P256 => Vec::new(),
+        };
         signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
@@ -379,6 +391,7 @@ impl RealRingTransact {
             ring_program,
             ring_config,
             nullifiers,
+            owner_signers,
         }
     }
 }

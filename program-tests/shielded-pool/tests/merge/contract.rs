@@ -22,14 +22,16 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
 /// nullifiers against root-history slot 0, so every parse and tree step
-/// succeeds and only the checks under test can fail. The merge output is
-/// ciphertext-free (recovered from the first input and its nullifier).
+/// succeeds and only the checks under test can fail. The output ciphertext
+/// elements are canonical field elements.
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
+        output_ciphertext_salt: [0x5a; 16],
+        output_ciphertext: [fe(42), fe(43), fe(44)],
         eddsa_owner,
         private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
@@ -38,7 +40,7 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     }
 }
 
-// Every count from 1 to 54 selects the narrowest merge circuit that holds it;
+// Every count from 1 to 52 selects the narrowest merge circuit that holds it;
 // the missing slots are compact padding.
 const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 2] = [0, MAX_MERGE_INPUTS + 1];
 
@@ -167,6 +169,42 @@ fn merge_rejects_a_sent_zero_nullifier() {
             .unwrap_or_else(|| panic!("a zero nullifier in slot {slot} must be rejected"));
         Rejection::pool(ShieldedPoolError::ZeroInputNullifier).assert_litesvm(error);
     }
+}
+
+/// The program folds the ciphertext into the public-input hash as field
+/// elements, so an element at or above the modulus is refused before the proof
+/// is checked: it would alias a canonical element the proof bound.
+#[test]
+fn merge_rejects_a_non_canonical_ciphertext_element() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    for element in 0..3 {
+        let mut data = merge_ix_data(true);
+        *data
+            .output_ciphertext
+            .get_mut(element)
+            .expect("ciphertext element") = [0xff; 32];
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &[],
+                ComputeBudgetConfig::new(1_400_000),
+            )
+            .err()
+            .unwrap_or_else(|| panic!("a non-canonical element {element} must be rejected"));
+        Rejection::pool(ShieldedPoolError::NonCanonicalMergeCiphertext)
+            .at(0)
+            .assert_litesvm(error);
+    }
+    assert_eq!(
+        rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "rejected merge must leave the tree untouched"
+    );
 }
 
 #[test]

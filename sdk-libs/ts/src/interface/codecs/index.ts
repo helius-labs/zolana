@@ -323,6 +323,12 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.proof.b, 128, "proof.b")
     .bytes(value.proof.c, 32, "proof.c")
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
+    .bytes(value.outputCiphertextSalt, 16, "outputCiphertextSalt");
+  if (value.outputCiphertext.length !== 3) {
+    fail("INTERFACE_INVALID_LENGTH", { outputCiphertext: value.outputCiphertext.length });
+  }
+  for (const element of value.outputCiphertext) writer.bytes(element, 32, "outputCiphertext");
+  writer
     .bool(value.eddsaOwner, "eddsaOwner")
     .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
@@ -335,7 +341,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 271;
+const MERGE_FIXED_DATA_LENGTH = 383;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,

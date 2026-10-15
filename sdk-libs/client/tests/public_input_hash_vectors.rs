@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 use zolana_client::{PublicInputs, PublicTransfers};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_hasher::primitives::right_align;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
@@ -63,6 +64,8 @@ struct MergeVector {
     external_data_hash: String,
     owner_pk_hash: String,
     nullifier_pk: String,
+    output_ciphertext_salt: String,
+    output_ciphertext: Vec<String>,
     tree_slots: Vec<TreeSlotVector>,
     public_input_hash: String,
 }
@@ -193,8 +196,12 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let external_data_hash = field(83);
     let owner_pk_hash = field(84);
     let nullifier_pk = field(85);
+    let salt = [0xa5u8; 16];
+    let output_ciphertext = [field(86), field(87), field(88)];
+    let [ciphertext_0, ciphertext_1, ciphertext_2] = output_ciphertext;
     // The element order `MergeProver::build` hashes; the 1 is the dummy-input
-    // policy merge always publishes.
+    // policy merge always publishes, and the salt sits right-aligned in its
+    // field element.
     let public_input_hash = create_hash_chain_4_from_slice(&[
         create_padded_right_hash_chain_4(&nullifiers, nullifiers.len()).unwrap(),
         output_hash,
@@ -205,6 +212,10 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         field(1),
         owner_pk_hash,
         nullifier_pk,
+        right_align(&salt),
+        ciphertext_0,
+        ciphertext_1,
+        ciphertext_2,
     ])
     .unwrap();
     MergeVector {
@@ -216,6 +227,8 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         external_data_hash: hex(&external_data_hash),
         owner_pk_hash: hex(&owner_pk_hash),
         nullifier_pk: hex(&nullifier_pk),
+        output_ciphertext_salt: salt.iter().map(|byte| format!("{byte:02x}")).collect(),
+        output_ciphertext: hexes(&output_ciphertext),
         tree_slots: tree_slot_vectors(),
         public_input_hash: hex(&public_input_hash),
     }

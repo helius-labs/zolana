@@ -1,21 +1,23 @@
-use borsh::BorshDeserialize;
-use zolana_event::OutputDataEncoding;
-use zolana_keypair::{random_salt, ShieldedAddress, ViewingKey};
+use zolana_keypair::{random_salt, viewing_key::Salt, ShieldedAddress};
 
 use super::{
     inputs::{pad_with_compact, validate_merge_owner},
-    MergeProofInputs, MergeTransaction,
+    MergeOutputPlaintext, MergeProofInputs, MergeTransaction,
 };
 use crate::{
     error::TransactionError,
-    keys::{DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::{
-        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        UtxoSerialization,
-    },
+    keys::{DeriveRequest, ShieldedKeys},
     utxo::SppProofInputUtxo,
-    EncryptedScheme, SppProofOutputUtxo,
+    SppProofOutputUtxo,
 };
+
+/// The nullifier-secret derivations a merge output needs, answered by
+/// [`ShieldedKeys::derive`].
+#[derive(Clone, Copy, Debug)]
+pub struct MergeOutputSecrets {
+    pub blinding: [u8; 32],
+    pub key: [u8; 32],
+}
 
 impl MergeTransaction {
     pub fn encrypt<K: ShieldedKeys + ?Sized>(
@@ -28,7 +30,10 @@ impl MergeTransaction {
             .first()
             .ok_or(TransactionError::NoInputs)?
             .nullifier;
-        let mut requests = vec![DeriveRequest::MergeOutputBlinding { first_nullifier }];
+        let mut requests = vec![
+            DeriveRequest::MergeOutputBlinding { first_nullifier },
+            DeriveRequest::MergeOutputKey { first_nullifier },
+        ];
         for slot in self.inputs.len()..self.validated_inputs.padded_input_count {
             let slot_index = u8::try_from(slot).map_err(|_| TransactionError::TooManyInputs {
                 got: slot + 1,
@@ -39,42 +44,38 @@ impl MergeTransaction {
                 slot_index,
             });
         }
-        let blindings = shielded_keys.derive(&requests)?;
-        if blindings.len() != requests.len() {
+        let derived = shielded_keys.derive(&requests)?;
+        if derived.len() != requests.len() {
             return Err(TransactionError::IncompleteDerivation {
-                got: blindings.len(),
+                got: derived.len(),
                 want: requests.len(),
             });
         }
-        let got = blindings.len();
-        let mut derived = blindings.into_iter();
-        let output_blinding = derived
-            .next()
-            .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
-        let tx_viewing_keys = shielded_keys.transaction_keys(&[TransactionKeyRequest {
-            viewing_pubkey: sender.viewing_pubkey,
-            first_nullifier,
-        }])?;
-        let got = tx_viewing_keys.len();
-        let tx_viewing_key = tx_viewing_keys
-            .into_iter()
-            .next()
-            .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
-        self.encrypt_with_viewing_key(
+        let Some(([blinding, key], dummy_nullifiers)) = derived.split_first_chunk::<2>() else {
+            return Err(TransactionError::IncompleteDerivation {
+                got: derived.len(),
+                want: requests.len(),
+            });
+        };
+        self.encrypt_with_derived(
             &sender,
-            &tx_viewing_key,
-            output_blinding,
-            &derived.collect::<Vec<_>>(),
+            MergeOutputSecrets {
+                blinding: *blinding,
+                key: *key,
+            },
+            random_salt(),
+            dummy_nullifiers,
         )
     }
 
     /// `dummy_nullifiers` holds each padding slot's derived merge dummy
-    /// nullifier in slot order; the compact slot proves it absent.
-    pub fn encrypt_with_viewing_key(
+    /// nullifier in slot order; the compact slot proves it absent. `salt` must
+    /// be fresh per proof.
+    pub fn encrypt_with_derived(
         self,
         sender: &ShieldedAddress,
-        tx_viewing_key: &ViewingKey,
-        output_blinding: [u8; 32],
+        secrets: MergeOutputSecrets,
+        salt: Salt,
         dummy_nullifiers: &[[u8; 32]],
     ) -> Result<MergeProofInputs, TransactionError> {
         let Self {
@@ -96,38 +97,12 @@ impl MergeTransaction {
                 None => output_utxo.with_ring_program_id(ring_program_id),
             };
         }
-        output_utxo.blinding = output_blinding;
-        let salt = random_salt();
-        let mut output_data = Confidential::encode_plaintext(
-            &ConfidentialOutputPlaintext {
-                asset_id: output_utxo.asset.asset_id,
-                amount: output_utxo.amount,
-                blinding: output_utxo.blinding,
-                ring_program_id: output_utxo.ring_program_id,
-                data: output_utxo.data.clone(),
-            },
-            sender.signing_pubkey.confidential_view_tag()?,
-            &ConfidentialEncode {
-                tx: tx_viewing_key.clone(),
-                recipient_pubkey: sender.viewing_pubkey,
-                salt,
-                slot_index: 0,
-            },
-        )?;
-        if ring_program_id.is_some() {
-            let OutputDataEncoding::Encrypted(mut blob) =
-                OutputDataEncoding::try_from_slice(&output_data.data)
-                    .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-            else {
-                return Err(TransactionError::BadDiscriminator(
-                    EncryptedScheme::Confidential.as_byte(),
-                ));
-            };
-            *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                EncryptedScheme::RingConfidential.as_byte();
-            output_data.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+        output_utxo.blinding = secrets.blinding;
+        let output_ciphertext = MergeOutputPlaintext {
+            amount: output_utxo.amount,
+            mint: output_utxo.asset.asset,
         }
+        .encrypt(&secrets.key, &salt)?;
         let mut input_utxos = inputs.into_iter().map(SppProofInputUtxo::from).collect();
         pad_with_compact(
             &mut input_utxos,
@@ -141,9 +116,8 @@ impl MergeTransaction {
             signing_pubkey: sender.signing_pubkey,
             output_tree_id,
             ring_program_id,
-            tx_viewing_pk: *tx_viewing_key.pubkey().as_bytes(),
-            salt,
-            output_data,
+            output_ciphertext_salt: salt,
+            output_ciphertext,
         })
     }
 }

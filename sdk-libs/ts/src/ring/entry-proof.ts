@@ -79,7 +79,6 @@ export interface RingEntryTransitionInput {
   /** A claim spends the address slot from this tree. */
   readonly addressTree: LeafTree;
   readonly outputTree: LeafTree;
-  readonly payer: Address;
   readonly entry: ListEntryDraft;
   /** Absent for a claim, else the live version spent from the tree holding it. */
   readonly spent?: LeafTree & Readonly<{ entry: ListEntry }>;
@@ -132,7 +131,6 @@ export async function proveRingEntryTransition(
   } = transitionInputs(slot, {
     namespace,
     trees,
-    payer: input.payer,
     entry: input.entry,
     state,
     absence,
@@ -162,7 +160,6 @@ export interface RingEntryStateLeaf {
 export interface RingEntryTransitionProofInputs {
   readonly namespace: Address;
   readonly trees: RingMutationTrees;
-  readonly payer: Address;
   readonly entry: ListEntryDraft;
   readonly spent?: ListEntry;
   readonly state: RingEntryStateLeaf;
@@ -178,7 +175,7 @@ export interface RingEntryTransitionInputs {
   readonly privateTxBlinding: Bytes32;
 }
 
-/** The payer and the namespace sign. */
+/** The namespace PDA is the only owner signer; the fee payer authorizes nothing. */
 export function ringEntryTransitionInputs(
   input: RingEntryTransitionProofInputs,
 ): RingEntryTransitionInputs {
@@ -206,7 +203,6 @@ function transitionInputs(
     slot,
     namespace,
     trees: input.trees,
-    payer: input.payer,
     state: input.state,
     absence: input.absence,
     blindingSeed: input.blindingSeed,
@@ -224,7 +220,6 @@ interface DataTransition {
   readonly slot: InputSlot;
   readonly namespace: RingListNamespace;
   readonly trees: RingMutationTrees;
-  readonly payer: Address;
   readonly state: RingEntryStateLeaf;
   readonly absence: NonInclusionProof;
   readonly blindingSeed: Bytes32;
@@ -266,7 +261,6 @@ function dataTransitionInputs(
     blinding: txBlinding,
   });
   const namespaceHash = signerIdentity(namespace.address);
-  const payerHash = signerIdentity(input.payer);
   const inputTree: TreeSlot = Object.freeze({
     id: input.trees.input,
     utxoRoot: input.state.root,
@@ -299,7 +293,8 @@ function dataTransitionInputs(
     externalDataHash: bytesToBigInt(external),
     publicSlots: Array.from({ length: 6 }, () => 0n),
     ringProgramId: 0n,
-    signerPublicKeyHashes: [payerHash, namespaceHash],
+    // The namespace PDA signs alone; the fee payer is not an owner signer.
+    signerPublicKeyHashes: [namespaceHash, 0n],
     inputFlags: inputFlags(true, [0]),
     publishedOutputOwnerPublicKeyHashes: [namespaceHash, padding.ownerPublicKeyHash],
     ...cachedInputs,
@@ -340,7 +335,7 @@ function dataTransitionInputs(
     publicAssets: Object.freeze([asField(0n), asField(0n), asField(0n)]),
     publicAmounts: Object.freeze([asField(0n), asField(0n), asField(0n)]),
     ringProgramId: asField(0n),
-    signerPublicKeyHashes: Object.freeze([asField(payerHash), asField(namespaceHash)]),
+    signerPublicKeyHashes: Object.freeze([asField(namespaceHash), asField(0n)]),
     inputFlags: asField(inputFlags(true, [0])),
     publishedOutputOwnerPublicKeyHashes: Object.freeze([
       asField(namespaceHash),
@@ -359,7 +354,6 @@ export interface RingSpendRegistrationInput {
   /** The registration claims the record address from this tree. */
   readonly addressTree: LeafTree;
   readonly outputTree: LeafTree;
-  readonly payer: Address;
   readonly member: Member;
   readonly windowIndex: bigint;
 }
@@ -407,7 +401,6 @@ export async function proveRingSpendRegistration(
     const transition = dataTransitionInputs({
       slot,
       namespace,
-      payer: input.payer,
       trees,
       state,
       absence,

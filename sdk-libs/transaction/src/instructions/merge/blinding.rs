@@ -5,6 +5,21 @@ use crate::{error::TransactionError, utxo::derive_private_tx_blinding};
 
 pub const DOMAIN_MERGE_OUTPUT_BLINDING_V1: u32 = 0x544d_4f42;
 pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e;
+pub const DOMAIN_MERGE_OUTPUT_KEY: u32 = 0x544d_4f4b;
+pub const DOMAIN_MERGE_OUTPUT_CIPHERTEXT: u32 = 0x544d_4f43;
+
+/// Per-merge key of the output ciphertext, separated by the first nullifier so
+/// no two merges share a key and the nullifier secret is never a cipher key.
+pub fn merge_output_key(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    Ok(Poseidon::hashv(&[
+        &right_align(&DOMAIN_MERGE_OUTPUT_KEY.to_be_bytes()),
+        &right_align(&nullifier_key.secret()),
+        first_nullifier,
+    ])?)
+}
 
 pub fn merge_output_blinding(
     nullifier_key: &NullifierKey,

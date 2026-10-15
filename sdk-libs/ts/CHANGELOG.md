@@ -5,7 +5,10 @@
 Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
-opts out. One private transfer can pay several recipients.
+opts out. One private transfer can pay several recipients. Paying a
+transaction's fee no longer authorizes a spend. A merge publishes its output's
+amount and mint encrypted for the owner, so wallet sync recovers every merge
+output from the merge transaction alone.
 
 Breaking
 
@@ -19,6 +22,20 @@ Breaking
   refuses `"prover"` → set `proverUrl` to keep another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
+- `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
+  select at most 52 notes per merge, and at most 51 on a custom ring.
+- `MergeTransactInstructionData` carries `outputCiphertextSalt` and
+  `outputCiphertext`, and `Merge` and `PreparedMerge` require the encrypted
+  output → build merges with `Merge.fromKeypair` or the client's merge flow, or
+  pass the wallet's `mergeOutputKey` answer as `Merge`'s `outputKey`.
+- `DeriveRequest` has a `mergeOutputKey` kind → a custom `ShieldedKeys` answers
+  it with `mergeOutputKey(nullifierKey, firstNullifier)`.
+- `transactInstruction` (`getTransactInstructionAsync`) and
+  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
+  in first-input order, the fee payer too when it owns an input → pass the
+  input owners, or `[]` when no Ed25519 owner spends.
+- `RingEntryTransitionInput` and `RingEntryTransitionProofInputs` no longer
+  take `payer` → drop the field.
 
 Added
 
@@ -33,11 +50,26 @@ Added
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
   its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+- `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
+  tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
+  tree creation step that differs from the step that started it, and
+  `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
+  BN254 field.
 
 Changed
 
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
+- Transfers, withdrawals, splits and custom ring transfers list an input owner
+  who also pays as an owner signer, and a fee payer that owns no input no
+  longer appears in their proofs.
+
+Fixed
+
+- `syncWallet` and custom ring recovery could not recover a merge output whose
+  merge folded in a note the wallet never received, which left the wallet's own
+  notes in that merge unspendable, and now recover it from the merge
+  transaction alone.
 
 ## 0.4.1-alpha — 2026-10-08
 

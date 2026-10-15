@@ -116,7 +116,6 @@ impl RegistrationDraft {
             namespace: self.registration.ring.namespace_pda(),
             input_tree: address_tree,
             output_tree: address_tree,
-            payer: self.registration.payer,
             slot: AddressClaim {
                 owner: &self.owner,
                 seed,

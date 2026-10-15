@@ -1748,8 +1748,13 @@ fn sol_merge_slots() -> Vec<Slot> {
             meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
             account: account(1_000_000_000),
         },
-        spp_program_slot(),
+        Slot {
+            label: "payer",
+            meta: AccountMeta::new(payer(), true),
+            account: account(1_000_000_000),
+        },
         system_program_slot(),
+        spp_program_slot(),
         Slot {
             label: "sol_interface",
             meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),

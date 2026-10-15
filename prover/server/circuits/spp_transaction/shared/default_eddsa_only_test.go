@@ -224,14 +224,15 @@ func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer signs but is not a nameable dummy identity: a fee payer must not
-// be shown as a recipient by a transaction it only paid for.
+// A fee payer that owns no input is not in the signer vector and not a
+// nameable dummy identity: it must not be shown as a recipient by a
+// transaction it only paid for.
 func TestDefaultRingEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 
-	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
+	tagDummyOutput(t, assignment, testPayerPkHash())
 	refreshDefaultRingPublicInputHash(t, assignment)
 
 	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
@@ -318,4 +319,24 @@ func refreshDummyOutputPrivateTxHash(t testing.TB, assignment *testAssignment) {
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
+}
+
+// The fee payer is not in the signer vector, so an input it owns
+// is authorized only when it is also listed as an owner signer. Dropping the
+// owner from the vector leaves the input unauthorized.
+func TestDefaultRingEddsaOnlyRejectsAnInputOwnerOutsideTheSignerVector(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+
+	owner := spptest.AsBigInt(assignment.Inputs[0].OwnerPkHash)
+	for i := range assignment.SignerPkHashes {
+		if spptest.AsBigInt(assignment.SignerPkHashes[i]).Cmp(owner) == 0 {
+			assignment.SignerPkHashes[i] = 0
+		}
+	}
+	refreshDefaultRingPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

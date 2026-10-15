@@ -144,6 +144,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 output_tree_id: env.localnet.tree_id,
                 cache_accounts: Default::default(),
             };
+            let owner_signers = spp_proof_inputs
+                .owner_signer_pubkeys()
+                .map_err(|e| anyhow!("owner signers: {e:?}"))?;
             let split_transact = env
                 .localnet
                 .client
@@ -155,7 +158,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 payer: user_solana.pubkey(),
                 input_trees: vec![env.localnet.tree],
                 output_tree: env.localnet.tree,
-                owner_signers: Vec::new(),
+                owner_signers,
                 interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }

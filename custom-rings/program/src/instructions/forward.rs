@@ -11,9 +11,14 @@ use crate::{
         key_escrow::EscrowRoot,
         loader::{load_config, load_deposit_audit, validate_spp_program},
         public_legs::PublicLegs,
-        shared::{cpi_spp_signed, SppSigners},
+        shared::{check_funding_signer, cpi_spp_signed, SppSigners},
     },
 };
+
+/// SPP `ring_deposit` accounts: `[tree, depositor, ring_config, spp_program, ..]`.
+const SPP_RING_DEPOSIT_DEPOSITOR: usize = 1;
+/// SPP `merge_ring` accounts: `[input_tree, output_tree, ring_config, payer, ..]`.
+const SPP_MERGE_RING_PAYER: usize = 3;
 
 /// Deposit and merge routes sharing ring controls before unchanged SPP
 /// settlement.
@@ -112,6 +117,11 @@ impl Forward {
         demand.legs.apply_windows(program_id, windows)?;
         // 3. Authorize SPP settlement, any failure rolls back the public window
         // counters.
+        let funding_signer = match self {
+            Forward::Deposit | Forward::AuditedDeposit => SPP_RING_DEPOSIT_DEPOSITOR,
+            Forward::Merge => SPP_MERGE_RING_PAYER,
+        };
+        check_funding_signer(spp_accounts, funding_signer)?;
         cpi_spp_signed(program_id, spp_accounts, data, SppSigners::RingAuth)
     }
 }

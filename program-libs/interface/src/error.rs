@@ -183,6 +183,12 @@ pub enum ShieldedPoolError {
     ZeroInputNullifier = 7078,
     #[error("output utxo hash must be nonzero; zero marks compact padding")]
     ZeroOutputUtxoHash = 7079,
+    #[error("tree fee per nullifier exceeds the maximum")]
+    TreeFeeTooHigh = 7080,
+    #[error("tree creation step does not match the step that started it")]
+    TreeCreationMismatch = 7081,
+    #[error("merge output ciphertext element is not a canonical BN254 field element")]
+    NonCanonicalMergeCiphertext = 7082,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -212,6 +218,7 @@ impl From<TreeError> for ShieldedPoolError {
             TreeError::Paused => ShieldedPoolError::TreePaused,
             TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
             TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee,
+            TreeError::FeeTooHigh => ShieldedPoolError::TreeFeeTooHigh,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -307,6 +314,9 @@ mod tests {
                 CacheRentRecipientMismatch => 7077,
                 ZeroInputNullifier => 7078,
                 ZeroOutputUtxoHash => 7079,
+                TreeFeeTooHigh => 7080,
+                TreeCreationMismatch => 7081,
+                NonCanonicalMergeCiphertext => 7082,
             }
         }
 
@@ -391,6 +401,9 @@ mod tests {
             CacheRentRecipientMismatch,
             ZeroInputNullifier,
             ZeroOutputUtxoHash,
+            TreeFeeTooHigh,
+            TreeCreationMismatch,
+            NonCanonicalMergeCiphertext,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
@@ -402,7 +415,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 78, "variant count drifted");
+        assert_eq!(variants.len(), 81, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

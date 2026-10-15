@@ -27,7 +27,7 @@ use zolana_user_registry_interface::user_record_pda;
 const UTXO_COUNT: usize = MAX_MERGE_INPUTS;
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const TRANSFER_AMOUNT: u64 = 500_000_000;
-/// A 54-input merge costs about 300,000 compute units, most of it the 54
+/// A 52-input merge costs about 300,000 compute units, most of it the 52
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
@@ -62,7 +62,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 ///
 /// [`optimized_merge_transfer`]: ../optimized_merge_transfer.rs
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 54 separate UTXOs. The
+    // A registered sender whose private balance sits in 52 separate UTXOs. The
     // rent sponsor funds no cache here; it only pays for the merge.
     let MergeScenario {
         rpc_url,
@@ -168,7 +168,9 @@ fn main() -> Result<()> {
         payer: sender.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        // The sender owns the merged note and also pays, so it signs as an
+        // owner too.
+        owner_signers: vec![sender.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transfer_data,
     }
