@@ -41,9 +41,9 @@ Changed
 
 Fixed
 
-- `ConfidentialTransfer` now encodes padding tags that match the sender like
-  real outputs to that sender, so self-paid change and padding both use the
-  payer account reference.
+- `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
+  differently from the sender's change, so an observer could tell them apart;
+  padding now uses the same encoding as change.
 
 ## 0.4.1-alpha — 2026-10-08
 

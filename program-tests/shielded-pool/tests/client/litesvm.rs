@@ -120,25 +120,26 @@ fn a_client_over_the_harness_accepts_account_tagged_padding_outputs() {
             .count(),
         2
     );
-    for (output, published) in transaction
-        .output_utxos
-        .iter()
-        .zip(&transaction.external_data.outputs)
-    {
-        if output.is_dummy() || output.owner_address == Some(sender_address) {
-            assert_eq!(published.owner_tag, OwnerTag::Account(0));
-        } else {
-            assert_eq!(
-                published.owner_tag,
-                OwnerTag::Inline(
-                    recipient
-                        .signing_pubkey()
-                        .confidential_view_tag()
-                        .expect("recipient tag")
-                )
-            );
-        }
-    }
+    let expected_tags = vec![
+        OwnerTag::Inline(
+            recipient
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("recipient tag"),
+        ),
+        OwnerTag::Account(0), // Change.
+        OwnerTag::Account(0), // Padding.
+        OwnerTag::Account(0), // Padding.
+    ];
+    assert_eq!(
+        transaction
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.owner_tag)
+            .collect::<Vec<_>>(),
+        expected_tags
+    );
 
     let client = harness
         .into_client(ProverClient::local())

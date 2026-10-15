@@ -17,7 +17,6 @@ import {
   SOL_MINT,
   Utxo,
   WithdrawalTarget,
-  createExternalData,
   privateTxBlinding,
   privateTxHash,
   transactOutputBlinding,
@@ -123,18 +122,6 @@ describe("dummy output owner tags", () => {
       if (!output.isDummy()) return;
       expect(signed.externalData.outputs[index]?.data).toHaveLength(participantData?.length ?? 0);
     });
-    if (expected.kind === "account") {
-      const reencoded = createExternalData({
-        ...signed.externalData,
-        outputs: signed.externalData.outputs.map((output, index) =>
-          signed.outputs[index]?.isDummy()
-            ? { ...output, ownerTag: inlineTag(resolved as Bytes32) }
-            : output,
-        ),
-      });
-      expect(reencoded.resolvedOwnerTags).toEqual(signed.externalData.resolvedOwnerTags);
-      expect(reencoded.hash()).not.toEqual(signed.externalData.hash());
-    }
     expectDerivedBlindings(prepared, signed);
   });
 

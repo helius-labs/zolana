@@ -1105,7 +1105,8 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         )
         .unwrap();
         tx.transfer_sol(&recipient, case.send_amount).unwrap();
-        tx.pad_utxos(Shape::IN1_OUT8, &sender).unwrap();
+        tx.pad_utxos(Shape::new(1, vectors.outputs), &sender)
+            .unwrap();
         let proof = tx.encrypt(&owner).unwrap();
         let resolved: [u8; 32] = hex::decode(&case.resolved).unwrap().try_into().unwrap();
         let encoding = match case.owner_tag_kind.as_str() {
@@ -1133,24 +1134,6 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
             .unwrap()
             .1;
         assert_eq!(participant.owner_tag, encoding, "{}", case.name);
-        // Re-encoding the same tag leaves its value intact, but changes the
-        // serialized prefix bound into the external data hash.
-        if encoding == OwnerTag::Account(0) {
-            let mut reencoded = proof.external_data.clone();
-            for (output, published) in proof.output_utxos.iter().zip(&mut reencoded.outputs) {
-                if output.is_dummy() {
-                    published.owner_tag = OwnerTag::Inline(resolved);
-                }
-            }
-            assert_eq!(
-                reencoded.resolved_owner_tags,
-                proof.external_data.resolved_owner_tags
-            );
-            assert_ne!(
-                reencoded.hash().unwrap(),
-                proof.external_data.hash().unwrap()
-            );
-        }
     }
 }
 

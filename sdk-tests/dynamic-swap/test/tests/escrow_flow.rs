@@ -3,7 +3,7 @@ use zolana_test_utils::utxo::{
 };
 mod shared;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use dynamic_swap_program::{
     instructions::{create_escrow::EscrowOpenProof, settle::SettleProof},
     state::{Escrow, Pair},
@@ -104,10 +104,18 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     .cloned())
             })?;
             let user_address = env.user.address()?;
-            let mut split = ConfidentialTransaction::new(vec![funding_utxo], user_solana.pubkey())?;
-            split.transfer(&user_address, env.spl_mint, ORDER_AMOUNT)?;
-            split.pad_utxos(Shape::IN1_OUT4, &user_address)?;
-            let spp_proof_inputs = split.encrypt(&env.user.keypair)?;
+            let mut split = ConfidentialTransaction::new(vec![funding_utxo], user_solana.pubkey())
+                .context("create split transaction")?;
+            split
+                .transfer(&user_address, env.spl_mint, ORDER_AMOUNT)
+                .context("add split output")?;
+            // The wider shape tests Account(0) padding in the swap's validator test.
+            split
+                .pad_utxos(Shape::IN1_OUT4, &user_address)
+                .context("pad split transaction")?;
+            let spp_proof_inputs = split
+                .encrypt(&env.user.keypair)
+                .context("encrypt split transaction")?;
             // The self-paid split has change and two padding slots; all four
             // outputs name the sender with the same account-based encoding.
             assert_eq!(
