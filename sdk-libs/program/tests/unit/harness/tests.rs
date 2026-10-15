@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{zero, Assert, CircuitVar, Constraints, Field},
+    circuit::{zero, Assert, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -19,8 +19,10 @@ struct IsZeroClaim {
     claimed: Field,
 }
 
-impl Constraints for IsZeroClaimCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IsZeroClaimCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(self.x.is_equal(&zero())?).assert_equal(&self.claimed, RULE)
     }
 }

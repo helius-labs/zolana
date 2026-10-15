@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{self, Assert, Bool, Constraints, Field, Select},
+    circuit::{self, Assert, Bool, Circuit, Field, Select},
     conversion::ProofInput,
     Bytes, CircuitError,
 };
@@ -25,8 +25,10 @@ pub struct AssertEqual<const N: usize> {
     pub right: Bytes<N>,
 }
 
-impl<const N: usize> Constraints for AssertEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for AssertEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal(&self.right, EQUAL_RULE)
     }
 }
@@ -38,8 +40,10 @@ pub struct AssertEqualIf<const N: usize> {
     pub condition: bool,
 }
 
-impl<const N: usize> Constraints for AssertEqualIfCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for AssertEqualIfCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &self.condition, EQUAL_IF_RULE)
     }
@@ -51,8 +55,10 @@ pub struct AssertNotEqual<const N: usize> {
     pub right: Bytes<N>,
 }
 
-impl<const N: usize> Constraints for AssertNotEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for AssertNotEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_not_equal(&self.right, NOT_EQUAL_RULE)
     }
 }
@@ -64,8 +70,10 @@ pub struct IsEqual<const N: usize> {
     pub claimed: bool,
 }
 
-impl<const N: usize> Constraints for IsEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for IsEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .is_equal(&self.right)?
             .assert_equal(&self.claimed, IS_EQUAL_RULE)
@@ -80,8 +88,10 @@ pub struct Selected<const N: usize> {
     pub selected: [Field; N],
 }
 
-impl<const N: usize> Constraints for SelectedCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for SelectedCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         circuit::Bytes::select(&self.condition, &self.if_true, &self.if_false)
             .bytes()
             .assert_equal(&self.selected, SELECT_RULE)
@@ -101,8 +111,10 @@ pub fn constant_select<const N: usize>(
 
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct ConstantOps;
-impl Constraints for ConstantOpsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantOpsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let left = circuit::Bytes::constant(&[3; 32]);
         let right = circuit::Bytes::constant(&[7; 32]);
         left.assert_equal(&left, EQUAL_RULE)?;

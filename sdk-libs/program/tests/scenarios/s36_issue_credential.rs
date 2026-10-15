@@ -104,7 +104,9 @@ mod circuit {
     }
 
     impl Circuit for IssueCredential {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let issuer_hash = self.public.issuer.hash()?;
             let mut issuer = DataUtxo::new_mut(&private.issuer_utxo, &private.issuer_state)?;

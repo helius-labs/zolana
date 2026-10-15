@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use zolana_program::{
-    circuit::{Assert, CircuitVar, Constraints, Field, Uint},
+    circuit::{Assert, Circuit, CircuitVar, Field, Uint},
     conversion::ProofInput,
     CircuitError,
 };
@@ -21,16 +21,20 @@ macro_rules! conversion {
             use super::*;
             #[derive(Clone, Debug, ProofInput)]
             pub struct Widen { pub x: Field, pub claimed: Field }
-            impl Constraints for WidenCircuit {
-                fn constraints(&self) -> Result<(), CircuitError> {
+            impl Circuit for WidenCircuit {
+                type Output = ();
+
+                fn circuit(&self) -> Result<Self::Output, CircuitError> {
                     let wide = Uint::<$wide>::from(Uint::<$narrow>::try_from(&self.x)?);
                     CircuitVar::from(wide).assert_equal(&self.claimed, "converted uint")
                 }
             }
             #[derive(Clone, Debug, ProofInput)]
             pub struct Narrow { pub x: Field, pub claimed: Field }
-            impl Constraints for NarrowCircuit {
-                fn constraints(&self) -> Result<(), CircuitError> {
+            impl Circuit for NarrowCircuit {
+                type Output = ();
+
+                fn circuit(&self) -> Result<Self::Output, CircuitError> {
                     let narrow = Uint::<$narrow>::try_from(Uint::<$wide>::try_from(&self.x)?)?;
                     CircuitVar::from(narrow).assert_equal(&self.claimed, "converted uint")
                 }

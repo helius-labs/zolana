@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, from_bits_le, Assert, Bool, CircuitVar, Constraints, Field},
+    circuit::{constant, from_bits_le, Assert, Bool, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -22,8 +22,10 @@ pub struct CheckBits<const N: usize> {
     pub x: Field,
 }
 
-impl<const N: usize> Constraints for CheckBitsCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for CheckBitsCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.x.check_bits(N)
     }
 }
@@ -33,8 +35,10 @@ pub struct CheckIsBool {
     pub x: Field,
 }
 
-impl Constraints for CheckIsBoolCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for CheckIsBoolCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.x.check_is_bool()
     }
 }
@@ -45,8 +49,10 @@ pub struct ToBits<const N: usize> {
     pub bits: [Field; N],
 }
 
-impl<const N: usize> Constraints for ToBitsCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ToBitsCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let bits = self.x.to_bits_le::<N>()?;
         bits.iter().zip(&self.bits).try_for_each(|(bit, claimed)| {
             CircuitVar::from(bit.clone()).assert_equal(claimed, TO_BITS_RULE)
@@ -60,9 +66,11 @@ pub struct FromBits<const N: usize> {
     pub value: Field,
 }
 
-impl<const N: usize> Constraints for FromBitsCircuit<N> {
+impl<const N: usize> Circuit for FromBitsCircuit<N> {
+    type Output = ();
+
     #[allow(clippy::redundant_closure)]
-    fn constraints(&self) -> Result<(), CircuitError> {
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let bits = self
             .bits
             .iter()
@@ -79,8 +87,10 @@ pub struct ConstantCheckBits<const VALUE: u64, const N: usize> {
     pub unused: Field,
 }
 
-impl<const VALUE: u64, const N: usize> Constraints for ConstantCheckBitsCircuit<VALUE, N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const VALUE: u64, const N: usize> Circuit for ConstantCheckBitsCircuit<VALUE, N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(VALUE).check_bits(N)
     }
 }
@@ -90,8 +100,10 @@ pub struct ConstantIsBool<const VALUE: u64> {
     pub unused: Field,
 }
 
-impl<const VALUE: u64> Constraints for ConstantIsBoolCircuit<VALUE> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const VALUE: u64> Circuit for ConstantIsBoolCircuit<VALUE> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(VALUE).check_is_bool()
     }
 }

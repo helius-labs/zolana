@@ -46,7 +46,9 @@ struct CreateAndUpdatePublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <CreateAndUpdate as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
         profile.score = profile

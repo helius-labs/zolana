@@ -9,7 +9,7 @@ use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, Field as _, One, PrimeField, Zero};
 use num_bigint::BigUint;
 use zolana_program::{
-    circuit::{Constraints, Field},
+    circuit::{Circuit, Field},
     conversion::Allocator,
     CircuitError, ZkCircuit,
 };
@@ -27,11 +27,11 @@ pub fn refused<T>(result: Result<T, CircuitError>) -> Result<T, Refused> {
 
 /// The native run of a fixture, refused with its error's name, message and
 /// file, so a `ValueTooLarge` names its width.
-pub fn native<F: ZkCircuit>(fixture: &F) -> Result<(), Refused> {
+pub fn native<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F) -> Result<(), Refused> {
     refused(
         fixture
             .instantiate(&Allocator::native())
-            .and_then(|circuit| circuit.constraints()),
+            .and_then(|circuit| circuit.circuit()),
     )
 }
 

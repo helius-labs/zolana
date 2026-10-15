@@ -42,7 +42,9 @@ struct CastVotePublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <CastVote as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut poll = DataUtxo::new_mut(&private.poll, &private.state)?;

@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_keypair::ShieldedAddress;
-use zolana_program::{circuit::Field, ZkCircuit, ZkProgram};
+use zolana_program::{circuit::Field, ZkProgram};
 use zolana_transaction::{instructions::transact::SettlementTarget, Mint};
 
 use super::{
@@ -18,10 +18,7 @@ use crate::harness::fixture::{native, rule_broken, Refusal};
 
 const CLOSE_LEAVES: &str = "a closed token utxo leaves a balance";
 
-fn honest<P: Shape>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)>
-where
-    Asserted<P>: ZkCircuit,
-{
+fn honest<P: Shape>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)> {
     named
         .into_iter()
         .map(|(name, program)| (name, native(&Asserted::honest(program))))
@@ -32,10 +29,7 @@ fn holding<P>(named: Named<P>) -> Vec<(&'static str, Result<(), Refusal>)> {
     named.into_iter().map(|(name, _)| (name, Ok(()))).collect()
 }
 
-fn against<P: Shape>(program: P, expected: Expected) -> Result<(), Refusal>
-where
-    Asserted<P>: ZkCircuit,
-{
+fn against<P: Shape>(program: P, expected: Expected) -> Result<(), Refusal> {
     native(&Asserted { program, expected })
 }
 

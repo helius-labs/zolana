@@ -1,11 +1,12 @@
 use crate::{
-    circuit::Constraints,
+    circuit::Circuit,
     conversion::{Placeholder, ProofInput},
     prover::{ArkworksCircuit, ProofInputs},
     ProverError,
 };
 
-pub trait ZkCircuit: ProofInput<Circuit: Constraints> + Placeholder {
+/// Shared checking and export operations for any supported circuit output.
+pub trait ZkCircuit: ProofInput<Circuit: Circuit> + Placeholder {
     fn check_constraints(&self) -> Result<usize, ProverError> {
         ArkworksCircuit::new(self)?.check_constraints(&Self::placeholder()?)
     }
@@ -33,4 +34,4 @@ pub trait ZkCircuit: ProofInput<Circuit: Constraints> + Placeholder {
     }
 }
 
-impl<T: ProofInput<Circuit: Constraints> + Placeholder> ZkCircuit for T {}
+impl<T: ProofInput<Circuit: Circuit> + Placeholder> ZkCircuit for T {}

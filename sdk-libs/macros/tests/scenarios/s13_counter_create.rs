@@ -39,7 +39,9 @@ pub(crate) struct CounterCreatePublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <CounterCreate as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let counter = DataUtxo::<CounterCircuit>::new_init(&self.public.owner);

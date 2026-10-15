@@ -33,7 +33,9 @@ pub(crate) struct PaymentPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Payment as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut user_a_tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut user_b_tokens =

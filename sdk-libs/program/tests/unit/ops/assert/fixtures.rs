@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, Assert, Bool, CircuitType, CircuitVar, Constraints, Field},
+    circuit::{constant, Assert, Bool, Circuit, CircuitType, CircuitVar, Field},
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Owner,
 };
@@ -26,8 +26,10 @@ pub struct AssertEqual {
     pub right: Field,
 }
 
-impl Constraints for AssertEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssertEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal(&self.right, RULE)
     }
 }
@@ -45,8 +47,10 @@ impl Fixture<Result<Bool, CircuitError>> for IsEqual {
     }
 }
 
-impl Constraints for IsEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IsEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(self.left.is_equal(&self.right)?).assert_equal(&self.claimed, CLAIM_RULE)
     }
 }
@@ -58,8 +62,10 @@ pub struct AssertEqualIf {
     pub condition: bool,
 }
 
-impl Constraints for AssertEqualIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssertEqualIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &self.condition, RULE)
     }
@@ -71,8 +77,10 @@ pub struct AssertEqualIfConstant<const CONDITION: bool> {
     pub right: Field,
 }
 
-impl<const CONDITION: bool> Constraints for AssertEqualIfConstantCircuit<CONDITION> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const CONDITION: bool> Circuit for AssertEqualIfConstantCircuit<CONDITION> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &Bool::constant(CONDITION), RULE)
     }
@@ -84,8 +92,10 @@ pub struct AssertEqualIfItself {
     pub condition: bool,
 }
 
-impl Constraints for AssertEqualIfItselfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssertEqualIfItselfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal_if(&self.left, &self.condition, RULE)
     }
 }
@@ -95,8 +105,10 @@ pub struct ConstantsIf {
     pub condition: bool,
 }
 
-impl Constraints for ConstantsIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantsIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(LEFT_CONSTANT).assert_equal_if(&constant(RIGHT_CONSTANT), &self.condition, RULE)
     }
 }
@@ -106,8 +118,10 @@ pub struct EqualConstantsIf {
     pub condition: bool,
 }
 
-impl Constraints for EqualConstantsIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EqualConstantsIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(LEFT_CONSTANT).assert_equal_if(&constant(LEFT_CONSTANT), &self.condition, RULE)
     }
 }
@@ -142,8 +156,10 @@ pub struct ConditionInCircuit {
     pub condition: Constant,
 }
 
-impl Constraints for ConditionInCircuitCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConditionInCircuitCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &Bool::constant(self.condition.0), RULE)
     }
@@ -155,8 +171,10 @@ pub struct AssertNotEqual {
     pub right: Field,
 }
 
-impl Constraints for AssertNotEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssertNotEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_not_equal(&self.right, NOT_EQUAL_RULE)
     }
 }
@@ -167,8 +185,10 @@ pub struct Unasserted {
     pub right: Field,
 }
 
-impl Constraints for UnassertedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.is_equal(&self.right).map(|_| ())
     }
 }
@@ -179,8 +199,10 @@ pub struct ArrayAssertEqual<const N: usize> {
     pub right: [Field; N],
 }
 
-impl<const N: usize> Constraints for ArrayAssertEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ArrayAssertEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal(&self.right, RULE)
     }
 }
@@ -198,8 +220,10 @@ impl<const N: usize> Fixture<Result<Bool, CircuitError>> for ArrayIsEqual<N> {
     }
 }
 
-impl<const N: usize> Constraints for ArrayIsEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ArrayIsEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(self.left.is_equal(&self.right)?).assert_equal(&self.claimed, CLAIM_RULE)
     }
 }
@@ -211,8 +235,10 @@ pub struct ArrayAssertEqualIf<const N: usize> {
     pub condition: bool,
 }
 
-impl<const N: usize> Constraints for ArrayAssertEqualIfCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ArrayAssertEqualIfCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &self.condition, RULE)
     }
@@ -224,8 +250,10 @@ pub struct ArrayAssertNotEqual<const N: usize> {
     pub right: [Field; N],
 }
 
-impl<const N: usize> Constraints for ArrayAssertNotEqualCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ArrayAssertNotEqualCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_not_equal(&self.right, NOT_EQUAL_RULE)
     }
 }
@@ -235,8 +263,10 @@ pub struct OwnerTag {
     pub owner: Owner,
 }
 
-impl Constraints for OwnerTagCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerTagCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }

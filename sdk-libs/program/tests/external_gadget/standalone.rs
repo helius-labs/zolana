@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, Assert, ConstraintSystem, Constraints, Field, VariableRole},
+    circuit::{constant, Assert, Circuit, ConstraintSystem, Field, VariableRole},
     conversion::{Allocator, ProofInput},
     testing::{check_private_variables, FreeVariable},
     CircuitError, ProverError, ZkCircuit,
@@ -16,8 +16,10 @@ struct Isqrt {
     root: u32,
 }
 
-impl Constraints for IsqrtCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IsqrtCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         assert_isqrt(&self.value, &self.root, ISQRT_RULE)
     }
 }
@@ -28,8 +30,10 @@ struct IsqrtWithoutUpperBound {
     root: u32,
 }
 
-impl Constraints for IsqrtWithoutUpperBoundCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IsqrtWithoutUpperBoundCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         assert_isqrt_without_upper_bound(&self.value, &self.root, ISQRT_RULE)
     }
 }
@@ -40,8 +44,10 @@ struct FieldSqrt {
     root: Field,
 }
 
-impl Constraints for FieldSqrtCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for FieldSqrtCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         assert_field_sqrt(&self.value, &self.root, SQRT_RULE)
     }
 }
@@ -58,7 +64,7 @@ fn r1cs_accepts<P: ZkCircuit>(inputs: &P) -> bool {
     inputs
         .instantiate(&Allocator::R1cs(cs.clone()))
         .expect("circuit inputs")
-        .constraints()
+        .circuit()
         .expect("generate constraints");
     cs.is_satisfied().expect("R1CS satisfaction")
 }
@@ -171,8 +177,10 @@ struct LinearProduct {
     result: Field,
 }
 
-impl Constraints for LinearProductCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for LinearProductCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let left = &self.left * Field::from(3u64) + Field::from(2u64);
         let right = &self.right - Field::from(5u64);
         left.assert_product(&right, &(&self.result + Field::from(7u64)), PRODUCT_RULE)
@@ -207,8 +215,10 @@ struct UnusedRoot {
     root: Field,
 }
 
-impl Constraints for UnusedRootCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnusedRootCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.value.assert_equal(&constant(7u64), "value is seven")
     }
 }

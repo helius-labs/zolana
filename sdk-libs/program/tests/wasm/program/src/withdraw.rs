@@ -31,7 +31,9 @@ pub struct WithdrawPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for WithdrawCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_close(&private.escrow, &private.terms)?;
         escrow

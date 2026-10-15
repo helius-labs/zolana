@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, CircuitType, CircuitVar, Constraints, Field},
+    circuit::{Assert, Circuit, CircuitType, CircuitVar, Field},
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError,
 };
@@ -79,8 +79,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for Variables<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for VariablesCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for VariablesCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.product, RULE)
     }
 }
@@ -127,8 +129,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for WithConstant<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for WithConstantCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for WithConstantCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.product, RULE)
     }
 }
@@ -228,8 +232,10 @@ pub struct UnassertedVariables {
     pub right: Field,
 }
 
-impl Constraints for UnassertedVariablesCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedVariablesCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let _products: Vec<CircuitVar> = VARIABLE_FORMS
             .iter()
             .map(|(_, form)| form(&self.left, &self.right))
@@ -243,8 +249,10 @@ pub struct UnassertedConstants {
     pub left: Field,
 }
 
-impl Constraints for UnassertedConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let constant = Field::from(7u64);
         let _products: Vec<CircuitVar> = CONSTANT_FORMS
             .iter()
@@ -260,8 +268,10 @@ pub struct Square {
     pub product: Field,
 }
 
-impl Constraints for SquareCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SquareCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.a * &self.a).assert_equal(&self.product, RULE)
     }
 }
@@ -274,8 +284,10 @@ pub struct SumTimes {
     pub product: Field,
 }
 
-impl Constraints for SumTimesCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SumTimesCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         ((&self.a + &self.b) * &self.c).assert_equal(&self.product, RULE)
     }
 }
@@ -286,8 +298,10 @@ pub struct TimesFive {
     pub product: Field,
 }
 
-impl Constraints for TimesFiveCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for TimesFiveCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.a * Field::from(5u64)).assert_equal(&self.product, RULE)
     }
 }
@@ -298,8 +312,10 @@ pub struct TimesZero {
     pub product: Field,
 }
 
-impl Constraints for TimesZeroCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for TimesZeroCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.a * Field::from(0u64)).assert_equal(&self.product, RULE)
     }
 }

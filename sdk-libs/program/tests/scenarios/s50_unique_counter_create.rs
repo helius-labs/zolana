@@ -137,7 +137,9 @@ mod circuit {
     }
 
     impl Circuit for UniqueCounterCreate {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let public = &self.public;
             let counter = UniqueDataUtxo::<Counter>::new_init(&public.owner, &constant(42u64))?;
 

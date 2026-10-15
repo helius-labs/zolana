@@ -3,8 +3,7 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{hash::owner_hash, ShieldedAddress};
 use zolana_program::{
     circuit::{
-        Assert, CircuitVar, ConfidentialTransaction, Constraints, DataUtxo, Field, UtxoData,
-        UtxoTrait,
+        Assert, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo, Field, UtxoData, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, TxContext,
@@ -45,8 +44,10 @@ pub struct Held<const CLOSE: bool> {
     pub asset_hash: Field,
 }
 
-impl<const CLOSE: bool> Constraints for HeldCircuit<CLOSE> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const CLOSE: bool> Circuit for HeldCircuit<CLOSE> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let counter = if CLOSE {
             DataUtxo::new_close(&self.input, &self.state)?
         } else {
@@ -90,8 +91,10 @@ pub struct Fresh {
     pub asset_hash: Field,
 }
 
-impl Constraints for FreshCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for FreshCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let counter = DataUtxo::<CounterState>::new_init(&self.owner).with_asset(&self.mint)?;
         CircuitVar::from(counter.count.clone()).assert_equal(&self.count, COUNT)?;
         CircuitVar::from(counter.amount()?).assert_equal(&self.balance, BALANCE)?;
@@ -123,8 +126,10 @@ pub struct Encoded {
     pub state: Counter,
 }
 
-impl Constraints for EncodedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EncodedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.state.utxo_data().map(|_| ())
     }
 }
@@ -140,8 +145,10 @@ pub struct Closed<const ALL: bool> {
     pub public: NoFields,
 }
 
-impl<const ALL: bool> Constraints for ClosedCircuit<ALL> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const ALL: bool> Circuit for ClosedCircuit<ALL> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut counter = DataUtxo::new_close(&self.input, &self.state)?;
         if ALL {
             let _ = counter.withdraw_all(&self.account)?;

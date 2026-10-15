@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::Field as _;
 use zolana_program::{
-    circuit::{constant, Assert, Constraints, Field},
+    circuit::{constant, Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -25,8 +25,10 @@ pub struct Div {
     pub quotient: Field,
 }
 
-impl Constraints for DivCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for DivCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.dividend
             .div(&self.divisor)?
             .assert_equal(&self.quotient, RULE)
@@ -54,8 +56,10 @@ pub struct ByFour {
     pub quotient: Field,
 }
 
-impl Constraints for ByFourCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ByFourCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.dividend
             .div(&constant(4u64))?
             .assert_equal(&self.quotient, RULE)
@@ -68,8 +72,10 @@ pub struct FourOver {
     pub quotient: Field,
 }
 
-impl Constraints for FourOverCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for FourOverCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(4u64)
             .div(&self.divisor)?
             .assert_equal(&self.quotient, RULE)
@@ -82,8 +88,10 @@ pub struct ByZero {
     pub quotient: Field,
 }
 
-impl Constraints for ByZeroCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ByZeroCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.dividend
             .div(&constant(0u64))?
             .assert_equal(&self.quotient, RULE)

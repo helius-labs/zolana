@@ -27,5 +27,3 @@ pub use proof_inputs::ProofInputs;
 pub use r1cs::R1cs;
 #[cfg(feature = "client")]
 pub(crate) use synthesis::ArkworksCircuit;
-#[cfg(feature = "test-support")]
-pub(crate) use synthesis::Statement;

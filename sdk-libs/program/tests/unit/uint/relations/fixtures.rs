@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, CircuitVar, Constraints, Field, Select, Uint},
+    circuit::{Assert, Circuit, CircuitVar, Field, Select, Uint},
     conversion::ProofInput,
     CircuitError,
 };
@@ -14,8 +14,10 @@ pub struct Compare<const BITS: usize, const OP: u8> {
     pub y: Field,
     pub claimed: Field,
 }
-impl<const BITS: usize, const OP: u8> Constraints for CompareCircuit<BITS, OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const OP: u8> Circuit for CompareCircuit<BITS, OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<BITS>::try_from(&self.x)?;
         let y = Uint::<BITS>::try_from(&self.y)?;
         let result: CircuitVar = match OP {
@@ -39,8 +41,10 @@ pub struct Pair<const BITS: usize, const OP: u8> {
     pub x: Field,
     pub y: Field,
 }
-impl<const BITS: usize, const OP: u8> Constraints for PairCircuit<BITS, OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const OP: u8> Circuit for PairCircuit<BITS, OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<BITS>::try_from(&self.x)?;
         let y = Uint::<BITS>::try_from(&self.y)?;
         match OP {
@@ -63,8 +67,10 @@ pub struct Range<const BITS: usize> {
     pub low: Field,
     pub high: Field,
 }
-impl<const BITS: usize> Constraints for RangeCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for RangeCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Uint::<BITS>::try_from(&self.x)?.assert_in_range(
             &Uint::try_from(&self.low)?,
             &Uint::try_from(&self.high)?,
@@ -78,8 +84,10 @@ pub struct Zero<const BITS: usize> {
     pub x: Field,
     pub claimed: Field,
 }
-impl<const BITS: usize> Constraints for ZeroCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for ZeroCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<BITS>::try_from(&self.x)?;
         CircuitVar::from(x.is_zero()?).assert_equal(&self.claimed, CLAIM)
     }
@@ -89,8 +97,10 @@ impl<const BITS: usize> Constraints for ZeroCircuit<BITS> {
 pub struct AssertZero<const BITS: usize, const NONZERO: bool> {
     pub x: Field,
 }
-impl<const BITS: usize, const NONZERO: bool> Constraints for AssertZeroCircuit<BITS, NONZERO> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const NONZERO: bool> Circuit for AssertZeroCircuit<BITS, NONZERO> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<BITS>::try_from(&self.x)?;
         if NONZERO {
             x.assert_not_zero(RULE)
@@ -106,8 +116,10 @@ pub struct Conditional<const BITS: usize> {
     pub y: Field,
     pub condition: bool,
 }
-impl<const BITS: usize> Constraints for ConditionalCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for ConditionalCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Assert::assert_equal_if(
             &Uint::<BITS>::try_from(&self.x)?,
             &Uint::try_from(&self.y)?,
@@ -124,8 +136,10 @@ pub struct Selection<const BITS: usize> {
     pub condition: bool,
     pub claimed: Field,
 }
-impl<const BITS: usize> Constraints for SelectionCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for SelectionCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<BITS>::try_from(&self.x)?;
         let y = Uint::<BITS>::try_from(&self.y)?;
         CircuitVar::from(Uint::select(&self.condition, &x, &y)).assert_equal(&self.claimed, CLAIM)
@@ -139,10 +153,12 @@ pub struct Division<const BITS: usize, const QUOTIENT: usize, const DIVISOR: usi
     pub quotient: Field,
     pub remainder: Field,
 }
-impl<const BITS: usize, const QUOTIENT: usize, const DIVISOR: usize> Constraints
+impl<const BITS: usize, const QUOTIENT: usize, const DIVISOR: usize> Circuit
     for DivisionCircuit<BITS, QUOTIENT, DIVISOR>
 {
-    fn constraints(&self) -> Result<(), CircuitError> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (q, r) = Uint::<BITS>::try_from(&self.x)?
             .div_rem::<QUOTIENT, DIVISOR>(&Uint::try_from(&self.divisor)?, RULE)?;
         CircuitVar::from(q).assert_equal(&self.quotient, CLAIM)?;
@@ -217,8 +233,10 @@ pub struct CrossWidth {
     pub y: Field,
     pub claimed: Field,
 }
-impl Constraints for CrossWidthCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for CrossWidthCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let x = Uint::<4>::try_from(&self.x)?;
         let y = Uint::<64>::try_from(&self.y)?;
         CircuitVar::from(CircuitVar::from(x).is_equal(&CircuitVar::from(y))?)

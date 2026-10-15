@@ -1,6 +1,7 @@
 pub(crate) mod builtins;
 mod circuit_type;
 pub(crate) mod labels;
+pub(crate) mod output;
 mod protocol;
 
 pub use builtins::{
@@ -10,6 +11,7 @@ pub use builtins::{
 };
 pub use circuit_type::{CircuitDefault, CircuitType};
 pub use labels::{CircuitLabel, CircuitSize, FailedConstraint, LabelKind, VariableRole};
+pub use output::CircuitOutput;
 pub(crate) use protocol::PublicTransfer;
 pub use protocol::{
     Asset, CheckedTransaction, ConfidentialTransaction, DataHash, DataUtxo, Owner, OwnerKey,
@@ -20,11 +22,9 @@ pub use zolana_macros::{CircuitType, PublicInputs};
 use crate::CircuitError;
 
 pub trait Circuit: CircuitType {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError>;
-}
+    type Output: CircuitOutput;
 
-pub trait Constraints: CircuitType {
-    fn constraints(&self) -> Result<(), CircuitError>;
+    fn circuit(&self) -> Result<Self::Output, CircuitError>;
 }
 
 pub(crate) use protocol::UtxoMeta;

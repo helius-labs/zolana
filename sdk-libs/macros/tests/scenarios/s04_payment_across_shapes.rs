@@ -88,7 +88,9 @@ fn payment_prove_and_verify<const N: usize, const R: usize>(
 
 #[deny(clippy::disallowed_types)]
 impl<const N: usize, const R: usize> Circuit for PaymentCircuit<N, R> {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut payments = self

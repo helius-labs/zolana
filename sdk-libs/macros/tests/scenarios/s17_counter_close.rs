@@ -35,7 +35,9 @@ pub(crate) struct ClosePublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Close as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let counter = DataUtxo::new_close(&private.counter, &private.state)?;
         counter

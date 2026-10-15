@@ -47,7 +47,9 @@ struct SettlePublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Settle as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let price = &self.public.execution_price;
         let mut order = DataUtxo::new_close(&private.order, &private.terms)?;

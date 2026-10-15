@@ -353,7 +353,9 @@ and `UtxoTrait::transfer` moves value from one to the other:
 
 ```rust
 impl Circuit for Escrow {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         private.amount.assert_not_zero("the escrow locks nothing")?;
         let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
@@ -424,16 +426,16 @@ The client runs the same `circuit` natively through the `ZkProgram` trait, and t
 it in R1CS:
 
 ```rust
-impl ZkProgram for Escrow {}
-
 let spp_proof_inputs =
     escrow.create_proof_inputs_and_encrypt_with_keys(&shielded_keys, payer, expiry_unix_ts)?;
 let prover = Groth16Prover::<Escrow>::new(Groth16Keys::load_image_checked(proving_key_path, &expected_sha256)?)?;
 let result = prover.prove(&escrow)?;
 ```
 
-- `ZkProgram` requires the inputs to implement `ProofInput` and `Placeholder`, and
-  `ProofInput::Circuit` to implement `Circuit`. It provides `create_proof_inputs_and_encrypt_with_keys`,
+- `ZkCircuit` is implemented automatically for `ProofInput` and `Placeholder` inputs
+  whose circuit implements `Circuit`. It provides constraint checks and exports.
+- `ZkProgram` extends `ZkCircuit` automatically when the circuit has
+  `Output = CheckedTransaction` and the input type has a static lifetime. It provides `create_proof_inputs_and_encrypt_with_keys`,
   which:
   1. instantiates the inputs natively and runs `circuit`,
   2. resolves the slots against the records and converts each output amount to `u64`, with a

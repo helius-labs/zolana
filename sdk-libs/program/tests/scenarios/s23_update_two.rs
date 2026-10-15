@@ -99,7 +99,9 @@ mod circuit {
     }
 
     impl Circuit for UpdateTwo {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let owner = self.public.owner.hash()?;
             let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;

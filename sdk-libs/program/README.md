@@ -99,9 +99,9 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `Bytes<N>` | A byte string the circuit sees byte by byte. |
 | `ProgramOwner` | A program PDA as a UTXO owner: its public key, owner hash and `ShieldedAddress` under the fixed zero nullifier key. `input` turns an output the program's transaction created into a spendable `WalletUtxo`. `decrypt_data_utxos::<T>` decrypts the PDA's outputs in indexer transactions with a viewing key and keeps the data UTXOs whose hash commits a `T`, minus those the same transactions spend. |
 | `DataUtxo<T>` | A decrypted UTXO and the program state its data holds. `TryFrom<WalletUtxo>` decodes `T` from the UTXO data, checks that the UTXO hash commits its `DataHasher` hash, and sets `data_hash`, so the UTXO can be spent. |
-| `ZkProgram` | Feature `client`. Implemented for every input that implements `ProofInput` with a `Circuit` and `Placeholder`. `create_program_transaction` runs `circuit` natively, resolves the slots against the records and returns a `ProgramTransaction`. `create_finalized_transaction` returns only the SPP transaction. With feature `client`, `create_proof_inputs_and_encrypt_with_keys` encrypts it with the sender's `ShieldedKeys` into `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `export_r1cs` (feature `setup`) writes the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony, and `export_assignment` writes an input's full variable assignment as a snarkjs `.wtns` file. |
+| `ZkProgram` | Feature `client`. Implemented for every `ZkCircuit` input whose circuit has `Output = CheckedTransaction` and whose type is `'static`. `create_program_transaction` runs `circuit` natively, resolves the slots against the records and returns a `ProgramTransaction`. `create_finalized_transaction` returns only the SPP transaction. `create_proof_inputs_and_encrypt_with_keys` encrypts it with the sender's `ShieldedKeys` into `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints`, `proof_inputs` and the exports come from `ZkCircuit`. |
 | `ProgramTransaction` | Feature `client`. What `create_program_transaction` returns: the SPP `FinalizedTransaction`, the program's `ProofInputs` and the public hash, so one call feeds both proofs. |
-| `ZkCircuit` | Feature `client`. A circuit with no transaction and no public input, for testing a builtin on its own. Implemented for every input that implements `Placeholder` and whose circuit type implements `Constraints`. `check_constraints` runs the constraints natively and in R1CS and compares the proof's synthesis with the placeholder's, as `ZkProgram`'s does. `export_r1cs` (feature `setup`) and `export_assignment` write the iden3 `.r1cs` and `.wtns` files, with 0 public inputs. There is no Groth16 prover for one yet; snarkjs proves one from those files. |
+| `ZkCircuit` | Feature `client`. Implemented for every input that implements `ProofInput` with a `Circuit` and `Placeholder`, whatever the circuit's `Output`. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `proof_inputs` returns the full variable assignment and `export_assignment` writes it as a snarkjs `.wtns` file. `export_r1cs` and `export_picus_r1cs` (feature `setup`) write the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony and in the Picus format. The public inputs follow the circuit's `Output`: none for `()`, the public hash for `CheckedTransaction`. `Groth16Prover` takes only a `ZkProgram`; snarkjs proves a `()` circuit from the exported files. |
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`. |
@@ -165,8 +165,8 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `PublicInputs` | Hashes a circuit's public fields, then `private_tx_hash`, into the public hash. |
 | `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a trailing `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `zolana_transaction`'s `add_empty_output_utxo`. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
-| `Circuit` | The `circuit` method of a circuit type. |
-| `Constraints` | The `constraints` method of a circuit type that only asserts rules, with no transaction and no public hash. `ZkCircuit` runs it. |
+| `Circuit` | Defines `type Output: CircuitOutput` and `fn circuit(&self) -> Result<Self::Output, CircuitError>`. Used for both standalone constraints and transaction programs. |
+| `CircuitOutput` | Sealed output contract. `()` adds no public inputs; `CheckedTransaction` binds its public hash to one public input. The SDK owns the allocation and equality constraints for these outputs. |
 
 **Diagnostics**
 
@@ -181,7 +181,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | Name | What it is good for |
 | --- | --- |
 | `constraint_labels` | The labels of a proof input's synthesis. |
-| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. A `ZkCircuit` has no public hash, so `Tamper::PublicHash` on one is `WrongPublicInputCount`. |
+| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. A circuit returning `()` has no public hash, so `Tamper::PublicHash` on that circuit is `WrongPublicInputCount`. |
 | `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). The scenario suites run it on every proof. |
 
 ### Writing a gadget
@@ -227,7 +227,9 @@ program that proves and verifies with Groth16 using a declared root input.
 
 ```rust,ignore
 impl Circuit for <Transfer as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         // Build and check the transaction using self's circuit fields.
     }
 }
@@ -494,3 +496,19 @@ shared `private_tx_hash`; the SPP proof binds the transaction's nullifiers and
 other SPP fields. Application authorization uses the program's constrained state
 and public inputs, not the carried metadata. Tests that inspect SDK internals
 must explicitly enable `test-support`.
+
+### Circuit outputs and client traits
+
+A standalone circuit implements `Circuit` with `type Output = ()` and returns
+`Ok(())` after its assertions. A transaction circuit sets
+`type Output = CheckedTransaction` and returns `transaction.check()`.
+Both use `ZkCircuit` for checking and exports. Transaction circuits additionally
+implement `ZkProgram` automatically, providing transaction construction and
+encryption. Import `ZkCircuit` to call its methods on a concrete program input;
+a generic `P: ZkProgram` already inherits those methods.
+
+`CheckedTransaction` allocates the public hash as the first public input,
+before the circuit instantiates any private input, and constrains it to the
+circuit's public hash after the circuit runs. Variable 1 is therefore always the
+public hash, and moving that allocation changes every proving key.
+`CircuitOutput` is sealed: `()` and `CheckedTransaction` are the only outputs.

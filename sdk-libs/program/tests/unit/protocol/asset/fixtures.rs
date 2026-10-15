@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, Asset, Constraints, DataHash, Field, Select},
+    circuit::{Assert, Asset, Circuit, DataHash, Field, Select},
     conversion::ProofInput,
     CircuitError,
 };
@@ -24,8 +24,10 @@ pub struct AssetHash {
     pub mint: Mint,
 }
 
-impl Constraints for AssetHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssetHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.mint.hash()?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -36,8 +38,10 @@ pub struct HashedTwice {
     pub mint: Mint,
 }
 
-impl Constraints for HashedTwiceCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for HashedTwiceCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let clone = self.mint.clone();
         self.mint.hash()?.assert_equal(&self.hash, HASH_RULE)?;
         clone.hash()?.assert_equal(&self.hash, HASH_RULE)
@@ -50,8 +54,10 @@ pub struct AssetDataHash {
     pub mint: Mint,
 }
 
-impl Constraints for AssetDataHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssetDataHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         DataHash::hash(&self.mint)?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -61,8 +67,10 @@ pub struct SolHash {
     pub hash: Field,
 }
 
-impl Constraints for SolHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SolHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Asset::sol().hash()?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -72,8 +80,10 @@ pub struct Single {
     pub mint: Mint,
 }
 
-impl Constraints for SingleCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SingleCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }
@@ -84,8 +94,10 @@ pub struct Pair {
     pub right: Mint,
 }
 
-impl Constraints for PairCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for PairCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }
@@ -96,8 +108,10 @@ pub struct Equal {
     pub right: Mint,
 }
 
-impl Constraints for EqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal(&self.right, EQUAL_RULE)
     }
 }
@@ -109,8 +123,10 @@ pub struct EqualIf {
     pub condition: bool,
 }
 
-impl Constraints for EqualIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EqualIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &self.condition, EQUAL_RULE)
     }
@@ -123,8 +139,10 @@ pub struct IsEqual {
     pub claimed: bool,
 }
 
-impl Constraints for IsEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IsEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .is_equal(&self.right)?
             .assert_equal(&self.claimed, IS_EQUAL_RULE)
@@ -137,8 +155,10 @@ pub struct NotEqual {
     pub right: Mint,
 }
 
-impl Constraints for NotEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for NotEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_not_equal(&self.right, EQUAL_RULE)
     }
 }
@@ -150,8 +170,10 @@ pub struct EqualsConstant {
 
 pub const CONSTANT_MINT: Mint = super::vectors::USDC;
 
-impl Constraints for EqualsConstantCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EqualsConstantCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.mint
             .assert_equal(&Asset::constant(&CONSTANT_MINT.asset), EQUAL_RULE)
     }
@@ -165,8 +187,10 @@ pub struct Selected {
     pub if_false: Mint,
 }
 
-impl Constraints for SelectedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SelectedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Asset::select(&self.condition, &self.if_true, &self.if_false)
             .hash()?
             .assert_equal(&self.hash, HASH_RULE)

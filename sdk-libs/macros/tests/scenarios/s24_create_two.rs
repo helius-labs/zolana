@@ -38,7 +38,9 @@ use crate::s22_create_and_update::{BadgeCircuit, ProfileCircuit};
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <CreateTwo as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut profile = DataUtxo::<ProfileCircuit>::new_init(&self.public.owner);

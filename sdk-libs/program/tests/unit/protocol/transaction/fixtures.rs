@@ -3,8 +3,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
         poseidon, Assert, CheckedTransaction, Circuit, CircuitType, CircuitVar,
-        ConfidentialTransaction, Constraints, DataUtxo, Field, PublicInputs, TokenUtxos, Uint,
-        UtxoTrait,
+        ConfidentialTransaction, DataUtxo, Field, PublicInputs, TokenUtxos, Uint, UtxoTrait,
     },
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, TxContext,
@@ -61,7 +60,9 @@ pub struct Refresh {
 }
 
 impl Circuit for RefreshCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let tokens = TokenUtxos::new_mut(&self.tokens)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
             .with_token_utxos(tokens)
@@ -79,7 +80,9 @@ pub struct Payment {
 }
 
 impl Circuit for PaymentCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         let mut payment = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());
         tokens.transfer(&mut payment, &self.amount)?;
@@ -102,7 +105,9 @@ pub struct Fund {
 }
 
 impl Circuit for FundCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         let mut counter = DataUtxo::new_mut(&self.counter, &self.state)?;
         counter.count = counter
@@ -128,7 +133,9 @@ pub struct Settle {
 }
 
 impl Circuit for SettleCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         tokens.deposit(&self.deposit, &self.account)?;
         tokens.withdraw(&self.withdraw, &self.account)?;
@@ -148,7 +155,9 @@ pub struct Forgotten {
 }
 
 impl Circuit for ForgottenCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut tokens = TokenUtxos::new_mut(&self.tokens)?;
         let mut payment = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());
         tokens.transfer(&mut payment, &self.amount)?;
@@ -169,7 +178,9 @@ pub struct Unspent {
 }
 
 impl Circuit for UnspentCircuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut counter = DataUtxo::<CounterState>::new_init(&self.owner);
         counter.deposit(&self.deposit, &self.account)?;
         ConfidentialTransaction::new(&self.tx_context, &self.public)
@@ -189,7 +200,9 @@ pub struct Swept<const ALL: bool> {
 }
 
 impl<const ALL: bool> Circuit for SweptCircuit<ALL> {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut tokens = TokenUtxos::new_close(&self.tokens)?;
         if ALL {
             let _ = tokens.withdraw_all(&self.account)?;
@@ -201,7 +214,9 @@ impl<const ALL: bool> Circuit for SweptCircuit<ALL> {
 }
 
 /// The native reference an honest proof of `self` must reproduce.
-pub trait Shape: ProofInput<Circuit: Circuit> + Placeholder + Clone + std::fmt::Debug {
+pub trait Shape:
+    ProofInput<Circuit: Circuit<Output = CheckedTransaction>> + Placeholder + Clone + std::fmt::Debug
+{
     fn reference(&self) -> Reference;
 }
 
@@ -250,14 +265,16 @@ impl<P: Placeholder> Placeholder for Asserted<P> {
     }
 }
 
-impl<C: Circuit> AssertedCircuit<C> {
+impl<C: Circuit<Output = CheckedTransaction>> AssertedCircuit<C> {
     pub fn checked(&self) -> Result<CheckedTransaction, CircuitError> {
         self.program.circuit()
     }
 }
 
-impl<C: Circuit> Constraints for AssertedCircuit<C> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<C: Circuit<Output = CheckedTransaction>> Circuit for AssertedCircuit<C> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let checked = self.checked()?;
         let [private_tx_hash, transaction_hash, public_hash] = &self.expected;
         checked
@@ -300,8 +317,10 @@ impl<P: Placeholder> Placeholder for Checked<P> {
     }
 }
 
-impl<C: Circuit> Constraints for CheckedCircuit<C> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<C: Circuit<Output = CheckedTransaction>> Circuit for CheckedCircuit<C> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.program.circuit().map(|_| ())
     }
 }

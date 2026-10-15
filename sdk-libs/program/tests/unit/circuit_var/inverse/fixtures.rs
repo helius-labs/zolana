@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::Field as _;
 use zolana_program::{
-    circuit::{constant, Assert, CircuitSystem, ConstraintSystem, Constraints, Field},
+    circuit::{constant, Assert, Circuit, CircuitSystem, ConstraintSystem, Field},
     conversion::{Allocator, ProofInput},
     CircuitError, ProverError,
 };
@@ -23,8 +23,10 @@ pub struct Inverse {
     pub inverse: Field,
 }
 
-impl Constraints for InverseCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InverseCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.x.inverse()?.assert_equal(&self.inverse, RULE)
     }
 }
@@ -42,8 +44,10 @@ pub struct Unasserted {
     pub x: Field,
 }
 
-impl Constraints for UnassertedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let _inverse = self.x.inverse()?;
         Ok(())
     }
@@ -54,8 +58,10 @@ pub struct InverseOfFour {
     pub inverse: Field,
 }
 
-impl Constraints for InverseOfFourCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InverseOfFourCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(4u64).inverse()?.assert_equal(&self.inverse, RULE)
     }
 }
@@ -65,20 +71,24 @@ pub struct InverseOfZero {
     pub inverse: Field,
 }
 
-impl Constraints for InverseOfZeroCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InverseOfZeroCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(0u64).inverse()?.assert_equal(&self.inverse, RULE)
     }
 }
 
 /// The proving synthesis alone, on a fresh constraint system: the fixture's
 /// native run is skipped, so a refusal comes from the R1CS branch.
-pub fn r1cs_synthesis<P: ProofInput<Circuit: Constraints>>(fixture: &P) -> Result<(), Refusal> {
+pub fn r1cs_synthesis<P: ProofInput<Circuit: Circuit<Output = ()>>>(
+    fixture: &P,
+) -> Result<(), Refusal> {
     let cs: CircuitSystem = ConstraintSystem::new_ref();
     outcome(
         fixture
             .instantiate(&Allocator::R1cs(cs))
-            .and_then(|circuit| circuit.constraints()),
+            .and_then(|circuit| circuit.circuit()),
     )
 }
 

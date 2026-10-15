@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, nonzero_hash_chain, value, Assert, Constraints, Field},
+    circuit::{constant, nonzero_hash_chain, value, Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -45,8 +45,10 @@ impl<const N: usize> Fixture<Chained> for Chain<N> {
     }
 }
 
-impl<const N: usize> Constraints for ChainCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ChainCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         nonzero_hash_chain(&self.values)?.assert_equal(&self.chain, RULE)
     }
 }
@@ -78,8 +80,10 @@ pub struct ConstantValues {
     pub chain: Field,
 }
 
-impl Constraints for ConstantValuesCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantValuesCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         nonzero_hash_chain(&[constant(0u64), constant(1u64), constant(2u64)])?
             .assert_equal(&self.chain, RULE)
     }

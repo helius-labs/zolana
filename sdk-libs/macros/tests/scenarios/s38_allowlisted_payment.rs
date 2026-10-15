@@ -36,7 +36,9 @@ struct AllowlistedPaymentPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <AllowlistedPayment as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         private

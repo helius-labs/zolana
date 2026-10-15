@@ -103,7 +103,9 @@ mod circuit {
     }
 
     impl Circuit for MixerWithdrawal {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut note = DataUtxo::new_close(&private.note, &private.commitment)?;

@@ -35,7 +35,9 @@ struct WithdrawalPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Withdrawal as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
         let withdrawn = tokens.withdraw_all(&private.destination)?;

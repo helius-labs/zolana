@@ -11,7 +11,7 @@ applies to, and the per-builtin files reference these IDs. For now the only buil
   - Kind: soundness
   - Affects: `CircuitVar +` (all nine operand forms)
   - Statement: for every fixture and every input, the native run returns Ok exactly when the proving assignment of that input satisfies every proving row: every valid vector passes both runs, and every wrong output fails both.
-  - Location: `src/prover/synthesis.rs:302-357` (`impl Statement` for `Circuit` and `Constraints`: one circuit type, run natively and in R1CS)
+  - Location: `src/prover/synthesis.rs` (`ArkworksCircuit`: one circuit type, run natively and in R1CS) and `src/circuit/output.rs` (output binding)
   - Severity: Critical
   - Suggested test: positive + negative + property; `tests/unit/<type>/<op>/native.rs`, `r1cs.rs`, `properties.rs`
 
@@ -44,7 +44,7 @@ applies to, and the per-builtin files reference these IDs. For now the only buil
   - Kind: constraint
   - Affects: every `ZkCircuit` fixture (`CircuitVar +`)
   - Statement: for every `ZkCircuit` fixture, the exported header has exactly 0 public inputs and 0 public outputs: the constant one is the only instance variable.
-  - Location: `src/prover/synthesis.rs:334-357` (`impl Statement<NoPublicInputs>`), `src/prover/synthesis.rs:228-233` (`fn check_public_inputs`)
+  - Location: `src/circuit/output.rs` (`impl Binding for ()`, `PUBLIC_INPUTS = 0`), `src/prover/synthesis.rs` (`fn check_public_inputs`)
   - Severity: High
   - Suggested test: positive; `tests/unit/<type>/<op>/r1cs.rs`
 

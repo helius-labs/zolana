@@ -32,7 +32,9 @@ struct SweepPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Sweep as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
         let mut sweep = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());

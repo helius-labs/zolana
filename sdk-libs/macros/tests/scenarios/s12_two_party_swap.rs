@@ -49,7 +49,9 @@ fn leg(inputs: &[Utxo; 1], owner: &Owner) -> Result<TokenUtxos, CircuitError> {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <Swap as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let mut tokens_a = leg(&private.token_utxos_asset_a, &private.party_a)?;

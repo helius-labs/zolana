@@ -161,7 +161,9 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for Escrow {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             private.amount.assert_not_zero("the escrow locks nothing")?;
             let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;

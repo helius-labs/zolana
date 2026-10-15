@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, Assert, CircuitVar, Constraints, Field, Uint},
+    circuit::{constant, Assert, Circuit, CircuitVar, Field, Uint},
     conversion::ProofInput,
     CircuitError,
 };
@@ -16,8 +16,10 @@ pub struct Borrowed<const BITS: usize> {
     pub x: Field,
 }
 
-impl<const BITS: usize> Constraints for BorrowedCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for BorrowedCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Uint::<BITS>::try_from(&self.x).map(drop)
     }
 }
@@ -27,8 +29,10 @@ pub struct Owned<const BITS: usize> {
     pub x: Field,
 }
 
-impl<const BITS: usize> Constraints for OwnedCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for OwnedCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Uint::<BITS>::try_from(self.x.clone()).map(drop)
     }
 }
@@ -39,8 +43,10 @@ pub struct IntoVar<const BITS: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize> Constraints for IntoVarCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for IntoVarCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(Uint::<BITS>::try_from(&self.x)?).assert_equal(&self.claimed, RULE)
     }
 }
@@ -51,8 +57,10 @@ pub struct FromBool<const BITS: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize> Constraints for FromBoolCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for FromBoolCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(Uint::<BITS>::from(self.bit.clone())).assert_equal(&self.claimed, RULE)
     }
 }
@@ -62,8 +70,10 @@ pub struct Constants {
     pub x: Field,
 }
 
-impl Constraints for ConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let checked = Uint::<4>::try_from(constant(15u64))?;
         let built = Uint::<4>::constant(15)?;
         CircuitVar::from(checked).assert_equal(&self.x, RULE)?;

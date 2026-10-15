@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, Constraints, Field},
+    circuit::{Assert, Circuit, Field},
     conversion::ProofInput,
     Bytes, CircuitError,
 };
@@ -18,8 +18,10 @@ pub struct HashBytes<const N: usize> {
     pub hash: Field,
 }
 
-impl<const N: usize> Constraints for HashBytesCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for HashBytesCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.bytes.hash_bytes()?.assert_equal(&self.hash, RULE)
     }
 }

@@ -12,13 +12,11 @@ use super::{
     },
 };
 use crate::{
-    harness::fixture::{native, Refusal},
+    harness::fixture::{native, Fixture, Refusal},
     protocol::transaction::wallets::dummy,
 };
 
-fn natively<P: zolana_program::ZkCircuit>(
-    named: Vec<(&'static str, P)>,
-) -> Vec<(&'static str, Result<(), Refusal>)> {
+fn natively<P: Fixture>(named: Vec<(&'static str, P)>) -> Vec<(&'static str, Result<(), Refusal>)> {
     named
         .into_iter()
         .map(|(name, fixture)| (name, native(&fixture)))

@@ -7,7 +7,7 @@ use zolana_program::{
     },
     conversion::{field_bytes, ProofInput},
     testing::{check_private_variables, FreeVariable},
-    CircuitError, Groth16Prover, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkCircuit, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -42,7 +42,9 @@ struct SquareRootSweepPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <SquareRootSweep as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         assert_isqrt(&private.square, &self.public.root, ROOT_RULE)?;
         let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;

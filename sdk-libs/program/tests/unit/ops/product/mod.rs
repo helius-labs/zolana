@@ -4,7 +4,7 @@ use ark_bn254::Fr;
 use ark_ff::{One, Zero};
 use proptest::prelude::*;
 use zolana_program::{
-    circuit::{constant, Constraints, Field},
+    circuit::{constant, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -27,8 +27,10 @@ struct Product {
     product: Field,
 }
 
-impl Constraints for ProductCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ProductCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_product(&self.right, &self.product, RULE)
     }
 }
@@ -99,8 +101,10 @@ fn a_product_assertion_is_exactly_one_multiplication_row_without_an_intermediate
 #[derive(Clone, Copy, Debug, ProofInput)]
 struct Constants;
 
-impl Constraints for ConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         constant(2u64).assert_product(&constant(3u64), &constant(6u64), RULE)
     }
 }

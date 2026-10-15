@@ -1,7 +1,7 @@
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::hash::owner_hash;
 use zolana_program::{
-    circuit::{constant, Assert, CircuitVar, Constraints, Field, TokenUtxos, UtxoTrait},
+    circuit::{constant, Assert, Circuit, CircuitVar, Field, TokenUtxos, UtxoTrait},
     conversion::ProofInput,
     CircuitError,
 };
@@ -47,8 +47,10 @@ pub struct Spend<const N: usize, const LAST: usize> {
     pub asset_hash: Field,
 }
 
-impl<const N: usize, const LAST: usize> Constraints for SpendCircuit<N, LAST> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize, const LAST: usize> Circuit for SpendCircuit<N, LAST> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut inputs = self.inputs.clone();
         if let (Some(first), Some(last)) = (self.inputs.first(), inputs.last_mut()) {
             match LAST {

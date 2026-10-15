@@ -38,7 +38,9 @@ struct FanOutPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <FanOut as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         CircuitVar::from(Uint::<64>::sum::<67, _>(&private.amounts)).assert_equal(
             &CircuitVar::from(self.public.total.clone()),

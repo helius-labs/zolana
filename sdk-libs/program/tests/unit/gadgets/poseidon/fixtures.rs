@@ -1,7 +1,7 @@
 use std::ops::RangeInclusive;
 
 use zolana_program::{
-    circuit::{constant, poseidon, value, Assert, Constraints, Field},
+    circuit::{constant, poseidon, value, Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -34,8 +34,10 @@ impl<const N: usize> Fixture<Hashed> for PoseidonClaim<N> {
     }
 }
 
-impl<const N: usize> Constraints for PoseidonClaimCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for PoseidonClaimCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         poseidon(&self.inputs)?.assert_equal(&self.hash, RULE)
     }
 }
@@ -115,8 +117,10 @@ pub struct ConstantInputs {
     pub hash: Field,
 }
 
-impl Constraints for ConstantInputsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantInputsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         poseidon(&[constant(1u64), constant(2u64)])?.assert_equal(&self.hash, RULE)
     }
 }

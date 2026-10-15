@@ -7,7 +7,7 @@
 use ark_bn254::Fr;
 use ark_ff::One;
 use zolana_program::{
-    circuit::{Assert, CircuitVar, Constraints, Field, Uint},
+    circuit::{Assert, Circuit, CircuitVar, Field, Uint},
     conversion::ProofInput,
     CircuitError,
 };
@@ -43,8 +43,10 @@ pub struct Add<const BITS: usize, const OUT: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize, const OUT: usize> Constraints for AddCircuit<BITS, OUT> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const OUT: usize> Circuit for AddCircuit<BITS, OUT> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (x, y) = operands::<BITS>(&self.x, &self.y)?;
         CircuitVar::from(x.add::<OUT>(&y)).assert_equal(&self.claimed, RULE)
     }
@@ -57,8 +59,10 @@ pub struct Mul<const BITS: usize, const OUT: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize, const OUT: usize> Constraints for MulCircuit<BITS, OUT> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const OUT: usize> Circuit for MulCircuit<BITS, OUT> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (x, y) = operands::<BITS>(&self.x, &self.y)?;
         CircuitVar::from(x.mul::<OUT>(&y)).assert_equal(&self.claimed, RULE)
     }
@@ -70,8 +74,10 @@ pub struct Sum<const BITS: usize, const OUT: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize, const OUT: usize> Constraints for SumCircuit<BITS, OUT> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize, const OUT: usize> Circuit for SumCircuit<BITS, OUT> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let [a, b, c] = &self.values;
         let values = [Uint::try_from(a)?, Uint::try_from(b)?, Uint::try_from(c)?];
         CircuitVar::from(Uint::<BITS>::sum::<OUT, 3>(&values)).assert_equal(&self.claimed, RULE)
@@ -85,8 +91,10 @@ pub struct CheckedAdd<const BITS: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize> Constraints for CheckedAddCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for CheckedAddCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (x, y) = operands::<BITS>(&self.x, &self.y)?;
         CircuitVar::from(x.checked_add(&y, ADD_RULE)?).assert_equal(&self.claimed, RULE)
     }
@@ -99,8 +107,10 @@ pub struct CheckedMul<const BITS: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize> Constraints for CheckedMulCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for CheckedMulCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (x, y) = operands::<BITS>(&self.x, &self.y)?;
         CircuitVar::from(x.checked_mul(&y, MUL_RULE)?).assert_equal(&self.claimed, RULE)
     }
@@ -113,8 +123,10 @@ pub struct CheckedSub<const BITS: usize> {
     pub claimed: Field,
 }
 
-impl<const BITS: usize> Constraints for CheckedSubCircuit<BITS> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const BITS: usize> Circuit for CheckedSubCircuit<BITS> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (x, y) = operands::<BITS>(&self.x, &self.y)?;
         CircuitVar::from(x.checked_sub(&y, SUB_RULE)?).assert_equal(&self.claimed, RULE)
     }

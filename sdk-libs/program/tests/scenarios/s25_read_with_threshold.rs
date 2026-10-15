@@ -144,7 +144,9 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for ReadThreshold {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let account = DataUtxo::new_mut(&private.account_utxo, &private.account)?;
             self.public

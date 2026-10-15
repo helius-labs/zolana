@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, CircuitType, CircuitVar, Constraints, Field},
+    circuit::{Assert, Circuit, CircuitType, CircuitVar, Field},
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError,
 };
@@ -65,8 +65,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for Variables<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for VariablesCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for VariablesCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.difference, RULE)
     }
 }
@@ -113,8 +115,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for WithConstant<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for WithConstantCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for WithConstantCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.difference, RULE)
     }
 }
@@ -214,8 +218,10 @@ pub struct Unasserted {
     pub right: Field,
 }
 
-impl Constraints for UnassertedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let constant = Field::from(7u64);
         let _differences: Vec<CircuitVar> = VARIABLE_FORMS
             .iter()
@@ -236,9 +242,11 @@ pub struct SelfMinusSelf {
     pub difference: Field,
 }
 
-impl Constraints for SelfMinusSelfCircuit {
+impl Circuit for SelfMinusSelfCircuit {
+    type Output = ();
+
     #[allow(clippy::eq_op)]
-    fn constraints(&self) -> Result<(), CircuitError> {
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.a - &self.a).assert_equal(&self.difference, RULE)
     }
 }
@@ -249,8 +257,10 @@ pub struct MinusFive {
     pub difference: Field,
 }
 
-impl Constraints for MinusFiveCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for MinusFiveCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.a - Field::from(5u64)).assert_equal(&self.difference, RULE)
     }
 }

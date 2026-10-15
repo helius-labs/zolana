@@ -1,5 +1,5 @@
 use super::{fixtures::*, r1cs::honest};
-use crate::harness::fixture::{check_tampered, native};
+use crate::harness::fixture::{check_tampered, native, Fixture};
 use proptest::prelude::*;
 
 proptest! {
@@ -26,7 +26,7 @@ proptest! {
     }
 }
 
-fn native_rule<F: zolana_program::ZkCircuit>(fixture: &F, holds: bool, rule: &'static str) {
+fn native_rule<F: Fixture>(fixture: &F, holds: bool, rule: &'static str) {
     assert_eq!(
         native(fixture).map_err(|(name, rule, _)| (name, rule)),
         if holds {

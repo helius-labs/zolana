@@ -205,7 +205,9 @@ pub(crate) mod circuit {
     }
 
     impl Circuit for CreateAndUpdate {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let mut profile = DataUtxo::new_mut(&private.profile_utxo, &private.profile)?;
             profile.score = profile

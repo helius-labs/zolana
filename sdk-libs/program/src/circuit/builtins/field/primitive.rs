@@ -37,7 +37,6 @@ impl CircuitVar {
         Ok(Self(FpVar::new_witness(cs.clone(), value)?))
     }
 
-    #[cfg(feature = "client")]
     pub(crate) fn input(
         cs: &CircuitSystem,
         value: impl FnOnce() -> Result<Fr, SynthesisError>,

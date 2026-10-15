@@ -11,9 +11,12 @@ use crate::{
 };
 use ark_bn254::Fr;
 use ark_ff::One;
-use zolana_program::{circuit::Field, ZkCircuit};
+use zolana_program::{
+    circuit::{Circuit, Field},
+    ZkCircuit,
+};
 
-pub fn honest<F: ZkCircuit>(fixture: &F) {
+pub fn honest<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F) {
     assert_eq!(native(fixture), Ok(()));
     assert_eq!(check_constraints(fixture), Ok(size::<F>().constraints));
     assert_eq!(
@@ -22,7 +25,7 @@ pub fn honest<F: ZkCircuit>(fixture: &F) {
     );
 }
 
-fn sound<F: ZkCircuit>(fixture: &F, claims: &[usize]) {
+fn sound<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F, claims: &[usize]) {
     honest(fixture);
     let witness = assignment(fixture);
     for wire in claims {

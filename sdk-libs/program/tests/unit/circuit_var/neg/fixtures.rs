@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{value, Assert, CircuitVar, Constraints, Field},
+    circuit::{value, Assert, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -34,8 +34,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for Negated<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for NegatedCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for NegatedCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.negation, RULE)
     }
 }
@@ -62,8 +64,10 @@ pub struct Unasserted {
     pub value: Field,
 }
 
-impl Constraints for UnassertedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let _negations: Vec<CircuitVar> = FORMS.iter().map(|(_, form)| form(&self.value)).collect();
         Ok(())
     }
@@ -75,8 +79,10 @@ pub struct DoubleNegation {
     pub negation: Field,
 }
 
-impl Constraints for DoubleNegationCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for DoubleNegationCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (-(-&self.value)).assert_equal(&self.negation, RULE)
     }
 }
@@ -87,8 +93,10 @@ pub struct PlusNegation {
     pub negation: Field,
 }
 
-impl Constraints for PlusNegationCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for PlusNegationCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         (&self.value + -&self.value).assert_equal(&self.negation, RULE)
     }
 }
@@ -102,8 +110,10 @@ pub struct ReadsValue {
     pub value: Field,
 }
 
-impl Constraints for ReadsValueCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ReadsValueCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         read(&self.value).0.map(|_| ())
     }
 }
@@ -113,8 +123,10 @@ pub struct EqualsSeven {
     pub value: Field,
 }
 
-impl Constraints for EqualsSevenCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for EqualsSevenCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         zolana_program::circuit::constant(7u64).assert_equal(&self.value, RULE)
     }
 }

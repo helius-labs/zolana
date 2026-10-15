@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, Assert, Bool, CircuitVar, Constraints, Field, Select},
+    circuit::{constant, Assert, Bool, Circuit, CircuitVar, Field, Select},
     conversion::ProofInput,
     CircuitError,
 };
@@ -44,8 +44,10 @@ impl<const FORM: usize> Fixture<CircuitVar> for Selected<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for SelectedCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for SelectedCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.form().assert_equal(&self.selected, RULE)
     }
 }
@@ -84,8 +86,10 @@ pub struct SelectConstantCondition<const CONDITION: bool> {
     pub selected: Field,
 }
 
-impl<const CONDITION: bool> Constraints for SelectConstantConditionCircuit<CONDITION> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const CONDITION: bool> Circuit for SelectConstantConditionCircuit<CONDITION> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::select(&Bool::constant(CONDITION), &self.if_true, &self.if_false)
             .assert_equal(&self.selected, RULE)
     }
@@ -97,8 +101,10 @@ pub struct SelectConstantBranches {
     pub selected: Field,
 }
 
-impl Constraints for SelectConstantBranchesCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for SelectConstantBranchesCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::select(
             &self.condition,
             &constant(TRUE_CONSTANT),
@@ -115,8 +121,10 @@ pub struct Unasserted {
     pub if_false: Field,
 }
 
-impl Constraints for UnassertedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UnassertedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let _selected = CircuitVar::select(&self.condition, &self.if_true, &self.if_false);
         Ok(())
     }
@@ -136,8 +144,10 @@ impl<const N: usize> Fixture<[CircuitVar; N]> for ArraySelected<N> {
     }
 }
 
-impl<const N: usize> Constraints for ArraySelectedCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for ArraySelectedCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         <[CircuitVar; N]>::select(&self.condition, &self.if_true, &self.if_false)
             .assert_equal(&self.selected, RULE)
     }

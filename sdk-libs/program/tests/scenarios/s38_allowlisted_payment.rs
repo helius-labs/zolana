@@ -101,7 +101,9 @@ mod circuit {
     }
 
     impl Circuit for AllowlistedPayment {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             private

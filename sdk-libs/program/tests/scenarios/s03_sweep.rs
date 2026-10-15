@@ -1,7 +1,7 @@
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     conversion::{Allocator, Placeholder, ProofInput},
-    CircuitError, Groth16Prover, TxContext, ZkProgram,
+    CircuitError, Groth16Prover, TxContext, ZkCircuit, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -84,7 +84,9 @@ mod circuit {
     }
 
     impl Circuit for Sweep {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let mut tokens = TokenUtxos::new_close(&private.token_utxos_asset_a)?;
             let mut sweep = TokenUtxos::new_init(&self.public.recipient, &tokens.asset());

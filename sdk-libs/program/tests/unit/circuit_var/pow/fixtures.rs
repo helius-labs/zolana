@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{Assert, Constraints, Field},
+    circuit::{Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -20,8 +20,10 @@ pub struct Pow<const EXPONENT: u64> {
     pub power: Field,
 }
 
-impl<const EXPONENT: u64> Constraints for PowCircuit<EXPONENT> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const EXPONENT: u64> Circuit for PowCircuit<EXPONENT> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.x.pow(EXPONENT)?.assert_equal(&self.power, RULE)
     }
 }

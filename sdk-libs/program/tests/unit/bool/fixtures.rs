@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
 use zolana_program::{
-    circuit::{Assert, Bool, CircuitType, CircuitVar, Constraints, Field, Select, Uint},
+    circuit::{Assert, Bool, Circuit, CircuitType, CircuitVar, Field, Select, Uint},
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError,
 };
@@ -66,8 +66,10 @@ impl<const FORM: usize> Fixture<Result<CircuitVar, Refusal>> for Converted<FORM>
     }
 }
 
-impl<const FORM: usize> Constraints for ConvertedCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for ConvertedCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, CONVERT_RULE)
     }
 }
@@ -97,8 +99,10 @@ pub struct ConstantClaim<const K: bool> {
     pub out: Field,
 }
 
-impl<const K: bool> Constraints for ConstantClaimCircuit<K> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const K: bool> Circuit for ConstantClaimCircuit<K> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(Bool::constant(K)).assert_equal(&self.out, CONSTANT_RULE)
     }
 }
@@ -121,8 +125,10 @@ impl Fixture<Result<CircuitVar, Refusal>> for Not {
     }
 }
 
-impl Constraints for NotCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for NotCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, NOT_RULE)
     }
 }
@@ -213,8 +219,10 @@ impl<const GATE: usize> Fixture<Result<CircuitVar, Refusal>> for Variables<GATE>
     }
 }
 
-impl<const GATE: usize> Constraints for VariablesCircuit<GATE> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const GATE: usize> Circuit for VariablesCircuit<GATE> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, GATES[GATE].rule)
     }
 }
@@ -290,8 +298,10 @@ impl<const GATE: usize, const FORM: usize> Fixture<Result<CircuitVar, Refusal>>
     }
 }
 
-impl<const GATE: usize, const FORM: usize> Constraints for WithConstantCircuit<GATE, FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const GATE: usize, const FORM: usize> Circuit for WithConstantCircuit<GATE, FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, GATES[GATE].rule)
     }
 }
@@ -421,8 +431,10 @@ impl<const OP: usize, const N: usize> Fixture<Result<CircuitVar, Refusal>> for F
     }
 }
 
-impl<const OP: usize, const N: usize> Constraints for FoldCircuit<OP, N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const OP: usize, const N: usize> Circuit for FoldCircuit<OP, N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, FOLDS[OP].rule)
     }
 }
@@ -507,8 +519,10 @@ impl<const FORM: usize> Fixture<Result<CircuitVar, Refusal>> for Choose<FORM> {
     }
 }
 
-impl<const FORM: usize> Constraints for ChooseCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for ChooseCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.output()?.assert_equal(&self.out, SELECT_RULE)
     }
 }
@@ -543,8 +557,10 @@ pub struct ChooseConstantCondition<const K: bool> {
     pub out: Field,
 }
 
-impl<const K: bool> Constraints for ChooseConstantConditionCircuit<K> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const K: bool> Circuit for ChooseConstantConditionCircuit<K> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (if_true, if_false) = (bit(&self.if_true)?, bit(&self.if_false)?);
         CircuitVar::from(Bool::constant(K).select(&if_true, &if_false))
             .assert_equal(&self.out, SELECT_RULE)
@@ -557,8 +573,10 @@ pub struct ChooseConstantBranches<const T: bool, const F: bool> {
     pub out: Field,
 }
 
-impl<const T: bool, const F: bool> Constraints for ChooseConstantBranchesCircuit<T, F> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const T: bool, const F: bool> Circuit for ChooseConstantBranchesCircuit<T, F> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let condition = bit(&self.condition)?;
         CircuitVar::from(condition.select(&Bool::constant(T), &Bool::constant(F)))
             .assert_equal(&self.out, SELECT_RULE)
@@ -637,8 +655,10 @@ pub struct AssertedUnary<const OP: usize> {
     pub a: Field,
 }
 
-impl<const OP: usize> Constraints for AssertedUnaryCircuit<OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const OP: usize> Circuit for AssertedUnaryCircuit<OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (op, _) = &UNARY_ASSERTS[OP];
         (op.apply)(&bit(&self.a)?, op.rule)
     }
@@ -650,8 +670,10 @@ pub struct AssertedBinary<const OP: usize> {
     pub b: Field,
 }
 
-impl<const OP: usize> Constraints for AssertedBinaryCircuit<OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const OP: usize> Circuit for AssertedBinaryCircuit<OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (op, _) = &BINARY_ASSERTS[OP];
         (op.apply)(&bit(&self.a)?, &bit(&self.b)?, op.rule)
     }
@@ -687,8 +709,10 @@ pub struct AssertEqualIf {
     pub condition: Field,
 }
 
-impl Constraints for AssertEqualIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for AssertEqualIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (a, b, condition) = (bit(&self.a)?, bit(&self.b)?, bit(&self.condition)?);
         a.assert_equal_if(&b, &condition, ASSERT_EQUAL_IF_RULE)
     }
@@ -744,8 +768,10 @@ pub struct AssertTrueIfConstant<const FORM: usize> {
     pub x: Field,
 }
 
-impl<const FORM: usize> Constraints for AssertTrueIfConstantCircuit<FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const FORM: usize> Circuit for AssertTrueIfConstantCircuit<FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let form = &ASSERT_TRUE_IF_FORMS[FORM];
         let x = bit(&self.x)?;
         let flag = form.flag.map(Bool::constant).unwrap_or_else(|| x.clone());
@@ -789,8 +815,10 @@ impl Placeholder for Constants {
     }
 }
 
-impl Constraints for ConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let bits = [Bool::constant(false), Bool::constant(true)];
         for a in &bits {
             let _ = a.not();
@@ -822,8 +850,10 @@ pub struct Linear {
     pub a: Field,
 }
 
-impl Constraints for LinearCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for LinearCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let a = bit(&self.a)?;
         let bits = [Bool::constant(false), Bool::constant(true)];
         let _ = a.not();

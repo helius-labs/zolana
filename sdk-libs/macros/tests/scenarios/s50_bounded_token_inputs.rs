@@ -6,7 +6,7 @@ use zolana_program::{
         TokenUtxos, Uint, UtxoTrait,
     },
     conversion::{Allocator, Dummy, ProofInput},
-    CircuitError, CircuitErrorKind, ProgramTransaction, TxContext, ZkProgram,
+    CircuitError, CircuitErrorKind, ProgramTransaction, TxContext, ZkCircuit, ZkProgram,
 };
 use zolana_transaction::{Mint, WalletUtxo};
 
@@ -78,7 +78,9 @@ fn pay(
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <BoundedPayment as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         pay(
             &private.tx_context,
@@ -91,7 +93,9 @@ impl Circuit for <BoundedPayment as ProofInput>::Circuit {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <PaddedPayment as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         pay(
             &private.tx_context,

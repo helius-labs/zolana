@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{self, Assert, CircuitVar, Constraints, Field},
+    circuit::{self, Assert, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     Bytes, CircuitError,
 };
@@ -53,8 +53,10 @@ pub struct Allocated<const N: usize> {
     pub bytes: Bytes<N>,
 }
 
-impl<const N: usize> Constraints for AllocatedCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for AllocatedCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }
@@ -71,8 +73,10 @@ pub struct Split<const N: usize, const FORM: usize> {
     pub bytes: [Field; N],
 }
 
-impl<const N: usize, const FORM: usize> Constraints for SplitCircuit<N, FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize, const FORM: usize> Circuit for SplitCircuit<N, FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         split::<N, FORM>(&self.value)?
             .bytes()
             .assert_equal(&self.bytes, SPLIT_RULE)
@@ -93,8 +97,10 @@ pub struct Pack<const N: usize, const FORM: usize> {
     pub packed: Field,
 }
 
-impl<const N: usize, const FORM: usize> Constraints for PackCircuit<N, FORM> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize, const FORM: usize> Circuit for PackCircuit<N, FORM> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         pack::<N, FORM>(&self.bytes)?.assert_equal(&self.packed, PACK_RULE)
     }
 }
@@ -193,8 +199,10 @@ pub fn allocated<V: Visit<Computed>>(visitor: &V, pair: &Pair) -> V::Output {
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct Constants;
 
-impl Constraints for ConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let bytes = circuit::Bytes::constant(&[1, 2, 255]);
         drop(CircuitVar::try_from(&bytes)?);
         drop(circuit::Bytes::<3>::try_from(&circuit::constant(

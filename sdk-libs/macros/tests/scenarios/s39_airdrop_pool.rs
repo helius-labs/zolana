@@ -84,7 +84,9 @@ pub(crate) fn pool_utxo(
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <CreatePool as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
         let mut pool =

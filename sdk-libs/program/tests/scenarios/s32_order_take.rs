@@ -105,7 +105,9 @@ mod circuit {
     }
 
     impl Circuit for Take {
-        fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
             let private = &self.private;
             let public = &self.public;
             let mut order = DataUtxo::new_close(&private.order, &private.terms)?;

@@ -42,7 +42,9 @@ struct VerifyCredentialPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <VerifyCredential as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let credential = DataUtxo::new_mut(&private.credential_utxo, &private.credential)?;

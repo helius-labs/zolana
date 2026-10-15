@@ -9,10 +9,10 @@ Your only task is to extract from the source code a complete and precise list of
 Analyze the following code (a builtin's behavior is spread between the DSL, the synthesis and the export -- all are mandatory):
 
 - `src/circuit/builtins/**` -- the DSL builtins: `field/` (`var.rs` operators and `Field`, `primitive.rs` arkworks wrappers, `arithmetic.rs`, `bits.rs`), `gadgets/`, `ops/` (`Assert`, `Select`), `types/` (`Bool`, `Bytes`, `Uint`)
-- `src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the `Statement` impls (`PublicHash` for a `Circuit`, `NoPublicInputs` for `Constraints`), the public-input count check, the unsatisfied-row and free-variable analysis
+- `src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the output binding in `src/circuit/output.rs` (`CheckedTransaction` binds one public hash, `()` has no public inputs), the public-input count check, the unsatisfied-row and free-variable analysis
 - `src/prover/snarkjs.rs` -- the iden3 `.r1cs` and `.wtns` export
 - `src/conversion/**` -- client values to circuit values and back, the canonical byte checks
-- `src/circuit/mod.rs` (`Constraints`) and `src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
+- `src/circuit/mod.rs` (`Circuit<Output = ()>`) and `src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
 - `src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
 - `../spec.md` -- the source of truth for the DSL semantics; use it only as a reference
 

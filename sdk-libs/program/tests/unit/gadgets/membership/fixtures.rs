@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{assert_in, constant, is_in, value, Assert, CircuitVar, Constraints, Field},
+    circuit::{assert_in, constant, is_in, value, Assert, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -29,8 +29,10 @@ impl<const N: usize> Fixture<Flagged> for IsIn<N> {
     }
 }
 
-impl<const N: usize> Constraints for IsInCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for IsInCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(is_in(&self.value, &self.set)?).assert_equal(&self.member, FLAG_RULE)
     }
 }
@@ -42,8 +44,10 @@ pub struct AssertIn<const N: usize> {
     pub set: [Field; N],
 }
 
-impl<const N: usize> Constraints for AssertInCircuit<N> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const N: usize> Circuit for AssertInCircuit<N> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         assert_in(&self.value, &self.set, MEMBER_RULE)
     }
 }
@@ -54,8 +58,10 @@ pub struct InConstants {
     pub value: Field,
 }
 
-impl Constraints for InConstantsCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InConstantsCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         assert_in(&self.value, &[constant(3u64), constant(5u64)], MEMBER_RULE)
     }
 }
@@ -72,8 +78,10 @@ pub fn is_in_fixture<const N: usize>(value: Field, set: [Field; N], member: bool
 pub struct ConstantMembership {
     pub member: Field,
 }
-impl Constraints for ConstantMembershipCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ConstantMembershipCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         CircuitVar::from(is_in(&constant(5u64), &[constant(3u64), constant(5u64)])?)
             .assert_equal(&self.member, FLAG_RULE)
     }

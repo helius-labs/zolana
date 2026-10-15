@@ -1,5 +1,5 @@
 //! The shape-independent layer every area's fixtures build on. A fixture is a
-//! `ZkCircuit` (a `ProofInput` whose circuit implements `Constraints`); the
+//! `ZkCircuit` (a `ProofInput` whose circuit implements `Circuit`); the
 //! runners here take one by reference, so fixtures holding vectors or nested
 //! protocol values need not be `Copy`.
 //!
@@ -12,7 +12,7 @@ use std::fmt::Debug;
 
 use ark_bn254::Fr;
 use zolana_program::{
-    circuit::{Constraints, Field},
+    circuit::{Circuit, Field},
     conversion::Allocator,
     testing::{self, PrivateVariableReport, Tamper},
     CircuitError, ProverError, ProverErrorKind, ZkCircuit,
@@ -57,11 +57,11 @@ pub const fn constraints_differ(row: usize, rule: &'static str) -> ProverRefusal
 /// A fixture that exposes a value its circuit computes, for native semantics
 /// checks. Every `ZkCircuit` is a `Fixture<()>`; an area implements
 /// `Fixture<T>` for the fixtures whose computed value it inspects.
-pub trait Fixture<Computed = ()>: ZkCircuit + Debug {
+pub trait Fixture<Computed = ()>: ZkCircuit<Circuit: Circuit<Output = ()>> + Debug {
     fn computed(circuit: &Self::Circuit) -> Computed;
 }
 
-impl<T: ZkCircuit + Debug> Fixture for T {
+impl<T: ZkCircuit<Circuit: Circuit<Output = ()>> + Debug> Fixture for T {
     fn computed(_circuit: &T::Circuit) {}
 }
 
@@ -105,11 +105,11 @@ pub fn native_circuit<F: ZkCircuit>(fixture: &F) -> Result<F::Circuit, Refusal> 
     outcome(fixture.instantiate(&Allocator::native()))
 }
 
-pub fn native<F: ZkCircuit>(fixture: &F) -> Result<(), Refusal> {
+pub fn native<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F) -> Result<(), Refusal> {
     outcome(
         fixture
             .instantiate(&Allocator::native())
-            .and_then(|circuit| circuit.constraints()),
+            .and_then(|circuit| circuit.circuit()),
     )
 }
 
@@ -186,7 +186,7 @@ impl Size {
     }
 }
 
-pub fn size<F: ZkCircuit>() -> Size {
+pub fn size<F: ZkCircuit<Circuit: Circuit<Output = ()>>>() -> Size {
     Size::of(&exported::<F>())
 }
 

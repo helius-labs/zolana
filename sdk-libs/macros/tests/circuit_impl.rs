@@ -36,7 +36,9 @@ struct EmptyPrivateInputs {
 struct EmptyPublicInputs;
 
 impl Circuit for <Empty as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         ConfidentialTransaction::new(&self.private.tx_context, &self.public).check()
     }
 }

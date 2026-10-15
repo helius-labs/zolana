@@ -1,6 +1,6 @@
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_program::{
-    circuit::{Assert, Constraints, Field},
+    circuit::{Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
@@ -41,8 +41,10 @@ pub struct UtxoHash {
     pub utxo: WalletUtxo,
 }
 
-impl Constraints for UtxoHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for UtxoHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.utxo.hash()?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -55,8 +57,10 @@ pub struct Carried {
     pub utxo: WalletUtxo,
 }
 
-impl Constraints for CarriedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for CarriedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (nullifier, latest_tree_id, has_latest_tree_id) =
             zolana_program::testing::utxo_metadata(&self.utxo);
         nullifier.assert_equal(&self.nullifier, CARRIED_RULE)?;
@@ -70,8 +74,10 @@ pub struct Instantiated {
     pub utxo: WalletUtxo,
 }
 
-impl Constraints for InstantiatedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InstantiatedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }

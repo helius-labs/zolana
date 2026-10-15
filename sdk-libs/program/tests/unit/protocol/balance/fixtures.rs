@@ -4,8 +4,8 @@ use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        constant, poseidon, Assert, Asset, Bytes, CircuitVar, Constraints, DataHash, DataUtxo,
-        Field, Owner, TokenUtxos, Uint, Utxo, UtxoTrait,
+        constant, poseidon, Assert, Asset, Bytes, Circuit, CircuitVar, DataHash, DataUtxo, Field,
+        Owner, TokenUtxos, Uint, Utxo, UtxoTrait,
     },
     conversion::ProofInput,
     hasher::DATA_HASH_DOMAIN,
@@ -52,8 +52,10 @@ pub const BALANCE_READ: usize = 4;
 #[derive(Clone, Copy, Debug, ProofInput)]
 pub struct Oversized<const OP: usize>;
 
-impl<const OP: usize> Constraints for OversizedCircuit<OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const OP: usize> Circuit for OversizedCircuit<OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         oversized_operation(OP).1
     }
 }
@@ -154,10 +156,12 @@ impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_A
     }
 }
 
-impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_ASSET: bool>
-    Constraints for BalanceCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
+impl<const SOURCE: usize, const DESTINATION: usize, const OP: usize, const OWN_ASSET: bool> Circuit
+    for BalanceCircuit<SOURCE, DESTINATION, OP, OWN_ASSET>
 {
-    fn constraints(&self) -> Result<(), CircuitError> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         with_holder!(SOURCE, &self.owner, &self.mint, |source| {
             let mut source = source;
             let asset = if OWN_ASSET {
@@ -183,8 +187,10 @@ pub struct Accessors<const KIND: usize> {
     pub asset_hash: Field,
 }
 
-impl<const KIND: usize> Constraints for AccessorsCircuit<KIND> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const KIND: usize> Circuit for AccessorsCircuit<KIND> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         with_holder!(KIND, &self.owner, &self.mint, |holder| {
             holder
                 .owner()
@@ -209,8 +215,10 @@ pub struct Deposits<const K: usize, const ALL: bool> {
     pub balance: Field,
 }
 
-impl<const K: usize, const ALL: bool> Constraints for DepositsCircuit<K, ALL> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const K: usize, const ALL: bool> Circuit for DepositsCircuit<K, ALL> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut holder = TokenUtxos::new_init(&self.owner, &self.mint);
         for amount in &self.amounts {
             holder.deposit(amount, &self.account)?;
@@ -233,8 +241,10 @@ pub struct Empty<const OP: usize> {
     pub amount: u64,
 }
 
-impl<const OP: usize> Constraints for EmptyCircuit<OP> {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const OP: usize> Circuit for EmptyCircuit<OP> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let mut holder = TokenUtxos::new_init(&self.owner, &self.mint);
         match OP {
             WITHDRAW => holder.withdraw(&self.amount, &self.account),
@@ -272,10 +282,10 @@ impl<const DESTINATION: usize, const ALL: bool> IntoClosedCircuit<DESTINATION, A
     }
 }
 
-impl<const DESTINATION: usize, const ALL: bool> Constraints
-    for IntoClosedCircuit<DESTINATION, ALL>
-{
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl<const DESTINATION: usize, const ALL: bool> Circuit for IntoClosedCircuit<DESTINATION, ALL> {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let input = spendable_constant();
         match DESTINATION {
             TOKEN => self.into(&mut TokenUtxos::new_close(&[input])?),
@@ -379,8 +389,10 @@ pub struct Arithmetic {
     pub balances: [Field; 2],
 }
 
-impl Constraints for ArithmeticCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for ArithmeticCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let account = Bytes::constant(ACCOUNT.as_array());
         let mut source = TokenUtxos::new_init(&Owner::default(), &Asset::sol());
         let mut destination = TokenUtxos::new_init(&Owner::default(), &source.asset());

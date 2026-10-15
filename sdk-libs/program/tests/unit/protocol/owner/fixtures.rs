@@ -1,6 +1,6 @@
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
-    circuit::{Assert, Constraints, DataHash, Field, Owner, OwnerKey, Select},
+    circuit::{Assert, Circuit, DataHash, Field, Owner, OwnerKey, Select},
     conversion::ProofInput,
     CircuitError, Owner as ClientOwner,
 };
@@ -26,8 +26,10 @@ pub struct OwnerHash {
     pub owner: ShieldedAddress,
 }
 
-impl Constraints for OwnerHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.owner.hash()?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -38,8 +40,10 @@ pub struct Identity {
     pub owner: ShieldedAddress,
 }
 
-impl Constraints for IdentityCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for IdentityCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.owner
             .key()
             .identity()?
@@ -53,8 +57,10 @@ pub struct PreimageHash {
     pub owner: ClientOwner,
 }
 
-impl Constraints for PreimageHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for PreimageHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.owner.hash()?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -66,8 +72,10 @@ pub struct HashedTwice {
     pub owner: ClientOwner,
 }
 
-impl Constraints for HashedTwiceCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for HashedTwiceCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let clone = self.owner.clone();
         self.owner.hash()?.assert_equal(&self.hash, HASH_RULE)?;
         clone.hash()?.assert_equal(&self.hash, HASH_RULE)?;
@@ -84,8 +92,10 @@ pub struct OwnerDataHash {
     pub owner: ClientOwner,
 }
 
-impl Constraints for OwnerDataHashCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerDataHashCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         DataHash::hash(&self.owner)?.assert_equal(&self.hash, HASH_RULE)
     }
 }
@@ -95,8 +105,10 @@ pub struct Instantiated {
     pub owner: ClientOwner,
 }
 
-impl Constraints for InstantiatedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for InstantiatedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }
@@ -107,8 +119,10 @@ pub struct Pair {
     pub right: ClientOwner,
 }
 
-impl Constraints for PairCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for PairCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Ok(())
     }
 }
@@ -119,8 +133,10 @@ pub struct KeyEqual {
     pub right: ClientOwner,
 }
 
-impl Constraints for KeyEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for KeyEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.key().assert_equal(self.right.key(), EQUAL_RULE)
     }
 }
@@ -131,8 +147,10 @@ pub struct OwnerEqual {
     pub right: ClientOwner,
 }
 
-impl Constraints for OwnerEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left.assert_equal(&self.right, EQUAL_RULE)
     }
 }
@@ -144,8 +162,10 @@ pub struct KeyEqualIf {
     pub condition: bool,
 }
 
-impl Constraints for KeyEqualIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for KeyEqualIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .key()
             .assert_equal_if(self.right.key(), &self.condition, EQUAL_RULE)
@@ -159,8 +179,10 @@ pub struct OwnerEqualIf {
     pub condition: bool,
 }
 
-impl Constraints for OwnerEqualIfCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerEqualIfCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .assert_equal_if(&self.right, &self.condition, EQUAL_RULE)
     }
@@ -173,8 +195,10 @@ pub struct KeyIsEqual {
     pub claimed: bool,
 }
 
-impl Constraints for KeyIsEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for KeyIsEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .key()
             .is_equal(self.right.key())?
@@ -189,8 +213,10 @@ pub struct OwnerIsEqual {
     pub claimed: bool,
 }
 
-impl Constraints for OwnerIsEqualCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerIsEqualCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         self.left
             .is_equal(&self.right)?
             .assert_equal(&self.claimed, IS_EQUAL_RULE)
@@ -205,8 +231,10 @@ pub struct KeySelected {
     pub if_false: ClientOwner,
 }
 
-impl Constraints for KeySelectedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for KeySelectedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         OwnerKey::select(&self.condition, self.if_true.key(), self.if_false.key())
             .identity()?
             .assert_equal(&self.identity, IDENTITY_RULE)
@@ -221,8 +249,10 @@ pub struct OwnerSelected {
     pub if_false: ClientOwner,
 }
 
-impl Constraints for OwnerSelectedCircuit {
-    fn constraints(&self) -> Result<(), CircuitError> {
+impl Circuit for OwnerSelectedCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         Owner::select(&self.condition, &self.if_true, &self.if_false)
             .hash()?
             .assert_equal(&self.hash, HASH_RULE)

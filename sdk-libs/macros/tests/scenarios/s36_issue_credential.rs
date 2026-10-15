@@ -41,7 +41,9 @@ use crate::s35_create_issuer::CredentialCircuit;
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <IssueCredential as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let issuer_hash = self.public.issuer.hash()?;
         let mut issuer = DataUtxo::new_mut(&private.issuer_utxo, &private.issuer_state)?;

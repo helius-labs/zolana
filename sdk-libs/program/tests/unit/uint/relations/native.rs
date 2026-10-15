@@ -1,8 +1,11 @@
 use super::fixtures::*;
 use crate::harness::fixture::native;
-use zolana_program::{circuit::Field, ZkCircuit};
+use zolana_program::{
+    circuit::{Circuit, Field},
+    ZkCircuit,
+};
 
-fn accepted<F: ZkCircuit>(fixture: &F, holds: bool) {
+fn accepted<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F, holds: bool) {
     assert_eq!(
         native(fixture).map_err(|error| (error.0, error.1)),
         if holds {

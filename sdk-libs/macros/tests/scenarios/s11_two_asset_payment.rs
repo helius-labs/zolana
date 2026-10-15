@@ -36,7 +36,9 @@ struct TwoAssetPaymentPublicInputs {
 
 #[deny(clippy::disallowed_types)]
 impl Circuit for <TwoAssetPayment as ProofInput>::Circuit {
-    fn circuit(&self) -> Result<CheckedTransaction, CircuitError> {
+    type Output = CheckedTransaction;
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let private = &self.private;
         let recipient = &self.public.recipient;
         let mut tokens_a = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
