@@ -43,6 +43,7 @@ use crate::{
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
     request::{BaseBody, PolicyEnvelope},
+    submission::BoundRoot,
     to_instruction_proof,
     trees::{spend_trees, SpendTrees},
     witness::WitnessInput,
@@ -591,6 +592,10 @@ impl Spp {
 }
 
 impl ProvenRingTransfer {
+    pub(crate) fn bound_root(&self) -> Option<BoundRoot> {
+        BoundRoot::of(self.ring, self.policy.as_ref()?.escrow)
+    }
+
     pub fn instruction(&self) -> Result<Instruction, RingError> {
         match self.delegate {
             None => CustomRingTransact {

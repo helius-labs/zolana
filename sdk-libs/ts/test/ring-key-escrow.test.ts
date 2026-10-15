@@ -397,13 +397,13 @@ describe("escrowed deposits", () => {
         tree: TREE,
         depositor: RING,
         deposits: [deposit(sealed.payloads[0] ?? new Uint8Array())],
-        keyRegistryRoot: filled(7),
+        keyRegistryRootIndex: 7,
       };
       await expect(ringDepositInstruction(input)).rejects.toMatchObject({
         code: "RING_DEPOSIT_AUDIT_REQUIRED",
       });
       const audited = await ringDepositInstruction({ ...input, proof: new Uint8Array(192) });
-      expect(audited.data?.slice(193, 225)).toEqual(filled(7));
+      expect(audited.data?.[193]).toBe(7);
       expect(audited.accounts?.slice(3, 5).map((meta) => [meta.address, meta.role])).toEqual([
         [await ringDepositAuditAddress(RING), AccountRole.READONLY],
         [await ringKeyRegistryRootAddress(RING), AccountRole.READONLY],

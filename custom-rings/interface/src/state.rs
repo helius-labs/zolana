@@ -308,11 +308,6 @@ impl KeyRegistryRoot {
             .filter(|root| **root != [0u8; 32])
             .copied()
     }
-
-    /// Whether `root` is a written root of the history.
-    pub fn holds(&self, root: &[u8; 32]) -> bool {
-        *root != [0u8; 32] && self.history.contains(root)
-    }
 }
 
 /// Ring-wide public deposit and withdrawal counters for one mint and fixed window.

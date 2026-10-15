@@ -36,8 +36,8 @@ use zolana_ring_policy::{ListId, ListSet, Rule, RuleTable, Subject, MAX_INLINE_A
 
 /// The system program is the all-zero address.
 const SYSTEM_PROGRAM: Address = Address::new_from_array([0u8; 32]);
-/// The key registry root and the forwarded SPP deposit in the audited wire.
-const ROOT: usize = 1 + CustomRingProof::SIZE;
+/// The key registry root index and the forwarded SPP deposit in the audited wire.
+const ROOT_INDEX: usize = 1 + CustomRingProof::SIZE;
 const SPP_DATA: usize = core::mem::size_of::<AuditedDepositPrefix>();
 
 fn payer() -> Address {
@@ -503,7 +503,7 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         &audited.data[1..1 + CustomRingProof::SIZE],
         wincode::serialize(&sample_proof()).unwrap()
     );
-    assert_eq!(audited.data[ROOT..SPP_DATA], [0; 32]);
+    assert_eq!(audited.data[ROOT_INDEX], 0);
     assert_eq!(&audited.data[SPP_DATA..], plain.data);
     assert_eq!(audited.accounts, plain.accounts);
     assert_eq!(
@@ -525,13 +525,16 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
             depositor: payer(),
             deposits: vec![sol_deposit_entry()],
             proof,
-            escrow: EscrowBinding::Registry { root: [3; 32] },
+            escrow: EscrowBinding::Registry {
+                root_index: 3,
+                root: [3; 32],
+            },
             cosigner: None,
         }
         .instruction()
     };
     let escrowed = build(Some(sample_proof())).unwrap();
-    assert_eq!(escrowed.data[ROOT..SPP_DATA], [3; 32]);
+    assert_eq!(escrowed.data[ROOT_INDEX], 3);
     assert_eq!(
         escrowed.accounts[3..5],
         [
@@ -753,7 +756,10 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
     let proof = sample_proof();
     let transact = transact_data(Vec::new());
     let reads = PolicyReads {
-        escrow: EscrowBinding::Registry { root: [5; 32] },
+        escrow: EscrowBinding::Registry {
+            root_index: 5,
+            root: [5; 32],
+        },
         ..two_tree_reads()
     };
 
@@ -814,7 +820,7 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
             proof,
             policy_trees: vec![context(1, 2), context(3, 4)],
             window_index: 0,
-            key_registry_root: Some([5; 32]),
+            key_registry_root_index: 5,
             approval_required: false,
             revocation_targets: reads.revocation_targets,
             revocation_tree_indexes: reads.revocation_tree_indexes,
@@ -938,7 +944,7 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
     let decoded: CustomRingTransactIxData =
         wincode::deserialize_exact(split_tag(&instruction).1).expect("complete body");
     assert!(decoded.policy_trees.is_empty());
-    assert_eq!(decoded.key_registry_root, None);
+    assert_eq!(decoded.key_registry_root_index, 0);
 }
 
 /// Settlement accounts come from the same interface builder, so a withdrawal's
@@ -1368,7 +1374,10 @@ fn set_delegate_runs_under_the_upgrade_authority() {
 fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     let delegate = Address::new_from_array([47; 32]);
     let reads = PolicyReads {
-        escrow: EscrowBinding::Registry { root: [4; 32] },
+        escrow: EscrowBinding::Registry {
+            root_index: 4,
+            root: [4; 32],
+        },
         ..two_tree_reads()
     };
     let build = |legs: Vec<InterfaceTransfer>| {
@@ -1421,7 +1430,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(ix_tag, tag::DELEGATE_TRANSACT);
     assert_eq!(ix_tag, 25);
     let decoded: CustomRingTransactIxData = wincode::deserialize_exact(body).expect("body");
-    assert_eq!(decoded.key_registry_root, Some([4; 32]));
+    assert_eq!(decoded.key_registry_root_index, 4);
     assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(

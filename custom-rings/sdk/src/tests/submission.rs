@@ -75,6 +75,7 @@ fn pending<'a>(
     let mut submission = RingSubmission::new(operation);
     submission.pending = Some(Attempt {
         transaction: sign_transaction(message, &[sender]).unwrap(),
+        bound: None,
         last_valid_block_height: 20,
     });
     submission.attempts = attempts;
@@ -516,18 +517,18 @@ async fn a_failed_proof_never_reproves() {
 fn only_the_bound_ring_failure_can_retry() {
     let error =
         |index, code| TransactionError::InstructionError(index, InstructionError::Custom(code));
-    assert!(retryable(&error(0, STALE_ROOT)));
-    assert!(!retryable(&error(1, STALE_ROOT)));
-    assert!(retryable(&error(0, WINDOW_ELAPSED)));
-    assert!(!retryable(&error(1, WINDOW_ELAPSED)));
-    assert!(!retryable(&error(0, PROOF_FAILED)));
-    assert!(!retryable(&error(
-        0,
-        CustomRingError::InvalidWindowIndex as u32
-    )));
-    assert!(!retryable(&error(0, 8145)));
-    assert!(!retryable(&TransactionError::AccountInUse));
-    assert!(retryable(&TransactionError::BlockhashNotFound));
+    let window_index = CustomRingError::InvalidWindowIndex as u32;
+    assert!(retryable(&error(0, STALE_ROOT), false));
+    assert!(!retryable(&error(1, STALE_ROOT), false));
+    assert!(retryable(&error(0, WINDOW_ELAPSED), false));
+    assert!(!retryable(&error(1, WINDOW_ELAPSED), false));
+    assert!(!retryable(&error(0, PROOF_FAILED), false));
+    assert!(retryable(&error(0, PROOF_FAILED), true));
+    assert!(!retryable(&error(1, PROOF_FAILED), true));
+    assert!(!retryable(&error(0, window_index), true));
+    assert!(!retryable(&error(0, 8145), true));
+    assert!(!retryable(&TransactionError::AccountInUse, true));
+    assert!(retryable(&TransactionError::BlockhashNotFound, false));
 }
 
 #[test]
@@ -538,7 +539,7 @@ fn retry_decisions_preserve_unknown_attempts_and_stop_at_the_limit() {
         let transaction = submission.pending_transaction().unwrap().clone();
         let signature = transaction.signatures[0];
         assert_eq!(
-            submission.settle(signature, Outcome::Unknown),
+            submission.settle(signature, Outcome::Unknown, false),
             Some(SubmissionStatus::Pending { signature })
         );
         assert_eq!(submission.pending_transaction(), Some(&transaction));
@@ -548,11 +549,11 @@ fn retry_decisions_preserve_unknown_attempts_and_stop_at_the_limit() {
                 InstructionError::Custom(code),
             ))
         };
-        assert!(submission.settle(signature, failure()).is_none());
+        assert!(submission.settle(signature, failure(), false).is_none());
         assert!(submission.pending_transaction().is_none());
         submission.attempts = MAX_ATTEMPTS;
         assert!(matches!(
-            submission.settle(signature, failure()),
+            submission.settle(signature, failure(), false),
             Some(SubmissionStatus::Failed { .. })
         ));
     }
@@ -757,4 +758,71 @@ async fn a_closing_window_is_waited_out_and_proved_again_without_an_attempt() {
     assert_eq!(rpc.policy_reads.load(Ordering::Relaxed), 2);
     // One read refuses, two wait for the boundary, one proves again.
     assert_eq!(rpc.slot_reads.load(Ordering::Relaxed), 4);
+}
+
+/// Serves one key registry root and one failed proof for every signature.
+struct RegistryRpc {
+    registry: Account,
+}
+
+#[async_trait]
+impl AsyncRpc for RegistryRpc {
+    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        assert_eq!(address, ring().key_registry_root_pda());
+        Ok(Some(self.registry.clone()))
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        let status: TransactionStatus = serde_json::from_value(failed(0, PROOF_FAILED)).unwrap();
+        Ok(signatures.iter().map(|_| Some(status.clone())).collect())
+    }
+}
+
+/// The program reads the root at the named slot, a later root there fails the proof.
+#[tokio::test]
+async fn a_failed_proof_reproves_only_over_an_overwritten_registry_slot() {
+    use custom_ring_interface::{KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY};
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let bound = BoundRoot::of(
+        ring(),
+        EscrowBinding::Registry {
+            root_index: 3,
+            root: [7; 32],
+        },
+    );
+    let bump = Address::find_program_address(&[KeyRegistryRoot::SEED], &ring().program_id()).1;
+    for (held, retried) in [([8; 32], true), ([7; 32], false)] {
+        let mut history = [[0; 32]; KEY_REGISTRY_ROOT_HISTORY];
+        history[3] = held;
+        let registry = KeyRegistryRoot {
+            discriminator: KEY_REGISTRY_ROOT,
+            next_index: 40u64.to_le_bytes(),
+            bump,
+            history_cursor: 3,
+            history,
+        };
+        let client = AsyncZolanaClient::new(
+            RegistryRpc {
+                registry: account(ring().program_id(), &registry),
+            },
+            NoIndexer,
+            AsyncProverClient::local(),
+        );
+        let mut submission = pending(untagged(), &sender, 1);
+        submission.pending.as_mut().unwrap().bound = bound;
+        let result = send(&mut submission, &client, &sender).await;
+        if retried {
+            // The re-proof reaches the untagged instruction and refuses it.
+            assert!(matches!(
+                result,
+                Err(RingError::Program(CustomRingError::InvalidInstructionData))
+            ));
+        } else {
+            assert!(matches!(result, Ok(SubmissionStatus::Failed { .. })));
+        }
+        assert_eq!(submission.attempts(), 1);
+    }
 }

@@ -2725,7 +2725,10 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
             depositor: member.pubkey(),
             deposits: vec![plain],
             proof: None,
-            escrow: EscrowBinding::Registry { root: root.root },
+            escrow: EscrowBinding::Registry {
+                root_index: root.history_index,
+                root: root.root,
+            },
             cosigner: None,
         }
         .instruction(),

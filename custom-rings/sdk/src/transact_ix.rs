@@ -24,19 +24,22 @@ pub struct PolicyTreeContext {
 pub enum EscrowBinding {
     #[default]
     Off,
-    /// The program accepts any root its history still holds.
-    Registry { root: [u8; 32] },
+    /// The statement names `root` by its history slot, a later registration may overwrite it.
+    Registry { root_index: u8, root: [u8; 32] },
 }
 
 impl EscrowBinding {
     pub(crate) fn of(root: Option<CurrentKeyRegistryRoot>) -> Self {
-        root.map_or(Self::Off, |root| Self::Registry { root: root.root })
+        root.map_or(Self::Off, |root| Self::Registry {
+            root_index: root.history_index,
+            root: root.root,
+        })
     }
 
-    pub(crate) const fn root(self) -> Option<[u8; 32]> {
+    pub(crate) const fn root_index(self) -> u8 {
         match self {
-            Self::Off => None,
-            Self::Registry { root } => Some(root),
+            Self::Off => 0,
+            Self::Registry { root_index, .. } => root_index,
         }
     }
 
@@ -257,7 +260,7 @@ impl RingStatement<'_> {
                 .map(|policy| policy.trees.iter().map(|tree| tree.context).collect())
                 .unwrap_or_default(),
             window_index: self.window_index,
-            key_registry_root: policy.and_then(|policy| policy.escrow.root()),
+            key_registry_root_index: policy.map_or(0, |policy| policy.escrow.root_index()),
             approval_required: self.approval_required,
             revocation_targets: policy
                 .map_or([[0; 32]; ANSWER_SLOTS], |policy| policy.revocation_targets),

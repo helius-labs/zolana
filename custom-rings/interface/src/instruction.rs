@@ -158,14 +158,14 @@ impl CustomRingProof {
 
 const _: () = assert!(CustomRingProof::SIZE == 192);
 
-/// `tag || proof || key_registry_root`, then the SPP deposit instruction unchanged.
+/// `tag || proof || key_registry_root_index`, then the SPP deposit instruction unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct AuditedDepositPrefix {
     pub tag: u8,
     pub proof: CustomRingProof,
-    /// A root of the key registry history, zero unless the ring escrows nullifier keys.
-    pub key_registry_root: [u8; 32],
+    /// The registry history slot of the bound root, zero unless the ring escrows nullifier keys.
+    pub key_registry_root_index: u8,
 }
 
 /// Compressed Groth16 points without the audited circuits' BSB22 commitment.
@@ -192,8 +192,8 @@ pub struct CustomRingTransactIxData {
     pub policy_trees: Vec<TreeContext>,
     /// The window of the proven spend record, zero on every other statement.
     pub window_index: u64,
-    /// A root of the key registry history, present exactly when the ring escrows nullifier keys.
-    pub key_registry_root: Option<[u8; 32]>,
+    /// The registry history slot of the bound root, zero unless the ring escrows nullifier keys.
+    pub key_registry_root_index: u8,
     /// Proof-bound approval demand, false when member amount controls do not apply.
     pub approval_required: bool,
     /// Canonical target prefix with a zero suffix in the policy public input.

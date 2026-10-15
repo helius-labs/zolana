@@ -1840,20 +1840,12 @@ pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> Custom
         proof,
         policy_trees: Vec::new(),
         window_index: 0,
-        key_registry_root: None,
+        key_registry_root_index: 0,
         approval_required: false,
         revocation_targets: [[0; 32]; ANSWER_SLOTS],
         revocation_tree_indexes: [0; ANSWER_SLOTS],
         transact,
     }
-}
-
-/// Binds the root `key_registry_root_slot` holds.
-pub fn escrowed(data: Vec<u8>) -> Vec<u8> {
-    let mut ix: CustomRingTransactIxData =
-        wincode::deserialize_exact(&data[1..]).expect("transact body");
-    ix.key_registry_root = Some(KEY_REGISTRY_EMPTY_ROOT);
-    encode_transact(data[0], &ix)
 }
 
 pub fn encode_transact(instruction_tag: u8, ix: &CustomRingTransactIxData) -> Vec<u8> {
@@ -1933,10 +1925,9 @@ pub fn delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     with_delegate_slots(audit_transact_fixture(config, data))
 }
 
-/// An escrowed policy ring, the delegate rail always reads the key registry and
-/// binds its root.
+/// An escrowed policy ring, the delegate rail always reads the key registry.
 pub fn policy_delegate_transact_fixture(data: Vec<u8>) -> Fixture {
-    let mut fixture = transact_fixture(escrowed_config_account(), escrowed(data));
+    let mut fixture = transact_fixture(escrowed_config_account(), data);
     insert_after_policy_trees(&mut fixture, key_registry_root_slot());
     with_delegate_slots(fixture)
 }

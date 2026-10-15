@@ -111,7 +111,10 @@ fn delegate_transact(
         payer: payer(),
         input_trees: vec![pda::tree(0)],
         output_tree: pda::tree(0),
-        policy: reads(EscrowBinding::Registry { root: [5; 32] }),
+        policy: reads(EscrowBinding::Registry {
+            root_index: 5,
+            root: [5; 32],
+        }),
         cosigner,
         delegate: delegate(),
         proof: CustomRingProof::zeroed(),
@@ -216,7 +219,7 @@ fn the_delegate_rail_reads_policy_then_escrow_then_revocations_in_their_trees() 
     assert!(instruction.accounts[4].is_signer);
     let decoded = data(&instruction);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
-    assert_eq!(decoded.key_registry_root, Some([5; 32]));
+    assert_eq!(decoded.key_registry_root_index, 5);
     assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.revocation_tree_indexes[0], 1);
     assert_eq!(decoded.revocation_targets[2], [0x23; 32]);
@@ -245,7 +248,7 @@ fn an_audit_only_transfer_reads_no_policy_and_zeroes_the_statement_fields() {
         .any(|meta| meta.pubkey == ring().policy_config_pda()));
     let decoded = data(&instruction);
     assert!(decoded.policy_trees.is_empty());
-    assert_eq!(decoded.key_registry_root, None);
+    assert_eq!(decoded.key_registry_root_index, 0);
     assert_eq!(decoded.revocation_targets, [[0; 32]; ANSWER_SLOTS]);
 }
 

@@ -84,7 +84,7 @@ impl Rail {
             proof,
             policy_trees,
             window_index,
-            key_registry_root,
+            key_registry_root_index,
             approval_required,
             revocation_targets,
             revocation_tree_indexes,
@@ -108,7 +108,7 @@ impl Rail {
                 return Err(CustomRingError::InvalidKeyRegistryRoot.into());
             }
             let key_registry_root =
-                load_escrow_root(program_id, escrow, key_registry_root.as_ref(), &mut rest)?;
+                load_escrow_root(program_id, escrow, *key_registry_root_index, &mut rest)?;
             Some((binding, trees, key_registry_root))
         } else {
             if self == Rail::Delegate {
@@ -117,7 +117,7 @@ impl Rail {
             if !policy_trees.is_empty() {
                 return Err(CustomRingError::InvalidPolicyTrees.into());
             }
-            if key_registry_root.is_some() {
+            if *key_registry_root_index != 0 {
                 return Err(CustomRingError::UnexpectedKeyRegistryRoot.into());
             }
             None

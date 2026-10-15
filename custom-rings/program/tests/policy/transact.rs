@@ -1,7 +1,7 @@
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
-    AUDITOR_MESSAGE_LEN, KEY_REGISTRY_EMPTY_ROOT,
+    AUDITOR_MESSAGE_LEN, KEY_REGISTRY_ROOT_HISTORY,
 };
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
@@ -473,11 +473,11 @@ fn an_audit_only_ring_takes_no_policy_trees() {
 }
 
 #[test]
-fn an_escrowed_ring_binds_a_root_of_the_registry_history() {
+fn an_escrowed_ring_reads_the_registry_root_at_its_index() {
     let (mollusk, _) = setup_mollusk();
-    let escrowed = |root: Option<[u8; 32]>| {
+    let escrowed = |index: u8| {
         let mut ix = ix_data(0, 0, false, transact_data());
-        ix.key_registry_root = root;
+        ix.key_registry_root_index = index;
         let mut fixture = transact_fixture(
             escrowed_config_account(),
             encode_transact(tag::TRANSACT, &ix),
@@ -485,28 +485,27 @@ fn an_escrowed_ring_binds_a_root_of_the_registry_history() {
         insert_after_policy_trees(&mut fixture, key_registry_root_slot());
         fixture
     };
-    escrowed(Some(KEY_REGISTRY_EMPTY_ROOT))
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-    for stale in [Some([7; 32]), Some([0; 32]), None] {
-        escrowed(stale).expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
-    }
+    escrowed(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    escrowed(1).expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
+    escrowed(KEY_REGISTRY_ROOT_HISTORY as u8)
+        .expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
 
     let mut missing = transact_fixture(escrowed_config_account(), transact_body(0, 0));
     missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
-    missing = escrowed(Some(KEY_REGISTRY_EMPTY_ROOT));
+    missing = escrowed(0);
     missing.substitute("key_registry_root", Pubkey::new_from_array([79; 32]));
     missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
 }
 
 #[test]
-fn a_registry_root_without_escrow_is_rejected_exactly() {
+fn a_registry_index_without_escrow_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut ix = ix_data(0, 0, false, transact_data());
-    ix.key_registry_root = Some(KEY_REGISTRY_EMPTY_ROOT);
+    ix.key_registry_root_index = 1;
     policy_fixture_with(ix)
         .expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
     let mut audit = audit_ix_data(bogus_proof(), transact_data());
-    audit.key_registry_root = Some(KEY_REGISTRY_EMPTY_ROOT);
+    audit.key_registry_root_index = 1;
     audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(2)),
         encode_transact(tag::TRANSACT, &audit),
@@ -675,7 +674,6 @@ fn five_policy_trees_and_the_registry_fit_the_transaction_budget() {
     ix.proof.commitment = [0; 32];
     ix.proof.commitment_pok = [0; 32];
     ix.policy_trees = vec![ix.policy_trees[0]; INPUT_TREES];
-    ix.key_registry_root = Some(KEY_REGISTRY_EMPTY_ROOT);
     let mut fixture = transact_fixture(
         escrowed_config_account(),
         encode_transact(tag::TRANSACT, &ix),

@@ -163,7 +163,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         "keyRegistryRoot": hex0x(&[0; 32]),
     }));
     let proof = prover.prove(&request).expect("deposit proof");
-    // 3. Wrap the SPP bytes with the SDK, the root stays zero without escrow.
+    // 3. Wrap the SPP bytes with the SDK, the root index stays zero without escrow.
     let instruction = Deposit {
         ring,
         tree,
@@ -180,7 +180,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         .split_at(core::mem::size_of::<AuditedDepositPrefix>());
     let prefix: &AuditedDepositPrefix = bytemuck::from_bytes(prefix);
     assert_eq!(prefix.tag, tag::AUDITED_DEPOSIT);
-    assert_eq!(prefix.key_registry_root, [0; 32]);
+    assert_eq!(prefix.key_registry_root_index, 0);
     assert_eq!(spp_data, spp.data.as_slice());
     instruction.data
 }

@@ -255,8 +255,8 @@ describe("deposit disclosure", () => {
       });
       expect(audited.data?.[0]).toBe(31);
       expect(audited.data?.slice(1, 193)).toEqual(new Uint8Array(192).fill(7));
-      expect(audited.data?.slice(193, 225)).toEqual(new Uint8Array(32));
-      expect(audited.data?.slice(225)).toEqual(legacy.data);
+      expect(audited.data?.[193]).toBe(0);
+      expect(audited.data?.slice(194)).toEqual(legacy.data);
       expect(legacy.data?.[0]).toBe(InstructionTag.ringDeposit);
       expect(audited.accounts).toEqual(legacy.accounts);
       expect(audited.accounts?.[3]).toMatchObject({

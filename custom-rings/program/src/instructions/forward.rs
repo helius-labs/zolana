@@ -50,7 +50,7 @@ impl Forward {
             Some(audited) => load_escrow_root(
                 program_id,
                 escrow,
-                audited.key_registry_root.as_ref(),
+                audited.key_registry_root_index,
                 &mut iter,
             )?,
             None => None,
