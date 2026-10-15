@@ -1,6 +1,6 @@
 //! The `[policy]` table as `new` writes it, a comment per source and per rule.
 
-use toml_edit::{value, Array, ArrayOfTables, InlineTable, Item, Table};
+use toml_edit::{value, Array, ArrayOfTables, InlineTable, Item, Table, Value};
 
 use crate::{
     config::Target,
@@ -15,29 +15,20 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     } else {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
-    policy.insert("address_tree", value(spec.address_tree().to_string()));
-    comment(
-        &mut policy,
-        "address_tree",
-        "entry and spend record addresses are claimed in the named tree",
-    );
+    let tree = spec.address_tree().to_string();
+    let comment = "entry and spend record addresses are claimed in the named tree";
+    commented(&mut policy, "address_tree", tree, comment);
     let mut sources = Table::new();
     sources.set_implicit(true);
     for target in Target::ALL {
-        let map = spec.sources.get(target);
-        if map.is_empty() {
-            continue;
-        }
         let mut cluster = Table::new();
-        for (list, curator) in map {
-            cluster.insert(list.as_str(), value(curator.0.to_string()));
-            comment(
-                &mut cluster,
-                list.as_str(),
-                &format!("the {list} list reads the entries of the named curator ring"),
-            );
+        for (list, curator) in spec.sources.get(target) {
+            let comment = format!("the {list} list reads the entries of the named curator ring");
+            commented(&mut cluster, list.as_str(), curator.to_string(), &comment);
         }
-        sources.insert(target.as_str(), Item::Table(cluster));
+        if !cluster.is_empty() {
+            sources.insert(target.as_str(), Item::Table(cluster));
+        }
     }
     if !sources.is_empty() {
         policy.insert("sources", Item::Table(sources));
@@ -47,50 +38,33 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
         table.decor_mut().set_prefix(
             "\n# A sender's outflow per mint, capped alone or over a window of slots.\n",
         );
+        let too_large =
+            |row, field| move |amount| PolicyError::VelocityTooLarge { row, field, amount };
         if velocity.window_slots != 0 {
-            let slots = toml_int(velocity.window_slots, |amount| {
-                PolicyError::VelocityTooLarge {
-                    row: 0,
-                    field: "window_slots",
-                    amount,
-                }
-            })?;
+            let slots = toml_int(velocity.window_slots, too_large(0, "window_slots"))?;
             table.insert("window_slots", value(slots));
         }
-        let rows: Array = velocity
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| {
-                let too_large = |field| {
-                    move |amount| PolicyError::VelocityTooLarge {
-                        row: index,
-                        field,
-                        amount,
-                    }
-                };
-                let mut inline = InlineTable::new();
-                inline.insert("asset", row.asset.0.to_string().into());
-                inline.insert("cap", toml_int(row.cap, too_large("cap"))?.into());
-                inline.insert(
-                    "cosign_above",
-                    toml_int(row.cosign_above, too_large("cosign_above"))?.into(),
-                );
-                Ok(inline)
-            })
-            .collect::<Result<Array, PolicyError>>()?;
+        let rows = velocity.rows.iter().enumerate().map(|(index, row)| {
+            let cap = toml_int(row.cap, too_large(index, "cap"))?;
+            let cosign = toml_int(row.cosign_above, too_large(index, "cosign_above"))?;
+            let asset = row.asset.to_string();
+            Ok(inline([
+                ("asset", asset.into()),
+                ("cap", cap.into()),
+                ("cosign_above", cosign.into()),
+            ]))
+        });
+        let rows: Array = rows.collect::<Result<_, PolicyError>>()?;
         table.insert("rows", value(rows));
         policy.insert("velocity", Item::Table(table));
     }
     let mut rules = ArrayOfTables::new();
-    let mut assets = Vec::new();
-    let mut limits = Vec::new();
+    let (mut assets, mut limits) = (Vec::new(), Vec::new());
     for (index, rule) in spec.rules.iter().enumerate() {
         let row = rule.rule(index, &mut assets, &mut limits)?;
         let mut table = rule_table(rule, index)?;
-        table
-            .decor_mut()
-            .set_prefix(format!("\n# {}\n", describe(&row)));
+        let comment = format!("\n# {}\n", describe(&row));
+        table.decor_mut().set_prefix(comment);
         rules.push(table);
     }
     if !rules.is_empty() {
@@ -99,70 +73,63 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     Ok(policy)
 }
 
-fn rule_table(rule: &RuleSpec, index: usize) -> Result<Table, PolicyError> {
-    let mut table = Table::new();
-    table.insert("subject", value(rule.subject.as_str()));
-    match &rule.source {
-        SourceSpec::Require(list) => {
-            table.insert("require", value(list.as_str()));
-        }
-        SourceSpec::Forbid(list) => {
-            table.insert("forbid", value(list.as_str()));
-        }
-        SourceSpec::Any(alternatives) => {
-            let any: Array = alternatives
-                .iter()
-                .map(|alternative| {
-                    let (key, list) = match alternative {
-                        Alternative::Require(list) => ("require", list),
-                        Alternative::Forbid(list) => ("forbid", list),
-                    };
-                    let mut inline = InlineTable::new();
-                    inline.insert(key, list.as_str().into());
-                    inline
-                })
-                .collect();
-            table.insert("any", value(any));
-        }
-        SourceSpec::Assets(mints) => {
-            let assets: Array = mints.iter().map(|mint| mint.0.to_string()).collect();
-            table.insert("assets", value(assets));
-        }
-    }
-    if let Some(amount) = rule.above {
-        let amount = i64::try_from(amount).map_err(|_| PolicyError::ThresholdTooLarge {
-            rule: index,
+fn rule_table(spec: &RuleSpec, rule: usize) -> Result<Table, PolicyError> {
+    let threshold = |amount| {
+        toml_int(amount, |amount| PolicyError::ThresholdTooLarge {
+            rule,
             amount,
-        })?;
-        table.insert("above", value(amount));
+        })
+    };
+    let mut table = Table::new();
+    table.insert("subject", value(spec.subject.as_str()));
+    let (key, source) = match &spec.source {
+        SourceSpec::Require(list) => ("require", value(list.as_str())),
+        SourceSpec::Forbid(list) => ("forbid", value(list.as_str())),
+        SourceSpec::Any(alternatives) => {
+            let any = alternatives.iter().map(|alternative| {
+                let key = match alternative {
+                    Alternative::Require(_) => "require",
+                    Alternative::Forbid(_) => "forbid",
+                };
+                inline([(key, alternative.list().as_str().into())])
+            });
+            ("any", value(any.collect::<Array>()))
+        }
+        SourceSpec::Assets(mints) => (
+            "assets",
+            value(mints.iter().map(ToString::to_string).collect::<Array>()),
+        ),
+    };
+    table.insert(key, source);
+    if let Some(amount) = spec.above {
+        table.insert("above", value(threshold(amount)?));
     }
-    if let Some(limits) = &rule.limits {
-        let limits: Array = limits
-            .iter()
-            .map(|limit| {
-                let amount =
-                    i64::try_from(limit.above).map_err(|_| PolicyError::ThresholdTooLarge {
-                        rule: index,
-                        amount: limit.above,
-                    })?;
-                let mut inline = InlineTable::new();
-                inline.insert("asset", limit.asset.0.to_string().into());
-                inline.insert("above", amount.into());
-                Ok(inline)
-            })
-            .collect::<Result<Array, PolicyError>>()?;
+    if let Some(limits) = &spec.limits {
+        let limits = limits.iter().map(|limit| {
+            let above = threshold(limit.above)?;
+            Ok(inline([
+                ("asset", limit.asset.to_string().into()),
+                ("above", above.into()),
+            ]))
+        });
+        let limits: Array = limits.collect::<Result<_, PolicyError>>()?;
         table.insert("limits", value(limits));
     }
     Ok(table)
+}
+
+fn inline<const N: usize>(pairs: [(&str, Value); N]) -> InlineTable {
+    pairs.into_iter().collect()
 }
 
 fn toml_int(value: u64, too_large: impl FnOnce(u64) -> PolicyError) -> Result<i64, PolicyError> {
     i64::try_from(value).map_err(|_| too_large(value))
 }
 
-fn comment(table: &mut Table, key: &str, text: &str) {
+fn commented(table: &mut Table, key: &str, text: String, comment: &str) {
+    table.insert(key, value(text));
     if let Some(mut key) = table.key_mut(key) {
-        key.leaf_decor_mut().set_prefix(format!("# {text}\n"));
+        key.leaf_decor_mut().set_prefix(format!("# {comment}\n"));
     }
 }
 

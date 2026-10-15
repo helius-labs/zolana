@@ -2,18 +2,17 @@
 
 use std::path::{Path, PathBuf};
 
+use anyhow::{ensure, Result};
 use serde::Deserialize;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use thiserror::Error;
 
 use crate::{
-    config::{expand_tilde, ConfigError, RingConfig, Urls},
-    file::{self, FileError},
-    line,
-    policy::{PolicyError, PolicySpec},
-    ui::{self, Ask, AskError, Icon},
-    wizard::{LiveCurators, Wizard, WizardError},
+    config::{expand_tilde, Base58Address, RingConfig, Target, Urls},
+    file, line,
+    policy::PolicySpec,
+    ui::{self, icon, Ask},
+    wizard::{live_catalogue, Wizard},
     NewArgs, PROGRAM_KEYPAIR_FILE, RING_TOML,
 };
 
@@ -25,26 +24,6 @@ const DEVNET_PROVER: &str = zolana_client::prover::tee::DEFAULT_PROVER_URL;
 const DEVNET_RING_RPC: &str = "https://d24brah9h1i4q9.cloudfront.net";
 const DEVNET_RING_RPC_PUBKEY: &str = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs";
 
-#[derive(Debug, Error)]
-pub enum NewError {
-    #[error("destination {path} already exists")]
-    Exists { path: PathBuf },
-    #[error("a name is needed without a terminal, pass it as the argument")]
-    NameRequired,
-    #[error("nothing written, the preview was not confirmed")]
-    Declined,
-    #[error(transparent)]
-    Wizard(#[from] WizardError),
-    #[error(transparent)]
-    Policy(#[from] PolicyError),
-    #[error(transparent)]
-    Ask(#[from] AskError),
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-}
-
 /// A `ring.toml` or a file holding only its `[policy]` table.
 #[derive(Deserialize)]
 struct PolicyFile {
@@ -52,22 +31,24 @@ struct PolicyFile {
 }
 
 /// Every answer is taken before anything is written.
-pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<(), NewError> {
-    if args.name.is_none() && !ask.interactive() {
-        return Err(NewError::NameRequired);
-    }
+pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<()> {
+    ensure!(
+        args.name.is_some() || ask.interactive(),
+        "a name is needed without a terminal, pass it as the argument"
+    );
     if let Some(name) = &args.name {
         refuse_existing(&args.dest.join(name))?;
     }
     let preset = args.policy_from.as_deref().map(read_policy).transpose()?;
-    let mut curators = LiveCurators {
-        source: catalogue.map(str::to_owned),
-    };
+    let local = |port: u16| format!("http://127.0.0.1:{port}");
     let answers = Wizard {
-        ask,
-        curators: &mut curators,
-        localnet: localnet_defaults(),
-        devnet: devnet_defaults(),
+        ask: &mut *ask,
+        curators: &mut |target: Target, rpc_url: &str| live_catalogue(catalogue, target, rpc_url),
+        localnet: urls(&local(8899), &local(8784), &local(3001), &local(8785)),
+        devnet: Urls {
+            ring_rpc_pubkey: Some(DEVNET_RING_RPC_PUBKEY.to_owned()),
+            ..urls(DEVNET_RPC, DEVNET_INDEXER, DEVNET_PROVER, DEVNET_RING_RPC)
+        },
     }
     .run(args.name, preset)?;
     let ring_dir = args.dest.join(&answers.name);
@@ -76,7 +57,7 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
     let config = RingConfig {
         name: answers.name,
         target: answers.target,
-        program_id: program.pubkey(),
+        program_id: Base58Address(program.pubkey()),
         authority_keypair: PathBuf::from(&args.authority_keypair),
         upgrade_authority_keypair: None,
         config_authority_keypair: None,
@@ -87,19 +68,19 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
         devnet: answers.devnet,
     };
     let rendered = config.render()?;
-    ui::heading(Icon::Wizard, "preview");
+    ui::heading(icon::WIZARD, "preview");
     print!("{rendered}");
-    if !ask.confirm("write the ring directory?", true)? {
-        return Err(NewError::Declined);
-    }
+    ensure!(
+        ask.confirm("write the ring directory?", true)?,
+        "nothing written, the preview was not confirmed"
+    );
 
-    file::create_dir_all(&ring_dir.join("keys"))?;
     file::write_keypair(&program, &ring_dir.join(PROGRAM_KEYPAIR_FILE))?;
     file::write(&ring_dir.join(RING_TOML), rendered)?;
     file::write(&ring_dir.join(".gitignore"), "keys/\n.env\n")?;
     ensure_authority(&args.authority_keypair)?;
 
-    ui::heading(Icon::Ring, &config.name);
+    ui::heading(icon::RING, &config.name);
     line("ring", ring_dir.display());
     line("program id", program.pubkey());
     println!(
@@ -110,52 +91,38 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
 }
 
 /// Compiled for every cluster before it is taken.
-pub(crate) fn read_policy(path: &Path) -> Result<PolicySpec, NewError> {
+pub(crate) fn read_policy(path: &Path) -> Result<PolicySpec> {
     let file: PolicyFile = file::parse_toml(path)?;
     file.policy.check()?;
     Ok(file.policy)
 }
 
-fn refuse_existing(ring_dir: &Path) -> Result<(), NewError> {
-    if ring_dir.exists() {
-        return Err(NewError::Exists {
-            path: ring_dir.to_path_buf(),
-        });
-    }
+fn refuse_existing(dir: &Path) -> Result<()> {
+    ensure!(
+        !dir.exists(),
+        "destination {} already exists",
+        dir.display()
+    );
     Ok(())
 }
 
-fn localnet_defaults() -> Urls {
+fn urls(rpc: &str, indexer: &str, prover: &str, ring_rpc: &str) -> Urls {
     Urls {
-        rpc: "http://127.0.0.1:8899".to_owned(),
-        indexer: "http://127.0.0.1:8784".to_owned(),
-        prover: "http://127.0.0.1:3001".to_owned(),
-        ring_rpc: "http://127.0.0.1:8785".to_owned(),
+        rpc: rpc.to_owned(),
+        indexer: indexer.to_owned(),
+        prover: prover.to_owned(),
+        ring_rpc: ring_rpc.to_owned(),
         ring_rpc_pubkey: None,
         prover_tee: None,
     }
 }
 
-fn devnet_defaults() -> Urls {
-    Urls {
-        rpc: DEVNET_RPC.to_owned(),
-        indexer: DEVNET_INDEXER.to_owned(),
-        prover: DEVNET_PROVER.to_owned(),
-        ring_rpc: DEVNET_RING_RPC.to_owned(),
-        ring_rpc_pubkey: Some(DEVNET_RING_RPC_PUBKEY.to_owned()),
-        prover_tee: None,
-    }
-}
-
 /// Only the default path is created, any other missing path is the operator's to mount.
-fn ensure_authority(recorded: &str) -> Result<(), NewError> {
+fn ensure_authority(recorded: &str) -> Result<()> {
     let path = expand_tilde(Path::new(recorded))?;
     if path.is_file() {
         line("authority", file::read_keypair(&path)?.pubkey());
     } else if recorded == DEFAULT_AUTHORITY_KEYPAIR {
-        if let Some(parent) = path.parent() {
-            file::create_dir_all(parent)?;
-        }
         let keypair = Keypair::new();
         file::write_keypair(&keypair, &path)?;
         line(
@@ -174,7 +141,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::Target,
+        policy::PolicyError,
         ui::{Answer, Defaults, Scripted},
     };
 
@@ -202,7 +169,7 @@ mod tests {
         let ring_dir = dest.join("smoke");
         let config = RingConfig::load(&ring_dir.join(RING_TOML)).expect("load");
         let program = file::read_keypair(&ring_dir.join(PROGRAM_KEYPAIR_FILE)).expect("keypair");
-        assert_eq!(config.program_id, program.pubkey());
+        assert_eq!(config.program_id.0, program.pubkey());
         assert_eq!(config.target, Target::Localnet);
         assert_eq!(config.authority_keypair, dest.join("authority.json"));
         assert!(config.policy.is_none());
@@ -215,23 +182,22 @@ mod tests {
             std::fs::read_to_string(ring_dir.join(".gitignore")).expect("gitignore"),
             "keys/\n.env\n"
         );
-        assert!(matches!(
-            run(args(Some("smoke"), &dest, true), &mut Defaults, None),
-            Err(NewError::Exists { .. })
-        ));
+        let exists = |result: Result<()>| {
+            result.is_err_and(|error| error.to_string().ends_with("already exists"))
+        };
+        assert!(exists(run(
+            args(Some("smoke"), &dest, true),
+            &mut Defaults,
+            None
+        )));
         // Refused before the first question, an empty script answers nothing.
-        assert!(matches!(
-            run(
-                args(Some("smoke"), &dest, false),
-                &mut Scripted::new([]),
-                None
-            ),
-            Err(NewError::Exists { .. })
-        ));
-        assert!(matches!(
-            run(args(None, &dest, true), &mut Defaults, None),
-            Err(NewError::NameRequired)
-        ));
+        assert!(exists(run(
+            args(Some("smoke"), &dest, false),
+            &mut Scripted::new([]),
+            None
+        )));
+        let unnamed = run(args(None, &dest, true), &mut Defaults, None).expect_err("no name");
+        assert!(unnamed.to_string().starts_with("a name is needed"));
         std::fs::remove_dir_all(dest).expect("cleanup");
     }
 
@@ -301,17 +267,19 @@ mod tests {
             "[policy]\n\n[[policy.rules]]\nsubject = \"sender\"\nrequire = \"allow\"\nabove = 1\n",
         )
         .expect("policy file");
-        assert!(matches!(
-            run(
-                NewArgs {
-                    policy_from: Some(policy),
-                    ..args(Some("refused"), &dest, true)
-                },
-                &mut Defaults,
-                None,
-            ),
-            Err(NewError::Policy(PolicyError::SenderGuard { rule: 0 }))
-        ));
+        let refused = run(
+            NewArgs {
+                policy_from: Some(policy),
+                ..args(Some("refused"), &dest, true)
+            },
+            &mut Defaults,
+            None,
+        )
+        .expect_err("a sender guard");
+        assert_eq!(
+            refused.downcast_ref::<PolicyError>(),
+            Some(&PolicyError::SenderGuard { rule: 0 })
+        );
         assert!(!dest.join("refused").exists());
         std::fs::remove_dir_all(dest).expect("cleanup");
     }

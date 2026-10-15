@@ -2,21 +2,23 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use custom_ring_sdk::{CustomRing, PolicyConfig, RingError};
+use anyhow::{ensure, Context as _, Result};
+use custom_ring_interface::RingAccount;
+use custom_ring_sdk::{CustomRing, PolicyConfig};
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
-use thiserror::Error;
-use zolana_client::{ClientError, ProgramAccountsFilter, Rpc, SolanaRpc};
+use zolana_client::{ProgramAccountsFilter, Rpc, SolanaRpc};
 use zolana_interface::{
+    pda,
     state::{discriminator::RING_CONFIG, RingConfig as SppRingConfig},
-    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::ListId;
 
 use crate::{
     config::{Base58Address, PerCluster, Target},
-    file::{self, FileError},
-    policy::{list_name, ListName},
+    file,
+    policy::ListName,
+    Context,
 };
 
 const BUNDLED: &str = include_str!("../catalogue.toml");
@@ -36,79 +38,25 @@ pub struct Curator {
     pub address_tree: Base58Address,
 }
 
-pub struct CuratorCheck {
-    pub curator: CustomRing,
-    pub list: ListId,
-    pub address_tree: Address,
-}
-
-#[derive(Debug, Error)]
-pub enum CatalogueError {
-    #[error("the bundled catalogue does not parse")]
-    Bundled(#[source] toml::de::Error),
-    #[error("cannot parse the catalogue at {location}")]
-    Parse {
-        location: String,
-        #[source]
-        source: toml::de::Error,
-    },
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error("cannot download the catalogue at {url}")]
-    Download {
-        url: String,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("{name} is neither a program id nor a {} catalogue name", cluster.as_str())]
-    UnknownCurator { name: String, cluster: Target },
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Ring(#[from] RingError),
-    #[error("{address} is not a ring config of the shielded pool")]
-    InvalidRingConfig { address: Address },
-}
-
-#[derive(Debug, Error)]
-pub enum CuratorError {
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Ring(#[from] RingError),
-    #[error("curator {curator} is not deployed")]
-    NotDeployed { curator: Address },
-    #[error("curator {curator} has no policy config")]
-    NoPolicy { curator: Address },
-    #[error("curator {curator} does not serve the {} list from its own entries", list_name(*list))]
-    DoesNotServe { curator: Address, list: ListId },
-    #[error("curator {curator} claims its addresses in tree {tree}, the ring uses {expected}")]
-    OtherTree {
-        curator: Address,
-        tree: Address,
-        expected: Address,
-    },
-}
-
 impl Catalogue {
-    pub fn bundled() -> Result<Self, CatalogueError> {
-        toml::from_str(BUNDLED).map_err(CatalogueError::Bundled)
+    pub fn bundled() -> Result<Self> {
+        toml::from_str(BUNDLED).context("the bundled catalogue does not parse")
     }
 
     /// A path or an http(s) URL replaces the bundled file.
-    pub fn load(source: Option<&str>) -> Result<Self, CatalogueError> {
+    pub fn load(source: Option<&str>) -> Result<Self> {
         let Some(location) = source else {
             return Self::bundled();
         };
         let text = if location.starts_with("http://") || location.starts_with("https://") {
-            fetch(location)?
+            reqwest::blocking::get(location)
+                .and_then(reqwest::blocking::Response::error_for_status)
+                .and_then(reqwest::blocking::Response::text)
+                .with_context(|| format!("cannot download the catalogue at {location}"))?
         } else {
             file::read(Path::new(location))?
         };
-        toml::from_str(&text).map_err(|source| CatalogueError::Parse {
-            location: location.to_owned(),
-            source,
-        })
+        toml::from_str(&text).with_context(|| format!("cannot parse the catalogue at {location}"))
     }
 
     pub fn curators(&self, target: Target) -> &BTreeMap<String, Curator> {
@@ -122,7 +70,7 @@ impl Catalogue {
             let name = curators
                 .iter()
                 .find(|(_, known)| known.program == curator.program)
-                .map_or_else(|| curator.program.0.to_string(), |(name, _)| name.clone());
+                .map_or_else(|| curator.program.to_string(), |(name, _)| name.clone());
             curators.insert(name, curator);
         }
     }
@@ -142,48 +90,40 @@ impl Catalogue {
     }
 
     /// A program id as given, a name through the cluster's table.
-    pub fn resolve(&self, target: Target, text: &str) -> Result<CustomRing, CatalogueError> {
+    pub fn resolve(&self, target: Target, text: &str) -> Result<CustomRing> {
         if let Ok(program) = text.parse::<Address>() {
             return Ok(CustomRing::new(program));
         }
-        self.curators(target)
-            .get(text)
-            .map(|curator| CustomRing::new(curator.program.0))
-            .ok_or_else(|| CatalogueError::UnknownCurator {
-                name: text.to_owned(),
-                cluster: target,
-            })
+        let curator = self.curators(target).get(text).with_context(|| {
+            format!("{text} is neither a program id nor a {target} catalogue name")
+        })?;
+        Ok(CustomRing::new(curator.program.0))
     }
 }
 
 /// Every ring the shielded pool registered that pins a policy.
-pub fn discover(rpc: &SolanaRpc) -> Result<Vec<Curator>, CatalogueError> {
+pub fn discover(rpc: &SolanaRpc) -> Result<Vec<Curator>> {
     let filter = ProgramAccountsFilter::new(SppRingConfig::SIZE).with_memcmp(0, [RING_CONFIG]);
-    let accounts = rpc.get_program_accounts_filtered(
-        Address::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        &filter,
-    )?;
-    let rings = registered_rings(
-        accounts
-            .iter()
-            .map(|(address, account)| (*address, account.data.as_slice())),
-    )?;
-    rings
-        .into_iter()
-        .filter_map(|program| {
-            let ring = CustomRing::new(program);
-            crate::read_account::<PolicyConfig>(rpc, ring, ring.policy_config_pda())
-                .map(|config| config.map(|config| curator_of(ring, &config)))
-                .transpose()
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+    let accounts = rpc.get_program_accounts_filtered(pda::shielded_pool_program_id(), &filter)?;
+    let data = accounts
+        .iter()
+        .map(|(address, account)| (*address, &account.data[..]));
+    let mut curators = Vec::new();
+    for ring in registered_rings(data)?.into_iter().map(CustomRing::new) {
+        let (address, program) = (ring.policy_config_pda(), ring.program_id());
+        if let Some(account) = rpc.get_account(address)? {
+            let config = PolicyConfig::decode(&account.owner, &program, &account.data);
+            let invalid = || format!("{address} is not a policy config of {program}");
+            curators.push(curator_of(ring, &config.with_context(invalid)?));
+        }
+    }
+    Ok(curators)
 }
 
 /// The ring programs behind the shielded pool's ring configs.
 pub fn registered_rings<'a>(
     accounts: impl IntoIterator<Item = (Address, &'a [u8])>,
-) -> Result<Vec<Address>, CatalogueError> {
+) -> Result<Vec<Address>> {
     accounts
         .into_iter()
         .map(|(address, data)| {
@@ -191,7 +131,7 @@ pub fn registered_rings<'a>(
                 .ok()
                 .filter(|config| config.has_discriminator())
                 .map(|config| config.program_id)
-                .ok_or(CatalogueError::InvalidRingConfig { address })
+                .with_context(|| format!("{address} is not a ring config of the shielded pool"))
         })
         .collect()
 }
@@ -209,41 +149,30 @@ pub fn curator_of(ring: CustomRing, config: &PolicyConfig) -> Curator {
     }
 }
 
-impl CuratorCheck {
-    pub fn run<R: Rpc>(&self, rpc: &R) -> Result<(), CuratorError> {
-        let curator = self.curator.program_id();
-        if rpc.get_account(curator)?.is_none() {
-            return Err(CuratorError::NotDeployed { curator });
-        }
-        let address = self.curator.policy_config_pda();
-        let config = crate::read_account::<PolicyConfig>(rpc, self.curator, address)?
-            .ok_or(CuratorError::NoPolicy { curator })?;
-        if config.source_for(self.list) != Some(self.curator.namespace_pda()) {
-            return Err(CuratorError::DoesNotServe {
-                curator,
-                list: self.list,
-            });
-        }
-        if config.address_tree != self.address_tree {
-            return Err(CuratorError::OtherTree {
-                curator,
-                tree: config.address_tree,
-                expected: self.address_tree,
-            });
-        }
-        Ok(())
-    }
-}
-
-fn fetch(url: &str) -> Result<String, CatalogueError> {
-    let failed = |source| CatalogueError::Download {
-        url: url.to_owned(),
-        source,
-    };
-    reqwest::blocking::get(url)
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .and_then(reqwest::blocking::Response::text)
-        .map_err(failed)
+/// The curator must serve `list` from its own entries in the ring's tree.
+pub fn check_curator(
+    ctx: &Context,
+    curator: CustomRing,
+    list: ListId,
+    tree: Address,
+) -> Result<()> {
+    let program = curator.program_id();
+    let deployed = ctx.rpc().get_account(program)?.is_some();
+    ensure!(deployed, "curator {program} is not deployed");
+    let config = ctx
+        .block(curator.policy_config(ctx.chain()))?
+        .with_context(|| format!("curator {program} has no policy config"))?;
+    ensure!(
+        config.source_for(list) == Some(curator.namespace_pda()),
+        "curator {program} does not serve the {} list from its own entries",
+        list.name()
+    );
+    ensure!(
+        config.address_tree == tree,
+        "curator {program} claims its addresses in tree {}, the ring uses {tree}",
+        config.address_tree
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -330,10 +259,13 @@ mod tests {
                 .program_id(),
             other
         );
-        assert!(matches!(
-            catalogue.resolve(Target::Localnet, "desk"),
-            Err(CatalogueError::UnknownCurator { name, cluster: Target::Localnet }) if name == "desk"
-        ));
+        assert_eq!(
+            catalogue
+                .resolve(Target::Localnet, "desk")
+                .expect_err("unknown on localnet")
+                .to_string(),
+            "desk is neither a program id nor a localnet catalogue name"
+        );
     }
 
     #[test]
@@ -365,10 +297,12 @@ mod tests {
         );
         let mut foreign = bytes.clone();
         foreign[0] = 0;
-        assert!(matches!(
-            registered_rings([(address, foreign.as_slice())]),
-            Err(CatalogueError::InvalidRingConfig { address: found }) if found == address
-        ));
+        assert_eq!(
+            registered_rings([(address, foreign.as_slice())])
+                .expect_err("foreign")
+                .to_string(),
+            format!("{address} is not a ring config of the shielded pool")
+        );
         assert!(registered_rings([(address, &bytes[1..])]).is_err());
 
         let mut sources = [SourceSlot {

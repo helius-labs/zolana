@@ -1,100 +1,55 @@
 //! `policy`, the pinned rule table read, checked against `ring.toml` and replaced.
 
 #[cfg(test)]
-mod examples;
+mod example_tests;
 pub mod grammar;
 pub mod render;
 
 pub use grammar::{
-    describe, describe_velocity, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
+    describe, describe_velocity, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
     PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName, VelocityRowSpec,
     VelocitySpec,
 };
 pub use render::render;
 
-use custom_ring_sdk::{
-    client_rules_match, compute_unit_limit, CustomRing, InstructionTag, PolicyConfig, RingError,
-};
-use solana_address::Address;
+use anyhow::{ensure, Context as _, Result};
+use custom_ring_sdk::{client_rules_match, CustomRing, PolicyConfig};
 use solana_signer::Signer;
-use thiserror::Error;
 use zolana_ring_policy::{RuleTable, VelocityMode};
 
 use crate::{
-    catalogue::{CuratorCheck, CuratorError},
+    catalogue::check_curator,
     fund::MIN_AUTHORITY_BALANCE,
     line,
-    step::{no_hint, IdempotentStep, Observed, StepError},
-    ui::{self, AskError, Icon},
-    Context, ContextError, PolicyCommand,
+    ui::{self, icon},
+    Context, PolicyCommand,
 };
 
-#[derive(Debug, Error)]
-pub enum PolicyCommandError {
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error(transparent)]
-    Ring(#[from] RingError),
-    #[error(transparent)]
-    Grammar(#[from] PolicyError),
-    #[error(transparent)]
-    Step(#[from] StepError),
-    #[error(transparent)]
-    Ask(#[from] AskError),
-    #[error(transparent)]
-    Curator(#[from] CuratorError),
-    #[error("ring.toml has no [policy] table, the ring is audit-only")]
-    NoPolicyInToml,
-    #[error("the ring has no policy config, run `zolana-ring init` first")]
-    NotPinned,
-    #[error("the pinned table differs from ring.toml")]
-    Drift(#[source] RingError),
-    #[error(
-        "ring.toml names address tree {toml}, the policy config pins {chain}, it is fixed at init"
-    )]
-    TreeDrift { toml: Address, chain: Address },
-    #[error("the {list} list reads {chain} on chain, ring.toml expects {expected}")]
-    SourceDrift {
-        list: &'static str,
-        chain: Address,
-        expected: Address,
-    },
-    #[error("pass --yes to replace the table of {program}, proofs built against the old table are refused from now on")]
-    NeedsConfirmation { program: Address },
-    #[error("the table of {program} stays, the change was not confirmed")]
-    Declined { program: Address },
-}
-
-pub fn run(ctx: &mut Context, command: PolicyCommand) -> Result<(), PolicyCommandError> {
+pub fn run(ctx: &Context, command: PolicyCommand) -> Result<()> {
     match command {
-        PolicyCommand::Show => show(ctx),
-        PolicyCommand::Check => check(ctx),
-        PolicyCommand::Set { yes } => set(ctx, yes),
+        PolicyCommand::Show => {
+            let config = pinned(ctx)?;
+            let title = format!("policy {}", ctx.ring.policy_config_pda());
+            ui::heading(icon::POLICY, &title);
+            print_pinned(ctx.ring, &config);
+        }
+        PolicyCommand::Check => {
+            let (compiled, config) = (compiled(ctx)?, pinned(ctx)?);
+            verify_rows(&compiled, &config)?;
+            verify_sources(ctx.ring, &compiled, &config)?;
+            line("policy", "matches ring.toml");
+            line("generation", config.generation());
+        }
+        PolicyCommand::Set { yes } => set(ctx, yes)?,
     }
-}
-
-pub fn verify(
-    ring: CustomRing,
-    compiled: &CompiledPolicy,
-    config: &PolicyConfig,
-) -> Result<(), PolicyCommandError> {
-    verify_rows(compiled, config)?;
-    verify_sources(ring, compiled, config)
+    Ok(())
 }
 
 /// Rows, hash and tree, what a source re-point never changes.
-pub fn verify_rows(
-    compiled: &CompiledPolicy,
-    config: &PolicyConfig,
-) -> Result<(), PolicyCommandError> {
-    client_rules_match(&compiled.rules, config).map_err(PolicyCommandError::Drift)?;
-    if config.address_tree != compiled.address_tree {
-        return Err(PolicyCommandError::TreeDrift {
-            toml: compiled.address_tree,
-            chain: config.address_tree,
-        });
-    }
-    Ok(())
+pub fn verify_rows(compiled: &CompiledPolicy, config: &PolicyConfig) -> Result<()> {
+    client_rules_match(&compiled.rules, config)
+        .context("the pinned table differs from ring.toml")?;
+    verify_tree(compiled, config)
 }
 
 /// Every referenced list reads the namespace ring.toml names.
@@ -102,33 +57,36 @@ pub fn verify_sources(
     ring: CustomRing,
     compiled: &CompiledPolicy,
     config: &PolicyConfig,
-) -> Result<(), PolicyCommandError> {
+) -> Result<()> {
     for list_id in compiled.rules.referenced().iter() {
         let expected = compiled
             .curator(list_id)
             .map_or_else(|| ring.namespace_pda(), CustomRing::namespace_pda);
         let chain = config.source_for(list_id).unwrap_or_default();
-        if chain != expected {
-            return Err(PolicyCommandError::SourceDrift {
-                list: list_name(list_id),
-                chain,
-                expected,
-            });
-        }
+        ensure!(
+            chain == expected,
+            "the {} list reads {chain} on chain, ring.toml expects {expected}",
+            list_id.name()
+        );
     }
     Ok(())
 }
 
-pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
-    ui::heading(Icon::Tree, &format!("tree {}", config.address_tree));
-    line(
-        "generation",
-        format_args!(
-            "{} at slot {}",
-            config.generation(),
-            config.generation_slot()
-        ),
+/// No re-pin moves the tree, it is fixed at init.
+fn verify_tree(compiled: &CompiledPolicy, config: &PolicyConfig) -> Result<()> {
+    ensure!(
+        config.address_tree == compiled.address_tree,
+        "ring.toml names address tree {}, the policy config pins {}, it is fixed at init",
+        compiled.address_tree,
+        config.address_tree
     );
+    Ok(())
+}
+
+pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
+    ui::heading(icon::TREE, &format!("tree {}", config.address_tree));
+    let (generation, slot) = (config.generation(), config.generation_slot());
+    line("generation", format_args!("{generation} at slot {slot}"));
     line("hash", hex::encode(config.policy_hash));
     match config.rule_table() {
         Ok(table) if table.is_empty() => line("rules", "none, an empty table"),
@@ -136,133 +94,78 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
             for (index, rule) in table.rules().iter().enumerate() {
                 line(&format!("rule {}", index + 1), describe(rule));
             }
-            if !table.inline_assets().is_empty() {
-                line(
-                    "assets",
-                    format_args!("{} listed inline", table.inline_assets().len()),
-                );
+            if let count @ 1.. = table.inline_assets().len() {
+                line("assets", format_args!("{count} listed inline"));
             }
             print_velocity(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
     }
-    let own = ring.namespace_pda();
-    let sources: Vec<_> = config
-        .rules
-        .referenced()
-        .iter()
-        .map(|list_id| {
-            let source = match config.source_for(list_id) {
-                Some(namespace) if namespace == own => "own entries".to_owned(),
-                Some(namespace) => format!("curator namespace {namespace}"),
-                None => "no source".to_owned(),
-            };
-            (list_name(list_id), source)
-        })
-        .collect();
-    if !sources.is_empty() {
-        ui::heading(Icon::Lists, "sources");
-        for (list, source) in sources {
-            line(list, source);
-        }
+    let referenced = config.rules.referenced();
+    if referenced.iter().next().is_some() {
+        ui::heading(icon::LISTS, "sources");
+    }
+    for list_id in referenced.iter() {
+        let source = match config.source_for(list_id) {
+            Some(namespace) if namespace == ring.namespace_pda() => "own entries".to_owned(),
+            Some(namespace) => format!("curator namespace {namespace}"),
+            None => "no source".to_owned(),
+        };
+        line(list_id.name(), source);
     }
 }
 
-fn compiled(ctx: &Context) -> Result<CompiledPolicy, PolicyCommandError> {
-    Ok(ctx
-        .config
-        .policy
-        .as_ref()
-        .ok_or(PolicyCommandError::NoPolicyInToml)?
-        .compile(ctx.config.target)?)
+fn compiled(ctx: &Context) -> Result<CompiledPolicy> {
+    let audit_only = "ring.toml has no [policy] table, the ring is audit-only";
+    let spec = ctx.config.policy.as_ref().context(audit_only)?;
+    Ok(spec.compile(ctx.config.target)?)
 }
 
-fn pinned(ctx: &Context) -> Result<PolicyConfig, PolicyCommandError> {
-    crate::read_account::<PolicyConfig>(&ctx.rpc, ctx.ring, ctx.ring.policy_config_pda())?
-        .ok_or(PolicyCommandError::NotPinned)
+fn pinned(ctx: &Context) -> Result<PolicyConfig> {
+    ctx.block(ctx.ring.policy_config(ctx.chain()))?
+        .context("the ring has no policy config, run `zolana-ring init` first")
 }
 
-fn show(ctx: &Context) -> Result<(), PolicyCommandError> {
-    let config = pinned(ctx)?;
-    ui::heading(
-        Icon::Policy,
-        &format!("policy {}", ctx.ring.policy_config_pda()),
-    );
-    print_pinned(ctx.ring, &config);
-    Ok(())
-}
-
-fn check(ctx: &Context) -> Result<(), PolicyCommandError> {
-    let compiled = compiled(ctx)?;
-    let config = pinned(ctx)?;
-    verify(ctx.ring, &compiled, &config)?;
-    line("policy", "matches ring.toml");
-    line("generation", config.generation());
-    Ok(())
-}
-
-fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
+fn set(ctx: &Context, yes: bool) -> Result<()> {
     let program = ctx.ring.program_id();
-    let compiled = compiled(ctx)?;
-    let config = pinned(ctx)?;
-    match verify(ctx.ring, &compiled, &config) {
-        Ok(()) => {
-            line("policy", "already present");
-            return Ok(());
-        }
-        Err(drift @ PolicyCommandError::TreeDrift { .. }) => return Err(drift),
-        Err(_) => {}
+    let (compiled, config) = (compiled(ctx)?, pinned(ctx)?);
+    verify_tree(&compiled, &config)?;
+    let verified =
+        verify_rows(&compiled, &config).and_then(|()| verify_sources(ctx.ring, &compiled, &config));
+    if verified.is_ok() {
+        line("policy", "already present");
+        return Ok(());
     }
     for (list_id, curator) in &compiled.shared_sources {
-        CuratorCheck {
-            curator: *curator,
-            list: *list_id,
-            address_tree: compiled.address_tree,
-        }
-        .run(&ctx.rpc)?;
+        check_curator(ctx, *curator, *list_id, compiled.address_tree)?;
     }
-    ui::heading(Icon::Pin, &format!("re-pin the table of {program}"));
+    ui::heading(icon::PIN, &format!("re-pin the table of {program}"));
     match config.rule_table() {
         Ok(old) => print_diff(&old, &compiled.rules),
         Err(error) => line("rules", format_args!("undecodable on chain ({error})")),
     }
     for (list_id, curator) in &compiled.shared_sources {
-        line(
-            list_name(*list_id),
-            format_args!("curator {}", curator.program_id()),
-        );
+        let curator = curator.program_id();
+        line(list_id.name(), format_args!("curator {curator}"));
     }
     ui::warn("proofs built against the old table are refused from now on");
-    if !yes {
-        if !ctx.ask.interactive() {
-            return Err(PolicyCommandError::NeedsConfirmation { program });
-        }
-        if !ctx.ask.confirm("replace the pinned table?", false)? {
-            return Err(PolicyCommandError::Declined { program });
-        }
-    }
-    let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
-    ctx.fund_authority(&authority, MIN_AUTHORITY_BALANCE)?;
-    let instruction = ctx.ring.set_policy_rules(
+    ctx.confirm(
+        yes,
+        "replace the pinned table?",
+        format_args!("pass --yes to replace the table of {program}, proofs built against the old table are refused from now on"),
+        format_args!("the table of {program} stays, the change was not confirmed"),
+    )?;
+    let authority = ctx.config.upgrade_authority()?;
+    ctx.fund(authority.pubkey(), MIN_AUTHORITY_BALANCE)?;
+    let replace = ctx.ring.set_policy_rules(
         authority.pubkey(),
         &compiled.rules,
         &compiled.shared_sources(),
     )?;
-    IdempotentStep {
-        rpc: &ctx.rpc,
-        authority: &authority,
-        co_signers: &[],
-        name: "set_policy_rules",
-        compute_unit_limit: compute_unit_limit(InstructionTag::SetPolicyRules),
-        hint: no_hint,
-    }
-    .ensure_present(Observed::Absent, &[instruction])?;
-    let after = pinned(ctx)?;
+    ctx.send(&[&authority], &[replace])?;
+    let (before, after) = (config.generation(), pinned(ctx)?.generation());
     line("policy", "replaced");
-    line(
-        "generation",
-        format_args!("{} replaces {}", after.generation(), config.generation()),
-    );
+    line("generation", format_args!("{after} replaces {before}"));
     Ok(())
 }
 
@@ -281,21 +184,18 @@ fn print_velocity(table: &RuleTable) {
 }
 
 fn print_diff(old: &RuleTable, new: &RuleTable) {
-    for rule in old.rules() {
-        if !new.rules().contains(rule) {
-            line("removed", describe(rule));
-        }
-    }
-    for rule in new.rules() {
-        if !old.rules().contains(rule) {
-            line("added", describe(rule));
+    for (label, from, to) in [("removed", old, new), ("added", new, old)] {
+        for rule in from
+            .rules()
+            .iter()
+            .filter(|rule| !to.rules().contains(rule))
+        {
+            line(label, describe(rule));
         }
     }
     if old.inline_assets() != new.inline_assets() {
-        line(
-            "assets",
-            format_args!("{} listed inline", new.inline_assets().len()),
-        );
+        let count = new.inline_assets().len();
+        line("assets", format_args!("{count} listed inline"));
     }
     if old.window_slots() != new.window_slots() || old.velocity() != new.velocity() {
         print_velocity(new);
