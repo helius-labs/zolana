@@ -70,12 +70,13 @@ macro_rules! platforms {
             $(#[serde(rename = $tag)] $variant(<$module::$platform as TeePlatform>::Evidence)),+
         }
 
-        pub(super) struct Anchors {
+        /// The vendor roots evidence chains to; a test may trust its own.
+        pub struct Anchors {
             $(pub $module: <$module::$platform as TeePlatform>::Anchors),+
         }
 
         impl Anchors {
-            pub(super) const PRODUCTION: Self = Self {
+            pub const PRODUCTION: Self = Self {
                 $($module: <$module::$platform as TeePlatform>::ANCHORS),+
             };
         }

@@ -92,6 +92,8 @@ sdk-libs/
                           SBF-buildable) and the host-only ZK program features
                           `circuit`, `client`, `setup`; no default features
   program-test/        -- reusable local test/indexer harness
+  prover-tee/          -- the encrypted prover wire contract: attestation
+                          verification, policy pins, HPKE request encryption
   transaction/         -- wallet, UTXO, encryption, and transaction logic; feature
                           `circuit` (asset and UTXO circuit types, Mint and
                           WalletUtxo as proof inputs)

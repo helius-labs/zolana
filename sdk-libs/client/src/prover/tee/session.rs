@@ -9,10 +9,8 @@ use rand_core::{OsRng, TryRngCore};
 use url::Url;
 
 use super::{
-    platform::Anchors,
-    verify::{Session, Trust},
-    Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy, HEADER_VERSION,
-    MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy,
+    HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
 
@@ -169,17 +167,7 @@ impl TeeSession {
             .duration_since(UNIX_EPOCH)
             .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
             .as_secs();
-        let trust = Trust {
-            now_secs: now,
-            anchors: &self.anchors,
-        };
-        let prover = trust.verify(
-            attestation,
-            Session {
-                policy: &self.policy,
-                nonce,
-            },
-        )?;
+        let prover = verify_with(attestation, &self.policy, nonce, now, &self.anchors)?;
         *lock(&self.attested) = Some((prover.clone(), Instant::now()));
         Ok(prover)
     }

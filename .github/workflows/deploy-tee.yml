@@ -152,5 +152,5 @@ jobs:
         with:
           name: tee-pins
           path: |
-            sdk-libs/client/src/prover/tee/policy.json
+            sdk-libs/prover-tee/src/policy.json
             sdk-libs/ts/src/client/prover/tee/default.ts

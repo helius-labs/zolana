@@ -35,7 +35,7 @@ The `zolana` commands that prove take `--prover-tee` to require the pin from a l
 `zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
-The bundled policy pins the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The bundled policy pins the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
 A TypeScript client given a Helius devnet RPC URL and no `proverUrl` proves there without forwarding the RPC API key.
 That enclave has no indexer, so both SDKs fetch its proof data on the client.
 
@@ -113,7 +113,7 @@ reviewed policy; applications should vendor the reviewed file with their code.
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
-The SDK release pins the deployment the operator released, in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The SDK release pins the deployment the operator released, in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
 The client verifies the attestation against that pin and encrypts each call.
 Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 

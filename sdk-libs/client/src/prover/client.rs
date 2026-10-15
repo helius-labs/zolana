@@ -1365,7 +1365,7 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::NitroFixture;
+    use crate::prover::tee::{FixtureSession, NitroFixture};
 
     #[derive(Debug)]
     struct NoRequests;
@@ -1440,7 +1440,7 @@ mod tests {
     fn proxy_fixture(fixture: NitroFixture) -> NitroFixture {
         use hpke::{kem::X25519HkdfSha256, Kem, Serializable};
         let (_, key) = X25519HkdfSha256::derive_keypair(b"proxy test enclave");
-        fixture.with_hpke_key(key.to_bytes().into())
+        fixture.with_hpke_public_key(key.to_bytes().into())
     }
 
     // Plays the enclave, so the proxy carries ciphertext both ways.
