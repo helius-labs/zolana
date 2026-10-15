@@ -109,6 +109,8 @@ impl BlockingRuntime {
         future: impl Future<Output = Result<T, E>>,
     ) -> Result<T, E> {
         let runtime = self.0.as_ref().expect("the runtime lives until drop");
+        // Each Tokio frame below holds an unboxed future by value.
+        let future = Box::pin(future);
         let run = AssertUnwindSafe(|| tokio::task::block_in_place(|| runtime.block_on(future)));
         match catch_unwind(run) {
             Ok(output) => output,
