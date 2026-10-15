@@ -94,7 +94,7 @@ fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Value {
         bytemuck::bytes_of(&KeyRegistryRoot {
             discriminator: custom_ring_interface::KEY_REGISTRY_ROOT,
             next_index: next_index.to_le_bytes(),
-            bump: pda::key_registry_root(&program).1,
+            bump: key_registry_root_pda(&program).1,
             history_cursor: 0,
             history,
         }),
@@ -153,7 +153,7 @@ fn transaction(program: Pubkey, accounts: &[Pubkey], data: &[u8]) -> Value {
 /// Initialization and first registration precede the global tip.
 async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8; 32]) {
     let program = Pubkey::new_from_array([11; 32]);
-    let address = pda::key_registry_root(&program).0;
+    let address = key_registry_root_pda(&program).0;
     let mut tree = zolana_ring_key_registry::KeyRegistryTree::new().unwrap();
     let key = RegisteredKey {
         nullifier_pk: &field(5),
@@ -350,7 +350,7 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
 async fn a_stalled_replay_does_not_starve_another_pending_ring() {
     let (projector, chain, handle, stalled, _) = late_ring().await;
     let healthy = Pubkey::new_from_array([12; 32]);
-    let address = pda::key_registry_root(&healthy).0;
+    let address = key_registry_root_pda(&healthy).0;
     {
         let mut chain = chain.lock().unwrap();
         chain
