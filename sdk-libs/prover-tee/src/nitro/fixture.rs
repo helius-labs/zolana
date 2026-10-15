@@ -118,6 +118,15 @@ impl Fixture {
         self
     }
 
+    /// Attests `key` in place of the fixture's constant, for a prover that
+    /// holds the matching secret.
+    pub fn with_hpke_public_key(mut self, key: [u8; 32]) -> Self {
+        self.hpke_public_key = key;
+        self.public_key = key;
+        self.user_data = report_data(&self.nonce, &key, None);
+        self
+    }
+
     pub fn rebooted(mut self) -> Self {
         self.hpke_public_key = REBOOTED_HPKE_PUBLIC_KEY;
         self.public_key = REBOOTED_HPKE_PUBLIC_KEY;
