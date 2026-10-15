@@ -3,6 +3,8 @@
 mod attestation;
 mod dstack;
 mod encryption;
+#[cfg(any(test, feature = "test-fixtures"))]
+mod fixture_prover;
 mod nitro;
 mod platform;
 mod policy;
@@ -12,7 +14,9 @@ mod verify;
 
 pub use attestation::Attestation;
 pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
-pub use encryption::EncryptedRequest;
+pub use encryption::{decrypt_response, EncryptedRequest};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use fixture_prover::{seal_response, FixtureProver, OpenedRequest};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use nitro::fixture::Fixture as NitroFixture;
 pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
