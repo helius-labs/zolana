@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
 )
 
 type finalBindingCircuit struct {
@@ -36,7 +36,7 @@ func (w *finalBindingCircuit) Define(api frontend.API) error {
 }
 
 // This is the equal-point off-curve branch from the ladder soundness argument.
-// D=2A obeys y(D)=45*x(D)-15^3; its forged tangent16 leaves a nonzero curve
+// D=2A obeys y(D)=45*x(D)-15^3. Its forged tangent 16 leaves a nonzero curve
 // residual while satisfying the step equations and the slope output guard.
 // Equality to the known on-curve target must therefore close that freedom.
 func TestFinalTargetEqualityRejectsOffCurveStep(t *testing.T) {

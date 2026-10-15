@@ -1,4 +1,4 @@
-package hintattack
+package aes
 
 import (
 	"errors"

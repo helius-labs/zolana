@@ -32,8 +32,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
-
-	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 )
 
 // Invariant 1: Matches Go AES-256-CTR.
@@ -168,8 +166,8 @@ func TestSpreadCTRRejectsTamperedCiphertextUnderTestEngine(t *testing.T) {
 func TestCTRRejectsOutOfRangeBytes(t *testing.T) {
 	const n = 17
 	cs := compilePath(t, n)
-	substituted := hintattack.SubstituteOutOfRangeLookups(t, cs, 0)
-	skipMissing := hintattack.SkipMissingLookupQueries(t)
+	substituted := SubstituteOutOfRangeLookups(t, cs, 0)
+	skipMissing := SkipMissingLookupQueries(t)
 	key, nonce, plain := ctrPattern(32, 0xa5), ctrPattern(12, 0x5a), ctrPattern(n, 7)
 	for _, part := range []string{"key", "nonce", "plaintext"} {
 		t.Run(part, func(t *testing.T) {
@@ -211,7 +209,7 @@ func TestCTRRejectsOutOfRangeBytes(t *testing.T) {
 					w.Plaintext[0] = bad
 				}
 				substituted.Store(0)
-				hintattack.RequireConstraintRejection(t, solve())
+				RequireConstraintRejection(t, solve())
 				if substituted.Load() == 0 {
 					t.Fatal("invalid byte did not reach the adversarial lookup solver")
 				}
@@ -285,7 +283,7 @@ func TestCipherReusesKeyExpansionAcrossStreams(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			hintattack.RequireConstraintRejection(t, cs.IsSolved(witness))
+			RequireConstraintRejection(t, cs.IsSolved(witness))
 			w.Ciphertext[stream][15] = honest
 		}
 	}
@@ -326,11 +324,11 @@ func TestCTRRejectsForgedKeyByteSpread(t *testing.T) {
 		return unsatisfied.CID
 	}
 	control := solve(assignment(key))
-	hintattack.RequireConstraintRejection(t, control)
+	RequireConstraintRejection(t, control)
 
-	forged := hintattack.ForgeLookupResult(t, cs, tableRegionSize)
-	attack := solve(assignment(key), hintattack.SkipMissingLookupQueries(t))
-	hintattack.RequireConstraintRejection(t, attack)
+	forged := ForgeLookupResult(t, cs, tableRegionSize)
+	attack := solve(assignment(key), SkipMissingLookupQueries(t))
+	RequireConstraintRejection(t, attack)
 	if forged.Load() != 1 {
 		t.Fatalf("forged %d lookups, want exactly one", forged.Load())
 	}

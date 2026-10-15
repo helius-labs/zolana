@@ -12,8 +12,6 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-
-	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 )
 
 // Invariant 1: Encodes and decodes all 256 bytes correctly.
@@ -39,7 +37,7 @@ func TestSpreadByteExhaustive(t *testing.T) {
 	for _, position := range []int{0, 1, 128, 255} {
 		tampered := assignment
 		tampered.Expected[position] = expected[position] + 1
-		hintattack.RequireConstraintRejection(t, solveSpreadCircuit(t, cs, &tampered))
+		RequireConstraintRejection(t, solveSpreadCircuit(t, cs, &tampered))
 	}
 }
 
@@ -79,7 +77,7 @@ func TestSpreadByteSumParityMatchesXOR(t *testing.T) {
 	for position := range 5 {
 		tampered := spreadXORAssignment([5]byte{0xff, 0xff, 0xff, 0xff, 0xff})
 		tampered.XOR[position] = 1 // Honest prefixes are 0 or 255.
-		hintattack.RequireConstraintRejection(t, solveSpreadCircuit(t, cs, tampered))
+		RequireConstraintRejection(t, solveSpreadCircuit(t, cs, tampered))
 	}
 }
 
@@ -169,8 +167,8 @@ func TestLookupTablesRejectForgedResultAtValidIndex(t *testing.T) {
 	}
 	for name, size := range map[string]uint64{"substitution": substitutionSize, "bytes": tableRegionSize, "chunks": chunkRadix} {
 		t.Run(name, func(t *testing.T) {
-			forged := hintattack.ForgeLookupResult(t, cs, size)
-			hintattack.RequireConstraintRejection(t, cs.IsSolved(witness, hintattack.SkipMissingLookupQueries(t)))
+			forged := ForgeLookupResult(t, cs, size)
+			RequireConstraintRejection(t, cs.IsSolved(witness, SkipMissingLookupQueries(t)))
 			if forged.Load() != 1 {
 				t.Fatalf("forged %d lookups, want exactly one", forged.Load())
 			}
@@ -203,7 +201,7 @@ func TestLaneChunksMustRecomposeTheirInput(t *testing.T) {
 		}
 		return nil
 	}
-	hintattack.RequireConstraintRejection(t, cs.IsSolved(bad, solver.OverrideHint(solver.GetHintID(laneChunksHint), forge)))
+	RequireConstraintRejection(t, cs.IsSolved(bad, solver.OverrideHint(solver.GetHintID(laneChunksHint), forge)))
 	if !called {
 		t.Fatal("lane hint was not exercised")
 	}
@@ -220,8 +218,8 @@ func TestCompiledSpreadCTRRejectsForgedLaneChunks(t *testing.T) {
 	if err := cs.IsSolved(witness); err != nil {
 		t.Fatal(err)
 	}
-	hintattack.SubstituteOutOfRangeLookups(t, cs, 0)
-	skipMissing := hintattack.SkipMissingLookupQueries(t)
+	SubstituteOutOfRangeLookups(t, cs, 0)
+	skipMissing := SkipMissingLookupQueries(t)
 	forgeries := map[string]func(field *big.Int, chunks []*big.Int){
 		"lane chunk borrowed from its upper neighbour": func(field *big.Int, chunks []*big.Int) {
 			chunks[0].Add(chunks[0], big.NewInt(chunkRadix))
@@ -248,7 +246,7 @@ func TestCompiledSpreadCTRRejectsForgedLaneChunks(t *testing.T) {
 			return nil
 		}
 		t.Run(name, func(t *testing.T) {
-			hintattack.RequireConstraintRejection(t, cs.IsSolved(witness, solver.OverrideHint(solver.GetHintID(laneChunksHint), forged), skipMissing))
+			RequireConstraintRejection(t, cs.IsSolved(witness, solver.OverrideHint(solver.GetHintID(laneChunksHint), forged), skipMissing))
 			if !called {
 				t.Fatal("lane hint was not exercised")
 			}
@@ -282,7 +280,7 @@ func TestLaneParityChecksEachStopTheirAttack(t *testing.T) {
 			if err := solveLaneParityMutant(t, tc.mutant, tc.lane, tc.honest, func([]*big.Int) {}, false); err != nil {
 				t.Fatalf("mutant rejects the honest witness: %v", err)
 			}
-			hintattack.RequireConstraintRejection(t, solveLaneParityMutant(t, laneParityIntact, tc.lane, tc.claimed, tc.forge, true))
+			RequireConstraintRejection(t, solveLaneParityMutant(t, laneParityIntact, tc.lane, tc.claimed, tc.forge, true))
 			if err := solveLaneParityMutant(t, tc.mutant, tc.lane, tc.claimed, tc.forge, false); err != nil {
 				t.Fatalf("mutant still rejects the attack, so the removed check is not what stops it: %v", err)
 			}
@@ -480,8 +478,8 @@ func solveLaneParityMutant(t *testing.T, mutation laneParityMutation, lane, clai
 	}
 	opts := []solver.Option{solver.OverrideHint(solver.GetHintID(laneChunksHint), forged)}
 	if rejecting {
-		hintattack.SubstituteOutOfRangeLookups(t, cs, 0)
-		opts = append(opts, hintattack.SkipMissingLookupQueries(t))
+		SubstituteOutOfRangeLookups(t, cs, 0)
+		opts = append(opts, SkipMissingLookupQueries(t))
 	}
 	return cs.IsSolved(witness, opts...)
 }

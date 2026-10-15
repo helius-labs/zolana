@@ -280,7 +280,7 @@ func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte
 	return key, nonce
 }
 
-// Mirrors aes.CTREncrypt, the first keystream block counts from nonce || 2.
+// Mirrors aes.Cipher.CTREncrypt, the first keystream block counts from nonce || 2.
 func ctrEncrypt(t testing.TB, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
 	t.Helper()
 	block, err := stdaes.NewCipher(key[:])

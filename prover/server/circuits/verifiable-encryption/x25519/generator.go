@@ -3,17 +3,22 @@ package x25519
 import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519/internal/shortchecker"
 )
 
-// ScalarMulGenerator derives the canonical 32-byte X25519 public key from a
-// byte-constrained private scalar, including RFC 7748 clamping.
+// ScalarMulGenerator derives a canonical, nonzero X25519 public key.
+// It constrains all input bytes and applies RFC 7748 clamping. It does not
+// prove that the private scalar was sampled randomly or kept secret.
 func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [32]frontend.Variable {
 	return ScalarMulGeneratorFor(api, scalar, true)
 }
 
+// ScalarMulGeneratorFor selects the fixed-base arithmetic layout.
+// Both modes enforce the same byte bounds, clamping and canonical public key.
+// The fixed-base tables contain public constants and need no witness trust.
 func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, lookups bool) [32]frontend.Variable {
+	// 1. Require BN254 and choose the proven fixed-base limb layout.
 	if api.Compiler().Field().Cmp(ecc.BN254.ScalarField()) != 0 {
 		panic("x25519: BN254 native field required")
 	}
@@ -25,12 +30,15 @@ func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, looku
 		lay = emfield.PlainLayout
 	}
 	f := emfield.NewFor(api, prime(), lay)
+	// 2. Bound every input byte, including bits discarded by clamping.
 	var bits []frontend.Variable
 	for _, b := range scalar {
 		bits = append(bits, api.ToBinary(b, 8)...)
 	}
+	// 3. Set bit 254 and pass k/8, omitting low bits 0..2 and high bit 255.
 	bits[254] = 1
 	result := shortchecker.MultiplyBase(api, f, bits[3:255])
+	// 4. Enforce the unique field encoding and nonzero public key.
 	f.AssertCanonical(result)
 	return outputBytes(api, f, result)
 }

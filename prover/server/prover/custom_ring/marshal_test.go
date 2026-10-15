@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"

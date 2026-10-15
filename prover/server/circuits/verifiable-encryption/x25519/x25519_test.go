@@ -15,7 +15,7 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
 )
 
 type testCircuit struct {

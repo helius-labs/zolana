@@ -7,7 +7,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/v2/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )

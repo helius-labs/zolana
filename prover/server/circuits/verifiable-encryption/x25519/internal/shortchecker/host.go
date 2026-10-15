@@ -3,10 +3,13 @@ package shortchecker
 import "math/big"
 
 // hostMul uses Jacobian coordinates with mixed affine additions and one final
-// inversion. The formulas support general short-Weierstrass a, including the
-// selected quadratic twist, and explicitly handle exceptional additions.
+// inversion for witness generation and public fixed-base tables. Inputs must
+// be points on the selected short-Weierstrass curve with coefficient a.
+// Exceptional additions and infinity are handled explicitly. This variable-time
+// helper adds no constraints and is not suitable as a secret-key ECDH API.
 // https://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
 func hostMul(p hostPoint, s, a *big.Int) hostPoint {
+	// 1. Handle infinity and zero, then normalize the base point and scalar sign.
 	if p.x == nil || s.Sign() == 0 {
 		return hostPoint{}
 	}
@@ -50,6 +53,7 @@ func hostMul(p hostPoint, s, a *big.Int) hostPoint {
 			out.Add(out, mod)
 		}
 	}
+	// 2. Define Jacobian doubling, including Y=0 and infinity.
 	var tmp [13]big.Int
 	double := func() {
 		if z.Sign() == 0 || y.Sign() == 0 {
@@ -84,6 +88,7 @@ func hostMul(p hostPoint, s, a *big.Int) hostPoint {
 		y.Set(ny)
 		z.Set(nz)
 	}
+	// 3. Scan scalar bits with doubling and mixed addition, handling equal/opposite points.
 	for bit := scalar.BitLen() - 1; bit >= 0; bit-- {
 		double()
 		if scalar.Bit(bit) == 0 {
@@ -126,6 +131,7 @@ func hostMul(p hostPoint, s, a *big.Int) hostPoint {
 		y.Set(ny)
 		z.Set(nz)
 	}
+	// 4. Convert the finite Jacobian result back to affine with one inversion.
 	if z.Sign() == 0 {
 		return hostPoint{}
 	}

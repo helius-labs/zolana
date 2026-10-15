@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"

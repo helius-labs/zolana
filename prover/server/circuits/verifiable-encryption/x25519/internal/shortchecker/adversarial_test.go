@@ -15,7 +15,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
 )
 
 type hostileCircuit struct {
@@ -209,7 +209,7 @@ func runTestShortCheckerAdversarialHints(t *testing.T, lay emfield.Layout) {
 }
 
 // The fake result is R+(0,0), whose Montgomery u-coordinate is 1/u(R).
-// These scalars have an even short-relation denominator; without subgroup
+// These scalars have an even short-relation denominator. Without subgroup
 // membership this forgery satisfies the entire prime-order short relation.
 func TestShortCheckerRejectsTorsionShift(t *testing.T) {
 	for _, lay := range []emfield.Layout{{NbLimbs: 7, LimbBits: 37, PieceBits: 10, Lookups: true}, emfield.PlainLayout} {

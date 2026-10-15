@@ -34,9 +34,9 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/v2/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 )
 
 // auditEncInfo is the key-schedule info string. It MUST equal the Rust

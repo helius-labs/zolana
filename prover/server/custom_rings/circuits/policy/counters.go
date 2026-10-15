@@ -6,8 +6,8 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 )
 
 const CountersDisclosureDomain = "CRING/spend-counters/v1"
@@ -21,6 +21,8 @@ type successorCounters struct {
 func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, salt [16]frontend.Variable) (frontend.Variable, error) {
 	public := p256.ScalarMulGenerator(api, secret)
 	compressed := p256.CompressPubkey(api, public)
+	// The peer is the finite canonical generator result, not an external key.
+	// DefineAuditBlock constrains the same secret bytes and binds its public key.
 	dh := p256.ECDH(api, secret, public)
 	ikm := append(append(append([]frontend.Variable{}, dh[:]...), compressed[:]...), compressed[:]...)
 	zeros := make([]frontend.Variable, 32)
@@ -59,7 +61,7 @@ func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, 
 			plaintext = append(plaintext, api.FromBinary(bits[j*8:(j+1)*8]...))
 		}
 	}
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
 	disclosure := counterConstants([]byte(CountersDisclosureDomain))
 	disclosure = append(disclosure, salt[:]...)
 	disclosure = append(disclosure, compressed[:]...)
@@ -95,8 +97,8 @@ func counterHMAC(api frontend.API, key, message []frontend.Variable) ([]frontend
 	outer := make([]frontend.Variable, 64)
 	for i := range inner {
 		if i < len(key) {
-			inner[i] = aes.XorByte(api, key[i], 0x36)
-			outer[i] = aes.XorByte(api, key[i], 0x5c)
+			inner[i] = counterXorPad(api, key[i], 0x36)
+			outer[i] = counterXorPad(api, key[i], 0x5c)
 		} else {
 			inner[i], outer[i] = 0x36, 0x5c
 		}
@@ -124,4 +126,15 @@ func counterSHA256(api frontend.API, input []frontend.Variable) ([]frontend.Vari
 		out[i] = b.Val
 	}
 	return out, nil
+}
+
+// HMAC pads are constants. Constrain each key byte before flipping its pad bits.
+func counterXorPad(api frontend.API, value frontend.Variable, pad byte) frontend.Variable {
+	bits := api.ToBinary(value, 8)
+	for i := range bits {
+		if pad&(1<<i) != 0 {
+			bits[i] = api.Sub(1, bits[i])
+		}
+	}
+	return api.FromBinary(bits...)
 }

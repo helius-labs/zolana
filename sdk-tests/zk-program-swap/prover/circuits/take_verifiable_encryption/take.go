@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/v2/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"zolana/gnarksdk"
 )
 
