@@ -1384,7 +1384,7 @@ describe("ring transact", () => {
       delegate,
       inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      policy: policy({ keyRegistryRoot: filled(3, 32) as Bytes32 }),
+      policy: policy({ keyRegistryRootIndex: 3 }),
       proof: customRingProof(),
       data: transactData(),
     });
@@ -1421,7 +1421,7 @@ describe("ring transact", () => {
         delegate,
         inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        policy: policy({ keyRegistryRoot: filled(3, 32) as Bytes32 }),
+        policy: policy({ keyRegistryRootIndex: 3 }),
         proof: customRingProof(),
         data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
       }),
@@ -1433,7 +1433,7 @@ describe("ring transact", () => {
         delegate,
         inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        policy: policy({ keyRegistryRoot: filled(3, 32) as Bytes32 }),
+        policy: policy({ keyRegistryRootIndex: 3 }),
         approvalRequired: true,
         proof: customRingProof(),
         data: transactData(),
@@ -1567,7 +1567,7 @@ describe("ring transact", () => {
           { utxoTreeRootIndex: 0x0102, nullifierTreeRootIndex: 0x0304 },
           { utxoTreeRootIndex: 0x0506, nullifierTreeRootIndex: 0x0708 },
         ],
-        keyRegistryRoot: filled(9, 32) as Bytes32,
+        keyRegistryRootIndex: 9,
         revocationTargets: targets,
         revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       }),
@@ -1583,13 +1583,11 @@ describe("ring transact", () => {
       await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
     ]);
     const data = instruction.data ?? new Uint8Array();
-    // Policy trees, window index, the present key registry root, then the approval bit.
-    expect(Array.from(data.slice(193, 211))).toEqual([
-      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0, 1,
+    // Policy trees, window index, key registry root index, then the approval bit.
+    expect(Array.from(data.slice(193, 212))).toEqual([
+      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0, 9, 0,
     ]);
-    expect(data.slice(211, 243)).toEqual(filled(9, 32));
-    expect(data[243]).toBe(0);
-    const indexes = 244 + 1 + 2 * 32;
+    const indexes = 212 + 1 + 2 * 32;
     expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
       [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     );

@@ -99,7 +99,9 @@ export interface RingTransactPolicy {
   /** Distinct SPP trees in proof slot order, one history context each. */
   readonly trees: readonly Address[];
   readonly treeContexts: readonly TreeContext[];
-  /** A root of the registry history, present exactly when the ring escrows keys. */
+  /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
+  readonly keyRegistryRootIndex?: number;
+  /** The root at `keyRegistryRootIndex` the proof binds, a failed proof checks the slot for it. */
   readonly keyRegistryRoot?: Bytes32;
   readonly revocationTargets: readonly Bytes32[];
   /** Per fact slot, the index into `trees` its revocation target lives in. */
@@ -269,7 +271,7 @@ function transactData(
   for (const context of contexts) writeTreeContext(prefix, context);
   prefix
     .u64(windowIndex, "windowIndex")
-    .option(policy?.keyRegistryRoot, (writer, root) => writer.bytes(root, 32, "keyRegistryRoot"))
+    .u8(policy?.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex")
     .bool(input.approvalRequired === true, "approvalRequired");
   const targets = policy?.revocationTargets ?? [];
   const treeIndexes = policy?.revocationTreeIndexes ?? [];
@@ -313,7 +315,7 @@ export async function ringDelegateTransactInstruction(
     });
   }
   // Mirrors the program's `DelegateRequiresPolicy` and escrow checks.
-  if (input.policy?.keyRegistryRoot === undefined) {
+  if (input.policy?.keyRegistryRootIndex === undefined) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
   }
   const [config, ringAuth, cosignerPda, delegatePda, policy] = await Promise.all([
@@ -372,7 +374,9 @@ async function policyAccountMetas(
   }
   const [policyConfig, keyRegistryRoot, revocations] = await Promise.all([
     ringPolicyConfigAddress(ringProgramId),
-    policy.keyRegistryRoot === undefined ? undefined : ringKeyRegistryRootAddress(ringProgramId),
+    policy.keyRegistryRootIndex === undefined
+      ? undefined
+      : ringKeyRegistryRootAddress(ringProgramId),
     revocationPdaAddresses({
       policyTrees: policy.trees,
       targets: policy.revocationTargets,

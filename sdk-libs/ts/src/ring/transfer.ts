@@ -115,6 +115,7 @@ import {
   type VelocityPlan,
 } from "./velocity.js";
 import {
+  boundRegistryRoot,
   checkRetainedEntries,
   RingTransactionSubmission,
   type RingSubmissionAttempt,
@@ -257,6 +258,7 @@ export async function createRingTransferSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingSend({ params, destination: "ring", retry }, context),
     },
     context,
@@ -275,6 +277,7 @@ export async function createRingExitSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingSend({ params, destination: "default", retry }, context),
     },
     context,
@@ -289,6 +292,7 @@ export async function createRingWithdrawalSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: params.wallet,
+      registry: params.client,
       build: (retry, context) => buildRingWithdrawal({ params, retry }, context),
     },
     context,
@@ -554,6 +558,7 @@ async function buildRingSpend<R>(
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
       intentHash: plannedIntent,
       ringInstructionIndex: plan.setupInstructions?.length ?? 0,
+      ...boundRegistryRoot(params.ringProgramId, proven.policy),
     });
   } catch (cause) {
     if (reservation !== undefined) params.wallet._releaseReservation(reservation.id);
@@ -1042,7 +1047,9 @@ async function proveRingTransferStatement(
                 utxoTreeRootIndex: tree.utxoRootIndex,
                 nullifierTreeRootIndex: tree.nullifierRootIndex,
               })),
-        ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
+        ...(escrow === undefined
+          ? {}
+          : { keyRegistryRootIndex: escrow.rootIndex, keyRegistryRoot: escrow.root }),
         revocationTargets: policyRound.revocationTargets,
         revocationTreeIndexes: policyRound.revocationTreeIndexes,
       }),

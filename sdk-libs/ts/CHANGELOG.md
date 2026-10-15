@@ -6,7 +6,8 @@ Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
 opts out. Ring instructions follow the ring program's new layout, which binds
-the proven spend window and the key registry root itself.
+the proven spend window, and ring submissions prove again over a replaced key
+registry root.
 
 Breaking
 
@@ -24,13 +25,9 @@ Breaking
 - `RingErrorCode` now includes `RING_AUDIT_NONCANONICAL_KEY` → handle it in
   exhaustive switches.
 - `ringTransactInstruction`, `ringDelegateTransactInstruction`,
-  `registerRingSpendInstruction`, `ringDepositInstruction` and
-  `setRingSpendWindowInstruction` encode the new ring program layout, which a
-  ring program built for an earlier release rejects → deploy the ring program
-  of this release.
-- `RingTransactPolicy` and `ringDepositInstruction` take `keyRegistryRoot`,
-  the registry root itself, in place of `keyRegistryRootIndex` → pass the
-  `root` that `fetchRingKeyRegistryRoot` returns.
+  `registerRingSpendInstruction` and `setRingSpendWindowInstruction` encode the
+  new ring program layout, which a ring program built for an earlier release
+  rejects → deploy the ring program of this release.
 - `registerRingSpendInstruction` requires `windowIndex`, the window the
   registration proof opens the record in → pass the window index the proof
   was built for.
@@ -50,6 +47,9 @@ Added
   its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
 - `ringTransactInstruction` takes `windowIndex`, the spend window a windowed
   policy proof was built for.
+- `RingTransactPolicy.keyRegistryRoot`, `RingSubmissionAttempt.keyRegistryRoot`
+  and the `registry` reader of `RingTransactionSubmission` let a submission
+  check the registry slot its escrowed proof names.
 - `RingProgramError` names `windowElapsed`, `invalidWindowIndex`,
   `unexpectedKeyRegistryRoot`, `unexpectedApproval`,
   `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
@@ -60,9 +60,11 @@ Changed
 
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
-- Ring transfer, exit, withdrawal and spend registration submissions rebuild
-  their proof when the program reports `RingProgramError.windowElapsed`, and a
-  rejected proof is final.
+- Ring transfer, exit, withdrawal, delegate and spend registration
+  submissions rebuild their proof when the program reports
+  `RingProgramError.windowElapsed`, and a rejected proof is final unless later
+  registrations replaced the key registry root at the slot an escrowed proof
+  names, which rebuilds it too.
 
 Fixed
 
