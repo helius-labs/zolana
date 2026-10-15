@@ -9,7 +9,6 @@ pub mod deposit_audit;
 pub mod error;
 pub mod instruction;
 pub mod key_registry;
-#[cfg(not(target_os = "solana"))]
 pub mod policy_public_input;
 pub mod state;
 
