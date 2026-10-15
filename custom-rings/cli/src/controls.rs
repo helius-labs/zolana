@@ -95,6 +95,10 @@ pub fn window(ctx: &Context, command: WindowCommand) -> Result<()> {
             deposit_cap,
             withdrawal_cap,
         } => {
+            ensure!(
+                deposit_cap != 0 || withdrawal_cap != 0,
+                "a spend window needs --deposit-cap or --withdrawal-cap"
+            );
             let authority = ctx.funded_authority()?;
             let set = SetSpendWindow {
                 ring: ctx.ring,

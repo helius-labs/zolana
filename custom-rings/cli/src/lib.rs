@@ -293,10 +293,10 @@ pub enum WindowCommand {
         /// Window length, windows start at multiples of it.
         #[arg(long)]
         slots: u64,
-        /// Public deposits per window, zero leaves them uncapped.
+        /// Public deposits per window, zero leaves them uncapped. Set at least one cap.
         #[arg(long, default_value_t = 0)]
         deposit_cap: u64,
-        /// Public withdrawals per window, zero leaves them uncapped.
+        /// Public withdrawals per window, zero leaves them uncapped. Set at least one cap.
         #[arg(long, default_value_t = 0)]
         withdrawal_cap: u64,
     },

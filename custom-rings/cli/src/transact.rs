@@ -481,6 +481,6 @@ mod tests {
     fn the_program_codes_the_submission_retries_on_are_pinned() {
         use custom_ring_interface::CustomRingError;
         assert_eq!(CustomRingError::StaleKeyRegistryRoot as u32, 8161);
-        assert_eq!(CustomRingError::ProofVerificationFailed as u32, 8101);
+        assert_eq!(CustomRingError::WindowElapsed as u32, 8173);
     }
 }
