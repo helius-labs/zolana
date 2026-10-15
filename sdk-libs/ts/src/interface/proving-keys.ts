@@ -105,6 +105,14 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "82975fe1145c827a76f8b76e229bb9c8501f993b1a4f7709446b7717f30bd07a",
   "transfer_confidential_8_8.key":
     "f8972d03f57baef87702aaddb87a3b831d2377723e930fb25675fe3e473d8aec",
+  "transfer_ed25519_ring_2_2.key":
+    "e31423625bd494e9517c5b280b7b9c07c0e7f57ff320de92920866e61122ac1a",
+  "transfer_ed25519_ring_2_4.key":
+    "1b5ae8ade457f85eac69105264f1fdb5d8b1f8bcbf3773268eba828d8ca5a72d",
+  "transfer_ed25519_ring_3_4.key":
+    "032c701f235580fa537f3974bbf15c367972b84be54f186af3f8f55d33ceb76b",
+  "transfer_ed25519_ring_4_2.key":
+    "96c0119ba6d1370af23c71e0786ec4913a029d0eacfb95ded63eb747fb956cbd",
   "transfer_p256_ring_12_2.key": "5fbd495e2bb9708de6f698d18f2e43abc9cd9c93fa349f7aa98ec673b5c2f285",
   "transfer_p256_ring_12_4.key": "4b76a834d132d42606686bb47810d13fb43388fcb2f36b1df5b77ed6e5718510",
   "transfer_p256_ring_12_8.key": "62ec6e93e003c569af76eece780f8dfd620890c70494165f44aa11777bc3c87e",

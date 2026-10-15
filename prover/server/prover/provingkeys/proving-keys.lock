@@ -214,6 +214,26 @@
       "sha256": "f8972d03f57baef87702aaddb87a3b831d2377723e930fb25675fe3e473d8aec",
       "size": 62007104
     },
+    "transfer_ed25519_ring_2_2.key": {
+      "sha256": "e31423625bd494e9517c5b280b7b9c07c0e7f57ff320de92920866e61122ac1a",
+      "size": 99047550,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_2_4.key": {
+      "sha256": "1b5ae8ade457f85eac69105264f1fdb5d8b1f8bcbf3773268eba828d8ca5a72d",
+      "size": 100173184,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_3_4.key": {
+      "sha256": "032c701f235580fa537f3974bbf15c367972b84be54f186af3f8f55d33ceb76b",
+      "size": 111130170,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_4_2.key": {
+      "sha256": "96c0119ba6d1370af23c71e0786ec4913a029d0eacfb95ded63eb747fb956cbd",
+      "size": 116763356,
+      "source": "release"
+    },
     "transfer_p256_ring_12_2.key": {
       "sha256": "5fbd495e2bb9708de6f698d18f2e43abc9cd9c93fa349f7aa98ec673b5c2f285",
       "size": 132798250

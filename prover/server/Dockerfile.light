@@ -47,7 +47,7 @@ RUN mkdir -p /tmp/empty_proving_keys
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS release-keys
 
 RUN apk add --no-cache curl=8.14.1-r3 jq=1.8.2-r0
-ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v18
+ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/anonymous-ring-keys-v1
 COPY prover/provingkeys/proving-keys.lock /tmp/proving-keys.lock
 RUN set -eu; \
     mkdir /release-keys; \
