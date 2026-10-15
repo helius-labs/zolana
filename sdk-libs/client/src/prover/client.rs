@@ -1371,7 +1371,7 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::NitroFixture;
+    use crate::prover::tee::{FixtureSession, NitroFixture};
 
     #[test]
     fn proxy_urls_require_an_explicit_supported_scheme() {

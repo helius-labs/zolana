@@ -1,0 +1,32 @@
+[package]
+name = "zolana-prover-tee"
+version = "0.1.0"
+description = "The encrypted prover wire contract: attestation verification, policy pins and HPKE request encryption for a prover in a confidential computing environment."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Synthetic Nitro attestations for tests of code that verifies them.
+test-fixtures = ["x509-cert/builder", "p384/alloc"]
+
+[dependencies]
+aes-gcm = { workspace = true }
+ciborium = { workspace = true }
+ciborium-ll = { workspace = true }
+coset = { workspace = true }
+dcap-qvl = { workspace = true }
+hex = { workspace = true, features = ["serde"] }
+hpke = { workspace = true }
+p384 = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+x509-cert = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+p384 = { workspace = true, features = ["alloc"] }
+x509-cert = { workspace = true, features = ["builder"] }

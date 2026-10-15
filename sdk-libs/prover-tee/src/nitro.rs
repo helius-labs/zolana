@@ -581,5 +581,7 @@ fn invalid(reason: impl Into<String>) -> TeeError {
     TeeError::NitroDocument(reason.into())
 }
 
+#[cfg(any(test, feature = "test-fixtures"))]
+pub(crate) mod fixture;
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

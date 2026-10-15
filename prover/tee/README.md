@@ -26,7 +26,7 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-The SDK pins one deployment, the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The SDK pins one deployment, the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
 Every prover client requires a remote prover to attest to that pin and encrypts each call to it, except a loopback prover and the Helius gateway, which cannot relay encrypted requests.
 In Rust, `ProverClient::without_tee` and `AsyncProverClient::without_tee` send plaintext and `with_tee` takes another policy; `ProverClient::attest` returns the verified `AttestedProver` on demand.
 In TypeScript, `tee: false` on `ProverClient` and `proverTee: false` on `ZolanaClient` send plaintext, and a `ZolanaClient` given a Helius devnet RPC URL proves through the pinned prover.
@@ -37,7 +37,7 @@ A TEE client calls the prover at its own URL, because attestation needs its `/te
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
-The SDK release pins the deployment the operator released, in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The SDK release pins the deployment the operator released, in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
 The client verifies the attestation against that pin and encrypts each call.
 Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 
