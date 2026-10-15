@@ -112,7 +112,6 @@ export async function createRingDelegateSubmission(
       wallet: input.wallet,
       build: (retry, context) =>
         buildDelegateTransaction({ move: input, wallet: input.wallet, source, retry }, context),
-      windowChanged: async () => false,
     },
     context,
   );
@@ -141,7 +140,6 @@ export async function createRingDelegateRecoveredSubmission(
       wallet,
       build: (retry, context) =>
         buildDelegateTransaction({ move: input, wallet, source, retry }, context),
-      windowChanged: async () => false,
     },
     context,
   );

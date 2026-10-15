@@ -16,7 +16,6 @@ import type {
   KitRpcAccess,
   RingSubmissionStatus,
   RingSubmissionTransport,
-  SlotReader,
 } from "../client/ports.js";
 import { savePersistedWallet, type WalletPersistence } from "../wallet/persisted.js";
 import type { Bytes32, RequestContext, Transaction } from "../interface/types.js";
@@ -37,7 +36,6 @@ export interface RingSubmissionAttempt {
   readonly lastValidBlockHeight: bigint;
   readonly intentHash: Bytes32;
   readonly ringInstructionIndex: number;
-  readonly window?: Readonly<{ index: bigint; slots: bigint }>;
 }
 
 export type RingSubmissionResult =
@@ -66,11 +64,6 @@ export interface ReservationHold {
 }
 
 export type RingSubmissionBuild = (context?: RequestContext) => Promise<RingSubmissionAttempt>;
-/** Answers whether the slot clock left the window a rejected policy proof was built for. */
-export type RingSubmissionWindowChanged = (
-  window: NonNullable<RingSubmissionAttempt["window"]>,
-  context?: RequestContext,
-) => Promise<boolean>;
 
 const MAX_ATTEMPTS = 3;
 const NO_RESERVATION: ReservationHold = Object.freeze({ release() {}, extend() {} });
@@ -80,7 +73,6 @@ export class RingTransactionSubmission {
   readonly #intent: Bytes32;
   readonly #build: RingSubmissionBuild;
   readonly #reservation: ReservationHold;
-  readonly #windowChanged: RingSubmissionWindowChanged;
   readonly #wallet: Wallet | undefined;
   readonly #id: string;
   readonly #utxoHashes: readonly Bytes32[];
@@ -96,7 +88,6 @@ export class RingTransactionSubmission {
     input: Readonly<{
       first: RingSubmissionAttempt;
       build: RingSubmissionBuild;
-      windowChanged: RingSubmissionWindowChanged;
       reservation?: ReservationHold;
       wallet?: Wallet;
       reservationId?: string;
@@ -107,7 +98,6 @@ export class RingTransactionSubmission {
     this.#intent = new Uint8Array(input.first.intentHash) as Bytes32;
     this.#build = input.build;
     this.#reservation = input.reservation ?? NO_RESERVATION;
-    this.#windowChanged = input.windowChanged;
     this.#wallet = input.wallet;
     this.#id = input.reservationId ?? hex(crypto.getRandomValues(new Uint8Array(16)));
     this.#utxoHashes = (input.utxoHashes ?? []).map((hash) => new Uint8Array(hash) as Bytes32);
@@ -121,7 +111,6 @@ export class RingTransactionSubmission {
         retry: RingSubmissionBuildState,
         context?: RequestContext,
       ) => Promise<RingSubmissionAttempt>;
-      windowChanged: RingSubmissionWindowChanged;
     }>,
     context?: RequestContext,
   ): Promise<RingTransactionSubmission> {
@@ -144,7 +133,6 @@ export class RingTransactionSubmission {
             reservationId: retry.reservation.id,
             utxoHashes: retry.reservation.utxoHashes,
           }),
-      windowChanged: input.windowChanged,
       reservation: {
         release: () => {
           if (retry.reservation !== undefined) {
@@ -261,18 +249,12 @@ export class RingTransactionSubmission {
         const ringFailure =
           status.kind === "failed" &&
           status.instructionIndex === this.#attempt.ringInstructionIndex;
-        let retry =
+        const retry =
           status.kind === "expired" ||
           (status.kind === "failed" &&
             ringFailure &&
-            status.customCode === RingProgramError.staleKeyRegistryRoot);
-        if (
-          status.kind === "failed" &&
-          ringFailure &&
-          status.customCode === RingProgramError.proofVerificationFailed &&
-          this.#attempt.window !== undefined
-        )
-          retry = await this.#windowChanged(this.#attempt.window, context);
+            (status.customCode === RingProgramError.staleKeyRegistryRoot ||
+              status.customCode === RingProgramError.windowElapsed));
         if (!retry || this.#attempts >= MAX_ATTEMPTS) {
           this.#terminal = true;
           this.#reservation.release();
@@ -358,11 +340,6 @@ function failedSubmission(
       ? {}
       : { customCode: status.customCode }),
   };
-}
-
-/** @internal A rejected policy proof is rebuilt only once the slot clock left its window. */
-export function windowChangedOn(client: SlotReader): RingSubmissionWindowChanged {
-  return async (window, context) => (await client.getSlot(context)) / window.slots !== window.index;
 }
 
 /** @internal */

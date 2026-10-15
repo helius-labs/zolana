@@ -33,22 +33,19 @@ async function fixture() {
     lastValidBlockHeight: 100n,
     intentHash: HASH,
     ringInstructionIndex: 0,
-    window: { index: 1n, slots: 10n },
   }));
   const release = vi.fn();
   const extend = vi.fn();
-  const windowChanged = vi.fn(async () => true);
   const submission = new RingTransactionSubmission({
     first: await build(),
     build,
     reservation: { release, extend },
-    windowChanged,
   });
   const send = vi.fn(async (): Promise<RingSubmissionStatus | undefined> => undefined);
   const sign = vi.fn(async (transaction: RingSubmissionAttempt["transaction"]) =>
     signTransactionWithSigners([payer], transaction),
   );
-  return { submission, build, release, extend, windowChanged, send, sign };
+  return { submission, build, release, extend, send, sign };
 }
 
 describe("ring submission ownership", () => {
@@ -148,20 +145,31 @@ describe("ring submission ownership", () => {
     expect(f.build).toHaveBeenCalledTimes(1);
   });
 
-  it("requires an actual window change before retrying a rejected policy proof", async () => {
-    const f = await fixture();
-    f.windowChanged.mockResolvedValue(false);
-    const result = await f.submission.send({
-      sign: f.sign,
-      send: f.send,
+  it("rebuilds an elapsed window and never a rejected policy proof", async () => {
+    const elapsed = await fixture();
+    const result = await elapsed.submission.send({
+      sign: elapsed.sign,
+      send: elapsed.send,
+      status: async () => ({
+        kind: "failed",
+        instructionIndex: 0,
+        customCode: RingProgramError.windowElapsed,
+      }),
+    });
+    expect(result).toMatchObject({ kind: "failed", attempts: 3 });
+    expect(elapsed.build).toHaveBeenCalledTimes(3);
+    const rejected = await fixture();
+    const proof = await rejected.submission.send({
+      sign: rejected.sign,
+      send: rejected.send,
       status: async () => ({
         kind: "failed",
         instructionIndex: 0,
         customCode: RingProgramError.proofVerificationFailed,
       }),
     });
-    expect(result).toMatchObject({ kind: "failed", attempts: 1 });
-    expect(f.windowChanged).toHaveBeenCalledTimes(1);
+    expect(proof).toMatchObject({ kind: "failed", attempts: 1 });
+    expect(rejected.build).toHaveBeenCalledTimes(1);
   });
 
   it("refuses changed retry intent before signing or sending it", async () => {

@@ -152,7 +152,7 @@ async function buildRingDepositOnce(
       ringProgramId: input.ringProgramId,
       tree,
       depositor,
-      ...(escrow === undefined ? {} : { keyRegistryRootIndex: escrow.rootIndex }),
+      ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
       ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
       deposits: [
         {

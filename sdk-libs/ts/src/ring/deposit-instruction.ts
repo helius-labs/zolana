@@ -1,7 +1,7 @@
 import type { Instruction } from "@solana/kit";
-import type { Address, RingAssetDeposit } from "../interface/types.js";
+import type { Address, Bytes32, RingAssetDeposit } from "../interface/types.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
-import { Writer, copyBytes, fail } from "../interface/internal.js";
+import { copyBytes, fail } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { encodeRingDepositInstructionData } from "../interface/codecs/index.js";
 import {
@@ -38,12 +38,12 @@ export async function ringDepositInstruction(
     deposits: readonly RingAssetDeposit[];
     proof?: Uint8Array;
     cosigner?: SignerAccount;
-    /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
-    keyRegistryRootIndex?: number;
+    /** A root of the registry history, present exactly when the ring escrows keys. */
+    keyRegistryRoot?: Bytes32;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  if (input.keyRegistryRootIndex !== undefined && input.proof === undefined) {
+  if (input.keyRegistryRoot !== undefined && input.proof === undefined) {
     throw new RingError("RING_DEPOSIT_AUDIT_REQUIRED", { details: { reason: "keyEscrow" } });
   }
   if (input.proof !== undefined) {
@@ -68,7 +68,7 @@ export async function ringDepositInstruction(
       ringConfigAddress(input.ringProgramId),
       ringCoSignerAddress(input.ringProgramId),
       ringDepositAuditAddress(input.ringProgramId),
-      input.keyRegistryRootIndex === undefined
+      input.keyRegistryRoot === undefined
         ? undefined
         : ringKeyRegistryRootAddress(input.ringProgramId),
       ringSpendWindowMetas(input.ringProgramId, [
@@ -117,7 +117,7 @@ export async function ringDepositInstruction(
           AUDITED_RING_DEPOSIT_TAG,
           new Uint8Array([
             ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
-            ...new Writer().u8(input.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex").finish(),
+            ...copyBytes(input.keyRegistryRoot ?? new Uint8Array(32), 32, "keyRegistryRoot"),
             ...sppWire,
           ]),
         ),

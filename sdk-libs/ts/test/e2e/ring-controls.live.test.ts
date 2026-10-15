@@ -806,7 +806,7 @@ describe("fresh ring controls", () => {
         {
           kind: "failed",
           instructionIndex: 0,
-          customCode: RingProgramError.proofVerificationFailed,
+          customCode: RingProgramError.windowElapsed,
         },
         undefined,
       ]);

@@ -361,7 +361,6 @@ async function registrationSubmission(
   return new RingTransactionSubmission({
     first: await build(context),
     build,
-    windowChanged: async () => false,
   });
 }
 

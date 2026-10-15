@@ -12,7 +12,6 @@ import {
   ringCoSignerMetas,
   ringSpendWindowMetas,
   ringTransactAccounts,
-  signerAddress,
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import {
@@ -100,8 +99,8 @@ export interface RingTransactPolicy {
   /** Distinct SPP trees in proof slot order, one history context each. */
   readonly trees: readonly Address[];
   readonly treeContexts: readonly TreeContext[];
-  /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
-  readonly keyRegistryRootIndex?: number;
+  /** A root of the registry history, present exactly when the ring escrows keys. */
+  readonly keyRegistryRoot?: Bytes32;
   readonly revocationTargets: readonly Bytes32[];
   /** Per fact slot, the index into `trees` its revocation target lives in. */
   readonly revocationTreeIndexes: readonly number[];
@@ -203,6 +202,8 @@ type RingTransactCommon = RingTransactTrees &
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
+      /** The window a windowed statement proves, zero or absent otherwise. */
+      windowIndex?: bigint;
       /** Non-payer input owners, the ed25519 rail adds them as signers. */
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
@@ -219,7 +220,6 @@ export async function ringTransactInstruction(
     ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
     policyAccountMetas(input.ringProgramId, input.policy),
   ]);
-  const payerAddress = signerAddress(input.payer);
   const raw = await ringTransactAccounts({
     payer: input.payer,
     inputTrees: input.inputTrees,
@@ -241,24 +241,20 @@ export async function ringTransactInstruction(
   return {
     programAddress: input.ringProgramId,
     accounts: [
-      {
-        address: payerAddress,
-        role: AccountRole.WRITABLE_SIGNER,
-        ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
-      },
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...policy,
       ...windows,
       ...pool,
     ],
-    data: transactData(RingProgramTag.transact, input),
+    data: transactData(RingProgramTag.transact, input.windowIndex ?? 0n, input),
   };
 }
 
 /** Mirrors Rust `CustomRingTransactIxData`. */
 function transactData(
   tag: number,
+  windowIndex: bigint,
   input: Readonly<{
     proof: Uint8Array;
     policy?: RingTransactPolicy;
@@ -272,8 +268,9 @@ function transactData(
   const prefix = new Writer().u8(contexts.length, "policyTrees.length");
   for (const context of contexts) writeTreeContext(prefix, context);
   prefix
-    .u8(policy?.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex")
-    .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired");
+    .u64(windowIndex, "windowIndex")
+    .bytes(policy?.keyRegistryRoot ?? new Uint8Array(32), 32, "keyRegistryRoot")
+    .bool(input.approvalRequired === true, "approvalRequired");
   const targets = policy?.revocationTargets ?? [];
   const treeIndexes = policy?.revocationTreeIndexes ?? [];
   if (
@@ -316,7 +313,7 @@ export async function ringDelegateTransactInstruction(
     });
   }
   // Mirrors the program's `DelegateRequiresPolicy` and escrow checks.
-  if (input.policy?.keyRegistryRootIndex === undefined) {
+  if (input.policy?.keyRegistryRoot === undefined) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
   }
   const [config, ringAuth, cosignerPda, delegatePda, policy] = await Promise.all([
@@ -337,7 +334,6 @@ export async function ringDelegateTransactInstruction(
   return {
     programAddress: input.ringProgramId,
     accounts: [
-      meta(input.payer, true, true),
       meta(config, false, false),
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       meta(delegatePda, false, false),
@@ -345,7 +341,7 @@ export async function ringDelegateTransactInstruction(
       ...policy,
       ...pool,
     ],
-    data: transactData(RingProgramTag.delegateTransact, input),
+    data: transactData(RingProgramTag.delegateTransact, 0n, input),
   };
 }
 
@@ -376,9 +372,7 @@ async function policyAccountMetas(
   }
   const [policyConfig, keyRegistryRoot, revocations] = await Promise.all([
     ringPolicyConfigAddress(ringProgramId),
-    policy.keyRegistryRootIndex === undefined
-      ? undefined
-      : ringKeyRegistryRootAddress(ringProgramId),
+    policy.keyRegistryRoot === undefined ? undefined : ringKeyRegistryRootAddress(ringProgramId),
     revocationPdaAddresses({
       policyTrees: policy.trees,
       targets: policy.revocationTargets,
@@ -546,12 +540,15 @@ export async function registerRingSpendInstruction(
       payer: SignerAccount;
       /** The SPP output blinding the registration proof derived. */
       blinding: Bytes32;
+      /** The window the proven record opens in. */
+      windowIndex: bigint;
       proof: RingEntryProof;
     }>,
 ): Promise<Instruction> {
   const data = new Writer()
     .u8(RingProgramTag.registerSpend, "tag")
     .bytes(input.blinding, 32, "blinding")
+    .u64(input.windowIndex, "windowIndex")
     .bytes(input.proof.privateTxBlinding, 32, "privateTxBlinding")
     .u16(input.proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")

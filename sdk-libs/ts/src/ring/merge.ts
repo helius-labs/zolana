@@ -62,7 +62,6 @@ export function createRingMergeSubmission(
     {
       wallet: params.wallet,
       build: (retry, context) => buildRingMerge(params, retry, context),
-      windowChanged: async () => false,
     },
     context,
   );
