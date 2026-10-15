@@ -3,7 +3,7 @@ Public audited-deposit instructions from the Rust ring SDK and Go prover.
 The program tests verify each proof and forward to an SPP recorder. They do
 not execute SPP settlement. Both fixtures fit the 4,096-byte v1 limit with
 policy accounts, a co-signer and a separate fee payer. Each file is the
-complete instruction data, its key registry root is zero.
+complete instruction data, its key registry root index is zero.
 
 Keep private keys and witness openings out of the fixtures. Regenerate both
 fixtures when the SPP ring deposit layout or the deposit proving and verifying
