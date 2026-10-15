@@ -7,6 +7,7 @@ mod key_registry;
 mod merge;
 mod request;
 mod spend;
+mod stack;
 pub(crate) mod support;
 mod transact_ix;
 mod trees;
