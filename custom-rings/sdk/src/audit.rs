@@ -94,7 +94,7 @@ impl PendingCustomRingProof {
     pub(crate) fn finish(
         self,
         private_tx_hash: [u8; 32],
-        mut witness: CustomRingWitness,
+        mut witness: Box<CustomRingWitness>,
         policy_hash: &[u8; 32],
     ) -> Result<PolicyProof, RingError> {
         let audit = self.secrets(private_tx_hash)?;

@@ -103,7 +103,7 @@ fn finish_binds_the_public_input_the_program_recomputes() {
     let revocation_targets = witness.revocation_targets;
     let revocation_tree_indexes = witness.revocation_tree_indexes;
     let proof = pending
-        .finish(private_tx_hash(), witness, &policy_hash)
+        .finish(private_tx_hash(), Box::new(witness), &policy_hash)
         .unwrap();
 
     let slots = [
@@ -194,7 +194,7 @@ fn a_hash_at_the_modulus_is_refused() {
         ));
         let pending = encrypted(vec![ProofInputUtxo::default()]).pending;
         assert!(matches!(
-            pending.finish(hash, witness(), &[4; 32]),
+            pending.finish(hash, Box::new(witness()), &[4; 32]),
             Err(RingError::NonCanonicalHash)
         ));
     }

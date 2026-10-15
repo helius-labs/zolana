@@ -239,12 +239,12 @@ impl PreparedRingDeposit {
                         root: escrow.root.root,
                         next_index: escrow.root.next_index,
                     };
-                    let request = IndexedDepositRequest::new(&RingRequest(&body), registry)?;
+                    let request = IndexedDepositRequest::new(&RingRequest(&*body), registry)?;
                     let proof = prover.prove_indexed(&request).await?;
                     RingCircuit::Deposit.verify(&proof, body.public_input_hash)?;
                     proof
                 }
-                _ => client.prove_request(&RingRequest(&body)).await?,
+                _ => client.prove_request(&RingRequest(&*body)).await?,
             };
             self.instruction(Some(to_instruction_proof(proof)?), escrow)
         })
@@ -272,7 +272,7 @@ impl PreparedRingDeposit {
 }
 
 impl DepositDisclosure {
-    fn body(&self, escrow: Option<&EscrowedKeys>) -> Result<DepositBody, RingError> {
+    fn body(&self, escrow: Option<&EscrowedKeys>) -> Result<Box<DepositBody>, RingError> {
         let root = escrow.map(|escrow| escrow.root.root);
         let public_input_hash = DepositPublicInput {
             context_hash: &self.context_hash,
@@ -292,7 +292,7 @@ impl DepositDisclosure {
             slots[0] = value;
             slots
         };
-        Ok(DepositBody {
+        Ok(Box::new(DepositBody {
             circuit_type: RingCircuit::Deposit,
             public_input_hash,
             context_hash: self.context_hash,
@@ -305,7 +305,7 @@ impl DepositDisclosure {
             auditor_pk: self.auditor,
             key_escrow: root.is_some(),
             key_registry_root: root.unwrap_or_default(),
-        })
+        }))
     }
 }
 

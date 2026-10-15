@@ -204,7 +204,7 @@ pub(crate) struct PolicyBody {
     #[serde(flatten)]
     pub audit: AuditSecrets,
     #[serde(flatten)]
-    pub witness: CustomRingWitness,
+    pub witness: Box<CustomRingWitness>,
 }
 
 /// The delegate and compressed circuits read the policy body under `policy`.

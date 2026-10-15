@@ -15,8 +15,8 @@ use zolana_transaction::{
 };
 
 use super::{
-    frame_dummy_outputs, owner::check_membership, sealed, Rail, RailKind, RingTransfer, Staged,
-    TransferAuthority,
+    frame_dummy_outputs, owner::check_membership, pinned_policy, sealed, Rail, RailKind,
+    RingTransfer, Staged, TransferAuthority,
 };
 use crate::{
     escrow::KeyRegistry, CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit,
@@ -106,7 +106,7 @@ impl Delegated<'_> {
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
         config: &CustomRingConfig,
-    ) -> Result<Staged, RingError> {
+    ) -> Result<Box<Staged>, RingError> {
         let stored = ring
             .delegate(client)
             .await?
@@ -116,10 +116,7 @@ impl Delegated<'_> {
         }
         let key_registry =
             KeyRegistry::of(ring, config).ok_or(RingError::DelegateRequiresEscrow)?;
-        let pinned = ring
-            .pinned_policy(client)
-            .await?
-            .ok_or(RingError::MissingPolicyConfig)?;
+        let pinned = pinned_policy(ring, client).await?;
         let assets = self.assets.ok_or(RingError::MissingAssetRegistry)?;
         let program = ring.program_id();
         let first = self.inputs.first().ok_or(TransactionError::NoInputs)?;
@@ -187,7 +184,7 @@ impl Delegated<'_> {
             vec![message.to_message_data(&config.auditor_pubkey)],
         );
         external_data.instruction_discriminator = RING_AUTHORITY_TRANSACT;
-        Ok(Staged {
+        Ok(Box::new(Staged {
             proof_inputs: SppProofInputs {
                 input_utxos: inputs,
                 output_utxos: outputs,
@@ -210,7 +207,7 @@ impl Delegated<'_> {
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             delegate: Some(self.delegate),
-        })
+        }))
     }
 }
 

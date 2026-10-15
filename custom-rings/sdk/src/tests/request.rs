@@ -25,7 +25,7 @@ fn hex(value: &[u8; 32]) -> String {
 fn body(witness: CustomRingWitness) -> PolicyBody {
     encrypted(vec![ProofInputUtxo::default()])
         .pending
-        .finish(private_tx_hash(), witness, &[4; 32])
+        .finish(private_tx_hash(), Box::new(witness), &[4; 32])
         .unwrap()
         .body
 }

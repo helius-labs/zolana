@@ -228,7 +228,7 @@ pub(crate) struct RecordSpend<'a> {
 }
 
 impl VelocityFacts {
-    pub(crate) fn plan(&self, spend: RecordSpend<'_>) -> Result<VelocityPlan, RingError> {
+    pub(crate) fn plan(&self, spend: RecordSpend<'_>) -> Result<Box<VelocityPlan>, RingError> {
         let context = &self.context;
         let shape = record_shape(spend.money_shape)?;
         let record_slot = spend.money_shape.n_outputs();
@@ -299,7 +299,7 @@ impl VelocityFacts {
             ..Default::default()
         };
         let opened = self.counters.unwrap_or(SpendCounters::EMPTY);
-        Ok(VelocityPlan {
+        Ok(Box::new(VelocityPlan {
             input,
             output,
             record_message: MessageData {
@@ -333,7 +333,7 @@ impl VelocityFacts {
             },
             shape,
             record_slot,
-        })
+        }))
     }
 }
 

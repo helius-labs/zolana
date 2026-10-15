@@ -110,7 +110,7 @@ pub(crate) struct Staged {
     pub proof_inputs: SppProofInputs,
     pub pending: PendingCustomRingProof,
     pub tx_viewing_key: ViewingKey,
-    pub pinned: Option<PinnedPolicy>,
+    pub pinned: Option<Box<PinnedPolicy>>,
     /// `None` commits the pinned rows without charging them.
     pub velocity: Option<VelocityProofInput>,
     /// The windowed record rides at the last real input and the last output.
@@ -268,6 +268,15 @@ impl<R: Rail> RingTransfer<R> {
     }
 }
 
+/// Boxed, staging holds the pinned table across its later reads.
+async fn pinned_policy(
+    ring: CustomRing,
+    client: &(impl AsyncRpc + ?Sized),
+) -> Result<Box<PinnedPolicy>, RingError> {
+    let pinned = ring.pinned_policy(client).await?;
+    Ok(Box::new(pinned.ok_or(RingError::MissingPolicyConfig)?))
+}
+
 /// A record-free rail evaluates every money slot while committing the pinned rows.
 fn committed(ring: CustomRing, pinned: &PinnedPolicy) -> Result<VelocityProofInput, RingError> {
     let rows = pinned.table.velocity();
@@ -295,7 +304,7 @@ fn check_distinct(inputs: &[SppProofInputUtxo]) -> Result<(), RingError> {
 }
 
 struct PolicyStatement {
-    witness: crate::witness::CustomRingWitness,
+    witness: Box<crate::witness::CustomRingWitness>,
     reads: PolicyReads,
     approval_required: bool,
     policy_hash: [u8; 32],

@@ -197,7 +197,7 @@ impl<'a> WitnessInput<'a> {
         self,
         client: &(impl AsyncRpc + ?Sized),
         indexed: bool,
-    ) -> Result<CustomRingWitness, RingError> {
+    ) -> Result<Box<CustomRingWitness>, RingError> {
         let (lookups, demands) = self.plan()?;
         let lineages = walk(client, &lookups, self.indexer_config).await?;
         let facts = lookups
@@ -417,7 +417,7 @@ impl<'a> WitnessInput<'a> {
         proofs: Vec<TreeProofs>,
         escrow: Option<EscrowedKeys>,
         indexed: bool,
-    ) -> Result<CustomRingWitness, RingError> {
+    ) -> Result<Box<CustomRingWitness>, RingError> {
         let mut lookups = Vec::with_capacity(ANSWER_SLOTS);
         let mut rule_answers = Vec::with_capacity(ANSWER_SLOTS);
         let mut revocation_targets = [[0; 32]; ANSWER_SLOTS];
@@ -512,7 +512,7 @@ impl<'a> WitnessInput<'a> {
                 root: escrow.root.root,
                 next_index: escrow.root.next_index,
             });
-        Ok(CustomRingWitness {
+        Ok(Box::new(CustomRingWitness {
             indexed: indexed.then_some(lookups),
             indexed_registry,
             n_in: self.active_input_count() as u8,
@@ -541,7 +541,7 @@ impl<'a> WitnessInput<'a> {
             answers: rule_answers,
             revocation_targets,
             revocation_tree_indexes,
-        })
+        }))
     }
 }
 

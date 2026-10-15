@@ -19,7 +19,8 @@ use zolana_transaction::{
 };
 
 use super::{
-    sealed, CompressedDisclosure, Rail, RailKind, RingTransfer, Staged, TransferAuthority,
+    pinned_policy, sealed, CompressedDisclosure, Rail, RailKind, RingTransfer, Staged,
+    TransferAuthority,
 };
 use crate::{
     escrow::KeyRegistry,
@@ -93,15 +94,11 @@ impl Owner<'_> {
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
         config: &CustomRingConfig,
-    ) -> Result<Staged, RingError> {
+    ) -> Result<Box<Staged>, RingError> {
         let sender = self.sender.address()?;
         let member = Member::from_bytes(sender.signing_pubkey.owner_proof_input_hash()?)?;
         let pinned = match config.has_policy {
-            true => Some(
-                ring.pinned_policy(client)
-                    .await?
-                    .ok_or(RingError::MissingPolicyConfig)?,
-            ),
+            true => Some(pinned_policy(ring, client).await?),
             false => None,
         };
         let limit = match &pinned {
@@ -240,7 +237,7 @@ impl Owner<'_> {
                 record_input_position(&proof_inputs.input_utxos).ok_or(TransactionError::NoInputs)
             })
             .transpose()?;
-        Ok(Staged {
+        Ok(Box::new(Staged {
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
             proof_inputs,
             pending,
@@ -255,7 +252,7 @@ impl Owner<'_> {
             key_registry: KeyRegistry::of(ring, config),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             delegate: None,
-        })
+        }))
     }
 }
 

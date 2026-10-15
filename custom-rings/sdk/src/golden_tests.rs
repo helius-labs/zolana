@@ -154,7 +154,7 @@ mod bodies {
             circuit_type: RingCircuit::Policy,
             public_input_hash: field(1),
             audit: secrets(5),
-            witness: CustomRingWitness {
+            witness: Box::new(CustomRingWitness {
                 indexed: None,
                 indexed_registry: None,
                 n_in: 2,
@@ -209,7 +209,7 @@ mod bodies {
                 answers: (0..ANSWER_SLOTS).map(answer).collect(),
                 revocation_targets: [[0; 32]; ANSWER_SLOTS],
                 revocation_tree_indexes: [0; ANSWER_SLOTS],
-            },
+            }),
         }
     }
 
