@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00d6eaa9a7f039feb892a664f226d0e7e8d08c28d0670f16eb7b3a5f3035f30c",
+        fingerprint, "002bac89f64eca94595bf012ba229f7dd805ab04e80603ca12b390abadd52929",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn base_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "004ca139a7638090b03c481d86f4720cd73bd425196fd5cbce4b003639b31e75",
+        fingerprint, "00123e9d7608e6489f311488109136c0ea0de57930a6a0dbe1c23162a3ce50dc",
         "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -82,7 +82,7 @@ fn compressed_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "compressed_policy_verifying_key",
         &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
-        "006f52e806addff309fea67f2ab2174b4c7c463be0a2660b8a82f283b35673d6",
+        "003f21592aded2896d8927e0bd9de3c1debec1a04b24b3dcf54e128ef330c000",
     );
 }
 
@@ -91,7 +91,7 @@ fn delegate_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "delegate_policy_verifying_key",
         &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
-        "00f6f4012f84424337c68a4493f7233e432ac02032108fa9ef1a43a0b7e4dffe",
+        "00068afc91cfd789193d7acca6dfb341291e3fbfcb98e36f101efc18ec82eb81",
     );
 }
 
@@ -100,7 +100,7 @@ fn register_key_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "register_key_verifying_key",
         &custom_ring_interface::register_key_verifying_key::VERIFYINGKEY,
-        "00d19fa87f5ef162037f4cccc69d6fbcd969d964a2bb9e06761624a94750bdf0",
+        "006e127e820a73378b271ef1b74d1e9e5cc1dcc220a10639ff364a1f45bda556",
     );
 }
 
@@ -109,6 +109,6 @@ fn deposit_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "deposit_verifying_key",
         &custom_ring_interface::deposit_verifying_key::VERIFYINGKEY,
-        "00ea26ad928c83fa533ca3850b387a19392cfc5b218aea58b3d2922ce5585938",
+        "00e199778059c152a4045c984b06d86565d00daeb047ef326f820c853f45db50",
     );
 }
