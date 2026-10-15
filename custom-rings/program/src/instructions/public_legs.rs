@@ -54,9 +54,9 @@ impl<'a> PublicLegs<'a> {
         legs: &[InterfaceTransfer],
         settlements: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let invalid = CustomRingError::InvalidInstructionData;
+        let invalid = CustomRingError::InvalidSettlementAccounts;
         if legs.len() > MAX_LEGS {
-            return Err(invalid.into());
+            return Err(CustomRingError::TooManyPublicLegs.into());
         }
         let mut flows = Self::NONE;
         let mut offset = 0usize;
@@ -80,9 +80,9 @@ impl<'a> PublicLegs<'a> {
         data: &RingDepositIxDataRef<'_>,
         settlements: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let invalid = CustomRingError::InvalidInstructionData;
+        let invalid = CustomRingError::InvalidSettlementAccounts;
         if data.assets.len() > MAX_DEPOSIT_ASSETS {
-            return Err(invalid.into());
+            return Err(CustomRingError::TooManyPublicLegs.into());
         }
         let mut flows = Self::NONE;
         let mut offset = 0usize;
@@ -99,7 +99,7 @@ impl<'a> PublicLegs<'a> {
         for entry in &data.deposits {
             let leg = flows.legs[..flows.len]
                 .get_mut(usize::from(entry.asset_index))
-                .ok_or(invalid)?;
+                .ok_or(CustomRingError::InvalidDepositData)?;
             leg.amount = leg
                 .amount
                 .checked_add(entry.amount)

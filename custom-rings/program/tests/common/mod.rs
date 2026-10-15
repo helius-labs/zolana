@@ -579,8 +579,8 @@ pub fn set_spend_window_data(
         &wincode::serialize(&SetSpendWindowIxData {
             mint: mint.to_bytes(),
             window_slots,
-            deposit_cap,
-            withdrawal_cap,
+            deposit_cap: NonZeroU64::new(deposit_cap),
+            withdrawal_cap: NonZeroU64::new(withdrawal_cap),
         })
         .expect("serialize set_spend_window data"),
     );
@@ -1435,12 +1435,20 @@ impl EntryFixture {
     }
 }
 
-/// `payer` registers its own identity over the entry mutation layout.
+/// `payer` registers its own identity over the entry mutation layout in window zero.
 pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
+    Fixture::new(
+        register_spend_data(0),
+        entry_mutation_slots(policy_config, payer),
+    )
+}
+
+pub fn register_spend_data(window_index: u64) -> Vec<u8> {
     let mut data = vec![tag::REGISTER_SPEND];
     data.extend_from_slice(
         &wincode::serialize(&RegisterSpendIxData {
             blinding: [0u8; 32],
+            window_index,
             private_tx_blinding: [0u8; 32],
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
@@ -1448,7 +1456,7 @@ pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture 
         })
         .expect("register_spend data"),
     );
-    Fixture::new(data, entry_mutation_slots(policy_config, payer))
+    data
 }
 
 /// An initialized policy-ring config as this program would have written it.
@@ -1493,15 +1501,17 @@ pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
     create_config_data_with_tier(auditor_pubkey, 1)
 }
 
+/// `has_policy` is the raw flag byte, a decoded bool admits 0 and 1 only.
 pub fn create_config_data_with_tier(auditor_pubkey: [u8; 33], has_policy: u8) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
         &wincode::serialize(&CreateConfigIxData {
             auditor_pubkey,
-            has_policy,
+            has_policy: false,
         })
         .expect("serialize create_config data"),
     );
+    *data.last_mut().expect("flag byte") = has_policy;
     data
 }
 
@@ -1613,12 +1623,14 @@ pub fn spp_ring_config_account() -> Account {
     }
 }
 
-/// Green `set_paused` fixture, `[authority(s), config, ring_auth(w), spp_program]`.
+/// Green `set_paused` fixture, `[authority(s), config, ring_auth(w), spp_program]`,
+/// `paused` is the raw flag byte.
 pub fn set_paused_fixture(paused: u8) -> Fixture {
     let mut data = vec![tag::SET_PAUSED];
     data.extend_from_slice(
-        &wincode::serialize(&SetPausedIxData { paused }).expect("set_paused data"),
+        &wincode::serialize(&SetPausedIxData { paused: false }).expect("set_paused data"),
     );
+    *data.last_mut().expect("flag byte") = paused;
     Fixture::new(
         data,
         vec![
@@ -1827,12 +1839,21 @@ pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> Custom
     CustomRingTransactIxData {
         proof,
         policy_trees: Vec::new(),
-        key_registry_root_index: 0,
-        approval_required: 0,
+        window_index: 0,
+        key_registry_root: [0; 32],
+        approval_required: false,
         revocation_targets: [[0; 32]; ANSWER_SLOTS],
         revocation_tree_indexes: [0; ANSWER_SLOTS],
         transact,
     }
+}
+
+/// Binds the root `key_registry_root_slot` holds.
+pub fn escrowed(data: Vec<u8>) -> Vec<u8> {
+    let mut ix: CustomRingTransactIxData =
+        wincode::deserialize_exact(&data[1..]).expect("transact body");
+    ix.key_registry_root = KEY_REGISTRY_EMPTY_ROOT;
+    encode_transact(data[0], &ix)
 }
 
 pub fn encode_transact(instruction_tag: u8, ix: &CustomRingTransactIxData) -> Vec<u8> {
@@ -1863,11 +1884,6 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     Fixture::new(
         data,
         vec![
-            Slot {
-                label: "payer",
-                meta: AccountMeta::new(payer(), true),
-                account: account(1_000_000_000),
-            },
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
@@ -1917,17 +1933,18 @@ pub fn delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     with_delegate_slots(audit_transact_fixture(config, data))
 }
 
-/// An escrowed policy ring, the delegate rail always reads the key registry.
+/// An escrowed policy ring, the delegate rail always reads the key registry and
+/// binds its root.
 pub fn policy_delegate_transact_fixture(data: Vec<u8>) -> Fixture {
-    let mut fixture = transact_fixture(escrowed_config_account(), data);
+    let mut fixture = transact_fixture(escrowed_config_account(), escrowed(data));
     insert_after_policy_trees(&mut fixture, key_registry_root_slot());
     with_delegate_slots(fixture)
 }
 
 fn with_delegate_slots(mut fixture: Fixture) -> Fixture {
     let [delegate_pda, delegate] = delegate_slots();
-    fixture.insert(4, delegate_pda);
-    fixture.insert(5, delegate);
+    fixture.insert(3, delegate_pda);
+    fixture.insert(4, delegate);
     fixture
 }
 
@@ -1938,11 +1955,6 @@ pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     Fixture::new(
         data,
         vec![
-            Slot {
-                label: "payer",
-                meta: AccountMeta::new(payer(), true),
-                account: account(1_000_000_000),
-            },
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),

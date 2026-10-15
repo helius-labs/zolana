@@ -73,6 +73,16 @@ fn error_codes_are_stable() {
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
+        (WindowElapsed as u32, 8173),
+        (InvalidWindowIndex as u32, 8174),
+        (UnexpectedKeyRegistryRoot as u32, 8175),
+        (UnexpectedApproval as u32, 8176),
+        (InvalidSettlementAccounts as u32, 8177),
+        (TooManyPublicLegs as u32, 8178),
+        (InvalidAuditedDeposit as u32, 8179),
+        (InvalidDepositData as u32, 8180),
+        (UnexpectedRevocationTarget as u32, 8181),
+        (UncappedSpendWindow as u32, 8182),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +162,16 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | PolicyFactRevoked
         | DelegateRequiresPolicy
         | InvalidRevocationTreeIndex
-        | InvalidPolicyTrees => {}
+        | InvalidPolicyTrees
+        | WindowElapsed
+        | InvalidWindowIndex
+        | UnexpectedKeyRegistryRoot
+        | UnexpectedApproval
+        | InvalidSettlementAccounts
+        | TooManyPublicLegs
+        | InvalidAuditedDeposit
+        | InvalidDepositData
+        | UnexpectedRevocationTarget
+        | UncappedSpendWindow => {}
     }
 }

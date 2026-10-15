@@ -23,10 +23,6 @@ pub fn process_create_config_ix(
         auditor_pubkey,
         has_policy,
     } = parse(data)?;
-    // Transact reads any nonzero as policy, a stored 2 would look distinct.
-    if has_policy > 1 {
-        return Err(CustomRingError::InvalidInstructionData.into());
-    }
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -49,7 +45,7 @@ pub fn process_create_config_ix(
         authority: *authority.address(),
         auditor_pubkey,
         bump,
-        has_policy,
+        has_policy: u8::from(has_policy),
         key_escrow: 0,
     })
     .init(config)

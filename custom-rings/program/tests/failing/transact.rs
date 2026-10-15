@@ -245,20 +245,6 @@ fn an_unexecutable_spp_program_account_is_rejected_exactly() {
 }
 
 #[test]
-fn an_unsigned_payer_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    // The spp_payer meta shares the pubkey, one signing meta would keep the
-    // account's merged signer privilege.
-    fixture.unsign("payer");
-    fixture.unsign("spp_payer");
-    fixture.expect_err(
-        &mollusk,
-        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
-    );
-}
-
-#[test]
 fn missing_forwarded_accounts_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);

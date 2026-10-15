@@ -41,7 +41,6 @@ pub fn process_transact_ix(
     data: &[u8],
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("payer")?;
     let controls = Controls::next(&mut iter)?;
     Rail::Member.verify_and_forward(program_id, controls, iter, data)
 }
@@ -84,17 +83,14 @@ impl Rail {
         let CustomRingTransactIxData {
             proof,
             policy_trees,
-            key_registry_root_index,
+            window_index,
+            key_registry_root,
             approval_required,
             revocation_targets,
             revocation_tree_indexes,
             transact,
         } = &*decoded;
-        let approval_required = match approval_required {
-            0 => false,
-            1 => true,
-            _ => return Err(CustomRingError::InvalidInstructionData.into()),
-        };
+        let approval_required = *approval_required;
         if self == Rail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
@@ -112,7 +108,7 @@ impl Rail {
                 return Err(CustomRingError::InvalidKeyRegistryRoot.into());
             }
             let key_registry_root =
-                load_escrow_root(program_id, escrow, *key_registry_root_index, &mut rest)?;
+                load_escrow_root(program_id, escrow, key_registry_root, &mut rest)?;
             Some((binding, trees, key_registry_root))
         } else {
             if self == Rail::Delegate {
@@ -121,8 +117,8 @@ impl Rail {
             if !policy_trees.is_empty() {
                 return Err(CustomRingError::InvalidPolicyTrees.into());
             }
-            if *key_registry_root_index != 0 {
-                return Err(CustomRingError::InvalidInstructionData.into());
+            if *key_registry_root != [0; 32] {
+                return Err(CustomRingError::UnexpectedKeyRegistryRoot.into());
             }
             None
         };
@@ -131,8 +127,16 @@ impl Rail {
             .map_or(VelocityMode::Off, |(binding, ..)| binding.velocity);
         let amount_controls = self == Rail::Member && velocity != VelocityMode::Off;
         if approval_required && !amount_controls {
-            return Err(CustomRingError::InvalidInstructionData.into());
+            return Err(CustomRingError::UnexpectedApproval.into());
         }
+        let window_index = match (self, velocity) {
+            (Rail::Member, VelocityMode::PerWindow { window_slots }) => FixedWindow {
+                slots: NonZeroU64::new(window_slots).ok_or(CustomRingError::InvalidPolicyRules)?,
+            }
+            .check_index(Clock::get()?.slot, *window_index)?,
+            _ if *window_index != 0 => return Err(CustomRingError::InvalidWindowIndex.into()),
+            _ => 0,
+        };
         let namespace = policy
             .as_ref()
             .map(|(binding, ..)| namespace_address(program_id, binding.namespace_bump));
@@ -168,7 +172,7 @@ impl Rail {
             .len()
             .checked_sub(settlement_len)
             .and_then(|start| spp_accounts.get(start..))
-            .ok_or(CustomRingError::InvalidInstructionData)?;
+            .ok_or(CustomRingError::InvalidSettlementAccounts)?;
         let legs = PublicLegs::from_transact(&transact.interface_transfers, settlements)?;
         let demanded = if approval_required {
             Some(approval_cosigner(program_id, controls.cosigner_pda)?)
@@ -240,14 +244,6 @@ impl Rail {
                         }
                     }
                     None => SppSigners::RingAuth,
-                };
-                let window_index = match (self, binding.velocity) {
-                    (Rail::Member, VelocityMode::PerWindow { window_slots }) => FixedWindow {
-                        slots: NonZeroU64::new(window_slots)
-                            .ok_or(CustomRingError::InvalidPolicyRules)?,
-                    }
-                    .index(Clock::get()?.slot),
-                    _ => 0,
                 };
                 let ring_id =
                     ring_id_field(program_id.as_array()).map_err(CustomRingError::from)?;

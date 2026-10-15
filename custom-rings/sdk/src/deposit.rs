@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    tag, CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
-    MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    tag, AuditedDepositPrefix, CustomRingProof, DepositContext, DepositPublicInput,
+    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -319,11 +319,12 @@ impl Deposit {
         }
         .instruction()?;
         if let Some(proof) = self.proof {
-            let mut data = vec![tag::AUDITED_DEPOSIT];
-            data.extend(wincode::serialize(&proof)?);
-            data.push(self.escrow.root_index());
-            data.extend_from_slice(&instruction.data);
-            instruction.data = data;
+            let prefix = AuditedDepositPrefix {
+                tag: tag::AUDITED_DEPOSIT,
+                proof,
+                key_registry_root: self.escrow.root(),
+            };
+            instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
         }
         let mut prefix = ring_prefix(self.ring, self.cosigner).to_vec();
         prefix.push(AccountMeta::new_readonly(

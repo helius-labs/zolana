@@ -47,19 +47,16 @@ impl Forward {
             }
         }
         let key_registry_root = match &audited {
-            Some(audited) => load_escrow_root(
-                program_id,
-                escrow,
-                audited.key_registry_root_index,
-                &mut iter,
-            )?,
+            Some(audited) => {
+                load_escrow_root(program_id, escrow, &audited.key_registry_root, &mut iter)?
+            }
             None => None,
         };
         let rest = iter.remaining_mut()?;
         let deposit = match self {
             Forward::Deposit | Forward::AuditedDeposit => Some(
                 RingDepositIxDataRef::from_bytes(data.get(1..).unwrap_or_default())
-                    .map_err(|_| CustomRingError::InvalidInstructionData)?,
+                    .map_err(|_| CustomRingError::InvalidDepositData)?,
             ),
             Forward::Merge => None,
         };

@@ -1,4 +1,4 @@
-use core::{num::NonZeroU64, ops::BitOr};
+use core::{cmp::Ordering, num::NonZeroU64, ops::BitOr};
 
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
@@ -308,6 +308,11 @@ impl KeyRegistryRoot {
             .filter(|root| **root != [0u8; 32])
             .copied()
     }
+
+    /// Whether `root` is a written root of the history.
+    pub fn holds(&self, root: &[u8; 32]) -> bool {
+        *root != [0u8; 32] && self.history.contains(root)
+    }
 }
 
 /// Ring-wide public deposit and withdrawal counters for one mint and fixed window.
@@ -340,6 +345,15 @@ impl FixedWindow {
 
     pub const fn index(self, slot: u64) -> u64 {
         slot / self.slots.get()
+    }
+
+    /// `claimed` when it is the window of `slot`.
+    pub fn check_index(self, slot: u64, claimed: u64) -> Result<u64, CustomRingError> {
+        match claimed.cmp(&self.index(slot)) {
+            Ordering::Less => Err(CustomRingError::WindowElapsed),
+            Ordering::Greater => Err(CustomRingError::InvalidWindowIndex),
+            Ordering::Equal => Ok(claimed),
+        }
     }
 }
 

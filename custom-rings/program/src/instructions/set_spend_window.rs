@@ -30,6 +30,9 @@ pub fn process_set_spend_window_ix(
     let window = FixedWindow {
         slots: NonZeroU64::new(window_slots).ok_or(CustomRingError::InvalidSpendWindow)?,
     };
+    if deposit_cap.is_none() && withdrawal_cap.is_none() {
+        return Err(CustomRingError::UncappedSpendWindow.into());
+    }
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -50,8 +53,8 @@ pub fn process_set_spend_window_ix(
             discriminator: SPEND_WINDOW,
             mint: Address::new_from_array(mint),
             window_slots: window_slots.to_le_bytes(),
-            deposit_cap: deposit_cap.to_le_bytes(),
-            withdrawal_cap: withdrawal_cap.to_le_bytes(),
+            deposit_cap: deposit_cap.map_or(0, NonZeroU64::get).to_le_bytes(),
+            withdrawal_cap: withdrawal_cap.map_or(0, NonZeroU64::get).to_le_bytes(),
             window_start_slot,
             deposited: [0; 8],
             withdrawn: [0; 8],

@@ -523,6 +523,7 @@ fn an_emit_event_without_an_spp_parent_cannot_update_a_record() {
     data.extend(
         wincode::serialize(&custom_ring_interface::RegisterSpendIxData {
             blinding: field(2),
+            window_index: 0,
             private_tx_blinding: field(3),
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,

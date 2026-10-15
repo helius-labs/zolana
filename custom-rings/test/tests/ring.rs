@@ -769,6 +769,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             proof: proven.proof,
             transact: tampered_data,
             approval_required: false,
+            window_index: 0,
         }
         .instruction()?,
     )?;
@@ -2724,9 +2725,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
             depositor: member.pubkey(),
             deposits: vec![plain],
             proof: None,
-            escrow: EscrowBinding::Registry {
-                root_index: root.history_index,
-            },
+            escrow: EscrowBinding::Registry { root: root.root },
             cosigner: None,
         }
         .instruction(),

@@ -1,4 +1,4 @@
-use custom_ring_interface::{CustomRingError, SetPausedIxData};
+use custom_ring_interface::SetPausedIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{encode_instruction, tag, UpdateRingConfigData};
@@ -15,11 +15,6 @@ pub fn process_set_paused_ix(
     data: &[u8],
 ) -> ProgramResult {
     let SetPausedIxData { paused } = parse(data)?;
-    let paused = match paused {
-        0 => false,
-        1 => true,
-        _ => return Err(CustomRingError::InvalidInstructionData.into()),
-    };
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;

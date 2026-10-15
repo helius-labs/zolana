@@ -108,22 +108,24 @@ pub fn load_spend_window_mut<'a>(
     Ok(Some(window))
 }
 
-/// The registry root at `index` a statement binds, `None` with escrow off.
+/// The registry root a statement binds, held in the history, `None` with escrow off.
 pub fn load_escrow_root(
     program_id: &Address,
     escrow: KeyEscrow,
-    index: u8,
+    root: &[u8; 32],
     accounts: &mut AccountIterator<'_>,
 ) -> Result<Option<[u8; 32]>, ProgramError> {
     match escrow {
-        KeyEscrow::Off if index != 0 => Err(CustomRingError::InvalidInstructionData.into()),
+        KeyEscrow::Off if *root != [0; 32] => {
+            Err(CustomRingError::UnexpectedKeyRegistryRoot.into())
+        }
         KeyEscrow::Off => Ok(None),
         KeyEscrow::Registry => {
             let account = accounts.next_account("key_registry_root")?;
-            load::<KeyRegistryRoot>(program_id, account)?
-                .root_at(index)
-                .map(Some)
-                .ok_or_else(|| CustomRingError::StaleKeyRegistryRoot.into())
+            if !load::<KeyRegistryRoot>(program_id, account)?.holds(root) {
+                return Err(CustomRingError::StaleKeyRegistryRoot.into());
+            }
+            Ok(Some(*root))
         }
     }
 }

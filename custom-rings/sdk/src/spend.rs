@@ -213,8 +213,6 @@ pub struct RegisterSpend {
 
 #[must_use]
 pub struct ProvenSpendRegistration {
-    /// `(window_slots, window_index)` the record fixes.
-    pub(crate) window: (u64, u64),
     ring: CustomRing,
     payer: Address,
     address_tree: Address,
@@ -262,7 +260,6 @@ impl RegisterSpend {
         })
         .await?;
         Ok(ProvenSpendRegistration {
-            window: (window_slots, record.window),
             ring: self.ring,
             payer: self.payer,
             address_tree: address_tree.address,
@@ -282,6 +279,7 @@ impl ProvenSpendRegistration {
             tag::REGISTER_SPEND,
             &RegisterSpendIxData {
                 blinding: self.record.blinding,
+                window_index: self.record.window,
                 private_tx_blinding: self.proof.private_tx_blinding,
                 nullifier_tree_root_index: self.proof.nullifier_tree_root_index,
                 utxo_tree_root_index: self.proof.utxo_tree_root_index,

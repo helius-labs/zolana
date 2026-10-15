@@ -89,6 +89,25 @@ fn a_zero_length_window_is_rejected_exactly() {
 }
 
 #[test]
+fn a_window_without_a_cap_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    set_spend_window_fixture(SOL, set_spend_window_data(SOL, WINDOW_SLOTS, 0, 0), None)
+        .expect_err(&mollusk, custom(CustomRingError::UncappedSpendWindow));
+}
+
+/// A present cap of zero is not a canonical `NonZeroU64`.
+#[test]
+fn a_zero_cap_on_the_wire_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut data = set_spend_window_data(SOL, WINDOW_SLOTS, 1, 0);
+    let at = 1 + 32 + 8 + 1;
+    assert_eq!(data[at..at + 8], 1u64.to_le_bytes());
+    data[at..at + 8].copy_from_slice(&0u64.to_le_bytes());
+    set_spend_window_fixture(SOL, data, None)
+        .expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+}
+
+#[test]
 fn set_spend_window_by_a_non_authority_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture =
@@ -212,6 +231,16 @@ fn sol_withdrawal(amount: u64, window: Option<Account>) -> Fixture {
         vec![window_slot(SOL, window)],
         sol_settlement(),
     )
+}
+
+/// The settlement groups the legs name must fit the forwarded list.
+#[test]
+fn legs_beyond_the_forwarded_accounts_are_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let legs = vec![InterfaceTransfer::SolWithdrawal { amount: 1 }; 8];
+    let windows = (0..8).map(|_| window_slot(SOL, None)).collect();
+    windowed_transact(legs, windows, Vec::new())
+        .expect_err(&mollusk, custom(CustomRingError::InvalidSettlementAccounts));
 }
 
 #[test]
@@ -370,12 +399,12 @@ fn a_ring_deposit_with_unreadable_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = deposit_fixture();
     fixture.data_mut().truncate(1);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidDepositData));
     let mut dangling = deposit_fixture();
     *dangling.data_mut() = ring_deposit_data(vec![DepositAssetKind::Sol], 1);
     // The entry references an asset outside the declared table.
     dangling.data_mut()[4] = 3;
-    dangling.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+    dangling.expect_err(&mollusk, custom(CustomRingError::InvalidDepositData));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use core::mem::MaybeUninit;
+use core::{mem::MaybeUninit, num::NonZeroU64};
 
 use bytemuck::{Pod, Zeroable};
 use wincode::{
@@ -95,15 +95,15 @@ instruction_tags! {
 /// Config-authority change to the direct-deposit disclosure requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetDepositAuditIxData {
-    pub required: u8,
+    pub required: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
     /// Auditor P256 public key in SEC1 compressed form.
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
-    /// One selects a policy ring, zero an audit-only ring.
-    pub has_policy: u8,
+    /// Selects a policy ring over an audit-only ring.
+    pub has_policy: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -113,8 +113,7 @@ pub struct ReaderIxData {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPausedIxData {
-    /// 1 pauses the ring on SPP, 0 resumes it, any other value is rejected.
-    pub paused: u8,
+    pub paused: bool,
 }
 
 /// Public withdrawal total per mint that requires approval when exceeded.
@@ -139,8 +138,9 @@ pub struct SetCoSignerIxData {
 pub struct SetSpendWindowIxData {
     pub mint: [u8; 32],
     pub window_slots: u64,
-    pub deposit_cap: u64,
-    pub withdrawal_cap: u64,
+    /// `None` leaves the direction uncapped, at least one cap is set.
+    pub deposit_cap: Option<NonZeroU64>,
+    pub withdrawal_cap: Option<NonZeroU64>,
 }
 
 /// Emulated P256 adds one BSB22 commitment, its point and proof of knowledge are mandatory.
@@ -157,6 +157,16 @@ impl CustomRingProof {
 }
 
 const _: () = assert!(CustomRingProof::SIZE == 192);
+
+/// `tag || proof || key_registry_root`, then the SPP deposit instruction unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct AuditedDepositPrefix {
+    pub tag: u8,
+    pub proof: CustomRingProof,
+    /// A root of the key registry history, zero unless the ring escrows nullifier keys.
+    pub key_registry_root: [u8; 32],
+}
 
 /// Compressed Groth16 points without the audited circuits' BSB22 commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable, SchemaRead, SchemaWrite)]
@@ -180,10 +190,12 @@ pub struct CustomRingTransactIxData {
     /// One per policy tree account in order, empty on an audit-only ring.
     #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
     pub policy_trees: Vec<TreeContext>,
-    /// Zero unless the ring escrows nullifier keys.
-    pub key_registry_root_index: u8,
-    /// Proof-bound approval demand, zero when member amount controls do not apply.
-    pub approval_required: u8,
+    /// The window of the proven spend record, zero on every other statement.
+    pub window_index: u64,
+    /// A root of the key registry history, zero unless the ring escrows nullifier keys.
+    pub key_registry_root: [u8; 32],
+    /// Proof-bound approval demand, false when member amount controls do not apply.
+    pub approval_required: bool,
     /// Canonical target prefix with a zero suffix in the policy public input.
     #[wincode(with = "CompactRevocationTargets")]
     pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
@@ -266,6 +278,8 @@ pub struct PolicyTableIxData {
 pub struct RegisterSpendIxData {
     /// The SPP output blinding, the proof fails unless it is the derived one.
     pub blinding: [u8; 32],
+    /// The window the proven record opens in.
+    pub window_index: u64,
     pub private_tx_blinding: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,

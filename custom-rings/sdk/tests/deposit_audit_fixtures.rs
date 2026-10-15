@@ -4,7 +4,7 @@
 //! the deposit proving key changes.
 
 use custom_ring_interface::{
-    tag, CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
+    tag, AuditedDepositPrefix, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
     MAX_RING_DEPOSIT_AUDIT_SLOTS, PROVING_KEY_SHA256S,
 };
 use custom_ring_sdk::{to_instruction_proof, CustomRing, Deposit, DepositAsset, EscrowBinding};
@@ -27,10 +27,6 @@ const TREE: [u8; 32] = [51; 32];
 const DEPOSITOR: [u8; 32] = [44; 32];
 const AUDITOR_SECRET: [u8; 32] = [0x11; 32];
 const AMOUNT: u64 = 5;
-
-/// The fixtures predate the key registry root index byte, the program tests
-/// insert it at this offset.
-const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
 
 #[test]
 #[ignore = "rewrites the program's deposit audit fixtures, run with just dump-deposit-audit-fixtures"]
@@ -167,7 +163,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         "keyRegistryRoot": hex0x(&[0; 32]),
     }));
     let proof = prover.prove(&request).expect("deposit proof");
-    // 3. Wrap the SPP bytes with the SDK and drop the registry index byte.
+    // 3. Wrap the SPP bytes with the SDK, the root stays zero without escrow.
     let instruction = Deposit {
         ring,
         tree,
@@ -179,12 +175,14 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     }
     .instruction()
     .expect("audited deposit");
-    let (head, rest) = instruction.data.split_at(REGISTRY_INDEX);
-    let (&registry_index, spp_data) = rest.split_first().expect("registry index");
-    assert_eq!(head.first(), Some(&tag::AUDITED_DEPOSIT));
-    assert_eq!(registry_index, 0);
+    let (prefix, spp_data) = instruction
+        .data
+        .split_at(core::mem::size_of::<AuditedDepositPrefix>());
+    let prefix: &AuditedDepositPrefix = bytemuck::from_bytes(prefix);
+    assert_eq!(prefix.tag, tag::AUDITED_DEPOSIT);
+    assert_eq!(prefix.key_registry_root, [0; 32]);
     assert_eq!(spp_data, spp.data.as_slice());
-    [head, spp_data].concat()
+    instruction.data
 }
 
 fn hex0x(bytes: &[u8]) -> String {

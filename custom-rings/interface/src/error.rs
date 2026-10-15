@@ -91,6 +91,16 @@ ring_errors! {
     DelegateRequiresPolicy = 8170 => "a delegate needs a policy ring",
     InvalidRevocationTreeIndex = 8171 => "revocation tree index is invalid",
     InvalidPolicyTrees = 8172 => "policy tree accounts are invalid",
+    WindowElapsed = 8173 => "the spend window of the proof has elapsed",
+    InvalidWindowIndex = 8174 => "window index is not the current window of a windowed rail",
+    UnexpectedKeyRegistryRoot = 8175 => "a ring without key escrow takes no key registry root",
+    UnexpectedApproval = 8176 => "approval needs a member transfer under amount controls",
+    InvalidSettlementAccounts = 8177 => "settlement accounts do not match the public legs",
+    TooManyPublicLegs = 8178 => "too many public legs",
+    InvalidAuditedDeposit = 8179 => "audited deposit does not wrap an SPP deposit",
+    InvalidDepositData = 8180 => "forwarded deposit data is invalid",
+    UnexpectedRevocationTarget = 8181 => "an audit-only statement takes no revocation target",
+    UncappedSpendWindow = 8182 => "a spend window needs a deposit or a withdrawal cap",
 }
 
 impl From<CustomRingError> for ProgramError {

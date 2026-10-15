@@ -105,17 +105,13 @@ operations! {
     Instruction(Instruction) => core::convert::identity,
 }
 
-/// What a signed attempt proved, the window its statement fixed included.
 struct Proved {
     instruction: Instruction,
     budget: ComputeBudgetConfig,
-    /// `(window_slots, window_index)` of a windowed statement.
-    window: Option<(u64, u64)>,
 }
 
 struct Attempt {
     transaction: VersionedTransaction,
-    window: Option<(u64, u64)>,
     last_valid_block_height: u64,
 }
 
@@ -200,7 +196,6 @@ impl<'a> RingSubmission<'a> {
                         .and_then(|error| error.transaction_error());
                     self.pending = Some(Attempt {
                         transaction,
-                        window: proved.window,
                         last_valid_block_height,
                     });
                     failure
@@ -212,16 +207,7 @@ impl<'a> RingSubmission<'a> {
                 Some(error) => Outcome::Failed(error),
                 None => outcome(client, signature, attempt.last_valid_block_height).await?,
             };
-            let advanced = match (attempt.window, &outcome) {
-                (Some((slots, index)), Outcome::Failed(error))
-                    if ring_error(error)
-                        == Some(CustomRingError::ProofVerificationFailed as u32) =>
-                {
-                    client.get_slot().await? / slots != index
-                }
-                _ => false,
-            };
-            if let Some(status) = self.settle(signature, outcome, advanced) {
+            if let Some(status) = self.settle(signature, outcome) {
                 return Ok(status);
             }
         }
@@ -247,18 +233,13 @@ impl<'a> RingSubmission<'a> {
     }
 
     /// `None` re-proves a retryable failure below the attempt limit.
-    fn settle(
-        &mut self,
-        signature: Signature,
-        outcome: Outcome,
-        window_advanced: bool,
-    ) -> Option<SubmissionStatus> {
+    fn settle(&mut self, signature: Signature, outcome: Outcome) -> Option<SubmissionStatus> {
         let terminal = match outcome {
             Outcome::Unknown => return Some(SubmissionStatus::Pending { signature }),
             Outcome::Confirmed { slot } => SubmissionStatus::Confirmed { signature, slot },
             Outcome::Failed(error) => {
                 self.pending = None;
-                if retryable(&error, window_advanced) && self.attempts < MAX_ATTEMPTS {
+                if retryable(&error) && self.attempts < MAX_ATTEMPTS {
                     return None;
                 }
                 SubmissionStatus::Failed { signature, error }
@@ -276,36 +257,26 @@ impl RingOperation<'_> {
         client: &AsyncZolanaClient<R, I>,
         payer: Address,
     ) -> Result<Proved, RingError> {
-        let proved = |instruction, tag, window| Proved {
+        let proved = |instruction, tag| Proved {
             instruction,
             budget: ComputeBudgetConfig::new(compute_unit_limit(tag)),
-            window,
         };
         Ok(match self {
             Self::Transfer(transfer) => {
                 let proven = transfer.prove(client).await?;
-                proved(
-                    proven.instruction()?,
-                    InstructionTag::Transact,
-                    proven.window,
-                )
+                proved(proven.instruction()?, InstructionTag::Transact)
             }
             Self::Delegate(transfer) => {
                 let proven = transfer.prove(client).await?;
-                proved(
-                    proven.instruction()?,
-                    InstructionTag::DelegateTransact,
-                    None,
-                )
+                proved(proven.instruction()?, InstructionTag::DelegateTransact)
             }
             Self::RegisterSpend(registration) => {
                 let proven = registration.prove(client).await?;
-                let window = Some(proven.window);
-                proved(proven.instruction()?, InstructionTag::RegisterSpend, window)
+                proved(proven.instruction()?, InstructionTag::RegisterSpend)
             }
             Self::RegisterKey(registration) => {
                 let proven = registration.prove(client).await?;
-                proved(proven.instruction()?, InstructionTag::RegisterKey, None)
+                proved(proven.instruction()?, InstructionTag::RegisterKey)
             }
             Self::Merge(operation) => {
                 let mut proven = operation
@@ -316,12 +287,11 @@ impl RingOperation<'_> {
                 if let Some(cosigner) = operation.cosigner {
                     proven = proven.with_cosigner(cosigner);
                 }
-                proved(proven.instruction(payer), InstructionTag::Merge, None)
+                proved(proven.instruction(payer), InstructionTag::Merge)
             }
             Self::Deposit(deposit) => Proved {
                 instruction: deposit.prove(client).await?,
                 budget: deposit.budget(),
-                window: None,
             },
             Self::Instruction(instruction) => {
                 let tag = instruction
@@ -329,7 +299,7 @@ impl RingOperation<'_> {
                     .first()
                     .and_then(|tag| InstructionTag::try_from(*tag).ok())
                     .ok_or(CustomRingError::InvalidInstructionData)?;
-                proved(instruction.clone(), tag, None)
+                proved(instruction.clone(), tag)
             }
         })
     }
@@ -396,11 +366,13 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
     }
 }
 
-fn retryable(error: &TransactionError, window_advanced: bool) -> bool {
+/// A fresh proof fixes each of these, any other failure is final.
+fn retryable(error: &TransactionError) -> bool {
     matches!(error, TransactionError::BlockhashNotFound)
-        || ring_error(error) == Some(CustomRingError::StaleKeyRegistryRoot as u32)
-        || (window_advanced
-            && ring_error(error) == Some(CustomRingError::ProofVerificationFailed as u32))
+        || ring_error(error).is_some_and(|code| {
+            code == CustomRingError::StaleKeyRegistryRoot as u32
+                || code == CustomRingError::WindowElapsed as u32
+        })
 }
 
 #[cfg(test)]

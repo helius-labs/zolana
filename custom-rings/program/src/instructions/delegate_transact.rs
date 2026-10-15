@@ -14,7 +14,6 @@ pub fn process_delegate_transact_ix(
     data: &[u8],
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("payer")?;
     let controls = Controls::next(&mut iter)?;
     let delegate_account = iter.next_account("delegate_pda")?;
     let delegate = iter.next_account("delegate")?;
