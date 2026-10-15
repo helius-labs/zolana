@@ -247,6 +247,11 @@ revocation_target[0..ANSWER_SLOTS]
 Windowed member transfers append `counters_disclosure_hash`. That path
 selects `CompressedPolicyCircuit`.
 
+The audit block requires both P-256 scalars, the transaction viewing secret
+and the ephemeral secret, in `1..n`. A second encoding `sk + n` would derive
+the same public key but a different disclosure stream, so the auditor reads
+the recovered bytes as they are and refuses a key outside that range.
+
 The program recomputes this chain from accounts it trusts and runs one
 Groth16 verification. Policy enforcement costs no second proof, and a
 wallet cannot satisfy the audit statement while skipping the policy
@@ -460,6 +465,9 @@ change_m  = outputs the sender owns inside the ring
 outflow_m = inputs_m - change_m
 spent'_m  = (window' == window ? spent_m : 0) + outflow_m <= cap_m
 ```
+
+A mint with no cap keeps `spent'_m = 0`, its co-sign threshold checks each
+transfer's `outflow_m` alone, so its counter cannot grow past `u64`.
 
 The counters live in a spend record, a keyed compressed account under the
 namespace PDA beside the lists, addressed by the sender's identity so one

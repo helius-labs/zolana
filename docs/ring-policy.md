@@ -291,9 +291,13 @@ inputs open to one identity, that identity is the record's member.
 For each row the circuit charges `outflow = inputs of the mint - change the
 sender keeps inside the ring`, payments, exits and withdrawals alike, and
 writes `spent' = (record.window == window ? spent : 0) + outflow` into the
-successor under a fresh salt, `spent' <= cap` where the cap is nonzero. The
-program derives `window = slot / window_slots` and binds it into the public
-input beside the ring id, the namespace owner and the approval bit, the bit
+successor under a fresh salt, `spent' <= cap` where the cap is nonzero. A row
+with a zero cap records zero, its threshold checks each transfer alone. The
+instruction carries the proven `window`, and the program checks it against
+`slot / window_slots` before it verifies the proof. An earlier window fails
+as `WindowElapsed`, a later one as `InvalidWindowIndex`. The program binds
+the window into the public input beside the ring id, the namespace owner and
+the approval bit, the bit
 the circuit sets when any `outflow > cosign_above`. The program then demands
 the configured co-signer, `ApprovalWithoutCoSigner` when the ring has none.
 A record from a future window is refused, an expired one is consumed from
