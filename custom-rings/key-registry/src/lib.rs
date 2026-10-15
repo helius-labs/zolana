@@ -1,7 +1,8 @@
 //! Reconstructs key registry insertions against the root and append cursor stored on chain.
 
-pub use custom_ring_interface::FIELD_MAX;
-use custom_ring_interface::{KeyRegistryLeaf, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT};
+use custom_ring_interface::{
+    KeyRegistryLeaf, FIELD_MAX, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
+};
 use thiserror::Error;
 use zolana_hasher::{HasherError, Poseidon};
 use zolana_merkle_tree::{MerkleTree, ReferenceMerkleTreeError};
