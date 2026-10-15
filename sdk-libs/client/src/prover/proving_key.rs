@@ -205,6 +205,23 @@ impl ExpectedProvingKey {
         )
     }
 
+    pub(crate) fn transfer_ed25519_ring(
+        n_inputs: usize,
+        n_outputs: usize,
+    ) -> Result<Self, ClientError> {
+        // Only rail and shape select the key, never the commitment.
+        let commitment = Bsb22Commitment {
+            commitment: [0; 32],
+            commitment_pok: [0; 32],
+        };
+        Self::transfer(
+            "transfer_ed25519_ring",
+            n_inputs,
+            n_outputs,
+            |n_in, n_out, slots| CircuitId::RingEd25519(n_in, n_out, slots, commitment),
+        )
+    }
+
     /// A merge circuit. Merges always have one output, as in the prover's
     /// `merge_<inputs>_1.key` naming.
     fn merge_circuit(file_prefix: &str, n_inputs: usize) -> Result<Self, ClientError> {
