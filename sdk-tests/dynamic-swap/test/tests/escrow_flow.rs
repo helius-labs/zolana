@@ -117,7 +117,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .encrypt(&env.user.keypair)
                 .context("encrypt split transaction")?;
             // The self-paid split has change and two padding slots; all four
-            // outputs name the sender with the same account-based encoding.
+            // outputs name the sender as `Account(0)`.
             assert_eq!(
                 spp_proof_inputs
                     .output_utxos

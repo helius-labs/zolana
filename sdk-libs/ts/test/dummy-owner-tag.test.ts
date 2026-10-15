@@ -86,7 +86,7 @@ describe("dummy output owner tags", () => {
   it.each(vectors.cases)("matches real output encoding: $name", (vector) => {
     const keypair = (seed: number): ShieldedKeypair => {
       const bytes = new Uint8Array(32).fill(seed);
-      // The fixed-size seed satisfies the signing key's byte-length invariant.
+      // The 32-byte array has the length `Bytes32` requires.
       return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(bytes as Bytes32));
     };
     const sender = keypair(vectors.sender_seed);

@@ -227,8 +227,8 @@ impl ConfidentialTransaction {
                     .owner_tag
                     .ok_or(TransactionError::DummyOutputWithoutOwnerTag { slot_index })?,
             };
-            // Padding borrowing the sender's tag must use the same encoding
-            // as a real output to the sender, so the encoding cannot identify it.
+            // Padding that borrows the sender's tag takes the sender's encoding.
+            // A different encoding would mark the slot as padding.
             owner_tags.push(if resolved == sender_tag.resolved {
                 sender_tag
             } else {

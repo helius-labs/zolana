@@ -87,7 +87,7 @@ fn shield(
 }
 
 #[test]
-fn a_client_over_the_harness_accepts_account_tagged_padding_outputs() {
+fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
     spawn_workspace_prover(IndexerRequirement::Optional);
     let (mut harness, tree, tree_id) = harness_with_tree();
     let payer = harness.payer.insecure_clone();
