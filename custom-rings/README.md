@@ -124,11 +124,11 @@ carry no check, so members register first. The SDKs refuse an unregistered
 output key before proving, `UnregisteredOutputKey` in Rust. A P-256 owner
 cannot sign `register_key` and cannot receive on an escrowed ring. A PDA owner
 registers only through a signed CPI from its program. A transact or an audited
-deposit names the registry root its proof binds, and the program looks it up in
-the last 32 roots before it verifies the proof. `register_key` needs no ring
-authority, so more than 32 registrations between a proof and its landing push
-that root out of the history, the program refuses it with
-`StaleKeyRegistryRoot`, and the SDKs prove again.
+deposit names the history slot of the registry root its proof binds, and a slot
+no root was written to fails as `StaleKeyRegistryRoot`. `register_key` needs no
+ring authority, so more than 32 registrations between a proof and its landing
+overwrite that slot and the program rejects the proof. The SDK submissions
+then read the history, find another root at the slot and prove again.
 
 A spend window caps what the ring settles publicly in one mint. `zolana-ring
 window set --mint sol --slots 216000 --withdrawal-cap 1000000000` counts every
@@ -429,9 +429,10 @@ from the policy config and trusts its rows only under the pinned hash
 with the stored rows. `RingSubmission` proves, signs and sends a
 `RingOperation` (a transfer, a delegate move, a spend or key registration, a
 merge, a deposit or a built instruction) as a v1 message. It keeps the intent
-across `StaleKeyRegistryRoot`, `WindowElapsed` and a verified blockhash expiry,
-with at most three signed attempts, and waits out a closing velocity window
-before it proves. Any other failure, a failed proof included, is final. An unknown outcome keeps the signature for status
+across `StaleKeyRegistryRoot`, `WindowElapsed`, a failed proof over an
+overwritten registry slot and a verified blockhash expiry, with at most three
+signed attempts, and waits out a closing velocity window before it proves. Any
+other failure is final. An unknown outcome keeps the signature for status
 checks, `send_until_settled` polls it until the cluster settles it.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
@@ -465,7 +466,8 @@ once for each windowed member.
 `openRingSealedKey` read its key with the auditor key, and
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
 submission APIs handle signing and retry on `RingProgramError.staleKeyRegistryRoot`,
-`RingProgramError.windowElapsed` and a verified blockhash expiry. `createRingMergeSubmission` consolidates
+`RingProgramError.windowElapsed`, a failed proof over an overwritten registry
+slot and a verified blockhash expiry. `createRingMergeSubmission` consolidates
 two to 24 clean notes of one owner, asset and ring (up to 54 with `maxInputs`), preserving their
 value and enforcing the configured transfer co-signer.
 
