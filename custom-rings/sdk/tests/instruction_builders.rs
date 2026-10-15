@@ -814,7 +814,7 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
             proof,
             policy_trees: vec![context(1, 2), context(3, 4)],
             window_index: 0,
-            key_registry_root: [5; 32],
+            key_registry_root: Some([5; 32]),
             approval_required: false,
             revocation_targets: reads.revocation_targets,
             revocation_tree_indexes: reads.revocation_tree_indexes,
@@ -938,7 +938,7 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
     let decoded: CustomRingTransactIxData =
         wincode::deserialize_exact(split_tag(&instruction).1).expect("complete body");
     assert!(decoded.policy_trees.is_empty());
-    assert_eq!(decoded.key_registry_root, [0; 32]);
+    assert_eq!(decoded.key_registry_root, None);
 }
 
 /// Settlement accounts come from the same interface builder, so a withdrawal's
@@ -1421,7 +1421,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(ix_tag, tag::DELEGATE_TRANSACT);
     assert_eq!(ix_tag, 25);
     let decoded: CustomRingTransactIxData = wincode::deserialize_exact(body).expect("body");
-    assert_eq!(decoded.key_registry_root, [4; 32]);
+    assert_eq!(decoded.key_registry_root, Some([4; 32]));
     assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(

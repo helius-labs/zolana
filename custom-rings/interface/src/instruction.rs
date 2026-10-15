@@ -192,8 +192,8 @@ pub struct CustomRingTransactIxData {
     pub policy_trees: Vec<TreeContext>,
     /// The window of the proven spend record, zero on every other statement.
     pub window_index: u64,
-    /// A root of the key registry history, zero unless the ring escrows nullifier keys.
-    pub key_registry_root: [u8; 32],
+    /// A root of the key registry history, present exactly when the ring escrows nullifier keys.
+    pub key_registry_root: Option<[u8; 32]>,
     /// Proof-bound approval demand, false when member amount controls do not apply.
     pub approval_required: bool,
     /// Canonical target prefix with a zero suffix in the policy public input.

@@ -269,7 +269,7 @@ function transactData(
   for (const context of contexts) writeTreeContext(prefix, context);
   prefix
     .u64(windowIndex, "windowIndex")
-    .bytes(policy?.keyRegistryRoot ?? new Uint8Array(32), 32, "keyRegistryRoot")
+    .option(policy?.keyRegistryRoot, (writer, root) => writer.bytes(root, 32, "keyRegistryRoot"))
     .bool(input.approvalRequired === true, "approvalRequired");
   const targets = policy?.revocationTargets ?? [];
   const treeIndexes = policy?.revocationTreeIndexes ?? [];

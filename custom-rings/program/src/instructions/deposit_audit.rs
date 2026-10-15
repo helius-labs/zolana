@@ -10,7 +10,7 @@ use crate::instructions::verifier::verify_groth16;
 
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
-    pub key_registry_root: [u8; 32],
+    pub key_registry_root: Option<[u8; 32]>,
     pub spp_data: &'a [u8],
 }
 
@@ -25,7 +25,8 @@ impl<'a> AuditedDeposit<'a> {
         }
         Ok(Self {
             proof: prefix.proof,
-            key_registry_root: prefix.key_registry_root,
+            // The fixed prefix writes an absent root as zero.
+            key_registry_root: Some(prefix.key_registry_root).filter(|root| *root != [0; 32]),
             spp_data,
         })
     }

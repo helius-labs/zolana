@@ -47,9 +47,12 @@ impl Forward {
             }
         }
         let key_registry_root = match &audited {
-            Some(audited) => {
-                load_escrow_root(program_id, escrow, &audited.key_registry_root, &mut iter)?
-            }
+            Some(audited) => load_escrow_root(
+                program_id,
+                escrow,
+                audited.key_registry_root.as_ref(),
+                &mut iter,
+            )?,
             None => None,
         };
         let rest = iter.remaining_mut()?;

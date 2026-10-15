@@ -112,20 +112,19 @@ pub fn load_spend_window_mut<'a>(
 pub fn load_escrow_root(
     program_id: &Address,
     escrow: KeyEscrow,
-    root: &[u8; 32],
+    root: Option<&[u8; 32]>,
     accounts: &mut AccountIterator<'_>,
 ) -> Result<Option<[u8; 32]>, ProgramError> {
-    match escrow {
-        KeyEscrow::Off if *root != [0; 32] => {
-            Err(CustomRingError::UnexpectedKeyRegistryRoot.into())
-        }
-        KeyEscrow::Off => Ok(None),
-        KeyEscrow::Registry => {
+    match (escrow, root) {
+        (KeyEscrow::Off, None) => Ok(None),
+        (KeyEscrow::Off, Some(_)) => Err(CustomRingError::UnexpectedKeyRegistryRoot.into()),
+        (KeyEscrow::Registry, root) => {
             let account = accounts.next_account("key_registry_root")?;
-            if !load::<KeyRegistryRoot>(program_id, account)?.holds(root) {
+            let root = root.copied().unwrap_or_default();
+            if !load::<KeyRegistryRoot>(program_id, account)?.holds(&root) {
                 return Err(CustomRingError::StaleKeyRegistryRoot.into());
             }
-            Ok(Some(*root))
+            Ok(Some(root))
         }
     }
 }

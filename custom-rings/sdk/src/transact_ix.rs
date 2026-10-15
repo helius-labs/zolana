@@ -33,10 +33,10 @@ impl EscrowBinding {
         root.map_or(Self::Off, |root| Self::Registry { root: root.root })
     }
 
-    pub(crate) const fn root(self) -> [u8; 32] {
+    pub(crate) const fn root(self) -> Option<[u8; 32]> {
         match self {
-            Self::Off => [0; 32],
-            Self::Registry { root } => root,
+            Self::Off => None,
+            Self::Registry { root } => Some(root),
         }
     }
 
@@ -257,7 +257,7 @@ impl RingStatement<'_> {
                 .map(|policy| policy.trees.iter().map(|tree| tree.context).collect())
                 .unwrap_or_default(),
             window_index: self.window_index,
-            key_registry_root: policy.map_or([0; 32], |policy| policy.escrow.root()),
+            key_registry_root: policy.and_then(|policy| policy.escrow.root()),
             approval_required: self.approval_required,
             revocation_targets: policy
                 .map_or([[0; 32]; ANSWER_SLOTS], |policy| policy.revocation_targets),

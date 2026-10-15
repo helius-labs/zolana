@@ -1541,7 +1541,7 @@ describe("ring transact", () => {
         "01" +
         "00000000" +
         "00".repeat(8) +
-        "00".repeat(32) +
+        "00" +
         "00" +
         "01" +
         "42".repeat(32) +
@@ -1583,13 +1583,13 @@ describe("ring transact", () => {
       await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
     ]);
     const data = instruction.data ?? new Uint8Array();
-    // Policy trees, window index, key registry root, then the approval bit.
-    expect(Array.from(data.slice(193, 210))).toEqual([
-      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0,
+    // Policy trees, window index, the present key registry root, then the approval bit.
+    expect(Array.from(data.slice(193, 211))).toEqual([
+      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0, 1,
     ]);
-    expect(data.slice(210, 242)).toEqual(filled(9, 32));
-    expect(data[242]).toBe(0);
-    const indexes = 243 + 1 + 2 * 32;
+    expect(data.slice(211, 243)).toEqual(filled(9, 32));
+    expect(data[243]).toBe(0);
+    const indexes = 244 + 1 + 2 * 32;
     expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
       [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     );

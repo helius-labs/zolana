@@ -1840,7 +1840,7 @@ pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> Custom
         proof,
         policy_trees: Vec::new(),
         window_index: 0,
-        key_registry_root: [0; 32],
+        key_registry_root: None,
         approval_required: false,
         revocation_targets: [[0; 32]; ANSWER_SLOTS],
         revocation_tree_indexes: [0; ANSWER_SLOTS],
@@ -1852,7 +1852,7 @@ pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> Custom
 pub fn escrowed(data: Vec<u8>) -> Vec<u8> {
     let mut ix: CustomRingTransactIxData =
         wincode::deserialize_exact(&data[1..]).expect("transact body");
-    ix.key_registry_root = KEY_REGISTRY_EMPTY_ROOT;
+    ix.key_registry_root = Some(KEY_REGISTRY_EMPTY_ROOT);
     encode_transact(data[0], &ix)
 }
 

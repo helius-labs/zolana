@@ -322,7 +322,7 @@ impl Deposit {
             let prefix = AuditedDepositPrefix {
                 tag: tag::AUDITED_DEPOSIT,
                 proof,
-                key_registry_root: self.escrow.root(),
+                key_registry_root: self.escrow.root().unwrap_or_default(),
             };
             instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
         }
