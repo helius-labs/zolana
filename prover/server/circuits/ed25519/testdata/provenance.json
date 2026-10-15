@@ -1,0 +1,29 @@
+{
+  "CCTV_source": "https://github.com/C2SP/CCTV/blob/main/ed25519/ed25519vectors.json",
+  "CCTV_original_sha256": "b38e84caf3e7e89170ff520292dbeae421b0a794c27408ce5ce973018fe3d7f9",
+  "Solana_precompile_ed25519_dalek": "1.0.1",
+  "Solana_precompile_curve25519_dalek": "3.2.0",
+  "scalar_oracle_curve25519_dalek": "4.1.3",
+  "Solana_precompile_ed25519_parser": "1.2.0",
+  "reference_sources": [
+    {
+      "url": "https://github.com/anza-xyz/agave/blob/master/precompiles/src/ed25519.rs",
+      "cached_sha256": "d044c226a6228fd6ba7838164b2ef1a6785c132527748acaf8faa5e330b50dc9",
+      "cache_saved_utc": "2026-10-11T17:15:22.791587+00:00"
+    },
+    {
+      "url": "https://github.com/anza-xyz/agave/blob/master/precompiles/Cargo.toml",
+      "cached_sha256": "5fe13e06aee09cdd6a15ae0fbbe91c2ab43a7d0ec1dfad2981e470dc84da8f6b",
+      "cache_saved_utc": "2026-10-11T17:15:23.113896+00:00"
+    },
+    {
+      "url": "https://github.com/anza-xyz/agave/blob/master/Cargo.lock",
+      "cached_sha256": "d0ee6f76e733e421bef802eca5b5bd96ecb1759034332ebb0e0299806216a05b",
+      "cache_saved_utc": "2026-10-11T17:32:36.941075+00:00"
+    }
+  ],
+  "optimization_sources": [
+    "https://zk.golf/submissions/b72dabf1-4777-426d-84e8-5eb061ceda82",
+    "https://zk.golf/submissions/1f6985a0-1b24-425d-9791-d3f62351289c"
+  ]
+}
