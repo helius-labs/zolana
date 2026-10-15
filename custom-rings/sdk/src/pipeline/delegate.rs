@@ -19,8 +19,8 @@ use super::{
     RingTransfer, Staged, TransferAuthority,
 };
 use crate::{
-    escrow::KeyRegistry, CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit,
-    RingError,
+    escrow::KeyRegistry, heap::boxed, CustomRing, CustomRingConfig, CustomRingProofParams,
+    EncryptedAudit, RingError,
 };
 
 #[derive(Clone)]
@@ -116,7 +116,7 @@ impl Delegated<'_> {
         }
         let key_registry =
             KeyRegistry::of(ring, config).ok_or(RingError::DelegateRequiresEscrow)?;
-        let pinned = pinned_policy(ring, client).await?;
+        let pinned = boxed(|| pinned_policy(ring, client)).await?;
         let assets = self.assets.ok_or(RingError::MissingAssetRegistry)?;
         let program = ring.program_id();
         let first = self.inputs.first().ok_or(TransactionError::NoInputs)?;

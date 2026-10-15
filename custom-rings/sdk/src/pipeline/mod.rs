@@ -40,6 +40,7 @@ use crate::{
     audit::{PendingCustomRingProof, PolicyProof},
     entry::zero_nullifier_key,
     escrow::KeyRegistry,
+    heap::boxed,
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
     request::{BaseBody, PolicyEnvelope},
@@ -178,8 +179,10 @@ impl<R: Rail> RingTransfer<R> {
             .await?
             .ok_or(RingError::MissingRingConfig)?;
         let staged = match self.rail.kind() {
-            RailKind::Owner(owner) => owner.stage(self.ring, client, &config).await?,
-            RailKind::Delegated(delegated) => delegated.stage(self.ring, client, &config).await?,
+            RailKind::Owner(owner) => boxed(|| owner.stage(self.ring, client, &config)).await?,
+            RailKind::Delegated(delegated) => {
+                boxed(|| delegated.stage(self.ring, client, &config)).await?
+            }
         };
         check_distinct(&staged.proof_inputs.input_utxos)?;
         let inputs = &staged.proof_inputs;
@@ -188,7 +191,7 @@ impl<R: Rail> RingTransfer<R> {
         let indexed = client.indexed_prover().is_some();
         let spp = Spp::witness(self, client, &staged, &trees).await?;
         let policy = match &staged.pinned {
-            Some(pinned) => Some(self.policy(client, &staged, pinned, indexed).await?),
+            Some(pinned) => Some(boxed(|| self.policy(client, &staged, pinned, indexed)).await?),
             None => None,
         };
         if policy
@@ -204,8 +207,10 @@ impl<R: Rail> RingTransfer<R> {
             None => Tier::Base(Box::new(staged.pending.finish_base(private_tx_hash)?)),
         };
         // Neither proof is an input to the other, the requests go out together.
-        let ((data, outputs), (proof, policy, approval_required)) =
-            futures::try_join!(spp.prove(client, &staged.proof_inputs), tier.prove(client))?;
+        let ((data, outputs), (proof, policy, approval_required)) = futures::try_join!(
+            boxed(|| spp.prove(client, &staged.proof_inputs)),
+            boxed(|| tier.prove(client)),
+        )?;
         Ok(ProvenRingTransfer {
             tx_viewing_key: staged.tx_viewing_key,
             data,
@@ -422,7 +427,7 @@ impl Tier {
             )),
             Self::Policy(request) => {
                 let approval_required = request.approval_required;
-                let (proof, reads) = request.prove(client).await?;
+                let (proof, reads) = boxed(|| request.prove(client)).await?;
                 Ok((proof, Some(reads), approval_required))
             }
         }

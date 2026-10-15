@@ -24,6 +24,7 @@ use super::{
 };
 use crate::{
     escrow::KeyRegistry,
+    heap::boxed,
     velocity::{charge, transaction_key, Outflows, RecordSpend, VelocityContext, VelocityPlan},
     CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, ReadSpendRecord,
     RingError, RingIdentity, VelocityProofInput,
@@ -98,7 +99,7 @@ impl Owner<'_> {
         let sender = self.sender.address()?;
         let member = Member::from_bytes(sender.signing_pubkey.owner_proof_input_hash()?)?;
         let pinned = match config.has_policy {
-            true => Some(pinned_policy(ring, client).await?),
+            true => Some(boxed(|| pinned_policy(ring, client)).await?),
             false => None,
         };
         let limit = match &pinned {

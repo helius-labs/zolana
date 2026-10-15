@@ -10,6 +10,7 @@ mod error;
 mod escrow;
 #[cfg(test)]
 mod golden_tests;
+mod heap;
 mod key_registry;
 mod merge;
 mod pipeline;

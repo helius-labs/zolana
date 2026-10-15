@@ -19,6 +19,7 @@ use crate::{
         namespace_write_metas, walk, EntryProof, InputSlot, LineageLookup, NamespaceWrite,
         SpentSlot,
     },
+    heap::boxed,
     policy_config_table,
     projection::retry_projection_lag,
     velocity::window_index,
@@ -246,7 +247,7 @@ impl RegisterSpend {
             counters_commitment: SpendCounters::EMPTY.commitment()?,
         };
         let address_tree = PoolTree::address_tree(&policy);
-        let (blinding, proof) = NamespaceWrite {
+        let write = NamespaceWrite {
             owner: &owner,
             namespace: self.ring.namespace_pda(),
             input_tree: address_tree,
@@ -254,9 +255,11 @@ impl RegisterSpend {
             payer: self.payer,
             slot: InputSlot::claim(&owner, spend_seed(&member)?, address, address_tree.id),
             output_data_hash: record.data_hash(&address)?,
-        }
-        .prove(client, |blinding| {
-            SpendRecord { blinding, ..record }.to_output_data().to_vec()
+        };
+        let (blinding, proof) = boxed(|| {
+            write.prove(client, |blinding| {
+                SpendRecord { blinding, ..record }.to_output_data().to_vec()
+            })
         })
         .await?;
         Ok(ProvenSpendRegistration {

@@ -16,7 +16,7 @@ use zolana_client::{
 };
 
 use crate::{
-    CustomRing, CustomRingTransfer, DelegateTransfer, EscrowBinding, MergeProofInput,
+    heap::boxed, CustomRing, CustomRingTransfer, DelegateTransfer, EscrowBinding, MergeProofInput,
     PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RegisterSpend, RingError,
 };
 
@@ -195,7 +195,8 @@ impl<'a> RingSubmission<'a> {
             let failure = match &self.pending {
                 Some(_) => None,
                 None => {
-                    let proved = match self.operation.prove(client, payer.pubkey()).await {
+                    let proving = boxed(|| self.operation.prove(client, payer.pubkey()));
+                    let proved = match proving.await {
                         Err(RingError::WindowClosing { resumes_at }) => {
                             wait_for_slot(client, resumes_at).await?;
                             continue;
@@ -263,7 +264,7 @@ impl<'a> RingSubmission<'a> {
         signers: &[&(dyn Signer + Sync)],
     ) -> Result<SettledSubmission, RingError> {
         loop {
-            match self.send(client, payer, signers).await? {
+            match boxed(|| self.send(client, payer, signers)).await? {
                 SubmissionStatus::Confirmed { signature, slot } => {
                     return Ok(SettledSubmission::Confirmed { signature, slot })
                 }
@@ -312,12 +313,12 @@ impl RingOperation<'_> {
         };
         Ok(match self {
             Self::Transfer(transfer) => {
-                let proven = transfer.prove(client).await?;
+                let proven = boxed(|| transfer.prove(client)).await?;
                 let bound = proven.bound_root();
                 proved(proven.instruction()?, InstructionTag::Transact, bound)
             }
             Self::Delegate(transfer) => {
-                let proven = transfer.prove(client).await?;
+                let proven = boxed(|| transfer.prove(client)).await?;
                 let bound = proven.bound_root();
                 proved(
                     proven.instruction()?,
@@ -326,26 +327,28 @@ impl RingOperation<'_> {
                 )
             }
             Self::RegisterSpend(registration) => {
-                let proven = registration.prove(client).await?;
+                let proven = boxed(|| registration.prove(client)).await?;
                 proved(proven.instruction()?, InstructionTag::RegisterSpend, None)
             }
             Self::RegisterKey(registration) => {
-                let proven = registration.prove(client).await?;
+                let proven = boxed(|| registration.prove(client)).await?;
                 proved(proven.instruction()?, InstructionTag::RegisterKey, None)
             }
             Self::Merge(operation) => {
-                let mut proven = operation
-                    .prepared
-                    .clone()
-                    .prove(operation.input.clone(), client)
-                    .await?;
+                let mut proven = boxed(|| {
+                    operation
+                        .prepared
+                        .clone()
+                        .prove(operation.input.clone(), client)
+                })
+                .await?;
                 if let Some(cosigner) = operation.cosigner {
                     proven = proven.with_cosigner(cosigner);
                 }
                 proved(proven.instruction(payer), InstructionTag::Merge, None)
             }
             Self::Deposit(deposit) => {
-                let (instruction, bound) = deposit.prove_bound(client).await?;
+                let (instruction, bound) = boxed(|| deposit.prove_bound(client)).await?;
                 Proved {
                     instruction,
                     budget: deposit.budget(),

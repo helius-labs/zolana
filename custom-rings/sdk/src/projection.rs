@@ -2,7 +2,7 @@ use core::future::Future;
 
 use zolana_client::IndexerPollConfig;
 
-use crate::RingError;
+use crate::{heap::boxed, RingError};
 
 /// `read` re-reads the chain state, a lagging answer holds only for the state it was asked under.
 pub(crate) async fn retry_projection_lag<T, F: Future<Output = Result<T, RingError>>>(
@@ -11,7 +11,7 @@ pub(crate) async fn retry_projection_lag<T, F: Future<Output = Result<T, RingErr
     let poll = IndexerPollConfig::default();
     let mut delays = poll.backoff();
     loop {
-        match read().await {
+        match boxed(&mut read).await {
             Err(error) if error.is_projection_lag() => match delays.next() {
                 Some(delay) => tokio::time::sleep(delay).await,
                 None => return Err(error),

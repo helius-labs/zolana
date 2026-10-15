@@ -36,7 +36,7 @@ use zolana_transaction::{
     SppProofOutputUtxo,
 };
 
-use crate::{trees::read_tree, CustomRing, PoolTree, RingError};
+use crate::{heap::boxed, trees::read_tree, CustomRing, PoolTree, RingError};
 
 /// A lineage walk reads at most this many versions.
 const MAX_LINEAGE_VERSIONS: usize = 1 << 16;
@@ -396,11 +396,12 @@ impl EntryWrite {
             slot,
             output_data_hash: entry.data_hash(&address)?,
         };
-        let (blinding, proof) = write
-            .prove(client, |blinding| {
+        let (blinding, proof) = boxed(|| {
+            write.prove(client, |blinding| {
                 ListEntry { blinding, ..entry }.to_output_data().to_vec()
             })
-            .await?;
+        })
+        .await?;
         Ok(ProvenEntry {
             ring: self.ring,
             payer: self.payer,
