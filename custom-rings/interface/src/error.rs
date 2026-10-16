@@ -45,7 +45,8 @@ ring_errors! {
     InvalidListId = 8126 => "list is unknown",
     // 8127 retired with the list entries.
     // 8128 retired, an empty policy table is valid.
-    // 8129, 8130 and 8131 retired with the list entries.
+    // 8129 and 8130 retired with the list entries.
+    InvalidNamespacePda = 8131 => "namespace PDA cannot be derived",
     InvalidAddressTree = 8132 => "address tree account is invalid",
     StalePolicyRoot = 8133 => "policy root index is outside the window the statement admits",
     InvalidSource = 8134 =>
@@ -84,7 +85,7 @@ ring_errors! {
     // 8171 retired with the revocation targets.
     InvalidPolicyTrees = 8172 => "policy tree accounts are invalid",
     // 8173 and 8174 retired with the window index.
-    UnexpectedMemberRegistryRoot = 8175 => "an audit-only ring binds no member registry root",
+    UnexpectedMemberRegistryRoot = 8175 => "the statement binds no member registry root",
     UnexpectedApproval = 8176 => "approval needs a member transfer under outflow limits",
     InvalidSettlementAccounts = 8177 => "settlement accounts do not match the public legs",
     TooManyPublicLegs = 8178 => "too many public legs",
