@@ -341,6 +341,8 @@ func validCustomRingBasePayload(t *testing.T) []byte {
 		params.TxViewingSk[i] = byte(i + 1)
 		params.EphSk[i] = byte(0x20 + i)
 	}
+	params.TxViewingSk[0] &= 248
+	params.TxViewingSk[31] = params.TxViewingSk[31]&127 | 64
 	params.AuditorPk[0] = 9
 	for i := range params.Outputs {
 		params.Outputs[i] = customring.AuditOpening{
