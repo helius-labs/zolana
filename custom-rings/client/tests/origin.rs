@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 use zolana_interface::{
     instruction::{InputUtxo, MessageData, OwnerTag, TransactOutput},
-    verifying_keys::{Bsb22Commitment, CacheAccess, CacheWrite, RingP256ProofData},
+    verifying_keys::{CacheAccess, CacheWrite},
 };
 use zolana_ring_client::{
     ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
@@ -267,27 +267,11 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         read_bitmap: 1,
         write_slots: CacheAccess::NO_WRITES,
     };
-    let circuits = [
-        CircuitId::RingEddsaCached(1, 2, 1, selection),
-        CircuitId::RingP256Cached(
-            1,
-            2,
-            1,
-            RingP256ProofData {
-                bsb22_commitment: Bsb22Commitment {
-                    commitment: [17; 32],
-                    commitment_pok: [18; 32],
-                },
-                default_owner_tag: Some([19; 32]),
-            },
-            selection,
-        ),
-    ];
+    let circuits = [CircuitId::RingEddsaCached(1, 2, 1, selection)];
     let mut writing = circuits;
     for circuit in &mut writing {
         match circuit {
-            CircuitId::RingEddsaCached(_, _, _, access)
-            | CircuitId::RingP256Cached(_, _, _, _, access) => {
+            CircuitId::RingEddsaCached(_, _, _, access) => {
                 access.write_slots = CacheAccess::NO_WRITES;
                 for (entry, (output, slot)) in access.write_slots.iter_mut().zip([(0, 0), (1, 1)]) {
                     *entry = CacheWrite { output, slot };

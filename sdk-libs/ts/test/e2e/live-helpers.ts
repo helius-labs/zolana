@@ -57,18 +57,11 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-export async function actor(
-  client: ZolanaClient,
-  seedByte: number,
-  rail: "ed25519" | "p256" = "ed25519",
-): Promise<Actor> {
+export async function actor(client: ZolanaClient, seedByte: number): Promise<Actor> {
   const seed = new Uint8Array(32).fill(seedByte) as Bytes32;
   const publicKey = ed25519.getPublicKey(seed);
   const signer = await createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...publicKey));
-  const keypair =
-    rail === "ed25519"
-      ? ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed))
-      : ShieldedKeypair.generate("p256");
+  const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
   return {
     signer,
     keypair,
@@ -78,15 +71,28 @@ export async function actor(
 }
 
 export async function signerFromWalletFile(path: string): Promise<KeyPairSigner> {
-  const parsed = JSON.parse(await readFile(path, "utf8")) as {
-    funding_secret_hex?: unknown;
-  };
-  if (typeof parsed.funding_secret_hex !== "string") {
-    throw new Error("test authority wallet has no funding secret");
+  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("version" in parsed) ||
+    parsed.version !== 3 ||
+    "mode" in parsed ||
+    !("signing_key_hex" in parsed) ||
+    typeof parsed.signing_key_hex !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(parsed.signing_key_hex)
+  ) {
+    throw new Error("test authority wallet has no owner secret");
   }
-  const seed = Uint8Array.from(Buffer.from(parsed.funding_secret_hex, "hex"));
-  if (seed.length !== 32) throw new Error("test authority funding secret must be 32 bytes");
-  return createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)));
+  const seed = Uint8Array.from(Buffer.from(parsed.signing_key_hex, "hex"));
+  if (seed.length !== 32) throw new Error("test authority owner secret must be 32 bytes");
+  const keypair = Uint8Array.of(...seed, ...ed25519.getPublicKey(seed));
+  try {
+    return await createKeyPairSignerFromBytes(keypair);
+  } finally {
+    seed.fill(0);
+    keypair.fill(0);
+  }
 }
 
 export async function liveHarness(): Promise<LiveHarness> {

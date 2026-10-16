@@ -19,7 +19,8 @@ use solana_signer::Signer;
 use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo};
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_ring_client::P256ReaderKey;
 use zolana_ring_client::{
     auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening,
     AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
@@ -126,9 +127,9 @@ impl Passkey {
         self
     }
 
-    fn pubkey(&self) -> P256Pubkey {
+    fn pubkey(&self) -> P256ReaderKey {
         let sec1 = self.key.verifying_key().to_encoded_point(true);
-        P256Pubkey::from_bytes(sec1.as_bytes().try_into().expect("compressed key")).expect("key")
+        P256ReaderKey::from_bytes(sec1.as_bytes().try_into().expect("compressed key")).expect("key")
     }
 }
 

@@ -10,7 +10,7 @@ use zolana_interface::{
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
-use zolana_keypair::{Curve, PublicKey};
+use zolana_keypair::PublicKey;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
@@ -136,26 +136,12 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
     Ok(hashes)
 }
 
-/// Selects how each input's private owner `pk_field` is derived for the witness.
-/// A P256-owned input is treated differently per mode; an
-/// ed25519-owned input always uses its own `owner_pk_field()`.
+/// Selects the public or hidden owner binding of an input.
 pub(crate) enum OwnerMode {
-    /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
-    /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
-    /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
-    /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
-    /// their normal public owner hash.
-    RingP256,
-    /// Merge: the circuit uses a single shared owner, so a P256 input contributes
-    /// the `0` sentinel here (the per-input value is ignored); ed25519 uses its
-    /// `pk_field`.
     Merge,
-    /// Ring authority (anonymous, pubkey-agnostic): every owner uses its own
-    /// `owner_pk_field()` as a private witness, regardless of scheme.
     RingAuthority,
-    /// Anonymous ring rail. Inputs of this hidden Ed25519 owner contribute the
-    /// zero sentinel, P256-owned inputs are rejected and no input reads a cache.
+    /// Inputs of the hidden owner contribute the private-ownership sentinel.
     RingEd25519(PublicKey),
 }
 
@@ -405,22 +391,9 @@ pub(crate) fn assemble_inputs(
         let utxo_hash = input_utxo.utxo.utxo_hash;
         let nullifier = input_utxo.utxo.nullifier;
 
-        let is_p256 = input_utxo.utxo.utxo.owner.curve()? == Curve::P256;
-        // Per-input owner pk_field, selected by mode. A P256 owner's value
-        // depends on the mode (see OwnerMode); an ed25519 owner always uses
-        // its own pk_field.
-        let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
-            (OwnerMode::ConfidentialEddsa | OwnerMode::RingEd25519(_), true) => {
-                return Err(ClientError::EddsaInputNotSolanaOwned { index })
-            }
-            (OwnerMode::RingEd25519(hidden), false) if input_utxo.utxo.utxo.owner == *hidden => {
-                [0u8; 32]
-            }
-            (OwnerMode::RingAuthority, true) => {
-                input_utxo.utxo.utxo.owner.owner_proof_input_hash()?
-            }
-            (_, false) => input_utxo.utxo.utxo.owner.owner_proof_input_hash()?,
+        let owner_pk_hash = match owner_mode {
+            OwnerMode::RingEd25519(hidden) if input_utxo.utxo.utxo.owner == *hidden => [0; 32],
+            _ => input_utxo.utxo.utxo.owner.owner_proof_input_hash()?,
         };
 
         inputs.push(TransferInput {
@@ -1377,7 +1350,7 @@ mod tests {
                 input_utxo_in(2, 1, 0x12, 4, 0x34),
                 last,
             ];
-            let assembled = assemble_inputs(&input_utxos, &OwnerMode::RingP256)
+            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
                 .expect("assemble interleaved inputs");
             assert_eq!(assembled.tree_ids, vec![4, 1]);
             assert_eq!(assembled.input_tree_indexes, vec![0, 1, 0]);

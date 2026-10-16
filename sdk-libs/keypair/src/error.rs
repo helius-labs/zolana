@@ -27,10 +27,7 @@ pub enum KeypairError {
     #[error("signing key is not ed25519")]
     NotEd25519,
 
-    #[error("signing key is not P256")]
-    NotP256,
-
-    #[error("a P256 owner has no Solana address")]
+    #[error("owner has no Solana address")]
     NoSolanaAddress,
 
     #[error("input would produce the derivation seed; use ShieldedKeypair::from_keypair")]

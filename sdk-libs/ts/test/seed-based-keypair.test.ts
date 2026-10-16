@@ -129,11 +129,6 @@ class SeedBasedShieldedKeypair implements ShieldedKeypairLike {
     return this.signingKey.sign(message);
   }
 
-  signHash(messageHash: Bytes32): Bytes64 {
-    this.signingPublicKey().p256();
-    return this.signingKey.sign(messageHash);
-  }
-
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
     return this.#nullifierKey.nullifier(utxoHash, blinding);
   }
@@ -243,7 +238,7 @@ describe("seed-based shielded keypair (docs/spec.md Seed phrase)", () => {
     );
   });
 
-  it("signs messages and refuses derivation inputs and P256 prehash signing", () => {
+  it("signs messages and refuses derivation inputs", () => {
     const keypair = new SeedBasedShieldedKeypair(TEST_MNEMONIC, 0);
     const message = new TextEncoder().encode("private tx hash binding");
     const signature = keypair.sign(message);
@@ -255,9 +250,6 @@ describe("seed-based shielded keypair (docs/spec.md Seed phrase)", () => {
     );
     expect(() => keypair.sign(ed25519DerivationMessage(signerPubkey))).toThrow(
       "KEYPAIR_DERIVATION_INPUT",
-    );
-    expect(() => keypair.signHash(new Uint8Array(32).fill(7) as Bytes32)).toThrow(
-      "KEYPAIR_INVALID_SIGNATURE_TYPE",
     );
   });
 });

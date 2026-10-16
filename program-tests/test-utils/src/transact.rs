@@ -522,7 +522,7 @@ pub fn prove_and_verify_transfer(
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
-/// P256 point works and a constant keeps the run deterministic.
+/// X25519 key works and a constant keeps the run deterministic.
 fn test_viewing_pubkey() -> X25519Pubkey {
     ViewingKey::from_bytes(&[5u8; 32])
         .expect("viewing key")

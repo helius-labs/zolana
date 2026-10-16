@@ -422,18 +422,14 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
 fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
     let owner = keypair(7);
     let stranger = keypair(9);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[5; 32]).unwrap()).unwrap();
+    let independent =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[5; 32])).unwrap();
     let sender = owner.shielded_address().unwrap();
     let tx = ViewingKey::new();
     for (foreign, error) in [
         (
             wallet_utxo(&stranger, Mint::SOL, 1, 0, 2),
             TransactionError::MergeInputOwnerMismatch { index: 1 },
-        ),
-        (
-            wallet_utxo(&p256, Mint::SOL, 1, 0, 2),
-            TransactionError::MergeInputRailMismatch { index: 1 },
         ),
         (
             {
@@ -460,11 +456,11 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
             Some(error)
         );
     }
-    let result = MergeTransaction::new(inputs(&p256, 1))
+    let result = MergeTransaction::new(inputs(&independent, 1))
         .unwrap()
-        .encrypt(&p256)
+        .encrypt(&independent)
         .unwrap();
-    assert_eq!(result.signing_pubkey, p256.signing_pubkey());
+    assert_eq!(result.signing_pubkey, independent.signing_pubkey());
     assert_eq!(result.output_utxo.amount, 2);
 }
 

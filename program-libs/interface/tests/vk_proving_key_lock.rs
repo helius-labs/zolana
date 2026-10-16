@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use zolana_interface::{
-    verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData, PROVING_KEY_SHA256S},
+    verifying_keys::{Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S},
     MAX_OUTPUTS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
@@ -49,12 +49,9 @@ fn proving_key_sha256s_match_lockfile() {
 fn circuit_proving_key_sha256_matches_its_key_file() {
     let table: BTreeMap<&str, [u8; 32]> = PROVING_KEY_SHA256S.iter().copied().collect();
     let slots = N_PUBLIC_SLOTS as u8;
-    let p256 = RingP256ProofData {
-        bsb22_commitment: Bsb22Commitment {
-            commitment: [0; 32],
-            commitment_pok: [0; 32],
-        },
-        default_owner_tag: None,
+    let commitment = Bsb22Commitment {
+        commitment: [0; 32],
+        commitment_pok: [0; 32],
     };
     let mut checked = 0;
     let max_inputs = u8::try_from(MAX_TRANSACT_INPUTS).expect("fits u8");
@@ -71,12 +68,8 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
                     CircuitId::RingEddsa(n_inputs, n_outputs, slots),
                 ),
                 (
-                    "transfer_p256_ring",
-                    CircuitId::RingP256(n_inputs, n_outputs, slots, p256),
-                ),
-                (
                     "transfer_ed25519_ring",
-                    CircuitId::RingEd25519(n_inputs, n_outputs, slots, p256.bsb22_commitment),
+                    CircuitId::RingEd25519(n_inputs, n_outputs, slots, commitment),
                 ),
                 (
                     "transfer_ring_authority",

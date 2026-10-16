@@ -371,6 +371,7 @@ describe("fresh ring controls", () => {
             buildRingDepositTransaction({
               client,
               ringProgramId,
+              depositor: sender.signer.address,
               feePayer: sender.signer.address,
               recipient: refused,
               amount: 1n,
@@ -387,6 +388,7 @@ describe("fresh ring controls", () => {
           await buildRingDepositTransaction({
             client,
             ringProgramId,
+            depositor: sender.signer.address,
             feePayer: sender.signer.address,
             recipient: sender.keypair.shieldedAddress(),
             amount,
@@ -403,6 +405,7 @@ describe("fresh ring controls", () => {
           await buildRingDepositTransaction({
             client,
             ringProgramId,
+            depositor: harness.testAuthority.address,
             feePayer: harness.testAuthority.address,
             recipient: sender.keypair.shieldedAddress(),
             asset,

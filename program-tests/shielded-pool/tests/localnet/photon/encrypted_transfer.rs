@@ -6,8 +6,7 @@ use super::*;
 /// ciphertext the Photon indexer returns -- no plaintext reconstruction.
 ///
 /// Two real inputs are used so no input slot of the 2x4 shape is padded with a
-/// dummy nullifier. The P256-rail twin of this test was removed with the P256
-/// transact rail (PR164).
+/// dummy nullifier.
 #[test]
 #[serial]
 fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {

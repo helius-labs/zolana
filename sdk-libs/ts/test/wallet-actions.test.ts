@@ -210,6 +210,7 @@ describe("private transaction construction", () => {
     await expect(
       buildDepositTransaction({
         client: latestBlockhashClient(),
+        depositor: PAYER,
         feePayer: PAYER,
         recipient: keypair.shieldedAddress(),
         amount: 0n,
@@ -638,11 +639,8 @@ describe("keys at the wallet boundary", () => {
     }
   });
 
-  it("treats the fee payer as the Solana account of a P256 owner", async () => {
-    // A P256 identity has no Solana key of its own; the account that registered
-    // it and signs for it is the fee payer, so approval and the registry record
-    // both go by that account.
-    const keypair = ShieldedKeypair.generate("p256");
+  it.each([undefined, PAYER])("keeps the Ed25519 merge owner with payer %s", async (feePayer) => {
+    const keypair = ShieldedKeypair.generate("ed25519");
     const wallet = fundedWallet(keypair, [20n, 30n]);
     const { approve, requests } = recordingApproval();
     const never = (member: string) => (): never => {
@@ -658,12 +656,20 @@ describe("keys at the wallet boundary", () => {
     };
 
     await expect(
-      buildMergeTransaction({ client, wallet, keys: localKeys(keypair), approve, feePayer: PAYER }),
+      buildMergeTransaction({
+        client,
+        wallet,
+        keys: localKeys(keypair),
+        approve,
+        ...(feePayer === undefined ? {} : { feePayer }),
+      }),
     ).rejects.toMatchObject({
       code: "WALLET_BUILD_MERGE",
       causeCode: "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
     });
-    expect(requests.map((request) => request.solanaPublicKey)).toEqual([PAYER]);
+    expect(requests.map((request) => request.solanaPublicKey)).toEqual([
+      keypair.shieldedAddress().solanaAddress(),
+    ]);
     expect(wallet._reservationEntries()).toHaveLength(0);
   });
 
@@ -688,13 +694,32 @@ describe("unsigned public transaction builders", () => {
     const signer = await generateKeyPairSigner();
     const transaction = await buildDepositTransaction({
       client: latestBlockhashClient(),
-      feePayer: signer.address,
+      depositor: signer.address,
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       amount: 42n,
     });
 
     expect(() => assertIsFullySignedTransaction(transaction)).toThrow();
     const signed = await signTransactionWithSigners([signer], transaction);
+    expect(() => assertIsFullySignedTransaction(signed)).not.toThrow();
+  });
+
+  it("keeps the asset source signer when a sponsor pays deposit fees", async () => {
+    const source = await generateKeyPairSigner();
+    const sponsor = await generateKeyPairSigner();
+    const transaction = await buildDepositTransaction({
+      client: latestBlockhashClient(),
+      depositor: source.address,
+      feePayer: sponsor.address,
+      recipient: ShieldedKeypair.generate().shieldedAddress(),
+      amount: 42n,
+    });
+
+    expect(Object.keys(transaction.signatures).sort()).toEqual(
+      [source.address, sponsor.address].sort(),
+    );
+    await expect(signTransactionWithSigners([sponsor], transaction)).rejects.toThrow();
+    const signed = await signTransactionWithSigners([source, sponsor], transaction);
     expect(() => assertIsFullySignedTransaction(signed)).not.toThrow();
   });
 
@@ -724,7 +749,6 @@ describe("unsigned public transaction builders", () => {
 
   it("includes idempotent Token-2022 ATA setup in a withdrawal build", async () => {
     const keypair = spendingKeypair();
-    const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n], { asset: SPL_MINT });
     const { client, assemble } = capturePrivateBuild();
 
@@ -732,7 +756,6 @@ describe("unsigned public transaction builders", () => {
       client,
       wallet,
       keys: localKeys(keypair),
-      feePayer: payer,
       recipient: RECIPIENT,
       asset: SPL_MINT,
       amount: 25n,
@@ -755,35 +778,40 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
-  it("builds a transfer and a split whose fee payer sponsors the UTXO owner", async () => {
-    const keypair = spendingKeypair();
-    const owner = keypair.shieldedAddress().solanaAddress();
-    const { client, assemble } = capturePrivateBuild();
+  it.each([undefined, RECIPIENT])(
+    "binds the owner or explicit payer in transfer and split: %s",
+    async (feePayer) => {
+      const keypair = spendingKeypair();
+      const owner = keypair.shieldedAddress().solanaAddress();
+      const { client, assemble } = capturePrivateBuild();
 
-    await buildTransferTransaction({
-      client,
-      wallet: fundedWallet(keypair, [100n]),
-      keys: localKeys(keypair),
-      feePayer: RECIPIENT,
-      recipient: ShieldedKeypair.generate().shieldedAddress(),
-      amount: 25n,
-    });
-    await buildSplitTransaction({
-      client,
-      wallet: fundedWallet(keypair, [100n]),
-      keys: localKeys(keypair),
-      feePayer: RECIPIENT,
-    });
+      await buildTransferTransaction({
+        client,
+        wallet: fundedWallet(keypair, [100n]),
+        keys: localKeys(keypair),
+        ...(feePayer === undefined ? {} : { feePayer }),
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 25n,
+      });
+      await buildSplitTransaction({
+        client,
+        wallet: fundedWallet(keypair, [100n]),
+        keys: localKeys(keypair),
+        ...(feePayer === undefined ? {} : { feePayer }),
+      });
 
-    expect(assemble).toHaveBeenCalledTimes(2);
-    for (const [request] of assemble.mock.calls) {
-      expect(request.feePayer).toBe(RECIPIENT);
-      const material = authorizedPrivateTransactionMaterial(request.authorized);
-      if (material === undefined) throw new Error("authorization was not minted");
-      expect(material.proofInputs.payer).toBe(RECIPIENT);
-      expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
-    }
-  });
+      expect(assemble).toHaveBeenCalledTimes(2);
+      for (const [request] of assemble.mock.calls) {
+        expect(request.feePayer).toBe(feePayer ?? owner);
+        const material = authorizedPrivateTransactionMaterial(request.authorized);
+        if (material === undefined) throw new Error("authorization was not minted");
+        expect(material.proofInputs.payer).toBe(feePayer ?? owner);
+        expect(ownerSignerAddresses(material.proofInputs.inputUtxos, feePayer ?? owner)).toEqual(
+          feePayer === undefined ? [] : [owner],
+        );
+      }
+    },
+  );
 
   it("hands the build's request context to the key holder", async () => {
     // A remote holder stops its round trip when the caller's signal fires;
@@ -1194,7 +1222,6 @@ describe("ring approval summary", () => {
         wallet,
         keys: localKeys(keypair),
         approve,
-        feePayer: keypair.shieldedAddress().solanaAddress(),
         amount: 25n,
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_ENTRY" });
@@ -1393,27 +1420,32 @@ describe("multi-recipient transfer", () => {
     expect(wallet.utxos()[0]?.spent).toBe(false);
   });
 
-  it("lets a fee payer other than the owner sponsor the payments", async () => {
-    const keypair = spendingKeypair();
-    const owner = keypair.shieldedAddress().solanaAddress();
-    const { client, assemble } = capturePrivateBuild();
-    await buildMultiTransferTransaction({
-      client,
-      wallet: fundedWallet(keypair, [100n]),
-      keys: localKeys(keypair),
-      feePayer: RECIPIENT,
-      payments: [
-        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 25n },
-        { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 1n },
-      ],
-    });
-    const [request] = assemble.mock.calls[0]!;
-    expect(request.feePayer).toBe(RECIPIENT);
-    const material = authorizedPrivateTransactionMaterial(request.authorized);
-    if (material === undefined) throw new Error("authorization was not minted");
-    expect(material.proofInputs.payer).toBe(RECIPIENT);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
-  });
+  it.each([undefined, RECIPIENT])(
+    "binds the owner or sponsored payment payer: %s",
+    async (feePayer) => {
+      const keypair = spendingKeypair();
+      const owner = keypair.shieldedAddress().solanaAddress();
+      const { client, assemble } = capturePrivateBuild();
+      await buildMultiTransferTransaction({
+        client,
+        wallet: fundedWallet(keypair, [100n]),
+        keys: localKeys(keypair),
+        ...(feePayer === undefined ? {} : { feePayer }),
+        payments: [
+          { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 25n },
+          { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 1n },
+        ],
+      });
+      const [request] = assemble.mock.calls[0]!;
+      expect(request.feePayer).toBe(feePayer ?? owner);
+      const material = authorizedPrivateTransactionMaterial(request.authorized);
+      if (material === undefined) throw new Error("authorization was not minted");
+      expect(material.proofInputs.payer).toBe(feePayer ?? owner);
+      expect(ownerSignerAddresses(material.proofInputs.inputUtxos, feePayer ?? owner)).toEqual(
+        feePayer === undefined ? [] : [owner],
+      );
+    },
+  );
 
   it("keeps a single payment a transfer approval", async () => {
     const keypair = spendingKeypair();

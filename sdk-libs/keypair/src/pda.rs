@@ -162,10 +162,6 @@ impl ShieldedKeypairTrait for ShieldedPda {
         Err(KeypairError::PdaCannotSign)
     }
 
-    fn sign_hash(&self, _hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        Err(KeypairError::PdaCannotSign)
-    }
-
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],

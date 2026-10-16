@@ -348,7 +348,7 @@ fn create_is_permissionless_and_scoped_to_the_signing_sponsor() {
 
 #[test]
 fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
-    for case in ["occupied", "slot", "expired", "p256", "zero proof"] {
+    for case in ["occupied", "slot", "expired", "zero proof"] {
         let Pool {
             mut rpc,
             tree,
@@ -356,8 +356,7 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
             ..
         } = Pool::initialized();
         let owner = rpc.payer.pubkey();
-        let p256 = case == "p256";
-        let record = write_user_record(&mut rpc, owner, p256.then_some([2; 33]), true);
+        let record = write_user_record(&mut rpc, owner, true);
         let expires_at = now(&rpc) + 1_000;
         let (cache, _, create_ix) = create(owner, 4, tree_id, expires_at);
         rpc.create_and_send_default_payer_transaction(&[create_ix], &[])
@@ -373,7 +372,6 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
                 warp(&mut rpc, expires_at);
                 ShieldedPoolError::CacheExpired
             }
-            // A P256 registry owner caches like any other: only the proof stops it.
             _ => ShieldedPoolError::TransactProofVerificationFailed,
         };
         store(&mut rpc, cache, cache_state);
@@ -382,7 +380,7 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),
-            eddsa_owner: !p256,
+            eddsa_owner: true,
             private_tx_hash: [0; 32],
             nullifiers: (1..=8).map(fe).collect(),
             utxo_tree_root_index: 0,

@@ -773,8 +773,6 @@ mod tests {
     };
     use solana_account::Account;
     use solana_pubkey::Pubkey;
-    use zolana_interface::P_DERIVE_SEC1;
-    use zolana_keypair::SigningKey;
     use zolana_ring_policy::{ListSet, Rule, Subject, MAX_RULES};
 
     use super::*;
@@ -912,7 +910,7 @@ mod tests {
         let mut invalid_key = value;
         invalid_key.auditor_pubkey = [0u8; 33];
         let mut reserved_key = value;
-        reserved_key.auditor_pubkey = P_DERIVE_SEC1;
+        reserved_key.auditor_pubkey = [3; 33];
 
         let invalid = [
             AccountRpc {
@@ -939,10 +937,13 @@ mod tests {
     #[test]
     fn reader_read_rejects_substituted_state() {
         let reader = ReaderKey::p256(
-            SigningKey::new_p256()
-                .pubkey()
-                .as_p256()
-                .expect("P256 signing key"),
+            zolana_ring_client::P256ReaderKey::from_bytes(
+                hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .expect("reader");
         let address = ring().read_access_record_pda(&reader);

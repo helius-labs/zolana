@@ -1,10 +1,5 @@
 import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
-import {
-  P256_OWNER_TAG,
-  SOLANA_OWNER_TAG,
-  hashBytes,
-  initializePoseidon,
-} from "../hasher/index.js";
+import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import type {
@@ -68,7 +63,7 @@ export interface DecryptedAnonymousRingTrace {
   readonly inputs: readonly Readonly<{ treeId: number; amount: bigint; asset: Bytes32 }>[];
   readonly recipients: readonly Readonly<{
     slotIndex: number;
-    identityTag: typeof SOLANA_OWNER_TAG | typeof P256_OWNER_TAG;
+    identityTag: typeof SOLANA_OWNER_TAG;
     identityKey: Bytes32;
     nullifierPk: Bytes32;
     amount: bigint;
@@ -602,7 +597,7 @@ function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymou
   const recipients = disclosure.outputs.flatMap((output, slotIndex) => {
     if (isDummyAnonymousOutput(output)) return [];
     const { identityTag } = output;
-    if (identityTag !== SOLANA_OWNER_TAG && identityTag !== P256_OWNER_TAG) {
+    if (identityTag !== SOLANA_OWNER_TAG) {
       throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
         details: { reason: "identityTag", slotIndex },
       });

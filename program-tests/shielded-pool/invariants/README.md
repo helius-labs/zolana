@@ -4,14 +4,9 @@ Test-coverage checklist derived from the program source. Detailed invariants
 live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
-Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
-"post-PR164" below refers to that update. PR172 (signer-run authorization,
-owner-hidden ring deposits, the RingP256 rail) has landed: the P256 N/A
-entries are re-activated in their RingP256 scope (INV-TRANSACT-06, -11,
-INV-RING-TRANSACT-06, INV-RING-AUTH-05, INV-XC-12), INV-XC-32 covers
-retired-and-new wire formats, and new entries pin the signer-run model
-(INV-TRANSACT-45), the RingP256ProofData payload (INV-XC-33), and the
-signer-account owner rotation hardening (INV-UPDATE-ZC-OWNER-02/-05).
+P-256 ownership and its selectors are retired. Runtime Ed25519 ownership and
+anonymous Ed25519 proofs are distinct authorization paths. Historical IDs below
+remain stable, with retired coverage identified in the per-instruction files.
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
 uncovered; `- [~]` covered on a companion security branch (#175/#176) that
@@ -78,7 +73,7 @@ repeated in each cell above: INV-XC-06/07 (expiry), INV-XC-08 (pause), INV-XC-09
 external_data_hash), INV-XC-19/20 (value binding), INV-XC-31 (TreeError
 conversion), INV-XC-32 (retired wire formats fail closed). Dispatch invariants
 INV-XC-01..03
-apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicable.
+apply to every row. INV-XC-12 tracks the anonymous commitment proof boundary.
 
 ## Summary
 
@@ -153,7 +148,7 @@ transacts that its immutable write authority signs. Every owner-signed transact
 circuit includes a cache selection in its public input hash whether or not a
 cache is supplied, so a cached spend verifies against its rail's ordinary key
 through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
-`RingEddsaCached`, `RingP256Cached`); `RingAuthority` binds no selection.
+`RingEddsaCached`); `RingAuthority` binds no selection.
 INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):

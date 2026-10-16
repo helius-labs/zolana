@@ -12,7 +12,6 @@ import (
 	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
 	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
@@ -26,7 +25,7 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, shape := range protocol.SupportedShapes {
-		for _, family := range []string{"transfer_ring", "transfer_confidential", "transfer_p256_ring", "transfer_ring_authority"} {
+		for _, family := range []string{"transfer_ring", "transfer_confidential", "transfer_ring_authority"} {
 			name := fmt.Sprintf("%s_%d_%d.key", family, shape.NInputs, shape.NOutputs)
 			if _, ok := manifest.Keys[name]; !ok {
 				continue
@@ -56,12 +55,6 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 					refreshRingAuthorityPublicInputHash(t, assignment)
 					circuit = asCustomRingAuthority(assignment)
 					circuit.(*customring.CustomRingAuthorityCircuit).Shape = assignment.Shape
-				case "transfer_p256_ring":
-					owner := spptest.FixedP256Key(t, 11)
-					rewriteInputAsP256(t, assignment, 0, owner)
-					authorization := authorizeP256(t, assignment, owner, owner)
-					circuit = asCustomRingP256(assignment, authorization)
-					circuit.(*customring.CustomRingP256Circuit).Shape = assignment.Shape
 				}
 				aeglosfixture.Write(t, name, variant, circuit)
 			}

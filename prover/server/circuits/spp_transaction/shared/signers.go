@@ -95,49 +95,6 @@ func HiddenOwnerSigners(
 	return signers
 }
 
-// AssertDefaultP256Owner publishes the shared P256 identity iff at least one
-// spent P256 UTXO belongs to the default ring. Ring-only P256 inputs keep the
-// shared owner private and require the public field to be zero.
-//
-// A ring P256 input is an anonymous spend, so the shared identity must stay out
-// of the transaction's public data: no default-ring P256 input may force it
-// into defaultP256OwnerPkHash, and no published output owner tag may equal it.
-// Publishing the identity without a ring P256 input is allowed; moving a
-// default-ring P256 UTXO into the ring names the depositor, not a ring spender.
-//
-// Address slots count as neither. An address has RingProgramID 0
-// (checkAddress), so treating it as a default-ring input would publish the
-// identity of a ring spender who creates an address in the same proof and
-// would forbid that combination. Creating an address spends nothing, so it
-// does not force the identity into public data; a P256 address-only proof
-// publishes zero.
-func AssertDefaultP256Owner(
-	api frontend.API,
-	inputs []Input,
-	ownerPkHashes []frontend.Variable,
-	publishedOutputOwnerPkHashes []frontend.Variable,
-	p256PkHash frontend.Variable,
-	defaultP256OwnerPkHash frontend.Variable,
-) {
-	hasDefaultP256 := frontend.Variable(0)
-	hasRingP256 := frontend.Variable(0)
-	for i, in := range inputs {
-		isP256 := api.IsZero(ownerPkHashes[i])
-		isDefaultRing := api.IsZero(in.Utxo.RingProgramID)
-		realP256 := api.Mul(in.isUtxo(api), isP256)
-		hasDefaultP256 = api.Add(hasDefaultP256, api.Mul(realP256, isDefaultRing))
-		hasRingP256 = api.Add(hasRingP256, api.Mul(realP256, api.Sub(1, isDefaultRing)))
-	}
-	hasDefaultP256 = api.Sub(1, api.IsZero(hasDefaultP256))
-	hasRingP256 = api.Sub(1, api.IsZero(hasRingP256))
-	api.AssertIsEqual(defaultP256OwnerPkHash, api.Mul(hasDefaultP256, p256PkHash))
-
-	api.AssertIsEqual(api.Mul(hasRingP256, hasDefaultP256), 0)
-	for _, published := range publishedOutputOwnerPkHashes {
-		assertZeroWhen(api, hasRingP256, api.IsZero(api.Sub(published, p256PkHash)))
-	}
-}
-
 // AssertHiddenRingOwner keeps the hidden owner out of public data. An address
 // nullifier is computable from (owner, seed), so no slot may create an address.
 func AssertHiddenRingOwner(

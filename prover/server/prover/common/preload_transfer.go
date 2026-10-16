@@ -8,7 +8,7 @@ import (
 
 var transferPreloadCircuits = []CircuitType{
 	TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
-	TransferP256RingCircuitType, TransferEd25519RingCircuitType, MergeCircuitType, MergeRingCircuitType,
+	TransferEd25519RingCircuitType, MergeCircuitType, MergeRingCircuitType,
 }
 
 // TransferCircuitTypes returns the shared transfer/merge routing and preload set.

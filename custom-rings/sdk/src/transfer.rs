@@ -312,6 +312,8 @@ pub enum DepositError {
     Hashing,
     #[error("anonymous rings require an Ed25519 recipient")]
     AnonymousRecipient,
+    #[error("anonymous deposits require public signers distinct from the recipient owner")]
+    AnonymousPublicSignerLinksOwner,
     #[error(transparent)]
     Keypair(#[from] KeypairError),
     #[error(transparent)]
@@ -387,6 +389,17 @@ impl<'a> CustomRingTransfer<'a> {
         self
     }
 
+    /// The outer fee payer must not publish the owner hidden by the proof.
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) fn check_fee_payer(&self, payer: Address) -> Result<(), TransferError> {
+        if self.anonymous_signer.is_some()
+            && self.sender.address()?.signing_pubkey.as_ed25519()? == payer.to_bytes()
+        {
+            return Err(TransferError::AnonymousPublicSignerLinksOwner);
+        }
+        Ok(())
+    }
+
     /// The policy entries the proof reads wait until the indexer has persisted
     /// `config.require_slot`: an entry read behind the latest update fails the
     /// proof on chain, or refuses a rule the update already satisfies.
@@ -422,7 +435,7 @@ impl<'a> CustomRingTransfer<'a> {
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?;
         let key_registry = KeyRegistry::of(self.ring, &config);
-        let source = ring_proof_data_source(config.mode, environment.prover.proof_data_source());
+        let source = environment.prover.proof_data_source();
         let policy = match self.policy_lookup(&config, environment.rpc)? {
             Some(lookup) => Some(lookup.read(ReadEnvironment {
                 indexer: environment.indexer,
@@ -500,7 +513,7 @@ impl<'a> CustomRingTransfer<'a> {
             .await?
             .ok_or(TransferError::MissingRingConfig)?;
         let key_registry = KeyRegistry::of(self.ring, &config);
-        let source = ring_proof_data_source(config.mode, environment.prover.proof_data_source());
+        let source = environment.prover.proof_data_source();
         let policy = match self.policy_lookup_async(&config, environment.rpc).await? {
             Some(lookup) => Some(
                 lookup
@@ -893,7 +906,9 @@ fn anonymous_disclosure(
                 return Ok(AnonymousOutputOpening::default());
             };
             let identity_tag = match owner.signing_pubkey.curve()? {
-                Curve::P256 => zolana_hasher::primitives::P256_OWNER_TAG,
+                Curve::P256 => {
+                    return Err(zolana_keypair::KeypairError::InvalidSignatureType(0).into())
+                }
                 Curve::Ed25519 | Curve::Pda => zolana_hasher::primitives::SOLANA_OWNER_TAG,
             };
             Ok(AnonymousOutputOpening {
@@ -1441,16 +1456,6 @@ struct StagedTransfer {
     indexer_config: Option<IndexerRpcConfig>,
 }
 
-/// The anonymous signature rail has no indexed witness request. Resolve its
-/// witnesses through the existing client loader before submitting either proof.
-fn ring_proof_data_source(mode: RingMode, requested: ProofDataSource) -> ProofDataSource {
-    if mode == RingMode::Anonymous {
-        ProofDataSource::Client
-    } else {
-        requested
-    }
-}
-
 impl StagedTransfer {
     fn tree_plan(&self) -> SpendTreePlan {
         SpendTreePlan::new(
@@ -1541,13 +1546,16 @@ impl StagedTransfer {
             authority.complete_inputs(&mut ring_result.inputs.inputs)?;
             SppWitness::Complete(Box::new(ring_result))
         } else {
-            if self.anonymous_signer.is_some() {
-                return Err(TransferError::InvalidAnonymousSlot);
-            }
             SppWitness::Indexed(Box::new(
                 IndexedTransferPreparation {
                     transaction: self.proof_inputs.clone(),
-                    rail: IndexedTransferRail::Ring(self.program_id),
+                    rail: match self.anonymous_signer.as_ref() {
+                        Some(owner) => IndexedTransferRail::RingEd25519 {
+                            ring: self.program_id,
+                            owner,
+                        },
+                        None => IndexedTransferRail::Ring(self.program_id),
+                    },
                 }
                 .prepare_with_dummy_policy(&authority, trees.allow_dummy_inputs)?,
             ))
@@ -2012,7 +2020,7 @@ impl SppWitness {
             }
         };
         let proof = if matches!(self, Self::Anonymous(_)) {
-            compressed.into_ring_p256_transact_parts()?.0
+            compressed.into_committed_transact_parts()?.0
         } else {
             compressed.to_transact_proof()
         };
@@ -2079,17 +2087,14 @@ impl WitnessedTransfer {
             policy,
             approval_required,
         } = self.request.proven(ring_proof)?;
+        let owner_signers = settlement_owner_signers(&spp_proof.circuit, &self.proof_inputs)?;
         Ok(ProvenTransfer {
             #[cfg(feature = "solana-rpc")]
             window: self.window,
             tx_viewing_key: self.tx_viewing_key,
             data: spp_proof,
             proof,
-            owner_signers: if matches!(self.spp, SppWitness::Anonymous(_)) {
-                Vec::new()
-            } else {
-                self.proof_inputs.owner_signer_pubkeys()?
-            },
+            owner_signers,
             interface_transfer_accounts: self.interface_transfer_accounts,
             policy,
             cosigner: self.cosigner,
@@ -2101,7 +2106,21 @@ impl WitnessedTransfer {
     }
 }
 
+/// The settled circuit determines owner disclosure independently of witness delivery.
+fn settlement_owner_signers(
+    circuit: &CircuitId,
+    inputs: &SppProofInputs,
+) -> Result<Vec<Address>, TransferError> {
+    if matches!(circuit, CircuitId::RingEd25519(..)) {
+        Ok(Vec::new())
+    } else {
+        Ok(inputs.owner_signer_pubkeys()?)
+    }
+}
+
 impl ProvenTransfer {
+    /// Builds the ring instruction. Direct anonymous callers must keep the outer
+    /// fee payer distinct from the owner, as `RingSubmission` does when sending.
     pub fn instruction(&self) -> Result<Instruction, TransferError> {
         CustomRingTransact {
             ring: self.ring,
@@ -2119,6 +2138,21 @@ impl ProvenTransfer {
         .instruction()
         .map_err(Into::into)
     }
+}
+
+/// Public deposit authorities must not reveal the hidden recipient.
+fn check_anonymous_deposit_signers(
+    anonymous: bool,
+    owner: zolana_keypair::PublicKey,
+    signers: impl IntoIterator<Item = Address>,
+) -> Result<(), DepositError> {
+    if anonymous {
+        let owner = owner.as_ed25519()?;
+        if signers.into_iter().any(|signer| signer.to_bytes() == owner) {
+            return Err(DepositError::AnonymousPublicSignerLinksOwner);
+        }
+    }
+    Ok(())
 }
 
 impl RingDeposit<'_> {
@@ -2152,6 +2186,11 @@ impl RingDeposit<'_> {
         if anonymous && self.recipient.signing_pubkey().curve()? != Curve::Ed25519 {
             return Err(DepositError::AnonymousRecipient);
         }
+        check_anonymous_deposit_signers(
+            anonymous,
+            self.recipient.signing_pubkey(),
+            std::iter::once(self.payer.pubkey()).chain(self.cosigner.map(Signer::pubkey)),
+        )?;
         let blinding = random_blinding();
         let owner_hash = self.recipient.owner_hash()?;
         let mut deposit = RingAssetDeposit {
@@ -2258,15 +2297,27 @@ impl RingDeposit<'_> {
         self,
         env: DepositProofEnvironment<'_, I, zolana_client::SolanaRpc>,
     ) -> Result<RingDepositReceipt, DepositError> {
+        self.send_with_fee_payer(env, None)
+    }
+
+    /// Sponsors transaction fees without changing the SOL source or token authority.
+    #[cfg(feature = "solana-rpc")]
+    pub fn send_with_fee_payer<I: Rpc>(
+        self,
+        env: DepositProofEnvironment<'_, I, zolana_client::SolanaRpc>,
+        fee_payer: Option<&dyn Signer>,
+    ) -> Result<RingDepositReceipt, DepositError> {
+        // 1. Fix the note and asset source before selecting a fee sponsor.
         let prepared = self.prepare(env.rpc)?;
         let utxo = prepared.utxo.clone();
-        let signers: Vec<&dyn Signer> = self.cosigner.into_iter().collect();
+        // 2. Retain the source authority when another signer pays transaction fees.
+        let signers: Vec<&dyn Signer> = std::iter::once(self.payer).chain(self.cosigner).collect();
         let status = crate::RingSubmission::new(prepared).send_until_settled(
             crate::SubmissionEnvironment {
                 indexer: env.indexer,
                 rpc: env.rpc,
                 prover: env.prover,
-                payer: self.payer,
+                payer: fee_payer.unwrap_or(self.payer),
                 signers: &signers,
             },
         )?;
@@ -2282,6 +2333,8 @@ impl RingDeposit<'_> {
 }
 
 /// A deposit whose note and auditor ciphertext are fixed, the proof is not.
+/// Direct anonymous callers must keep the outer fee payer distinct from the
+/// recipient owner. `RingSubmission` checks this before proving and sending.
 pub struct PreparedRingDeposit {
     ring: CustomRing,
     tree: Address,
@@ -2307,6 +2360,18 @@ struct DepositDisclosure {
 }
 
 impl PreparedRingDeposit {
+    /// The outer transaction must not publish the anonymous recipient as fee payer.
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) fn check_fee_payer(&self, payer: Address) -> Result<(), DepositError> {
+        check_anonymous_deposit_signers(
+            self.disclosure
+                .as_ref()
+                .is_some_and(|disclosure| disclosure.anonymous),
+            self.utxo.owner,
+            std::iter::once(payer),
+        )
+    }
+
     pub fn utxo(&self) -> &Utxo {
         &self.utxo
     }
@@ -3423,6 +3488,50 @@ mod tests {
                 prover: &prover,
             }),
         );
+    }
+
+    #[test]
+    fn anonymous_deposit_public_signers_must_differ_from_owner() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let sponsor = ShieldedKeypair::new_ed25519().unwrap();
+        assert!(
+            check_anonymous_deposit_signers(true, owner.signing_pubkey(), [sponsor.pubkey()])
+                .is_ok()
+        );
+        for signers in [
+            [owner.pubkey(), sponsor.pubkey()],
+            [sponsor.pubkey(), owner.pubkey()],
+        ] {
+            assert!(matches!(
+                check_anonymous_deposit_signers(true, owner.signing_pubkey(), signers),
+                Err(DepositError::AnonymousPublicSignerLinksOwner)
+            ));
+        }
+        assert!(
+            check_anonymous_deposit_signers(false, owner.signing_pubkey(), [owner.pubkey()])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn settled_anonymous_proof_never_publishes_owner_signers() {
+        let mut inputs = framed_fixture(&[Some(ring().program_id())]);
+        inputs.payer = Address::new_from_array([7; 32]);
+        let public = settlement_owner_signers(&CircuitId::RingEddsa(1, 1, 1), &inputs)
+            .expect("public signers");
+        assert!(!public.is_empty());
+        let anonymous = CircuitId::RingEd25519(
+            1,
+            1,
+            1,
+            zolana_interface::verifying_keys::Bsb22Commitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+        );
+        assert!(settlement_owner_signers(&anonymous, &inputs)
+            .expect("hidden signers")
+            .is_empty());
     }
 
     #[test]

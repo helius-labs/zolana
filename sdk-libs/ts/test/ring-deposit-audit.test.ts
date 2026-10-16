@@ -542,6 +542,7 @@ describe("deposit audit control", () => {
       const building = buildRingDepositTransaction({
         client,
         ringProgramId: RING,
+        depositor: TREE,
         feePayer: TREE,
         recipient: recipient.shieldedAddress(),
         amount: 1n,
@@ -593,6 +594,7 @@ describe("deposit builder ring mode", () => {
         buildRingDepositTransaction({
           client,
           ringProgramId: RING,
+          depositor: TREE,
           feePayer: TREE,
           recipient: recipient.shieldedAddress(),
           amount: 1n,

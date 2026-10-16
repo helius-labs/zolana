@@ -75,8 +75,8 @@ func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit,
 	}, nil
 }
 
-// transaction commits the RingP256 preimage with a zero default owner and zero
-// published output owners, so the program assembles both rails alike.
+// transaction commits the signed ring preimage with a zero default owner and
+// zero published output owners to preserve the anonymous statement.
 func (c *CustomRingEd25519Circuit) transaction(
 	api frontend.API,
 	messageHash frontend.Variable,
@@ -116,8 +116,8 @@ func (c *CustomRingEd25519Circuit) transaction(
 func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	// 1. Verify the exact public spend digest under the hidden owner key.
 	messageBits := append(
-		api.ToBinary(c.Public.MessageHashLow, p256MessageLimbBits),
-		api.ToBinary(c.Public.MessageHashHigh, p256MessageLimbBits)...,
+		api.ToBinary(c.Public.MessageHashLow, messageLimbBits),
+		api.ToBinary(c.Public.MessageHashHigh, messageLimbBits)...,
 	)
 	message := bytes32FromBits(api, messageBits)
 	key := ed25519.Verify(api, ed25519.Inputs{
@@ -184,4 +184,15 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	}
 
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
+}
+
+const messageLimbBits = 128
+
+// bytes32FromBits encodes the two little-endian digest limbs as 32 big-endian bytes.
+func bytes32FromBits(api frontend.API, bits []frontend.Variable) [32]frontend.Variable {
+	var bytes [32]frontend.Variable
+	for i := range bytes {
+		bytes[len(bytes)-1-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
+	}
+	return bytes
 }

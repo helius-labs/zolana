@@ -4,8 +4,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, RingP256ProofData, TransactIxData,
-            TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
+            TransactOutput, TransactProof, TreeContext,
         },
         tag::InstructionTag,
     },
@@ -73,26 +73,10 @@ fn validate_with(
 
 #[test]
 fn selector_family_must_match_instruction() {
-    let commitment = Bsb22Commitment {
-        commitment: [1u8; 32],
-        commitment_pok: [2u8; 32],
-    };
     for (circuit, instruction) in [
         (
             CircuitId::ConfidentialEddsa(2, 4, 3),
             InstructionTag::Transact,
-        ),
-        (
-            CircuitId::RingP256(
-                2,
-                4,
-                3,
-                RingP256ProofData {
-                    bsb22_commitment: commitment,
-                    default_owner_tag: None,
-                },
-            ),
-            InstructionTag::RingTransact,
         ),
         (CircuitId::RingEddsa(2, 4, 3), InstructionTag::RingTransact),
         (
@@ -207,19 +191,6 @@ fn selector_dimensions_are_fail_closed() {
             "ring authority {width}x{width}"
         );
     }
-    let p256 = CircuitId::RingP256(
-        2,
-        4,
-        3,
-        RingP256ProofData {
-            bsb22_commitment: Bsb22Commitment {
-                commitment: [1u8; 32],
-                commitment_pok: [2u8; 32],
-            },
-            default_owner_tag: None,
-        },
-    );
-    assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 4), Ok(()));
 }
 
 const RING_ED25519: CircuitId = CircuitId::RingEd25519(
@@ -358,13 +329,6 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
         read_bitmap: 3,
         write_slots: CacheAccess::NO_WRITES,
     };
-    let p256_proof_data = RingP256ProofData {
-        bsb22_commitment: Bsb22Commitment {
-            commitment: [1u8; 32],
-            commitment_pok: [2u8; 32],
-        },
-        default_owner_tag: None,
-    };
     let cases = [
         (
             CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
@@ -372,10 +336,6 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
         ),
         (
             CircuitId::RingEddsaCached(2, 2, 3, CACHE),
-            InstructionTag::RingTransact,
-        ),
-        (
-            CircuitId::RingP256Cached(2, 2, 3, p256_proof_data, CACHE),
             InstructionTag::RingTransact,
         ),
     ];

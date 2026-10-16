@@ -16,6 +16,7 @@ solana-rpc = [
 ]
 
 [dependencies]
+p256 = { workspace = true }
 hex = { workspace = true }
 num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }

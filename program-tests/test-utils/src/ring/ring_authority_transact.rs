@@ -287,7 +287,7 @@ impl RingHarness {
             tx_viewing_pk: *tx.pubkey().as_bytes(),
             salt,
             // Ring flows resolve owner tags inline (the tag is the recipient's
-            // confidential view tag, not an account or the shared P256 key), so the
+            // confidential view tag, not an account), so the
             // wire tag and its resolved form are the same 32 bytes.
             outputs: vec![
                 TransactOutput {

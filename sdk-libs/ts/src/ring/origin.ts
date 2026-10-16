@@ -542,17 +542,11 @@ function readSettlementData(reader: Reader): {
   reader.bytes(32, "privateTxHash");
   // CircuitId's u16 tags and payloads match the Rust wire format.
   const circuit = reader.u16("circuit.kind");
-  if (circuit !== 1 && circuit !== 3 && circuit !== 5 && circuit !== 6) {
+  if (circuit !== 1 && circuit !== 5) {
     throw invalid("circuit.kind");
   }
   reader.bytes(3, "circuit.shape");
-  if (circuit === 3 || circuit === 6) {
-    reader.bytes(64, "circuit.bsb22Commitment");
-    const present = reader.bool("circuit.defaultOwnerTag.present");
-    const tag = reader.bytes(32, "circuit.defaultOwnerTag");
-    if (!present && tag.some((byte) => byte !== 0)) throw invalid("circuit.defaultOwnerTag");
-  }
-  const hasCache = circuit === 5 || circuit === 6;
+  const hasCache = circuit === 5;
   let cacheAccountCount = 0;
   if (hasCache) {
     const reads = reader.u64("circuit.cacheAccess.readBitmap");

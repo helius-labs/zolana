@@ -86,9 +86,9 @@ import {
   revokeReadAccessInstruction,
   type ReaderKey,
 } from "../src/ring/reader.js";
-import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
+import { RESERVED_READER_KEY_HEX } from "../src/ring/reader.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
-import { P256PublicKey } from "../src/keypair/public-key.js";
+import { P256ReaderKey } from "../src/ring/reader.js";
 import { RING_VELOCITY_SLOTS } from "../src/client/prover/types.js";
 import {
   RingReadRequest,
@@ -356,7 +356,7 @@ describe("ring config", () => {
   });
 
   it("rejects P-256 keys at the auditor key boundary", () => {
-    for (const reserved of [P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1]) {
+    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
       expect(() => X25519PublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
     }
   });
@@ -1618,7 +1618,7 @@ describe("ring reader delegation", () => {
       bytes: `01${Buffer.from(ed25519.getPublicKey(filled(23, 32))).toString("hex")}00`,
     },
     {
-      key: P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33) as ReaderKey,
+      key: P256ReaderKey.fromBytes(hex(P256_HEX) as Bytes33) as ReaderKey,
       record: address("HNpuU7MthQAioAdziSbVyS7YaHABC7e8b36PU6yFQ78D"),
       bytes: `00${P256_HEX}`,
     },
@@ -1631,7 +1631,7 @@ describe("ring reader delegation", () => {
       expect(readerKeyEquals(parseReaderKey(readerKeyToString(key)), key)).toBe(true);
       expect(readerKeyEquals(readerKeyFromBytes(hex(bytes)), key)).toBe(true);
     }
-    expect(P256PublicKey.fromUncompressed(hex(P256_UNCOMPRESSED)).toBytes()).toEqual(hex(P256_HEX));
+    expect(P256ReaderKey.fromUncompressed(hex(P256_UNCOMPRESSED)).toBytes()).toEqual(hex(P256_HEX));
   });
 
   it("refuses keys that cannot sign a read like Rust `ReaderKey`", () => {
@@ -1652,8 +1652,8 @@ describe("ring reader delegation", () => {
     expect(() => checkedReaderKey(getAddressDecoder().decode(mixedTorsion))).toThrow(
       "RING_READER_KEY",
     );
-    for (const reserved of [P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1]) {
-      expect(() => checkedReaderKey(P256PublicKey.fromBytes(reserved as Bytes33))).toThrow(
+    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
+      expect(() => checkedReaderKey(P256ReaderKey.fromBytes(reserved as Bytes33))).toThrow(
         "RING_READER_KEY",
       );
     }
@@ -1715,7 +1715,7 @@ describe("ring passkey", () => {
   it("signs through WebAuthn with the attestation hash as challenge", async () => {
     const passkey = {
       credentialId: filled(9, 16),
-      publicKey: P256PublicKey.fromBytes(
+      publicKey: P256ReaderKey.fromBytes(
         hex("02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8") as Bytes33,
       ),
     };
@@ -2055,7 +2055,7 @@ describe("ring read request", () => {
     ],
   });
 
-  it.each([0x53, 0x50])(
+  it.each([0x53])(
     "retains anonymous audit identities with tag %i and exact amounts",
     async (identityTag) => {
       const trace = anonymousTrace();
@@ -2089,6 +2089,7 @@ describe("ring read request", () => {
       { ...trace, inputs: [{ ...input, treeId: 65536 }] },
       { ...trace, inputs: [{ ...input, amount: "18446744073709551616" }] },
       { ...trace, recipients: [{ ...recipient, identityTag: 1 }] },
+      { ...trace, recipients: [{ ...recipient, identityTag: 0x50 }] },
       { ...trace, recipients: [recipient, recipient] },
       { ...trace, recipients: [{ ...recipient, nullifierPk: "invalid" }] },
     ]) {
@@ -2196,7 +2197,7 @@ describe("ring read request", () => {
       );
     }) as typeof globalThis.fetch;
     const signer = {
-      reader: readerKeyBytes(P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33)),
+      reader: readerKeyBytes(P256ReaderKey.fromBytes(hex(P256_HEX) as Bytes33)),
       sign: () =>
         Promise.resolve({
           signature: filled(1, 70),

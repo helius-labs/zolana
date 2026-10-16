@@ -64,7 +64,7 @@ func TestCustomRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
 }
 
 // Soundness guard: the Solana-only variant must reject a content slot whose
-// public owner tag is the 0 sentinel (the dropped P256 rail's routing mark),
+// public owner tag is the 0 sentinel for a hidden owner,
 // since it has no signature gadget to authorize it. Otherwise a UTXO owned by
 // OwnerHash(0, nullifier_pk) could be spent with no signature.
 func TestCustomRingEddsaOnlyRejectsZeroOwnerTag(t *testing.T) {

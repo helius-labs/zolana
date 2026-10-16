@@ -463,8 +463,6 @@ mod tests {
     use solana_account::Account;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_interface::P_CONST_SEC1;
-    use zolana_keypair::SigningKey;
 
     use super::*;
 
@@ -592,7 +590,7 @@ mod tests {
         }
         .decode()
         .is_err());
-        for invalid_key in [P_CONST_SEC1, [0; 33]] {
+        for invalid_key in [[2; 33], [0; 33]] {
             let invalid = config_account(ring, invalid_key, bump);
             assert!(ConfigAccount {
                 account: &invalid,
@@ -618,10 +616,15 @@ mod tests {
         let readers = [
             ReaderKey::ed25519(Keypair::new().pubkey()).expect("Ed25519 reader"),
             ReaderKey::p256(
-                SigningKey::new_p256()
-                    .pubkey()
-                    .as_p256()
-                    .expect("P256 signing key"),
+                zolana_ring_client::P256ReaderKey::from_bytes(
+                    hex::decode(
+                        "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+                    )
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                )
+                .unwrap(),
             )
             .expect("P256 reader"),
         ];

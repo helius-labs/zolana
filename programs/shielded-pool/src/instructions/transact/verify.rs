@@ -9,7 +9,7 @@ use tinyvec::ArrayVec;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_hasher::{
     hash_chain::create_hash_chain_4_from_slice,
-    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
+    primitives::{hash_bytes, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
 };
@@ -490,12 +490,8 @@ impl<'a> TransactProof<'a> {
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);
-            // The published default-ring P256 owner is its x-coordinate; the
-            // circuit commits it as the tagged P256 identity.
-            fields.push(match self.ix.circuit.default_p256_owner_tag() {
-                Some(owner_x) => p256_owner_identity(owner_x)?,
-                None => [0u8; 32],
-            });
+            // Anonymous ownership has no public default-ring owner.
+            fields.push([0u8; 32]);
         }
         fields.push(self.derived.external_data_hash);
         for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {

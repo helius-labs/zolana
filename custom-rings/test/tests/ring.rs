@@ -1087,22 +1087,29 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     } else {
         &env.sender.keypair
     };
+    let deposit_source = env.funded_keypair()?;
+    env.fund(deposit_source.pubkey(), RING_DEPOSIT_A + RING_DEPOSIT_B)?;
+    assert_ne!(deposit_source.pubkey(), payer.pubkey());
+    assert_ne!(deposit_source.pubkey(), env.sender.keypair.pubkey());
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
         let RingDepositReceipt { utxo, .. } = RingDeposit {
             ring,
-            payer,
+            payer: &deposit_source,
             recipient: &env.sender.keypair,
             tree: env.tree,
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
         }
-        .send(custom_ring_sdk::DepositProofEnvironment {
-            indexer: env.client.indexer(),
-            rpc,
-            prover: &zolana_client::ProverClient::local(),
-        })?;
+        .send_with_fee_payer(
+            custom_ring_sdk::DepositProofEnvironment {
+                indexer: env.client.indexer(),
+                rpc,
+                prover: &zolana_client::ProverClient::local(),
+            },
+            Some(payer),
+        )?;
         spendable.push(utxo);
     }
 
@@ -1128,7 +1135,8 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         transfer
     };
 
-    let prover = ProverClient::local();
+    // Exercise Go admission and witness resolution for the Rust indexed request.
+    let prover = ProverClient::local().with_proof_data_source(ProofDataSource::Prover);
     let mut builder = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
@@ -1138,19 +1146,54 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     if anonymous {
         builder = builder.with_anonymous_signer(&env.sender.keypair.signing_key);
     }
-    let proven = builder.prove(TransferProofEnvironment {
+    let mut proven = builder.prove(TransferProofEnvironment {
         indexer,
         rpc,
         prover: &prover,
     })?;
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
     if anonymous {
+        use zolana_interface::instruction::instruction_data::transact::CircuitId;
+
         assert_ne!(payer.pubkey(), env.sender.keypair.pubkey());
         assert!(proven.owner_signers.is_empty());
-        assert!(matches!(
-            proven.data.circuit,
-            zolana_interface::instruction::instruction_data::transact::CircuitId::RingEd25519(..)
-        ));
+        let valid_circuit = proven.data.circuit;
+        let CircuitId::RingEd25519(inputs, outputs, slots, commitment) = valid_circuit else {
+            panic!("anonymous transfer must prove its hidden Ed25519 owner");
+        };
+        let mut malformed_commitment = commitment;
+        malformed_commitment.commitment = [0xff; 32];
+        let mut malformed_pok = commitment;
+        malformed_pok.commitment_pok = [0xff; 32];
+        let mut invalid_pok = commitment;
+        invalid_pok.commitment_pok = commitment.commitment;
+
+        // Keep both valid proofs fixed while corrupting the inner commitment or its selector.
+        let tree_before = fetch_account(rpc, &env.tree)?;
+        for (circuit, error) in [
+            (
+                CircuitId::RingEd25519(inputs, outputs, slots, malformed_commitment),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                CircuitId::RingEd25519(inputs, outputs, slots, malformed_pok),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                CircuitId::RingEd25519(inputs, outputs, slots, invalid_pok),
+                ShieldedPoolError::TransactProofVerificationFailed as u32,
+            ),
+            (
+                CircuitId::RingEddsa(inputs, outputs, slots),
+                CustomRingError::UnsupportedCircuit as u32,
+            ),
+        ] {
+            proven.data.circuit = circuit;
+            let rejection = send_expecting_rejection(rpc, payer, proven.instruction()?)?;
+            Rejection::custom(error).at(0).assert_client(&rejection);
+            assert_account_unchanged(rpc, &env.tree, &tree_before)?;
+        }
+        proven.data.circuit = valid_circuit;
     }
 
     let transaction = TransactSend {

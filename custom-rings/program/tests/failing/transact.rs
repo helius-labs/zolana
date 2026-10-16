@@ -21,7 +21,7 @@ use zolana_interface::{
         instruction_data::transact::InputUtxo, CircuitId, MessageData, OwnerTag, TransactIxData,
         TransactOutput, TransactProof, TreeContext,
     },
-    verifying_keys::{Bsb22Commitment, RingP256ProofData},
+    verifying_keys::Bsb22Commitment,
     N_PUBLIC_SLOTS,
 };
 
@@ -210,20 +210,17 @@ fn impostor_shielded_pool_program_is_rejected_exactly() {
 fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let slots = N_PUBLIC_SLOTS as u8;
-    let p256 = CircuitId::RingP256(
+    let anonymous = CircuitId::RingEd25519(
         2,
         2,
         slots,
-        RingP256ProofData {
-            bsb22_commitment: Bsb22Commitment {
-                commitment: [6; 32],
-                commitment_pok: [7; 32],
-            },
-            default_owner_tag: None,
+        Bsb22Commitment {
+            commitment: [6; 32],
+            commitment_pok: [7; 32],
         },
     );
     for circuit in [
-        p256,
+        anonymous,
         CircuitId::RingAuthority(2, 2, slots),
         CircuitId::ConfidentialEddsa(2, 2, slots),
     ] {
@@ -339,7 +336,7 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
 }
 
 #[test]
-fn confidential_output_with_a_p256_key_tag_is_rejected() {
+fn confidential_output_with_a_reserved_key_tag_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     data.outputs = vec![confidential_output(

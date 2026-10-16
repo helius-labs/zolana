@@ -9,6 +9,8 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
+- `buildDepositTransaction` and `buildRingDepositTransaction` require `depositor` → pass the asset source explicitly and omit `feePayer` when it also pays fees.
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
 
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
@@ -47,6 +49,7 @@ Added
 
 Changed
 
+- Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
 

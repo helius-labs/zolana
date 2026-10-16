@@ -49,7 +49,6 @@ num-bigint = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
-p256 = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }

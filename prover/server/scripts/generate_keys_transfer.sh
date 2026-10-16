@@ -10,7 +10,7 @@ go build -o light-prover .
 
 # Set SKIP_AUTHORITY_KEYS=1 when rotating only the owner-authorized rails. This
 # preserves the existing authority keys when its circuit fingerprint is unchanged.
-# Set SKIP_OWNER_RAIL_KEYS=1 to keep the confidential, ring and P256 ring keys.
+# Set SKIP_OWNER_RAIL_KEYS=1 to keep the confidential and ring keys.
 
 # Keep in sync with SPP_SUPPORTED_SHAPES.
 shapes=(
@@ -61,7 +61,6 @@ shapes=(
 rails=(
     "transfer-confidential transfer_confidential"
     "transfer-ring transfer_ring"
-    "transfer-p256-ring transfer_p256_ring"
 )
 
 for entry in "${rails[@]}"; do

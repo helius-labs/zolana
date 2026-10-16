@@ -6,7 +6,7 @@ use crate::{
     error::ClientError,
     prover::inputs::{
         BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-        TransferOutput, TransferP256Inputs, TreeSlotFields,
+        TransferOutput, TreeSlotFields,
     },
 };
 
@@ -113,60 +113,6 @@ pub(crate) struct TransferInputsJson {
     pub private_tx_hash: String,
     #[serde(rename = "blindingSeed")]
     pub blinding_seed: String,
-    #[serde(rename = "publicAssets")]
-    pub public_assets: Vec<String>,
-    #[serde(rename = "publicAmounts")]
-    pub public_amounts: Vec<String>,
-    #[serde(rename = "ringProgramId")]
-    pub ring_program_id: String,
-    #[serde(rename = "signerPkHashes")]
-    pub signer_pk_hashes: Vec<String>,
-    #[serde(rename = "inputFlags")]
-    pub input_flags: String,
-    #[serde(rename = "publishedOutputOwnerPkHashes")]
-    pub published_output_owner_pk_hashes: Vec<String>,
-    #[serde(flatten)]
-    pub cache: CacheReadsJson,
-    #[serde(rename = "publicInputHash")]
-    pub public_input_hash: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct TransferP256InputsJson {
-    #[serde(rename = "circuitType")]
-    pub circuit_type: String,
-    #[serde(rename = "nInputs")]
-    pub n_inputs: usize,
-    #[serde(rename = "nOutputs")]
-    pub n_outputs: usize,
-    #[serde(rename = "inputs")]
-    pub inputs: Vec<InputParamsJson>,
-    #[serde(rename = "outputs")]
-    pub outputs: Vec<OutputParamsJson>,
-    #[serde(rename = "treeSlots")]
-    pub tree_slots: Vec<TreeSlotJson>,
-    #[serde(rename = "outputTreeId")]
-    pub output_tree_id: String,
-    #[serde(rename = "externalDataHash")]
-    pub external_data_hash: String,
-    #[serde(rename = "privateTxHash")]
-    pub private_tx_hash: String,
-    #[serde(rename = "blindingSeed")]
-    pub blinding_seed: String,
-    #[serde(rename = "p256PubX")]
-    pub p256_pub_x: String,
-    #[serde(rename = "p256PubY")]
-    pub p256_pub_y: String,
-    #[serde(rename = "p256SigR")]
-    pub p256_sig_r: String,
-    #[serde(rename = "p256SigS")]
-    pub p256_sig_s: String,
-    #[serde(rename = "p256MessageHashLow")]
-    pub p256_message_hash_low: String,
-    #[serde(rename = "p256MessageHashHigh")]
-    pub p256_message_hash_high: String,
-    #[serde(rename = "defaultP256OwnerPkHash")]
-    pub default_p256_owner_pk_hash: String,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -572,54 +518,6 @@ pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientErro
     transfer_inputs_json(inputs, "transfer-ring")
 }
 
-/// Serialize a custom-ring P256 transfer witness.
-pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> Result<String, ClientError> {
-    let json = TransferP256InputsJson {
-        circuit_type: "transfer-p256-ring".to_string(),
-        n_inputs: inputs.inputs.len(),
-        n_outputs: inputs.outputs.len(),
-        inputs: inputs_to_json(&inputs.inputs)?,
-        outputs: inputs.outputs.iter().map(output_to_json).collect(),
-        tree_slots: tree_slots_to_json(&inputs.tree_slots),
-        output_tree_id: big_uint_to_string(&inputs.output_tree_id),
-        external_data_hash: big_uint_to_string(&inputs.external_data_hash),
-        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        blinding_seed: big_uint_to_string(&inputs.blinding_seed),
-        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
-        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
-        p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
-        p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
-        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
-        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
-        default_p256_owner_pk_hash: big_uint_to_string(&inputs.default_p256_owner_pk_hash),
-        public_assets: inputs
-            .public_assets
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        public_amounts: inputs
-            .public_amounts
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        ring_program_id: big_uint_to_string(&inputs.ring_program_id),
-        signer_pk_hashes: inputs
-            .signer_pk_hashes
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        input_flags: big_uint_to_string(&inputs.input_flags),
-        published_output_owner_pk_hashes: inputs
-            .published_output_owner_pk_hashes
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        cache: cache_reads_to_json(&inputs.cache),
-        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
-    };
-    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
-}
-
 #[cfg(test)]
 mod merge_tests {
     use zolana_interface::INPUT_TREES;
@@ -701,53 +599,6 @@ mod merge_tests {
             assert!(input.get("utxoTreeRoot").is_none());
             assert!(input.get("nullifierTreeRoot").is_none());
         }
-    }
-
-    #[test]
-    fn to_json_p256_ring_shape() {
-        let inputs = TransferP256Inputs {
-            inputs: vec![sample_input()],
-            outputs: Vec::new(),
-            tree_slots: sample_tree_slots(),
-            output_tree_id: BigUint::from(3u8),
-            blinding_seed: BigUint::from(15u8),
-            external_data_hash: BigUint::from(1u8),
-            private_tx_hash: BigUint::from(2u8),
-            p256_pub_x: BigUint::from(3u8),
-            p256_pub_y: BigUint::from(4u8),
-            p256_sig_r: BigUint::from(5u8),
-            p256_sig_s: BigUint::from(6u8),
-            p256_message_hash_low: BigUint::from(7u8),
-            p256_message_hash_high: BigUint::from(8u8),
-            default_p256_owner_pk_hash: BigUint::from(13u8),
-            public_assets: core::array::from_fn(|_| BigUint::ZERO),
-            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
-            ring_program_id: BigUint::from(9u8),
-            signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
-            input_flags: BigUint::from(1u8),
-            published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
-            cache: CacheReadInputs {
-                read_hash_chain: BigUint::from(21u8),
-                ..CacheReadInputs::default()
-            },
-            public_input_hash: BigUint::from(11u8),
-        };
-
-        let value: serde_json::Value =
-            serde_json::from_str(&to_json_p256_ring(&inputs).expect("p256 ring request"))
-                .expect("valid JSON");
-        assert_eq!(value["circuitType"], "transfer-p256-ring");
-        assert_eq!(value["p256PubX"], "0x3");
-        assert_eq!(value["p256MessageHashHigh"], "0x8");
-        assert_eq!(value["defaultP256OwnerPkHash"], "0xd");
-        assert_eq!(value["publishedOutputOwnerPkHashes"][0], "0xe");
-        assert_eq!(value["ringProgramId"], "0x9");
-        assert_eq!(value["blindingSeed"], "0xf");
-        assert_eq!(value["outputTreeId"], "0x3");
-        assert_eq!(value["treeSlots"][0]["utxoRoot"], "0xb");
-        assert_eq!(value["treeSlots"][INPUT_TREES - 1]["id"], "0x0");
-        assert_tree_slot_contract(&value);
-        assert!(value.get("p256SigningPkField").is_none());
     }
 
     // Guards the wire-format field names against the Go server

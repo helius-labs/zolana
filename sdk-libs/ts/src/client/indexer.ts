@@ -23,7 +23,6 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
@@ -397,9 +396,6 @@ function convertRegistryRecord(
   if (record.owner !== owner) throw invalidResponse(method, `${path}.owner`);
   return Object.freeze({
     owner: record.owner,
-    ...(record.ownerP256 === undefined
-      ? {}
-      : { ownerP256: decodeP256(record.ownerP256, method, `${path}.ownerP256`) }),
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
     viewingPublicKey: decodeX25519(record.viewingPubkey, method, `${path}.viewingPubkey`),
     mergingEnabled: record.mergingEnabled,
@@ -615,15 +611,6 @@ function convertOutputSlot(
   });
 }
 
-function decodeP256(value: string, method: string, path: string): P256PublicKey {
-  const bytes = decodeBase64(value, path);
-  if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
-  try {
-    return P256PublicKey.fromBytes(bytes as Bytes33);
-  } catch {
-    throw invalidResponse(method, path);
-  }
-}
 function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
   const bytes = decodeBase64(value, path);
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);

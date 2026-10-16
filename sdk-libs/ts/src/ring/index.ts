@@ -325,6 +325,7 @@ export {
   readAccessRecordAddress,
   revokeReadAccessInstruction,
 } from "./reader.js";
+export { P256ReaderKey } from "./reader.js";
 export type { ReaderKey, ReadAccessRecord } from "./reader.js";
 export {
   auditorKeyAttestation,

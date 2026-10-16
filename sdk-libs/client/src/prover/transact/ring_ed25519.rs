@@ -180,22 +180,15 @@ impl ProveRequest for TransferEd25519Inputs {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let mut body: Map<String, Value> = serde_json::from_str(&to_json_ring(&self.transfer)?)
             .expect("the transfer request is a JSON object");
-        let (high, low) = self.message_digest.split_at(16);
-        for (key, value) in [
-            ("circuitType", "transfer-ed25519-ring".to_string()),
-            (
-                "ownerPublicKey",
-                format!("0x{}", hex::encode(self.owner_public_key)),
-            ),
-            (
-                "ownerSignature",
-                format!("0x{}", hex::encode(self.owner_signature)),
-            ),
-            ("messageHashLow", format!("0x{}", hex::encode(low))),
-            ("messageHashHigh", format!("0x{}", hex::encode(high))),
-        ] {
-            body.insert(key.to_string(), Value::String(value));
-        }
+        body.insert(
+            "circuitType".to_string(),
+            Value::String("transfer-ed25519-ring".to_string()),
+        );
+        body.extend(owner_fields(
+            &self.owner_public_key,
+            &self.owner_signature,
+            &self.message_digest,
+        ));
         Ok(Zeroizing::new(Value::Object(body).to_string()))
     }
 
@@ -209,6 +202,24 @@ impl ProveRequest for TransferEd25519Inputs {
     fn delivery(&self) -> Delivery {
         Delivery::InResponse
     }
+}
+
+/// Encodes the same owner authorization for complete and indexed witnesses.
+pub(crate) fn owner_fields(
+    public_key: &[u8; 32],
+    signature: &[u8; 64],
+    digest: &[u8; 32],
+) -> Map<String, Value> {
+    let (high, low) = digest.split_at(16);
+    [
+        ("ownerPublicKey", hex::encode(public_key)),
+        ("ownerSignature", hex::encode(signature)),
+        ("messageHashLow", hex::encode(low)),
+        ("messageHashHigh", hex::encode(high)),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_string(), Value::String(format!("0x{value}"))))
+    .collect()
 }
 
 #[cfg(test)]

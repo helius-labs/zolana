@@ -73,7 +73,7 @@ pub struct MergeProofResult {
     pub external_data_hash: [u8; 32],
     pub expiry_unix_ts: u64,
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
-    /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
+    /// `signing_pk_field` from the registry account owner.
     pub eddsa_owner: bool,
     pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,

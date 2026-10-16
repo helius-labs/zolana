@@ -398,9 +398,6 @@ export class ConfidentialSplit {
         numOutputs: input.numOutputs,
       });
     }
-    if (input.owner.signingPublicKey.signatureType() === "p256") {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     // Ownership is proven from the nullifier secret behind `ownerHash`, so an
     // input the splitter cannot open is unprovable. A zero-owner slot has no
     // openable owner hash at all.

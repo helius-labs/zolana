@@ -112,7 +112,7 @@ func authorizeEd25519(t testing.TB, a *testAssignment, key [32]byte, signer ed25
 	return auth
 }
 
-// refreshEd25519PublicInputHash commits the RingP256 preimage with a zero
+// refreshEd25519PublicInputHash commits the signed ring preimage with a zero
 // default owner and the given published output owners.
 func refreshEd25519PublicInputHash(t testing.TB, a *testAssignment, digest [32]byte, published []*big.Int) {
 	t.Helper()
@@ -346,7 +346,7 @@ func TestCustomRingEd25519RejectsAddressInput(t *testing.T) {
 	rebuildAfterOwnerChange(t, a)
 	seed := spptest.Fe(0xABCDEF)
 	setAddressSlot(t, &a.Inputs[1], identity, spptest.Fe(0), seed)
-	finalizeAddressAssignment(t, a, true, false)
+	finalizeAddressAssignment(t, a, false)
 
 	address := protocol.Utxo{
 		Domain:        spptest.Fe(AddressDomain),
@@ -639,4 +639,30 @@ func lenientSignature(key [32]byte, secret *big.Int, order int64, message []byte
 		slices.Reverse(signature[32:])
 		return signature
 	}
+}
+
+// Hidden signatures must preserve compact padding and bind every queued dummy nullifier.
+func TestCustomRingEd25519DummyNullifiers(t *testing.T) {
+	ccs, a, owner := honestEd25519Ring(t)
+	a.Inputs[1].Utxo.RingProgramID = 0
+	padWithCompactInputs(t, a)
+	authorize := func(valid bool) {
+		auth := authorizeEd25519(t, a, publicKeyBytes(owner), owner)
+		checkCachedWitness(t, ccs, asCustomRingEd25519(a, auth), valid)
+	}
+	authorize(true)
+
+	// Restore random padding and its membership witness before testing a forged value.
+	rebuildAfterOwnerChange(t, a)
+	inputHashes := []*big.Int{
+		testUtxoHash(t, circuitFieldsToUtxo(a.Inputs[0].Utxo), a.inputTreeID(0)),
+		big.NewInt(0),
+	}
+	refreshNullifierAttackHashes(t, a, inputHashes)
+	authorize(true)
+
+	// A fresh signature and transcript cannot authorize an unrelated queued nullifier.
+	a.Inputs[1].Nullifier = spptest.Fe(0xF01)
+	refreshNullifierAttackHashes(t, a, inputHashes)
+	authorize(false)
 }

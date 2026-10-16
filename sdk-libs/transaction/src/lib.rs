@@ -20,7 +20,6 @@ pub mod instructions;
 pub mod keys;
 pub mod selection;
 pub mod serialization;
-pub mod signature;
 pub mod utxo;
 
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
@@ -41,7 +40,6 @@ pub use selection::{select_merge, select_spend, select_spend_excluding};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
-pub use signature::P256Signature;
 pub use solana_address::Address;
 pub use utxo::wallet as spendable;
 pub use utxo::{

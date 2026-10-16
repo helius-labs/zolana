@@ -20,12 +20,12 @@ import (
 )
 
 // ProofSystem holds keys and constraints for one transaction circuit shape.
-// RequiresP256 is a legacy header flag from the removed P256 ownership rail;
-// it is still serialized so existing key files parse, and is always false for
+// HasCommitment preserves a legacy key-header bit.
+// It remains serialized so existing key files parse and is false for
 // newly compiled systems.
 type ProofSystem struct {
 	Shape            protocol.Shape
-	RequiresP256     bool
+	HasCommitment    bool
 	ConstraintSystem constraint.ConstraintSystem
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
@@ -147,10 +147,8 @@ func boolToU32(b bool) uint32 {
 func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	var buf [4]byte
-	// Header: NInputs, NOutputs, RequiresP256 (legacy, always false). Serializing the ownership rail
-	// makes the key self-describing — the prover binds the matching circuit
-	// without inferring the rail from the filename.
-	fields := []uint32{uint32(ps.Shape.NInputs), uint32(ps.Shape.NOutputs), boolToU32(ps.RequiresP256)}
+	// Preserve the three-word header so existing key files keep their byte layout.
+	fields := []uint32{uint32(ps.Shape.NInputs), uint32(ps.Shape.NOutputs), boolToU32(ps.HasCommitment)}
 	for _, field := range fields {
 		binary.BigEndian.PutUint32(buf[:], field)
 		n, err := w.Write(buf[:])
@@ -181,8 +179,8 @@ func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var total int64
 	var buf [4]byte
-	var nInputs, nOutputs, requiresP256 uint32
-	fields := []*uint32{&nInputs, &nOutputs, &requiresP256}
+	var nInputs, nOutputs, hasCommitment uint32
+	fields := []*uint32{&nInputs, &nOutputs, &hasCommitment}
 	for _, field := range fields {
 		n, err := io.ReadFull(r, buf[:])
 		total += int64(n)
@@ -196,7 +194,7 @@ func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		return total, err
 	}
 	ps.Shape = shape
-	ps.RequiresP256 = requiresP256 != 0
+	ps.HasCommitment = hasCommitment != 0
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
 	n, err := ps.ProvingKey.UnsafeReadFrom(r)

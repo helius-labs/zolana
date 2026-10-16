@@ -60,9 +60,6 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 4)
-	add("transfer_p256_ring_2_4", p256Ring, err)
-
 	anonymousRing, err := eddsaprover.R1CSEd25519Transfer(2, 2)
 	add("transfer_ed25519_ring_2_2", anonymousRing, err)
 
@@ -103,7 +100,6 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_4":     {constraints: 57554, public: 2},
 	"transfer_ring_2_4":             {constraints: 57680, public: 2},
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_p256_ring_2_4":        {constraints: 202642, public: 2},
 	"transfer_ed25519_ring_2_2":     {constraints: 112284, public: 2},
 	"custom_ring_policy":            {constraints: 464164, public: 2},
 	"custom_ring_compressed_policy": {constraints: 1142299, public: 2},

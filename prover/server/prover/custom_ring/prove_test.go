@@ -280,7 +280,7 @@ func zeroedOpening() Opening {
 	}
 }
 
-// testScalar is a non zero P256 scalar below the group order.
+// testScalar supplies a deterministic clamped X25519 private input.
 func testScalar(seed byte) [scalarLen]byte {
 	var out [scalarLen]byte
 	for i := range out {

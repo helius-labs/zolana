@@ -274,6 +274,7 @@ describe("escrowed deposits", () => {
           proveCustomRingDeposit: complete,
         },
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: ring.member.shieldedAddress(),
         amount: 1n,
@@ -304,6 +305,7 @@ describe("escrowed deposits", () => {
           proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
         },
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: stranger.shieldedAddress(),
         amount: 1n,
@@ -336,6 +338,7 @@ describe("escrowed deposits", () => {
           proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
         },
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: ring.member.shieldedAddress(),
         amount: 1n,
@@ -362,6 +365,7 @@ describe("escrowed deposits", () => {
           proveCustomRingDeposit: vi.fn(async () => new Uint8Array(192)),
         },
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: ring.member.shieldedAddress(),
         amount: 1n,
@@ -433,7 +437,7 @@ describe("escrowed deposits", () => {
     const transaction = await buildRingDepositTransaction({
       client,
       ringProgramId: RING,
-      feePayer: addressOf(3),
+      depositor: addressOf(3),
       recipient: ring.member.shieldedAddress(),
       amount: 1n,
     });
@@ -449,6 +453,7 @@ describe("escrowed deposits", () => {
       buildRingDepositTransaction({
         client,
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: ShieldedKeypair.generate().shieldedAddress(),
         amount: 1n,
@@ -462,6 +467,7 @@ describe("escrowed deposits", () => {
       buildRingDepositTransaction({
         client,
         ringProgramId: RING,
+        depositor: addressOf(3),
         feePayer: addressOf(3),
         recipient: ShieldedAddress.fromPublicKeys(
           registered.signingPublicKey,

@@ -119,8 +119,10 @@ export type DepositClient = TreeContext & BlockhashProvider & Pick<ChainReader, 
 
 export interface DepositTransactionParams {
   readonly client: DepositClient;
-  readonly feePayer: Address;
-  readonly depositor?: Address;
+  /** Defaults to the depositor and pays only transaction fees. */
+  readonly feePayer?: Address;
+  /** Source of SOL or authority over the source token account. */
+  readonly depositor: Address;
   readonly tree?: Address;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
@@ -143,7 +145,7 @@ export async function buildDepositTransaction(
         }),
       context,
     );
-    const depositor = input.depositor ?? input.feePayer;
+    const depositor = input.depositor;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
     const deposit = await createDeposit({
@@ -157,7 +159,7 @@ export async function buildDepositTransaction(
     });
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
-      feePayer: input.feePayer,
+      feePayer: input.feePayer ?? input.depositor,
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [await deposit.instruction(tree, depositor)],

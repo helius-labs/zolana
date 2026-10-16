@@ -1,5 +1,4 @@
 import type { X25519PublicKey } from "../keypair/x25519.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
 import type { Address, Commitment, Signature } from "@solana/kit";
 
 import type {
@@ -111,8 +110,6 @@ export interface RingSpendRecordReader {
 /** A user registry record, the shielded address a Solana pubkey publishes. */
 export interface RegistryRecord {
   readonly owner: Address;
-  /** Absent for a Solana-only owner, whose signing key is the Ed25519 key `owner` encodes. */
-  readonly ownerP256?: P256PublicKey;
   /** Wallet-wide nullifier pubkey. Never rotates. */
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: X25519PublicKey;

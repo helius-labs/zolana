@@ -5,46 +5,20 @@
  * full derivation tree is auditable in one file. The values are pinned by
  * `test-vectors/key_derivation.json`.
  */
-import { p256 } from "@noble/curves/nist.js";
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import type { Bytes31, Bytes32, Bytes33 } from "./bytes.js";
-import { KeypairError, wrapKeypairError } from "./error.js";
-import { P256PublicKey } from "./public-key.js";
+import type { Bytes31, Bytes32 } from "./bytes.js";
+import { KeypairError } from "./error.js";
 import { X25519PublicKey, X25519Secret } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
 export const DST_X25519_VIEW_ROOT = "TSPP/view_root/x25519/v1";
 
-export const P_CONST_SEC1 = Uint8Array.from([
-  0x03, 0x0e, 0x4d, 0xf9, 0x46, 0xbc, 0xe1, 0x4b, 0x95, 0x29, 0x2f, 0x13, 0xe1, 0x33, 0xd2, 0xb0,
-  0xc6, 0x4e, 0x89, 0x8b, 0x56, 0x44, 0xf6, 0x20, 0xa5, 0xbe, 0xd2, 0x5a, 0x06, 0x1a, 0x42, 0xfc,
-  0xdb,
-]);
-
-export const DST_DERIVE_P_DERIVE = "TSPP/nullifier/P_nullifier/v1";
-
-export const P_DERIVE_SEC1 = Uint8Array.from([
-  0x03, 0x9e, 0xf1, 0x65, 0x92, 0x42, 0x9d, 0xa1, 0x40, 0x3e, 0xaa, 0x29, 0x05, 0x8e, 0xb7, 0xd9,
-  0xd5, 0xad, 0x15, 0xa2, 0xea, 0x55, 0x71, 0x74, 0xf7, 0xb0, 0x1f, 0xf7, 0xfe, 0x48, 0x4e, 0xee,
-  0xaf,
-]);
-
-export const P_PDA_SEC1 = Uint8Array.from([
-  0x03, 0x8a, 0x31, 0xd5, 0x3c, 0x5a, 0xd2, 0x0d, 0x1c, 0xd7, 0xee, 0x1f, 0xbb, 0x99, 0x27, 0xbd,
-  0x0c, 0xdf, 0xb6, 0x1b, 0x1b, 0x89, 0xf6, 0xb2, 0xc5, 0xa9, 0x4a, 0x5f, 0x08, 0x1f, 0xe1, 0x6b,
-  0x5b,
-]);
-
 export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 
-export const INFO_NF_KEY_ECDH = "TSPP/nf_key/ecdh/v1";
-
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
-
-export const INFO_VIEW_KEY_ECDH_X25519 = "TSPP/view_key/ecdh/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
 
@@ -56,7 +30,7 @@ export const OFFCHAIN_MESSAGE_MAGIC = Uint8Array.from([
   0xff, 0x73, 0x6f, 0x6c, 0x61, 0x6e, 0x61, 0x20, 0x6f, 0x66, 0x66, 0x63, 0x68, 0x61, 0x69, 0x6e,
 ]);
 
-/** `sha256(ED25519_DERIVATION_MSG)`; pinned by a test. */
+/** `sha256(ED25519_DERIVATION_MSG)`, pinned by a test. */
 export const TSPP_APPLICATION_DOMAIN = Uint8Array.from([
   0x1d, 0x32, 0xa8, 0x85, 0x33, 0xaf, 0x12, 0xd3, 0x5e, 0x5a, 0xc6, 0xfc, 0xe8, 0x17, 0xa4, 0xcb,
   0x81, 0x0b, 0xcc, 0x41, 0x15, 0x38, 0x6b, 0x14, 0xa7, 0x8e, 0x8b, 0x2e, 0xf0, 0x9d, 0x86, 0x4c,
@@ -149,20 +123,6 @@ export function isDerivationInput(message: Uint8Array): boolean {
   return payload !== undefined && startsWith(payload, DERIVATION_PAYLOAD_PREFIX_BYTES);
 }
 
-/**
- * Reserved P-256 peers the guarded ecdh entry points refuse. `P_derive` roots
- * the signing-key roles; `P_const` and `P_pda` stay reserved so a legacy
- * identity's agreement with them is never exposed.
- */
-export function isDerivationPoint(publicKey: P256PublicKey): boolean {
-  const bytes = publicKey.toBytes();
-  return (
-    startsWith(bytes, P_CONST_SEC1) ||
-    startsWith(bytes, P_DERIVE_SEC1) ||
-    startsWith(bytes, P_PDA_SEC1)
-  );
-}
-
 /** Normalizes a viewing secret to the one byte string encrypted by the circuit. */
 export function clampViewingSecret(secret: Uint8Array): Bytes32 {
   const normalized = checkedViewingSecret(secret);
@@ -186,18 +146,6 @@ export function x25519Ecdh(secret: Uint8Array, peer: X25519PublicKey): Uint8Arra
   } finally {
     key.destroy();
   }
-}
-
-export function ecdhX(secret: Uint8Array, counterparty: P256PublicKey): Uint8Array {
-  try {
-    return p256.getSharedSecret(secret, counterparty.toBytes(), true).subarray(1, 33);
-  } catch (error) {
-    throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
-  }
-}
-
-export function pDerive(): P256PublicKey {
-  return P256PublicKey.fromBytes(P_DERIVE_SEC1 as Bytes33);
 }
 
 export function hkdfExtract(ikm: Uint8Array): Uint8Array {
@@ -239,17 +187,10 @@ export function viewRoot(secret: Uint8Array): Uint8Array {
   }
 }
 
-export type Rail = "ed25519" | "ecdh";
+export type Rail = "ed25519";
 
 /** An ed25519 `derivationSeed` is the RFC 8032 signature over the derivation message. */
 export const ED25519_SEED_LEN = 64;
-
-/** A P-256 `derivationSeed` is the x-coordinate of `ECDH(signingSk, pDerive)`. */
-export const P256_SEED_LEN = 32;
-
-function railSeedLength(rail: Rail): number {
-  return rail === "ed25519" ? ED25519_SEED_LEN : P256_SEED_LEN;
-}
 
 /**
  * The seed width is fixed per rail, and every path into `roleExpansion` is
@@ -259,7 +200,8 @@ function railSeedLength(rail: Rail): number {
  * still looks correct, so nothing downstream catches it.
  */
 function assertSeedWidth(seed: Uint8Array, rail: Rail): void {
-  const expected = railSeedLength(rail);
+  if (rail !== "ed25519") throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type: rail });
+  const expected = ED25519_SEED_LEN;
   if (!(seed instanceof Uint8Array) || seed.length !== expected) {
     throw new KeypairError("KEYPAIR_INVALID_DERIVATION_SEED", {
       name: "derivation seed",
@@ -282,16 +224,6 @@ export function checkedDerivationSeed<T extends Uint8Array>(seed: Uint8Array | T
   return new Uint8Array(seed) as T;
 }
 
-function railNullifierInfo(rail: Rail): Uint8Array {
-  return encoder.encode(rail === "ed25519" ? INFO_NF_KEY_ED25519 : INFO_NF_KEY_ECDH);
-}
-
-function railViewingInfo(rail: Rail): Uint8Array {
-  return encoder.encode(
-    rail === "ed25519" ? INFO_VIEW_KEY_ED25519_X25519 : INFO_VIEW_KEY_ECDH_X25519,
-  );
-}
-
 export interface RoleSecrets {
   readonly nullifierSecret: Bytes31;
   readonly viewingSecret: Bytes32;
@@ -299,7 +231,7 @@ export interface RoleSecrets {
 
 /**
  * One HKDF-Extract over the derivation seed, then one Expand per role with the
- * rail's tag; mirrors Rust's `RoleExpansion`. Every keypair constructor funnels
+ * role's tag, mirroring Rust's `RoleExpansion`. Every keypair constructor funnels
  * through this. The PRK and both role secrets live only for the synchronous
  * `use` callback and are wiped when it settles, copy what outlives it.
  */
@@ -309,8 +241,8 @@ export function roleExpansion<T>(seed: Uint8Array, rail: Rail, use: (roles: Role
   let nullifierSecret: Uint8Array | undefined;
   let viewingSecret: Uint8Array | undefined;
   try {
-    nullifierSecret = hkdfExpandPrk(prk, railNullifierInfo(rail), 31);
-    const okm = hkdfExpandPrk(prk, railViewingInfo(rail), 32);
+    nullifierSecret = hkdfExpandPrk(prk, encoder.encode(INFO_NF_KEY_ED25519), 31);
+    const okm = hkdfExpandPrk(prk, encoder.encode(INFO_VIEW_KEY_ED25519_X25519), 32);
     try {
       viewingSecret = clampViewingSecret(okm);
     } finally {

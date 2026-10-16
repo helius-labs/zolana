@@ -8,7 +8,7 @@ pub use zolana_event::{
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{
-    Bsb22Commitment, CacheAccess, CacheWrite, CircuitId, RingP256ProofData, MAX_CACHE_WRITES,
+    Bsb22Commitment, CacheAccess, CacheWrite, CircuitId, MAX_CACHE_WRITES,
 };
 use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
@@ -211,7 +211,7 @@ pub struct TransactOutput {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
     pub expiry_unix_ts: u64,
-    /// SEC1-compressed P256 viewing key shared by every output ciphertext in
+    /// Tagged X25519 viewing key shared by every output ciphertext in
     /// this transaction; bound into `external_data_hash` and copied verbatim
     /// into the logged `GeneralEvent` so an indexer need not parse the
     /// per-output `data`.

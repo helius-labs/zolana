@@ -230,10 +230,6 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
             .map_err(|_| KeypairError::SigningFailed)
     }
 
-    fn sign_hash(&self, _hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        Err(KeypairError::NotP256)
-    }
-
     fn nullifier(
         &self,
         utxo_hash: &[u8; 32],

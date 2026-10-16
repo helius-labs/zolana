@@ -2,7 +2,6 @@ package custom_ring
 
 import (
 	"bytes"
-	"crypto/elliptic"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -292,7 +291,7 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		"uppercase":            func(m map[string]interface{}) { m["auditorPk"] = strings.ToUpper(m["txViewingSk"].(string)) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
 		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
-		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
+		"unclamped tx scalar":  func(m map[string]interface{}) { m["txViewingSk"] = "0x" + strings.Repeat("ff", 32) },
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
 		"hash above field order": func(m map[string]interface{}) {
 			m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16)
@@ -381,7 +380,7 @@ func TestBaseParametersRejectBadInput(t *testing.T) {
 	tests := map[string]func(map[string]interface{}){
 		"foreign circuit type": func(m map[string]interface{}) { m["circuitType"] = "transfer" },
 		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
-		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
+		"unclamped tx scalar":  func(m map[string]interface{}) { m["txViewingSk"] = "0x" + strings.Repeat("ff", 32) },
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
 	}
@@ -389,10 +388,6 @@ func TestBaseParametersRejectBadInput(t *testing.T) {
 }
 
 const zeroScalarHex = "0x0000000000000000000000000000000000000000000000000000000000000000"
-
-func orderScalarHex() string {
-	return "0x" + elliptic.P256().Params().N.Text(16)
-}
 
 func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[string]interface{})) {
 	t.Helper()

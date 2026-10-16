@@ -1,9 +1,4 @@
-use core::mem::MaybeUninit;
-use wincode::{
-    config::ConfigCore,
-    io::{Reader, Writer},
-    ReadError, ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult,
-};
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{shape::Shape, state::cache::CACHE_CAPACITY};
 
@@ -17,44 +12,44 @@ macro_rules! circuit_key_item {
     ($circuit:expr, $item:ident) => {
         circuit_key_item!(@select $circuit, $item;
             transact {
-                (1, 2) => transfer_confidential_1_2, transfer_ring_1_2, transfer_p256_ring_1_2;
-                (1, 4) => transfer_confidential_1_4, transfer_ring_1_4, transfer_p256_ring_1_4;
-                (1, 8) => transfer_confidential_1_8, transfer_ring_1_8, transfer_p256_ring_1_8;
-                (2, 2) => transfer_confidential_2_2, transfer_ring_2_2, transfer_p256_ring_2_2;
-                (2, 4) => transfer_confidential_2_4, transfer_ring_2_4, transfer_p256_ring_2_4;
-                (1, 16) => transfer_confidential_1_16, transfer_ring_1_16, transfer_p256_ring_1_16;
-                (2, 8) => transfer_confidential_2_8, transfer_ring_2_8, transfer_p256_ring_2_8;
-                (3, 2) => transfer_confidential_3_2, transfer_ring_3_2, transfer_p256_ring_3_2;
-                (3, 4) => transfer_confidential_3_4, transfer_ring_3_4, transfer_p256_ring_3_4;
-                (2, 16) => transfer_confidential_2_16, transfer_ring_2_16, transfer_p256_ring_2_16;
-                (3, 8) => transfer_confidential_3_8, transfer_ring_3_8, transfer_p256_ring_3_8;
-                (4, 2) => transfer_confidential_4_2, transfer_ring_4_2, transfer_p256_ring_4_2;
-                (4, 4) => transfer_confidential_4_4, transfer_ring_4_4, transfer_p256_ring_4_4;
-                (4, 8) => transfer_confidential_4_8, transfer_ring_4_8, transfer_p256_ring_4_8;
-                (5, 2) => transfer_confidential_5_2, transfer_ring_5_2, transfer_p256_ring_5_2;
-                (5, 4) => transfer_confidential_5_4, transfer_ring_5_4, transfer_p256_ring_5_4;
-                (4, 16) => transfer_confidential_4_16, transfer_ring_4_16, transfer_p256_ring_4_16;
-                (5, 8) => transfer_confidential_5_8, transfer_ring_5_8, transfer_p256_ring_5_8;
-                (6, 2) => transfer_confidential_6_2, transfer_ring_6_2, transfer_p256_ring_6_2;
-                (6, 4) => transfer_confidential_6_4, transfer_ring_6_4, transfer_p256_ring_6_4;
-                (5, 16) => transfer_confidential_5_16, transfer_ring_5_16, transfer_p256_ring_5_16;
-                (6, 8) => transfer_confidential_6_8, transfer_ring_6_8, transfer_p256_ring_6_8;
-                (8, 2) => transfer_confidential_8_2, transfer_ring_8_2, transfer_p256_ring_8_2;
-                (8, 4) => transfer_confidential_8_4, transfer_ring_8_4, transfer_p256_ring_8_4;
-                (8, 8) => transfer_confidential_8_8, transfer_ring_8_8, transfer_p256_ring_8_8;
-                (8, 16) => transfer_confidential_8_16, transfer_ring_8_16, transfer_p256_ring_8_16;
-                (12, 2) => transfer_confidential_12_2, transfer_ring_12_2, transfer_p256_ring_12_2;
-                (12, 4) => transfer_confidential_12_4, transfer_ring_12_4, transfer_p256_ring_12_4;
-                (12, 8) => transfer_confidential_12_8, transfer_ring_12_8, transfer_p256_ring_12_8;
-                (16, 2) => transfer_confidential_16_2, transfer_ring_16_2, transfer_p256_ring_16_2;
-                (16, 4) => transfer_confidential_16_4, transfer_ring_16_4, transfer_p256_ring_16_4;
-                (16, 8) => transfer_confidential_16_8, transfer_ring_16_8, transfer_p256_ring_16_8;
-                (24, 2) => transfer_confidential_24_2, transfer_ring_24_2, transfer_p256_ring_24_2;
-                (24, 4) => transfer_confidential_24_4, transfer_ring_24_4, transfer_p256_ring_24_4;
-                (32, 2) => transfer_confidential_32_2, transfer_ring_32_2, transfer_p256_ring_32_2;
-                (40, 2) => transfer_confidential_40_2, transfer_ring_40_2, transfer_p256_ring_40_2;
-                (48, 2) => transfer_confidential_48_2, transfer_ring_48_2, transfer_p256_ring_48_2;
-                (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_p256_ring_49_2;
+                (1, 2) => transfer_confidential_1_2, transfer_ring_1_2;
+                (1, 4) => transfer_confidential_1_4, transfer_ring_1_4;
+                (1, 8) => transfer_confidential_1_8, transfer_ring_1_8;
+                (2, 2) => transfer_confidential_2_2, transfer_ring_2_2;
+                (2, 4) => transfer_confidential_2_4, transfer_ring_2_4;
+                (1, 16) => transfer_confidential_1_16, transfer_ring_1_16;
+                (2, 8) => transfer_confidential_2_8, transfer_ring_2_8;
+                (3, 2) => transfer_confidential_3_2, transfer_ring_3_2;
+                (3, 4) => transfer_confidential_3_4, transfer_ring_3_4;
+                (2, 16) => transfer_confidential_2_16, transfer_ring_2_16;
+                (3, 8) => transfer_confidential_3_8, transfer_ring_3_8;
+                (4, 2) => transfer_confidential_4_2, transfer_ring_4_2;
+                (4, 4) => transfer_confidential_4_4, transfer_ring_4_4;
+                (4, 8) => transfer_confidential_4_8, transfer_ring_4_8;
+                (5, 2) => transfer_confidential_5_2, transfer_ring_5_2;
+                (5, 4) => transfer_confidential_5_4, transfer_ring_5_4;
+                (4, 16) => transfer_confidential_4_16, transfer_ring_4_16;
+                (5, 8) => transfer_confidential_5_8, transfer_ring_5_8;
+                (6, 2) => transfer_confidential_6_2, transfer_ring_6_2;
+                (6, 4) => transfer_confidential_6_4, transfer_ring_6_4;
+                (5, 16) => transfer_confidential_5_16, transfer_ring_5_16;
+                (6, 8) => transfer_confidential_6_8, transfer_ring_6_8;
+                (8, 2) => transfer_confidential_8_2, transfer_ring_8_2;
+                (8, 4) => transfer_confidential_8_4, transfer_ring_8_4;
+                (8, 8) => transfer_confidential_8_8, transfer_ring_8_8;
+                (8, 16) => transfer_confidential_8_16, transfer_ring_8_16;
+                (12, 2) => transfer_confidential_12_2, transfer_ring_12_2;
+                (12, 4) => transfer_confidential_12_4, transfer_ring_12_4;
+                (12, 8) => transfer_confidential_12_8, transfer_ring_12_8;
+                (16, 2) => transfer_confidential_16_2, transfer_ring_16_2;
+                (16, 4) => transfer_confidential_16_4, transfer_ring_16_4;
+                (16, 8) => transfer_confidential_16_8, transfer_ring_16_8;
+                (24, 2) => transfer_confidential_24_2, transfer_ring_24_2;
+                (24, 4) => transfer_confidential_24_4, transfer_ring_24_4;
+                (32, 2) => transfer_confidential_32_2, transfer_ring_32_2;
+                (40, 2) => transfer_confidential_40_2, transfer_ring_40_2;
+                (48, 2) => transfer_confidential_48_2, transfer_ring_48_2;
+                (49, 2) => transfer_confidential_49_2, transfer_ring_49_2;
             }
             authority {
                 (2, 2) => transfer_ring_authority_2_2;
@@ -69,7 +64,7 @@ macro_rules! circuit_key_item {
         )
     };
     (@select $circuit:expr, $item:ident;
-        transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $p256:ident;)* }
+        transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident;)* }
         authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
         ring_ed25519 { $(($ei:literal, $eo:literal) => $ed25519:ident;)* }
     ) => {{
@@ -81,7 +76,6 @@ macro_rules! circuit_key_item {
                     &$confidential::$item
                 }
                 CircuitId::RingEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
-                CircuitId::RingP256($i, $o, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$p256::$item,
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
@@ -96,22 +90,12 @@ macro_rules! circuit_key_item {
 
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
 ///
-/// This lives in [`CircuitId::RingP256`] so the existing `TransactProof` and
+/// This lives in [`CircuitId::RingEd25519`] so the existing `TransactProof` and
 /// `TransactIxData` layouts need no additional proof-specific fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct Bsb22Commitment {
     pub commitment: [u8; 32],
     pub commitment_pok: [u8; 32],
-}
-
-/// Proof-specific payload carried by [`CircuitId::RingP256`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct RingP256ProofData {
-    pub bsb22_commitment: Bsb22Commitment,
-    /// The P256 public key x-coordinate when a default-ring P256 UTXO is spent;
-    /// address slots do not count. `None` keeps ring-only P256 ownership private.
-    #[wincode(with = "FixedOptionOwnerTag")]
-    pub default_owner_tag: Option<[u8; 32]>,
 }
 
 /// One cache shared by reads and writes.
@@ -188,62 +172,6 @@ pub fn valid_cache_writes(
         })
 }
 
-/// Fixed-width wire adapter for the optional owner tag. Keeping the circuit
-/// selector statically sized preserves allocation-free borrowed instruction
-/// decoding even when a non-P256 selector is used.
-struct FixedOptionOwnerTag;
-
-unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for FixedOptionOwnerTag {
-    type Dst = Option<[u8; 32]>;
-
-    const TYPE_META: TypeMeta = TypeMeta::Static {
-        size: 33,
-        zero_copy: false,
-    };
-
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
-        let present = <u8 as SchemaRead<'de, C>>::get(reader.by_ref())?;
-        let tag = <[u8; 32] as SchemaRead<'de, C>>::get(reader)?;
-        match present {
-            0 => {
-                if tag != [0u8; 32] {
-                    return Err(ReadError::InvalidValue(
-                        "absent P256 owner tag must be zero",
-                    ));
-                }
-                dst.write(None);
-            }
-            1 => {
-                dst.write(Some(tag));
-            }
-            _ => return Err(ReadError::InvalidBoolEncoding(present)),
-        }
-        Ok(())
-    }
-}
-
-unsafe impl<C: ConfigCore> SchemaWrite<C> for FixedOptionOwnerTag {
-    type Src = Option<[u8; 32]>;
-
-    const TYPE_META: TypeMeta = TypeMeta::Static {
-        size: 33,
-        zero_copy: false,
-    };
-
-    fn size_of(_: &Self::Src) -> WriteResult<usize> {
-        Ok(33)
-    }
-
-    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
-        let (present, tag) = match src {
-            Some(tag) => (1u8, *tag),
-            None => (0u8, [0u8; 32]),
-        };
-        <u8 as SchemaWrite<C>>::write(writer.by_ref(), &present)?;
-        <[u8; 32] as SchemaWrite<C>>::write(writer, &tag)
-    }
-}
-
 /// How the program derives the fixed-width output-owner hash vector committed
 /// into a circuit's public input hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,30 +185,25 @@ pub enum OutputOwnerMode {
 ///
 /// The first three tuple fields are `(number of inputs, number of outputs,
 /// number of public asset slots)`, followed by any variant-specific payload.
-/// The enum tag selects the verifying key and is validated against the dispatched
-/// instruction and its data. The tag is not a circuit public input; payload fields
-/// such as `CacheAccess::read_bitmap` contribute to the proof's public input hash.
-///
-/// Each owner-signed rail has a cached twin carrying the same payload plus a
-/// [`CacheAccess`]. The twin is the same circuit and the same verifying key; it
-/// declares cache reads and writes; the write destination is bound through
-/// external data and the input selection through the public input hash, so
-/// rail and key accessors resolve it through [`CircuitId::uncached`]. Ring
-/// authority has no twin: its circuit binds no cache selection. The twins are
-/// appended last so no existing tag encoding moves, and a transact that uses no
-/// cache is byte-identical to one built before caches existed.
+/// The tag selects the verifying key. Explicit tags preserve the wire layout
+/// and leave retired selectors 3 and 6 invalid. Cache variants use their
+/// uncached circuit and bind reads and writes through its public input hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
     /// NumInputs, NumOutputs, NumPublicAssets
+    #[wincode(tag = 0)]
     ConfidentialEddsa(u8, u8, u8),
+    #[wincode(tag = 1)]
     RingEddsa(u8, u8, u8),
+    #[wincode(tag = 2)]
     RingAuthority(u8, u8, u8),
-    RingP256(u8, u8, u8, RingP256ProofData),
+    #[wincode(tag = 4)]
     ConfidentialEddsaCached(u8, u8, u8, CacheAccess),
+    #[wincode(tag = 5)]
     RingEddsaCached(u8, u8, u8, CacheAccess),
-    RingP256Cached(u8, u8, u8, RingP256ProofData, CacheAccess),
     /// The anonymous ring rail. Its circuit forbids cache reads, so it has no cached twin.
+    #[wincode(tag = 7)]
     RingEd25519(u8, u8, u8, Bsb22Commitment),
 }
 
@@ -288,8 +211,7 @@ impl CircuitId {
     pub const fn cache_access(self) -> Option<CacheAccess> {
         match self {
             Self::ConfidentialEddsaCached(_, _, _, selection)
-            | Self::RingEddsaCached(_, _, _, selection)
-            | Self::RingP256Cached(_, _, _, _, selection) => Some(selection),
+            | Self::RingEddsaCached(_, _, _, selection) => Some(selection),
             _ => None,
         }
     }
@@ -303,9 +225,6 @@ impl CircuitId {
                 Self::ConfidentialEddsa(n_in, n_out, slots)
             }
             Self::RingEddsaCached(n_in, n_out, slots, _) => Self::RingEddsa(n_in, n_out, slots),
-            Self::RingP256Cached(n_in, n_out, slots, proof_data, _) => {
-                Self::RingP256(n_in, n_out, slots, proof_data)
-            }
             other => other,
         }
     }
@@ -315,10 +234,8 @@ impl CircuitId {
             Self::ConfidentialEddsa(n, _, _)
             | Self::RingEddsa(n, _, _)
             | Self::RingAuthority(n, _, _)
-            | Self::RingP256(n, _, _, _)
             | Self::ConfidentialEddsaCached(n, _, _, _)
             | Self::RingEddsaCached(n, _, _, _)
-            | Self::RingP256Cached(n, _, _, _, _)
             | Self::RingEd25519(n, _, _, _) => n,
         }
     }
@@ -328,10 +245,8 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, n, _)
             | Self::RingEddsa(_, n, _)
             | Self::RingAuthority(_, n, _)
-            | Self::RingP256(_, n, _, _)
             | Self::ConfidentialEddsaCached(_, n, _, _)
             | Self::RingEddsaCached(_, n, _, _)
-            | Self::RingP256Cached(_, n, _, _, _)
             | Self::RingEd25519(_, n, _, _) => n,
         }
     }
@@ -341,10 +256,8 @@ impl CircuitId {
             Self::ConfidentialEddsa(_, _, n)
             | Self::RingEddsa(_, _, n)
             | Self::RingAuthority(_, _, n)
-            | Self::RingP256(_, _, n, _)
             | Self::ConfidentialEddsaCached(_, _, n, _)
             | Self::RingEddsaCached(_, _, n, _)
-            | Self::RingP256Cached(_, _, n, _, _)
             | Self::RingEd25519(_, _, n, _) => n,
         }
     }
@@ -360,20 +273,14 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self.uncached(),
-            Self::ConfidentialEddsa(..)
-                | Self::RingEddsa(..)
-                | Self::RingP256(..)
-                | Self::RingEd25519(..)
+            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingEd25519(..)
         )
     }
 
     pub const fn is_ring(self) -> bool {
         matches!(
             self.uncached(),
-            Self::RingEddsa(..)
-                | Self::RingAuthority(..)
-                | Self::RingP256(..)
-                | Self::RingEd25519(..)
+            Self::RingEddsa(..) | Self::RingAuthority(..) | Self::RingEd25519(..)
         )
     }
 
@@ -381,31 +288,15 @@ impl CircuitId {
         matches!(self, Self::RingAuthority(..))
     }
 
-    pub const fn is_p256(self) -> bool {
-        matches!(self.uncached(), Self::RingP256(..))
-    }
-
     /// Whether the circuit verifies an owner signature over
     /// `sha256(private_tx_hash || external_data_hash)`.
     pub const fn signs_message_digest(self) -> bool {
-        matches!(self.uncached(), Self::RingP256(..) | Self::RingEd25519(..))
+        matches!(self.uncached(), Self::RingEd25519(..))
     }
 
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
-            Self::RingP256(_, _, _, proof_data) | Self::RingP256Cached(_, _, _, proof_data, _) => {
-                Some(&proof_data.bsb22_commitment)
-            }
             Self::RingEd25519(_, _, _, commitment) => Some(commitment),
-            _ => None,
-        }
-    }
-
-    pub const fn default_p256_owner_tag(&self) -> Option<&[u8; 32]> {
-        match self {
-            Self::RingP256(_, _, _, proof_data) | Self::RingP256Cached(_, _, _, proof_data, _) => {
-                proof_data.default_owner_tag.as_ref()
-            }
             _ => None,
         }
     }
@@ -417,11 +308,9 @@ impl CircuitId {
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
             Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
-            Self::RingEddsa(..)
-            | Self::RingP256(..)
-            | Self::RingEddsaCached(..)
-            | Self::RingP256Cached(..)
-            | Self::RingEd25519(..) => OutputOwnerMode::ConfidentialMarked,
+            Self::RingEddsa(..) | Self::RingEddsaCached(..) | Self::RingEd25519(..) => {
+                OutputOwnerMode::ConfidentialMarked
+            }
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
@@ -436,10 +325,8 @@ impl CircuitId {
         match self {
             Self::ConfidentialEddsa(..)
             | Self::RingEddsa(..)
-            | Self::RingP256(..)
             | Self::ConfidentialEddsaCached(..)
-            | Self::RingEddsaCached(..)
-            | Self::RingP256Cached(..) => shape.is_supported(),
+            | Self::RingEddsaCached(..) => shape.is_supported(),
             Self::RingAuthority(..) => shape.is_ring_authority(),
             Self::RingEd25519(..) => shape.is_ring_ed25519(),
         }

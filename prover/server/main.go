@@ -92,7 +92,7 @@ func runCli() {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-p256-ring\" / \"transfer-ed25519-ring\" / \"transfer-ring-authority\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-ed25519-ring\" / \"transfer-ring-authority\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -112,8 +112,6 @@ func runCli() {
 						common.TransferRingCircuitType,
 						common.TransferRingAuthorityCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
-					case common.TransferP256RingCircuitType:
-						ps, err = transfereddsaonly.SetupP256Transfer(nInputs, nOutputs)
 					case common.TransferEd25519RingCircuitType:
 						ps, err = transfereddsaonly.SetupEd25519Transfer(nInputs, nOutputs)
 					default:

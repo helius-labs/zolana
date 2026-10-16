@@ -17,7 +17,7 @@ func TestExportAeglosMergeFixtures(t *testing.T) {
 	for _, inputs := range mergeshared.SupportedInputCounts {
 		for _, ring := range []bool{false, true} {
 			for variant := range 2 {
-				options := mergeFixtureOptions{inputCount: inputs, eddsa: true, externalDataHash: big.NewInt(int64(900 + variant))}
+				options := mergeFixtureOptions{inputCount: inputs, externalDataHash: big.NewInt(int64(900 + variant))}
 				family := "merge"
 				if ring {
 					family = "merge_ring"

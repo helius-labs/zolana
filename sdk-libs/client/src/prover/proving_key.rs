@@ -8,9 +8,7 @@
 
 use serde::Deserialize;
 use zolana_interface::{
-    verifying_keys::{
-        Bsb22Commitment, CircuitId, RingP256ProofData, PROVING_KEY_SHA256S as TRANSACT_KEYS,
-    },
+    verifying_keys::{Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S as TRANSACT_KEYS},
     N_PUBLIC_SLOTS,
 };
 use zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S as ADDRESS_APPEND_KEYS;
@@ -182,26 +180,6 @@ impl ExpectedProvingKey {
             n_inputs,
             n_outputs,
             CircuitId::RingAuthority,
-        )
-    }
-
-    pub(crate) fn transfer_p256_ring(
-        n_inputs: usize,
-        n_outputs: usize,
-    ) -> Result<Self, ClientError> {
-        // The proof data does not select the key; only rail and shape do.
-        let proof_data = RingP256ProofData {
-            bsb22_commitment: Bsb22Commitment {
-                commitment: [0; 32],
-                commitment_pok: [0; 32],
-            },
-            default_owner_tag: None,
-        };
-        Self::transfer(
-            "transfer_p256_ring",
-            n_inputs,
-            n_outputs,
-            |n_in, n_out, slots| CircuitId::RingP256(n_in, n_out, slots, proof_data),
         )
     }
 

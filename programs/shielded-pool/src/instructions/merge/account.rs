@@ -10,7 +10,6 @@ use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
-    merge_utils::owner_proof_input_hash_compressed,
 };
 use zolana_user_registry_interface::{
     state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
@@ -73,8 +72,7 @@ impl<'a> MergeTransactAccounts<'a> {
 /// registered key.
 ///
 /// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
-/// confidential default-ring tag): the signing key's 32-byte x-coordinate for a
-/// P256 owner, or the full ed25519 key. Rail-selected like `signing_pk_field`.
+/// confidential default-ring tag): the full Solana owner key.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub nullifier_pk: [u8; 32],
@@ -85,11 +83,8 @@ pub struct UserPkFields {
 /// Load and validate the `user_record`: owned by the registry program, stored at
 /// the canonical PDA for its owner, and containing a valid `UserRecord`
 /// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
-/// the rail-selected owner identity; the processor rejects the merge when it is
-/// `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana owner
-/// derives `signing_pk_field` as the tagged Solana identity of the registry
-/// account `owner` (ed25519), a P256 owner as the tagged P256 identity of
-/// `owner_p256`'s x-coordinate.
+/// owner identity. The processor rejects merging when the record opts out.
+/// The retained wire flag must select the Solana owner scheme.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -111,18 +106,11 @@ pub fn load_user_record(
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }
     let merging_enabled = record.merging_enabled;
-    let mut signing_view_tag = [0u8; 32];
-    let signing_pk_field = if eddsa_owner {
-        signing_view_tag.copy_from_slice(record.owner.as_array());
-        solana_owner_identity(record.owner.as_array())?
-    } else {
-        let owner_p256 = record
-            .owner_p256
-            .ok_or(ShieldedPoolError::InvalidUserRecord)?;
-        signing_view_tag.copy_from_slice(&owner_p256[1..]);
-        owner_proof_input_hash_compressed(&owner_p256)
-            .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?
-    };
+    if !eddsa_owner {
+        return Err(ShieldedPoolError::InvalidUserRecord.into());
+    }
+    let signing_view_tag = record.owner.to_bytes();
+    let signing_pk_field = solana_owner_identity(&signing_view_tag)?;
     Ok(UserPkFields {
         signing_pk_field,
         nullifier_pk: record.nullifier_pubkey,

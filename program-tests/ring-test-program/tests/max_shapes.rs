@@ -1,5 +1,5 @@
 //! Real-validator confirmation of the widest ring transactions: the widest
-//! transact shape of every output count on both ring rails and the widest ring
+//! transact shape of every output count on the runtime Ed25519 rail and the widest ring
 //! merge, each at the most real inputs that fit the 4,096-byte v1 ceiling, with
 //! compact padding for the rest. LiteSVM does not enforce that ceiling, so only
 //! a validator shows that these transactions land.
@@ -10,8 +10,7 @@ use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_signature::Signature;
 use zolana_client::Shape;
 use zolana_test_utils::{
-    nullifier_pda::assert_nullifier_pdas,
-    ring::{RingHarness, RingRail},
+    nullifier_pda::assert_nullifier_pdas, ring::RingHarness,
     test_validator_asserts::assert_transaction_compute_units,
 };
 use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
@@ -58,26 +57,11 @@ const EDDSA_SHAPES: [MaxShape; 4] = [
     max_shape((16, 8), 16, 8),
     max_shape((8, 16), 8, 16),
 ];
-/// A P256 proof carries its BSB22 commitment and every output joins the
-/// ring, so the P256 rail fits fewer real inputs at 49x2 and fewer real
-/// outputs at 8x16.
-const P256_SHAPES: [MaxShape; 4] = [
-    max_shape((49, 2), 45, 2),
-    max_shape((24, 4), 24, 4),
-    max_shape((16, 8), 16, 8),
-    max_shape((8, 16), 8, 15),
-];
 
 #[test]
 #[serial]
 fn widest_ring_eddsa_transact_shapes_confirm() -> Result<()> {
-    widest_ring_transact_shapes_confirm(RingRail::Eddsa, &EDDSA_SHAPES)
-}
-
-#[test]
-#[serial]
-fn widest_ring_p256_transact_shapes_confirm() -> Result<()> {
-    widest_ring_transact_shapes_confirm(RingRail::P256, &P256_SHAPES)
+    widest_ring_transact_shapes_confirm(&EDDSA_SHAPES)
 }
 
 #[test]
@@ -100,7 +84,7 @@ fn widest_ring_merge_confirms() -> Result<()> {
     Ok(())
 }
 
-fn widest_ring_transact_shapes_confirm(rail: RingRail, shapes: &[MaxShape]) -> Result<()> {
+fn widest_ring_transact_shapes_confirm(shapes: &[MaxShape]) -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
 
@@ -112,12 +96,9 @@ fn widest_ring_transact_shapes_confirm(rail: RingRail, shapes: &[MaxShape]) -> R
     } in shapes
     {
         let label = format!(
-            "ring {rail:?} {n_inputs}x{n_outputs}, {real_inputs} real inputs, {real_outputs} real outputs"
+            "ring Ed25519 {n_inputs}x{n_outputs}, {real_inputs} real inputs, {real_outputs} real outputs"
         );
         let sender = format!("sender-{n_inputs}x{n_outputs}");
-        if rail == RingRail::P256 {
-            harness.make_p256_actor(&sender)?;
-        }
         let recipients = (1..real_outputs)
             .map(|index| format!("recipient-{n_inputs}x{n_outputs}-{index}"))
             .collect::<Vec<_>>();
@@ -131,7 +112,6 @@ fn widest_ring_transact_shapes_confirm(rail: RingRail, shapes: &[MaxShape]) -> R
             &recipients,
             real_inputs,
             SENT_AMOUNT,
-            rail,
             Shape::new(n_inputs, n_outputs),
         )?;
         let bytes = assert_landed(&harness, &signature, &label)?;

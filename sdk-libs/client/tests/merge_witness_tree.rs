@@ -56,7 +56,7 @@ fn record_account(owner: Address, keypair: &ShieldedKeypair) -> Account {
     let record = UserRecord {
         owner,
         bump: user_record_pda(&owner).1,
-        owner_p256: None,
+        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
         merging_enabled: true,

@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"testing"
 
-	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
 	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -338,7 +337,7 @@ func TestCacheRejectsNonUtxos(t *testing.T) {
 			a := buildDummyInputShield(t, 50)
 			if domain == "address" {
 				makeAddressSlot(t, a, 0, testSolanaPkField(t), spptest.Fe(123))
-				finalizeAddressAssignment(t, a, false, true)
+				finalizeAddressAssignment(t, a, true)
 			}
 			makeDefaultRing(t, a)
 			checkCachedWitness(t, ccs, asDefaultRingEddsaOnly(a), true)
@@ -422,54 +421,6 @@ func TestUncachedSpendSolvesWithTheDefaultSelection(t *testing.T) {
 	checkCachedWitness(t, ccs, asDefaultRingEddsaOnly(a), true)
 }
 
-func TestCustomRingOptionalCache(t *testing.T) {
-	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	for _, p256 := range []bool{false, true} {
-		var circuit frontend.Circuit = MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-		if p256 {
-			circuit = MustNewCustomRingP256Circuit(Shape(shape))
-		}
-		ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, reads := range [][]int{nil, {1}, {1, 0}} {
-			t.Run(fmt.Sprintf("p256_%t/reads_%v", p256, reads), func(t *testing.T) {
-				inputs, outputs := defaultBalancedUtxos(t, shape)
-				for i := range inputs {
-					inputs[i].RingProgramID = big.NewInt(0x5A)
-				}
-				a := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
-				owner := spptest.FixedP256Key(t, 11)
-				if p256 {
-					rewriteInputAsP256(t, a, 0, owner)
-				}
-				a.CachedInputs = cacheReads(t, a, reads)
-				for _, input := range reads {
-					a.Inputs[input].StatePathIndex = 0
-					a.Inputs[input].StatePathElements = spptest.ZeroVariables(StateTreeHeight)
-				}
-				var assignment frontend.Circuit
-				if p256 {
-					authorization := authorizeP256(t, a, owner, owner)
-					assignment = asCustomRingP256(a, authorization)
-				} else {
-					refreshPublicInputHash(t, a)
-					assignment = asCustomRingEddsaOnly(a)
-				}
-				checkCachedWitness(t, ccs, assignment, true)
-				switch c := assignment.(type) {
-				case *customring.CustomRingEddsaOnlyCircuit:
-					c.CachedInputs.ReadHashChain = 123
-				case *customring.CustomRingP256Circuit:
-					c.CachedInputs.ReadHashChain = 123
-				}
-				checkCachedWitness(t, ccs, assignment, false)
-			})
-		}
-	}
-}
-
 func TestCacheChainRejectsTheLeftFold(t *testing.T) {
 	shape := protocol.Shape{NInputs: 5, NOutputs: 3}
 	ccs := compileCached(t, Shape(shape))
@@ -494,4 +445,33 @@ func TestCacheChainRejectsTheLeftFold(t *testing.T) {
 	c.CachedInputs.ReadHashChain = left
 	refreshCachedHash(t, c)
 	checkCachedWitness(t, ccs, c, false)
+}
+
+// Optional cache reads retain the same owner authorization as tree membership.
+func TestCustomRingOptionalCache(t *testing.T) {
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reads := range [][]int{nil, {1}, {1, 0}} {
+		t.Run(fmt.Sprintf("reads_%v", reads), func(t *testing.T) {
+			inputs, outputs := defaultBalancedUtxos(t, shape)
+			for i := range inputs {
+				inputs[i].RingProgramID = big.NewInt(0x5A)
+			}
+			a := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
+			a.CachedInputs = cacheReads(t, a, reads)
+			for _, input := range reads {
+				a.Inputs[input].StatePathIndex = 0
+				a.Inputs[input].StatePathElements = spptest.ZeroVariables(StateTreeHeight)
+			}
+			refreshPublicInputHash(t, a)
+			assignment := asCustomRingEddsaOnly(a)
+			checkCachedWitness(t, ccs, assignment, true)
+			a.CachedInputs.ReadHashChain = 123
+			checkCachedWitness(t, ccs, asCustomRingEddsaOnly(a), false)
+		})
+	}
 }

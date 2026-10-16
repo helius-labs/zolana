@@ -45,10 +45,9 @@ pub use prover::{
     AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
     CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
     ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverExt, PublicInputs,
-    PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferP256ProofResult,
-    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, Shape, TransferInput,
-    TransferInputUtxo, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
-    TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,
+    TransferProofResult, TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 #[cfg(feature = "reqwest")]
 pub use prover::{spawn_prover, ProverLaunch};

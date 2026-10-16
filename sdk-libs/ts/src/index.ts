@@ -48,7 +48,6 @@ export {
   CompressedShieldedAddress,
   KeypairError,
   NullifierKey,
-  P256PublicKey,
   ShieldedAddress,
   ShieldedKeypair,
   ShieldedPublicKey,

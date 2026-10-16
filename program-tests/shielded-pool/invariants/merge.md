@@ -53,10 +53,10 @@ nullifiers.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-MERGE-05: P256 owner rail requires a registered P256 key**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_p256_rail_without_a_registered_p256_owner`
+- [x] **INV-MERGE-05: retired owner scheme is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_the_reserved_owner_rail`
   - Kind: precondition
-  - Statement: when `eddsa_owner` is `false`, the registry record's `owner_p256` must be `Some`; a record without a P256 key returns Err.
+  - Statement: the retained `eddsa_owner` flag must be true. Registry records with a nonzero reserved owner byte are rejected.
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs:77-79` (`fn load_user_record`)
   - Error: `ShieldedPoolError::InvalidUserRecord = 7018`
   - Severity: High
@@ -318,7 +318,7 @@ is supplied, so a cached spend verifies against its rail's ordinary verifying ke
 and no standalone cached circuit exists
 (`program-libs/interface/src/verifying_keys/circuit.rs`, `fn CircuitId::uncached`).
 `CircuitId` carries one cached twin per owner-signed rail --
-`ConfidentialEddsaCached`, `RingEddsaCached`, `RingP256Cached` -- and
+`ConfidentialEddsaCached`, `RingEddsaCached` -- and
 `RingAuthority` has none, because its circuit binds no selection. INV-MERGE-23
 records why the spend needs no identity check; its `CacheSlotEmpty`,
 `InvalidCacheBitmap` and `InvalidCacheRootIndex` legs are pinned there rather
@@ -327,7 +327,7 @@ than by entries of their own.
 ### Write Authorization
 
 - [x] **INV-MERGE-20: a merge writes a cache only with its write authority's signature**
-  - Covered by: `program-tests/shielded-pool/tests/cache/functional.rs` `merge_writes_the_bound_slot` and `ring_merge_writes_the_bound_slot` (`reject_cache_sponsor_write`: the rent sponsor signing in the writer's place fails with 7076 and leaves every writable account unchanged; the same proof then succeeds with the writer and a distinct payer), `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_invalid_writes_and_rolls_back_overwrites` (out-of-range slot -> 7069, expired cache -> 7073, a P256 registry owner reaching the proof -> 7008, each with the cache and tree unchanged)
+  - Covered by: `program-tests/shielded-pool/tests/cache/functional.rs` `merge_writes_the_bound_slot` and `ring_merge_writes_the_bound_slot` (`reject_cache_sponsor_write`: the rent sponsor signing in the writer's place fails with 7076 and leaves every writable account unchanged; the same proof then succeeds with the writer and a distinct payer), `program-tests/shielded-pool/tests/cache/contract.rs` `merge_rejects_invalid_writes_and_rolls_back_overwrites` (out-of-range slot -> 7069, expired cache -> 7073, each with the cache and tree unchanged)
   - Kind: precondition
   - Statement: `merge_transact` and `merge_ring` load a named cache once, before the proof, and return Err unless the signer immediately after it equals the stored `write_authority`, the cache has not expired and the slot is in range. No owner is compared on either rail: the write authority alone decides which verified outputs reach the slots, for registry owners of either curve and for policy-ring users. The default merge proof still binds the registered signing identity and nullifier public key (INV-MERGE-12), so the output it writes belongs to the registry owner.
   - Location: `programs/shielded-pool/src/instructions/merge/cache.rs` (`fn parse_cache_accounts`, `fn load_merge_cache`), `instructions/cache/write.rs` (`fn CacheWrite::load`)

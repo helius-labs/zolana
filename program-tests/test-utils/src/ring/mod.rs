@@ -13,8 +13,6 @@ mod ring_config;
 mod ring_deposit;
 mod ring_transact;
 
-pub use ring_transact::RingRail;
-
 use std::ops::{Deref, DerefMut};
 
 use crate::wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};

@@ -3,7 +3,7 @@ use zolana_api::{
     Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey,
 };
-use zolana_keypair::{constants::P256_PUBKEY_LEN, x25519::X25519_PUBKEY_LEN, X25519Pubkey};
+use zolana_keypair::{x25519::X25519_PUBKEY_LEN, X25519Pubkey};
 use zolana_user_registry_interface::user_record_pda;
 
 use crate::{
@@ -208,10 +208,7 @@ fn convert_user_record(
     Ok(UserRecord {
         owner: record.owner.0,
         bump: user_record_pda(&record.owner.0).1,
-        owner_p256: record
-            .owner_p256
-            .map(|key| fixed_bytes(key.0, P256_PUBKEY_LEN, &field("ownerP256")))
-            .transpose()?,
+        reserved_owner: Default::default(),
         nullifier_pubkey: record.nullifier_pubkey.0,
         viewing_pubkey: fixed_bytes(
             record.viewing_pubkey.0,

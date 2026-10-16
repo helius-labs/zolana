@@ -68,7 +68,7 @@ function fixtureAuthority(
 }> {
   const secret = hexBytes(fixtureString(inputs, "signingSecretBytes"));
   secret[31] = (secret.at(31) ?? 0) + offset;
-  const signing = SigningKey.fromP256Bytes(secret as Bytes32);
+  const signing = SigningKey.fromEd25519Bytes(secret as Bytes32);
   const viewingSecret = hexBytes(fixtureString(inputs, "viewingSecretBytes"));
   viewingSecret[31] = (viewingSecret.at(31) ?? 0) + offset;
   const viewing = ViewingKey.fromBytes(viewingSecret as Bytes32);
@@ -236,7 +236,7 @@ describe("manifest-verified wallet behavior", () => {
     const value = fixtureAuthority(inputs);
     const authorityExpected = fixtureObject(expected.authority);
     const addressExpected = fixtureObject(authorityExpected.shieldedAddress);
-    const signatureExpected = fixtureObject(expected.p256Signature);
+    const signatureExpected = fixtureObject(expected.ed25519Signature);
     const signature = value.signing.sign(hexBytes(fixtureString(inputs, "messageHashBytes")));
 
     expect(hex(value.keypair.signingPublicKey().toBytes())).toBe(

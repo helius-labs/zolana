@@ -86,7 +86,7 @@ pub enum IndexedCircuit {
     TransferConfidential,
     TransferRing,
     TransferRingAuthority,
-    TransferP256Ring,
+    TransferEd25519Ring,
     Merge,
     MergeRing,
 }
@@ -235,6 +235,7 @@ impl IndexedProofRequest {
                     || matches!(
                         metadata.circuit_type,
                         IndexedCircuit::TransferRingAuthority
+                            | IndexedCircuit::TransferEd25519Ring
                             | IndexedCircuit::Merge
                             | IndexedCircuit::MergeRing
                     ))
@@ -273,8 +274,8 @@ impl IndexedProofRequest {
             IndexedCircuit::TransferRingAuthority => {
                 ExpectedProvingKey::transfer_ring_authority(n_inputs, n_outputs)?
             }
-            IndexedCircuit::TransferP256Ring => {
-                ExpectedProvingKey::transfer_p256_ring(n_inputs, n_outputs)?
+            IndexedCircuit::TransferEd25519Ring => {
+                ExpectedProvingKey::transfer_ed25519_ring(n_inputs, n_outputs)?
             }
             IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
             IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
@@ -424,7 +425,7 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferP256Ring => 19,
+            Self::TransferEd25519Ring => 19,
             Self::Merge => 8,
             Self::MergeRing => 8,
         }

@@ -112,10 +112,10 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
 }
 
 #[test]
-fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
+fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
     let ring = CustomRing::new(Address::new_from_array([42; 32]));
     let payer = ShieldedKeypair::new_ed25519().unwrap();
-    let recipient = ShieldedKeypair::new_p256().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: payer.pubkey(),
@@ -133,17 +133,45 @@ fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
         },
         setting: None,
     };
-    let result = RingDeposit {
+    let deposit = RingDeposit {
         ring,
-        payer: &payer,
+        payer: &recipient,
         recipient: &recipient,
         tree: Address::new_from_array([8; 32]),
         asset: DepositAsset::Sol,
         amount: 11,
         cosigner: None,
+    };
+    assert!(matches!(
+        deposit.prepare(&rpc),
+        Err(DepositError::AnonymousPublicSignerLinksOwner)
+    ));
+
+    #[cfg(feature = "solana-rpc")]
+    {
+        // A distinct source permits preparation but cannot authorize the hidden owner as fee payer.
+        let mut deposit = deposit;
+        deposit.payer = &payer;
+        let prepared = deposit.prepare(&rpc).unwrap();
+        let network = zolana_client::SolanaRpc::with_client(
+            solana_rpc_client::rpc_client::RpcClient::new_mock("fails"),
+        );
+        let prover = ProverClient::new("http://127.0.0.1:1".to_owned());
+        let result = custom_ring_sdk::RingSubmission::new(prepared).send(
+            custom_ring_sdk::SubmissionEnvironment {
+                indexer: &rpc,
+                rpc: &network,
+                prover: &prover,
+                payer: &recipient,
+                signers: &[&payer],
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(custom_ring_sdk::SubmissionError::Deposit(error))
+                if matches!(*error, DepositError::AnonymousPublicSignerLinksOwner)
+        ));
     }
-    .prepare(&rpc);
-    assert!(matches!(result, Err(DepositError::AnonymousRecipient)));
 }
 
 /// Answers config and registry reads, every member is unregistered.

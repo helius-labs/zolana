@@ -1397,13 +1397,6 @@ components:
           description: Wallet-wide nullifier pubkey. Never rotates.
         owner:
           $ref: '#/components/schemas/SerializablePubkey'
-        ownerP256:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/Base64String'
-            description: |-
-              SEC1-compressed P256 signing pubkey (33 bytes). `null` for Solana-only
-              owners, whose signing key is the Ed25519 key `owner` encodes.
         viewingPubkey:
           $ref: '#/components/schemas/Base64String'
           description: Tagged X25519 viewing pubkey (0x04 followed by a canonical 32-byte u-coordinate).

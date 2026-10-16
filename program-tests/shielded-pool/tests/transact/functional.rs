@@ -9,7 +9,7 @@
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
 use shielded_pool_tests::support::{
-    ring::{RealRingTransact, RingRail},
+    ring::RealRingTransact,
     transact::{current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool},
 };
 
@@ -48,7 +48,6 @@ use zolana_interface::{
         TreeFeeSchedule,
     },
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
-    verifying_keys::RingP256ProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -1832,7 +1831,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
 }
 
 #[test]
-fn ring_p256_transact_accepts_the_widest_input_shape() {
+fn ring_transact_accepts_the_widest_input_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
@@ -1840,24 +1839,12 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     let shape = Shape::IN49_OUT2;
     let ring_config = Keypair::new();
     let proof = RealRingTransact {
-        rail: RingRail::P256,
         n_inputs: shape.n_inputs(),
         n_outputs: shape.n_outputs(),
         ring_config: ring_config.pubkey(),
     }
     .build(&mut env);
-    assert!(matches!(
-        proof.data.circuit,
-        CircuitId::RingP256(
-            49,
-            2,
-            _,
-            RingP256ProofData {
-                default_owner_tag: Some(_),
-                ..
-            }
-        )
-    ));
+    assert!(matches!(proof.data.circuit, CircuitId::RingEddsa(49, 2, _)));
     let ix = proof.instruction(payer, tree);
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     env.rpc
@@ -1866,7 +1853,7 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
             &[&ring_config],
             ComputeBudgetConfig::new(1_400_000),
         )
-        .expect("widest-input-shape P256 ring transact");
+        .expect("widest-input-shape Ed25519 ring transact");
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
@@ -1879,9 +1866,9 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     let trace = env
         .rpc
         .last_transaction_trace()
-        .expect("widest-input-shape P256 ring transact trace");
+        .expect("widest-input-shape Ed25519 ring transact trace");
     println!(
-        "transact ring p256 49x2: {} CU",
+        "transact ring ed25519 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");

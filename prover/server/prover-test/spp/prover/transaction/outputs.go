@@ -23,7 +23,6 @@ type parsedUtxo struct {
 	normalized       ProofUtxoRequest
 	ownerKeyHash     *big.Int
 	ownerNullifierPk *big.Int
-	isP256           bool
 }
 
 // buildOutputWitnesses fills every physical output slot, real slots first and
@@ -169,7 +168,6 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		Domain:            proofFieldInput(domain),
 		Owner:             proofFieldInput(own.owner),
 		OwnerSolanaPubkey: parse.HexString(input.OwnerSolanaPubkey),
-		OwnerP256Pubkey:   parse.HexString(input.OwnerP256Pubkey),
 		Asset:             proofFieldInput(asset),
 		Amount:            proofFieldInput(amount),
 		Blinding:          proofFieldInput(blinding),
@@ -182,6 +180,5 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		normalized:       normalized,
 		ownerKeyHash:     own.keyHash,
 		ownerNullifierPk: own.nullifierPk,
-		isP256:           own.isP256,
 	}, nil
 }

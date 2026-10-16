@@ -36,8 +36,6 @@ impl RingTransferHarness {
         match mode {
             Mode::Eddsa => prove_and_verify_eddsa(eddsa_prover(n_in, n_out), n_in, n_out),
             Mode::EddsaMultiReal => prove_and_verify_eddsa(eddsa_multi_real(), n_in, n_out),
-            // NOTE(pr164): PR164 removed the P256 rail (`RingTransferP256Prover`,
-            // `transfer_p256_ring_*` VKs are gone); the P256 modes were dropped here.
         }
     }
 }

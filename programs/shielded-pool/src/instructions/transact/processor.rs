@@ -196,7 +196,7 @@ pub fn validate_circuit_type(
         InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEddsa(..)),
         InstructionTag::RingTransact => matches!(
             circuit,
-            CircuitId::RingEddsa(..) | CircuitId::RingP256(..) | CircuitId::RingEd25519(..)
+            CircuitId::RingEddsa(..) | CircuitId::RingEd25519(..)
         ),
         InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,

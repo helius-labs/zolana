@@ -33,7 +33,6 @@ use zolana_interface::{
         Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof as ProofData, TreeContext,
     },
-    merge_utils::owner_proof_input_hash_compressed,
     state::cache::empty_cached_input_fields,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -77,19 +76,6 @@ fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
         .iter()
         .map(fe)
         .collect()
-}
-
-/// Decode a `0x…` byte string of exactly `N` bytes (no field padding).
-fn bytes<const N: usize>(value: &Value) -> [u8; N] {
-    let text = value.as_str().expect("byte string");
-    let digits = text.strip_prefix("0x").expect("byte string has 0x prefix");
-    assert_eq!(digits.len(), N * 2, "byte string is {N} bytes");
-    let mut out = [0u8; N];
-    for (slot, chunk) in out.iter_mut().zip(digits.as_bytes().chunks(2)) {
-        let text = core::str::from_utf8(chunk).expect("hex chunk");
-        *slot = u8::from_str_radix(text, 16).expect("hex byte");
-    }
-    out
 }
 
 /// The vector's fixed-width `tree_slots` array: `INPUT_TREES` entries of
@@ -449,8 +435,8 @@ fn compact_program_assembly_matches_the_go_ordering() {
 }
 
 /// The program assembles the RingEd25519 public input hash the circuit proves
-/// for the committed Go request of `TestCustomRingEd25519RequestFixture`. It is
-/// the RingP256 layout with a zero default owner and zero published output owners.
+/// for the committed Go request of `TestCustomRingEd25519RequestFixture`, including
+/// the zero default owner and zero published output owners.
 #[test]
 fn ring_ed25519_assembly_matches_the_go_request_fixture() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -558,17 +544,6 @@ fn field_derivation_vector_pins_the_shared_encodings() {
     assert_eq!(
         solana_owner_identity(&fe_at(solana, "pubkey")).expect("solana owner identity"),
         fe_at(solana, "hash")
-    );
-
-    // The P256 owner identity is tagged and taken over the x-coordinate only,
-    // so the vector's SEC1-compressed key and its odd-parity twin agree.
-    let p256 = vector
-        .get("p256_owner_pk_hash")
-        .expect("p256_owner_pk_hash entry");
-    let compressed: [u8; 33] = bytes(p256.get("compressed_pubkey").expect("compressed_pubkey"));
-    assert_eq!(
-        owner_proof_input_hash_compressed(&compressed).expect("p256 owner identity"),
-        fe_at(p256, "hash")
     );
 
     for entry in vector

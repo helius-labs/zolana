@@ -1,7 +1,6 @@
 package merge_test
 
 import (
-	"crypto/elliptic"
 	"math/big"
 	"testing"
 
@@ -17,12 +16,12 @@ import (
 
 func buildValidWitness(t testing.TB) *merge.Circuit {
 	t.Helper()
-	return buildWitness(t, false)
+	return buildWitness(t)
 }
 
-func buildWitness(t testing.TB, eddsa bool) *merge.Circuit {
+func buildWitness(t testing.TB) *merge.Circuit {
 	t.Helper()
-	return buildDefaultWitness(t, mergeFixtureOptions{eddsa: eddsa})
+	return buildDefaultWitness(t, mergeFixtureOptions{})
 }
 
 type mergeFixtureRail uint8
@@ -41,7 +40,6 @@ type mergeFixtureOptions struct {
 	inputCount        int
 	externalDataHash  *big.Int
 	rail              mergeFixtureRail
-	eddsa             bool
 	asset             *big.Int
 	ringProgramID     *big.Int
 	inputRingData     []*big.Int
@@ -141,26 +139,12 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if inputCount == 0 {
 		inputCount = defaultFixtureInputs
 	}
-	curve := elliptic.P256()
-
-	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
-	ownerSk := big.NewInt(11)
-	ownerX, ownerY := curve.ScalarBaseMult(leftPad32(ownerSk))
-	var ownerKeyHash *big.Int
-	var err error
-	if options.eddsa {
-		var solanaPubkey [32]byte
-		solanaPubkey[31] = 0x2a
-		ownerKeyHash, err = protocol.SolanaPkField(solanaPubkey)
-		if err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		ownerComp := elliptic.MarshalCompressed(curve, ownerX, ownerY)
-		ownerKeyHash, err = protocol.OwnerPkField(ownerComp)
-		if err != nil {
-			t.Fatal(err)
-		}
+	// Merge binds the same tagged Solana owner identity as ordinary spends.
+	var solanaPubkey [32]byte
+	solanaPubkey[31] = 0x2a
+	ownerKeyHash, err := protocol.SolanaPkField(solanaPubkey)
+	if err != nil {
+		t.Fatal(err)
 	}
 	nullifierSecret := big.NewInt(19)
 	userNullifierPk, err := protocol.NullifierPk(nullifierSecret)
@@ -539,10 +523,4 @@ func zeroPath(dst []frontend.Variable) {
 	for i := range dst {
 		dst[i] = big.NewInt(0)
 	}
-}
-
-func leftPad32(v *big.Int) []byte {
-	var b [32]byte
-	v.FillBytes(b[:])
-	return b[:]
 }

@@ -5,8 +5,8 @@ use zolana_interface::{
         instruction_data::transact::{
             fetch_tag, validate_input_tree_contexts, validate_interface_transfers, Bsb22Commitment,
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
-            RingP256ProofData, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
-            TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
+            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            MAX_EXTERNAL_DATA_HASH_SLICES,
         },
         tag,
     },
@@ -39,47 +39,22 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
         commitment: [4u8; 32],
         commitment_pok: [5u8; 32],
     };
-    let proof_data = RingP256ProofData {
-        bsb22_commitment: commitment,
-        default_owner_tag: None,
-    };
-    let p256 = CircuitId::RingP256(2, 3, 3, proof_data);
-    let bytes = wincode::serialize(&p256).unwrap();
-    let mut expected = 3u16.to_le_bytes().to_vec();
+    let ed25519 = CircuitId::RingEd25519(2, 3, 3, commitment);
+    let bytes = wincode::serialize(&ed25519).unwrap();
+    let mut expected = 7u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[2, 3, 3]);
     expected.extend_from_slice(&commitment.commitment);
     expected.extend_from_slice(&commitment.commitment_pok);
-    expected.push(0);
-    expected.extend_from_slice(&[0u8; 32]);
     assert_eq!(bytes, expected);
     assert_eq!(
         wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(),
-        p256
+        ed25519
     );
-
-    let tagged = CircuitId::RingP256(
-        2,
-        3,
-        3,
-        RingP256ProofData {
-            bsb22_commitment: commitment,
-            default_owner_tag: Some([7u8; 32]),
-        },
-    );
-    let tagged_bytes = wincode::serialize(&tagged).unwrap();
-    assert_eq!(tagged_bytes[tagged_bytes.len() - 33], 1);
-    assert_eq!(&tagged_bytes[tagged_bytes.len() - 32..], &[7u8; 32]);
-    assert_eq!(
-        wincode::deserialize_exact::<CircuitId>(&tagged_bytes).unwrap(),
-        tagged
-    );
-
-    let mut noncanonical_none = bytes;
-    *noncanonical_none.last_mut().unwrap() = 1;
-    assert!(wincode::deserialize_exact::<CircuitId>(&noncanonical_none).is_err());
-
-    let unknown = 4u16.to_le_bytes();
-    assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
+    for tag in [3u16, 6, 8] {
+        let mut retired = vec![0u8; 150];
+        retired[..2].copy_from_slice(&tag.to_le_bytes());
+        assert!(wincode::deserialize_exact::<CircuitId>(&retired).is_err());
+    }
 }
 
 /// A cached selector appends its `CacheAccess`: the little-endian read bitmap,

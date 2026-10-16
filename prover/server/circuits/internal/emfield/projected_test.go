@@ -1,7 +1,6 @@
 package emfield
 
 import (
-	"crypto/elliptic"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -24,7 +23,7 @@ type projectedEvalCircuit struct {
 }
 
 func (c *projectedEvalCircuit) Define(api frontend.API) error {
-	f := NewFor(api, elliptic.P256().Params().P, projectionLayout)
+	f := NewFor(api, projectionTestModulus(), projectionLayout)
 	x, y := fromLimbs(f, c.X[:]), fromLimbs(f, c.Y[:])
 	if c.Negative {
 		x = f.Neg(x)
@@ -79,7 +78,7 @@ func TestEvalProjectedRejectsNativeModulusAliases(t *testing.T) {
 		// A forged remainder can make the low carry zero while placing the
 		// native quotient outside its integer bound. Without that bound,
 		// a multiple of q*B^2 is hidden above the checked low coefficients.
-		p := elliptic.P256().Params().P
+		p := projectionTestModulus()
 		high := new(big.Int).Rsh(new(big.Int).Add(p, big.NewInt(1)), 64)
 		quotient, remainder := new(big.Int), new(big.Int)
 		quotient.QuoRem(q, high, remainder)
@@ -114,7 +113,7 @@ func TestEvalProjectedRejectsNativeModulusAliases(t *testing.T) {
 }
 
 func (c *projectionPairCircuit) Define(api frontend.API) error {
-	f := NewFor(api, elliptic.P256().Params().P, projectionLayout)
+	f := NewFor(api, projectionTestModulus(), projectionLayout)
 	// Test the native polynomial tensor over all of Fq. Input limb bounds
 	// are unnecessary for this algebra test. Integer lifting is tested separately.
 	x, y := f.Bounded(c.X[:], f.ReducedWidths()), f.Bounded(c.Y[:], f.ReducedWidths())
@@ -132,7 +131,7 @@ func (c *projectionPairCircuit) Define(api frontend.API) error {
 }
 
 func projectionExpected(x, y []*big.Int, q *big.Int) [14]frontend.Variable {
-	p := elliptic.P256().Params().P
+	p := projectionTestModulus()
 	s := &arithmeticState{foldDigits: balancedDigits(new(big.Int).Mod(pow2(256), p), 32, 8)}
 	fold := s.fold(8, 14)
 	coeffs := make([]*big.Int, 8)
@@ -221,4 +220,10 @@ func plainLimbs(value *big.Int) [8]frontend.Variable {
 		out[i] = limb
 	}
 	return out
+}
+
+// projectionTestModulus exercises the 256-bit sparse-modulus projection kernel.
+func projectionTestModulus() *big.Int {
+	p, _ := new(big.Int).SetString("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16)
+	return p
 }
