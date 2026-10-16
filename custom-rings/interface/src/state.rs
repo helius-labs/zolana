@@ -3,20 +3,18 @@ use core::ops::BitOr;
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
-use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
+use zolana_ring_policy::{
+    registry_field, EncodedRuleTable, ListId, PolicySource, RuleTable, RuleTableError, SourceMap,
+    SourceMapError,
+};
 
 use crate::{error::CustomRingError, ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
 
 pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
-pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
+/// Roots a transfer proof may bind, registrations in between leave it provable.
+pub const MEMBER_REGISTRY_ROOT_HISTORY: usize = 32;
 /// One slot per list the enum can name, all eight enter the hash.
 pub const N_SOURCE_SLOTS: usize = zolana_ring_policy::MAX_SOURCES;
-
-/// Root of the sentinel-only indexed tree, the value a fresh registry initializes to.
-pub const KEY_REGISTRY_EMPTY_ROOT: [u8; 32] = [
-    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
-    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
-];
 
 /// An account of the ring program, created only at its canonical PDA, so an
 /// owned account with the discriminator needs no address check.
@@ -114,11 +112,12 @@ ring_accounts! {
     // Discriminator 5 is retired, never reuse it.
     Delegate = DELEGATE: 6, DELEGATE_PDA_SEED: b"delegate",
         InvalidDelegate, DelegateAlreadySet, InvalidDelegate;
-    KeyRegistryRoot = KEY_REGISTRY_ROOT: 7, KEY_REGISTRY_ROOT_PDA_SEED: b"keyreg",
-        InvalidKeyRegistryRoot, KeyRegistryRootAlreadyExists, InvalidKeyRegistryRoot;
+    // Discriminator 7 is retired, never reuse it.
     DepositAudit = DEPOSIT_AUDIT: 8, DEPOSIT_AUDIT_PDA_SEED: b"deposit_audit",
         InvalidDepositAudit, InvalidDepositAudit, InvalidDepositAudit,
         |audit: &DepositAudit| audit.required <= 1;
+    MemberRegistryRoot = MEMBER_REGISTRY_ROOT: 9, MEMBER_REGISTRY_ROOT_PDA_SEED: b"members",
+        InvalidMemberRegistryRoot, MemberRegistryRootAlreadyExists, InvalidMemberRegistryRoot;
 }
 
 macro_rules! le_getters {
@@ -133,7 +132,7 @@ macro_rules! le_getters {
 
 le_getters! {
     WithdrawalThresholdRow { amount: u64 }
-    KeyRegistryRoot { next_index: u64 }
+    MemberRegistryRoot { next_index: u64 }
     PolicyConfig { address_tree_id: u16, generation: u32, generation_slot: u64 }
 }
 
@@ -157,6 +156,7 @@ pub struct RingProgramConfig {
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.
     pub has_policy: u8,
+    /// Nonzero requires every output owner's record to escrow its nullifier key.
     pub key_escrow: u8,
 }
 
@@ -278,20 +278,21 @@ pub struct Delegate {
     pub bump: u8,
 }
 
+/// The ring's member registry, one per ring, its history lets a transfer bind a recent root.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
-pub struct KeyRegistryRoot {
+pub struct MemberRegistryRoot {
     pub discriminator: u8,
-    /// Little endian, the next free leaf index a registration appends at.
+    /// Little endian, the next free leaf index an insert appends at.
     pub next_index: [u8; 8],
     pub bump: u8,
     /// Slot of the current root in `history`.
     pub history_cursor: u8,
-    /// Every root stays sound, an enrolled leaf never changes.
-    pub history: [[u8; 32]; KEY_REGISTRY_ROOT_HISTORY],
+    /// Records change under a newer root, a proof bound to an older one reads the older records.
+    pub history: [[u8; 32]; MEMBER_REGISTRY_ROOT_HISTORY],
 }
 
-impl KeyRegistryRoot {
+impl MemberRegistryRoot {
     pub fn root(&self) -> Option<[u8; 32]> {
         self.root_at(self.history_cursor)
     }
@@ -310,8 +311,23 @@ impl KeyRegistryRoot {
 #[repr(C)]
 pub struct SourceSlot {
     pub list_id: u8,
-    /// The namespace PDA serving the list, the ring's own or a curator's.
-    pub namespace: Address,
+    /// The curator's `MemberRegistryRoot` account serving the list, zero for the ring's own.
+    pub registry: Address,
+}
+
+impl SourceSlot {
+    /// The field the policy hash and the circuit read for the slot.
+    pub fn policy_source(&self) -> Result<PolicySource, HasherError> {
+        let registry = if self.registry == Address::default() {
+            [0u8; 32]
+        } else {
+            registry_field(self.registry.as_array())?
+        };
+        Ok(PolicySource {
+            list_id: self.list_id,
+            registry,
+        })
+    }
 }
 
 /// Every write of `rules` or `sources` repins `policy_hash`.
@@ -320,13 +336,13 @@ pub struct SourceSlot {
 pub struct PolicyConfig {
     pub discriminator: u8,
     pub policy_hash: [u8; 32],
-    /// Every entry address is claimed in it.
+    /// The address tree every policy transfer binds.
     pub address_tree: Address,
-    /// Little endian, every entry address hashes under it.
+    /// Little endian, the id the statement carries for `address_tree`.
     pub address_tree_id: [u8; 2],
     pub namespace_bump: u8,
     pub bump: u8,
-    /// The shielded owner of every entry the ring's namespace holds.
+    /// The shielded owner no transfer slot may open to.
     pub namespace_owner_hash: [u8; 32],
     /// Non-empty exactly for the lists `rules` references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
@@ -337,11 +353,40 @@ pub struct PolicyConfig {
     pub generation_slot: [u8; 8],
 }
 
+/// Where a policy list is read from.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ListRegistry {
+    Own,
+    Curator(Address),
+}
+
 impl PolicyConfig {
-    /// The namespace serving `list_id`, `None` when the table does not reference it.
-    pub fn source_for(&self, list_id: ListId) -> Option<Address> {
+    /// The registry serving `list_id`, `None` when the table does not reference it.
+    pub fn registry_for(&self, list_id: ListId) -> Option<ListRegistry> {
         let slot = self.sources[list_id.slot()];
-        (slot.list_id != 0).then_some(slot.namespace)
+        (slot.list_id != 0).then(|| match slot.registry {
+            registry if registry == Address::default() => ListRegistry::Own,
+            registry => ListRegistry::Curator(registry),
+        })
+    }
+
+    /// The one curator registry the sources name, `None` when every list is the ring's own.
+    pub fn curator(&self) -> Option<Address> {
+        self.sources
+            .iter()
+            .map(|slot| slot.registry)
+            .find(|registry| *registry != Address::default())
+    }
+
+    /// The map `policy_hash` was computed over.
+    pub fn source_map(&self) -> Result<SourceMap, SourceMapError> {
+        let mut slots = [PolicySource::default(); N_SOURCE_SLOTS];
+        for (dst, slot) in slots.iter_mut().zip(&self.sources) {
+            *dst = slot
+                .policy_source()
+                .map_err(|_| SourceMapError::NotPositional)?;
+        }
+        SourceMap::from_slots(slots)
     }
 
     pub fn rule_table(&self) -> Result<RuleTable, RuleTableError> {
@@ -354,11 +399,11 @@ const _: () = assert!(RingProgramConfig::SIZE == 69);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(CoSigner::SIZE == 356);
 const _: () = assert!(Delegate::SIZE == 34);
-const _: () = assert!(KeyRegistryRoot::SIZE == 1035);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 1);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history_cursor) == 10);
-const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history) == 11);
-const _: () = assert!(KEY_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
+const _: () = assert!(MemberRegistryRoot::SIZE == 1035);
+const _: () = assert!(core::mem::offset_of!(MemberRegistryRoot, next_index) == 1);
+const _: () = assert!(core::mem::offset_of!(MemberRegistryRoot, history_cursor) == 10);
+const _: () = assert!(core::mem::offset_of!(MemberRegistryRoot, history) == 11);
+const _: () = assert!(MEMBER_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
 const _: () = assert!(PolicyConfig::SIZE == 1596);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, address_tree) == 33);

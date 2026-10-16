@@ -45,7 +45,7 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
         ciphertexts: &ciphertexts,
         auditor_pk: &[6; 33],
         eph_pk: &[7; 33],
-        key_registry_root: None,
+        member_registry_root: None,
     };
     let expected = input.hash().unwrap();
     for changed in [
@@ -70,11 +70,11 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
             ..input
         },
         DepositPublicInput {
-            key_registry_root: Some(&[0; 32]),
+            member_registry_root: Some(&[0; 32]),
             ..input
         },
         DepositPublicInput {
-            key_registry_root: Some(&[9; 32]),
+            member_registry_root: Some(&[9; 32]),
             ..input
         },
         DepositPublicInput {
@@ -95,7 +95,7 @@ fn statement_rejects_empty_oversized_and_mismatched_batches() {
         ciphertexts: &[],
         auditor_pk: &[0; 33],
         eph_pk: &[0; 33],
-        key_registry_root: None,
+        member_registry_root: None,
     };
     assert_eq!(input.hash(), Err(HasherError::InvalidNumFields));
     assert_eq!(

@@ -1,15 +1,7 @@
-use core::mem::MaybeUninit;
-
 use bytemuck::{Pod, Zeroable};
-use wincode::{
-    config::ConfigCore,
-    containers,
-    io::{Reader, Writer},
-    len::{FixIntLen, SeqLen},
-    ReadError, ReadResult, SchemaRead, SchemaWrite, WriteResult,
-};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
-use zolana_ring_policy::{OutflowLimit, ANSWER_SLOTS};
+use zolana_ring_policy::{OutflowLimit, N_FOREIGN};
 
 use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
@@ -18,7 +10,9 @@ pub mod accounts {
     pub const REGISTER_KEY_MEMBER: usize = 0;
     pub const REGISTER_KEY_CONFIG: usize = 1;
     pub const REGISTER_KEY_ROOT: usize = 2;
-    pub const CREATE_KEY_REGISTRY_ROOT_ROOT: usize = 3;
+    pub const CREATE_MEMBER_REGISTRY_ROOT_ROOT: usize = 3;
+    pub const UPDATE_MEMBERS_CONFIG: usize = 0;
+    pub const UPDATE_MEMBERS_ROOT: usize = 1;
 }
 
 macro_rules! instruction_tags {
@@ -55,7 +49,7 @@ macro_rules! instruction_tags {
 }
 
 const ACCOUNT_UNITS: u32 = 50_000;
-/// One policy hash plus up to eight curator config loads.
+/// One policy hash plus a curator registry load.
 const POLICY_UNITS: u32 = 150_000;
 /// A ring proof, most also CPI into SPP and its own proof.
 const PROOF_UNITS: u32 = 1_400_000;
@@ -71,8 +65,7 @@ instruction_tags! {
     RevokeReadAccess = REVOKE_READ_ACCESS: 5 => ACCOUNT_UNITS,
     SetAuthority = SET_AUTHORITY: 6 => ACCOUNT_UNITS,
     CreatePolicy = CREATE_POLICY: 7 => POLICY_UNITS,
-    CreateEntry = CREATE_ENTRY: 8 => PROOF_UNITS,
-    UpdateEntry = UPDATE_ENTRY: 9 => PROOF_UNITS,
+    // Tags 8 and 9 are retired with the list entries, never reuse them.
     SetPolicySource = SET_POLICY_SOURCE: 10 => POLICY_UNITS,
     SetPaused = SET_PAUSED: 11 => ACCOUNT_UNITS,
     SetPolicyRules = SET_POLICY_RULES: 12 => POLICY_UNITS,
@@ -83,10 +76,11 @@ instruction_tags! {
     SetDelegate = SET_DELEGATE: 24 => ACCOUNT_UNITS,
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     DelegateTransact = DELEGATE_TRANSACT: 25 => PROOF_UNITS,
-    CreateKeyRegistryRoot = CREATE_KEY_REGISTRY_ROOT: 28 => ACCOUNT_UNITS,
+    CreateMemberRegistryRoot = CREATE_MEMBER_REGISTRY_ROOT: 28 => ACCOUNT_UNITS,
     RegisterKey = REGISTER_KEY: 29 => PROOF_UNITS,
     SetDepositAudit = SET_DEPOSIT_AUDIT: 30 => ACCOUNT_UNITS,
     AuditedDeposit = AUDITED_DEPOSIT: 31 => PROOF_UNITS,
+    UpdateMembers = UPDATE_MEMBERS: 32 => PROOF_UNITS,
 }
 
 /// Config-authority change to the direct-deposit disclosure requirement.
@@ -145,14 +139,14 @@ impl CustomRingProof {
 
 const _: () = assert!(CustomRingProof::SIZE == 192);
 
-/// `tag || proof || key_registry_root_index`, then the SPP deposit instruction unchanged.
+/// `tag || proof || registry_root_index`, then the SPP deposit instruction unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct AuditedDepositPrefix {
     pub tag: u8,
     pub proof: CustomRingProof,
     /// The registry history slot of the bound root, zero unless the ring escrows nullifier keys.
-    pub key_registry_root_index: u8,
+    pub registry_root_index: u8,
 }
 
 /// Compressed Groth16 points without the audited circuits' BSB22 commitment.
@@ -164,12 +158,6 @@ pub struct PlainGroth16Proof {
     pub proof_c: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct KeyRegistryTransition {
-    pub old_root: [u8; 32],
-    pub new_root: [u8; 32],
-}
-
 /// Tag 3, the ring's own proof followed by the SPP content it forwards verbatim.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
@@ -177,66 +165,16 @@ pub struct CustomRingTransactIxData {
     /// One per policy tree account in order, empty on an audit-only ring.
     #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
     pub policy_trees: Vec<TreeContext>,
-    /// The registry history slot of the bound root, zero unless the ring escrows nullifier keys.
-    pub key_registry_root_index: u8,
+    /// The history slot of the bound root in the ring's member registry, zero on an audit-only ring.
+    pub registry_root_index: u8,
+    /// Per curator registry account, the history slot of its bound root, zero without a curator.
+    pub foreign_root_indexes: [u8; N_FOREIGN],
     /// Proof-bound approval demand, false when no outflow limit applies.
     pub approval_required: bool,
-    /// Canonical target prefix with a zero suffix in the policy public input.
-    #[wincode(with = "CompactRevocationTargets")]
-    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
-    /// Per fact slot, the policy tree its revocation target lives in, zero for an empty slot.
-    pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
     pub transact: TransactIxData,
 }
 
-struct CompactRevocationTargets;
-
-unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for CompactRevocationTargets {
-    type Dst = [[u8; 32]; ANSWER_SLOTS];
-
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
-        let len = <FixIntLen<u8> as SeqLen<C>>::read(reader.by_ref())?;
-        if len > ANSWER_SLOTS {
-            return Err(ReadError::InvalidValue("too many revocation targets"));
-        }
-        let mut targets = [[0u8; 32]; ANSWER_SLOTS];
-        for target in targets.iter_mut().take(len) {
-            *target = <[u8; 32] as SchemaRead<'de, C>>::get(reader.by_ref())?;
-        }
-        if len != 0 && targets[len - 1] == [0u8; 32] {
-            return Err(ReadError::InvalidValue("noncanonical revocation targets"));
-        }
-        dst.write(targets);
-        Ok(())
-    }
-}
-
-unsafe impl<C: ConfigCore> SchemaWrite<C> for CompactRevocationTargets {
-    type Src = [[u8; 32]; ANSWER_SLOTS];
-
-    fn size_of(src: &Self::Src) -> WriteResult<usize> {
-        let len = revocation_target_prefix_len(src);
-        Ok(1 + len * 32)
-    }
-
-    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
-        let len = revocation_target_prefix_len(src);
-        <FixIntLen<u8> as SeqLen<C>>::write(writer.by_ref(), len)?;
-        for target in &src[..len] {
-            <[u8; 32] as SchemaWrite<C>>::write(writer.by_ref(), target)?;
-        }
-        Ok(())
-    }
-}
-
-fn revocation_target_prefix_len(targets: &[[u8; 32]; ANSWER_SLOTS]) -> usize {
-    targets
-        .iter()
-        .rposition(|target| *target != [0u8; 32])
-        .map_or(0, |index| index + 1)
-}
-
-/// `source` 0 is the ring's own entries, `1 + i` the `i`-th trailing curator policy config.
+/// `source` 0 is the ring's own registry, 1 the trailing curator member registry root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SourceSpec {
     pub list_id: u8,
@@ -258,13 +196,45 @@ pub struct PolicyTableIxData {
     pub limits: Vec<OutflowLimit>,
 }
 
-/// Proven enrollment of a member's auditor-encrypted nullifier key in the registry.
+/// One record rewrite, the program authorizes the change from the old fields to the new.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct MemberUpdate {
+    pub member: [u8; 32],
+    pub old_lists: u64,
+    pub old_escrow_key: [u8; 32],
+    pub lists: u64,
+    pub escrow_key: [u8; 32],
+    /// The record's leaf, the append slot for an insert.
+    pub index: u64,
+}
+
+impl MemberUpdate {
+    /// An insert, the registry has no record of the member yet.
+    pub const fn inserts(&self, next_index: u64) -> bool {
+        self.index >= next_index
+    }
+}
+
+/// Proven batch rewrite of member records, items strictly ascending by member.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct UpdateMembersIxData {
+    pub proof: CustomRingProof,
+    /// The history slot the proof's old root was read from, the current one or the batch is stale.
+    pub old_root_index: u8,
+    pub new_root: [u8; 32],
+    #[wincode(with = "containers::Vec<MemberUpdate, FixIntLen<u8>>")]
+    pub items: Vec<MemberUpdate>,
+}
+
+/// Proven enrollment of a member's auditor-encrypted nullifier key in its record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RegisterKeyIxData {
     pub proof: CustomRingProof,
-    pub registry_old_root: [u8; 32],
-    pub registry_new_root: [u8; 32],
-    pub registry_next_index: u64,
+    /// The history slot the proof's old root was read from, the current one or the proof is stale.
+    pub old_root_index: u8,
+    pub new_root: [u8; 32],
+    /// Keeps the lists and sets the escrow key, an insert when the member has no record.
+    pub item: MemberUpdate,
     /// The member's nullifier public key, bound by the proof to the ciphertext.
     pub nullifier_pk: [u8; 32],
     /// Tagged X25519 ephemeral key the auditor rederives the shared secret from.
@@ -273,80 +243,9 @@ pub struct RegisterKeyIxData {
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
-/// `source` 0 is the ring's own entries, 1 the single trailing curator policy config.
+/// `source` 0 is the ring's own registry, 1 the single trailing curator member registry root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPolicySourceIxData {
     pub list_id: u8,
     pub source: u8,
-}
-
-/// A member-written list requires the payer's Solana address to derive to `member`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CreateEntryIxData {
-    pub list_id: u8,
-    pub member: [u8; 32],
-    pub state: u8,
-    pub content_hash: [u8; 32],
-    /// The SPP output blinding, the proof fails unless it is the derived one.
-    pub blinding: [u8; 32],
-    pub private_tx_blinding: [u8; 32],
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
-    pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
-}
-
-/// The spent fields rebuild the live version, a wrong one is a leaf no SPP proof includes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct UpdateEntryIxData {
-    pub list_id: u8,
-    pub member: [u8; 32],
-    pub spent_state: u8,
-    pub spent_content_hash: [u8; 32],
-    pub spent_version: u64,
-    pub spent_blinding: [u8; 32],
-    pub state: u8,
-    pub content_hash: [u8; 32],
-    pub blinding: [u8; 32],
-    pub private_tx_blinding: [u8; 32],
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
-    pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-    struct TargetWire {
-        #[wincode(with = "CompactRevocationTargets")]
-        targets: [[u8; 32]; ANSWER_SLOTS],
-    }
-
-    #[test]
-    fn revocation_target_wire_preserves_slots_and_omits_the_zero_suffix() {
-        let mut targets = [[0u8; 32]; ANSWER_SLOTS];
-        targets[0] = [1u8; 32];
-        targets[2] = [3u8; 32];
-        let encoded = wincode::serialize(&TargetWire { targets }).expect("serialize targets");
-        assert_eq!(encoded.len(), 1 + 3 * 32);
-        assert_eq!(encoded[0], 3);
-        assert_eq!(
-            wincode::deserialize_exact::<TargetWire>(&encoded).expect("deserialize targets"),
-            TargetWire { targets }
-        );
-    }
-
-    #[test]
-    fn revocation_target_wire_rejects_noncanonical_or_overlong_prefixes() {
-        let trailing_zero = [vec![1], vec![0; 32]].concat();
-        assert!(wincode::deserialize_exact::<TargetWire>(&trailing_zero).is_err());
-
-        let overlong = [
-            vec![(ANSWER_SLOTS + 1) as u8],
-            vec![1; (ANSWER_SLOTS + 1) * 32],
-        ]
-        .concat();
-        assert!(wincode::deserialize_exact::<TargetWire>(&overlong).is_err());
-    }
 }

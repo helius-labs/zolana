@@ -46,8 +46,8 @@ pub struct DepositPublicInput<'a> {
     pub ciphertexts: &'a [[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]],
     pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
     pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    /// Present exactly when deposited nullifier keys must be enrolled under it.
-    pub key_registry_root: Option<&'a [u8; 32]>,
+    /// Present exactly when deposited nullifier keys must be escrowed in its records.
+    pub member_registry_root: Option<&'a [u8; 32]>,
 }
 
 impl DepositPublicInput<'_> {
@@ -78,7 +78,7 @@ impl DepositPublicInput<'_> {
             ephemeral.lo,
             ephemeral.hi,
         ]);
-        chain[keys + 4..].copy_from_slice(&key_escrow_elements(self.key_registry_root));
+        chain[keys + 4..].copy_from_slice(&key_escrow_elements(self.member_registry_root));
         create_hash_chain_from_slice(&chain)
     }
 }

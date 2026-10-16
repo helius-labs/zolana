@@ -8,7 +8,7 @@ pub mod deposit;
 pub mod deposit_audit;
 pub mod error;
 pub mod instruction;
-pub mod key_registry;
+pub mod member_registry;
 pub mod policy_public_input;
 pub mod state;
 
@@ -34,13 +34,17 @@ verifying_keys! {
     register_key_verifying_key => "custom_ring_register_key.key",
 }
 
+/// Outside the lock table until `custom_ring_update_members.key` is generated and pinned.
+#[cfg(feature = "verifying-keys")]
+pub mod update_members_verifying_key;
+
 pub use base_public_input::*;
 pub use deposit::*;
 pub use deposit_audit::*;
 pub use error::CustomRingError;
 pub use instruction::*;
-pub use key_registry::*;
-pub use policy_public_input::CustomRingPolicyPublicInput;
+pub use member_registry::*;
+pub use policy_public_input::{CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS};
 pub use state::*;
 
 /// SEC1-compressed P256 key length, also retained by tagged X25519 envelopes.

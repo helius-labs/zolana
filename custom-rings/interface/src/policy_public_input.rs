@@ -4,55 +4,52 @@ use zolana_hasher::{
 use zolana_interface::tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot};
 
 use crate::base_public_input::CustomRingBasePublicInput;
-use zolana_ring_policy::ANSWER_SLOTS;
 
 const AUDIT_LEN: usize = 11;
-const POLICY_PREFIX_LEN: usize = 20;
-const POLICY_LEN: usize = POLICY_PREFIX_LEN + ANSWER_SLOTS;
-const REVOCATION_TREE_INDEX_BITS: usize = 3;
-const _: () = assert!(ANSWER_SLOTS * REVOCATION_TREE_INDEX_BITS <= u64::BITS as usize);
+const POLICY_LEN: usize = 20;
+/// The folded audit prefix and policy hash, then the tail without the tree commitment.
+pub const POLICY_INDEXED_INPUTS: usize = POLICY_LEN - AUDIT_LEN - 1;
 
-/// Binds audited transaction openings to the pinned rules, list roots and
+/// Binds audited transaction openings to the pinned rules, the member registry roots and
 /// outflow limits.
 pub struct CustomRingPolicyPublicInput<'a> {
     pub audit: CustomRingBasePublicInput<'a>,
     pub policy_hash: &'a [u8; 32],
-    /// Populated prefix, the proof reads list facts from these trees only.
+    /// Populated prefix of the trees the transaction reads.
     pub tree_slots: &'a [TreeSlot],
-    /// Raw id of the address tree, a wrong id derives absent addresses.
+    /// Raw id of the address tree.
     pub address_tree_id: u16,
     /// `hash_bytes` of the ring program id, the ring a change output stays in.
     pub ring_id: &'a [u8; 32],
-    /// The owner of every entry, no transfer slot may open to it.
+    /// The ring's namespace owner, no transfer slot may open to it.
     pub namespace_owner_hash: &'a [u8; 32],
     /// Set when an outflow exceeds a limit's cosign threshold, false on the delegate rail.
     pub approval_required: bool,
-    /// Present exactly when output nullifier keys must be enrolled under it.
-    pub key_registry_root: Option<&'a [u8; 32]>,
-    /// Per fact slot, the index into `tree_slots` its revocation target lives in.
-    pub revocation_tree_indexes: &'a [u8; ANSWER_SLOTS],
-    pub revocation_targets: &'a [[u8; 32]; ANSWER_SLOTS],
+    /// Every live output owner's record must escrow the key the output uses.
+    pub key_escrow: bool,
+    /// The ring's own registry root every subject opens under.
+    pub member_registry_root: &'a [u8; 32],
+    /// The curator registry root the sources name, zero without one.
+    pub foreign_root: &'a [u8; 32],
 }
 
 impl CustomRingPolicyPublicInput<'_> {
     /// The audit prefix and policy tail share one circuit-defined field order.
     fn elements(&self) -> Result<[[u8; 32]; POLICY_LEN], HasherError> {
         let audit = self.audit.elements()?;
-        let [key_escrow, key_registry_root] = key_escrow_elements(self.key_registry_root);
         let mut elements = [[0u8; 32]; POLICY_LEN];
         elements[..AUDIT_LEN].copy_from_slice(&audit);
-        elements[AUDIT_LEN..POLICY_PREFIX_LEN].copy_from_slice(&[
+        elements[AUDIT_LEN..].copy_from_slice(&[
             *self.policy_hash,
             populated_tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.address_tree_id),
             *self.ring_id,
             *self.namespace_owner_hash,
             right_align(&[u8::from(self.approval_required)]),
-            key_escrow,
-            key_registry_root,
-            pack_revocation_tree_indexes(self.revocation_tree_indexes)?,
+            right_align(&[u8::from(self.key_escrow)]),
+            *self.member_registry_root,
+            *self.foreign_root,
         ]);
-        elements[POLICY_PREFIX_LEN..].copy_from_slice(self.revocation_targets);
         Ok(elements)
     }
 
@@ -60,17 +57,17 @@ impl CustomRingPolicyPublicInput<'_> {
         create_hash_chain_from_slice(&self.elements()?)
     }
 
-    pub fn indexed_inputs(&self) -> Result<[[u8; 32]; POLICY_LEN - AUDIT_LEN - 1], HasherError> {
+    pub fn indexed_inputs(&self) -> Result<[[u8; 32]; POLICY_INDEXED_INPUTS], HasherError> {
         let elements = self.elements()?;
-        let mut indexed = [[0u8; 32]; POLICY_LEN - AUDIT_LEN - 1];
-        // 1. The folded prefix ends immediately before the tree commitment.
+        let mut indexed = [[0u8; 32]; POLICY_INDEXED_INPUTS];
+        // The folded prefix ends immediately before the tree commitment.
         indexed[0] = create_hash_chain_from_slice(&elements[..AUDIT_LEN + 1])?;
         indexed[1..].copy_from_slice(&elements[AUDIT_LEN + 2..]);
         Ok(indexed)
     }
 }
 
-/// The escrow flag and the registry root, zero when escrow is off.
+/// The escrow flag and the registry root a deposit binds, zero when escrow is off.
 pub(crate) fn key_escrow_elements(root: Option<&[u8; 32]>) -> [[u8; 32]; 2] {
     [
         right_align(&[u8::from(root.is_some())]),
@@ -78,41 +75,9 @@ pub(crate) fn key_escrow_elements(root: Option<&[u8; 32]>) -> [[u8; 32]; 2] {
     ]
 }
 
-/// `Σ index_i · 8^i`, an index of 8 or more would alias its neighbour.
-fn pack_revocation_tree_indexes(indexes: &[u8; ANSWER_SLOTS]) -> Result<[u8; 32], HasherError> {
-    let packed = indexes
-        .iter()
-        .enumerate()
-        .try_fold(0u64, |packed, (slot, &index)| {
-            if index >> REVOCATION_TREE_INDEX_BITS != 0 {
-                return Err(HasherError::IntegerOverflow);
-            }
-            Ok(packed | u64::from(index) << (slot * REVOCATION_TREE_INDEX_BITS))
-        })?;
-    Ok(right_align(&packed.to_be_bytes()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn revocation_tree_indexes_pack_three_bits_per_slot() {
-        let mut indexes = [0u8; ANSWER_SLOTS];
-        indexes[0] = 1;
-        indexes[1] = 4;
-        indexes[ANSWER_SLOTS - 1] = 7;
-        let expected = 1 | 4 << 3 | 7u64 << (3 * (ANSWER_SLOTS - 1));
-        assert_eq!(
-            pack_revocation_tree_indexes(&indexes),
-            Ok(right_align(&expected.to_be_bytes()))
-        );
-        indexes[2] = 8;
-        assert_eq!(
-            pack_revocation_tree_indexes(&indexes),
-            Err(HasherError::IntegerOverflow)
-        );
-    }
 
     #[test]
     fn escrow_off_publishes_a_zero_flag_and_a_zero_root() {

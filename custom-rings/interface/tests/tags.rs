@@ -12,8 +12,6 @@ fn ring_dispatch_tags_do_not_collide_with_forwarded_spp_tags() {
         tag::REVOKE_READ_ACCESS,
         tag::SET_AUTHORITY,
         tag::CREATE_POLICY,
-        tag::CREATE_ENTRY,
-        tag::UPDATE_ENTRY,
         tag::SET_POLICY_SOURCE,
         tag::SET_PAUSED,
         tag::SET_POLICY_RULES,
@@ -21,10 +19,11 @@ fn ring_dispatch_tags_do_not_collide_with_forwarded_spp_tags() {
         tag::CLEAR_CO_SIGNER,
         tag::SET_DELEGATE,
         tag::DELEGATE_TRANSACT,
-        tag::CREATE_KEY_REGISTRY_ROOT,
+        tag::CREATE_MEMBER_REGISTRY_ROOT,
         tag::REGISTER_KEY,
         tag::SET_DEPOSIT_AUDIT,
         tag::AUDITED_DEPOSIT,
+        tag::UPDATE_MEMBERS,
     ];
     let unique: std::collections::BTreeSet<_> = tags.into_iter().collect();
     assert_eq!(unique.len(), tags.len());
