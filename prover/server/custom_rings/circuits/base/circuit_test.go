@@ -11,7 +11,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -140,27 +139,21 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "tx scalar zero",
+			name: "legacy viewing key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityTxScalar(big.NewInt(0))
+				return k.WithLegacyTxTag()
 			},
 		},
 		{
-			name: "tx scalar at the group order",
+			name: "noncanonical viewing secret with matching public key",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityTxScalar(p256.GroupOrder())
+				return k.WithRawTxScalar(t, [32]byte{})
 			},
 		},
 		{
-			name: "forged infinity for zero ephemeral secret",
+			name: "legacy envelope key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithForgedInfinityEphScalar(big.NewInt(0))
-			},
-		},
-		{
-			name: "forged infinity for P256-order ephemeral secret",
-			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithForgedInfinityEphScalar(p256.GroupOrder())
+				return k.WithLegacyEphTag()
 			},
 		},
 	}
@@ -219,15 +212,18 @@ func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCirc
 	}
 }
 
-// X25519 secrets are byte strings, not P-256 scalars. These inputs must clamp.
-func TestCircuitAcceptsClampedEphemeralSecrets(t *testing.T) {
+// X25519 accepts raw byte secrets and clamps before both public-key bindings.
+func TestCircuitAcceptsClampedSecrets(t *testing.T) {
 	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &base.CustomRingBaseCircuit{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var order [32]byte
-	p256.GroupOrder().FillBytes(order[:])
-	for _, secret := range [][32]byte{{}, order} {
-		solve(t, cs, buildAssignment(t, audittest.DefaultKeys(t).WithEphScalar(t, secret)))
+	var max [32]byte
+	for i := range max {
+		max[i] = 0xff
+	}
+	for _, secret := range [][32]byte{{}, max} {
+		keys := audittest.DefaultKeys(t).WithEphScalar(t, secret).WithTxScalar(t, secret)
+		solve(t, cs, buildAssignment(t, keys))
 	}
 }

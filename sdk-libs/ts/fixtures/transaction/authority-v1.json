@@ -9,7 +9,7 @@
       "shieldedAddress": {
         "nullifierPubkeyBytes": "0eea51eb1dd54ce97e3f567249af75f737c7e1cf319f6a4f191c20a5ba79a7d5",
         "signingPubkeyBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
-        "viewingPubkeyBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+        "viewingPubkeyBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
       },
       "solanaPubkeyBytes": "2323232323232323232323232323232323232323232323232323232323232323",
       "viewingKeyCount": "1"
@@ -17,7 +17,7 @@
     "envelope": {
       "payloadSlots": "2",
       "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-      "txViewingPkBytes": "03ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a274"
+      "txViewingPkBytes": "0463713eb7bb8611e991e69fc37fe0c499c2a867ebbf4a46c37461cfe392f7ad2d"
     },
     "p256Signature": {
       "pubkeyBytes": "028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",

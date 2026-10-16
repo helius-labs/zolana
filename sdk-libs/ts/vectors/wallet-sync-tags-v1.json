@@ -19,7 +19,7 @@
       "queryChunk": 64,
       "tags": [
         "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
-        "07810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311"
+        "50a61409b1ddd0325e9b16b700e719e9772c07000b1bd7786e907c653d20495d"
       ],
       "shieldedChunkSizes": [2],
       "depositChunkSizes": [2]
@@ -30,8 +30,8 @@
       "queryChunk": 2,
       "tags": [
         "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
-        "07810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311",
-        "b0514c4c13540f2397f54719f3332e7ef38e42ad9dc08b71e660ce16b9e88d09"
+        "50a61409b1ddd0325e9b16b700e719e9772c07000b1bd7786e907c653d20495d",
+        "f5b2d6e60f9477e310c2982daaa6c9136c108a1777c5947e448fa37d68174557"
       ],
       "shieldedChunkSizes": [2, 1],
       "depositChunkSizes": [2, 1]

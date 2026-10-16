@@ -9,14 +9,15 @@ use solana_address::Address;
 use zeroize::Zeroizing;
 
 use crate::{
-    derivation::{p_pda, PdaRoleExpansion},
+    derivation::{x25519_p_pda, PdaRoleExpansion},
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
-    pubkey::{Curve, P256Pubkey, PublicKey},
+    pubkey::{Curve, PublicKey},
     shielded::{CompressedShieldedAddress, ShieldedAddress},
     traits::ShieldedKeypairTrait,
     viewing_key::ViewingKey,
+    x25519::X25519Pubkey,
 };
 
 /// Not a `ShieldedKeypair`: it holds no signing secret, so that state is
@@ -42,7 +43,7 @@ impl ShieldedPda {
     pub fn from_key_exchange(
         pda: Address,
         own: &ViewingKey,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
     ) -> Result<Self, KeypairError> {
         let shared = Zeroizing::new(own.ecdh(counterparty)?);
         let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
@@ -59,7 +60,7 @@ impl ShieldedPda {
     /// be published at account-creation time. The holder set is the same as
     /// the sole-holder exchange; only the holder of `own` derives it.
     pub fn from_viewing_key(pda: Address, own: &ViewingKey) -> Result<Self, KeypairError> {
-        let shared = Zeroizing::new(own.ecdh_raw(&p_pda())?);
+        let shared = Zeroizing::new(own.ecdh_raw(&x25519_p_pda())?);
         let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
         Ok(Self {
             pda,
@@ -96,7 +97,7 @@ impl ShieldedPda {
         &self.viewing_key
     }
 
-    pub fn viewing_pubkey(&self) -> P256Pubkey {
+    pub fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 
@@ -140,7 +141,7 @@ impl ShieldedKeypairTrait for ShieldedPda {
         self.signing_pubkey()
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_pubkey()
     }
 

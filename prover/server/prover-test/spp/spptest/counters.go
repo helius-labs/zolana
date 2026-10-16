@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
-	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
@@ -25,13 +24,12 @@ type CounterDisclosure struct {
 
 func (d CounterDisclosure) Body(t *testing.T) []byte {
 	t.Helper()
-	secret, err := ecdh.P256().NewPrivateKey(d.Secret[:])
+	secret, err := ecdh.X25519().NewPrivateKey(d.Secret[:])
 	if err != nil {
 		t.Fatal(err)
 	}
 	public := secret.PublicKey()
-	x, y := elliptic.Unmarshal(elliptic.P256(), public.Bytes())
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), x, y)
+	compressed := append([]byte{4}, public.Bytes()...)
 	dh, err := secret.ECDH(public)
 	if err != nil {
 		t.Fatal(err)

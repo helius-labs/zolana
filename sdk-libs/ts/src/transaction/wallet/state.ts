@@ -1,5 +1,5 @@
 import type { Address, Bytes32, Signature } from "../../interface/types.js";
-import type { P256PublicKey } from "../../keypair/public-key.js";
+import type { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
@@ -109,7 +109,7 @@ export interface PrivateTransaction {
   readonly status: PrivateTransactionStatus;
   readonly asset: Address;
   readonly amount: bigint;
-  readonly counterpartyViewingPublicKey?: P256PublicKey;
+  readonly counterpartyViewingPublicKey?: X25519PublicKey;
 }
 
 export interface SyncReport {
@@ -136,12 +136,12 @@ export interface SyncReport {
  * decryption after key rotation.
  */
 export interface ViewingKeyEntry {
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
   readonly createdAt: bigint;
 }
 
 export function newViewingKeyEntry(
-  viewingPublicKey: P256PublicKey,
+  viewingPublicKey: X25519PublicKey,
   createdAt: bigint,
 ): ViewingKeyEntry {
   return Object.freeze({

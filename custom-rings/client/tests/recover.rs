@@ -243,7 +243,7 @@ impl Fixture {
         transaction.tx_viewing_pk = None;
         transaction.salt = None;
         transaction.messages.clear();
-        transaction.output_slots[0].view_tag = self.address.viewing_pubkey.x();
+        transaction.output_slots[0].view_tag = self.address.viewing_pubkey.u();
         transaction.output_slots[0].payload =
             encode_encrypted_ring_deposit_output(EncryptedRingDepositOutput {
                 owner_utxo_hash,
@@ -551,7 +551,7 @@ fn direct_deposits_are_reported_separately_without_claiming_they_are_unspent() {
     transaction.tx_viewing_pk = None;
     transaction.salt = None;
     transaction.messages.clear();
-    transaction.output_slots[0].view_tag = fixture.address.viewing_pubkey.x();
+    transaction.output_slots[0].view_tag = fixture.address.viewing_pubkey.u();
     let deposit = EncryptedRingDepositOutput {
         owner_utxo_hash: zolana_transaction::owner_utxo_hash(
             &fixture.address.owner_hash().expect("owner"),

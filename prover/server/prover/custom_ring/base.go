@@ -90,7 +90,7 @@ func (p *BaseParameters) UnmarshalJSON(data []byte) error {
 	if err = bytesFromHex(p.TxViewingSk[:], raw.TxViewingSk, "txViewingSk"); err != nil {
 		return err
 	}
-	if err = validateP256Scalar(p.TxViewingSk[:], "txViewingSk"); err != nil {
+	if err = validateX25519ViewingSecret(p.TxViewingSk[:], "txViewingSk"); err != nil {
 		return err
 	}
 	if err = bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {

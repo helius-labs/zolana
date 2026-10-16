@@ -924,7 +924,7 @@ pub struct UserRecord {
     pub owner_p256: Option<Base64String>,
     /// Wallet-wide nullifier pubkey. Never rotates.
     pub nullifier_pubkey: Hash,
-    /// SEC1-compressed P256 ECDH viewing pubkey (33 bytes).
+    /// Tagged X25519 viewing pubkey (0x04 followed by a canonical 32-byte u-coordinate).
     pub viewing_pubkey: Base64String,
     /// Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
     pub merging_enabled: bool,

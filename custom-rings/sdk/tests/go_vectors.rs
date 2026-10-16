@@ -1,22 +1,23 @@
 //! Cross-language vectors: the host crypto recomputed in Go with the fixture of
 //! `prover/server/custom_rings/circuits/base/circuit_test.go`
-//! (crypto/ecdh P-256, iden3 Poseidon, crypto/aes CTR), which is the same host
+//! (crypto/ecdh X25519, iden3 Poseidon, crypto/aes CTR), which is the same host
 //! computation whose witness that test solves against the compiled circuit.
 //!
 //! The three scalars are the Go test's `scalar(0x11)`, `scalar(0x22)` and
 //! `scalar(0x33)`: byte `i` is `seed ^ i`, with byte 0 forced to 0x01 to stay
 //! below the group order. Every expected value below was printed by the Go
-//! implementation, so a divergence in either language fails this file.
+//! implementation, so a divergence in either language fails this file. The
+//! transaction secret is clamped before publication and encryption.
 
 use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
 use custom_ring_sdk::AuditorMessage;
-use zolana_keypair::{P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
 
-const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
+const TX_SK: &str = "001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e";
 const EPH_SK: &str = "01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d";
 const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
 
-const TX_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
+const TX_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
 const EPH_PK: &str = "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966";
 const AUDITOR_PK: &str = "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a";
 
@@ -28,7 +29,7 @@ const EPH_HI: &str = "0000000000000000000000000000000000000000000000000000000000
 const AUDITOR_LO: &str = "0004708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3";
 const AUDITOR_HI: &str = "000000000000000000000000000000000000000000000000000000000000115a";
 
-const CIPHERTEXT: &str = "02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314";
+const CIPHERTEXT: &str = "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354";
 
 fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
     let decoded = hex::decode(hex_str).expect("valid hex");
@@ -36,11 +37,11 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 }
 
 fn viewing_key(hex_str: &str) -> ViewingKey {
-    ViewingKey::from_bytes(&hex_bytes::<32>(hex_str)).expect("valid P-256 scalar")
+    ViewingKey::from_canonical_bytes(&hex_bytes::<32>(hex_str)).expect("canonical X25519 secret")
 }
 
-fn pubkey(hex_str: &str) -> P256Pubkey {
-    P256Pubkey::from_bytes(hex_bytes::<33>(hex_str)).expect("valid compressed key")
+fn pubkey(hex_str: &str) -> X25519Pubkey {
+    X25519Pubkey::from_bytes(hex_bytes::<33>(hex_str)).expect("valid tagged key")
 }
 
 #[test]

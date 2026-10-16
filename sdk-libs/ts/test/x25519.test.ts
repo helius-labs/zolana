@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { X25519_PDA_ROOT_U, X25519_VIEW_ROOT_U } from "../src/keypair/derivation.js";
 import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
 
 describe("custom-ring X25519 envelope keys", () => {
+  it("pins both derivation peers and shared secrets across Rust and TypeScript", () => {
+    const secret = X25519Secret.fromBytes(new Uint8Array(32).fill(7));
+    try {
+      for (const [coordinate, expected] of [
+        [X25519_VIEW_ROOT_U, "4bc4c7d8ad80138320dcfc5134053357f1e323d04ae8a3f33114cb37c672c847"],
+        [X25519_PDA_ROOT_U, "de2db4a0ec3196280ab850100eeb1a17b98ecbae467d9a92c693aaf1be971b69"],
+      ] as const) {
+        const peer = X25519PublicKey.fromBytes(Uint8Array.of(4, ...coordinate));
+        const root = secret.ecdh(peer);
+        try {
+          expect(Array.from(root, (b) => b.toString(16).padStart(2, "0")).join("")).toBe(expected);
+        } finally {
+          root.fill(0);
+        }
+      }
+    } finally {
+      secret.destroy();
+    }
+  });
   it("rejects key aliases and P-256 tags", () => {
     const basepoint = Uint8Array.of(4, 9, ...new Uint8Array(31));
     expect(X25519PublicKey.fromBytes(basepoint).toBytes()).toEqual(basepoint);

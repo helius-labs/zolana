@@ -109,8 +109,8 @@ export const P256_OWNER_TAG = 0x50;
 /**
  * Proof-input identity of a Solana signer, `hash_bytes(0x53 || pubkey)`.
  * Mirrors Rust `solana_owner_identity`. The tag keeps an Ed25519 key and a
- * P256 x-coordinate with equal bytes apart and avoids the SEC1 prefixes, so
- * an owner identity can never equal a viewing-key commitment.
+ * P256 x-coordinate with equal bytes apart. The tag also separates owner
+ * identities from untagged legacy P256 key commitments.
  */
 export function solanaOwnerIdentity(publicKey: Uint8Array): Uint8Array {
   return taggedIdentity(SOLANA_OWNER_TAG, publicKey);

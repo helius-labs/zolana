@@ -3,7 +3,8 @@ import { getBase64Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import type { Address, Bytes32, Bytes33, Signature } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
-import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data, type DataRecord } from "../data.js";
@@ -189,7 +190,7 @@ function hydrate(value: unknown): Wallet {
       bytes(identityValue["signingPublicKey"], 34, "identity.signingPublicKey") as Bytes34,
     ),
     bytes(identityValue["nullifierPublicKey"], 32, "identity.nullifierPublicKey") as Bytes32,
-    P256PublicKey.fromBytes(
+    X25519PublicKey.fromBytes(
       bytes(identityValue["viewingPublicKey"], 33, "identity.viewingPublicKey") as Bytes33,
     ),
   );
@@ -361,7 +362,7 @@ function deserializeViewingKeyEntry(value: unknown, index: number): ViewingKeyEn
     fail(path);
   }
   return {
-    viewingPublicKey: P256PublicKey.fromBytes(
+    viewingPublicKey: X25519PublicKey.fromBytes(
       bytes(entry["viewingPublicKey"], 33, `${path}.viewingPublicKey`) as Bytes33,
     ),
     createdAt: signed(entry["createdAt"], `${path}.createdAt`),
@@ -486,7 +487,7 @@ function deserializeTransaction(value: unknown, index: number): PrivateTransacti
     ...(item["counterpartyViewingPublicKey"] === undefined
       ? {}
       : {
-          counterpartyViewingPublicKey: P256PublicKey.fromBytes(
+          counterpartyViewingPublicKey: X25519PublicKey.fromBytes(
             bytes(
               item["counterpartyViewingPublicKey"],
               33,

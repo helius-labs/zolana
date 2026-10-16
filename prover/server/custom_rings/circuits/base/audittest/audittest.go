@@ -31,9 +31,9 @@ type Keys struct {
 
 func DefaultKeys(t testing.TB) Keys {
 	t.Helper()
-	txSk := Scalar(0x11)
+	txSk := Clamped(Scalar(0x11))
 	ephSk := Scalar(0x22)
-	txPriv := PrivateKey(t, txSk)
+	txPriv := XPrivateKey(t, txSk)
 	ephPriv := XPrivateKey(t, ephSk)
 	auditorPriv := XPrivateKey(t, Scalar(0x33))
 
@@ -44,26 +44,37 @@ func DefaultKeys(t testing.TB) Keys {
 	return Keys{
 		txSk:      txSk,
 		ephSk:     ephSk,
-		txPk:      compress(t, txPriv.PublicKey().Bytes()),
+		txPk:      Tagged(txPriv.PublicKey().Bytes()),
 		ephPk:     Tagged(ephPriv.PublicKey().Bytes()),
 		auditorPk: [32]byte(auditorPriv.PublicKey().Bytes()),
 		dh:        [32]byte(dh),
 	}
 }
 
-// The gadget compresses its (0,0) infinity to 0x02||0^32.
-var infinityPk = [33]byte{0x02}
-
-func (k Keys) WithInfinityTxScalar(value *big.Int) Keys {
-	value.FillBytes(k.txSk[:])
-	k.txPk = infinityPk
+// WithLegacyTxTag makes the host statement use an old P-256 key tag.
+func (k Keys) WithLegacyTxTag() Keys {
+	k.txPk[0] = 2
 	return k
 }
 
-func (k Keys) WithForgedInfinityEphScalar(value *big.Int) Keys {
-	value.FillBytes(k.ephSk[:])
-	k.ephPk = infinityPk
-	k.dh = [32]byte{}
+// WithLegacyEphTag makes the envelope transcript use an old P-256 key tag.
+func (k Keys) WithLegacyEphTag() Keys {
+	k.ephPk[0] = 2
+	return k
+}
+
+// WithTxScalar computes the canonical viewing public key from a raw secret.
+func (k Keys) WithTxScalar(t testing.TB, scalar [32]byte) Keys {
+	t.Helper()
+	k.txSk = Clamped(scalar)
+	k.txPk = Tagged(XPrivateKey(t, k.txSk).PublicKey().Bytes())
+	return k
+}
+
+// WithRawTxScalar keeps a noncanonical secret while preserving its public key.
+func (k Keys) WithRawTxScalar(t testing.TB, scalar [32]byte) Keys {
+	k = k.WithTxScalar(t, scalar)
+	k.txSk = scalar
 	return k
 }
 
@@ -220,36 +231,11 @@ func Scalar(seed byte) [32]byte {
 	return out
 }
 
-func PrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
-	t.Helper()
-	key, err := ecdh.P256().NewPrivateKey(scalar[:])
-	if err != nil {
-		t.Fatalf("private key: %v", err)
-	}
-	return key
-}
-
-func Uncompressed(t testing.TB, publicKey []byte) [65]byte {
-	t.Helper()
-	if len(publicKey) != 65 {
-		t.Fatalf("expected a 65-byte uncompressed key, got %d bytes", len(publicKey))
-	}
-	var out [65]byte
-	copy(out[:], publicKey)
-	if out[0] != 4 {
-		t.Fatalf("expected the 0x04 prefix, got %#x", out[0])
-	}
-	return out
-}
-
-// Mirrors p256.CompressPubkey, (0x02 + parity(y)) || x.
-func compress(t testing.TB, publicKey []byte) [33]byte {
-	t.Helper()
-	key := Uncompressed(t, publicKey)
-	var out [33]byte
-	out[0] = 2 + (key[64] & 1)
-	copy(out[1:], key[1:33])
-	return out
+// Clamped selects the unique byte encoding of an X25519 viewing secret.
+func Clamped(secret [32]byte) [32]byte {
+	secret[0] &= 248
+	secret[31] = (secret[31] & 127) | 64
+	return secret
 }
 
 // Mirrors base.Pack32To2FECircuit.

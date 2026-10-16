@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_event::{MessageData, OutputDataEncoding};
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::ShieldedTransaction, utxo::Utxo,
@@ -19,7 +19,7 @@ pub use ring_deposit::RingDepositPlaintext;
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,
-    pub tx_viewing_pk: Option<P256Pubkey>,
+    pub tx_viewing_pk: Option<X25519Pubkey>,
     pub salt: Option<[u8; SALT_LEN]>,
     pub slot_index: u32,
     pub first_nullifier: Option<[u8; 32]>,

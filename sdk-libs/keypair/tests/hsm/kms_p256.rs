@@ -15,10 +15,10 @@ use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use zolana_keypair::{
     constants::BLINDING_LEN,
-    derivation::{self, INFO_NF_KEY_ECDH, P_DERIVE_SEC1},
+    derivation::{self, INFO_NF_KEY_ECDH, INFO_VIEW_KEY_ECDH_X25519, P_DERIVE_SEC1},
     hash,
     shielded::{CompressedShieldedAddress, ShieldedAddress},
-    Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait,
+    Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey,
 };
 
 use super::codec;
@@ -205,7 +205,7 @@ pub struct KmsP256ShieldedKeypair {
     client: Client,
     sign_key_id: String,
     signing_pubkey: PublicKey,
-    viewing_pubkey: P256Pubkey,
+    viewing_pubkey: zolana_keypair::X25519Pubkey,
     nullifier_key: NullifierKey,
 }
 
@@ -238,7 +238,7 @@ impl KmsP256ShieldedKeypair {
             viewing_output.key_usage(),
             Some(&KeyUsageType::KeyAgreement)
         );
-        let viewing_pubkey = codec::p256_from_spki(
+        let _viewing_agreement_pubkey = codec::p256_from_spki(
             viewing_output
                 .public_key()
                 .expect("viewing key SPKI")
@@ -247,6 +247,27 @@ impl KmsP256ShieldedKeypair {
 
         let p_derive =
             P256Pubkey::from_bytes(P_DERIVE_SEC1).expect("committed P_derive is valid SEC1");
+        let viewing_seed = runtime
+            .block_on(
+                client
+                    .derive_shared_secret()
+                    .key_id(viewing_key_id)
+                    .key_agreement_algorithm(KeyAgreementAlgorithmSpec::Ecdh)
+                    .public_key(Blob::new(codec::spki_from_p256(&p_derive)))
+                    .send(),
+            )
+            .expect("DeriveSharedSecret for the viewing root succeeds")
+            .shared_secret()
+            .expect("shared secret blob")
+            .as_ref()
+            .to_vec();
+        let mut viewing_secret = [0u8; 32];
+        hkdf::Hkdf::<sha2::Sha256>::new(None, &viewing_seed)
+            .expand(INFO_VIEW_KEY_ECDH_X25519, &mut viewing_secret)
+            .expect("viewing expand");
+        let viewing_pubkey = ViewingKey::from_bytes(&viewing_secret)
+            .expect("expanded viewing key is valid")
+            .pubkey();
         let seed = runtime
             .block_on(
                 client
@@ -282,7 +303,7 @@ impl ShieldedKeypairTrait for KmsP256ShieldedKeypair {
         self.signing_pubkey
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> zolana_keypair::X25519Pubkey {
         self.viewing_pubkey
     }
 

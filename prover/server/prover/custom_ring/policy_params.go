@@ -1,7 +1,6 @@
 package custom_ring
 
 import (
-	"crypto/elliptic"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -338,7 +337,7 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if err = bytesFromHex(p.TxViewingSk[:], raw.TxViewingSk, "txViewingSk"); err != nil {
 		return err
 	}
-	if err = validateP256Scalar(p.TxViewingSk[:], "txViewingSk"); err != nil {
+	if err = validateX25519ViewingSecret(p.TxViewingSk[:], "txViewingSk"); err != nil {
 		return err
 	}
 	if err = bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
@@ -885,14 +884,6 @@ func bytesFromHex(dst []byte, s string, name string) error {
 		return fmt.Errorf("custom-ring: %s: got %d bytes, expected %d", name, len(decoded), len(dst))
 	}
 	copy(dst, decoded)
-	return nil
-}
-
-func validateP256Scalar(value []byte, name string) error {
-	scalar := new(big.Int).SetBytes(value)
-	if scalar.Sign() == 0 || scalar.Cmp(elliptic.P256().Params().N) >= 0 {
-		return fmt.Errorf("custom-ring: %s is not a canonical P256 scalar", name)
-	}
 	return nil
 }
 

@@ -37,7 +37,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 
 pub(crate) fn confidential_output() -> TransactOutput {
     let mut key = [0u8; 33];
-    key[0] = 0x02;
+    key[0] = 0x04;
     let mut body = vec![RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG];
     body.extend_from_slice(&key);
     body.extend_from_slice(&[9u8; 32]);

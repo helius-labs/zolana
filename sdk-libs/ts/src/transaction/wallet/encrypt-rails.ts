@@ -1,4 +1,3 @@
-import { X25519PublicKey } from "../../keypair/x25519.js";
 import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
 import { addressBytes } from "../../interface/internal.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
@@ -11,8 +10,7 @@ import {
   type AuditOutputOpening,
 } from "../../keypair/audit.js";
 import { bigIntToBytes, randomSalt } from "../../keypair/bytes.js";
-import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
-import { P256PublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
@@ -36,13 +34,15 @@ import { SOL_MINT, type AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
 
+const TAGGED_VIEWING_KEY_LENGTH = 33;
+
 /**
  * Per-transaction encryption envelope: the ephemeral transaction viewing key
  * and salt every ciphertext in the transaction shares (published in the
  * clear), plus the sealed payload the operation produced.
  */
 export interface EncryptedEnvelope<P> {
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly payload: P;
 }
@@ -82,7 +82,7 @@ export interface SealedMessageInput {
 
 export interface AnonymousRecipientSlot {
   readonly viewTag: Bytes32;
-  readonly recipientPublicKey: P256PublicKey;
+  readonly recipientPublicKey: X25519PublicKey;
   readonly plaintext: AnonymousRecipientPlaintext;
 }
 
@@ -152,9 +152,9 @@ export function encryptCustomRingTransfer(
     ];
     const sealedMessages: readonly MessageData[] = outbound.map((message) => {
       const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
-      const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
+      const body = new Uint8Array(TAGGED_VIEWING_KEY_LENGTH + ciphertext.length);
       body.set(recipient.toBytes(), 0);
-      body.set(ciphertext, P256_PUBLIC_KEY_LENGTH);
+      body.set(ciphertext, TAGGED_VIEWING_KEY_LENGTH);
       return { viewTag: message.viewTag, data: body };
     });
     const encrypted = {
@@ -196,7 +196,7 @@ function auditOutputOpening(output: ProofOutputUtxo, outputTreeId: TreeId): Audi
 /** The recipient viewing key does not affect the UTXO commitment. */
 function recordCarrierOutputs(
   outputs: readonly ProofOutputUtxo[],
-  carrier: Readonly<{ index: number; recipient: P256PublicKey }> | undefined,
+  carrier: Readonly<{ index: number; recipient: X25519PublicKey }> | undefined,
 ): readonly ProofOutputUtxo[] {
   if (carrier === undefined) return outputs;
   const { index, recipient } = carrier;
@@ -260,8 +260,10 @@ export function openSealedMessage(
   tx: ViewingKey,
   input: Readonly<{ salt: Bytes16; slotIndex: number; data: Uint8Array }>,
 ): Uint8Array {
-  const recipient = P256PublicKey.fromBytes(input.data.slice(0, P256_PUBLIC_KEY_LENGTH) as Bytes33);
-  const ciphertext = input.data.slice(P256_PUBLIC_KEY_LENGTH);
+  const recipient = X25519PublicKey.fromBytes(
+    input.data.slice(0, TAGGED_VIEWING_KEY_LENGTH) as Bytes33,
+  );
+  const ciphertext = input.data.slice(TAGGED_VIEWING_KEY_LENGTH);
   return tx.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
 }
 
@@ -275,7 +277,7 @@ export function encryptAnonymousTransfer(
   tx: ViewingKey,
   input: Readonly<{
     /** The wallet's own viewing public key, which opens the sender bundle. */
-    viewingPublicKey: P256PublicKey;
+    viewingPublicKey: X25519PublicKey;
     senderViewTag: Bytes32;
     sender: AnonymousSenderPlaintext;
     recipients: readonly AnonymousRecipientSlot[];
@@ -284,7 +286,7 @@ export function encryptAnonymousTransfer(
   const salt = randomSalt();
   const slot = (
     scheme: EncryptedScheme,
-    recipient: P256PublicKey,
+    recipient: X25519PublicKey,
     plaintext: Uint8Array,
     slotIndex: number,
     viewTag: Bytes32,
@@ -324,7 +326,7 @@ export function encryptSplit(
   tx: ViewingKey,
   input: Readonly<{
     /** The wallet's own viewing public key, which opens the bundle. */
-    viewingPublicKey: P256PublicKey;
+    viewingPublicKey: X25519PublicKey;
     viewTag: Bytes32;
     bundle: SplitBundlePlaintext;
   }>,

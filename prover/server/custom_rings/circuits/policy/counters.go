@@ -6,8 +6,8 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 const CountersDisclosureDomain = "CRING/spend-counters/v1"
@@ -19,11 +19,15 @@ type successorCounters struct {
 }
 
 func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, salt [16]frontend.Variable) (frontend.Variable, error) {
-	public := p256.ScalarMulGenerator(api, secret)
-	compressed := p256.CompressPubkey(api, public)
-	// The peer is the finite canonical generator result, not an external key.
-	// DefineAuditBlock constrains the same secret bytes and binds its public key.
-	dh := p256.ECDH(api, secret, public)
+	// 1. Derive the same tagged viewing key as the base proof. Its canonical
+	// nonzero coordinate supplies a safe self-agreement peer.
+	public := x25519.ScalarMulGenerator(api, secret)
+	var compressed [33]frontend.Variable
+	compressed[0] = 4
+	copy(compressed[1:], public[:])
+	// 2. The shared secret and key schedule mirror the host's counter seal.
+	// This peer is derived from the secret, not supplied by an untrusted caller.
+	dh := x25519.ECDH(api, secret, public)
 	ikm := append(append(append([]frontend.Variable{}, dh[:]...), compressed[:]...), compressed[:]...)
 	zeros := make([]frontend.Variable, 32)
 	for i := range zeros {

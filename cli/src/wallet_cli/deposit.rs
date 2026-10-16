@@ -48,7 +48,7 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     };
     // The recipient's viewing key tags a deposit: it is how the recipient's
     // wallet finds the output without knowing the sender.
-    let view_tag = recipient.address.viewing_pubkey.x();
+    let view_tag = recipient.address.viewing_pubkey.u();
     let deposit = Deposit {
         tree,
         depositor: material.funding.pubkey(),

@@ -1,22 +1,22 @@
-import { p256 } from "@noble/curves/nist.js";
 import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
-  INFO_TX_VIEWING,
-  ecdhX,
+  INFO_TX_VIEWING_X25519,
+  clampViewingSecret,
   hkdfExpand,
-  isDerivationPoint,
+  isViewingDerivationPoint,
   roleExpansion,
-  scalarFromOkm,
   viewRoot,
+  x25519Ecdh,
 } from "./derivation.js";
 import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
-import { P256PublicKey, type ViewTag } from "./public-key.js";
+import { type ViewTag } from "./public-key.js";
 import type { ViewingKeyLike } from "./shielded.js";
+import { X25519PublicKey, X25519Secret } from "./x25519.js";
 
 export type Salt = Bytes16;
 
@@ -43,19 +43,16 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   static generate(): ViewingKey {
-    let secret: Uint8Array;
-    do secret = randomBytes(32);
-    while (!p256.utils.isValidSecretKey(secret));
-    return new ViewingKey(secret);
+    const secret = randomBytes(32);
+    try {
+      return ViewingKey.fromBytes(secret as Bytes32);
+    } finally {
+      secret.fill(0);
+    }
   }
 
   static fromBytes(bytes: Bytes32): ViewingKey {
-    const secret = checkedBytes<Bytes32>(bytes, 32, "viewing secret");
-    if (!p256.utils.isValidSecretKey(secret)) {
-      secret.fill(0);
-      throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { type: "p256" });
-    }
-    return new ViewingKey(secret);
+    return new ViewingKey(clampViewingSecret(bytes));
   }
 
   /**
@@ -70,9 +67,14 @@ export class ViewingKey implements ViewingKeyLike {
     );
   }
 
-  publicKey(): P256PublicKey {
+  publicKey(): X25519PublicKey {
     this.#assertUsable();
-    return P256PublicKey.fromSecret(this.#secret);
+    const secret = X25519Secret.fromBytes(this.#secret);
+    try {
+      return secret.publicKey();
+    } finally {
+      secret.destroy();
+    }
   }
 
   /** An independent copy of the key; destroying either leaves the other usable. */
@@ -86,13 +88,12 @@ export class ViewingKey implements ViewingKeyLike {
     return copyBytes(this.#secret) as Bytes32;
   }
 
-  ecdh(counterparty: P256PublicKey): Bytes32 {
+  ecdh(counterparty: X25519PublicKey): Bytes32 {
     this.#assertUsable();
-    if (isDerivationPoint(counterparty)) {
+    if (isViewingDerivationPoint(counterparty)) {
       throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
     }
-    // The view aliases the shared point buffer, not a copy.
-    const shared = ecdhX(this.#secret, counterparty);
+    const shared = x25519Ecdh(this.#secret, counterparty);
     try {
       return copyBytes(shared) as Bytes32;
     } finally {
@@ -101,28 +102,25 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   recipientBootstrapViewTag(): ViewTag {
-    return this.publicKey().x();
+    return this.publicKey().u();
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
     this.#assertUsable();
     const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
-    const txViewingSecret = this.#viewSecret(INFO_TX_VIEWING);
+    const txViewingSecret = this.#viewSecret(INFO_TX_VIEWING_X25519);
     let salted: Uint8Array | undefined;
-    let scalar: Uint8Array | undefined;
     try {
-      salted = hkdfExpand(nullifier, txViewingSecret, encoder.encode(INFO_TX_VIEWING), 48);
-      scalar = scalarFromOkm(salted);
-      return ViewingKey.fromBytes(scalar as Bytes32);
+      salted = hkdfExpand(nullifier, txViewingSecret, encoder.encode(INFO_TX_VIEWING_X25519), 32);
+      return ViewingKey.fromBytes(salted as Bytes32);
     } finally {
       txViewingSecret.fill(0);
       salted?.fill(0);
-      scalar?.fill(0);
     }
   }
 
   encryptSlot(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
@@ -141,7 +139,7 @@ export class ViewingKey implements ViewingKeyLike {
 
   decryptUtxo(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array {
@@ -159,7 +157,7 @@ export class ViewingKey implements ViewingKeyLike {
 
   /** Mirrors Rust `ViewingKey::encrypt_ring_deposit`. This key is the ephemeral one. The ring deposit label keeps the ciphertext closed under the transfer label. */
   encryptRingDeposit(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
   ): Uint8Array {
@@ -178,7 +176,7 @@ export class ViewingKey implements ViewingKeyLike {
 
   decryptRingDeposit(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
   ): Uint8Array {
     this.#assertUsable();
@@ -195,7 +193,7 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   decryptSlotEphemeral(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,

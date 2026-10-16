@@ -3,7 +3,7 @@
 use custom_ring_interface::{
     tag, CustomRingProof, KeyRegistryInsert, KeyRegistryLeaf, KeyRegistryTransition, MerklePath,
     RegisterKeyIxData, RegisterKeyPublicInput, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
+    KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT, TAGGED_X25519_KEY_LEN,
 };
 use serde::Serialize;
 use solana_address::Address;
@@ -259,7 +259,7 @@ pub struct ProvenKeyRegistration {
     transition: KeyRegistryTransition,
     registry_next_index: u64,
     nullifier_pk: [u8; 32],
-    eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
     proof: CustomRingProof,
 }
@@ -367,7 +367,7 @@ impl ReadSealedKey {
         {
             return Err(KeyRegistrationError::InvalidEntryProof);
         }
-        let eph_pk: [u8; COMPRESSED_P256_KEY_LEN] = response
+        let eph_pk: [u8; TAGGED_X25519_KEY_LEN] = response
             .eph_pk
             .0
             .as_slice()

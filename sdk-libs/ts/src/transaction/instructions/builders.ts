@@ -5,7 +5,8 @@ import {
   mergeOutputBlinding,
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
-import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import type { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
@@ -616,7 +617,7 @@ export class PreparedSplit {
 
   finalize(
     input: Readonly<{
-      txViewingPublicKey: P256PublicKey;
+      txViewingPublicKey: X25519PublicKey;
       salt: Bytes16;
       payload: Readonly<{ viewTag: Bytes32; data: Uint8Array }>;
     }>,

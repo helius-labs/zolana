@@ -13,8 +13,8 @@ use zolana_keypair::{
     derivation::{self, DERIVATION_PAYLOAD_PREFIX, ED25519_DERIVATION_MSG},
     hash,
     shielded::{CompressedShieldedAddress, ShieldedAddress},
-    Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair,
-    ShieldedKeypairTrait, SigningKey, ViewingKey,
+    Curve, KeypairError, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
+    SigningKey, ViewingKey, X25519Pubkey,
 };
 use zolana_test_utils::wallet::{KeypairWalletAuthority, SyncWalletAuthority};
 use zolana_transaction::{Address, TransactionError};
@@ -47,7 +47,7 @@ impl ShieldedKeypairTrait for RemoteKeypair {
         self.device.pubkey()
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 

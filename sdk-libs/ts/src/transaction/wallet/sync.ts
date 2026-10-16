@@ -1,6 +1,7 @@
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
-import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
+import { type ShieldedPublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -174,7 +175,7 @@ function compareAssets(left: Address, right: Address): number {
 /** Retain every viewing key the wallet has held. */
 function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
-  viewingPublicKeys: readonly P256PublicKey[],
+  viewingPublicKeys: readonly X25519PublicKey[],
 ): readonly ViewingKeyEntry[] {
   const known = new Set(history.map((entry) => hex(entry.viewingPublicKey.toBytes())));
   const entries = [...history];
@@ -236,7 +237,7 @@ class SyncPass {
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
-  readonly #viewingPublicKeys: readonly P256PublicKey[];
+  readonly #viewingPublicKeys: readonly X25519PublicKey[];
   readonly #keys: KeyMemo;
   /**
    * Every viewing key this wallet has held, current and rotated-out, as hex
@@ -263,13 +264,13 @@ class SyncPass {
     input: Readonly<{
       depositPayloadDecoder?: DepositPayloadDecoder | undefined;
       identity: ShieldedAddress;
-      viewingPublicKeys: readonly P256PublicKey[];
+      viewingPublicKeys: readonly X25519PublicKey[];
       keys: KeyMemo;
       assets: AssetRegistry;
       transactions: readonly IndexedShieldedTransaction[];
       utxos: readonly WalletUtxo[];
       rows: readonly PrivateTransaction[];
-      selfViewingPublicKeys: readonly P256PublicKey[];
+      selfViewingPublicKeys: readonly X25519PublicKey[];
     }>,
   ) {
     this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
@@ -472,7 +473,7 @@ class SyncPass {
   #recordReceived(
     tx: IndexedShieldedTransaction,
     slotIndex: number,
-    sender: P256PublicKey | undefined,
+    sender: X25519PublicKey | undefined,
     utxo: Utxo,
   ): void {
     const direction: PrivateTransactionDirection =
@@ -504,13 +505,13 @@ class SyncPass {
    * it is a self transfer on any rail. An empty recipient set stays outbound:
    * that is a public withdrawal, and the value did leave.
    */
-  #transferDirection(recipients: readonly P256PublicKey[]): PrivateTransactionDirection {
+  #transferDirection(recipients: readonly X25519PublicKey[]): PrivateTransactionDirection {
     return recipients.length > 0 && recipients.every((recipient) => this.#isSelf(recipient))
       ? "selfTransfer"
       : "outbound";
   }
 
-  #isSelf(viewingPublicKey: P256PublicKey): boolean {
+  #isSelf(viewingPublicKey: X25519PublicKey): boolean {
     return this.#selfViewingPublicKeys.has(hex(viewingPublicKey.toBytes()));
   }
 
@@ -524,7 +525,7 @@ class SyncPass {
     spent: ReadonlyMap<Address, bigint>,
     change: readonly Utxo[],
     kind: PrivateTransactionKind,
-    counterparty: P256PublicKey | undefined,
+    counterparty: X25519PublicKey | undefined,
     direction: PrivateTransactionDirection,
   ): void {
     const byAsset = new Map(spent);
@@ -582,7 +583,7 @@ class SyncPass {
    * viewing key derived from the first nullifier reproduces the published one
    * only for the spending wallet.
    */
-  #authored(tx: IndexedShieldedTransaction, viewingPublicKey: P256PublicKey): boolean {
+  #authored(tx: IndexedShieldedTransaction, viewingPublicKey: X25519PublicKey): boolean {
     const published = tx.txViewingPublicKey;
     const firstNullifier = tx.nullifiers[0];
     if (published === undefined || firstNullifier === undefined) return false;
@@ -594,7 +595,7 @@ class SyncPass {
   recordConfidentialSend(
     tx: IndexedShieldedTransaction,
     index: number,
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
   ): void {
     const firstNullifier = tx.nullifiers[0];
     const salt = tx.salt;
@@ -611,7 +612,7 @@ class SyncPass {
 
   #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
     const change: Utxo[] = [];
-    const recipients: Array<Readonly<{ key: P256PublicKey; utxo: Utxo }>> = [];
+    const recipients: Array<Readonly<{ key: X25519PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -623,7 +624,7 @@ class SyncPass {
           return;
         }
         const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
-        const recipientKey = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+        const recipientKey = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
         if (position < SENDER_SLOT_COUNT) {
           const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
           if (
@@ -674,7 +675,7 @@ class SyncPass {
   #isRingEntry(
     nullifiers: readonly Bytes32[],
     change: readonly Utxo[],
-    recipients: readonly Readonly<{ key: P256PublicKey; utxo: Utxo }>[],
+    recipients: readonly Readonly<{ key: X25519PublicKey; utxo: Utxo }>[],
   ): boolean {
     const inputs = this.#spentEntries(nullifiers);
     const rings = new Set(recipients.map(({ utxo }) => utxo.ringProgramId));
@@ -700,7 +701,7 @@ class SyncPass {
    * committed leaf; the anonymous and split sender bundles, passed as slot 0,
    * store their change against the whole transaction.
    */
-  decodeSlot(viewingPublicKey: P256PublicKey, site: Site): void {
+  decodeSlot(viewingPublicKey: X25519PublicKey, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
     if (this.#processedSlots.has(siteKey)) return;
     const tx = this.#transactions[site.transaction];
@@ -759,7 +760,7 @@ class SyncPass {
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousRecipient) {
-      let sender: P256PublicKey;
+      let sender: X25519PublicKey;
       let utxo: Utxo;
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
       if (decrypted === undefined) return;
@@ -823,11 +824,11 @@ class SyncPass {
       let dataHash: Bytes32 | undefined;
       let ringDataHash: Bytes32 | undefined;
       let output: ReturnType<typeof decodeRingDepositOutput>;
-      let txViewingPublicKey: P256PublicKey;
+      let txViewingPublicKey: X25519PublicKey;
       let ciphertext: Uint8Array;
       try {
         output = decodeRingDepositOutput(body);
-        txViewingPublicKey = P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
+        txViewingPublicKey = X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
         ciphertext = output.encrypted.ciphertext;
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
@@ -863,7 +864,7 @@ class SyncPass {
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender) {
-      let recipients: readonly P256PublicKey[];
+      let recipients: readonly X25519PublicKey[];
       let change: readonly Utxo[];
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
       if (decrypted === undefined) return;
@@ -1024,7 +1025,7 @@ class SyncPass {
   /** The published transaction key and salt every encrypted scheme opens under. */
   #envelope(
     tx: IndexedShieldedTransaction,
-  ): Readonly<{ txViewingPublicKey: P256PublicKey; salt: Bytes16 }> {
+  ): Readonly<{ txViewingPublicKey: X25519PublicKey; salt: Bytes16 }> {
     if (tx.txViewingPublicKey === undefined || tx.salt === undefined) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "envelope" });
     }
@@ -1037,13 +1038,13 @@ class SyncPass {
    * envelope is undecryptable, not pending.
    */
   #decryptSlot(
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
     tx: IndexedShieldedTransaction,
     ciphertext: Uint8Array,
     slotIndex: number,
     siteKey: string,
   ): Uint8Array | undefined {
-    let envelope: Readonly<{ txViewingPublicKey: P256PublicKey; salt: Bytes16 }>;
+    let envelope: Readonly<{ txViewingPublicKey: X25519PublicKey; salt: Bytes16 }>;
     try {
       envelope = this.#envelope(tx);
     } catch (error) {

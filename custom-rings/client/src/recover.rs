@@ -244,7 +244,7 @@ impl<'a> MemberRecovery<'a> {
         // tags.
         let mut unsupported_deposits = Vec::new();
         let source_owner_hash = self.source.address.owner_hash()?;
-        let bootstrap_tag = self.source.address.viewing_pubkey.x();
+        let bootstrap_tag = self.source.address.viewing_pubkey.u();
         for deposit in (DepositHistory {
             environment: ring,
             ring: self.recovery.ring_program_id,

@@ -8,7 +8,7 @@ pub use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
     MAX_USER_RECORD_OWNERS,
 };
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use zolana_user_registry_interface::UserRecord;
 
@@ -44,7 +44,7 @@ pub struct EncryptedUtxoMatch {
     pub tx_signature: Signature,
     pub output_slot: OutputSlot,
     /// `None` when the payload is plaintext (nothing to decrypt).
-    pub tx_viewing_pk: Option<P256Pubkey>,
+    pub tx_viewing_pk: Option<X25519Pubkey>,
     /// Transaction-level AES salt shared by every output ciphertext; `None` for
     /// plaintext/proofless payloads.
     pub salt: Option<[u8; 16]>,

@@ -1,7 +1,7 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_event::EncryptedRingDepositData;
-use zolana_keypair::{random_salt, P256Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{random_salt, PublicKey, ViewingKey, X25519Pubkey};
 
 use crate::{
     data::{Data, DataRecord},
@@ -25,7 +25,7 @@ pub struct RingDepositPlaintext {
 impl RingDepositPlaintext {
     pub fn encrypt(
         &self,
-        recipient: &P256Pubkey,
+        recipient: &X25519Pubkey,
     ) -> Result<EncryptedRingDepositData, TransactionError> {
         let tx_viewing_key = ViewingKey::new();
         let salt = random_salt();
@@ -42,7 +42,7 @@ impl RingDepositPlaintext {
         encrypted: &EncryptedRingDepositData,
         viewing_key: &ViewingKey,
     ) -> Result<Self, TransactionError> {
-        let tx_viewing_pk = P256Pubkey::from_bytes(encrypted.tx_viewing_pk)?;
+        let tx_viewing_pk = X25519Pubkey::from_bytes(encrypted.tx_viewing_pk)?;
         let plaintext = viewing_key.decrypt_ring_deposit(
             &encrypted.ciphertext,
             &tx_viewing_pk,

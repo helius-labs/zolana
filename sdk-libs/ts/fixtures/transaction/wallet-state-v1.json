@@ -47,7 +47,7 @@
       {
         "amount": "7",
         "assetBytes": "2525252525252525252525252525252525252525252525252525252525252525",
-        "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+        "counterpartyViewingPkBytes": "04387bdda58bd0767d408dddd907569393cca4ee07a4fddc3036f60c50a0f5731d",
         "direction": "Outbound",
         "id": {
           "index": "2",

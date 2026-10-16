@@ -16,7 +16,7 @@
 //! ```
 //!
 //! `pack.go` is the source of truth for the packing of `dh` and of the 33-byte
-//! compressed keys into pairs of field elements; [`pack32_to_2fe`] and
+//! tagged X25519 keys into pairs of field elements. [`pack32_to_2fe`] and
 //! [`pack33_to_2fe`] mirror it. The key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
@@ -24,7 +24,7 @@
 use custom_ring_interface::{
     pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
     AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
-    COMPRESSED_P256_KEY_LEN,
+    TAGGED_X25519_KEY_LEN,
 };
 use num_bigint::BigUint;
 use thiserror::Error;
@@ -131,13 +131,13 @@ impl AuditorMessage {
         }
         let (eph_pk, body) = message
             .data
-            .split_at_checked(COMPRESSED_P256_KEY_LEN)
+            .split_at_checked(TAGGED_X25519_KEY_LEN)
             .filter(|(_, body)| {
                 body.len() == AUDIT_CIPHERTEXT_LEN + 32 * AUDIT_DISCLOSURE_FIELD_COUNT
             })
             .ok_or(AuditEncryptionError::MessageLength(message.data.len()))?;
         let (ciphertext, disclosure_bytes) = body.split_at(AUDIT_CIPHERTEXT_LEN);
-        let eph_pk: [u8; COMPRESSED_P256_KEY_LEN] = eph_pk
+        let eph_pk: [u8; TAGGED_X25519_KEY_LEN] = eph_pk
             .try_into()
             .map_err(|_| AuditEncryptionError::MessageLength(message.data.len()))?;
         let ciphertext: [u8; AUDIT_CIPHERTEXT_LEN] = ciphertext
@@ -163,7 +163,7 @@ impl AuditorMessage {
         self.eph_pk
     }
 
-    pub fn ephemeral_pubkey_bytes(&self) -> &[u8; COMPRESSED_P256_KEY_LEN] {
+    pub fn ephemeral_pubkey_bytes(&self) -> &[u8; TAGGED_X25519_KEY_LEN] {
         self.eph_pk.as_bytes()
     }
 

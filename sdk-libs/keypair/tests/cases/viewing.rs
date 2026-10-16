@@ -78,7 +78,7 @@ pub(crate) fn shared_tag_per_index(
 
 pub(crate) fn bootstrap_tag(world: &mut KeypairWorld, name: String) {
     let vk = world.vk(&name);
-    assert_eq!(vk.recipient_bootstrap_view_tag(), vk.pubkey().x());
+    assert_eq!(vk.recipient_bootstrap_view_tag(), vk.pubkey().u());
 }
 
 pub(crate) fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {

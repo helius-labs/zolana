@@ -8,7 +8,7 @@ import {
 } from "../../src/interface/index.js";
 import {
   NullifierKey,
-  P256PublicKey,
+  X25519PublicKey,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
@@ -113,7 +113,9 @@ function historyRow(entry: Readonly<Record<string, unknown>>): PrivateTransactio
     amount: BigInt(fixtureString(entry, "amount")),
     ...(typeof counterparty === "string"
       ? {
-          counterpartyViewingPublicKey: P256PublicKey.fromBytes(hexBytes(counterparty) as Bytes33),
+          counterpartyViewingPublicKey: X25519PublicKey.fromBytes(
+            hexBytes(counterparty) as Bytes33,
+          ),
         }
       : {}),
   };
@@ -142,69 +144,72 @@ function reportRow(value: unknown): SyncReport {
 function shieldedTransactions(
   inputs: Readonly<Record<string, unknown>>,
   keypair: ShieldedKeypair,
+  limit?: number,
 ): readonly IndexedShieldedTransaction[] {
-  return fixtureArray(inputs, "transactions").map((entry) => {
-    const transaction = fixtureObject(entry, "shielded transaction");
-    const txViewingPk = transaction.txViewingPkBytes;
-    const salt = transaction.saltBytes;
-    return {
-      slot: BigInt(fixtureString(transaction, "slot")),
-      txSignature: fixtureString(transaction, "signature") as Signature,
-      ...(typeof txViewingPk === "string"
-        ? { txViewingPublicKey: P256PublicKey.fromBytes(hexBytes(txViewingPk) as Bytes33) }
-        : {}),
-      ...(typeof salt === "string" ? { salt: hexBytes(salt) as Bytes16 } : {}),
-      outputSlots: fixtureArray(transaction, "outputSlots").map((slotValue) => {
-        const slot = fixtureObject(slotValue, "output slot");
-        let payload = hexBytes(fixtureString(slot, "payloadBytes"));
-        let hash = hexBytes(fixtureString(slot, "hashBytes")) as Bytes32;
-        if (transaction.proofless === true) {
-          const legacy = payload.slice(6);
-          const blinding = new Uint8Array(32);
-          blinding.set(legacy.slice(32, 63), 1);
-          const asset = encodeAddress(legacy.slice(63, 95));
-          const amount = new DataView(legacy.buffer, legacy.byteOffset + 95, 8).getBigUint64(
-            0,
-            true,
-          );
-          const output = {
-            owner: legacy.slice(0, 32) as Bytes32,
-            blinding: blinding as Bytes32,
-            asset,
-            amount,
+  return fixtureArray(inputs, "transactions")
+    .slice(0, limit)
+    .map((entry) => {
+      const transaction = fixtureObject(entry, "shielded transaction");
+      const txViewingPk = transaction.txViewingPkBytes;
+      const salt = transaction.saltBytes;
+      return {
+        slot: BigInt(fixtureString(transaction, "slot")),
+        txSignature: fixtureString(transaction, "signature") as Signature,
+        ...(typeof txViewingPk === "string"
+          ? { txViewingPublicKey: X25519PublicKey.fromBytes(hexBytes(txViewingPk) as Bytes33) }
+          : {}),
+        ...(typeof salt === "string" ? { salt: hexBytes(salt) as Bytes16 } : {}),
+        outputSlots: fixtureArray(transaction, "outputSlots").map((slotValue) => {
+          const slot = fixtureObject(slotValue, "output slot");
+          let payload = hexBytes(fixtureString(slot, "payloadBytes"));
+          let hash = hexBytes(fixtureString(slot, "hashBytes")) as Bytes32;
+          if (transaction.proofless === true) {
+            const legacy = payload.slice(6);
+            const blinding = new Uint8Array(32);
+            blinding.set(legacy.slice(32, 63), 1);
+            const asset = encodeAddress(legacy.slice(63, 95));
+            const amount = new DataView(legacy.buffer, legacy.byteOffset + 95, 8).getBigUint64(
+              0,
+              true,
+            );
+            const output = {
+              owner: legacy.slice(0, 32) as Bytes32,
+              blinding: blinding as Bytes32,
+              asset,
+              amount,
+            };
+            payload = encodeOutputData(
+              EncryptedScheme.proofless,
+              encodeProofless(output),
+              "plaintext",
+            );
+            // Wallet sync hashes under the one live tree, so the proofless hash
+            // the fixture leaves for recomputation is taken under the same id.
+            hash = new Utxo({
+              owner: keypair.signingPublicKey(),
+              asset,
+              amount,
+              blinding: blinding as Bytes32,
+            }).hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+          }
+          return {
+            viewTag: hexBytes(fixtureString(slot, "viewTagBytes")) as Bytes32,
+            outputContext: {
+              hash,
+              tree: encodeAddress(hexBytes(fixtureString(slot, "treeBytes"))),
+              leafIndex: BigInt(fixtureString(slot, "leafIndex")),
+            },
+            payload,
           };
-          payload = encodeOutputData(
-            EncryptedScheme.proofless,
-            encodeProofless(output),
-            "plaintext",
-          );
-          // Wallet sync hashes under the one live tree, so the proofless hash
-          // the fixture leaves for recomputation is taken under the same id.
-          hash = new Utxo({
-            owner: keypair.signingPublicKey(),
-            asset,
-            amount,
-            blinding: blinding as Bytes32,
-          }).hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
-        }
-        return {
-          viewTag: hexBytes(fixtureString(slot, "viewTagBytes")) as Bytes32,
-          outputContext: {
-            hash,
-            tree: encodeAddress(hexBytes(fixtureString(slot, "treeBytes"))),
-            leafIndex: BigInt(fixtureString(slot, "leafIndex")),
-          },
-          payload,
-        };
-      }),
-      messages: [],
-      nullifiers: fixtureArray(transaction, "nullifiers").map((value) => {
-        if (typeof value !== "string") throw new Error("nullifier must be a string");
-        return hexBytes(value) as Bytes32;
-      }),
-      proofless: transaction.proofless === true,
-    };
-  });
+        }),
+        messages: [],
+        nullifiers: fixtureArray(transaction, "nullifiers").map((value) => {
+          if (typeof value !== "string") throw new Error("nullifier must be a string");
+          return hexBytes(value) as Bytes32;
+        }),
+        proofless: transaction.proofless === true,
+      };
+    });
 }
 
 async function decryptWallet(
@@ -476,7 +481,8 @@ describe("manifest-verified wallet behavior", () => {
     const transactions = shieldedTransactions(
       fixtureObject(inputs.history, "history inputs"),
       value.keypair,
-    ).slice(0, 1);
+      1,
+    );
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const steps = fixtureArray(history, "steps").slice(0, 1);
     expect(steps).toHaveLength(transactions.length);

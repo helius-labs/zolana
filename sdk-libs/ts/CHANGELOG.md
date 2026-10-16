@@ -9,7 +9,8 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey`; wallet viewing keys remain P-256 and old auditor envelopes are unsupported.
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey`; old auditor envelopes are unsupported.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`
