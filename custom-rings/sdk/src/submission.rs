@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use custom_ring_interface::{compute_unit_limit, CustomRingError, InstructionTag, KeyRegistryRoot};
+use custom_ring_interface::{
+    compute_unit_limit, CustomRingError, InstructionTag, MemberRegistryRoot,
+};
 use solana_address::Address;
 use solana_commitment_config::CommitmentLevel;
 use solana_instruction::Instruction;
@@ -17,7 +19,8 @@ use zolana_client::{
 
 use crate::{
     heap::boxed, CustomRing, CustomRingTransfer, DelegateTransfer, EscrowBinding, MergeProofInput,
-    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RingError,
+    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RegistryBinding, RingError,
+    UpdateMembers,
 };
 
 const MAX_ATTEMPTS: u8 = 3;
@@ -55,6 +58,7 @@ pub enum RingOperation<'a> {
     Transfer(Box<CustomRingTransfer<'a>>),
     Delegate(Box<DelegateTransfer<'a>>),
     RegisterKey(RegisterKey<'a>),
+    UpdateMembers(Box<UpdateMembers>),
     Merge(Box<RingMergeOperation>),
     Deposit(Box<PreparedRingDeposit>),
     /// A built instruction, sent as is, its budget from its tag.
@@ -97,6 +101,7 @@ operations! {
     Transfer(CustomRingTransfer<'a>) => Box::new,
     Delegate(DelegateTransfer<'a>) => Box::new,
     RegisterKey(RegisterKey<'a>) => core::convert::identity,
+    UpdateMembers(UpdateMembers) => Box::new,
     Merge(RingMergeOperation) => Box::new,
     Deposit(PreparedRingDeposit) => Box::new,
     Instruction(Instruction) => core::convert::identity,
@@ -126,19 +131,23 @@ impl BoundRoot {
     pub(crate) fn of(ring: CustomRing, escrow: EscrowBinding) -> Option<Self> {
         match escrow {
             EscrowBinding::Off => None,
-            EscrowBinding::Registry { root_index, root } => Some(Self {
-                ring,
-                index: root_index,
-                root,
-            }),
+            EscrowBinding::Registry(binding) => Some(Self::registry(ring, binding)),
         }
     }
 
-    /// Later registrations wrapped the history over the slot, so the program read another root.
+    pub(crate) fn registry(ring: CustomRing, binding: RegistryBinding) -> Self {
+        Self {
+            ring,
+            index: binding.root_index,
+            root: binding.root,
+        }
+    }
+
+    /// Later batches wrapped the history over the slot, so the program read another root.
     async fn replaced(self, client: &(impl AsyncRpc + ?Sized)) -> Result<bool, RingError> {
         let registry = self
             .ring
-            .read::<KeyRegistryRoot>(client, &[KeyRegistryRoot::SEED], true)
+            .read::<MemberRegistryRoot>(client, &[MemberRegistryRoot::SEED], true)
             .await?;
         Ok(registry.is_some_and(|registry| registry.root_at(self.index) != Some(self.root)))
     }
@@ -317,7 +326,13 @@ impl RingOperation<'_> {
             }
             Self::RegisterKey(registration) => {
                 let proven = boxed(|| registration.prove(client)).await?;
-                proved(proven.instruction()?, InstructionTag::RegisterKey, None)
+                let bound = proven.bound_root();
+                proved(proven.instruction()?, InstructionTag::RegisterKey, bound)
+            }
+            Self::UpdateMembers(update) => {
+                let proven = boxed(|| update.prove(client)).await?;
+                let bound = proven.bound_root();
+                proved(proven.instruction()?, InstructionTag::UpdateMembers, bound)
             }
             Self::Merge(operation) => {
                 let mut proven = boxed(|| {
@@ -409,7 +424,7 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
 /// A fresh proof fixes each of these, a failed proof only over an overwritten registry slot.
 fn retryable(error: &TransactionError, root_replaced: bool) -> bool {
     let stale = |code| {
-        code == CustomRingError::StaleKeyRegistryRoot as u32
+        code == CustomRingError::StaleMemberRegistryRoot as u32
             || (root_replaced && code == CustomRingError::ProofVerificationFailed as u32)
     };
     matches!(error, TransactionError::BlockhashNotFound) || ring_error(error).is_some_and(stale)

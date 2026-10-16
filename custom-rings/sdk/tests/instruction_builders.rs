@@ -11,8 +11,8 @@ use custom_ring_interface::{
 };
 use custom_ring_sdk::{
     compute_unit_limit, tag, CoSignScope, CoSignThreshold, CustomRing, CustomRingDelegateTransact,
-    CustomRingProof, CustomRingTransact, Deposit, EscrowBinding, InstructionTag, PolicyReads,
-    PolicyTreeContext, RingError,
+    CustomRingProof, CustomRingTransact, Deposit, EscrowBinding, ForeignBinding, InstructionTag,
+    PolicyReads, PolicyTreeContext, RegistryBinding, RingError,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -156,17 +156,17 @@ fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
 }
 
 #[test]
-fn create_key_registry_root_emits_the_program_account_order_and_no_body() {
-    let instruction = ring().create_key_registry_root(payer(), authority());
+fn create_member_registry_root_emits_the_program_account_order_and_no_body() {
+    let instruction = ring().create_member_registry_root(payer(), authority());
     assert_eq!(instruction.program_id, ring().program_id());
-    assert_eq!(instruction.data, vec![tag::CREATE_KEY_REGISTRY_ROOT]);
+    assert_eq!(instruction.data, vec![tag::CREATE_MEMBER_REGISTRY_ROOT]);
     assert_eq!(
         instruction.accounts,
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
-            AccountMeta::new(ring().key_registry_root_pda(), false),
+            AccountMeta::new(ring().member_registry_root_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
         ]
     );
@@ -522,10 +522,10 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
             depositor: payer(),
             deposits: vec![sol_deposit_entry()],
             proof,
-            escrow: EscrowBinding::Registry {
+            escrow: EscrowBinding::Registry(RegistryBinding {
                 root_index: 3,
                 root: [3; 32],
-            },
+            }),
             cosigner: None,
         }
         .instruction()
@@ -536,7 +536,7 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
         escrowed.accounts[3..5],
         [
             AccountMeta::new_readonly(ring().deposit_audit_pda(), false),
-            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
+            AccountMeta::new_readonly(ring().member_registry_root_pda(), false),
         ]
     );
     assert!(matches!(build(None), Err(RingError::AuditRequired)));
@@ -649,26 +649,23 @@ fn context(utxo: u16, nullifier: u16) -> TreeContext {
     }
 }
 
-/// Facts in the address tree only, no revocation target.
+/// The address tree and the ring's registry root at history slot 5.
 fn address_tree_reads() -> PolicyReads {
     PolicyReads {
         trees: vec![PolicyTreeContext {
             tree: address_tree(),
             context: context(0, 0),
         }],
-        escrow: EscrowBinding::Off,
-        revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-        revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
+        registry: RegistryBinding {
+            root_index: 5,
+            root: [5; 32],
+        },
+        foreign: None,
     }
 }
 
-/// Fact 0 revokes in the address tree, fact 1 in the second tree.
-fn two_tree_reads() -> PolicyReads {
-    let mut revocation_targets = [[0; 32]; zolana_ring_policy::ANSWER_SLOTS];
-    revocation_targets[0][31] = 7;
-    revocation_targets[1][31] = 8;
-    let mut revocation_tree_indexes = [0; zolana_ring_policy::ANSWER_SLOTS];
-    revocation_tree_indexes[1] = 1;
+/// Two trees, the ring's registry and the curator's at history slot 4.
+fn curated_reads() -> PolicyReads {
     PolicyReads {
         trees: vec![
             PolicyTreeContext {
@@ -680,9 +677,17 @@ fn two_tree_reads() -> PolicyReads {
                 context: context(3, 4),
             },
         ],
-        escrow: EscrowBinding::Off,
-        revocation_targets,
-        revocation_tree_indexes,
+        registry: RegistryBinding {
+            root_index: 5,
+            root: [5; 32],
+        },
+        foreign: Some(ForeignBinding {
+            registry: CURATOR_A.member_registry_root_pda(),
+            curator: CURATOR_A,
+            root_index: 4,
+            root: [4; 32],
+            next_index: 3,
+        }),
     }
 }
 
@@ -729,21 +734,14 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 }
 
 /// The account list the program's `process_transact_ix` reads: its own
-/// prefix, one account per policy tree, the registry root and one revocation
-/// PDA per target under its slot's tree, followed by SPP's
-/// `RING_TRANSACT` list, which the builder takes from the interface builder
-/// instead of re-listing.
+/// prefix, one account per policy tree, the ring's registry root and the
+/// curator's, followed by SPP's `RING_TRANSACT` list, which the builder takes
+/// from the interface builder instead of re-listing.
 #[test]
 fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
     let proof = sample_proof();
     let transact = transact_data(Vec::new());
-    let reads = PolicyReads {
-        escrow: EscrowBinding::Registry {
-            root_index: 5,
-            root: [5; 32],
-        },
-        ..two_tree_reads()
-    };
+    let reads = curated_reads();
 
     let instruction = CustomRingTransact {
         ring: ring(),
@@ -771,15 +769,8 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(address_tree(), false),
             AccountMeta::new_readonly(second_tree(), false),
-            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
-            AccountMeta::new_readonly(
-                pda::nullifier_pda(&address_tree(), &reads.revocation_targets[0]).0,
-                false,
-            ),
-            AccountMeta::new_readonly(
-                pda::nullifier_pda(&second_tree(), &reads.revocation_targets[1]).0,
-                false,
-            ),
+            AccountMeta::new_readonly(ring().member_registry_root_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.member_registry_root_pda(), false),
             AccountMeta::new(payer(), true),
             AccountMeta::new(output_tree(), false),
             AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
@@ -800,42 +791,12 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
         CustomRingTransactIxData {
             proof,
             policy_trees: vec![context(1, 2), context(3, 4)],
-            key_registry_root_index: 5,
+            registry_root_index: 5,
+            foreign_root_indexes: [4],
             approval_required: false,
-            revocation_targets: reads.revocation_targets,
-            revocation_tree_indexes: reads.revocation_tree_indexes,
             transact,
         }
     );
-}
-
-/// A revocation slot naming a tree the statement does not read never builds.
-#[test]
-fn a_revocation_outside_the_policy_trees_is_refused() {
-    let mut reads = two_tree_reads();
-    reads.revocation_tree_indexes[1] = 2;
-    let refused = CustomRingTransact {
-        ring: ring(),
-        cosigner: None,
-        payer: payer(),
-        input_trees: vec![input_tree()],
-        output_tree: output_tree(),
-        policy: Some(reads),
-        owner_signers: Vec::new(),
-        interface_transfer_accounts: Vec::new(),
-        proof: sample_proof(),
-        approval_required: false,
-        transact: transact_data(Vec::new()),
-    }
-    .instruction();
-    assert!(matches!(
-        refused,
-        Err(RingError::RevocationTree {
-            slot: 1,
-            index: 2,
-            trees: 2
-        })
-    ));
 }
 
 /// `ring_config` is this program's `ring_auth` PDA, and no keypair exists for it:
@@ -859,8 +820,8 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
     .instruction()
     .expect("serialize the custom-ring transact content");
 
-    // The policy config and its one tree sit before the forwarded SPP list.
-    let ring_config_index = 9;
+    // The policy config, its one tree and the registry root sit before the forwarded SPP list.
+    let ring_config_index = 10;
     let ring_config = instruction
         .accounts
         .get(ring_config_index)
@@ -921,7 +882,8 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
     let decoded: CustomRingTransactIxData =
         wincode::deserialize_exact(split_tag(&instruction).1).expect("complete body");
     assert!(decoded.policy_trees.is_empty());
-    assert_eq!(decoded.key_registry_root_index, 0);
+    assert_eq!(decoded.registry_root_index, 0);
+    assert_eq!(decoded.foreign_root_indexes, [0]);
 }
 
 /// Settlement accounts come from the same interface builder, so a withdrawal's
@@ -951,7 +913,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(11..)
+            .get(12..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![
@@ -975,6 +937,11 @@ fn ring_instruction_tags_are_stable() {
     assert_eq!(tag::SET_POLICY_RULES, 12);
     assert_eq!(tag::DEPOSIT, 18);
     assert_eq!(tag::MERGE, 20);
+    assert_eq!(tag::CREATE_MEMBER_REGISTRY_ROOT, 28);
+    assert_eq!(tag::REGISTER_KEY, 29);
+    assert_eq!(tag::SET_DEPOSIT_AUDIT, 30);
+    assert_eq!(tag::AUDITED_DEPOSIT, 31);
+    assert_eq!(tag::UPDATE_MEMBERS, 32);
 }
 
 const CURATOR_A: CustomRing = CustomRing::new(Address::new_from_array([20; 32]));
@@ -1037,7 +1004,7 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
-            AccountMeta::new_readonly(CURATOR_A.policy_config_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.member_registry_root_pda(), false),
         ]
     );
     let encoded = TABLE.encode();
@@ -1073,7 +1040,7 @@ fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
             AccountMeta::new(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
-            AccountMeta::new_readonly(CURATOR_A.policy_config_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.member_registry_root_pda(), false),
         ]
     );
     let (ix_tag, body) = split_tag(&instruction);
@@ -1102,7 +1069,10 @@ fn curators_are_indexed_once_in_first_use_order() {
             .collect();
         assert_eq!(
             curators,
-            vec![CURATOR_B.policy_config_pda(), CURATOR_A.policy_config_pda()]
+            vec![
+                CURATOR_B.member_registry_root_pda(),
+                CURATOR_A.member_registry_root_pda()
+            ]
         );
         let (_, body) = split_tag(&instruction);
         let decoded: PolicyTableIxData = wincode::deserialize_exact(body).expect("body");
@@ -1255,7 +1225,7 @@ fn set_delegate_runs_under_the_upgrade_authority() {
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new(ring().config_pda(), false),
             AccountMeta::new(ring().delegate_pda(), false),
-            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
+            AccountMeta::new_readonly(ring().member_registry_root_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),
@@ -1273,13 +1243,7 @@ fn set_delegate_runs_under_the_upgrade_authority() {
 #[test]
 fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     let delegate = Address::new_from_array([47; 32]);
-    let reads = PolicyReads {
-        escrow: EscrowBinding::Registry {
-            root_index: 4,
-            root: [4; 32],
-        },
-        ..two_tree_reads()
-    };
+    let reads = curated_reads();
     let build = |legs: Vec<InterfaceTransfer>| {
         CustomRingDelegateTransact {
             ring: ring(),
@@ -1299,7 +1263,7 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(..11)
+            .get(..10)
             .expect("prefix metas")
             .to_vec(),
         vec![
@@ -1311,26 +1275,20 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(address_tree(), false),
             AccountMeta::new_readonly(second_tree(), false),
-            AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
-            AccountMeta::new_readonly(
-                pda::nullifier_pda(&address_tree(), &reads.revocation_targets[0]).0,
-                false,
-            ),
-            AccountMeta::new_readonly(
-                pda::nullifier_pda(&second_tree(), &reads.revocation_targets[1]).0,
-                false,
-            ),
+            AccountMeta::new_readonly(ring().member_registry_root_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.member_registry_root_pda(), false),
         ]
     );
     assert_eq!(
-        instruction.accounts.get(15).expect("ring_config meta"),
+        instruction.accounts.get(14).expect("ring_config meta"),
         &AccountMeta::new_readonly(ring().ring_auth_pda(), false)
     );
     let (ix_tag, body) = split_tag(&instruction);
     assert_eq!(ix_tag, tag::DELEGATE_TRANSACT);
     assert_eq!(ix_tag, 25);
     let decoded: CustomRingTransactIxData = wincode::deserialize_exact(body).expect("body");
-    assert_eq!(decoded.key_registry_root_index, 4);
+    assert_eq!(decoded.registry_root_index, 5);
+    assert_eq!(decoded.foreign_root_indexes, [4]);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(
         build(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),

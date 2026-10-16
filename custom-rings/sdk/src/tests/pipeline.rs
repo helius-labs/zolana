@@ -77,7 +77,7 @@ fn the_delegate_rail_commits_the_pinned_limits() {
     }];
     let table = RuleTable::builder().limits(&limits).build();
     let pinned = PinnedPolicy {
-        config: pinned(ring(), &table, ring().namespace_pda(), PoolTree::from_id(0)),
+        config: pinned(ring(), &table, PoolTree::from_id(0)),
         table,
     };
     let committed = committed(ring(), &pinned).unwrap();
@@ -240,7 +240,7 @@ async fn an_audit_only_transfer_stages_the_auditor_message_under_the_ring_tag() 
     // An audit-only ring reads no policy account.
     assert!(rpc.reads().is_empty());
     assert!(staged.pinned.is_none() && staged.limits.is_none());
-    assert!(staged.key_registry.is_none() && staged.delegate.is_none());
+    assert!(!staged.key_escrow && staged.delegate.is_none());
     let external = &staged.proof_inputs.external_data;
     assert_eq!(external.instruction_discriminator, RING_TRANSACT);
     assert_eq!(external.messages.len(), 1);
@@ -558,10 +558,7 @@ fn delegate_accounts(delegate: Address) -> Accounts {
         .with(ring().delegate_pda(), account(program(), &state))
         .with(
             ring().policy_config_pda(),
-            account(
-                program(),
-                &pinned(ring(), &table, ring().namespace_pda(), PoolTree::from_id(0)),
-            ),
+            account(program(), &pinned(ring(), &table, PoolTree::from_id(0))),
         )
 }
 
@@ -611,7 +608,7 @@ async fn the_delegate_rail_stages_framed_padding_under_its_own_tag() {
         assert!(ring_confidential_encrypted_output_body(data).is_some());
     }
     assert_eq!(staged.delegate, Some(delegate));
-    assert!(staged.key_registry.is_some());
+    assert!(staged.key_escrow);
     assert!(staged.owner_signers.is_empty());
     assert!(staged.pinned.is_some() && staged.limits.is_none());
 }

@@ -66,11 +66,10 @@ pub(crate) fn bound(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::PublicKey;
+    use zolana_keypair::{NullifierKey, PublicKey};
     use zolana_transaction::{Data, Mint, Utxo};
 
     use super::*;
-    use crate::entry::zero_nullifier_key;
 
     fn identity() -> RingIdentity {
         RingIdentity {
@@ -96,7 +95,7 @@ mod tests {
             ring_program_id: None,
             data: Data::default(),
         };
-        let key = zero_nullifier_key();
+        let key = NullifierKey::from_secret([0; 31]);
         let nullifier_pubkey = key.pubkey().unwrap();
         let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 0).unwrap();
         SppProofInputUtxo {

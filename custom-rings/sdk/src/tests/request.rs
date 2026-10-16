@@ -1,21 +1,20 @@
-use custom_ring_interface::{KEY_REGISTRY_HEIGHT, MAX_RING_DEPOSIT_AUDIT_SLOTS};
+use custom_ring_interface::{MAX_RING_DEPOSIT_AUDIT_SLOTS, MEMBER_REGISTRY_HEIGHT};
 use serde_json::Value;
 use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::indexed::{IndexedDepositRequest, IndexedRegistry},
-    ProofInputUtxo, ProveRequest, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    ProofInputUtxo, ProveRequest,
 };
 use zolana_interface::tree_slot::tree_id_field;
-use zolana_ring_policy::{ANSWER_SLOTS, MAX_OUTFLOW_LIMITS, MAX_RULES, MAX_SOURCES};
+use zolana_ring_policy::{MAX_OUTFLOW_LIMITS, MAX_RULES, MAX_SOURCES};
 
-use super::audit::{encrypted, private_tx_hash, tree, witness};
+use super::audit::{encrypted, private_tx_hash, tree, witness, REGISTRY_ROOT};
 use crate::{
     golden_tests::{auditor, EPH_SK},
     prover::{RingCircuit, RingRequest},
-    request::{DepositBody, PolicyBody, RuleAnswer},
+    request::{DepositBody, PolicyBody, RecordWitness, SubjectWitness},
     witness::CustomRingWitness,
-    RegistryKeyOpening,
 };
 
 fn hex(value: &[u8; 32]) -> String {
@@ -40,34 +39,45 @@ fn sorted_keys(value: &Value) -> Vec<String> {
     keys
 }
 
-fn answered() -> CustomRingWitness {
-    CustomRingWitness {
-        answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
-        ..witness()
+fn subject(present: bool) -> SubjectWitness {
+    SubjectWitness {
+        present,
+        record: RecordWitness {
+            next: [15; 32],
+            lists: 5,
+            escrow_key: [16; 32],
+            index: 3,
+            path: vec![[17; 32]; MEMBER_REGISTRY_HEIGHT],
+        },
+        low_member: [18; 32],
+        low_next: [19; 32],
+        low_lists: 1,
+        low_escrow: [20; 32],
     }
 }
 
 #[test]
 fn the_policy_request_matches_the_server_wire_format() {
-    let value = json(&body(answered()));
+    let value = json(&body(witness()));
     assert_eq!(
         sorted_keys(&value),
         [
             "addressChain",
             "addressTreeId",
-            "answers",
             "approvalRequired",
             "auditorPk",
             "circuitType",
             "ephSk",
+            "foreignRoot",
+            "foreignSubjects",
             "inlineAssets",
             "inlineCount",
             "inlineLimits",
             "inputs",
             "keyEscrow",
-            "keyRegistryRoot",
             "limitCount",
             "limits",
+            "memberRegistryRoot",
             "nIn",
             "nOut",
             "namespaceOwnerHash",
@@ -80,15 +90,15 @@ fn the_policy_request_matches_the_server_wire_format() {
             "ruleEnc",
             "salt",
             "sources",
+            "subjects",
             "treeSlots",
             "txViewingSk",
         ]
     );
     assert_eq!(value["circuitType"], "custom-ring-policy");
     assert_eq!(value["ruleEnc"].as_array().unwrap().len(), MAX_RULES);
-    assert_eq!(value["answers"].as_array().unwrap().len(), ANSWER_SLOTS);
     assert_eq!(value["sources"].as_array().unwrap().len(), MAX_SOURCES);
-    assert_eq!(sorted_keys(&value["sources"][0]), ["listId", "ownerHash"]);
+    assert_eq!(sorted_keys(&value["sources"][0]), ["listId", "registry"]);
     assert_eq!(
         value["limits"].as_array().unwrap().len(),
         MAX_OUTFLOW_LIMITS
@@ -97,84 +107,127 @@ fn the_policy_request_matches_the_server_wire_format() {
         sorted_keys(&value["limits"][0]),
         ["asset", "cap", "cosignAbove"]
     );
+    assert_eq!(value["subjects"].as_array().unwrap().len(), 9);
+    assert_eq!(value["foreignSubjects"].as_array().unwrap().len(), 9);
+    assert!(value["subjects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(Value::is_null));
+    assert_eq!(
+        sorted_keys(&value["outputs"][0]),
+        [
+            "amount",
+            "asset",
+            "blinding",
+            "ctHash",
+            "dataHash",
+            "domain",
+            "nullifierPk",
+            "ownerPkHash",
+            "ringDataHash",
+            "ringProgramId",
+            "treeId",
+        ]
+    );
 }
 
 #[test]
 fn every_field_element_is_canonical_hex() {
-    let value = json(&body(answered()));
-    let answer = &value["answers"][0];
-    assert_eq!(
-        answer["nfPathElements"].as_array().unwrap().len(),
-        NULLIFIER_TREE_HEIGHT
-    );
-    assert_eq!(
-        answer["statePathElements"].as_array().unwrap().len(),
-        STATE_TREE_HEIGHT
-    );
-    // A disabled slot keeps its branch flags and list in range.
-    assert_eq!(answer["enabled"], false);
-    assert_eq!(answer["absentBranch"], 1);
-    let hash = value["publicInputHash"].as_str().unwrap();
-    assert_eq!(hash.len(), 66);
-    assert!(hash.starts_with("0x") && hash.to_lowercase() == hash);
+    let value = json(&body(witness()));
+    for name in [
+        "memberRegistryRoot",
+        "foreignRoot",
+        "addressChain",
+        "privateTxBlinding",
+    ] {
+        let field = value[name].as_str().unwrap();
+        assert_eq!(field.len(), 66, "{name}");
+        assert!(field.starts_with("0x"));
+    }
+    assert_eq!(value["memberRegistryRoot"], hex(&REGISTRY_ROOT));
     assert_eq!(value["addressChain"], hex(&[0; 32]));
+    assert_eq!(value["addressTreeId"], hex(&tree_id_field(0)));
 }
 
 #[test]
-fn escrowed_outputs_and_facts_name_their_key_and_tree_slot() {
-    let mut witness = answered();
-    witness.trees = vec![tree(3, 8), tree(9, 12)];
+fn subjects_open_in_slot_order_with_integer_lists_and_indices() {
+    let mut witness = witness();
+    witness.trees = vec![tree(3, 8)];
     witness.address_tree_id = 3;
-    witness.outputs[0].key = Some(RegistryKeyOpening {
-        next: [15; 32],
-        ct_hash: [16; 32],
-        index: 5,
-        path: [[17; 32]; KEY_REGISTRY_HEIGHT],
-    });
-    witness.answers[0].tree_slot = 1;
+    witness.subjects[0] = Some(subject(true));
+    witness.subjects[5] = Some(subject(false));
+    witness.foreign_root = [21; 32];
+    witness.foreign_subjects[5] = Some(subject(true));
+    witness.outputs[0].ct_hash = [22; 32];
     let value = json(&body(witness));
     assert_eq!(value["keyEscrow"], true);
-    assert_eq!(value["keyRegistryRoot"], hex(&[12; 32]));
     assert_eq!(value["addressTreeId"], hex(&tree_id_field(3)));
     let slots = value["treeSlots"].as_array().unwrap();
-    assert_eq!(slots.len(), 2);
-    assert_eq!(slots[1]["id"], hex(&tree_id_field(9)));
-    assert_eq!(slots[1]["utxoRoot"], hex(&[12; 32]));
-    assert_eq!(slots[1]["nullifierRoot"], hex(&[13; 32]));
-    let key = &value["outputs"][0]["key"];
-    assert_eq!(key["ctHash"], hex(&[16; 32]));
-    assert_eq!(key["index"], 5);
-    assert_eq!(key["path"].as_array().unwrap().len(), KEY_REGISTRY_HEIGHT);
-    assert!(value["outputs"][1].get("key").is_none());
-    assert_eq!(value["answers"][0]["treeSlot"], 1);
-    assert_eq!(value["answers"][1]["treeSlot"], 0);
+    assert_eq!(slots.len(), 1);
+    assert_eq!(slots[0]["id"], hex(&tree_id_field(3)));
+    assert_eq!(slots[0]["utxoRoot"], hex(&[8; 32]));
+    let present = &value["subjects"][0];
+    assert_eq!(present["present"], true);
+    assert_eq!(present["lists"], 5);
+    assert_eq!(present["index"], 3);
+    assert_eq!(
+        present["path"].as_array().unwrap().len(),
+        MEMBER_REGISTRY_HEIGHT
+    );
+    assert_eq!(present["escrowKey"], hex(&[16; 32]));
+    assert_eq!(present["lowLists"], 1);
+    assert_eq!(
+        sorted_keys(present),
+        [
+            "escrowKey",
+            "index",
+            "lists",
+            "lowEscrow",
+            "lowLists",
+            "lowMember",
+            "lowNext",
+            "next",
+            "path",
+            "present",
+        ]
+    );
+    assert!(value["subjects"][1].is_null());
+    assert_eq!(value["subjects"][5]["present"], false);
+    assert_eq!(value["foreignRoot"], hex(&[21; 32]));
+    assert_eq!(value["foreignSubjects"][5]["present"], true);
+    assert_eq!(value["outputs"][0]["ctHash"], hex(&[22; 32]));
 }
 
 #[test]
 fn escrow_off_binds_a_zero_root() {
     let witness = CustomRingWitness {
-        escrow: Default::default(),
-        ..answered()
+        key_escrow: false,
+        member_registry_root: [0; 32],
+        ..witness()
     };
     let value = json(&body(witness));
     assert_eq!(value["keyEscrow"], false);
-    assert_eq!(value["keyRegistryRoot"], hex(&[0; 32]));
+    assert_eq!(value["memberRegistryRoot"], hex(&[0; 32]));
 }
 
-fn opening() -> RegistryKeyOpening {
-    RegistryKeyOpening {
+fn record() -> RecordWitness {
+    RecordWitness {
         next: [5; 32],
-        ct_hash: [6; 32],
+        lists: 2,
+        escrow_key: [6; 32],
         index: 3,
-        path: [[7; 32]; KEY_REGISTRY_HEIGHT],
+        path: vec![[7; 32]; MEMBER_REGISTRY_HEIGHT],
     }
 }
 
-fn deposit(key_registry_root: Option<[u8; 32]>) -> DepositBody {
+fn deposit(member_registry_root: Option<[u8; 32]>) -> DepositBody {
     let mut owners = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
     owners[0][31] = 2;
-    let mut keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-    keys[0] = key_registry_root.map(|_| opening());
+    let mut members: [Option<RecordWitness>; MAX_RING_DEPOSIT_AUDIT_SLOTS] = Default::default();
+    members[0] = member_registry_root.map(|_| record());
+    let mut ct_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+    ct_hashes[0] = member_registry_root.map_or([0; 32], |_| [8; 32]);
     DepositBody {
         circuit_type: RingCircuit::Deposit,
         public_input_hash: [0; 32],
@@ -183,11 +236,12 @@ fn deposit(key_registry_root: Option<[u8; 32]>) -> DepositBody {
         owner_pk_hashes: owners,
         nullifier_pks: owners,
         blindings: Zeroizing::new(owners),
-        keys,
+        ct_hashes,
+        members,
         ephemeral_sk: Zeroizing::new(EPH_SK),
         auditor_pk: auditor(),
-        key_escrow: key_registry_root.is_some(),
-        key_registry_root: key_registry_root.unwrap_or_default(),
+        key_escrow: member_registry_root.is_some(),
+        member_registry_root: member_registry_root.unwrap_or_default(),
     }
 }
 
@@ -201,15 +255,22 @@ fn the_deposit_request_uses_fixed_slots_and_canonical_names() {
     assert_eq!(json["ownerPkHashes"][0], format!("0x{:064x}", 2));
     assert_eq!(json["nullifierPks"][0], format!("0x{:064x}", 2));
     assert_eq!(json["blindings"][7], format!("0x{:064x}", 0));
-    assert_eq!(json["keys"].as_array().unwrap().len(), 8);
-    assert_eq!(json["keys"][0]["index"], 3);
+    assert_eq!(json["ctHashes"].as_array().unwrap().len(), 8);
+    assert_eq!(json["ctHashes"][0], hex(&[8; 32]));
+    assert_eq!(json["members"].as_array().unwrap().len(), 8);
+    assert_eq!(json["members"][0]["index"], 3);
+    assert_eq!(json["members"][0]["lists"], 2);
     assert_eq!(
-        json["keys"][0]["path"].as_array().unwrap().len(),
-        KEY_REGISTRY_HEIGHT
+        json["members"][0]["path"].as_array().unwrap().len(),
+        MEMBER_REGISTRY_HEIGHT
     );
-    assert!(json["keys"][1].is_null());
+    assert_eq!(
+        sorted_keys(&json["members"][0]),
+        ["escrowKey", "index", "lists", "next", "path"]
+    );
+    assert!(json["members"][1].is_null());
     assert_eq!(json["keyEscrow"], true);
-    assert_eq!(json["keyRegistryRoot"], hex(&[9; 32]));
+    assert_eq!(json["memberRegistryRoot"], hex(&[9; 32]));
     assert_eq!(json["auditorPk"].as_str().unwrap().len(), 66);
     assert_eq!(json["ephSk"], hex(&EPH_SK));
 }
@@ -219,7 +280,12 @@ fn escrow_off_sends_a_zero_deposit_root() {
     let body = deposit(None);
     let json: Value = serde_json::from_str(&RingRequest(&body).body().unwrap()).unwrap();
     assert_eq!(json["keyEscrow"], false);
-    assert_eq!(json["keyRegistryRoot"], hex(&[0; 32]));
+    assert_eq!(json["memberRegistryRoot"], hex(&[0; 32]));
+    assert!(json["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(Value::is_null));
 }
 
 #[test]
@@ -241,7 +307,7 @@ fn the_indexed_deposit_binds_the_registry_the_body_names() {
             ..registry.clone()
         },
         IndexedRegistry {
-            next_index: (1 << 40) + 1,
+            next_index: (1 << 20) + 1,
             ..registry.clone()
         },
     ] {
@@ -265,4 +331,6 @@ fn every_circuit_names_its_pinned_proving_key() {
             format!("{}.key", circuit.circuit_type().replace('-', "_"))
         );
     }
+    // The update-members key waits for its rotation into the lockfile.
+    assert!(RingCircuit::UpdateMembers.proving_key().is_err());
 }

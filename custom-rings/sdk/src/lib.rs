@@ -5,18 +5,17 @@ mod account;
 mod admin;
 mod audit;
 mod deposit;
-mod entry;
 mod error;
-mod escrow;
 #[cfg(test)]
 mod golden_tests;
 mod heap;
-mod key_registry;
 mod limits;
+mod member_registry;
 mod merge;
 mod pipeline;
 mod projection;
 mod prover;
+mod register_key;
 mod request;
 mod submission;
 #[cfg(test)]
@@ -32,17 +31,16 @@ pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 
 pub use crate::{
     account::{
-        client_rules_match, policy_config_table, CoSignThreshold, CurrentKeyRegistryRoot,
-        CustomRing, CustomRingCoSigner, CustomRingConfig, PinnedPolicy, PoolTree,
+        client_rules_match, policy_config_table, CoSignThreshold, CurrentRegistryRoot, CustomRing,
+        CustomRingCoSigner, CustomRingConfig, PinnedPolicy, PoolTree,
     },
     admin::SourceOwner,
     audit::{CustomRingProofParams, EncryptedAudit, PendingCustomRingProof},
     deposit::{Deposit, PreparedRingDeposit, RingDeposit, RingDepositReceipt},
-    entry::{CreateEntry, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry},
     error::RingError,
-    escrow::RegistryKeyOpening,
-    key_registry::{
-        ProvenKeyRegistration, ReadCurrentSealedKey, ReadSealedKey, RegisterKey, SealedKeyEntry,
+    member_registry::{
+        MemberRecordRead, MemberWrite, ProvenMemberUpdate, ReadMemberRecord, RecordOpening,
+        SealedKeyEntry, UpdateMembers,
     },
     merge::{
         CustomRingMerge, CustomRingMergeInstruction, MergeProofInput, PreparedCustomRingMerge,
@@ -54,13 +52,14 @@ pub use crate::{
         ProvenRingTransfer, ProvenTransfer, Rail, RailKind, RingTransfer,
     },
     prover::{to_instruction_proof, to_plain_proof},
+    register_key::{ProvenKeyRegistration, RegisterKey},
     request::{OutflowLimitProofInput, RingIdentity},
     submission::{
         RingMergeOperation, RingOperation, RingSubmission, SettledSubmission, SubmissionStatus,
     },
     transact_ix::{
-        CustomRingDelegateTransact, CustomRingTransact, EscrowBinding, PolicyReads,
-        PolicyTreeContext,
+        CustomRingDelegateTransact, CustomRingTransact, EscrowBinding, ForeignBinding, PolicyReads,
+        PolicyTreeContext, RegistryBinding,
     },
     trees::tree_id,
 };

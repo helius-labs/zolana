@@ -1,8 +1,8 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, ReadAccessRecord,
-    RingProgramConfig, SourceSlot, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT,
-    KEY_REGISTRY_ROOT_HISTORY, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    CoSignScope, CoSigner, Delegate, DepositAudit, MemberRegistryRoot, ReadAccessRecord,
+    RingProgramConfig, SourceSlot, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT, MEMBER_REGISTRY_ROOT,
+    MEMBER_REGISTRY_ROOT_HISTORY, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -15,7 +15,7 @@ use zolana_ring_policy::{
 
 use super::support::{account, empty, pinned, ring, Accounts};
 use crate::{
-    client_rules_match, policy_config_table, CoSignThreshold, CurrentKeyRegistryRoot,
+    client_rules_match, policy_config_table, CoSignThreshold, CurrentRegistryRoot,
     CustomRingCoSigner, PoolTree, RingError,
 };
 
@@ -310,13 +310,13 @@ async fn delegate_read_rejects_substituted_state() {
     }
 }
 
-fn registry_root(next_index: u64, cursor: u8, root: [u8; 32]) -> KeyRegistryRoot {
-    let mut history = [[0; 32]; KEY_REGISTRY_ROOT_HISTORY];
+fn registry_root(next_index: u64, cursor: u8, root: [u8; 32]) -> MemberRegistryRoot {
+    let mut history = [[0; 32]; MEMBER_REGISTRY_ROOT_HISTORY];
     history[usize::from(cursor)] = root;
-    KeyRegistryRoot {
-        discriminator: KEY_REGISTRY_ROOT,
+    MemberRegistryRoot {
+        discriminator: MEMBER_REGISTRY_ROOT,
         next_index: next_index.to_le_bytes(),
-        bump: Address::find_program_address(&[KeyRegistryRoot::SEED], &program()).1,
+        bump: Address::find_program_address(&[MemberRegistryRoot::SEED], &program()).1,
         history_cursor: cursor,
         history,
     }
@@ -324,22 +324,25 @@ fn registry_root(next_index: u64, cursor: u8, root: [u8; 32]) -> KeyRegistryRoot
 
 #[tokio::test]
 async fn the_registry_root_names_its_history_slot_and_refuses_an_empty_one() {
-    let address = ring().key_registry_root_pda();
-    let read = |value: KeyRegistryRoot| async move {
+    let address = ring().member_registry_root_pda();
+    let read = |value: MemberRegistryRoot| async move {
         ring()
-            .key_registry_root(&at(address, Some(account(program(), &value))))
+            .member_registry_root(&at(address, Some(account(program(), &value))))
             .await
     };
     assert_eq!(
         read(registry_root(2, 3, [5; 32])).await.unwrap(),
-        Some(CurrentKeyRegistryRoot {
+        Some(CurrentRegistryRoot {
             root: [5; 32],
             next_index: 2,
             history_index: 3,
         })
     );
     assert_eq!(
-        ring().key_registry_root(&at(address, None)).await.unwrap(),
+        ring()
+            .member_registry_root(&at(address, None))
+            .await
+            .unwrap(),
         None
     );
     for invalid in [
@@ -358,12 +361,7 @@ const PINNED: RuleTable = RuleTable::builder()
 
 #[test]
 fn the_stored_table_is_trusted_only_under_its_pinned_hash() {
-    let config = pinned(
-        ring(),
-        &PINNED,
-        ring().namespace_pda(),
-        PoolTree::from_id(0),
-    );
+    let config = pinned(ring(), &PINNED, PoolTree::from_id(0));
     assert_eq!(policy_config_table(&config).unwrap(), PINNED);
     client_rules_match(&PINNED, &config).unwrap();
 
@@ -402,7 +400,7 @@ fn the_stored_table_is_trusted_only_under_its_pinned_hash() {
     let mut unsourced = config;
     unsourced.sources[ListId::Block.slot()] = SourceSlot {
         list_id: 0,
-        namespace: Address::default(),
+        registry: Address::default(),
     };
     assert!(matches!(
         policy_config_table(&unsourced),
@@ -414,12 +412,7 @@ fn the_stored_table_is_trusted_only_under_its_pinned_hash() {
 
 #[tokio::test]
 async fn the_pinned_policy_reads_the_canonical_account_once() {
-    let config = pinned(
-        ring(),
-        &PINNED,
-        ring().namespace_pda(),
-        PoolTree::from_id(0),
-    );
+    let config = pinned(ring(), &PINNED, PoolTree::from_id(0));
     let address = ring().policy_config_pda();
     let rpc = at(address, Some(account(program(), &config)));
     let pinned = ring().pinned_policy(&rpc).await.unwrap().unwrap();

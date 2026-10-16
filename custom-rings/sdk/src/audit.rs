@@ -100,7 +100,6 @@ impl PendingCustomRingProof {
         let audit = self.secrets(private_tx_hash)?;
         let output_hashes = self.output_hashes()?;
         let tree_slots = witness.tree_slots();
-        let key_registry_root = witness.escrow.0.map(|registry| registry.root);
         let statement = CustomRingPolicyPublicInput {
             audit: self.statement(&private_tx_hash, &output_hashes),
             policy_hash,
@@ -109,15 +108,15 @@ impl PendingCustomRingProof {
             ring_id: &witness.limits.ring_id,
             namespace_owner_hash: &witness.limits.namespace_owner_hash,
             approval_required: witness.limits.approval_required,
-            key_registry_root: key_registry_root.as_ref(),
-            revocation_tree_indexes: &witness.revocation_tree_indexes,
-            revocation_targets: &witness.revocation_targets,
+            key_escrow: witness.key_escrow,
+            member_registry_root: &witness.member_registry_root,
+            foreign_root: &witness.foreign_root,
         };
         let public_input_hash = statement.hash()?;
         let indexed = match witness.indexed.take() {
-            Some(inputs) => Some(IndexedPolicyData {
-                inputs,
-                registry: witness.indexed_registry.take(),
+            Some(registries) => Some(IndexedPolicyData {
+                registry: registries.registry,
+                foreign_registry: registries.foreign,
                 public_inputs: statement.indexed_inputs()?.to_vec(),
                 trees: witness.trees.iter().map(|tree| tree.resolved()).collect(),
             }),

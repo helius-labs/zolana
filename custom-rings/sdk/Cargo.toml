@@ -39,6 +39,7 @@ zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true }
+zolana-ring-member-registry = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
@@ -47,7 +48,6 @@ zolana-tree = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 zolana-api = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-ring-member-registry = { workspace = true }
 async-trait = { workspace = true }
 http = { workspace = true }
 curve25519-dalek = "4.1"

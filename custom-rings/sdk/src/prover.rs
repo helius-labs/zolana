@@ -1,6 +1,7 @@
 use custom_ring_interface::{
     base_verifying_key, delegate_policy_verifying_key, deposit_verifying_key, policy_verifying_key,
-    register_key_verifying_key, CustomRingProof, PlainGroth16Proof, PROVING_KEY_SHA256S,
+    register_key_verifying_key, update_members_verifying_key, CustomRingProof, PlainGroth16Proof,
+    PROVING_KEY_SHA256S,
 };
 use serde::{Serialize, Serializer};
 use zeroize::Zeroizing;
@@ -18,6 +19,7 @@ pub(crate) enum RingCircuit {
     DelegatePolicy,
     Deposit,
     RegisterKey,
+    UpdateMembers,
 }
 
 impl RingCircuit {
@@ -28,6 +30,7 @@ impl RingCircuit {
             Self::DelegatePolicy => "custom-ring-delegate-policy",
             Self::Deposit => "custom-ring-deposit",
             Self::RegisterKey => "custom-ring-register-key",
+            Self::UpdateMembers => "custom-ring-update-members",
         }
     }
 
@@ -55,6 +58,7 @@ impl RingCircuit {
             Self::DelegatePolicy => &delegate_policy_verifying_key::VERIFYINGKEY,
             Self::Deposit => &deposit_verifying_key::VERIFYINGKEY,
             Self::RegisterKey => &register_key_verifying_key::VERIFYINGKEY,
+            Self::UpdateMembers => &update_members_verifying_key::VERIFYINGKEY,
         };
         verify_proof_statement(proof, public_input_hash, key)
     }
@@ -156,10 +160,6 @@ pub(crate) mod fe {
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         seq(values.as_slice(), serializer)
-    }
-
-    pub(crate) fn int<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
-        bytes(&right_align(&value.to_be_bytes()), serializer)
     }
 
     pub(crate) fn short<S: Serializer>(value: &u16, serializer: S) -> Result<S::Ok, S::Error> {

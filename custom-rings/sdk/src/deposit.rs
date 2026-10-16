@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    tag, AuditedDepositPrefix, CustomRingProof, DepositContext, DepositPublicInput,
-    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    tag, AuditedDepositPrefix, CustomRingProof, DepositContext, DepositPublicInput, EscrowKey,
+    KeyEscrow, RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -12,20 +12,22 @@ use zolana_client::{
     prover::indexed::{IndexedDepositRequest, IndexedRegistry},
     AsyncIndexer, AsyncRpc, AsyncZolanaClient, ComputeBudgetConfig,
 };
+use zolana_interface::merge_utils::ciphertext_hash;
 use zolana_keypair::{random_blinding, ShieldedKeypair, X25519Pubkey};
 use zolana_program::instruction::{DepositAsset, DepositBuildError, RingAssetDeposit};
 use zolana_ring_client::{seal_deposits, DepositEncryption, DepositOpening};
+use zolana_ring_policy::Member;
 use zolana_transaction::{owner_utxo_hash, Data, Mint, RingDepositPlaintext, Utxo};
 
 use crate::{
-    escrow::{EscrowedKeys, KeyRegistry, OutputKey},
+    member_registry::{ReadMemberRecord, RecordOpening},
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
-    request::DepositBody,
+    request::{DepositBody, RecordWitness},
     submission::BoundRoot,
     to_instruction_proof,
     transact_ix::ring_prefix,
-    CustomRing, EscrowBinding, RingError, RingSubmission, SettledSubmission,
+    CurrentRegistryRoot, CustomRing, EscrowBinding, RingError, RingSubmission, SettledSubmission,
 };
 
 #[must_use]
@@ -65,7 +67,20 @@ struct DepositDisclosure {
     blinding: Zeroizing<[u8; 32]>,
     encryption: DepositEncryption,
     auditor: X25519Pubkey,
-    key_registry: Option<KeyRegistry>,
+    /// The recipient's record must escrow the key the note uses.
+    escrow: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OutputKey {
+    owner_pk_hash: [u8; 32],
+    nullifier_pk: [u8; 32],
+}
+
+/// The recipient's record as the deposit circuit opens it.
+struct EscrowedRecord {
+    witness: RecordWitness,
+    ct_hash: [u8; 32],
 }
 
 /// An enabled deposit audit requires a proof bound to the exact SPP payload.
@@ -110,8 +125,8 @@ impl RingDeposit<'_> {
             }
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
-        let key_registry = KeyRegistry::of(self.ring, &config);
-        let disclosure = if key_registry.is_some() || self.ring.deposit_audit(rpc).await? {
+        let escrow = config.key_escrow == KeyEscrow::Registry;
+        let disclosure = if escrow || self.ring.deposit_audit(rpc).await? {
             let opening = DepositOpening {
                 owner_hash,
                 blinding: Zeroizing::new(blinding),
@@ -148,7 +163,7 @@ impl RingDeposit<'_> {
                 blinding: Zeroizing::new(blinding),
                 encryption,
                 auditor: config.auditor_pubkey,
-                key_registry,
+                escrow,
             })
         } else {
             None
@@ -207,7 +222,7 @@ impl PreparedRingDeposit {
         }
     }
 
-    /// A stale key-registry root re-proves the prepared note under a fresh root.
+    /// A stale registry root re-proves the prepared note under a fresh root.
     pub async fn prove<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
@@ -225,19 +240,27 @@ impl PreparedRingDeposit {
         };
         retry_projection_lag(|| async {
             let indexed = client.indexed_prover();
-            // An escrowed ring proves the recipient's key is enrolled.
-            let escrow = match disclosure.key_registry {
-                Some(registry) if indexed.is_some() => Some(registry.pending(client).await?),
-                Some(registry) => Some(registry.openings(client, &[Some(disclosure.key)]).await?),
-                None => None,
+            // An escrowed ring proves the recipient's record escrows the note's key.
+            let root = match disclosure.escrow {
+                true => Some(
+                    self.ring
+                        .member_registry_root(client)
+                        .await?
+                        .ok_or(RingError::MissingMemberRegistry)?,
+                ),
+                false => None,
             };
-            let body = disclosure.body(escrow.as_ref())?;
-            let proof = match (indexed, &escrow) {
-                (Some(prover), Some(escrow)) => {
+            let record = match (root, indexed.is_some()) {
+                (Some(root), false) => Some(disclosure.record(client, self.ring, root).await?),
+                _ => None,
+            };
+            let body = disclosure.body(root, record.as_ref())?;
+            let proof = match (indexed, root) {
+                (Some(prover), Some(root)) => {
                     let registry = IndexedRegistry {
                         ring_program_id: self.ring.program_id(),
-                        root: escrow.root.root,
-                        next_index: escrow.root.next_index,
+                        root: root.root,
+                        next_index: root.next_index,
                     };
                     let request = IndexedDepositRequest::new(&RingRequest(&*body), registry)?;
                     let proof = prover.prove_indexed(&request).await?;
@@ -246,7 +269,7 @@ impl PreparedRingDeposit {
                 }
                 _ => client.prove_request(&RingRequest(&*body)).await?,
             };
-            self.instruction(Some(to_instruction_proof(proof)?), escrow)
+            self.instruction(Some(to_instruction_proof(proof)?), root)
         })
         .await
     }
@@ -254,9 +277,9 @@ impl PreparedRingDeposit {
     fn instruction(
         &self,
         proof: Option<CustomRingProof>,
-        escrow: Option<EscrowedKeys>,
+        root: Option<CurrentRegistryRoot>,
     ) -> Result<(Instruction, Option<BoundRoot>), RingError> {
-        let escrow = EscrowBinding::of(escrow.map(|escrow| escrow.root));
+        let escrow = EscrowBinding::of(root);
         let instruction = Deposit {
             ring: self.ring,
             tree: self.tree,
@@ -272,20 +295,63 @@ impl PreparedRingDeposit {
 }
 
 impl DepositDisclosure {
-    fn body(&self, escrow: Option<&EscrowedKeys>) -> Result<Box<DepositBody>, RingError> {
-        let root = escrow.map(|escrow| escrow.root.root);
+    /// The recipient's record under `root`, which must escrow the deposited key.
+    async fn record(
+        &self,
+        rpc: &(impl AsyncRpc + ?Sized),
+        ring: CustomRing,
+        root: CurrentRegistryRoot,
+    ) -> Result<EscrowedRecord, RingError> {
+        let owner = Member::from_bytes(self.key.owner_pk_hash)?;
+        let read = ReadMemberRecord {
+            ring,
+            member: owner,
+        }
+        .read_at(rpc, root)
+        .await?;
+        let RecordOpening::Present {
+            record,
+            index,
+            path,
+            sealed: Some(sealed),
+        } = read.opening
+        else {
+            return Err(RingError::UnregisteredOutputKey { owner });
+        };
+        let escrow_key = EscrowKey {
+            nullifier_pk: &self.key.nullifier_pk,
+            ciphertext: &sealed.ciphertext,
+        }
+        .hash()?;
+        if escrow_key != record.escrow_key {
+            return Err(RingError::UnregisteredOutputKey { owner });
+        }
+        Ok(EscrowedRecord {
+            witness: RecordWitness::present(&record, index, path),
+            ct_hash: ciphertext_hash(&sealed.ciphertext)?,
+        })
+    }
+
+    fn body(
+        &self,
+        root: Option<CurrentRegistryRoot>,
+        record: Option<&EscrowedRecord>,
+    ) -> Result<Box<DepositBody>, RingError> {
+        let root = root.map(|root| root.root);
         let public_input_hash = DepositPublicInput {
             context_hash: &self.context_hash,
             owner_utxo_hashes: &[self.owner_utxo_hash],
             ciphertexts: &self.encryption.ciphertexts,
             auditor_pk: self.auditor.as_bytes(),
             eph_pk: self.encryption.ephemeral_pk.as_bytes(),
-            key_registry_root: root.as_ref(),
+            member_registry_root: root.as_ref(),
         }
         .hash()?;
-        let mut keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-        if let Some(escrow) = escrow {
-            keys[..escrow.keys.len()].copy_from_slice(&escrow.keys);
+        let mut members: [Option<RecordWitness>; MAX_RING_DEPOSIT_AUDIT_SLOTS] = Default::default();
+        let mut ct_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        if let Some(record) = record {
+            members[0] = Some(record.witness.clone());
+            ct_hashes[0] = record.ct_hash;
         }
         let first = |value: [u8; 32]| {
             let mut slots = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
@@ -300,11 +366,12 @@ impl DepositDisclosure {
             owner_pk_hashes: first(self.key.owner_pk_hash),
             nullifier_pks: first(self.key.nullifier_pk),
             blindings: Zeroizing::new(first(*self.blinding)),
-            keys,
+            ct_hashes,
+            members,
             ephemeral_sk: self.encryption.ephemeral_sk.clone(),
             auditor_pk: self.auditor,
             key_escrow: root.is_some(),
-            key_registry_root: root.unwrap_or_default(),
+            member_registry_root: root.unwrap_or_default(),
         }))
     }
 }
@@ -332,7 +399,7 @@ impl Deposit {
             let prefix = AuditedDepositPrefix {
                 tag: tag::AUDITED_DEPOSIT,
                 proof,
-                key_registry_root_index: self.escrow.root_index(),
+                registry_root_index: self.escrow.root_index(),
             };
             instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
         }
