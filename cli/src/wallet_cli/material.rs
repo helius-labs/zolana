@@ -17,7 +17,7 @@ use crate::{
 
 /// The only wallet file format this build reads or writes. There is no
 /// migration path: a file carrying any other version is rejected outright.
-const WALLET_FORMAT_VERSION: u8 = 1;
+const WALLET_FORMAT_VERSION: u8 = 2;
 
 /// On-disk wallet identity. `mode` picks the rail and decides what the file
 /// holds:
@@ -25,8 +25,8 @@ const WALLET_FORMAT_VERSION: u8 = 1;
 /// - `ed25519`: the Solana funding key IS the shielded identity. Its secret is
 ///   the signing key and the nullifier and viewing keys re-derive from it (flat
 ///   HKDF), so the file only caches the funding secret and stores no scalars.
-/// - `p256`: an independent random shielded identity. Its signing and viewing
-///   scalars derive from nothing else, so both are stored raw.
+/// - `p256`: an independent random shielded identity. Its P-256 signing secret
+///   and X25519 viewing secret are stored raw.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct KeypairFile {
     version: u8,
@@ -174,9 +174,8 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
     Ok(WalletMaterial { keypair, funding })
 }
 
-/// Reconstruct a P256 wallet from its stored signing and viewing scalars. Both
-/// fields are required: a P256 identity is random, so its keys cannot be
-/// derived from the funding secret the way the ed25519 rail derives them.
+/// Reconstruct a P-256 owner with its stored X25519 viewing secret. Both
+/// fields are required because this identity is independent of the funding key.
 fn p256_keypair_from_file(path: &Path, file: &KeypairFile) -> Result<ShieldedKeypair> {
     let signing_hex = file
         .signing_key_hex
@@ -329,6 +328,27 @@ mod tests {
             keypair.shielded_address().unwrap()
         );
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
+    }
+
+    #[test]
+    fn legacy_wallet_requires_explicit_viewing_key_migration() {
+        let root = temp_root("zolana-cli-wallet-legacy");
+        let wallet = root.join("legacy.pid.json");
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::from_keypair(&funding).expect("keypair");
+        save_wallet(&wallet, &keypair, &funding).expect("save wallet");
+
+        let mut file: KeypairFile =
+            serde_json::from_slice(&fs::read(&wallet).unwrap()).expect("parse wallet");
+        file.version = 1;
+        fs::write(&wallet, serde_json::to_vec(&file).unwrap()).expect("write legacy wallet");
+
+        let err = load_existing_wallet(&wallet)
+            .err()
+            .expect("legacy wallet rejected");
+        assert!(err
+            .to_string()
+            .contains("unsupported wallet format version 1"));
     }
 
     #[test]

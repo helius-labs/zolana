@@ -10,7 +10,7 @@ use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
-    NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
+    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
 use zolana_transaction::{
     instructions::transact::{
@@ -704,7 +704,7 @@ fn assert_recovery(
             &DecodeCx {
                 viewing_key: &reader.viewing_key,
                 tx_viewing_pk: Some(
-                    P256Pubkey::from_bytes(proof.external_data.tx_viewing_pk).unwrap(),
+                    X25519Pubkey::from_bytes(proof.external_data.tx_viewing_pk).unwrap(),
                 ),
                 salt: Some(proof.external_data.salt),
                 slot_index: index as u32,
@@ -1230,7 +1230,7 @@ impl ShieldedKeys for RecordingKeys {
             Ok(self.address)
         }
     }
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         panic!("builder does not enumerate viewing keys")
     }
     fn decrypt(&self, _requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, E> {

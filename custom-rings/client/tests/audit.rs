@@ -28,7 +28,7 @@ use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
 };
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption, RingOrigin,
     RingScan, TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
@@ -108,7 +108,7 @@ fn output_context(output: &ProofInputUtxo, slot_index: u32) -> OutputContext {
 /// bound to `slot_index`.
 fn confidential_slot(
     tx: &ViewingKey,
-    recipient: &P256Pubkey,
+    recipient: &X25519Pubkey,
     plaintext: &ConfidentialOutputPlaintext,
     slot_index: u32,
 ) -> OutputSlot {

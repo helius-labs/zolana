@@ -19,7 +19,7 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    NullifierKey, P256Pubkey, ViewingKey,
+    NullifierKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::{
@@ -42,8 +42,8 @@ pub struct DecryptRequest<'a> {
     pub ciphertext: &'a [u8],
     /// Which of the wallet's viewing keys opens this slot. A retired key still
     /// opens what was sent to it before the rotation.
-    pub viewing_pubkey: P256Pubkey,
-    pub tx_viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
+    pub tx_viewing_pubkey: X25519Pubkey,
     pub salt: Salt,
     /// Zero for a ring deposit.
     pub slot_index: u32,
@@ -73,7 +73,7 @@ pub enum DeriveRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactionKeyRequest {
-    pub viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
     pub first_nullifier: [u8; 32],
 }
 
@@ -81,7 +81,7 @@ pub trait ShieldedKeys {
     fn address(&self) -> Result<ShieldedAddress, TransactionError>;
 
     /// Every viewing key held, the current one first. A sync opens under each.
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey>;
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey>;
 
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError>;
 
@@ -134,7 +134,7 @@ impl LocalShieldedKeys {
         )
     }
 
-    fn viewing_key(&self, pubkey: &P256Pubkey) -> Result<&ViewingKey, TransactionError> {
+    fn viewing_key(&self, pubkey: &X25519Pubkey) -> Result<&ViewingKey, TransactionError> {
         self.viewing
             .iter()
             .find(|key| &key.pubkey() == pubkey)
@@ -147,7 +147,7 @@ impl ShieldedKeys for LocalShieldedKeys {
         Ok(self.address)
     }
 
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.viewing.iter().map(|key| key.pubkey()).collect()
     }
 
@@ -217,7 +217,7 @@ impl ShieldedKeys for ShieldedKeypair {
         Ok(self.shielded_address()?)
     }
 
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         vec![self.viewing_pubkey()]
     }
 

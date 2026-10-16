@@ -342,7 +342,7 @@ impl<'a> MemberRecovery<'a> {
     ) -> Result<Vec<[u8; 32]>, AuditError> {
         let ring = self.recovery.ring_program_id;
         let owner_hash = self.source.address.owner_hash()?;
-        let bootstrap_tag = self.source.address.viewing_pubkey.x();
+        let bootstrap_tag = self.source.address.viewing_pubkey.u();
         let mut processed = HashSet::new();
         let mut unsupported = Vec::new();
         for transaction in deposits {

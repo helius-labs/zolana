@@ -5,7 +5,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInp
 use zeroize::Zeroizing;
 use zolana_client::{prover::indexed::IndexedPolicyData, ProofInputUtxo};
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-use zolana_keypair::{P256Pubkey, ViewingKey, X25519Pubkey};
+use zolana_keypair::{ViewingKey, X25519Pubkey};
 use zolana_ring_client::{AuditorEncryption, AuditorMessage};
 use zolana_ring_policy::POLICY_OUTPUT_SLOTS;
 
@@ -35,7 +35,7 @@ pub struct EncryptedAudit {
 #[must_use]
 pub struct PendingCustomRingProof {
     tx_viewing_key: ViewingKey,
-    tx_viewing_pk: P256Pubkey,
+    tx_viewing_pk: X25519Pubkey,
     auditor_pk: X25519Pubkey,
     ephemeral_sk: Zeroizing<[u8; 32]>,
     message: AuditorMessage,

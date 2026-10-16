@@ -37,7 +37,7 @@ use zolana_interface::{
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
-    hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
+    hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress, ViewingKey, X25519Pubkey,
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_merkle_tree::MerkleTree;
@@ -523,7 +523,7 @@ pub fn prove_and_verify_transfer(
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
 /// P256 point works and a constant keeps the run deterministic.
-fn test_viewing_pubkey() -> P256Pubkey {
+fn test_viewing_pubkey() -> X25519Pubkey {
     ViewingKey::from_bytes(&[5u8; 32])
         .expect("viewing key")
         .pubkey()

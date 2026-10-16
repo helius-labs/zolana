@@ -26,7 +26,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{P256Pubkey, SigningKey, X25519Pubkey, X25519Secret};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -184,7 +184,13 @@ fn reader() -> ReaderKey {
 }
 
 fn p256_reader() -> ReaderKey {
-    ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader key")
+    ReaderKey::p256(
+        SigningKey::new_p256()
+            .pubkey()
+            .as_p256()
+            .expect("P256 signing key"),
+    )
+    .expect("reader key")
 }
 
 #[test]

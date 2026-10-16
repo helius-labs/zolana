@@ -7,7 +7,7 @@ use custom_ring_interface::{
 use solana_account::Account;
 use solana_address::Address;
 use zolana_interface::P_DERIVE_SEC1;
-use zolana_keypair::{ViewingKey, X25519Secret};
+use zolana_keypair::{SigningKey, X25519Secret};
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
     ListId, ListSet, PolicyHashError, Rule, RuleTable, RuleTableError, Subject, MAX_RULES,
@@ -159,7 +159,7 @@ async fn config_read_accepts_only_canonical_typed_state() {
 
 #[tokio::test]
 async fn reader_read_rejects_substituted_state() {
-    let reader = ReaderKey::p256(ViewingKey::new().pubkey()).unwrap();
+    let reader = ReaderKey::p256(SigningKey::new_p256().pubkey().as_p256().unwrap()).unwrap();
     let address = ring().read_access_record_pda(&reader);
     let bytes = reader.to_bytes();
     let seed_hash = ReadAccessRecord::seed_hash(&bytes).unwrap();

@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
     KeyRegistryLeaf, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, FIELD_MAX, KEY_REGISTRY_CAPACITY,
+    FIELD_MAX, KEY_REGISTRY_CAPACITY, TAGGED_X25519_KEY_LEN,
 };
 use serde::{Deserialize, Serialize};
 use zolana_hasher::HasherError;
@@ -15,8 +15,8 @@ pub struct MemberKey {
     pub index: u64,
     pub next: [u8; 32],
     pub key_hash: [u8; 32],
-    #[serde(with = "compressed_key")]
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    #[serde(with = "tagged_key")]
+    pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
@@ -27,7 +27,7 @@ impl MemberKey {
             index: 0,
             next: FIELD_MAX,
             key_hash: [0; 32],
-            eph_pk: [0; COMPRESSED_P256_KEY_LEN],
+            eph_pk: [0; TAGGED_X25519_KEY_LEN],
             ciphertext: [0; AUDIT_CIPHERTEXT_LEN],
         }
     }
@@ -49,7 +49,7 @@ pub struct Registration {
     pub next_index: u64,
     pub member: [u8; 32],
     pub key_hash: [u8; 32],
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
@@ -116,12 +116,12 @@ impl Registration {
     }
 }
 
-mod compressed_key {
-    use custom_ring_interface::COMPRESSED_P256_KEY_LEN;
+mod tagged_key {
+    use custom_ring_interface::TAGGED_X25519_KEY_LEN;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S: Serializer>(
-        value: &[u8; COMPRESSED_P256_KEY_LEN],
+        value: &[u8; TAGGED_X25519_KEY_LEN],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_slice().serialize(serializer)
@@ -129,7 +129,7 @@ mod compressed_key {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<[u8; COMPRESSED_P256_KEY_LEN], D::Error> {
+    ) -> Result<[u8; TAGGED_X25519_KEY_LEN], D::Error> {
         Vec::<u8>::deserialize(deserializer)?
             .try_into()
             .map_err(|_| serde::de::Error::custom("eph_pk must be 33 bytes"))

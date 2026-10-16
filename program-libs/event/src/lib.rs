@@ -29,7 +29,7 @@ pub struct GeneralEvent {
     /// Published data slots bound to no output position, republished from
     /// `TransactIxData::messages`.
     pub messages: Vec<MessageData>,
-    /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
+    /// Tagged X25519 viewing key (`0x04 || u`) shared by every output ciphertext, so an
     /// indexer can decrypt without parsing the per-output `data`. Zeroed for
     /// proofless deposits, which have no shared viewing key.
     pub tx_viewing_pk: [u8; 33],

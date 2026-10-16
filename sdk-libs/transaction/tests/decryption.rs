@@ -8,7 +8,7 @@ use std::{
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     decrypt, decrypt_spendable,
     instructions::merge::{
@@ -84,7 +84,7 @@ fn proofless_slot(note: &WalletUtxo, owner: &ShieldedKeypair) -> OutputSlot {
 
 fn confidential_slot(
     note: &WalletUtxo,
-    recipient: P256Pubkey,
+    recipient: X25519Pubkey,
     tx: &ViewingKey,
     physical_index: u32,
 ) -> OutputSlot {
@@ -406,8 +406,8 @@ fn unique_notes_sort_by_metadata_and_separate_ring_and_data_from_balances() {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RecordedDecrypt {
     ciphertext: Vec<u8>,
-    viewing_pubkey: P256Pubkey,
-    tx_viewing_pubkey: P256Pubkey,
+    viewing_pubkey: X25519Pubkey,
+    tx_viewing_pubkey: X25519Pubkey,
     salt: [u8; 16],
     slot_index: u32,
     label: DecryptLabel,
@@ -447,7 +447,7 @@ impl ShieldedKeys for RecordingKeys {
         self.error("address")?;
         self.local.address()
     }
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.local.viewing_public_keys()
     }
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
@@ -673,7 +673,7 @@ fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requ
             vec![request(
                 retired.pubkey(),
                 confidential_blob
-                    .get(1 + zolana_keypair::constants::P256_PUBKEY_LEN..)
+                    .get(1 + zolana_keypair::x25519::X25519_PUBKEY_LEN..)
                     .unwrap(),
                 2
             )]
@@ -979,7 +979,7 @@ fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
     };
     // Scheme + recipient key precede the ciphertext; its amount follows an LE u64 asset ID.
     // XORing the amount's low bit preserves a parsable payload while changing 67 to 66.
-    let amount_offset = 1 + zolana_keypair::constants::P256_PUBKEY_LEN + size_of::<u64>();
+    let amount_offset = 1 + zolana_keypair::x25519::X25519_PUBKEY_LEN + size_of::<u64>();
     *blob.get_mut(amount_offset).unwrap() ^= 1;
     output.payload = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
     let expected = SpendableDecryptionResult {
@@ -1106,7 +1106,7 @@ fn merge_publication(
 /// `recipient`. Returns the note the owner should read back.
 fn ring_deposit(
     owner: &ShieldedKeypair,
-    recipient: P256Pubkey,
+    recipient: X25519Pubkey,
     ring: Address,
     mint: Mint,
     amount: u64,

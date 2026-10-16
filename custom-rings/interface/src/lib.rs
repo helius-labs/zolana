@@ -43,8 +43,8 @@ pub use key_registry::*;
 pub use policy_public_input::CustomRingPolicyPublicInput;
 pub use state::*;
 
-/// SEC1-compressed P256 key length, also retained by tagged X25519 envelopes.
-pub const COMPRESSED_P256_KEY_LEN: usize = 33;
+/// One-byte `0x04` scheme tag followed by a canonical X25519 u-coordinate.
+pub const TAGGED_X25519_KEY_LEN: usize = 33;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;
 pub const AUDIT_OUTPUT_FIELD_COUNT: usize = 9;
@@ -57,7 +57,7 @@ pub const AUDITOR_MESSAGE_LEN: usize = core::mem::size_of::<AuditorMessage>();
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct AuditorMessage {
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
     pub disclosure: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
 }

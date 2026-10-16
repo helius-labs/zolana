@@ -210,7 +210,7 @@ pub struct TransactOutput {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
     pub expiry_unix_ts: u64,
-    /// SEC1-compressed P256 viewing key shared by every output ciphertext in
+    /// Tagged X25519 viewing key (`0x04 || u`) shared by every output ciphertext in
     /// this transaction; bound into `external_data_hash` and copied verbatim
     /// into the logged `GeneralEvent` so an indexer need not parse the
     /// per-output `data`.

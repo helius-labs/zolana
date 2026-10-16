@@ -11,7 +11,7 @@ use wincode::{
 use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
 use zolana_ring_policy::{OutflowLimit, ANSWER_SLOTS};
 
-use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
 
 /// Account slot indices the processors and the indexer agree on.
 pub mod accounts {
@@ -98,7 +98,7 @@ pub struct SetDepositAuditIxData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
     /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
-    pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
     /// Selects a policy ring over an audit-only ring.
     pub has_policy: bool,
 }
@@ -268,7 +268,7 @@ pub struct RegisterKeyIxData {
     /// The member's nullifier public key, bound by the proof to the ciphertext.
     pub nullifier_pk: [u8; 32],
     /// Tagged X25519 ephemeral key the auditor rederives the shared secret from.
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     /// AES-256-CTR ciphertext of the nullifier secret, sealed to the auditor.
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }

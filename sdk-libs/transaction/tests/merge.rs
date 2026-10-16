@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     instructions::merge::{
         merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
@@ -75,7 +75,7 @@ fn recover(
         body,
         &DecodeCx {
             viewing_key: recipient,
-            tx_viewing_pk: Some(P256Pubkey::from_bytes(result.tx_viewing_pk).unwrap()),
+            tx_viewing_pk: Some(X25519Pubkey::from_bytes(result.tx_viewing_pk).unwrap()),
             salt: Some(result.salt),
             slot_index: 0,
             first_nullifier: None,
@@ -521,7 +521,7 @@ impl ShieldedKeys for RecordingKeys {
         }
         self.owner.address()
     }
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.owner.viewing_public_keys()
     }
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {

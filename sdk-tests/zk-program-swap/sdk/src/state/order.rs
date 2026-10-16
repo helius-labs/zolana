@@ -5,8 +5,8 @@ use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_keypair::{
-    constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, P256Pubkey,
-    PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, PublicKey,
+    ShieldedAddress, X25519Pubkey,
 };
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo,
@@ -94,7 +94,7 @@ impl DataHash for OrderTermsProofInput {
     fn data_hash(&self) -> Result<[u8; 32]> {
         let maker_address = CompressedShieldedAddress {
             owner_hash: self.maker_owner_hash,
-            viewing_pubkey: P256Pubkey::from_bytes(self.maker_viewing_pk).map_err(err)?,
+            viewing_pubkey: X25519Pubkey::from_bytes(self.maker_viewing_pk).map_err(err)?,
         }
         .hash()
         .map_err(err)?;
@@ -166,7 +166,7 @@ impl PlainTextData {
 impl OrderUtxo {
     /// The taker's viewing pubkey makes the order slot ciphertext
     /// readable by the taker; its `owner_hash` is a constant across orders.
-    pub fn output_utxo(&self, taker_viewing_pubkey: P256Pubkey) -> Result<SppProofOutputUtxo> {
+    pub fn output_utxo(&self, taker_viewing_pubkey: X25519Pubkey) -> Result<SppProofOutputUtxo> {
         let data_hash = self.terms.data_hash()?;
         let nullifier_pubkey = Self::nullifier_key().pubkey().map_err(err)?;
         let owner_address = ShieldedAddress {
@@ -306,7 +306,7 @@ mod tests {
 
     use super::*;
 
-    fn sample_viewing_pk(seed: u8) -> P256Pubkey {
+    fn sample_viewing_pk(seed: u8) -> X25519Pubkey {
         ViewingKey::from_bytes(&[seed; 32]).unwrap().pubkey()
     }
 

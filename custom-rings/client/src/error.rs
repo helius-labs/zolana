@@ -21,7 +21,7 @@ pub enum AuditError {
     MissingSalt,
     #[error("recovered transaction viewing key does not match the published tx_viewing_pk")]
     TxViewingKeyMismatch,
-    #[error("recovered transaction viewing secret is zero or not below the P-256 order")]
+    #[error("recovered transaction viewing secret is not the canonical clamped X25519 encoding")]
     NonCanonicalViewingKey,
     #[error("transaction has {0} output slots, but the audit proof supports four")]
     OutputDisclosureCount(usize),

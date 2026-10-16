@@ -11,7 +11,7 @@ pub(crate) fn wallet_shield_identity(
     recipient: &ShieldedAddress,
 ) -> Result<([u8; 32], [u8; 32]), ProgramTestError> {
     let owner = recipient.owner_hash().map_err(TransactionError::from)?;
-    Ok((recipient.viewing_pubkey.x(), owner))
+    Ok((recipient.viewing_pubkey.u(), owner))
 }
 
 impl ZolanaProgramTest {
