@@ -4,8 +4,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 const (
@@ -47,11 +47,10 @@ func (w AuditOutputWires) Hash(api frontend.API) frontend.Variable {
 
 // Define returns the chain elements in CustomRingBasePublicInput order, hashes commit the outputs.
 func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, outputs [AuditOutputSlots]AuditOutputWires, hashes [AuditOutputSlots]frontend.Variable, count Count) [11]frontend.Variable {
-	CheckBytes(rc, a.TxViewingSk[:], a.Salt[:])
-	// The auditor reads the recovered bytes as they are, a key at or above n would key another stream.
-	p256.AssertScalarInRange(api, a.TxViewingSk)
-	tx := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, a.TxViewingSk))
-	txPk := gadget.PackBytesBE(api, tx[:])
+	CheckBytes(rc, a.Salt[:])
+	// The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
+	AssertClamped(api, a.TxViewingSk)
+	txPk := gadget.PackBytesBE(api, TaggedPubkey(api, a.TxViewingSk))
 	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo}.Seal(api)
 	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
@@ -66,4 +65,21 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, outputs [Audit
 		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
 		gadget.HashBytes(api, sealed.Ciphertext), HashPrefix4(api, hashes[:], count), salt, gadget.HashChain(api, disclosure),
 	}
+}
+
+// AssertClamped pins the RFC 7748 clamped encoding, the one byte string per X25519 key.
+func AssertClamped(api frontend.API, secret [32]frontend.Variable) {
+	low := api.ToBinary(secret[0], 8)
+	high := api.ToBinary(secret[31], 8)
+	for _, bit := range low[:3] {
+		api.AssertIsEqual(bit, 0)
+	}
+	api.AssertIsEqual(high[6], 1)
+	api.AssertIsEqual(high[7], 0)
+}
+
+// TaggedPubkey is 0x04 || u of the clamped secret, the generator gadget bounds every secret byte.
+func TaggedPubkey(api frontend.API, secret [32]frontend.Variable) []frontend.Variable {
+	u := x25519.ScalarMulGenerator(api, secret)
+	return append([]frontend.Variable{4}, u[:]...)
 }

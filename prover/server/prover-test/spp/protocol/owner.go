@@ -27,7 +27,7 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 // Owner identity tags (spec: Fixed-byte proof-input encoding). An owner
 // identity is hash_bytes_33(tag || key bytes), so a P256 x-coordinate and a
 // Solana key with the same bytes have distinct identities, and neither can
-// equal the untagged hash_bytes_33 viewing-key commitment (the tags avoid the
+// equal the untagged legacy P256 key commitment (the tags avoid the
 // SEC1 prefixes 0x02, 0x03, 0x04). The circuits package cannot import host code,
 // so gadget.P256OwnerTag mirrors P256OwnerTag; gadget/owner_identity_test.go
 // pins the two equal. No circuit hashes a Solana identity: SPP supplies it.
@@ -90,7 +90,7 @@ func OwnerPkField(compressed []byte) (*big.Int, error) {
 	return h, nil
 }
 
-// P256PkField is the viewing-key commitment:
+// P256PkField computes the legacy P256 key commitment:
 // Poseidon(y_is_odd, HashBytes(x)). It is not an identity, so x stays untagged.
 func P256PkField(compressed []byte) (*big.Int, error) {
 	x, err := p256X(compressed)

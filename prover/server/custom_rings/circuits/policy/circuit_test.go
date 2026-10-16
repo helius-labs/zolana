@@ -389,11 +389,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "tx scalar zero",
+			name: "unclamped tx secret",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.keys = func(k ringaudit.Keys) ringaudit.Keys {
-					return k.WithTxScalar(t, big.NewInt(0))
+					return k.WithRawTxScalar(t, [32]byte{})
 				}
 				return buildAssignment(t, f)
 			},
