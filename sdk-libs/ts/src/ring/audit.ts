@@ -19,7 +19,7 @@ import {
   type AuditorMessage,
 } from "../keypair/audit.js";
 import { bigIntToBytes } from "../keypair/bytes.js";
-import { P256PublicKey } from "../keypair/public-key.js";
+import { clampViewingSecret } from "../keypair/derivation.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
 import { TransactionError } from "../transaction/error.js";
@@ -47,7 +47,7 @@ import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin }
 export interface AuditedRingOutput {
   readonly slotIndex: number;
   readonly outputContext: OutputContext;
-  readonly recipientViewingPublicKey: P256PublicKey;
+  readonly recipientViewingPublicKey: X25519PublicKey;
   /** `OutputSlot.viewTag`, which the circuit binds to the output's owner. */
   readonly ownerTag: Bytes32;
   readonly asset: Address;
@@ -61,7 +61,7 @@ export interface AuditedRingOutput {
 export interface AuditedRingTransaction {
   readonly signature: Signature;
   readonly slot: bigint;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly outputs: readonly AuditedRingOutput[];
   readonly outputOpenings: readonly AuditOutputOpening[];
   readonly undecryptableSlots: readonly number[];
@@ -103,19 +103,26 @@ export function auditorMessage(
 }
 
 /**
- * Mirrors Rust `recover_tx_viewing_key`. The circuit proves `0 < sk < n` and keys the
- * disclosure stream with these exact bytes, so another representative is refused.
+ * Mirrors Rust `recover_tx_viewing_key`. The circuit proves the plaintext is the clamped
+ * encoding and keys the disclosure stream with these exact bytes, so an alias is refused.
  */
 export function recoverTransactionViewingKey(
   auditor: X25519Secret,
   message: AuditorMessage,
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
+  const canonical = clampViewingSecret(recovered);
   try {
-    return ViewingKey.fromBytes(recovered);
-  } catch (cause) {
-    throw new RingError("RING_AUDIT_NONCANONICAL_KEY", { cause });
+    let difference = 0;
+    for (let index = 0; index < 32; index++) {
+      difference |= (recovered[index] ?? 0) ^ (canonical[index] ?? 0);
+    }
+    if (difference !== 0) {
+      throw new RingError("RING_AUDIT_NONCANONICAL_KEY");
+    }
+    return ViewingKey.fromBytes(recovered as Bytes32);
   } finally {
+    canonical.fill(0);
     recovered.fill(0);
   }
 }
@@ -285,7 +292,7 @@ function auditOutput(
   opening: AuditOutputOpening,
 ): AuditedRingOutput | undefined {
   let plaintext;
-  let recipient: P256PublicKey;
+  let recipient: X25519PublicKey;
   try {
     const frame = readOutputData(slot.payload);
     if (
@@ -295,7 +302,7 @@ function auditOutput(
     ) {
       return undefined;
     }
-    recipient = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+    recipient = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
     plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, slotIndex);
   } catch {
     return undefined;

@@ -20,7 +20,6 @@ import {
 } from "./bytes.js";
 import { symmetricApply } from "./merge/index.js";
 import { poseidon } from "./poseidon.js";
-import { P256PublicKey } from "./public-key.js";
 
 /** Rust `AUDIT_ENC_INFO`. */
 export const AUDIT_ENC_INFO = new TextEncoder().encode("CRING/adt1");
@@ -188,7 +187,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
 /** The base circuit's public-input elements, Rust `CustomRingBasePublicInput`. */
 export interface CustomRingBasePublicInput {
   readonly privateTxHash: Bytes32;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly auditorPublicKey: X25519PublicKey;
   readonly message: AuditorMessage;
   readonly outputHashes: readonly Bytes32[];

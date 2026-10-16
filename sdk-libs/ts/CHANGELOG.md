@@ -12,8 +12,11 @@ gone, and ring submissions prove again over a replaced key registry root.
 Breaking
 
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor
-  configuration with `X25519Secret`/`X25519PublicKey`; wallet viewing keys
-  remain P-256 and old auditor envelopes are unsupported.
+  configuration with `X25519Secret`/`X25519PublicKey`; old auditor envelopes
+  are unsupported.
+- `ViewingKey` and shielded addresses use X25519 for every transfer and ring
+  deposit → migrate P-256 viewing keys and historical wallet data before using
+  this version.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`

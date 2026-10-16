@@ -221,7 +221,7 @@ export interface UserRecord {
   readonly ownerP256?: Base64String;
   /** Wallet-wide nullifier pubkey. Never rotates. */
   readonly nullifierPubkey: Hash;
-  /** SEC1-compressed P256 ECDH viewing pubkey. */
+  /** Tagged canonical X25519 viewing pubkey. */
   readonly viewingPubkey: Base64String;
   /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
   readonly mergingEnabled: boolean;

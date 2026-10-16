@@ -1,4 +1,3 @@
-import { X25519PublicKey } from "../keypair/x25519.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
@@ -19,7 +18,7 @@ import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
-import { P256PublicKey } from "../keypair/public-key.js";
+import { X25519PublicKey } from "../keypair/x25519.js";
 
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
@@ -291,7 +290,7 @@ export interface RingStatus {
 
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
-  readonly recipientViewingPublicKey: P256PublicKey;
+  readonly recipientViewingPublicKey: X25519PublicKey;
   /** `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner. */
   readonly ownerTag: Bytes32;
   readonly asset: Address;
@@ -311,7 +310,7 @@ export interface DecryptedRingWithdrawal {
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly outputs: readonly DecryptedRingOutput[];
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
@@ -645,7 +644,7 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
-    txViewingPublicKey: p256Key(wire["txViewingPk"], "txViewingPk"),
+    txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
         decodeOutput(record(entry, `outputs[${index}]`)),
@@ -677,7 +676,7 @@ function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
   return Object.freeze({
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
-    recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
+    recipientViewingPublicKey: x25519Key(output["recipientViewingPk"], "recipientViewingPk"),
     ownerTag: hash(output["ownerTag"], "ownerTag"),
     asset: address(output["asset"], "asset"),
     amount: integer(output["amount"], "amount"),
@@ -878,8 +877,12 @@ function hash(value: unknown, path: string): Bytes32 {
   return bytes as Bytes32;
 }
 
-function p256Key(value: unknown, path: string): P256PublicKey {
+function x25519Key(value: unknown, path: string): X25519PublicKey {
   const bytes = base64(value, path);
   if (bytes.length !== 33) throw invalid(path);
-  return P256PublicKey.fromBytes(bytes as Bytes33);
+  try {
+    return X25519PublicKey.fromBytes(bytes as Bytes33);
+  } catch {
+    throw invalid(path);
+  }
 }

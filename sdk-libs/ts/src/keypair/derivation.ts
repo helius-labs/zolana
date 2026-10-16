@@ -12,10 +12,13 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { type Bytes31, type Bytes32, type Bytes33, bytesToBigInt } from "./bytes.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { P256PublicKey } from "./public-key.js";
+import { X25519PublicKey, X25519Secret } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
 export const DST_VIEW_ROOT_P_CONST = "TSPP/view_root/P_const/v1";
+
+export const DST_X25519_VIEW_ROOT = "TSPP/view_root/x25519/v1";
 
 export const P_CONST_SEC1 = Uint8Array.from([
   0x03, 0x0e, 0x4d, 0xf9, 0x46, 0xbc, 0xe1, 0x4b, 0x95, 0x29, 0x2f, 0x13, 0xe1, 0x33, 0xd2, 0xb0,
@@ -47,7 +50,13 @@ export const INFO_VIEW_KEY_ED25519 = "TSPP/view_key/ed25519/v1";
 
 export const INFO_VIEW_KEY_ECDH = "TSPP/view_key/ecdh/v1";
 
+export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
+
+export const INFO_VIEW_KEY_ECDH_X25519 = "TSPP/view_key/ecdh/x25519/v1";
+
 export const INFO_TX_VIEWING = "TSPP/tx_viewing";
+
+export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -167,6 +176,31 @@ export function isDerivationPoint(publicKey: P256PublicKey): boolean {
   );
 }
 
+/** Normalizes a viewing secret to the one byte string encrypted by the circuit. */
+export function clampViewingSecret(secret: Uint8Array): Bytes32 {
+  const normalized = checkedViewingSecret(secret);
+  normalized[0] = (normalized[0] ?? 0) & 248;
+  normalized[31] = ((normalized[31] ?? 0) & 127) | 64;
+  return normalized;
+}
+
+function checkedViewingSecret(secret: Uint8Array): Bytes32 {
+  if (!(secret instanceof Uint8Array) || secret.length !== 32) {
+    throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { type: "x25519" });
+  }
+  return new Uint8Array(secret) as Bytes32;
+}
+
+/** ECDH rejects low-order peers through Noble's all-zero check. */
+export function x25519Ecdh(secret: Uint8Array, peer: X25519PublicKey): Uint8Array {
+  const key = X25519Secret.fromBytes(secret);
+  try {
+    return key.ecdh(peer);
+  } finally {
+    key.destroy();
+  }
+}
+
 export function ecdhX(secret: Uint8Array, counterparty: P256PublicKey): Uint8Array {
   try {
     return p256.getSharedSecret(secret, counterparty.toBytes(), true).subarray(1, 33);
@@ -205,16 +239,16 @@ export function hkdfExpand(
 }
 
 /**
- * `view_root = HKDF-Extract(salt=empty, IKM=ECDH(viewing_sk, P_const))`: the PRK
- * all per-purpose viewing secrets expand from. Bypasses the derivation-point
- * guard on purpose; only the `ViewingKey` constructor calls it.
+ * Derives viewing roles directly from the canonical secret with a domain salt.
+ * Raw ECDH cannot expose this input. A fixed-peer agreement would be recoverable
+ * by querying a multiple of that peer and inverting the multiplication.
  */
 export function viewRoot(secret: Uint8Array): Uint8Array {
-  const shared = ecdhX(secret, P256PublicKey.fromBytes(P_CONST_SEC1 as Bytes33));
+  const canonical = clampViewingSecret(secret);
   try {
-    return hkdfExtract(shared);
+    return extract(sha256, canonical, encoder.encode(DST_X25519_VIEW_ROOT));
   } finally {
-    shared.fill(0);
+    canonical.fill(0);
   }
 }
 
@@ -285,7 +319,9 @@ function railNullifierInfo(rail: Rail): Uint8Array {
 }
 
 function railViewingInfo(rail: Rail): Uint8Array {
-  return encoder.encode(rail === "ed25519" ? INFO_VIEW_KEY_ED25519 : INFO_VIEW_KEY_ECDH);
+  return encoder.encode(
+    rail === "ed25519" ? INFO_VIEW_KEY_ED25519_X25519 : INFO_VIEW_KEY_ECDH_X25519,
+  );
 }
 
 export interface RoleSecrets {
@@ -306,9 +342,9 @@ export function roleExpansion<T>(seed: Uint8Array, rail: Rail, use: (roles: Role
   let viewingSecret: Uint8Array | undefined;
   try {
     nullifierSecret = hkdfExpandPrk(prk, railNullifierInfo(rail), 31);
-    const okm = hkdfExpandPrk(prk, railViewingInfo(rail), 48);
+    const okm = hkdfExpandPrk(prk, railViewingInfo(rail), 32);
     try {
-      viewingSecret = scalarFromOkm(okm);
+      viewingSecret = clampViewingSecret(okm);
     } finally {
       okm.fill(0);
     }

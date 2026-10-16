@@ -26,7 +26,7 @@ import {
   type TransactOutput,
 } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
-import { P256PublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -218,7 +218,7 @@ export interface ExternalData {
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
   readonly resolvedOwnerTags: readonly Bytes32[];
@@ -239,7 +239,7 @@ export interface ExternalDataInit {
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
   readonly resolvedOwnerTags: readonly Bytes32[];
@@ -895,7 +895,7 @@ export interface PreparedTransfer {
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
-      txViewingPublicKey: P256PublicKey;
+      txViewingPublicKey: X25519PublicKey;
       salt: Bytes16;
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
       messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
@@ -1596,7 +1596,7 @@ export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
   readonly eventIndex?: number;
-  readonly txViewingPublicKey?: P256PublicKey;
+  readonly txViewingPublicKey?: X25519PublicKey;
   readonly salt?: Bytes16;
   readonly outputSlots: readonly OutputSlot[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
