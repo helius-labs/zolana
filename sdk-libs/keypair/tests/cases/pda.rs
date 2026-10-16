@@ -1,29 +1,10 @@
 use solana_address::Address;
 use zolana_keypair::{
-    derivation::{DST_PDA_ROOT_P_PDA, P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1},
     random_salt, Curve, KeypairError, NullifierKey, PublicKey, ShieldedKeypairTrait, ShieldedPda,
     ViewingKeyTrait,
 };
 
 use crate::KeypairWorld;
-
-pub(crate) fn p_pda_matches() {
-    use p256::{
-        elliptic_curve::{
-            hash2curve::{ExpandMsgXmd, GroupDigest},
-            sec1::ToEncodedPoint,
-        },
-        NistP256,
-    };
-    use sha2::Sha256;
-
-    let point =
-        NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_PDA_ROOT_P_PDA]).unwrap();
-    let sec1 = point.to_affine().to_encoded_point(true);
-    assert_eq!(sec1.as_bytes(), P_PDA_SEC1);
-    assert_ne!(P_PDA_SEC1, P_DERIVE_SEC1);
-    assert_ne!(P_PDA_SEC1, P_CONST_SEC1);
-}
 
 fn pda(n: u8) -> Address {
     Address::new_from_array([n; 32])
@@ -112,10 +93,6 @@ pub(crate) fn pda_cannot_sign(world: &mut KeypairWorld, a: String) {
     assert_eq!(identity.curve(), Curve::Pda);
     assert_eq!(
         identity.sign_message(b"private_tx_hash"),
-        Err(KeypairError::PdaCannotSign)
-    );
-    assert_eq!(
-        identity.sign_hash(&[7u8; 32]),
         Err(KeypairError::PdaCannotSign)
     );
 }

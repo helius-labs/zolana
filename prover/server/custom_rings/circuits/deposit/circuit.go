@@ -4,18 +4,21 @@ package deposit
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 const MaxDeposits = 8
-const OpeningBytes = 64
+
+// One opening is `ownerHash || blinding || ownerKey`. The owner key is the
+// Ed25519 key of an anonymous ring deposit and zero otherwise, so the auditor
+// attributes an anonymous deposit before it is spent.
+const OpeningBytes = 96
 const Domain uint32 = 0x43524450 // CRDP
 const EncryptionInfo = "CRING/dep1"
 
@@ -24,11 +27,13 @@ type CustomRingDepositCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	ContextHash     frontend.Variable
 	Count           frontend.Variable
+	Anonymous       frontend.Variable
 	OwnerPkHashes   [MaxDeposits]frontend.Variable
+	OwnerKeys       [MaxDeposits][32]frontend.Variable
 	NullifierPks    [MaxDeposits]frontend.Variable
 	Blindings       [MaxDeposits]frontend.Variable
 	EphSk           [32]frontend.Variable
-	AuditorPk       [65]frontend.Variable
+	AuditorPk       [32]frontend.Variable
 	KeyEscrow       frontend.Variable
 	KeyRegistryRoot frontend.Variable
 	Keys            [MaxDeposits]registry.KeyOpening
@@ -36,6 +41,7 @@ type CustomRingDepositCircuit struct {
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	// 1. Prove exactly the occupied prefix with canonical zero padding.
+	api.AssertIsBoolean(c.Anonymous)
 	var countMatches [MaxDeposits]frontend.Variable
 	validCount := frontend.Variable(0)
 	for i := range countMatches {
@@ -56,26 +62,23 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(disabled, c.OwnerPkHashes[i]), 0)
 		api.AssertIsEqual(api.Mul(disabled, c.NullifierPks[i]), 0)
 		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
+		// An anonymous ring can admit only Ed25519-owned notes. The opening
+		// binds the hidden owner key to the deposited owner commitment.
+		identity := checked.SolanaOwnerIdentity(api, c.OwnerKeys[i])
+		api.AssertIsEqual(api.Mul(c.Anonymous, enabled[i], api.Sub(c.OwnerPkHashes[i], identity)), 0)
+		for _, b := range c.OwnerKeys[i] {
+			api.AssertIsEqual(api.Mul(api.Sub(1, api.Mul(c.Anonymous, enabled[i])), b), 0)
+		}
 		c.Keys[i].AssertEscrowed(api, api.Mul(enabled[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
 		ownerHashes[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
 		owner, blinding := canonicalBytes(api, ownerHashes[i]), canonicalBytes(api, c.Blindings[i])
 		copy(plaintext[i*OpeningBytes:], owner[:])
 		copy(plaintext[i*OpeningBytes+32:], blinding[:])
+		copy(plaintext[i*OpeningBytes+64:], c.OwnerKeys[i][:])
 	}
 
 	// 2. Bind the shared key to the auditor and published ephemeral key.
-	rangeChecker := rangecheck.New(api)
-	for _, b := range c.EphSk {
-		rangeChecker.Check(b, 8)
-	}
-	for _, b := range c.AuditorPk {
-		rangeChecker.Check(b, 8)
-	}
-	api.AssertIsEqual(c.AuditorPk[0], 4)
-	p256.PointOnCurve(api, c.AuditorPk)
-	auditor := p256.CompressPubkey(api, c.AuditorPk)
-	ephemeral := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, c.EphSk))
-	dh := p256.ECDH(api, c.EphSk, c.AuditorPk)
+	auditor, ephemeral, dh := base.AgreeAuditKey(api, c.EphSk, c.AuditorPk)
 	secret := base.DeriveAuditSharedSecret(api, dh, ephemeral, auditor)
 	info := make([]frontend.Variable, len(EncryptionInfo))
 	for i, b := range []byte(EncryptionInfo) {
@@ -84,8 +87,8 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	key, nonce := ve.KeySchedule(api, secret, info, len(info))
 
 	// 3. Assign distinct CTR blocks to every deposit opening.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
-	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
+	chain := []frontend.Variable{Domain, c.ContextHash, c.Count, c.Anonymous}
 	for i := range ownerHashes {
 		ownerCommitment := gadget.PoseidonHash(api, []frontend.Variable{ownerHashes[i], c.Blindings[i]})
 		ciphertextHash := gadget.HashBytes(api, ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])

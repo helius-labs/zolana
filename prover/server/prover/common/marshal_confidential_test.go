@@ -3,6 +3,7 @@ package common
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -22,7 +23,7 @@ func (c *tinyCircuit) Define(api frontend.API) error {
 }
 
 // The transfer variant is read from the canonical file name while the
-// RequiresP256 header flag round-trips.
+// HasCommitment header flag round-trips.
 func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &tinyCircuit{})
 	if err != nil {
@@ -35,14 +36,13 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 
 	cases := []struct {
 		filename         string
-		requiresP256     bool
+		hasCommitment    bool
 		wantConfidential bool
 		want             CircuitType
 	}{
 		{"transfer_ring_2_4.key", false, true, TransferRingCircuitType},
 		{"transfer_confidential_2_4.key", false, true, TransferConfidentialCircuitType},
-		{"transfer_p256_ring_2_4.key", true, true, TransferP256RingCircuitType},
-		{"transfer_p256_confidential_2_4.key", true, true, TransferConfidentialCircuitType},
+		{"transfer_ed25519_ring_2_4.key", true, true, TransferAnonymousRingEd25519CircuitType},
 	}
 
 	dir := t.TempDir()
@@ -50,7 +50,7 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		ps := &TransferProofSystem{
 			NInputs:          2,
 			NOutputs:         4,
-			RequiresP256:     tc.requiresP256,
+			HasCommitment:    tc.hasCommitment,
 			ProvingKey:       pk,
 			VerifyingKey:     vk,
 			ConstraintSystem: ccs,
@@ -74,12 +74,21 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		if !ok {
 			t.Fatalf("loaded type = %T, want *TransferProofSystem", loaded)
 		}
-		if got.RequiresP256 != tc.requiresP256 || got.Confidential != tc.wantConfidential {
-			t.Fatalf("%s flags: got (p256=%v conf=%v), want (p256=%v conf=%v)",
-				tc.filename, got.RequiresP256, got.Confidential, tc.requiresP256, tc.wantConfidential)
+		if got.HasCommitment != tc.hasCommitment || got.Confidential != tc.wantConfidential {
+			t.Fatalf("%s flags: got (commitment=%v conf=%v), want (commitment=%v conf=%v)",
+				tc.filename, got.HasCommitment, got.Confidential, tc.hasCommitment, tc.wantConfidential)
 		}
 		if got.CircuitType != tc.want {
 			t.Fatalf("%s circuit type: got %v, want %v", tc.filename, got.CircuitType, tc.want)
+		}
+	}
+}
+
+// Removed keys must fail before loading, including a filename matching a live rail suffix.
+func TestReadSystemRejectsRemovedOwnerKeys(t *testing.T) {
+	for _, file := range []string{"transfer_p256_ring_2_4.key", "transfer_p256_confidential_2_4.key"} {
+		if _, err := ReadSystemFromFile(filepath.Join(t.TempDir(), file)); err == nil || !strings.Contains(err.Error(), "unsupported proving key") {
+			t.Fatalf("%s: expected unsupported proving key, got %v", file, err)
 		}
 	}
 }

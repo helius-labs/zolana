@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     instructions::merge::{
         merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, MergeProofInputs,
@@ -75,7 +75,7 @@ fn recover(
         body,
         &DecodeCx {
             viewing_key: recipient,
-            tx_viewing_pk: Some(P256Pubkey::from_bytes(result.tx_viewing_pk).unwrap()),
+            tx_viewing_pk: Some(X25519Pubkey::from_bytes(result.tx_viewing_pk).unwrap()),
             salt: Some(result.salt),
             slot_index: 0,
             first_nullifier: None,
@@ -422,18 +422,14 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
 fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
     let owner = keypair(7);
     let stranger = keypair(9);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[5; 32]).unwrap()).unwrap();
+    let independent =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[5; 32])).unwrap();
     let sender = owner.shielded_address().unwrap();
     let tx = ViewingKey::new();
     for (foreign, error) in [
         (
             wallet_utxo(&stranger, Mint::SOL, 1, 0, 2),
             TransactionError::MergeInputOwnerMismatch { index: 1 },
-        ),
-        (
-            wallet_utxo(&p256, Mint::SOL, 1, 0, 2),
-            TransactionError::MergeInputRailMismatch { index: 1 },
         ),
         (
             {
@@ -460,11 +456,11 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
             Some(error)
         );
     }
-    let result = MergeTransaction::new(inputs(&p256, 1))
+    let result = MergeTransaction::new(inputs(&independent, 1))
         .unwrap()
-        .encrypt(&p256)
+        .encrypt(&independent)
         .unwrap();
-    assert_eq!(result.signing_pubkey, p256.signing_pubkey());
+    assert_eq!(result.signing_pubkey, independent.signing_pubkey());
     assert_eq!(result.output_utxo.amount, 2);
 }
 
@@ -521,7 +517,7 @@ impl ShieldedKeys for RecordingKeys {
         }
         self.owner.address()
     }
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.owner.viewing_public_keys()
     }
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {

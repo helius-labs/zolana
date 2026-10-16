@@ -57,10 +57,10 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
 	case ConfidentialVariant:
-		return defaultring.NewDefaultRingEddsaOnlyCircuit(shape)
+		return defaultring.NewDefaultRingConfidentialEd25519Circuit(shape)
 	case RingAuthorityVariant:
 		return customring.NewCustomRingAuthorityCircuit(shape)
 	default:
-		return customring.NewCustomRingEddsaOnlyCircuit(shape)
+		return customring.NewCustomRingConfidentialEd25519Circuit(shape)
 	}
 }

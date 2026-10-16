@@ -1,3 +1,4 @@
+import { X25519Secret } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
@@ -8,7 +9,7 @@ import { readRingDepositCapsule } from "./deposit-capsule.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import type { ViewingKey } from "../keypair/viewing-key.js";
+
 import type { AssetRegistry } from "../transaction/asset.js";
 import type {
   IndexedShieldedTransaction,
@@ -21,8 +22,14 @@ import { Utxo, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
 import { auditRing, type AuditedRingOutput, type RingAuditReader } from "./audit.js";
+import type { RingMode } from "./codecs.js";
 import { RingError } from "./error.js";
-import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
+import {
+  CachedTransactionOrigin,
+  RpcTransactionOrigin,
+  type TransactionOrigin,
+  type AuditedDepositSource,
+} from "./origin.js";
 import { memberOfTag } from "./policy.js";
 import { openRingDepositOpening } from "./deposit-audit.js";
 
@@ -33,10 +40,12 @@ export type RingRecoveryClient = RingAuditReader &
 export interface RingRecoveryParams {
   readonly client: RingRecoveryClient;
   readonly ringProgramId: Address;
-  readonly auditor: ViewingKey;
+  readonly auditor: X25519Secret;
   readonly source: ShieldedAddress;
   readonly nullifierKey: NullifierKey;
   readonly assets: AssetRegistry;
+  /** The ring's on-chain mode, `"off"` when omitted. An anonymous ring matches notes by the disclosed owner. */
+  readonly mode?: RingMode;
   /** The raw id a note's leaf is committed under. */
   readonly resolveTreeId: (tree: Address) => TreeId | Promise<TreeId>;
   /** Both hashes must reproduce the indexed commitment. */
@@ -47,6 +56,8 @@ export interface RingRecoveryParams {
     | undefined
     | Promise<Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }> | undefined>;
   readonly origin?: TransactionOrigin;
+  /** Confirms audited capsule bytes before exposing a deposit owner. Defaults to the Solana RPC. */
+  readonly depositSource?: AuditedDepositSource;
   readonly pageSize?: number;
   readonly maxPages?: number;
 }
@@ -78,9 +89,9 @@ export async function recoverRingMemberNotes(
   // 1. Bind nullifier material to the requested member before scanning history.
   if (!equal(input.nullifierKey.publicKey(), input.source.nullifierPublicKey))
     throw new RingError("RING_NULLIFIER_KEY_MISMATCH");
-  const origin = new CachedTransactionOrigin(
-    input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
-  );
+  const rpcOrigin = new RpcTransactionOrigin(input.client.solanaRpc);
+  const origin = new CachedTransactionOrigin(input.origin ?? rpcOrigin);
+  const depositSource = input.depositSource ?? rpcOrigin;
   const sourceMember = memberOfTag(input.source.confidentialViewTag());
   const page = await auditRing(
     {
@@ -88,6 +99,7 @@ export async function recoverRingMemberNotes(
       auditor: input.auditor,
       ringProgramId: input.ringProgramId,
       assets: input.assets,
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
       origin,
       ...(input.pageSize === undefined ? {} : { pageSize: input.pageSize }),
       ...(input.maxPages === undefined ? {} : { maxPages: input.maxPages }),
@@ -97,22 +109,28 @@ export async function recoverRingMemberNotes(
   if (page.nextCursor !== undefined) throw new RingError("RING_RECOVERY_INCOMPLETE");
   const treeIds = new Map<Address, TreeId>();
   // 2. Rebuild disclosed openings and retain unresolved commitments explicitly.
-  const deposits = await recoverDeposits(input, origin, treeIds, context);
+  const deposits = await recoverDeposits(input, origin, depositSource, treeIds, context);
   const unsupportedDeposits = deposits.unsupported;
   const candidates: Candidate[] = deposits.candidates;
   const unopened: Bytes32[] = [];
   const unopenedNullifiers = new Map<string, Bytes32>();
   const seen = new Set(candidates.map((candidate) => bytesKey(candidate.outputContext.hash)));
+  const sourceOwnerHash = input.source.ownerHash();
   for (const transaction of page.transactions) {
     for (const output of transaction.outputs) {
       if (
         output.ringProgramId !== input.ringProgramId ||
-        !output.recipientViewingPublicKey.equals(input.source.viewingPublicKey) ||
-        !equal(memberOfTag(output.ownerTag), sourceMember)
+        !output.recipientViewingPublicKey.equals(input.source.viewingPublicKey)
       )
         continue;
       const { outputContext } = output;
       const opening = transaction.outputOpenings[output.slotIndex];
+      // An anonymous output's owner is proven by its rebuilt opening, a published tag names a confidential one.
+      const owned =
+        transaction.anonymous === undefined
+          ? equal(memberOfTag(output.ownerTag), sourceMember)
+          : opening !== undefined && equal(opening.ownerHash, sourceOwnerHash);
+      if (!owned) continue;
       if (opening === undefined) {
         unopened.push(outputContext.hash);
         continue;
@@ -255,10 +273,10 @@ function isZero(bytes: Uint8Array): boolean {
 async function recoverDeposits(
   input: RingRecoveryParams,
   origin: TransactionOrigin,
+  depositSource: AuditedDepositSource,
   treeIds: Map<Address, TreeId>,
   context?: RequestContext,
 ): Promise<{ unsupported: Bytes32[]; candidates: Candidate[] }> {
-  const tag = input.source.viewingPublicKey.x();
   const found = new Map<string, Bytes32>();
   const candidates = new Map<string, Candidate>();
   let cursor: Uint8Array | undefined;
@@ -275,7 +293,7 @@ async function recoverDeposits(
     );
     for (const transaction of response.transactions) {
       if (!transaction.proofless) continue;
-      for (const slot of transaction.outputSlots) {
+      for (const [slotIndex, slot] of transaction.outputSlots.entries()) {
         let deposit;
         try {
           const frame = readOutputData(slot.payload);
@@ -297,16 +315,29 @@ async function recoverDeposits(
         )
           continue;
         let opening;
-        try {
-          const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
-          if (capsule !== undefined)
-            opening = openRingDepositOpening(capsule, input.auditor, deposit.ownerUtxoHash);
-        } catch {
-          opening = undefined;
+        const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
+        if (capsule !== undefined) {
+          const confirmed = (
+            await depositSource.confirmedDeposits(
+              transaction.txSignature,
+              transaction.eventIndex,
+              input.ringProgramId,
+              context,
+            )
+          )[slotIndex];
+          if (confirmed === undefined) {
+            found.set(bytesKey(slot.outputContext.hash), slot.outputContext.hash);
+            continue;
+          }
+          opening = openRingDepositOpening(
+            capsule,
+            input.auditor,
+            deposit.ownerUtxoHash,
+            confirmed,
+          );
         }
         if (opening === undefined) {
-          if (equal(slot.viewTag, tag))
-            found.set(bytesKey(slot.outputContext.hash), slot.outputContext.hash);
+          found.set(bytesKey(slot.outputContext.hash), slot.outputContext.hash);
           continue;
         }
         try {

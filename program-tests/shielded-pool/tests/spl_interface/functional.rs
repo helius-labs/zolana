@@ -148,7 +148,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
     let asset = zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
         .expect("asset registry");
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_ed25519().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
         AssetRegistry::new([(asset.asset_id, mint)]).expect("registered asset"),

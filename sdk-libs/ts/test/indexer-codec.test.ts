@@ -18,6 +18,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
 import { ZolanaApi } from "../src/api/index.js";
 import { ZolanaIndexer } from "../src/client/indexer.js";
+import { X25519Secret } from "../src/keypair/x25519.js";
 import type { Bytes32 } from "../src/interface/types.js";
 
 // base58 of 32 zero bytes.
@@ -125,7 +126,7 @@ describe("key registry wire", () => {
     next: TAG,
     index: 1,
     ephPk: Buffer.from(
-      "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5",
+      "040900000000000000000000000000000000000000000000000000000000000000",
       "hex",
     ).toString("base64"),
     ciphertext: Buffer.alloc(32, 7).toString("base64"),
@@ -169,7 +170,7 @@ describe("key registry wire", () => {
       });
     }
     const decoded = await indexerFor({ result: entry }).getRingKeyRegistryEntry(request);
-    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x02);
+    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x04);
     expect(decoded.ciphertext).toEqual(new Uint8Array(32).fill(7));
     for (const changed of [
       { ciphertext: Buffer.alloc(31, 7).toString("base64") },
@@ -189,11 +190,14 @@ describe("user records wire", () => {
     "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5",
     "hex",
   ).toString("base64");
+  const X25519 = Buffer.from(
+    X25519Secret.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
+  ).toString("base64");
   const record = {
     owner: RING,
     ownerP256: null,
     nullifierPubkey: TAG,
-    viewingPubkey: P256,
+    viewingPubkey: X25519,
     mergingEnabled: true,
   };
   const page = { context: { slot: 77, blockTime: 2 }, records: [record, null] };
@@ -202,13 +206,13 @@ describe("user records wire", () => {
     expect(decodeUserRecordsResponse(page)).toEqual({
       context: { slot: 77n, blockTime: 2n },
       records: [
-        { owner: RING, nullifierPubkey: TAG, viewingPubkey: P256, mergingEnabled: true },
+        { owner: RING, nullifierPubkey: TAG, viewingPubkey: X25519, mergingEnabled: true },
         null,
       ],
     });
-    expect(
-      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }).records[0],
-    ).toMatchObject({ ownerP256: P256 });
+    expect(() =>
+      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }),
+    ).toThrow("Invalid value at $.records[0].ownerP256");
     for (const changed of [
       { records: [{ ...record, bump: 1 }] },
       { records: [{ ...record, mergingEnabled: "yes" }] },
@@ -253,9 +257,8 @@ describe("user records wire", () => {
     expect(requests).toEqual([{ owners: [RING, OTHER] }]);
     expect(lookup.context).toEqual({ slot: 77n, blockTime: 2n });
     expect(lookup.records[0]).toMatchObject({ owner: RING, mergingEnabled: true });
-    expect(lookup.records[0]?.ownerP256).toBeUndefined();
     expect(lookup.records[0]?.nullifierPublicKey).toEqual(new Uint8Array(32));
-    expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x02);
+    expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x04);
     expect(lookup.records[1]).toBeNull();
 
     // The second record answers for an owner that was not asked second.

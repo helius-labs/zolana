@@ -3,8 +3,7 @@
 use thiserror::Error;
 use zolana_event::MessageData;
 use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, SALT_LEN},
-    KeypairError, P256Pubkey, ViewingKey,
+    constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, KeypairError, ViewingKey, X25519Pubkey,
 };
 use zolana_ring_policy::{SpendCounters, SPEND_COUNTERS_BODY_LEN};
 
@@ -22,7 +21,7 @@ pub enum SpendCountersError {
 #[must_use]
 pub struct CountersSeal<'a> {
     pub tx: &'a ViewingKey,
-    pub recipient: &'a P256Pubkey,
+    pub recipient: &'a X25519Pubkey,
     pub salt: [u8; SALT_LEN],
     pub counters: &'a SpendCounters,
 }
@@ -35,7 +34,7 @@ impl CountersSeal<'_> {
             self.salt,
             SPEND_COUNTERS_SLOT_INDEX,
         )?;
-        let mut body = Vec::with_capacity(P256_PUBKEY_LEN + ciphertext.len());
+        let mut body = Vec::with_capacity(X25519_PUBKEY_LEN + ciphertext.len());
         body.extend_from_slice(self.recipient.as_bytes());
         body.extend_from_slice(&ciphertext);
         Ok(body)
@@ -58,9 +57,9 @@ impl SealedCounters<'_> {
         }
         let (recipient, ciphertext) = self
             .body
-            .split_at_checked(P256_PUBKEY_LEN)
+            .split_at_checked(X25519_PUBKEY_LEN)
             .ok_or(SpendCountersError::Malformed)?;
-        let recipient = P256Pubkey::from_bytes(
+        let recipient = X25519Pubkey::from_bytes(
             recipient
                 .try_into()
                 .map_err(|_| SpendCountersError::Malformed)?,

@@ -1,6 +1,6 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    PolicyConfig, PolicyTableIxData, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG,
+    PolicyConfig, PolicyTableIxData, RingMode, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG,
 };
 use pinocchio::{
     account::Ref,
@@ -31,7 +31,7 @@ use zolana_program::{TransactExternalData, TransactInputs};
 use zolana_ring_policy::{
     entry_nullifier, mutation_private_tx_hash, spend_record_message_tag, EncodedRuleTable,
     ListEntry, ListId, ListNamespace, ListSet, Member, PolicyHashError, SourceMap, SpendRecord,
-    TableParts, Writer, NAMESPACE_PDA_SEED,
+    TableParts, VelocityMode, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -107,6 +107,16 @@ pub(crate) fn load_curator_policy_config<'a>(
 pub(crate) struct BoundTable {
     pub rules: EncodedRuleTable,
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
+}
+
+/// A spend record names its member, which an anonymous ring hides.
+pub(crate) fn check_anonymous_policy(mode: RingMode, rules: &EncodedRuleTable) -> ProgramResult {
+    if mode == RingMode::Anonymous
+        && matches!(rules.velocity_mode(), VelocityMode::PerWindow { .. })
+    {
+        return Err(CustomRingError::UnsupportedAnonymousPolicy.into());
+    }
+    Ok(())
 }
 
 pub(crate) struct TableBinding<'a> {
@@ -451,7 +461,7 @@ impl NamespaceWrite<'_> {
 
         Ok(external.into_ix_data(
             private_tx_hash,
-            CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
+            CircuitId::ConfidentialEd25519(1, 2, N_PUBLIC_SLOTS as u8),
             self.proof,
             self.inputs,
         ))

@@ -2,7 +2,7 @@ mod common;
 
 use common::{keypair, wallet_utxo};
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
 use zolana_transaction::{
     serialization::{
         anonymous::{
@@ -91,6 +91,7 @@ fn scheme_discriminators_cover_the_entire_byte_space() {
         (6, EncryptedScheme::Merge),
         (7, EncryptedScheme::PlaintextTransfer),
         (8, EncryptedScheme::RingDeposit),
+        (9, EncryptedScheme::RingAnonymous),
     ];
     for byte in 0..=u8::MAX {
         match known.iter().find(|(tag, _)| *tag == byte) {
@@ -218,7 +219,7 @@ fn exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_key
     ));
     let mut bad_viewing_key = recipient().serialize().unwrap();
     bad_viewing_key
-        .get_mut(PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + P256_PUBKEY_LEN)
+        .get_mut(PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + X25519_PUBKEY_LEN)
         .unwrap()
         .fill(0);
     assert!(matches!(

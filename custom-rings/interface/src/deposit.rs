@@ -5,7 +5,7 @@ use zolana_hasher::{
     HasherError,
 };
 
-use crate::{pack33_to_2fe, policy_public_input::key_escrow_elements, COMPRESSED_P256_KEY_LEN};
+use crate::{pack33_to_2fe, policy_public_input::key_escrow_elements, TAGGED_X25519_KEY_LEN};
 
 /// Binds a disclosure proof to one ring, destination tree and exact SPP deposit
 /// instruction.
@@ -41,10 +41,12 @@ impl DepositContext<'_> {
 /// auditor.
 pub struct DepositPublicInput<'a> {
     pub context_hash: &'a [u8; 32],
+    /// Binds the proof to the ring's on-chain owner admission rule.
+    pub anonymous: bool,
     pub owner_utxo_hashes: &'a [[u8; 32]],
     pub ciphertexts: &'a [[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]],
-    pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     /// Present exactly when deposited nullifier keys must be enrolled under it.
     pub key_registry_root: Option<&'a [u8; 32]>,
 }
@@ -57,20 +59,21 @@ impl DepositPublicInput<'_> {
         }
         let auditor = pack33_to_2fe(self.auditor_pk);
         let ephemeral = pack33_to_2fe(self.eph_pk);
-        let mut chain = [[0; 32]; 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 6];
+        let mut chain = [[0; 32]; 4 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2 + 6];
         chain[0] = right_align(b"CRDP");
         chain[1] = *self.context_hash;
         chain[2] = right_align(&(count as u64).to_be_bytes());
+        chain[3] = right_align(&[u8::from(self.anonymous)]);
         for (slot, (owner, ciphertext)) in self
             .owner_utxo_hashes
             .iter()
             .zip(self.ciphertexts)
             .enumerate()
         {
-            chain[3 + slot * 2] = *owner;
-            chain[4 + slot * 2] = hash_bytes(ciphertext)?;
+            chain[4 + slot * 2] = *owner;
+            chain[5 + slot * 2] = hash_bytes(ciphertext)?;
         }
-        let keys = 3 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2;
+        let keys = 4 + MAX_RING_DEPOSIT_AUDIT_SLOTS * 2;
         chain[keys..keys + 4].copy_from_slice(&[
             auditor.lo,
             auditor.hi,

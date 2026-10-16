@@ -944,7 +944,9 @@ fn owner_member(
     Member::owner_identity(&identity).map_err(|_| TransferError::PolicyHashing)
 }
 
-fn input_opening(input_utxo: &SppProofInputUtxo) -> Result<CustomRingOpening, TransferError> {
+pub(crate) fn input_opening(
+    input_utxo: &SppProofInputUtxo,
+) -> Result<CustomRingOpening, TransferError> {
     if input_utxo.is_dummy() {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
@@ -970,7 +972,7 @@ fn input_opening(input_utxo: &SppProofInputUtxo) -> Result<CustomRingOpening, Tr
     })
 }
 
-fn output_opening(
+pub(crate) fn output_opening(
     output: &SppProofOutputUtxo,
     tree_id: u16,
 ) -> Result<CustomRingOpening, TransferError> {

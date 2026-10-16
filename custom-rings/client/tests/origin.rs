@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 use zolana_interface::{
     instruction::{InputUtxo, MessageData, OwnerTag, TransactOutput},
-    verifying_keys::{Bsb22Commitment, CacheAccess, CacheWrite, RingP256ProofData},
+    verifying_keys::{CacheAccess, CacheWrite},
 };
 use zolana_ring_client::{
     ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
@@ -267,27 +267,11 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         read_bitmap: 1,
         write_slots: CacheAccess::NO_WRITES,
     };
-    let circuits = [
-        CircuitId::RingEddsaCached(1, 2, 1, selection),
-        CircuitId::RingP256Cached(
-            1,
-            2,
-            1,
-            RingP256ProofData {
-                bsb22_commitment: Bsb22Commitment {
-                    commitment: [17; 32],
-                    commitment_pok: [18; 32],
-                },
-                default_owner_tag: Some([19; 32]),
-            },
-            selection,
-        ),
-    ];
+    let circuits = [CircuitId::ConfidentialRingEd25519Cached(1, 2, 1, selection)];
     let mut writing = circuits;
     for circuit in &mut writing {
         match circuit {
-            CircuitId::RingEddsaCached(_, _, _, access)
-            | CircuitId::RingP256Cached(_, _, _, _, access) => {
+            CircuitId::ConfidentialRingEd25519Cached(_, _, _, access) => {
                 access.write_slots = CacheAccess::NO_WRITES;
                 for (entry, (output, slot)) in access.write_slots.iter_mut().zip([(0, 0), (1, 1)]) {
                     *entry = CacheWrite { output, slot };
@@ -415,7 +399,7 @@ fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
     let data = TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::RingEddsa(0, 0, 3),
+        circuit: CircuitId::ConfidentialRingEd25519(0, 0, 3),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
@@ -609,4 +593,30 @@ fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
     .origin(0, RING);
 
     assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
+}
+
+#[test]
+fn a_confirmed_response_for_another_signature_is_rejected() {
+    let result = ConfirmedTransaction {
+        signature: Signature::from([7; 64]),
+        transaction: withdrawing_transaction(Vec::new(), Vec::new()),
+    }
+    .origin(0, RING);
+    assert!(matches!(result, Err(OriginError::Unavailable { .. })));
+}
+
+#[test]
+fn a_failed_transaction_grants_no_origin() {
+    let mut response =
+        serde_json::to_value(withdrawing_transaction(Vec::new(), Vec::new())).unwrap();
+    response["meta"]["err"] = serde_json::json!("AccountNotFound");
+    let result = ConfirmedTransaction {
+        signature: Signature::from([6; 64]),
+        transaction: serde_json::from_value(response).unwrap(),
+    }
+    .origin(0, RING);
+    assert!(matches!(
+        result,
+        Err(OriginError::Decode(ClientError::TransactionFailed(_)))
+    ));
 }

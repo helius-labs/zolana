@@ -117,17 +117,16 @@ fn merge_rejects_a_malformed_user_record() {
 }
 
 #[test]
-fn merge_rejects_a_p256_rail_without_a_registered_p256_owner() {
+fn merge_rejects_the_reserved_owner_rail() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    // Valid record, merging enabled, but no P256 owner registered while the
-    // instruction selects the P256 rail.
-    let record = write_user_record(&mut rpc, payer, None, true);
+    // A valid Ed25519 record cannot authorize the reserved owner rail.
+    let record = write_user_record(&mut rpc, payer, true);
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(false));
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a P256 merge without a registered P256 owner must be rejected");
+        .expect_err("the reserved owner rail must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidUserRecord).assert_litesvm(error);
 }
 
@@ -135,7 +134,7 @@ fn merge_rejects_a_p256_rail_without_a_registered_p256_owner() {
 fn merge_rejects_a_wrong_input_count_shape() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
         let data = merge_ix_data_at_input_count(input_count);
@@ -155,7 +154,7 @@ fn merge_rejects_a_wrong_input_count_shape() {
 fn merge_rejects_a_sent_zero_nullifier() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     for slot in [0, 3, MERGE_DEFAULT_INPUT_COUNT - 1] {
         let mut data = merge_ix_data(true);
@@ -173,7 +172,7 @@ fn merge_rejects_a_sent_zero_nullifier() {
 fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     let data = merge_ix_data_at_input_count(MAX_MERGE_INPUTS);
     let ix = merge_instruction(&rpc, &tree, record, data);
@@ -195,7 +194,7 @@ fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
 fn merge_rejects_an_expired_transaction() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // The merge dispatch shares transact's expiry gate (`check_not_expired`).
     // Pin the sysvar clock one second past the instruction's expiry.
@@ -215,7 +214,7 @@ fn merge_rejects_an_expired_transaction() {
 fn merge_rejects_a_negative_clock() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // A negative clock must reject regardless of `expiry_unix_ts` (here the
     // maximal one), before the `as u64` comparison could wrap it around.
@@ -234,7 +233,7 @@ fn merge_rejects_a_negative_clock() {
 fn merge_rejects_a_non_writable_tree() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     // input_tree and output_tree are duplicate metas of one account; the
@@ -260,7 +259,7 @@ fn merge_rejects_a_non_writable_tree() {
 fn merge_rejects_an_unsigned_payer() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // The instruction payer differs from the transaction fee payer and never
     // signs; the payer signer check is the only authorization on merge.
@@ -318,7 +317,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
 fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
     // merge would leave fewer nullifier leaves than the state tree's total
@@ -399,7 +398,7 @@ fn merge_rejects_a_paused_tree() {
     } = Pool::initialized();
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     let error = rpc
@@ -415,7 +414,7 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
     // Fully valid record and wire-valid merge data; the zeroed proof is the
     // only defect, so the failure is proof verification on the default
     // (registry-bound) rail.
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
@@ -442,7 +441,7 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
 fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // 0xFF-filled points carry invalid compression flag bits, so the verifier

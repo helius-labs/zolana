@@ -11,6 +11,7 @@
 export type KeypairErrorCode =
   | "KEYPAIR_INVALID_PUBLIC_KEY"
   | "KEYPAIR_INVALID_SECRET_KEY"
+  | "KEYPAIR_NON_CONTRIBUTORY_KEY"
   | "KEYPAIR_ZERO_SCALAR"
   | "KEYPAIR_INVALID_SIGNATURE_TYPE"
   | "KEYPAIR_HKDF"
@@ -19,7 +20,6 @@ export type KeypairErrorCode =
   | "KEYPAIR_DERIVATION_INPUT"
   | "KEYPAIR_INVALID_DERIVATION_SEED"
   // TypeScript-only: Rust rejects these at the type level.
-  | "KEYPAIR_INVALID_PREHASH_LENGTH"
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_HASH";
 
@@ -28,6 +28,7 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
   Object.freeze({
     KEYPAIR_INVALID_PUBLIC_KEY: "InvalidPublicKey",
     KEYPAIR_INVALID_SECRET_KEY: "InvalidSecretKey",
+    KEYPAIR_NON_CONTRIBUTORY_KEY: "NonContributoryKey",
     KEYPAIR_ZERO_SCALAR: "ZeroScalar",
     KEYPAIR_INVALID_SIGNATURE_TYPE: "InvalidSignatureType",
     KEYPAIR_HKDF: "Hkdf",
@@ -35,7 +36,6 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_NOT_ED25519: "NotEd25519",
     KEYPAIR_DERIVATION_INPUT: "DerivationInput",
     KEYPAIR_INVALID_DERIVATION_SEED: "InvalidDerivationSeed",
-    KEYPAIR_INVALID_PREHASH_LENGTH: null,
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_HASH: null,
   });

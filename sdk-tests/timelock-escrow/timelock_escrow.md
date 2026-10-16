@@ -50,11 +50,11 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 | --- | --- | --- |
 | `Address` | `[u8; 32]` | Solana account address. |
 | `asset_id` | `u64` | Asset identifier in UTXOs; `1` is SOL, each SPL mint `≥ 2`. The mint→`asset_id` map is the SPP `Asset registry` PDA. See [spec.md](../../docs/spec.md#glossary). |
-| `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk P256Pubkey[33])`. See [spec.md](../../docs/spec.md#shielded-address). |
+| `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk tagged X25519[33])`. See [spec.md](../../docs/spec.md#shielded-address). |
 | `escrow UTXO` | — | The SPP [UTXO](../../docs/spec.md#utxo) holding the locked funds: `asset = asset_id`, `amount = amount`, `owner = escrow-authority PDA` (seeds `[b"escrow_authority"]`), nullifier secret `= 0`, `utxo_data = escrow terms`. Spendable only by the timelock escrow program. See [Escrow Terms](#escrow-terms). |
 | `Escrow terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow UTXO `utxo_hash` via `data_hash`: `owner_hash`, `unlock`. See [Escrow Terms](#escrow-terms). |
 | `private_tx_hash` | `[u8; 32]` | Commitment to the SPP `transact` an escrow proof authorizes: the link between an escrow proof and the SPP transaction. See [spec.md](../../docs/spec.md#zk-program-interface). |
-| `EscrowProof` / `WithdrawProof` | `[u8; 128]` | Groth16 proofs verified by the timelock escrow program, each committing the transaction via `private_tx_hash`. Both are standard Groth16: neither circuit does P256 elliptic-curve arithmetic (the creator authorizes with its own Solana transaction signature, checked by the runtime, not by the proof), so neither needs the extra commitment the P256 gadget requires. |
+| `EscrowProof` / `WithdrawProof` | `[u8; 128]` | Groth16 proofs verified by the timelock escrow program, each committing the transaction via `private_tx_hash`. Both use standard Groth16. The creator authorizes with a Solana transaction signature. |
 | `TransactIxData` | — | SPP `transact` instruction data: the SPP proof, input nullifiers, output UTXO hashes, ciphertexts, and routing. See [spec.md](../../docs/spec.md#transact). |
 | `hash_bytes` | fn | `Poseidon` hash of a 32-byte value, folded into the field the circuits check over; used here to turn a Solana pubkey into a single value the proof can compare against a committed hash. |
 
@@ -224,8 +224,7 @@ private inputs (the escrow UTXO input or output, the change/source output), enfo
 rules below, and commits the transaction via `private_tx_hash`: `escrow` exposes it as the public
 input itself, `withdraw` hashes it with its public values into a single public input. SPP proves
 the UTXOs are in the tree and conserves value; the escrow circuits rely on that rather than proving
-membership themselves. Both circuits are standard Groth16: neither does P256 elliptic-curve
-arithmetic, so neither needs the extra commitment that gadget would require. Concrete shape
+membership themselves. Both circuits use standard Groth16 without lookup commitments. Concrete shape
 parameters (input/output slot counts) are fixed once and benchmarked, and must match the SPP
 `transact` shapes the instructions use. The circuits are small and proven in-process through a
 gnark→Rust FFI binding; the SPP transfer proof still comes from the existing SPP prover.

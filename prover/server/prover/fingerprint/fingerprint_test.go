@@ -60,8 +60,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 4)
-	add("transfer_p256_ring_2_4", p256Ring, err)
+	anonymousRing, err := eddsaprover.R1CSAnonymousEd25519Transfer(2, 2)
+	add("transfer_ed25519_ring_2_2", anonymousRing, err)
 
 	customRing, err := customring.R1CSPolicy()
 	add("custom_ring_policy", customRing, err)
@@ -100,13 +100,13 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_4":     {constraints: 57554, public: 2},
 	"transfer_ring_2_4":             {constraints: 57680, public: 2},
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_p256_ring_2_4":        {constraints: 202642, public: 2},
-	"custom_ring_policy":            {constraints: 576177, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1905759, public: 2},
-	"custom_ring_register_key":      {constraints: 240449, public: 2},
-	"custom_ring_deposit":           {constraints: 980538, public: 2},
-	"custom_ring_delegate_policy":   {constraints: 563841, public: 2},
-	"custom_ring_base":              {constraints: 237921, public: 2},
+	"transfer_ed25519_ring_2_2":     {constraints: 112284, public: 2},
+	"custom_ring_policy":            {constraints: 464164, public: 2},
+	"custom_ring_compressed_policy": {constraints: 1142299, public: 2},
+	"custom_ring_register_key":      {constraints: 82692, public: 2},
+	"custom_ring_deposit":           {constraints: 209123, public: 2},
+	"custom_ring_delegate_policy":   {constraints: 451789, public: 2},
+	"custom_ring_base":              {constraints: 125800, public: 2},
 	"merge_24_1":                    {constraints: 525759, public: 2},
 	"merge_ring_24_1":               {constraints: 525837, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},

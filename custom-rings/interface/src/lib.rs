@@ -12,6 +12,7 @@ pub mod deposit;
 pub mod deposit_audit;
 #[cfg(feature = "verifying-keys")]
 pub mod deposit_verifying_key;
+pub mod disclosure;
 pub mod instruction;
 pub mod key_registry;
 #[cfg(not(target_os = "solana"))]
@@ -55,6 +56,10 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
 
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
+pub use disclosure::{
+    pack_disclosure, unpack_disclosure, DisclosureShape, AUDIT_INPUT_SLOTS, AUDIT_OUTPUT_SLOTS,
+    DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
+};
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
     CustomRingTransactIxData, KeyRegistryTransition, PlainGroth16Proof, PolicyTableIxData,
@@ -78,26 +83,27 @@ pub use key_registry::{
 };
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
-    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    CoSignScope, CoSigner, Delegate, FixedWindow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
+    RingMode, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED,
+    CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, KEY_REGISTRY_EMPTY_ROOT,
+    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    SPEND_WINDOW_PDA_SEED,
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 
-/// SEC1-compressed public key length.
-pub const COMPRESSED_P256_KEY_LEN: usize = 33;
+/// X25519 public key `0x04 || u`, with u little endian.
+pub const TAGGED_X25519_KEY_LEN: usize = 33;
+pub const VIEWING_PUBKEY_TAG: u8 = 4;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;
+/// The auditor message before its disclosure fields.
+pub const AUDITOR_MESSAGE_PREFIX_LEN: usize = TAGGED_X25519_KEY_LEN + AUDIT_CIPHERTEXT_LEN;
 pub const AUDIT_OUTPUT_FIELD_COUNT: usize = 9;
-pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 pub const AUDIT_DISCLOSURE_FIELD_COUNT: usize = AUDIT_OUTPUT_FIELD_COUNT * AUDIT_OUTPUT_SLOTS;
 pub const AUDIT_DISCLOSURE_LEN: usize = 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-pub const AUDITOR_MESSAGE_LEN: usize =
-    COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEXT_LEN + AUDIT_DISCLOSURE_LEN;
+pub const AUDITOR_MESSAGE_LEN: usize = AUDITOR_MESSAGE_PREFIX_LEN + AUDIT_DISCLOSURE_LEN;
 
 pub const READER_KEY_P256: u8 = 0x00;
 pub const READER_KEY_ED25519: u8 = 0x01;
@@ -105,5 +111,32 @@ pub type ReaderKeyBytes = [u8; 34];
 
 pub use deposit_audit::{
     RingDepositAuditCapsule, RingDepositAuditError, MAX_RING_DEPOSIT_AUDIT_SLOTS,
-    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_PREFIX_LEN,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO,
+    RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET, RING_DEPOSIT_AUDIT_PREFIX_LEN,
 };
+
+// Public points excluded from passkey reader registration.
+const READER_CONST_SEC1: [u8; 33] = [
+    0x03, 0x0e, 0x4d, 0xf9, 0x46, 0xbc, 0xe1, 0x4b, 0x95, 0x29, 0x2f, 0x13, 0xe1, 0x33, 0xd2, 0xb0,
+    0xc6, 0x4e, 0x89, 0x8b, 0x56, 0x44, 0xf6, 0x20, 0xa5, 0xbe, 0xd2, 0x5a, 0x06, 0x1a, 0x42, 0xfc,
+    0xdb,
+];
+
+const READER_DERIVE_SEC1: [u8; 33] = [
+    0x03, 0x9e, 0xf1, 0x65, 0x92, 0x42, 0x9d, 0xa1, 0x40, 0x3e, 0xaa, 0x29, 0x05, 0x8e, 0xb7, 0xd9,
+    0xd5, 0xad, 0x15, 0xa2, 0xea, 0x55, 0x71, 0x74, 0xf7, 0xb0, 0x1f, 0xf7, 0xfe, 0x48, 0x4e, 0xee,
+    0xaf,
+];
+
+const READER_PDA_SEC1: [u8; 33] = [
+    0x03, 0x8a, 0x31, 0xd5, 0x3c, 0x5a, 0xd2, 0x0d, 0x1c, 0xd7, 0xee, 0x1f, 0xbb, 0x99, 0x27, 0xbd,
+    0x0c, 0xdf, 0xb6, 0x1b, 0x1b, 0x89, 0xf6, 0xb2, 0xc5, 0xa9, 0x4a, 0x5f, 0x08, 0x1f, 0xe1, 0x6b,
+    0x5b,
+];
+
+pub const RESERVED_READER_KEYS: [[u8; 33]; 3] =
+    [READER_CONST_SEC1, READER_DERIVE_SEC1, READER_PDA_SEC1];
+
+pub fn is_reserved_reader_key(key: &[u8; 33]) -> bool {
+    RESERVED_READER_KEYS.contains(key)
+}

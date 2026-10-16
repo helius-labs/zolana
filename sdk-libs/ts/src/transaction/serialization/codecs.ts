@@ -1,6 +1,7 @@
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
-import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -50,6 +51,7 @@ export const EncryptedScheme = Object.freeze({
   merge: 6,
   plaintextTransfer: 7,
   ringDeposit: 8,
+  ringAnonymous: 9,
 } as const);
 export type EncryptedScheme = (typeof EncryptedScheme)[keyof typeof EncryptedScheme];
 export type OutputDataEncoding = "plaintext" | "encrypted" | "verifiable";
@@ -68,6 +70,7 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     case EncryptedScheme.merge:
     case EncryptedScheme.plaintextTransfer:
     case EncryptedScheme.ringDeposit:
+    case EncryptedScheme.ringAnonymous:
       return byte;
     default:
       throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });
@@ -101,7 +104,7 @@ export interface ConfidentialOutputPlaintext {
 
 export interface AnonymousRecipientPlaintext {
   readonly ownerPublicKey: ShieldedPublicKey;
-  readonly senderPublicKey: P256PublicKey;
+  readonly senderPublicKey: X25519PublicKey;
   readonly assetId: bigint;
   readonly amount: bigint;
   readonly blinding: Bytes32;
@@ -114,7 +117,7 @@ export interface AnonymousSenderPlaintext {
   readonly splAmount: bigint;
   readonly solAmount: bigint;
   readonly blindingSeed: Bytes32;
-  readonly recipientViewingPublicKeys: readonly P256PublicKey[];
+  readonly recipientViewingPublicKeys: readonly X25519PublicKey[];
   readonly splData: Data;
   readonly solData: Data;
 }
@@ -130,7 +133,7 @@ export interface SplitBundlePlaintext {
 
 export interface SplitEncryptedUtxos {
   readonly typePrefix: number;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly ciphertext: Uint8Array;
 }
@@ -431,7 +434,7 @@ export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientP
   const reader = new Reader(bytes);
   const result: AnonymousRecipientPlaintext = {
     ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
-    senderPublicKey: P256PublicKey.fromBytes(reader.take(33) as Bytes33),
+    senderPublicKey: X25519PublicKey.fromBytes(reader.take(33) as Bytes33),
     assetId: reader.u64(),
     amount: reader.u64(),
     blinding: reader.take(32) as Bytes32,
@@ -488,7 +491,7 @@ export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlainte
   const solAmount = reader.u64();
   const blindingSeed = reader.take(32) as Bytes32;
   const recipientViewingPublicKeys = Array.from({ length: reader.u8() }, () =>
-    P256PublicKey.fromBytes(reader.take(33) as Bytes33),
+    X25519PublicKey.fromBytes(reader.take(33) as Bytes33),
   );
   const result: AnonymousSenderPlaintext = {
     ownerPublicKey,
@@ -746,7 +749,7 @@ export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
   if (typePrefix !== SPLIT) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
   }
-  const txViewingPublicKey = P256PublicKey.fromBytes(reader.take(33) as Bytes33);
+  const txViewingPublicKey = X25519PublicKey.fromBytes(reader.take(33) as Bytes33);
   const salt = reader.take(16) as Bytes16;
   const ciphertext = reader.take(reader.u16());
   reader.exact();
@@ -958,7 +961,7 @@ export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey):
 
 export function encryptConfidential(
   tx: ViewingKeyLike,
-  recipient: P256PublicKey,
+  recipient: X25519PublicKey,
   value: ConfidentialOutputPlaintext,
   salt: Bytes16,
   slotIndex: number,
@@ -973,7 +976,7 @@ export function encryptConfidential(
 
 export function encryptAnonymous(
   tx: ViewingKeyLike,
-  recipient: P256PublicKey,
+  recipient: X25519PublicKey,
   plaintext: Uint8Array,
   salt: Bytes16,
   slotIndex: number,
@@ -990,7 +993,7 @@ export const encryptSplit = encryptAnonymous;
  */
 export function splitEmbeddedKey(
   body: Uint8Array,
-): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
+): Readonly<{ key: X25519PublicKey; rest: Uint8Array }> {
   if (body.length < 33) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
       expected: 33,
@@ -998,7 +1001,7 @@ export function splitEmbeddedKey(
     });
   }
   return {
-    key: P256PublicKey.fromBytes(body.slice(0, 33) as Bytes33),
+    key: X25519PublicKey.fromBytes(body.slice(0, 33) as Bytes33),
     rest: body.slice(33),
   };
 }
@@ -1049,7 +1052,7 @@ function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
  */
 export interface DecodeContext {
   readonly viewingKey: ViewingKey;
-  readonly txViewingPublicKey?: P256PublicKey;
+  readonly txViewingPublicKey?: X25519PublicKey;
   readonly salt?: Bytes16;
   readonly slotIndex: number;
   readonly firstNullifier?: Bytes32;
@@ -1060,7 +1063,7 @@ export interface DecodeContext {
  * independent of the instruction types that own the full shape.
  */
 type DecodeSource = Readonly<{
-  txViewingPublicKey?: P256PublicKey;
+  txViewingPublicKey?: X25519PublicKey;
   salt?: Bytes16;
   nullifiers: readonly Bytes32[];
 }>;
@@ -1199,7 +1202,7 @@ export function plaintextTransferFromUtxos(
 export function anonymousRecipientFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ senderPublicKey: P256PublicKey }>,
+  cx: Readonly<{ senderPublicKey: X25519PublicKey }>,
 ): AnonymousRecipientPlaintext {
   const first = singleUtxo(utxos);
   validateOwner(first, owner.owner, 0);
@@ -1219,7 +1222,7 @@ export function anonymousSenderFromUtxos(
   owner: OwnerContext,
   cx: SeedBundleContext &
     Readonly<{
-      recipientViewingPublicKeys: readonly P256PublicKey[];
+      recipientViewingPublicKeys: readonly X25519PublicKey[];
     }>,
 ): AnonymousSenderPlaintext {
   if (utxos.length === 0) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");

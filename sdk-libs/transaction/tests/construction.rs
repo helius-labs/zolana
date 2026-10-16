@@ -10,13 +10,13 @@ use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
-    NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
+    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey,
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
-        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
+        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
+        PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -79,7 +79,6 @@ struct Snapshot {
     first: [u8; 32],
     trees: Vec<u16>,
     output_tree: u16,
-    p256: bool,
 }
 fn snapshot(tx: &ConfidentialTransaction) -> Snapshot {
     Snapshot {
@@ -91,7 +90,6 @@ fn snapshot(tx: &ConfidentialTransaction) -> Snapshot {
         first: *tx.first_nullifier(),
         trees: tx.input_tree_ids().to_vec(),
         output_tree: tx.output_tree_id(),
-        p256: tx.requires_p256_owner().unwrap(),
     }
 }
 fn unchanged_failure(
@@ -704,7 +702,7 @@ fn assert_recovery(
             &DecodeCx {
                 viewing_key: &reader.viewing_key,
                 tx_viewing_pk: Some(
-                    P256Pubkey::from_bytes(proof.external_data.tx_viewing_pk).unwrap(),
+                    X25519Pubkey::from_bytes(proof.external_data.tx_viewing_pk).unwrap(),
                 ),
                 salt: Some(proof.external_data.salt),
                 slot_index: index as u32,
@@ -954,6 +952,52 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
 }
 
 #[test]
+fn anonymous_ring_encryption_hides_recipient_and_change_tags() {
+    let owner = keypair(1);
+    let recipient = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let mut tx = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
+    tx.transfer_sol(&receiver, 3).unwrap();
+    let proof = tx
+        .encrypt_anonymous_with_viewing_key(&sender, &key)
+        .unwrap();
+    assert!(proof
+        .external_data
+        .resolved_owner_tags
+        .iter()
+        .all(|tag| *tag == [0; 32]));
+    for (index, (reader, amount)) in [(&recipient, 3), (&owner, 7)].into_iter().enumerate() {
+        let output = &proof.external_data.outputs[index];
+        assert_eq!(output.owner_tag, OwnerTag::Inline([0; 32]));
+        let OutputDataEncoding::Encrypted(blob) =
+            OutputDataEncoding::try_from_slice(output.data.as_ref().unwrap()).unwrap()
+        else {
+            panic!("encrypted output")
+        };
+        assert_eq!(blob[0], EncryptedScheme::RingAnonymous.as_byte());
+        let plaintext = reader
+            .viewing_key
+            .decrypt_utxo(
+                &blob[1..],
+                &key.pubkey(),
+                proof.external_data.salt,
+                index as u32,
+            )
+            .unwrap();
+        let recovered = zolana_transaction::serialization::confidential::ConfidentialOutputPlaintext::deserialize(&plaintext).unwrap();
+        assert_eq!(recovered.amount, amount);
+        assert_eq!(recovered.ring_program_id, Some(ring));
+    }
+}
+
+#[test]
 fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
     let owner = keypair(1);
     let recipient = keypair(2);
@@ -1146,74 +1190,6 @@ fn compact_padding_is_left_out_of_the_instruction() {
     );
 }
 
-#[test]
-fn p256_requires_custom_sender_ring_and_cannot_use_transfer_convenience_apis() {
-    let owner = keypair(1);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[3; 32]).unwrap()).unwrap();
-    let sender = p256.shielded_address().unwrap();
-    let input = wallet_utxo(&p256, Mint::SOL, 10, 7, 1);
-    let tx = ConfidentialTransaction::new(vec![input.clone()], payer(&owner)).unwrap();
-    assert!(tx.requires_p256_owner().unwrap());
-    error(tx.encrypt(&p256), E::P256TransactUnsupported);
-    let key = p256
-        .viewing_key
-        .get_transaction_viewing_key(&input.nullifier)
-        .unwrap();
-    let ring = Address::new_from_array([42; 32]);
-    let proof = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring)
-        .unwrap()
-        .encrypt(&p256)
-        .unwrap();
-    assert_eq!(
-        proof.external_data.outputs.first().unwrap().owner_tag,
-        OwnerTag::Inline(sender.confidential_view_tag().unwrap())
-    );
-    assert_recovery(
-        &proof,
-        &key,
-        &[&p256],
-        &[(Mint::SOL, 10, sender, Some(ring), Data::default())],
-    );
-    let mut tx =
-        ConfidentialTransaction::new(vec![wallet_utxo(&owner, mint(2), 10, 7, 1)], payer(&owner))
-            .unwrap();
-    let before = snapshot(&tx);
-    error(tx.transfer_sol(&sender, 1), E::P256TransactUnsupported);
-    error(
-        tx.transfer(&sender, mint(2).asset, 1),
-        E::P256TransactUnsupported,
-    );
-    error(
-        tx.transfer_with_ring(&sender, Mint::SOL, 1, Some(ring)),
-        E::P256TransactUnsupported,
-    );
-    assert_eq!(snapshot(&tx), before);
-    assert!(!inputs_require_p256(&[]).unwrap());
-    assert!(!inputs_require_p256(&[SppProofInputUtxo::dummy(7).unwrap()]).unwrap());
-    for first_p256 in [true, false] {
-        let p = SppProofInputUtxo::from(wallet_utxo(&p256, Mint::SOL, 1, 7, 2));
-        let ed = SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, 7, 1));
-        assert!(inputs_require_p256(&if first_p256 { vec![p, ed] } else { vec![ed, p] }).unwrap());
-        let notes = if first_p256 {
-            vec![
-                wallet_utxo(&p256, Mint::SOL, 1, 7, 2),
-                wallet_utxo(&owner, Mint::SOL, 1, 7, 1),
-            ]
-        } else {
-            vec![
-                wallet_utxo(&owner, Mint::SOL, 1, 7, 1),
-                wallet_utxo(&p256, Mint::SOL, 1, 7, 2),
-            ]
-        };
-        assert!(ConfidentialTransaction::new(notes, payer(&owner))
-            .unwrap()
-            .requires_p256_owner()
-            .unwrap());
-    }
-    assert!(!builder(&owner, 1).requires_p256_owner().unwrap());
-}
-
 struct RecordingKeys {
     address: ShieldedAddress,
     key: ViewingKey,
@@ -1230,7 +1206,7 @@ impl ShieldedKeys for RecordingKeys {
             Ok(self.address)
         }
     }
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         panic!("builder does not enumerate viewing keys")
     }
     fn decrypt(&self, _requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, E> {

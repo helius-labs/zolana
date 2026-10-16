@@ -1,4 +1,4 @@
-import { p256 } from "@noble/curves/nist.js";
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { ClientError } from "../src/client/error.js";
 import {
   address,
@@ -30,7 +30,7 @@ import {
   auditorViewTag,
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
-import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
+import { bytesToBigInt } from "../src/keypair/bytes.js";
 import { symmetricApply } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
@@ -175,7 +175,7 @@ function preparedTransfer(
 
 async function auditedProofInputs(
   amount: bigint,
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   others: readonly bigint[] = [],
   exits: readonly bigint[] = [],
   inputRing: typeof RING | null = RING,
@@ -197,7 +197,7 @@ async function auditedProofInputs(
 async function sealAudited(
   ring: PreparedTransfer,
   sender: ReturnType<typeof actor>,
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   assets: AssetRegistry = new AssetRegistry(),
 ): Promise<SppProofInputs> {
   const encrypted = await withTransactionKey(sender.keys, ring.firstNullifier, (tx) =>
@@ -284,7 +284,7 @@ function walletKeys(owner: ReturnType<typeof actor>): LocalKeys {
 
 /** The ring's config and, for a policy ring, a policy config over `ACTIVE_TREE` pinning `rules` sourced from the ring's own namespace, a `registryRoot` turns key escrow on. */
 async function ringAccounts(
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   hasPolicy: boolean,
   rules: readonly Rule[] = [],
   windowSlots = 0n,
@@ -416,7 +416,7 @@ describe("delegate policy rail", () => {
     );
   });
   it("keeps the table and audit but never discovers or charges a velocity record", async () => {
-    const auditor = ViewingKey.fromBytes(scalar(9));
+    const auditor = X25519Secret.fromBytes(scalar(9));
     const sender = actor(3);
     const { prepared: money } = preparedTransfer(5n);
     // A delegate move escrows every output key, the source's own key is registered.
@@ -696,7 +696,7 @@ describe("change layout", () => {
 describe("frameDummyOutputs", () => {
   for (const ringProgramId of [undefined, RING]) {
     it(`frames all-dummy outputs without a real template (${ringProgramId === undefined ? "default" : "ring"})`, async () => {
-      const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate());
+      const { proofInputs } = await auditedProofInputs(4n, X25519Secret.generate());
       const outputs = proofInputs.outputs.map((output) =>
         createProofOutput({
           asset: SOL_MINT,
@@ -738,7 +738,7 @@ describe("frameDummyOutputs", () => {
               : EncryptedScheme.ringConfidential,
         });
         expect(body.body).toHaveLength(33 + plaintext.length);
-        expect([2, 3]).toContain(body.body[0]);
+        expect(body.body[0]).toBe(4);
       }
       expect(framed.outputs).toEqual(unframed.outputs);
       expect(framed.externalData.messages).toEqual(unframed.externalData.messages);
@@ -759,7 +759,7 @@ describe("frameDummyOutputs", () => {
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
       expect(frame.encoding).toBe("encrypted");
       expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
-      expect([2, 3]).toContain(frame.body[0]);
+      expect(frame.body[0]).toBe(4);
       return Buffer.from(frame.body.subarray(0, 33)).toString("hex");
     });
     expect(new Set(keys).size).toBe(keys.length);
@@ -881,7 +881,7 @@ describe("ring openings", () => {
       undefined,
       { inputs: 2, outputs: 4 },
     );
-    const proofInputs = await sealAudited(prepared, sender, ViewingKey.generate());
+    const proofInputs = await sealAudited(prepared, sender, X25519Secret.generate());
     const openings = ringOpenings(proofInputs);
     expect(openings.nIn).toBe(2);
     expect(openings.nOut).toBe(4);
@@ -916,7 +916,7 @@ describe("ring openings", () => {
   });
 
   it("opens an owner-tagged slot without an address as a dummy, like Rust", async () => {
-    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    const { proofInputs } = await auditedProofInputs(4n, X25519Secret.generate(), [1n]);
     const outputs = [...proofInputs.outputs];
     outputs[2] = createProofOutput({
       asset: SOL_MINT,
@@ -960,7 +960,7 @@ describe("ring openings", () => {
     const owner = actor(3);
     const { proofInputs } = await auditedProofInputs(
       4n,
-      ViewingKey.generate(),
+      X25519Secret.generate(),
       [],
       [],
       RING,
@@ -1039,7 +1039,7 @@ describe("ring openings", () => {
   });
 
   it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {
-    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
+    const { proofInputs } = await auditedProofInputs(4n, X25519Secret.generate(), [], [], null);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const assembled = assemble(proofInputs, [spendProofFor(input)], [], {
@@ -1063,7 +1063,7 @@ describe("ring openings", () => {
 
 describe("ring audit", () => {
   it("opens every real slot with the recovered transaction key like Rust `TransactionAudit`", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const { proofInputs, recipient } = await auditedProofInputs(4n, auditor, [1n]);
     const transaction = indexed(proofInputs);
     const audited = auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
@@ -1085,7 +1085,7 @@ describe("ring audit", () => {
   });
 
   it("accepts the auditor message only as the unique last entry", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const { proofInputs } = await auditedProofInputs(4n, auditor);
     const transaction = indexed(proofInputs);
     const message = transaction.messages[0];
@@ -1109,7 +1109,7 @@ describe("ring audit", () => {
     expect(() =>
       auditRingTransaction({
         auditor,
-        transaction: { ...transaction, txViewingPublicKey: auditor.publicKey() },
+        transaction: { ...transaction, txViewingPublicKey: ViewingKey.generate().publicKey() },
         assets: new AssetRegistry(),
       }),
     ).toThrow("RING_AUDIT_KEY_MISMATCH");
@@ -1117,7 +1117,7 @@ describe("ring audit", () => {
   });
 
   it("resolves an SPL output through the registry and refuses an unknown id", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const mint = getAddressDecoder().decode(scalar(41));
     const registry = new AssetRegistry([[2n, mint]]);
     const { proofInputs } = await auditedProofInputs(4n, auditor, [], [], RING, mint, registry);
@@ -1131,7 +1131,7 @@ describe("ring audit", () => {
   });
 
   it("refreshes the registry once from the chain on an unknown asset id", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const mint = getAddressDecoder().decode(scalar(41));
     const { proofInputs } = await auditedProofInputs(
       4n,
@@ -1183,7 +1183,7 @@ describe("ring audit", () => {
   });
 
   it("throws after one refresh when the chain does not know the id either", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const mint = getAddressDecoder().decode(scalar(41));
     const { proofInputs } = await auditedProofInputs(
       4n,
@@ -1214,24 +1214,23 @@ describe("ring audit", () => {
     expect(getProgramAccounts).toHaveBeenCalledTimes(1);
   });
 
-  it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
-    const auditor = ViewingKey.generate();
-    const secret = bigIntToBytes(0x0123_4567_89ab_cdefn) as Bytes32;
-    const viewingKey = ViewingKey.fromBytes(secret);
-    const shifted = bigIntToBytes(bytesToBigInt(secret) + p256.Point.Fn.ORDER) as Bytes32;
-    const ephemeral = ViewingKey.generate();
+  it("rejects a noncanonical decrypted viewing secret", () => {
+    const auditor = X25519Secret.generate();
+    const noncanonical = new Uint8Array(32).fill(0xff) as Bytes32;
+    const ephemeral = X25519Secret.generate();
     const shared = auditSharedSecret(
       ephemeral.ecdh(auditor.publicKey()),
       ephemeral.publicKey(),
       auditor.publicKey(),
     );
-    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, shifted) as Bytes32;
-    const recovered = recoverTransactionViewingKey(auditor, {
-      ephemeralPublicKey: ephemeral.publicKey(),
-      ciphertext,
-      disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
-    });
-    expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, noncanonical) as Bytes32;
+    expect(() =>
+      recoverTransactionViewingKey(auditor, {
+        ephemeralPublicKey: ephemeral.publicKey(),
+        ciphertext,
+        disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
+      }),
+    ).toThrow();
   });
 });
 
@@ -1243,7 +1242,7 @@ describe("ring proof folded fields", () => {
         inputs,
         outputs: 2,
       });
-      const proofInputs = await sealAudited(prepared, sender, ViewingKey.generate());
+      const proofInputs = await sealAudited(prepared, sender, X25519Secret.generate());
       expect(proofInputs.inputUtxos).toHaveLength(inputs);
       const addressChain = privateTxAddressChain(sppPrivateTxHashInput(proofInputs));
       expect(addressChain).toEqual(zero);
@@ -1266,7 +1265,7 @@ describe("ring proof folded fields", () => {
 
   it("sends the zero address chain to the custom prover", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
-    const accounts = await ringAccounts(ViewingKey.generate(), true);
+    const accounts = await ringAccounts(X25519Secret.generate(), true);
     const txHash = scalar(91);
     const data = ringInstructionData(txHash);
     let finalized: SppProofInputs | undefined;
@@ -1345,7 +1344,7 @@ describe("ring proof folded fields", () => {
     "resolves policy answers with $proofDataSource proof data and lag=$lag",
     async ({ proofDataSource, lag }) => {
       const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
-      const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
+      const accounts = await ringAccounts(X25519Secret.generate(), true, [requireAllow]);
       const entries = await allowEntries([sender, recipient, actor(5)]);
       const reads = entryProofReads({
         tree: ACTIVE_TREE,
@@ -1455,7 +1454,7 @@ describe("ring proof folded fields", () => {
   it("names only an output owner the prover finds no escrowed key for", async () => {
     const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
     const accounts = await ringAccounts(
-      ViewingKey.generate(),
+      X25519Secret.generate(),
       true,
       [requireAllow],
       0n,
@@ -1507,7 +1506,7 @@ describe("ring proof folded fields", () => {
 
   it("refuses a transfer no entry admits before any prover call", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
-    const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
+    const accounts = await ringAccounts(X25519Secret.generate(), true, [requireAllow]);
     const reads = entryProofReads({ tree: ACTIVE_TREE });
     const proveRingTransact = vi.fn(async () => ({
       data: ringInstructionData(scalar(91)),
@@ -1538,7 +1537,7 @@ describe("ring proof folded fields", () => {
 
   it("proves the audit statement alone for a no-policy ring like Rust `finish_audit`", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const accounts = await ringAccounts(auditor, false);
     const txHash = scalar(91);
     const data = ringInstructionData(txHash);
@@ -1573,7 +1572,7 @@ describe("ring proof folded fields", () => {
     // The policy config account is never read for an audit-only ring.
     expect(accounts.read).not.toContain(accounts.policyAddress);
     expect(request?.privateTxHash).toEqual(txHash);
-    expect(request?.auditorPublicKey).toEqual(auditor.publicKey().toUncompressed());
+    expect(request?.auditorPublicKey).toEqual(auditor.publicKey().u());
     expect(request?.publicInputHash).toEqual(
       auditPublicInputHash({
         privateTxHash: txHash,
@@ -1653,7 +1652,7 @@ describe("record slot trees", () => {
     const proofInputs = await sealAudited(
       withRecord(prepared, sender, 1),
       sender,
-      ViewingKey.generate(),
+      X25519Secret.generate(),
     );
     expect(proofInputs.inputTreeIds()).toEqual([0, 1]);
     const openings = ringOpenings(proofInputs);
@@ -1670,7 +1669,7 @@ describe("record slot trees", () => {
     const proofInputs = await sealAudited(
       withRecord(prepared, sender, 0),
       sender,
-      ViewingKey.generate(),
+      X25519Secret.generate(),
     );
     expect(proofInputs.inputUtxos.slice(0, 2)).toEqual([inA, inB]);
     expect(proofInputs.firstNullifier()).toEqual(inA.nullifier());
@@ -1748,7 +1747,7 @@ describe("record slot trees", () => {
     const prepared = transfer.prepare();
     const extended = withRecord(prepared, sender, 1);
     expect(extended.shape).toEqual({ inputs: 4, outputs: 4 });
-    const proofInputs = await sealAudited(extended, sender, ViewingKey.generate());
+    const proofInputs = await sealAudited(extended, sender, X25519Secret.generate());
     expect(proofInputs.inputUtxos.map((input) => [input.isDummy(), input.treeId])).toEqual([
       [false, 0],
       [false, 0],

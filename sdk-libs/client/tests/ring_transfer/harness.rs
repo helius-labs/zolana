@@ -1,9 +1,6 @@
 //! Ring-transfer proof case data.
 
 /// Selects the witness builder for a proof case.
-// NOTE(pr164): PR164 removed the P256 rail (`RingTransferP256Prover` and the
-// `transfer_p256_ring_*` verifying keys are gone), so the `P256` / `P256MultiReal`
-// modes from the original suite were dropped.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     /// One real zero-value Solana-owned ring input + dummy padding, dummy outputs;

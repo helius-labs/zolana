@@ -27,7 +27,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey};
+use zolana_keypair::{SigningKey, X25519Pubkey, X25519Secret};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -49,8 +49,8 @@ fn authority() -> Address {
     Address::new_from_array([12; 32])
 }
 
-fn auditor_pubkey() -> P256Pubkey {
-    ViewingKey::new().pubkey()
+fn auditor_pubkey() -> X25519Pubkey {
+    X25519Secret::new().pubkey()
 }
 
 fn sol_deposit_entry() -> RingAssetDeposit {
@@ -112,24 +112,8 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
 
 #[test]
 fn create_config_rejects_reserved_auditor_keys() {
-    for bytes in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
-        let auditor_pubkey = P256Pubkey::from_bytes(bytes).expect("reserved point");
-        let result = CreateConfig {
-            ring: ring(),
-            payer: payer(),
-            authority: authority(),
-            auditor_pubkey,
-            has_policy: true,
-        }
-        .instruction();
-        assert!(matches!(
-            result,
-            Err(custom_ring_sdk::CreateConfigError::ReservedAuditorKey)
-        ));
+    for bytes in [[2; 33], [3; 33], [0; 33]] {
+        assert!(X25519Pubkey::from_bytes(bytes).is_err());
     }
 }
 
@@ -222,7 +206,16 @@ fn reader() -> ReaderKey {
 }
 
 fn p256_reader() -> ReaderKey {
-    ReaderKey::p256(auditor_pubkey()).expect("reader key")
+    ReaderKey::p256(
+        zolana_ring_client::P256ReaderKey::from_bytes(
+            hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .expect("reader key")
 }
 
 #[test]
@@ -294,18 +287,6 @@ fn mixed_torsion_ed25519_reader_key_is_rejected() {
         .compress()
         .to_bytes();
     assert!(ReaderKey::ed25519(Address::new_from_array(mixed)).is_err());
-}
-
-#[test]
-fn reserved_p256_reader_key_is_rejected() {
-    for bytes in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
-        let reserved = P256Pubkey::from_bytes(bytes).expect("reserved point");
-        assert!(ReaderKey::p256(reserved).is_err());
-    }
 }
 
 #[test]
@@ -800,14 +781,14 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// Representative confidential `RingEddsa` content carrying the auditor message
+/// Representative confidential `ConfidentialRingEd25519` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [61; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEd25519(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [62; 33],
         salt: [63; 16],
         inputs: Vec::new(),
@@ -1184,6 +1165,7 @@ fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
         instruction.accounts,
         vec![
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),

@@ -15,38 +15,34 @@ import {
   concatBytes,
   copyBytes,
 } from "./bytes.js";
-import { type Rail, type RoleSecrets, roleExpansion } from "./derivation.js";
+import { X25519_PUBLIC_KEY_LENGTH } from "./constants.js";
+import { type RoleSecrets, roleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
-import {
-  P256PublicKey,
-  ShieldedPublicKey,
-  type SignatureType,
-  type ViewTag,
-} from "./public-key.js";
+import { ShieldedPublicKey, type SignatureType, type ViewTag } from "./public-key.js";
 import { SigningKey } from "./signing-key.js";
 import { type Salt, ViewingKey } from "./viewing-key.js";
+import { X25519PublicKey } from "./x25519.js";
 
 const addressDecoder = getAddressDecoder();
 
 const SIGNING_LENGTH = 34;
 const NULLIFIER_LENGTH = 32;
-const VIEWING_LENGTH = 33;
 /** Mirrors Rust `SHIELDED_ADDRESS_LEN`. */
-export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + VIEWING_LENGTH;
+export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + X25519_PUBLIC_KEY_LENGTH;
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
 
   readonly #nullifierPublicKey: Bytes32;
 
   private constructor(
     signingPublicKey: ShieldedPublicKey,
     nullifierPublicKey: Bytes32,
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
   ) {
     this.signingPublicKey = signingPublicKey;
     this.#nullifierPublicKey = nullifierPublicKey;
@@ -57,18 +53,22 @@ export class ShieldedAddress {
   static fromPublicKeys(
     signingPublicKey: ShieldedPublicKey,
     nullifierPublicKey: Bytes32,
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
   ): ShieldedAddress {
     return new ShieldedAddress(
       ShieldedPublicKey.fromBytes(signingPublicKey.toBytes()),
       checkedBytes<Bytes32>(nullifierPublicKey, 32, "nullifier public key"),
-      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+      X25519PublicKey.fromBytes(viewingPublicKey.toBytes()),
     );
   }
 
   /** Mirrors Rust `ShieldedAddress::for_pda`. */
   static forPda(
-    keys: Readonly<{ pda: Bytes32; nullifierPublicKey: Bytes32; viewingPublicKey: P256PublicKey }>,
+    keys: Readonly<{
+      pda: Bytes32;
+      nullifierPublicKey: Bytes32;
+      viewingPublicKey: X25519PublicKey;
+    }>,
   ): ShieldedAddress {
     return ShieldedAddress.fromPublicKeys(
       ShieldedPublicKey.fromPda(keys.pda),
@@ -112,7 +112,7 @@ export class ShieldedAddress {
     return ShieldedAddress.fromPublicKeys(
       ShieldedPublicKey.fromBytes(checked.slice(0, SIGNING_LENGTH) as Bytes34),
       checked.slice(SIGNING_LENGTH, SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes32,
-      P256PublicKey.fromBytes(checked.slice(SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes33),
+      X25519PublicKey.fromBytes(checked.slice(SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes33),
     );
   }
 }
@@ -124,18 +124,21 @@ export class ShieldedAddress {
  */
 export class CompressedShieldedAddress {
   readonly ownerHash: Bytes32;
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
 
-  private constructor(ownerHash: Bytes32, viewingPublicKey: P256PublicKey) {
+  private constructor(ownerHash: Bytes32, viewingPublicKey: X25519PublicKey) {
     this.ownerHash = ownerHash;
     this.viewingPublicKey = viewingPublicKey;
     Object.freeze(this);
   }
 
-  static fromParts(ownerHash: Bytes32, viewingPublicKey: P256PublicKey): CompressedShieldedAddress {
+  static fromParts(
+    ownerHash: Bytes32,
+    viewingPublicKey: X25519PublicKey,
+  ): CompressedShieldedAddress {
     return new CompressedShieldedAddress(
       checkedBytes<Bytes32>(ownerHash, 32, "owner hash"),
-      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+      X25519PublicKey.fromBytes(viewingPublicKey.toBytes()),
     );
   }
 
@@ -152,12 +155,6 @@ export class CompressedShieldedAddress {
   }
 }
 
-export interface P256Signature {
-  readonly publicKey: P256PublicKey;
-  readonly r: Bytes32;
-  readonly s: Bytes32;
-}
-
 /**
  * The `ShieldedKeypairTrait` surface: signing identity, address derivation,
  * spend signing, and nullifier derivation. Every operation may be asynchronous
@@ -169,7 +166,7 @@ export interface P256Signature {
  */
 export interface ShieldedKeypairLike {
   signingPublicKey(): ShieldedPublicKey | Promise<ShieldedPublicKey>;
-  viewingPublicKey(): P256PublicKey | Promise<P256PublicKey>;
+  viewingPublicKey(): X25519PublicKey | Promise<X25519PublicKey>;
   /** The rail this keypair signs on, which selects the transfer circuit. */
   curve(): SignatureType | Promise<SignatureType>;
   shieldedAddress(): ShieldedAddress | Promise<ShieldedAddress>;
@@ -190,31 +187,31 @@ export interface ShieldedKeypairLike {
  * viewing-key operations over a wire is not a supported deployment.
  */
 export interface ViewingKeyLike {
-  publicKey(): P256PublicKey;
-  ecdh(counterparty: P256PublicKey): Bytes32;
+  publicKey(): X25519PublicKey;
+  ecdh(counterparty: X25519PublicKey): Bytes32;
   recipientBootstrapViewTag(): ViewTag;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptUtxo(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptSlotEphemeral(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptRingDeposit(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
   ): Uint8Array;
 }
@@ -234,7 +231,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * Generates an Ed25519 signing identity by default, the rail supported by
    * the lean SDK's registration and ordinary transaction builders. Both role
    * keys expand from the signing key's derivation seed, like Rust's
-   * `new_ed25519` / `new_p256`.
+   * `new_ed25519`.
    */
   static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
     return ShieldedKeypair.fromKeypair(SigningKey.generate(type));
@@ -263,10 +260,9 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   static #roleExpansion<T>(signing: SigningKey, use: (roles: RoleSecrets) => T): T {
-    const rail: Rail = signing.isEd25519() ? "ed25519" : "ecdh";
     const seed = signing.derivationSeed();
     try {
-      return roleExpansion(seed, rail, use);
+      return roleExpansion(seed, "ed25519", use);
     } finally {
       seed.fill(0);
     }
@@ -276,7 +272,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     return this.#signing.publicKey();
   }
 
-  viewingPublicKey(): P256PublicKey {
+  viewingPublicKey(): X25519PublicKey {
     return this.#viewing.publicKey();
   }
 
@@ -310,11 +306,10 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    *
    * Kit builds its own signers through WebCrypto and can only do so
    * asynchronously. This one signs with the same Ed25519 the shielded keys
-   * already use, which keeps construction synchronous; `signTransactions` still
+   * already use, which keeps construction synchronous, and `signTransactions` still
    * returns a promise because Kit's interface demands one.
    *
-   * Only the Ed25519 rail has a Solana identity: a P256 signing key has no
-   * Solana address to sign for.
+   * The signing key supplies the Solana identity and authorizes transactions.
    */
   toSolanaSigner(): TransactionPartialSigner {
     if (!this.#signing.isEd25519()) {
@@ -358,11 +353,11 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * `ShieldedKeypair`. Prefer {@link ShieldedKeypair.viewingPublicKey} when the
    * call site is not going through {@link ViewingKeyLike}.
    */
-  publicKey(): P256PublicKey {
+  publicKey(): X25519PublicKey {
     return this.viewingPublicKey();
   }
 
-  ecdh(counterparty: P256PublicKey): Bytes32 {
+  ecdh(counterparty: X25519PublicKey): Bytes32 {
     return this.#viewing.ecdh(counterparty);
   }
 
@@ -375,7 +370,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   encryptSlot(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
@@ -385,7 +380,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   decryptUtxo(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array {
@@ -393,7 +388,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   decryptSlotEphemeral(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
@@ -403,7 +398,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   decryptRingDeposit(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
   ): Uint8Array {
     return this.#viewing.decryptRingDeposit(ciphertext, txViewingPublicKey, salt);
@@ -411,18 +406,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   sign(message: Uint8Array): Bytes64 {
     return this.#signing.sign(message);
-  }
-
-  signP256(messageHash: Bytes32): P256Signature {
-    const publicKey = this.#signing.publicKey().p256();
-    const signature = this.#signing.sign(
-      checkedBytes<Bytes32>(messageHash, 32, "P256 message hash"),
-    );
-    return Object.freeze({
-      publicKey,
-      r: signature.slice(0, 32) as Bytes32,
-      s: signature.slice(32) as Bytes32,
-    });
   }
 
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {

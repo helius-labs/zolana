@@ -130,7 +130,7 @@ function keyMaterial(): Readonly<{
   keypair: ShieldedKeypair;
   nullifier: NullifierKey;
 }> {
-  const signing = SigningKey.fromP256Bytes(scalar(1));
+  const signing = SigningKey.fromEd25519Bytes(scalar(1));
   const viewing = ViewingKey.fromBytes(scalar(2));
   const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
   return {

@@ -157,7 +157,8 @@ export interface MergeTransactionParams {
   readonly client: MergeClient;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  readonly feePayer: Address;
+  /** Defaults to the owner. Sponsorship does not change the registered identity. */
+  readonly feePayer?: Address;
   readonly asset?: Address;
   /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
@@ -165,10 +166,11 @@ export interface MergeTransactionParams {
 }
 
 export async function buildMergeTransaction(
-  input: MergeTransactionParams,
+  params: MergeTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const input = { ...params, feePayer: params.feePayer ?? params.keys.address().solanaAddress() };
     await initializePoseidon();
     const address = input.keys.address();
     const owner = ownerSolanaAccount(address, input.feePayer);
@@ -193,7 +195,7 @@ export async function buildMergeTransaction(
 }
 
 async function proveAndAssembleMerge(
-  input: MergeTransactionParams,
+  input: MergeTransactionParams & { readonly feePayer: Address },
   owner: Address,
   address: ShieldedAddress,
   created: CreatedMerge,
@@ -240,17 +242,7 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
     throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
   }
   const signingPublicKey = address.signingPublicKey;
-  if (signingPublicKey.signatureType() === "p256") {
-    if (
-      record.ownerP256 === undefined ||
-      !equalBytes(record.ownerP256, signingPublicKey.p256().toBytes())
-    ) {
-      throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
-    }
-  } else if (
-    record.ownerP256 !== undefined ||
-    !equalBytes(signingPublicKey.ed25519(), new Uint8Array(addressEncoder.encode(owner)))
-  ) {
+  if (!equalBytes(signingPublicKey.ed25519(), new Uint8Array(addressEncoder.encode(owner)))) {
     throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
   }
   if (!equalBytes(record.nullifierPublicKey, address.nullifierPublicKey)) {

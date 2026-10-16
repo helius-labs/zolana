@@ -44,7 +44,7 @@ impl Deposit {
         // The recipient `owner` commitment is public address material, so a
         // third-party depositor shares no secret with the recipient.
         let owner = request.recipient.owner_hash()?;
-        let view_tag = request.recipient.viewing_pubkey.x();
+        let view_tag = request.recipient.viewing_pubkey.u();
         Ok(Self {
             deposit: AssetDeposit {
                 asset: deposit_asset(
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn prepared_sol_deposit_derives_consistent_material() {
-        let recipient = ShieldedKeypair::new_p256().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
@@ -292,14 +292,14 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().x());
+        assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().u());
         assert_eq!(prepared.deposit.amount, 1_000);
         assert_ne!(prepared.deposit.owner, [0u8; 32]);
     }
 
     #[tokio::test]
     async fn deposit_builder_returns_sendable_unsigned_message() {
-        let recipient = ShieldedKeypair::new_p256().expect("recipient");
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
         let prepared = create_deposit(DepositParams {
             recipient: &recipient.shielded_address().expect("shielded address"),
             asset: SOL_MINT,
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn prepared_spl_deposit_carries_settlement_accounts() {
-        let recipient = ShieldedKeypair::new_p256().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();

@@ -2,7 +2,9 @@ use bytemuck::{from_bytes, from_bytes_mut};
 use custom_ring_interface::{
     CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow,
 };
-use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
+use custom_ring_interface::{
+    ReadAccessRecord, ReaderKeyBytes, RingMode, RingProgramConfig, TAGGED_X25519_KEY_LEN,
+};
 use pinocchio::{
     account::{Ref, RefMut},
     error::ProgramError,
@@ -34,6 +36,31 @@ pub fn load_config<'a>(
     }
     .verify_stored_bump(config.bump)?;
     Ok(config)
+}
+
+/// The config of a ring whose auditor key can receive a proven disclosure.
+pub(crate) struct AuditedConfig {
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
+    pub has_policy: bool,
+    pub mode: RingMode,
+}
+
+/// Refuses an unknown mode and a legacy auditor key, which no circuit encrypts to.
+#[inline(always)]
+pub(crate) fn load_audited_config(
+    program_id: &Address,
+    account: &AccountView,
+) -> Result<AuditedConfig, ProgramError> {
+    let config = load_config(program_id, account)?;
+    let mode = config.mode().ok_or(CustomRingError::InvalidRingMode)?;
+    if config.has_legacy_auditor_key() {
+        return Err(CustomRingError::LegacyAuditorKey.into());
+    }
+    Ok(AuditedConfig {
+        auditor_pubkey: config.auditor_pubkey,
+        has_policy: config.has_policy != 0,
+        mode,
+    })
 }
 
 #[inline(always)]

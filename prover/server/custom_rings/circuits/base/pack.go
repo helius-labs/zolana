@@ -42,14 +42,14 @@ func Pack32To2FECircuit(api frontend.API, bytes [32]frontend.Variable) (lo, hi f
 	return lo, hi
 }
 
-// Pack33To2FECircuit splits a 33-byte SEC1-compressed P-256 public key into two
+// Pack33To2FECircuit splits a 33-byte tagged public key into two
 // field elements. This file is the source of truth for the packing; the Rust
 // program and SDK mirror it.
 //
 // Byte layout (both elements are 32-byte big-endian integers):
 //
 //	lo = 0x00 || key[0..31]              (same shape as Pack32To2FECircuit: the
-//	                                      SEC1 prefix key[0] is the most
+//	                                      key tag key[0] is the most
 //	                                      significant data byte)
 //	hi = key[31] * 256 + key[32]         (a 16-bit value; as a 32-byte
 //	                                      big-endian encoding hi[30] = key[31],
@@ -76,9 +76,9 @@ func Pack33To2FECircuit(api frontend.API, key [33]frontend.Variable) (lo, hi fro
 //	                         eph_pk_lo, eph_pk_hi,
 //	                         auditor_pk_lo, auditor_pk_hi)
 //
-// dh is the 32-byte big-endian x-coordinate of eph_sk * auditor_pk (packed with
-// Pack32To2FECircuit), ephCompressed and auditorCompressed are the 33-byte SEC1
-// compressed keys (packed with Pack33To2FECircuit). The Rust host derivation
+// dh is the 32-byte little-endian X25519 output (packed with
+// Pack32To2FECircuit), ephCompressed and auditorCompressed are the 33-byte
+// tagged X25519 keys (packed with Pack33To2FECircuit). The Rust host derivation
 // MUST mirror this input order element for element.
 func DeriveAuditSharedSecret(
 	api frontend.API,

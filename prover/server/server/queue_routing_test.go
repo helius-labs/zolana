@@ -20,7 +20,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
 		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
 		{common.TransferRingCircuitType, "zk_transfer_queue"},
-		{common.TransferP256RingCircuitType, "zk_transfer_queue"},
+		{common.TransferAnonymousRingEd25519CircuitType, "zk_transfer_queue"},
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},

@@ -33,7 +33,7 @@ use crate::{
         backend::Prover,
         call::{transport_error, Answer, Call, CallError, Recipient},
         endpoint::ProverEndpoint,
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
@@ -84,7 +84,7 @@ const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 #[cfg(feature = "reqwest")]
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
-// A heavy cold proof (the first P256 request loads a 63MB key and runs a
+// A heavy cold proof (the first committed proof request loads a 63MB key and runs a
 // 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
 // contention while the server stays up. Proof generation is idempotent, so the
 // request is retried; the key is warm by the next attempt and proves quickly.
@@ -832,13 +832,6 @@ impl AsyncProverClient {
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_ring(inputs)?).await
-    }
-
-    pub async fn prove_transfer_p256_ring(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_p256_ring(inputs)?).await
     }
 
     /// Prove `request` on its rail; [`Prover::prove`] on [`ProverClient`] is
@@ -2088,7 +2081,6 @@ mod tests {
             ExpectedProvingKey::transfer_confidential(1, 2).expect("1x2 confidential"),
             ExpectedProvingKey::transfer_ring(2, 2).expect("2x2 ring"),
             ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
-            ExpectedProvingKey::transfer_p256_ring(49, 2).expect("49x2 p256"),
             ExpectedProvingKey::merge(24).expect("merge 24"),
             ExpectedProvingKey::merge_ring(54).expect("merge ring 54"),
             ExpectedProvingKey::batch_address_append(40, 4999).expect("address append 4999"),
@@ -2100,7 +2092,6 @@ mod tests {
                 "transfer_confidential_1_2.key",
                 "transfer_ring_2_2.key",
                 "transfer_ring_authority_4_4.key",
-                "transfer_p256_ring_49_2.key",
                 "merge_24_1.key",
                 "merge_ring_54_1.key",
                 "batch_address-append_40_4999.key",

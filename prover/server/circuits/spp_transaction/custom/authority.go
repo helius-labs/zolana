@@ -104,7 +104,7 @@ func (c *CustomRingAuthorityCircuit) Define(api frontend.API) error {
 	shared.AssertRingMember(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
 	api.AssertIsDifferent(c.Public.RingProgramID, 0)
 
-	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Private.InputOwnerPkHashes)
+	signers := shared.ConfidentialEd25519Signers(api, tx.Inputs, c.Private.InputOwnerPkHashes)
 	signerOwners := shared.SignerOwners(api, tx.Inputs)
 	return tx.Constrain(api, signers, signerOwners.ContainsEach(api, shared.OutputOwners(tx.Outputs)))
 }

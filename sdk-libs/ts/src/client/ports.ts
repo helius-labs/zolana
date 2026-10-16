@@ -1,3 +1,4 @@
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { Address, Commitment, Signature } from "@solana/kit";
 
 import type {
@@ -10,7 +11,6 @@ import type {
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -110,11 +110,9 @@ export interface RingSpendRecordReader {
 /** A user registry record, the shielded address a Solana pubkey publishes. */
 export interface RegistryRecord {
   readonly owner: Address;
-  /** Absent for a Solana-only owner, whose signing key is the Ed25519 key `owner` encodes. */
-  readonly ownerP256?: P256PublicKey;
   /** Wallet-wide nullifier pubkey. Never rotates. */
   readonly nullifierPublicKey: Bytes32;
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
   /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
   readonly mergingEnabled: boolean;
 }
@@ -152,7 +150,7 @@ export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
 export interface RingKeyRegistryEntry extends RingMemberProofContext {
   readonly next: Bytes32;
   readonly index: bigint;
-  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ephemeralPublicKey: X25519PublicKey;
   readonly ciphertext: Bytes32;
   readonly proof: readonly Bytes32[];
 }

@@ -38,8 +38,6 @@ export function inputTreeAddress(client: TreeContext, treeId: number): Address {
 
 export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-const P256_MODULUS =
-  0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
 const addressEncoder = getAddressEncoder();
 const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
@@ -281,34 +279,6 @@ export function decodeBase64(value: unknown, fieldName: string): Uint8Array {
     // Kit codec failures are mapped below.
   }
   throw new ClientError("CLIENT_INVALID_BASE64", { details: { field: fieldName } });
-}
-
-export function p256Coordinates(bytes: Bytes33): readonly [bigint, bigint] {
-  const prefix = bytes[0];
-  if (prefix !== 2 && prefix !== 3) throw new ClientError("CLIENT_INVALID_P256_KEY");
-  const x = bytesToBigInt(bytes.subarray(1));
-  if (x >= P256_MODULUS) throw new ClientError("CLIENT_INVALID_P256_KEY");
-  const y2 =
-    (x ** 3n - 3n * x + 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn) %
-    P256_MODULUS;
-  let y = modPow(y2 < 0n ? y2 + P256_MODULUS : y2, (P256_MODULUS + 1n) / 4n, P256_MODULUS);
-  if ((y & 1n) !== BigInt(prefix & 1)) y = P256_MODULUS - y;
-  if ((y * y) % P256_MODULUS !== (y2 + P256_MODULUS) % P256_MODULUS) {
-    throw new ClientError("CLIENT_INVALID_P256_KEY");
-  }
-  return [x, y];
-}
-
-export function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
-  let result = 1n;
-  let value = base % modulus;
-  let power = exponent;
-  while (power > 0n) {
-    if ((power & 1n) === 1n) result = (result * value) % modulus;
-    value = (value * value) % modulus;
-    power >>= 1n;
-  }
-  return result;
 }
 
 export type { ComposedSignal };

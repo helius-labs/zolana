@@ -1,6 +1,6 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import {
@@ -72,7 +72,7 @@ export class LocalKeys implements WalletKeys {
     return this.#keys.address();
   }
 
-  viewingPublicKeys(): readonly P256PublicKey[] {
+  viewingPublicKeys(): readonly X25519PublicKey[] {
     return this.#keys.viewingPublicKeys();
   }
 

@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { address, generateKeyPairSigner, signTransactionWithSigners } from "@solana/kit";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -64,7 +65,9 @@ it("binds high level ring transfers to the configured nonzero tree", async () =>
             RING,
             ringProgramConfigData({
               authority: f.owner.shieldedAddress().solanaAddress(),
-              auditorPublicKey: f.owner.viewingPublicKey().toBytes(),
+              auditorPublicKey: X25519Secret.fromBytes(new Uint8Array(32).fill(9))
+                .publicKey()
+                .toBytes(),
               bump,
               hasPolicy: false,
             }),

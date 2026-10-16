@@ -42,17 +42,14 @@ type RingProofSystem struct {
 	ProvingKeySha256 [32]byte
 }
 
-// TransferProofSystem holds the keys and constraints for one spp_transaction
-// circuit shape, ownership rail, and confidentiality mode. RequiresP256 selects
-// the P256-capable circuit (true) or the Solana-only variant (false);
-// Confidential selects the owner-tag-binding variant. It mirrors BatchProofSystem
-// but is keyed by (NInputs, NOutputs, RequiresP256, Confidential) instead of
-// (TreeHeight, BatchSize).
+// TransferProofSystem holds the keys and constraints for one transaction shape.
+// HasCommitment preserves a legacy key-header bit, not the verifier configuration.
+// Ed25519 keys carry commitments with this bit unset. Confidential selects the owner-tag-binding variant.
 type TransferProofSystem struct {
 	CircuitType      CircuitType
 	NInputs          uint32
 	NOutputs         uint32
-	RequiresP256     bool
+	HasCommitment    bool
 	Confidential     bool
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey

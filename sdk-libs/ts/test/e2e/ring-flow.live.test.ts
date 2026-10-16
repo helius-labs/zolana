@@ -13,7 +13,7 @@ import {
   createZolanaClient,
 } from "../../src/index.js";
 import { sha256 } from "../../src/interface/internal.js";
-import { P256PublicKey } from "../../src/keypair/public-key.js";
+import { P256ReaderKey } from "../../src/ring/reader.js";
 import {
   RingError,
   RingRpc,
@@ -42,9 +42,9 @@ import {
 } from "./ring-live-helpers.js";
 
 /** The WebAuthn envelope a browser would produce on `origin`, signed with a software P-256 key. */
-function syntheticPasskey(origin: string): RingReadSigner & { readonly publicKey: P256PublicKey } {
+function syntheticPasskey(origin: string): RingReadSigner & { readonly publicKey: P256ReaderKey } {
   const secret = p256.utils.randomSecretKey();
-  const publicKey = P256PublicKey.fromBytes(p256.getPublicKey(secret, true) as never);
+  const publicKey = P256ReaderKey.fromBytes(p256.getPublicKey(secret, true) as never);
   const host = new URL(origin).hostname;
   return {
     publicKey,
@@ -113,6 +113,7 @@ describe("ring flow", () => {
       const deposit = await buildRingDepositTransaction({
         client,
         ringProgramId,
+        depositor: sender.signer.address,
         feePayer: sender.signer.address,
         recipient: sender.keypair.shieldedAddress(),
         amount: deposited,
@@ -297,6 +298,7 @@ describe("ring flow", () => {
     // The authority wallet funds the default deposit from its own token account.
     const deposit = await buildDepositTransaction({
       client,
+      depositor: mintAuthority.address,
       feePayer: mintAuthority.address,
       recipient: sender.keypair.shieldedAddress(),
       asset: mint,

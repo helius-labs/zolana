@@ -129,7 +129,7 @@ async function deposit(
     {
       client: input.client,
       feePayer: input.feePayer.address,
-      ...(input.depositor === undefined ? {} : { depositor: input.depositor.address }),
+      depositor: (input.depositor ?? input.feePayer).address,
       ...(input.tree === undefined ? {} : { tree: input.tree }),
       recipient: input.recipient,
       ...(input.asset === undefined ? {} : { asset: input.asset }),

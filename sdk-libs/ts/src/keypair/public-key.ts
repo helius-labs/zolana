@@ -1,70 +1,11 @@
-import { p256 } from "@noble/curves/nist.js";
+import { type Bytes32, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
+import { SHIELDED_PUBLIC_KEY_LENGTH, SIGNATURE_TYPE_PDA } from "./constants.js";
+import { solanaOwnerIdentity } from "../hasher/index.js";
+import { KeypairError } from "./error.js";
 
-import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
-import {
-  P256_PUBLIC_KEY_LENGTH,
-  SHIELDED_PUBLIC_KEY_LENGTH,
-  SIGNATURE_TYPE_PDA,
-} from "./constants.js";
-import { p256OwnerIdentity, solanaOwnerIdentity } from "../hasher/index.js";
-import { KeypairError, wrapKeypairError } from "./error.js";
-
+/** Wire type 0 remains reserved and cannot construct an owner key. */
 export type SignatureType = "p256" | "ed25519" | "pda";
 export type ViewTag = Bytes32;
-
-export class P256PublicKey {
-  readonly #bytes: Uint8Array;
-
-  private constructor(bytes: Uint8Array) {
-    this.#bytes = bytes;
-  }
-
-  static fromBytes(bytes: Bytes33): P256PublicKey {
-    const owned = checkedBytes<Bytes33>(bytes, P256_PUBLIC_KEY_LENGTH, "P256 public key");
-    try {
-      p256.Point.fromBytes(owned);
-    } catch (error) {
-      throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
-    }
-    return new P256PublicKey(owned);
-  }
-
-  static fromSecret(secret: Uint8Array): P256PublicKey {
-    return P256PublicKey.fromBytes(p256.getPublicKey(secret, true) as Bytes33);
-  }
-
-  /** A 65-byte `0x04 || x || y` point, what WebAuthn and SPKI carry. */
-  static fromUncompressed(bytes: Uint8Array): P256PublicKey {
-    try {
-      return P256PublicKey.fromBytes(p256.Point.fromBytes(bytes).toBytes(true) as Bytes33);
-    } catch (error) {
-      throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
-    }
-  }
-
-  toBytes(): Bytes33 {
-    return copyBytes(this.#bytes) as Bytes33;
-  }
-
-  toUncompressed(): Uint8Array {
-    return p256.Point.fromBytes(this.#bytes).toBytes(false);
-  }
-
-  x(): Bytes32 {
-    return copyBytes(this.#bytes.subarray(1)) as Bytes32;
-  }
-
-  yIsOdd(): boolean {
-    return this.#bytes[0] === 3;
-  }
-
-  /** Mirrors the derived `PartialEq` on Rust's `P256Pubkey`: compressed bytes. */
-  equals(other: P256PublicKey): boolean {
-    const left = this.#bytes;
-    const right = other.#bytes;
-    return left.length === right.length && left.every((byte, index) => byte === right[index]);
-  }
-}
 
 export class ShieldedPublicKey {
   readonly #bytes: Uint8Array;
@@ -76,12 +17,6 @@ export class ShieldedPublicKey {
 
   static zeroed(): ShieldedPublicKey {
     return new ShieldedPublicKey(new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH));
-  }
-
-  static fromP256(key: P256PublicKey): ShieldedPublicKey {
-    const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
-    bytes.set(key.toBytes(), 1);
-    return new ShieldedPublicKey(bytes);
   }
 
   static fromEd25519(publicKey: Bytes32): ShieldedPublicKey {
@@ -105,9 +40,7 @@ export class ShieldedPublicKey {
       SHIELDED_PUBLIC_KEY_LENGTH,
       "shielded public key",
     );
-    if (owned[0] === 0) {
-      P256PublicKey.fromBytes(owned.subarray(1) as Bytes33);
-    } else if (owned[0] === 1 || owned[0] === SIGNATURE_TYPE_PDA) {
+    if (owned[0] === 1 || owned[0] === SIGNATURE_TYPE_PDA) {
       if (owned[SHIELDED_PUBLIC_KEY_LENGTH - 1] !== 0) {
         throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { reason: "nonzeroPadding" });
       }
@@ -133,28 +66,19 @@ export class ShieldedPublicKey {
   }
 
   signatureType(): SignatureType {
-    if (this.#bytes[0] === 0) return "p256";
     if (this.#bytes[0] === 1) return "ed25519";
     if (this.#bytes[0] === SIGNATURE_TYPE_PDA) return "pda";
     throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] ?? 0 });
   }
 
   confidentialViewTag(): ViewTag {
-    if (this.signatureType() === "p256") return this.p256().x();
+    this.signatureType();
     return copyBytes(this.#bytes.subarray(1, 33)) as ViewTag;
   }
 
-  /**
-   * The algorithm-tagged identity the proof and the shielded pool hash for
-   * this key: the Solana tag over an Ed25519 key, the P256 tag over a P256
-   * x-coordinate. Mirrors Rust `owner_proof_input_hash`.
-   */
+  /** The Solana-tagged owner identity bound by the proof and shielded pool. */
   ownerProofInputHash(): Bytes32 {
-    // 1. The cached identity depends only on owned public key bytes.
-    this.#ownerHash ??=
-      this.signatureType() === "p256"
-        ? p256OwnerIdentity(this.p256().x())
-        : solanaOwnerIdentity(this.confidentialViewTag());
+    this.#ownerHash ??= solanaOwnerIdentity(this.confidentialViewTag());
     return copyBytes(this.#ownerHash) as Bytes32;
   }
 
@@ -170,12 +94,5 @@ export class ShieldedPublicKey {
       throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "pda" });
     }
     return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
-  }
-
-  p256(): P256PublicKey {
-    if (this.signatureType() !== "p256") {
-      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "p256" });
-    }
-    return P256PublicKey.fromBytes(this.#bytes.subarray(1) as Bytes33);
   }
 }

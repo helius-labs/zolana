@@ -1431,7 +1431,7 @@ mod tests {
     /// a transaction landing a millisecond after the sync returns.
     #[test]
     fn a_tag_scanned_to_the_tip_is_not_requeried_in_a_later_round() {
-        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("keypair");
         let viewing = keypair.viewing_key.clone();
         let early = viewing.get_sender_view_tag(0).expect("early tag");
         let late = viewing.get_sender_view_tag(500).expect("late tag");
@@ -1491,7 +1491,7 @@ mod tests {
     /// The stream now ends on the following empty page instead.
     #[test]
     fn a_short_page_still_advances_the_cursor_to_the_tip() {
-        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("keypair");
         let tag = keypair.viewing_key.get_sender_view_tag(0).expect("tag");
 
         let indexer = TaggedIndexer {
@@ -1537,7 +1537,7 @@ mod tests {
     /// twentieth.
     #[test]
     fn spent_utxos_drop_out_of_the_nullifier_query() {
-        let owner = ShieldedKeypair::new_p256().expect("keypair");
+        let owner = ShieldedKeypair::new_ed25519().expect("keypair");
         let mut wallet = wallet_with_utxos(&owner, &[(SOL_MINT, 100, 1), (SOL_MINT, 200, 2)]);
 
         assert_eq!(
@@ -1637,7 +1637,7 @@ mod tests {
     /// even though they share [`advance`]. Covers all three streams at once.
     #[tokio::test]
     async fn the_async_paths_resume_every_stream() {
-        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("keypair");
         let tag = keypair.viewing_key.get_sender_view_tag(0).expect("tag");
         let unspent = [7u8; 32];
         let indexer = TaggedIndexer {
@@ -1847,7 +1847,7 @@ mod tests {
     /// starts from None regardless of how far other tags have advanced.
     #[test]
     fn a_late_discovered_tag_is_scanned_from_the_beginning() {
-        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("keypair");
         let viewing = keypair.viewing_key.clone();
 
         // The tag this wallet knows about from the start, and one far outside the
@@ -1915,7 +1915,7 @@ mod tests {
 
         // Asserting on what was REQUESTED rather than what was decrypted: the
         // invariant is which rows the indexer was asked for, and fabricating
-        // decryptable P256 payloads would test the crypto instead.
+        // decryptable payloads would test the crypto instead.
         let calls = indexer.calls.lock().expect("calls poisoned");
         assert!(
             calls.iter().any(|(_, after)| after.is_none()),
@@ -2025,7 +2025,7 @@ mod tests {
 
     #[tokio::test]
     async fn async_sync_future_is_send_and_keeps_wallet_keyless() {
-        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("keypair");
         let authority = local_authority(&keypair);
         let indexer = MockIndexer::default();
         let mut wallet = Wallet::new(
@@ -2459,7 +2459,7 @@ mod tests {
 
     #[test]
     fn sync_wallet_records_merge_history() {
-        let alice = ShieldedKeypair::new_p256().expect("alice");
+        let alice = ShieldedKeypair::new_ed25519().expect("alice");
         let inputs = vec![
             input_utxo(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
             input_utxo(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
@@ -2534,7 +2534,7 @@ mod tests {
 
     #[test]
     fn proofless_fetch_decodes_indexed_payload() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let output = proofless_output_for_keypair(&keypair, 1_234);
         let item = encrypted_match(&keypair, output.clone());
         let indexer = MockIndexer {
@@ -2572,7 +2572,7 @@ mod tests {
 
     #[test]
     fn sync_wallet_discovers_indexed_proofless_deposit() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let mut wallet = Wallet::new(
             keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
@@ -2603,7 +2603,7 @@ mod tests {
 
     #[test]
     fn get_private_token_balances_aggregates_unspent_utxos() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let mut wallet = Wallet::new(
             keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
@@ -2629,7 +2629,7 @@ mod tests {
 
     #[test]
     fn get_private_transactions_matches_wallet_history() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let mut wallet = Wallet::new(
             keypair.shielded_address().expect("shielded address"),
             AssetRegistry::default(),
@@ -2654,7 +2654,7 @@ mod tests {
 
     #[test]
     fn proofless_fetch_skips_rows_with_viewing_material() {
-        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let mut item = encrypted_match(&keypair, proofless_output_for_keypair(&keypair, 1));
         item.salt = Some([1u8; 16]);
         let indexer = MockIndexer {
@@ -2829,7 +2829,7 @@ mod tests {
             tx_signature: signature_for_slot(slot),
             event_index: Some(0),
             tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
+                zolana_keypair::X25519Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
             ),
             salt: Some(external.salt),

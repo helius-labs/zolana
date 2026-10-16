@@ -20,7 +20,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 }
 
 fn valid_config() -> solana_account::Account {
-    initialized_config_account(authority(), auditor_pubkey(2))
+    initialized_config_account(authority(), auditor_pubkey(4))
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn foreign_authority_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let foreign = Pubkey::new_from_array([99; 32]);
     let fixture =
-        init_spp_ring_config_fixture(initialized_config_account(foreign, auditor_pubkey(2)));
+        init_spp_ring_config_fixture(initialized_config_account(foreign, auditor_pubkey(4)));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }
 
@@ -92,7 +92,7 @@ fn non_canonical_ring_auth_is_rejected_exactly() {
 fn init_with_an_unsigned_payer_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture =
-        init_spp_ring_config_fixture(initialized_config_account(authority(), auditor_pubkey(2)));
+        init_spp_ring_config_fixture(initialized_config_account(authority(), auditor_pubkey(4)));
     fixture.unsign("payer");
     fixture.expect_err(
         &mollusk,
@@ -137,7 +137,7 @@ fn a_non_canonical_policy_config_is_rejected_exactly() {
 fn an_audit_only_ring_registers_with_seven_accounts() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture =
-        init_spp_ring_config_fixture(audit_only_config_account(authority(), auditor_pubkey(2)));
+        init_spp_ring_config_fixture(audit_only_config_account(authority(), auditor_pubkey(4)));
     fixture.truncate(7);
     fixture.expect_spp_cpi(&mollusk);
 }

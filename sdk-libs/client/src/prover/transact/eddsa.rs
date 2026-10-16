@@ -88,7 +88,7 @@ impl TransferProver {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::ConfidentialEddsa,
+            &OwnerMode::ConfidentialEd25519,
             self.allow_dummy_inputs,
         )?;
         let public_input = PublicInputs {

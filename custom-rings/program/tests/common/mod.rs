@@ -16,6 +16,7 @@ use custom_ring_interface::{
     POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
     READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
+use custom_ring_interface::{DisclosureShape, RingMode, AUDITOR_MESSAGE_PREFIX_LEN};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -31,6 +32,8 @@ use zolana_interface::{
         deposit::{
             DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         },
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeProof, MergeTransactIxData},
         transact::{OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext},
     },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
@@ -410,7 +413,7 @@ pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "cosigner_pda",
@@ -434,7 +437,7 @@ pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "cosigner_pda",
@@ -506,7 +509,7 @@ pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
             Slot {
                 label: "config",
                 meta: AccountMeta::new(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "delegate_pda",
@@ -604,7 +607,7 @@ pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Ac
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             window_slot(mint, existing),
             system_program_slot(),
@@ -655,7 +658,7 @@ pub fn create_key_registry_root_fixture(existing: Option<Account>) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "key_registry_root",
@@ -684,7 +687,7 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
             registry_new_root: [0x11; 32],
             registry_next_index: 1,
             nullifier_pk: [0x12; 32],
-            eph_pk: [0x02; 33],
+            eph_pk: auditor_pubkey(4),
             ciphertext: [0x44; 32],
         })
         .expect("register_key data"),
@@ -700,7 +703,7 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "key_registry_root",
@@ -725,7 +728,7 @@ pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             window_slot(mint, Some(existing)),
             Slot {
@@ -772,11 +775,11 @@ pub fn spp_program_account() -> (Pubkey, Account) {
     )
 }
 
-/// A well-formed SEC1-compressed auditor key, or a deliberately malformed one
-/// when `prefix` is not 2 or 3.
+/// A canonical tagged X25519 auditor key, or a deliberately malformed one
+/// when `prefix` is not 4.
 pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
     let mut key: [u8; 33] =
-        hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
+        hex::decode("04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a")
             .expect("valid hex")
             .try_into()
             .expect("compressed key");
@@ -784,6 +787,28 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
         *first = prefix;
     }
     key
+}
+
+/// The auditor message of a transaction with `outputs` outputs outside an
+/// anonymous ring.
+pub fn auditor_message_len(outputs: usize) -> usize {
+    disclosed_message_len(DisclosureShape {
+        anonymous: false,
+        inputs: 0,
+        outputs,
+    })
+}
+
+pub fn disclosed_message_len(shape: DisclosureShape) -> usize {
+    AUDITOR_MESSAGE_PREFIX_LEN + 32 * shape.field_count().expect("disclosed shape")
+}
+
+/// A SEC1-compressed P256 key, the auditor key of a ring created before X25519.
+pub fn legacy_auditor_pubkey() -> [u8; 33] {
+    hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
+        .expect("valid hex")
+        .try_into()
+        .expect("compressed key")
 }
 
 pub fn policy_config_pda() -> (Pubkey, u8) {
@@ -1224,7 +1249,7 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1251,8 +1276,8 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     )
 }
 
-/// Green `set_policy_rules` fixture, `[authority(s), policy_config(w), program,
-/// program_data]`, curators trail.
+/// Green `set_policy_rules` fixture, `[authority(s), config, policy_config(w),
+/// program, program_data]`, curators trail.
 pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::SET_POLICY_RULES, table),
@@ -1261,6 +1286,11 @@ pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxDat
                 label: "authority",
                 meta: AccountMeta::new_readonly(authority(), true),
                 account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1304,7 +1334,7 @@ pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1324,7 +1354,7 @@ fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
         Slot {
             label: "config",
             meta: AccountMeta::new_readonly(config_pda().0, false),
-            account: initialized_config_account(authority(), auditor_pubkey(2)),
+            account: initialized_config_account(authority(), auditor_pubkey(4)),
         },
         Slot {
             label: "policy_config",
@@ -1458,7 +1488,17 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
 
 /// A policy ring whose output nullifier keys are escrowed, as `set_delegate` leaves it.
 pub fn escrowed_config_account() -> Account {
-    config_account_with(authority(), auditor_pubkey(2), 1, 1)
+    config_account_with(authority(), auditor_pubkey(4), 1, RingMode::Registry as u8)
+}
+
+/// An anonymous policy ring as `create_config` writes it.
+pub fn anonymous_config_account() -> Account {
+    config_account_with(authority(), auditor_pubkey(4), 1, RingMode::Anonymous as u8)
+}
+
+/// A policy ring with an arbitrary mode byte.
+pub fn config_account_in_mode(mode: u8) -> Account {
+    config_account_with(authority(), auditor_pubkey(4), 1, mode)
 }
 
 /// An audit-only ring config, transact takes the lighter proof path.
@@ -1470,7 +1510,7 @@ fn config_account_with(
     authority: Pubkey,
     auditor_pubkey: [u8; 33],
     has_policy: u8,
-    key_escrow: u8,
+    mode: u8,
 ) -> Account {
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
@@ -1478,7 +1518,7 @@ fn config_account_with(
         auditor_pubkey,
         bump: config_pda().1,
         has_policy,
-        key_escrow,
+        mode,
     };
     Account {
         lamports: 1_000_000_000,
@@ -1494,11 +1534,16 @@ pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
 }
 
 pub fn create_config_data_with_tier(auditor_pubkey: [u8; 33], has_policy: u8) -> Vec<u8> {
+    create_config_data_with(auditor_pubkey, has_policy, 0)
+}
+
+pub fn create_config_data_with(auditor_pubkey: [u8; 33], has_policy: u8, anonymous: u8) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
         &wincode::serialize(&CreateConfigIxData {
             auditor_pubkey,
             has_policy,
+            anonymous,
         })
         .expect("serialize create_config data"),
     );
@@ -1630,7 +1675,7 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "ring_auth",
@@ -1791,17 +1836,48 @@ pub fn deposit_fixture_with(config: Account) -> Fixture {
 }
 
 pub fn deposit_fixture() -> Fixture {
-    deposit_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+    deposit_fixture_with(audit_only_config_account(authority(), auditor_pubkey(4)))
 }
 
 pub fn merge_fixture_with(config: Account) -> Fixture {
     let mut slots = forward_prefix(config);
     slots.extend(sol_merge_slots());
-    Fixture::new(vec![tag::MERGE], slots)
+    Fixture::new(merge_ring_data(None), slots)
+}
+
+/// A plain ring merge, or the audited layout that appends `recipient`, a proof
+/// commitment and an envelope.
+pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
+    let mut data = vec![tag::MERGE];
+    data.extend(
+        MergeRingIxData {
+            output_ring_data_hash: [8; 32],
+            merge: MergeTransactIxData {
+                expiry_unix_ts: u64::MAX,
+                proof: MergeProof::zeroed(),
+                output_utxo_hash: [1; 32],
+                eddsa_owner: true,
+                private_tx_hash: [3; 32],
+                nullifiers: vec![[5; 32]; 8],
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+                cache_slot: None,
+            },
+        }
+        .serialize()
+        .expect("serialize ring merge"),
+    );
+    if let Some(recipient) = recipient {
+        data.extend_from_slice(&recipient);
+        data.extend_from_slice(&[6; 64]);
+        data.extend_from_slice(&auditor_pubkey(4));
+        data.extend_from_slice(&[7; 113]);
+    }
+    data
 }
 
 pub fn merge_fixture() -> Fixture {
-    merge_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+    merge_fixture_with(audit_only_config_account(authority(), auditor_pubkey(4)))
 }
 
 /// One policy tree at the address tree, no escrow index, no revocation targets.
@@ -1989,7 +2065,7 @@ pub fn ed25519_reader(byte: u8) -> ReaderKeyBytes {
 pub fn p256_reader() -> ReaderKeyBytes {
     let mut key = [0u8; 34];
     key[0] = READER_KEY_P256;
-    key[1..].copy_from_slice(&auditor_pubkey(3));
+    key[1..].copy_from_slice(&legacy_auditor_pubkey());
     key
 }
 
@@ -2040,7 +2116,7 @@ pub fn set_authority_fixture() -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
         ],
     )
@@ -2063,7 +2139,7 @@ pub fn grant_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "read_access_record",
@@ -2087,7 +2163,7 @@ pub fn revoke_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "read_access_record",

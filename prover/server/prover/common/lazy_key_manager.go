@@ -214,7 +214,7 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 		Str("cache_key", key).
 		Uint32("n_inputs", ps.NInputs).
 		Uint32("n_outputs", ps.NOutputs).
-		Bool("requires_p256", ps.RequiresP256).
+		Bool("has_commitment", ps.HasCommitment).
 		Str("circuit_type", string(ps.CircuitType)).
 		Msg("TransferProofSystem loaded and cached successfully")
 
@@ -327,6 +327,9 @@ var transferSupportedShapes = [][2]uint32{
 	{49, 2},
 }
 
+// ringEd25519Shapes mirrors ANONYMOUS_RING_ED25519_SHAPES in program-libs/interface/src/shape.rs.
+var ringEd25519Shapes = [][2]uint32{{2, 2}, {2, 4}, {3, 4}, {4, 2}}
+
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
@@ -349,8 +352,14 @@ func (shape ProofShape) Supported() bool {
 				return true
 			}
 		}
-	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferP256RingCircuitType:
+	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType:
 		for _, supported := range transferSupportedShapes {
+			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
+				return true
+			}
+		}
+	case TransferAnonymousRingEd25519CircuitType:
+		for _, supported := range ringEd25519Shapes {
 			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
 				return true
 			}
@@ -385,8 +394,8 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		prefix = "transfer_confidential"
 	case TransferRingCircuitType:
 		prefix = "transfer_ring"
-	case TransferP256RingCircuitType:
-		prefix = "transfer_p256_ring"
+	case TransferAnonymousRingEd25519CircuitType:
+		prefix = "transfer_ed25519_ring"
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
 	case MergeCircuitType:
@@ -426,8 +435,8 @@ func keyFileCircuits() map[string]CircuitType {
 	for _, circuit := range []CircuitType{
 		TransferConfidentialCircuitType,
 		TransferRingCircuitType,
-		TransferP256RingCircuitType,
 		TransferRingAuthorityCircuitType,
+		TransferAnonymousRingEd25519CircuitType,
 	} {
 		for _, shape := range transferSupportedShapes {
 			if file := TransferKeyFile(circuit, shape[0], shape[1]); file != "" {

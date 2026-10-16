@@ -58,7 +58,7 @@ test: test-no-redis test-with-redis test-integration
 
 # === Benchmarks ===
 
-# SPP proving benchmark (solana + p256 rails, every shape); appends to BENCHMARKS.md.
+# SPP proving benchmark (Solana ownership, every shape), appends to BENCHMARKS.md.
 bench-spp benchtime="5x":
     scripts/bench_spp.sh {{benchtime}}
 

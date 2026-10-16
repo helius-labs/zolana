@@ -25,13 +25,14 @@ use zolana_hasher::{
         create_right_hash_chain_from_slice,
     },
     primitives::hash_bytes,
+    sha256::Sha256,
+    Hasher,
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof as ProofData, TreeContext,
+        Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
+        TransactOutput, TransactProof as ProofData, TreeContext,
     },
-    merge_utils::owner_proof_input_hash_compressed,
     state::cache::empty_cached_input_fields,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -75,19 +76,6 @@ fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
         .iter()
         .map(fe)
         .collect()
-}
-
-/// Decode a `0x…` byte string of exactly `N` bytes (no field padding).
-fn bytes<const N: usize>(value: &Value) -> [u8; N] {
-    let text = value.as_str().expect("byte string");
-    let digits = text.strip_prefix("0x").expect("byte string has 0x prefix");
-    assert_eq!(digits.len(), N * 2, "byte string is {N} bytes");
-    let mut out = [0u8; N];
-    for (slot, chunk) in out.iter_mut().zip(digits.as_bytes().chunks(2)) {
-        let text = core::str::from_utf8(chunk).expect("hex chunk");
-        *slot = u8::from_str_radix(text, 16).expect("hex byte");
-    }
-    out
 }
 
 /// The vector's fixed-width `tree_slots` array: `INPUT_TREES` entries of
@@ -261,7 +249,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
 
 fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     let mut derived =
-        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
+        TransactProofInputs::new(CircuitId::ConfidentialEd25519(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
     derived.input_flags = small_fe(1);
@@ -293,11 +281,11 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEddsa(2, 4, 3), 3usize, 2u8, true),
-        (CircuitId::RingEddsa(2, 4, 3), 3, 2, true),
+        (CircuitId::ConfidentialEd25519(2, 4, 3), 3usize, 2u8, true),
+        (CircuitId::ConfidentialRingEd25519(2, 4, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(32, 2, 3), 29, 29, true),
-        (CircuitId::RingEddsa(49, 2, 3), 12, 1, true),
+        (CircuitId::ConfidentialEd25519(32, 2, 3), 29, 29, true),
+        (CircuitId::ConfidentialRingEd25519(49, 2, 3), 12, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -374,7 +362,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
 /// leaves zero for unsent outputs.
 #[test]
 fn compact_program_assembly_matches_the_go_ordering() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let circuit = CircuitId::ConfidentialEd25519(2, 3, 3);
     let mut owned = ix_data(circuit);
     owned.inputs.truncate(1);
     owned.outputs.truncate(1);
@@ -446,6 +434,104 @@ fn compact_program_assembly_matches_the_go_ordering() {
     assert_eq!(proof.public_input_hash().expect("assembly"), clone.hash());
 }
 
+/// The program assembles the AnonymousRingEd25519 public input hash the circuit proves
+/// for the committed Go request of `TestCustomRingAnonymousEd25519RequestFixture`, including
+/// the zero default owner and zero published output owners.
+#[test]
+fn anonymous_ring_ed25519_assembly_matches_the_go_request_fixture() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../prover/server/prover/transfer_eddsa_only/testdata/ed25519-ring-2x2.json");
+    let request: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
+        .expect("parse fixture");
+    let entries = |key: &str| -> Vec<Value> {
+        request
+            .get(key)
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("fixture list {key}"))
+            .clone()
+    };
+    let circuit = CircuitId::AnonymousRingEd25519(
+        2,
+        2,
+        3,
+        Bsb22Commitment {
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
+    );
+    let private_tx_hash = fe_at(&request, "privateTxHash");
+    let external_data_hash = fe_at(&request, "externalDataHash");
+    let mut message_digest = fe_at(&request, "messageHashLow");
+    message_digest[..16].copy_from_slice(&fe_at(&request, "messageHashHigh")[16..]);
+    assert_eq!(
+        Sha256::hashv(&[private_tx_hash.as_slice(), external_data_hash.as_slice()])
+            .expect("sha256"),
+        message_digest,
+        "the fixture signs sha256(private_tx_hash || external_data_hash)"
+    );
+
+    let owned = TransactIxData {
+        private_tx_hash,
+        inputs: entries("inputs")
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: fe_at(input, "nullifier"),
+                tree_index: 0,
+            })
+            .collect(),
+        outputs: entries("outputs")
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: fe_at(output, "hash"),
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
+            })
+            .collect(),
+        ..ix_data(circuit)
+    };
+    let bytes = owned.serialize().expect("serialize transact ix");
+    let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
+
+    let mut derived = TransactProofInputs::new(circuit);
+    derived.tree_slots = entries("treeSlots")
+        .iter()
+        .map(|slot| TreeSlot {
+            id: fe_at(slot, "id"),
+            utxo_root: fe_at(slot, "utxoRoot"),
+            nullifier_root: fe_at(slot, "nullifierRoot"),
+        })
+        .collect();
+    derived.output_tree_id = fe_at(&request, "outputTreeId");
+    derived.external_data_hash = external_data_hash;
+    derived.ring_program_id = fe_at(&request, "ringProgramId");
+    derived.input_flags = fe_at(&request, "inputFlags");
+    for (slot, asset) in derived
+        .public_slot_assets
+        .iter_mut()
+        .zip(fe_list(&request, "publicAssets"))
+    {
+        *slot = asset;
+    }
+    // The fixture moves no public value, so every slot amount is zero.
+    assert!(fe_list(&request, "publicAmounts")
+        .iter()
+        .all(|amount| *amount == [0u8; 32]));
+    let signers = fe_list(&request, "signerPkHashes");
+    let unique = signers
+        .iter()
+        .take_while(|signer| **signer != [0u8; 32])
+        .count();
+    derived.signer_pk_hashes[..unique].copy_from_slice(&signers[..unique]);
+    derived.unique_owner_signer_count = u8::try_from(unique).expect("signer count");
+
+    assert_eq!(
+        TransactProof::new(&ix, &derived)
+            .public_input_hash()
+            .expect("assembly"),
+        fe_at(&request, "publicInputHash")
+    );
+}
+
 /// The field-derivation vector pins `solana_pk_hash`, the signed public
 /// movement encoding (`amount_field` over the aggregated `i128` net), and
 /// the interface-transfer → public-slot aggregation (deposits positive,
@@ -458,17 +544,6 @@ fn field_derivation_vector_pins_the_shared_encodings() {
     assert_eq!(
         solana_owner_identity(&fe_at(solana, "pubkey")).expect("solana owner identity"),
         fe_at(solana, "hash")
-    );
-
-    // The P256 owner identity is tagged and taken over the x-coordinate only,
-    // so the vector's SEC1-compressed key and its odd-parity twin agree.
-    let p256 = vector
-        .get("p256_owner_pk_hash")
-        .expect("p256_owner_pk_hash entry");
-    let compressed: [u8; 33] = bytes(p256.get("compressed_pubkey").expect("compressed_pubkey"));
-    assert_eq!(
-        owner_proof_input_hash_compressed(&compressed).expect("p256 owner identity"),
-        fe_at(p256, "hash")
     );
 
     for entry in vector

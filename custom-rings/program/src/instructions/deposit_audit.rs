@@ -3,6 +3,7 @@ use custom_ring_interface::{
 };
 use custom_ring_interface::{
     RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
+    TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG,
 };
 use pinocchio::{error::ProgramError, Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
@@ -44,7 +45,8 @@ impl<'a> AuditedDeposit<'a> {
 pub(crate) struct DepositVerification<'a, 'data> {
     pub program_id: &'a Address,
     pub tree: &'a Address,
-    pub auditor_pk: &'a [u8; 33],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub anonymous: bool,
     pub key_registry_root: Option<&'a [u8; 32]>,
     pub audited: &'a AuditedDeposit<'data>,
     pub deposit: &'a RingDepositIxDataRef<'data>,
@@ -62,12 +64,12 @@ impl DepositVerification<'_, '_> {
         let mut owners = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
         let mut ciphertexts =
             [[0; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-        let mut eph_pk = [0; 33];
+        let mut eph_pk = [0; TAGGED_X25519_KEY_LEN];
         for (slot, entry) in self.deposit.deposits.iter().enumerate() {
             let capsule = RingDepositAuditCapsule::parse(entry.encrypted.ciphertext)
                 .map_err(|_| CustomRingError::InvalidDepositDisclosure)?
                 .ok_or(CustomRingError::InvalidDepositDisclosure)?;
-            if usize::from(capsule.slot_index) != slot {
+            if usize::from(capsule.slot_index) != slot || capsule.eph_pk[0] != VIEWING_PUBKEY_TAG {
                 return Err(CustomRingError::InvalidDepositDisclosure.into());
             }
             if slot == 0 {
@@ -89,6 +91,7 @@ impl DepositVerification<'_, '_> {
         .map_err(|_| CustomRingError::HashingFailed)?;
         let public_input = DepositPublicInput {
             context_hash: &context_hash,
+            anonymous: self.anonymous,
             owner_utxo_hashes: &owners[..count],
             ciphertexts: &ciphertexts[..count],
             auditor_pk: self.auditor_pk,

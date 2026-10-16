@@ -392,6 +392,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
     let audit = CustomRingBasePublicInput {
+        anonymous: false,
         private_tx_hash: &[1u8; 32],
         tx_viewing_pk: &[2u8; 33],
         auditor_pk: &[3u8; 33],
@@ -443,7 +444,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
 #[test]
 fn nonzero_revocation_tail_matches_go_and_typescript() {
     let mut elements = vec![hex32(
-        "25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093",
+        "1b4e1ba78684f111c74fabe984dcf6b70cd0bd6cbdcaf90a672986ce1a89b0e0",
     )];
     elements.extend_from_slice(&[
         [0x2a; 32],
@@ -462,7 +463,7 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e")
+        hex32("2aa0c875d2823f551bc4c1f5e98cc18fb0dc6171079af204193067ec124f07e6")
     );
 }
 
@@ -519,7 +520,7 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
     zolana_interface::instruction::instruction_data::transact::TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::RingEddsa(1, 1, zolana_interface::N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEd25519(1, 1, zolana_interface::N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),

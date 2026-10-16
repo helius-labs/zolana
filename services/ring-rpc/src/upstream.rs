@@ -2,7 +2,8 @@ use std::{future::Future, marker::PhantomData, time::Duration};
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    ReadAccessRecord, RingMode, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD,
+    RING_PROGRAM_CONFIG,
 };
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
@@ -23,10 +24,9 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{
-    is_reserved_p256_derivation_point, state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID,
-    SHIELDED_POOL_PROGRAM_ID,
+    state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
     ring_deposits_in, ConfirmedTransaction, OriginError, ReaderKey, RingOrigin,
     ORIGIN_TRANSACTION_CONFIG,
@@ -114,8 +114,9 @@ pub struct ReaderGrant {
 
 #[derive(Clone, Copy)]
 pub struct RingConfiguration {
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     pub authority: Address,
+    pub mode: RingMode,
 }
 
 #[must_use]
@@ -361,16 +362,19 @@ impl ConfigAccount<'_> {
             account_type: PhantomData,
         }
         .decode()?;
-        if config.bump != self.bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
+        if config.bump != self.bump {
             return Err(ClientError::Rpc(
                 "custom ring config account is invalid".to_owned(),
             ));
         }
-        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+        let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
             .map_err(|_| ClientError::Rpc("custom ring config account is invalid".to_owned()))?;
         Ok(RingConfiguration {
             auditor_pubkey,
             authority: config.authority,
+            mode: config
+                .mode()
+                .ok_or_else(|| ClientError::Rpc("custom ring config mode is invalid".to_owned()))?,
         })
     }
 }
@@ -459,8 +463,6 @@ mod tests {
     use solana_account::Account;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_interface::P_CONST_SEC1;
-    use zolana_keypair::ViewingKey;
 
     use super::*;
 
@@ -541,7 +543,7 @@ mod tests {
     fn config_accounts_require_the_canonical_layout() {
         let ring = Address::new_from_array([9; 32]);
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
-        let key = ViewingKey::new().pubkey();
+        let key = zolana_keypair::X25519Secret::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
         assert_eq!(
             ConfigAccount {
@@ -588,7 +590,7 @@ mod tests {
         }
         .decode()
         .is_err());
-        for invalid_key in [P_CONST_SEC1, [0; 33]] {
+        for invalid_key in [[2; 33], [0; 33]] {
             let invalid = config_account(ring, invalid_key, bump);
             assert!(ConfigAccount {
                 account: &invalid,
@@ -613,7 +615,18 @@ mod tests {
         let ring = Address::new_from_array([9; 32]);
         let readers = [
             ReaderKey::ed25519(Keypair::new().pubkey()).expect("Ed25519 reader"),
-            ReaderKey::p256(ViewingKey::new().pubkey()).expect("P256 reader"),
+            ReaderKey::p256(
+                zolana_ring_client::P256ReaderKey::from_bytes(
+                    hex::decode(
+                        "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+                    )
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .expect("P256 reader"),
         ];
         for reader in readers {
             let grant = ReaderGrant { ring, reader };

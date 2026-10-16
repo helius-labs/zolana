@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_transaction::{
     verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
     ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
@@ -109,12 +109,16 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
-        tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
+        tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
+        // Anonymous ring outputs publish no recipient tag. Query the shared
+        // zero tag, then try held viewing keys against each returned slot.
+        let mut query_tags = tags.clone();
+        query_tags.push([0; 32]);
 
         let mut seen = HashSet::new();
         let mut batch = self.unseen(
             &mut seen,
-            tagged_transactions(indexer, &tags, self.indexer_config)?,
+            tagged_transactions(indexer, &query_tags, self.indexer_config)?,
         )?;
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();

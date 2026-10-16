@@ -132,7 +132,7 @@ pub fn merged(output: &Output) -> String {
 
 impl RingProject {
     /// `keys/auditor.key.pub` holds `auditor`, the local key `init` pins.
-    pub fn create(env: &TestEnv, auditor: &zolana_keypair::P256Pubkey) -> Result<Self> {
+    pub fn create(env: &TestEnv, auditor: &zolana_keypair::X25519Pubkey) -> Result<Self> {
         let dir = PathBuf::from(isolated_temp_path("zolana-ring-cli"));
         let keys = dir.join("keys");
         std::fs::create_dir_all(&keys)?;

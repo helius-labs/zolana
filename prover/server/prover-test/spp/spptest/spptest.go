@@ -5,20 +5,15 @@
 package spptest
 
 import (
-	"crypto/ecdsa"
-	"crypto/rand"
 	"math/big"
 	mrand "math/rand"
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/internal/p256key"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/math/emulated"
-	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
 // Fe returns value as a field element.
@@ -189,41 +184,4 @@ func RandomFields(rng *mrand.Rand, count int) []*big.Int {
 		out[i] = RandomField(rng)
 	}
 	return out
-}
-
-// FixedP256Key derives a deterministic P256 key from a fixed scalar.
-func FixedP256Key(t testing.TB, scalar int64) *ecdsa.PrivateKey {
-	t.Helper()
-	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(scalar))
-	if err != nil {
-		t.Fatalf("fixed P256 key: %v", err)
-	}
-	return priv
-}
-
-func P256PubkeyAssignment(priv *ecdsa.PrivateKey) gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr] {
-	return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{
-		X: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.X),
-		Y: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.Y),
-	}
-}
-
-// UnusedP256Witness returns a valid-but-irrelevant P256 public key and signature
-// over msg, for inputs that are not P256-owned and so do not constrain the key.
-func UnusedP256Witness(msg []byte) (gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr], gnarkecdsa.Signature[emulated.P256Fr], error) {
-	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(7))
-	if err != nil {
-		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, err
-	}
-	r, s, err := ecdsa.Sign(rand.Reader, priv, msg)
-	if err != nil {
-		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, err
-	}
-	return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{
-		X: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.X),
-		Y: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.Y),
-	}, gnarkecdsa.Signature[emulated.P256Fr]{
-		R: emulated.ValueOf[emulated.P256Fr](r),
-		S: emulated.ValueOf[emulated.P256Fr](s),
-	}, nil
 }

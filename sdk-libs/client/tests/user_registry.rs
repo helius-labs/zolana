@@ -22,14 +22,13 @@ impl Rpc for RegistryAbsent {
 }
 
 fn ed25519_registration(payer: Option<Pubkey>) -> (Pubkey, solana_message::v1::Message) {
-    let owner = Pubkey::new_unique();
     let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
         .expect("ed25519 keypair");
     let address = keypair.shielded_address().expect("shielded address");
-    let message =
-        build_registration_transaction_sync(&RegistryAbsent, owner, &address, None, payer)
-            .expect("build registration")
-            .expect("registration required");
+    let owner = Pubkey::new_from_array(address.signing_pubkey.as_ed25519().unwrap());
+    let message = build_registration_transaction_sync(&RegistryAbsent, owner, &address, payer)
+        .expect("build registration")
+        .expect("registration required");
     let VersionedMessage::V1(message) = message else {
         panic!("expected v1 registration message");
     };
@@ -81,7 +80,7 @@ fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
     let record = UserRecord {
         owner,
         bump: 255,
-        owner_p256: None,
+        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
         merging_enabled,
@@ -98,12 +97,6 @@ fn a_merge_needs_merging_enabled_and_the_owners_registered_keys() {
     assert!(matches!(
         check_merge_record(&disabled, owner, &address),
         Err(ClientError::MergeDisabled { owner: got }) if got == owner
-    ));
-    let mut p256 = record.clone();
-    p256.owner_p256 = Some([2u8; 33]);
-    assert!(matches!(
-        check_merge_record(&p256, owner, &address),
-        Err(ClientError::MergeSigningKeyMismatch)
     ));
     assert!(matches!(
         check_merge_record(&record, Pubkey::new_unique(), &address),

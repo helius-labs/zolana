@@ -14,6 +14,7 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -376,11 +377,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "tx scalar zero",
+			name: "legacy viewing key tag",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.keys = func(k audittest.Keys) audittest.Keys {
-					return k.WithInfinityTxScalar(big.NewInt(0))
+					return k.WithLegacyTxTag()
 				}
 				return buildAssignment(t, f)
 			},
@@ -531,7 +532,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 }
 
 func TestNonzeroRevocationTailVector(t *testing.T) {
-	baseHash, _ := new(big.Int).SetString("25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093", 16)
+	baseHash, _ := new(big.Int).SetString("1b4e1ba78684f111c74fabe984dcf6b70cd0bd6cbdcaf90a672986ce1a89b0e0", 16)
 	repeatedTarget, _ := new(big.Int).SetString("1111111111111111111111111111111111111111111111111111111111111111", 16)
 	filled := func(value byte) *big.Int {
 		data := make([]byte, 32)
@@ -547,7 +548,7 @@ func TestNonzeroRevocationTailVector(t *testing.T) {
 		big.NewInt(0x42), repeatedTarget,
 	}
 	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), NListFacts-2)...)
-	if got := hex32(spptest.MustHashChain(t, elements)); got != "0fea02bf7a8cfb1a2b99d9d69f90008e278e9d6fb56e94a253fafba9880fe31e" {
+	if got := hex32(spptest.MustHashChain(t, elements)); got != "2aa0c875d2823f551bc4c1f5e98cc18fb0dc6171079af204193067ec124f07e6" {
 		t.Fatalf("nonzero revocation tail %s", got)
 	}
 }
@@ -1222,10 +1223,12 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:    s.publicInputHash,
 		PrivateTxHash:      wires.PrivateTxHash,
+		Anonymous:          0,
 		TxViewingSk:        wires.TxViewingSk,
 		EphSk:              wires.EphSk,
 		AuditorPk:          wires.AuditorPk,
 		Salt:               wires.Salt,
+		Sender:             base.ZeroAuditIdentity(),
 		AddressChain:       s.addressChain,
 		PrivateTxBlinding:  s.privateTxBlinding,
 		AddressTreeID:      big.NewInt(addressTreeID),
@@ -1269,6 +1272,7 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	}
 	for i := range c.Outputs {
 		c.Outputs[i] = zeroOpening()
+		c.Recipients[i] = base.ZeroAuditIdentity()
 		c.OutputCountSelected[i] = big.NewInt(0)
 		c.OutputKeys[i] = zeroKeyOpening()
 	}

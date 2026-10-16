@@ -27,6 +27,10 @@ func TestTransferPreloadSelection(t *testing.T) {
 	if err != nil || !matched || len(paths) != 1 || filepath.Base(paths[0]) != "transfer_confidential_2_4.key" {
 		t.Fatalf("selection %v %v", paths, err)
 	}
+	paths, matched, err = manager.selectedTransferPaths("transfer-ed25519-ring")
+	if err != nil || !matched || len(paths) != len(ringEd25519Shapes) {
+		t.Fatalf("anonymous ring selection %v %v", paths, err)
+	}
 	paths, matched, err = manager.selectedTransferPaths("merge")
 	if err != nil || !matched || len(paths) != len(mergeSupportedInputCounts) {
 		t.Fatalf("merge selection %v %v", paths, err)
@@ -59,5 +63,15 @@ func TestRPCPreloadsOnlyPublishedShapes(t *testing.T) {
 	}
 	if _, _, err := manager.selectedTransferPaths("transfer-ring-authority:2:3"); err == nil {
 		t.Fatal("unsupported authority shape")
+	}
+}
+
+func TestTransferMetadataUsesTheSharedRoutingSet(t *testing.T) {
+	for _, circuit := range TransferCircuitTypes() {
+		data := []byte(`{"circuitType":"` + string(circuit) + `","nInputs":2,"nOutputs":2}`)
+		meta, err := ParseProofRequestMeta(data)
+		if err != nil || meta.CircuitType != circuit || meta.NumInputs != 2 || meta.NumOutputs != 2 {
+			t.Fatalf("fixed-shape request %s: %+v %v", circuit, meta, err)
+		}
 	}
 }

@@ -1,0 +1,315 @@
+// Copyright 2020-2025 Consensys Software Inc.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package emfield
+
+import (
+	"fmt"
+	"math/big"
+
+	"github.com/consensys/gnark/frontend"
+)
+
+type part struct {
+	coef *big.Int
+	e    *Element
+}
+
+// Element tracks circuit limbs and compile-time bounds for their integer values.
+// Bounds are metadata. Constructors such as Bounded do not prove them.
+type Element struct {
+	limbs              []frontend.Variable
+	lo, hi             []*big.Int
+	valueMin, valueMax *big.Int
+	parts              []part
+}
+
+type Field struct {
+	api          frontend.API
+	layout       Layout
+	mod          *big.Int
+	modulusBits  int
+	widths       []int
+	modulusLimbs []*big.Int
+	rc           *RangeChecker
+	arithmetic   *arithmeticState
+}
+
+type fieldKey struct {
+	mod    string
+	layout Layout
+}
+
+// Construct shared arithmetic for trusted compile-time modulus/layout choices.
+// Arithmetic checks enforce their coefficient and carry capacity.
+func NewFor(api frontend.API, modulus *big.Int, layout Layout) *Field {
+	kv := store(api)
+	key := fieldKey{modulus.String(), layout}
+	if f, ok := kv.GetKeyValue(key).(*Field); ok {
+		return f
+	}
+	f := &Field{
+		api:         api,
+		layout:      layout,
+		mod:         new(big.Int).Set(modulus),
+		modulusBits: modulus.BitLen(),
+		widths:      layout.reducedWidths(modulus.BitLen()),
+		rc:          NewRangeCheckerFor(api, layout.PieceBits),
+	}
+	f.modulusLimbs = layout.decompose(f.mod, layout.NbLimbs)
+	kv.SetKeyValue(key, f)
+	f.arithmetic = newArithmeticState(f)
+	return f
+}
+
+// Expose the field-owned unsigned range checker used before attaching bounds.
+func (f *Field) RangeChecker() *RangeChecker {
+	return f.rc
+}
+
+// Splits a public integer into fixed-width limbs and rejects overflow.
+func (l Layout) decompose(value *big.Int, limbCount int) []*big.Int {
+	limbs := make([]*big.Int, limbCount)
+	remainingValue := new(big.Int).Set(value)
+	mask := new(big.Int).Sub(pow2(l.LimbBits), big.NewInt(1))
+	for i := range limbs {
+		limbs[i] = new(big.Int).And(remainingValue, mask)
+		remainingValue.Rsh(remainingValue, uint(l.LimbBits))
+	}
+	if remainingValue.Sign() != 0 {
+		panic("value does not fit the limbs")
+	}
+	return limbs
+}
+
+// Reconstructs the integer represented by public little-endian limbs.
+func (l Layout) recompose(limbs []*big.Int) *big.Int {
+	v := new(big.Int)
+	for i := len(limbs) - 1; i >= 0; i-- {
+		v.Lsh(v, uint(l.LimbBits)).Add(v, limbs[i])
+	}
+	return v
+}
+
+// Reduce a trusted integer constant and attach exact per-limb intervals.
+func (f *Field) Const(v *big.Int) *Element {
+	r := new(big.Int).Mod(v, f.mod)
+	limbs := f.layout.decompose(r, f.layout.NbLimbs)
+	e := &Element{limbs: make([]frontend.Variable, f.layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
+	for i := range limbs {
+		e.limbs[i] = limbs[i]
+	}
+	return e
+}
+
+// Bounded attaches known unsigned bounds. The caller must establish them in the circuit.
+func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
+	if len(limbs) != len(widths) {
+		panic("limb count mismatch")
+	}
+	e := &Element{limbs: limbs, lo: make([]*big.Int, len(limbs)), hi: make([]*big.Int, len(limbs))}
+	total := 0
+	for i, w := range widths {
+		e.lo[i] = new(big.Int)
+		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
+		total = i*f.layout.LimbBits + w
+	}
+	e.valueMin = new(big.Int)
+	e.valueMax = new(big.Int).Sub(pow2(total), big.NewInt(1))
+	return e
+}
+
+// WithBounds records bounds already proved by its caller. It adds no constraints.
+// Each signed limb interval and the exact limb count must hold independently.
+func (f *Field) WithBounds(limbs []frontend.Variable, lo, hi []*big.Int) *Element {
+	if len(limbs) != len(lo) || len(limbs) != len(hi) {
+		panic("limb count mismatch")
+	}
+	e := &Element{limbs: limbs, lo: lo, hi: hi, valueMin: new(big.Int), valueMax: new(big.Int)}
+	for i := range limbs {
+		if lo[i].Cmp(hi[i]) > 0 {
+			panic("empty limb interval")
+		}
+		e.valueMin.Add(e.valueMin, new(big.Int).Lsh(lo[i], uint(f.layout.LimbBits*i)))
+		e.valueMax.Add(e.valueMax, new(big.Int).Lsh(hi[i], uint(f.layout.LimbBits*i)))
+	}
+	return e
+}
+
+// Return a copy of the layout widths. Width-reduced is weaker than canonical.
+func (f *Field) ReducedWidths() []int {
+	return append([]int{}, f.widths...)
+}
+
+// Range-check each piece and reconstruct every limb before attaching bounds.
+func (f *Field) fromPieces(pieces []frontend.Variable, widths []int) (*Element, []frontend.Variable) {
+	limbs := make([]frontend.Variable, len(widths))
+	for i, limbWidth := range widths {
+		pieceCount := f.layout.nbPieces(limbWidth)
+		limbs[i] = f.rc.Compose(pieces[:pieceCount], limbWidth)
+		pieces = pieces[pieceCount:]
+	}
+	return f.Bounded(limbs, widths), pieces
+}
+
+// Expose existing limb expressions. Callers must not mutate the backing slice
+// or treat these metadata-bounded expressions as independently validated inputs.
+func (e *Element) Limbs() []frontend.Variable {
+	return e.limbs
+}
+
+// Inspect existing interval metadata only. No constraints or canonicality check.
+func (e *Element) IsReduced(widths []int) bool {
+	if len(e.limbs) != len(widths) || e.parts != nil {
+		return false
+	}
+	for i, w := range widths {
+		if e.lo[i].Sign() < 0 || e.hi[i].BitLen() > w {
+			return false
+		}
+	}
+	return true
+}
+
+// Combine bounded integers linearly and propagate signed intervals. No modular
+// reduction occurs. Input metadata must describe already-constrained values.
+func (f *Field) Lin(coefficients []int64, elements ...*Element) *Element {
+	if len(coefficients) != len(elements) {
+		panic("coefficient count mismatch")
+	}
+	limbCount := 0
+	for _, e := range elements {
+		limbCount = max(limbCount, len(e.limbs))
+	}
+	combination := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
+	for i := range combination.limbs {
+		combination.limbs[i] = 0
+		combination.lo[i] = new(big.Int)
+		combination.hi[i] = new(big.Int)
+	}
+	for k, e := range elements {
+		coefficient := big.NewInt(coefficients[k])
+		combination.parts = append(combination.parts, part{coef: coefficient, e: e})
+		for i := range e.limbs {
+			combination.limbs[i] = f.api.Add(combination.limbs[i], f.api.Mul(e.limbs[i], coefficient))
+			scaledMin, scaledMax := new(big.Int).Mul(e.lo[i], coefficient), new(big.Int).Mul(e.hi[i], coefficient)
+			if coefficient.Sign() < 0 {
+				scaledMin, scaledMax = scaledMax, scaledMin
+			}
+			combination.lo[i].Add(combination.lo[i], scaledMin)
+			combination.hi[i].Add(combination.hi[i], scaledMax)
+		}
+		scaledMin, scaledMax := new(big.Int).Mul(e.valueMin, coefficient), new(big.Int).Mul(e.valueMax, coefficient)
+		if coefficient.Sign() < 0 {
+			scaledMin, scaledMax = scaledMax, scaledMin
+		}
+		combination.valueMin.Add(combination.valueMin, scaledMin)
+		combination.valueMax.Add(combination.valueMax, scaledMax)
+	}
+	return combination
+}
+
+// Add bounded representatives through Lin, preserving their integer intervals.
+func (f *Field) Add(a, b *Element) *Element {
+	return f.Lin([]int64{1, 1}, a, b)
+}
+
+// Subtract bounded representatives through Lin, including negative intervals.
+func (f *Field) Sub(a, b *Element) *Element {
+	return f.Lin([]int64{1, -1}, a, b)
+}
+
+// Negate a bounded representative. Canonicalization remains a separate operation.
+func (f *Field) Neg(a *Element) *Element {
+	return f.Lin([]int64{-1}, a)
+}
+
+// Select every limb, zero-extending unequal lengths. API.Select constrains
+// Booleanity. Valid input intervals bound either selected representative.
+func (f *Field) Select(selector frontend.Variable, x, y *Element) *Element {
+	limbCount := max(len(x.limbs), len(y.limbs))
+	selected := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount)}
+	limb := func(e *Element, i int) (frontend.Variable, *big.Int, *big.Int) {
+		if i < len(e.limbs) {
+			return e.limbs[i], e.lo[i], e.hi[i]
+		}
+		return 0, new(big.Int), new(big.Int)
+	}
+	for i := range selected.limbs {
+		xValue, xMin, xMax := limb(x, i)
+		yValue, yMin, yMax := limb(y, i)
+		selected.limbs[i] = f.api.Select(selector, xValue, yValue)
+		selected.lo[i] = minInt(xMin, yMin)
+		selected.hi[i] = maxInt(xMax, yMax)
+	}
+	selected.valueMin = minInt(x.valueMin, y.valueMin)
+	selected.valueMax = maxInt(x.valueMax, y.valueMax)
+	return selected
+}
+
+// Returns a fresh lower endpoint without mutating either input bound.
+func minInt(a, b *big.Int) *big.Int {
+	if a.Cmp(b) < 0 {
+		return new(big.Int).Set(a)
+	}
+	return new(big.Int).Set(b)
+}
+
+// Returns a fresh upper endpoint without mutating either input bound.
+func maxInt(a, b *big.Int) *big.Int {
+	if a.Cmp(b) > 0 {
+		return new(big.Int).Set(a)
+	}
+	return new(big.Int).Set(b)
+}
+
+// Bounds the magnitude of either endpoint of a signed interval.
+func absMax(lo, hi *big.Int) *big.Int {
+	return maxInt(new(big.Int).Abs(lo), new(big.Int).Abs(hi))
+}
+
+// Serializes trusted arithmetic metadata and witness limbs for the hint ABI.
+func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []frontend.Variable {
+	inputs := f.layout.header()
+	for _, l := range f.modulusLimbs {
+		inputs = append(inputs, l)
+	}
+	inputs = append(inputs, len(natives))
+	inputs = append(inputs, natives...)
+	for _, e := range elems {
+		inputs = append(inputs, len(e.limbs))
+		inputs = append(inputs, e.limbs...)
+	}
+	return inputs
+}
+
+// Obtain unsigned width-bounded outputs only. Callers must constrain their
+// mathematical relation to inputs and request canonicality when required.
+func (f *Field) Hint(fn func(*big.Int, []*big.Int, []*big.Int) error, nbOutputs int, natives []frontend.Variable, elems ...*Element) []*Element {
+	piecesPerElement := f.layout.nbPiecesAll(f.widths)
+	pieces, err := f.api.Compiler().NewHint(fn, nbOutputs*piecesPerElement, f.hintInputs(natives, elems)...)
+	if err != nil {
+		panic(fmt.Sprintf("field hint: %v", err))
+	}
+	elements := make([]*Element, nbOutputs)
+	for i := range elements {
+		elements[i], pieces = f.fromPieces(pieces, f.widths)
+	}
+	return elements
+}
+
+// Layout returns the trusted limb geometry used by byte and point encodings.
+func (f *Field) Layout() Layout { return f.layout }
+
+// Modulus returns a copy so callers cannot change the arithmetic statement.
+func (f *Field) Modulus() *big.Int { return new(big.Int).Set(f.mod) }

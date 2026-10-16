@@ -14,7 +14,7 @@ import (
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
 
-type CustomRingEddsaOnlyPublic struct {
+type CustomRingConfidentialEd25519Public struct {
 	// Nullifiers for UTXO, address, and dummy input slots.
 	Nullifiers []frontend.Variable
 	// New output UTXO hashes.
@@ -49,7 +49,7 @@ type CustomRingEddsaOnlyPublic struct {
 	PublicInputHash              frontend.Variable `gnark:",public"`
 }
 
-type CustomRingEddsaOnlyPrivate struct {
+type CustomRingConfidentialEd25519Private struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
@@ -58,29 +58,29 @@ type CustomRingEddsaOnlyPrivate struct {
 	BlindingSeed        frontend.Variable
 }
 
-type CustomRingEddsaOnlyCircuit struct {
+type CustomRingConfidentialEd25519Circuit struct {
 	CachedInputs shared.CachedInputs
 
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomRingEddsaOnlyPublic
-	Private CustomRingEddsaOnlyPrivate
+	Public  CustomRingConfidentialEd25519Public
+	Private CustomRingConfidentialEd25519Private
 }
 
-func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCircuit, error) {
+func NewCustomRingConfidentialEd25519Circuit(shape shared.Shape) (*CustomRingConfidentialEd25519Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomRingEddsaOnlyCircuit{
+	return &CustomRingConfidentialEd25519Circuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
-		Public: CustomRingEddsaOnlyPublic{
+		Public: CustomRingConfidentialEd25519Public{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:                    shared.NewTreeSlots(),
 			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: CustomRingEddsaOnlyPrivate{
+		Private: CustomRingConfidentialEd25519Private{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -90,7 +90,7 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 	}, nil
 }
 
-func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
+func (c *CustomRingConfidentialEd25519Circuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		CachedInputs:      &c.CachedInputs,
 		Shape:             c.Shape,
@@ -116,7 +116,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 	}
 }
 
-func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *CustomRingConfidentialEd25519Circuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
@@ -140,7 +140,7 @@ func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	}
 
 	authorized := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners := shared.AuthorizedEddsaInputOwners(
+	inputOwners := shared.AuthorizedEd25519InputOwners(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,

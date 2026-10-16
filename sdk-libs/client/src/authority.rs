@@ -53,9 +53,8 @@ pub trait ProofAuthority: Send + Sync {
 /// from the secret witnessed here; the two are only equal if the secret is the
 /// one that built the input. The first nullifier is also the seed of
 /// `derive_private_tx_blinding`, so a disagreement makes the client and the
-/// prover commit to different private transaction hashes -- and nothing reports
-/// that until `validate_authorization` rejects the P-256 signature or an eddsa
-/// proof fails against its public input.
+/// prover commit to different private transaction hashes and the proof fails
+/// against the locally assembled public input.
 fn complete_owned_inputs(
     nullifier_key: &NullifierKey,
     inputs: &mut [TransferInput],
@@ -181,7 +180,7 @@ mod tests {
             },
         ];
 
-        assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
+        assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
             .expect("assemble inputs")
             .inputs
     }

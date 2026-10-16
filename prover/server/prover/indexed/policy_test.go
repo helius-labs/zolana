@@ -3,8 +3,6 @@ package indexed
 import (
 	"bytes"
 	"context"
-	"crypto/elliptic"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -59,8 +57,8 @@ func policyFixture(t *testing.T, enabled bool) (Request, response[stateProof], r
 	}
 	prepared := map[string]any{
 		"circuitType":   common.CustomRingPolicyCircuitType,
-		"privateTxHash": "0x" + strings.Repeat("00", 31) + "01", "txViewingSk": "0x" + strings.Repeat("00", 31) + "01", "ephSk": "0x" + strings.Repeat("00", 31) + "02",
-		"auditorPk": "0x" + hex.EncodeToString(elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy)),
+		"privateTxHash": "0x" + strings.Repeat("00", 31) + "01", "txViewingSk": "0x" + strings.Repeat("00", 31) + "41", "ephSk": "0x" + strings.Repeat("00", 31) + "02",
+		"auditorPk": "0x09" + strings.Repeat("00", 31),
 		"salt":      "0x" + strings.Repeat("00", 16), "nIn": 1, "nOut": 1, "inputs": openings(5), "outputs": openings(4),
 		"addressChain": "0x" + strings.Repeat("00", 32), "externalDataHash": "0x" + strings.Repeat("00", 32), "privateTxBlinding": "0x" + strings.Repeat("00", 32), "sources": sources, "policyLen": 0, "ruleEnc": rules,
 		"inlineAssets": zeroFields(8), "inlineLimits": zeroFields(8), "inlineCount": 0, "windowSlots": 0, "velocity": velocity, "velocityCount": 0,

@@ -45,12 +45,9 @@ fn register_rejects_duplicate_atomically() {
     let record_address = user_record_pda(&owner.pubkey()).0;
     let original = rig.svm.get_account(&record_address).expect("record");
 
-    // No `owner_p256`: the key binding check runs before the already-initialized
-    // check, so a P256 key here would fire `MissingP256Proof` and never reach the
-    // duplicate gate this test is about.
     assert_error(
         rig.send(
-            build_register_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
+            build_register_ix(&owner.pubkey(), value.nullifier, value.viewing),
             &[&owner],
         ),
         InstructionError::AccountAlreadyInitialized,
@@ -70,7 +67,7 @@ fn register_rejects_wrong_pda() {
         owner.pubkey(),
         owner.pubkey(),
         RegisterData {
-            owner_p256: Some(value.owner_p256),
+            reserved_owner: Default::default(),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
         },
@@ -95,7 +92,7 @@ fn register_requires_owner_signature() {
         unsigned_owner.pubkey(),
         rent_payer.pubkey(),
         RegisterData {
-            owner_p256: Some(unsigned_value.owner_p256),
+            reserved_owner: Default::default(),
             nullifier_pubkey: unsigned_value.nullifier,
             viewing_pubkey: unsigned_value.viewing,
         },
@@ -120,7 +117,6 @@ fn register_rejects_invalid_system_program() {
     let bad_system_value = keys(5);
     let mut bad_system_ix = build_register_ix(
         &bad_system_owner.pubkey(),
-        Some(bad_system_value.owner_p256),
         bad_system_value.nullifier,
         bad_system_value.viewing,
     );
@@ -147,7 +143,7 @@ fn register_requires_payer_signature() {
         owner.pubkey(),
         rent_payer.pubkey(),
         RegisterData {
-            owner_p256: None,
+            reserved_owner: Default::default(),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
         },
@@ -177,7 +173,7 @@ fn update_keys_rejects_a_non_owner_without_mutating_the_record() {
         record_address,
         stranger.pubkey(),
         UpdateKeysData {
-            owner_p256: Some(updated.owner_p256),
+            reserved_owner: Default::default(),
             nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
@@ -202,7 +198,7 @@ fn update_keys_rejects_a_rotated_nullifier_pubkey() {
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            owner_p256: None,
+            reserved_owner: Default::default(),
             nullifier_pubkey: rotated.nullifier,
             viewing_pubkey: rotated.viewing,
         },
@@ -280,7 +276,7 @@ fn update_keys_requires_owner_signature() {
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            owner_p256: Some(updated.owner_p256),
+            reserved_owner: Default::default(),
             nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
@@ -448,12 +444,7 @@ fn register_rejects_readonly_record() {
     let value = keys(16);
     let record_address = user_record_pda(&owner.pubkey()).0;
     rig.fund(&record_address, 1_000_000);
-    let mut readonly = build_register_ix(
-        &owner.pubkey(),
-        Some(value.owner_p256),
-        value.nullifier,
-        value.viewing,
-    );
+    let mut readonly = build_register_ix(&owner.pubkey(), value.nullifier, value.viewing);
     readonly
         .accounts
         .first_mut()
@@ -477,7 +468,7 @@ fn register_rejects_too_few_accounts() {
     let record_address = user_record_pda(&owner.pubkey()).0;
     rig.fund(&record_address, 1_000_000);
     let data = RegisterData {
-        owner_p256: Some(value.owner_p256),
+        reserved_owner: Default::default(),
         nullifier_pubkey: value.nullifier,
         viewing_pubkey: value.viewing,
     };
@@ -499,4 +490,69 @@ fn register_rejects_too_few_accounts() {
         rig.send(too_few, &[&owner]),
         InstructionError::NotEnoughAccountKeys,
     );
+}
+
+#[test]
+fn reserved_owner_instructions_are_rejected_before_mutation() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let value = keys(37);
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let owner_balance = rig.svm.get_balance(&owner.pubkey());
+    for reserved in [1, 2, 255] {
+        let mut ix = build_register_ix(&owner.pubkey(), value.nullifier, value.viewing);
+        ix.data[1] = reserved;
+        assert_registry_error(
+            rig.send(ix, &[&owner]),
+            UserRegistryError::InvalidInstructionData,
+        );
+        assert_eq!(rig.svm.get_account(&record_address), None);
+        assert_eq!(rig.svm.get_balance(&owner.pubkey()), owner_balance);
+    }
+
+    register(&mut rig, &owner, value);
+    let before = rig.svm.get_account(&record_address).expect("record");
+    let owner_balance = rig.svm.get_balance(&owner.pubkey());
+    for reserved in [1, 2, 255] {
+        let mut ix = user_registry_tests::build_update_keys_ix(
+            &owner.pubkey(),
+            value.nullifier,
+            keys(38).viewing,
+        );
+        ix.data[1] = reserved;
+        assert_registry_error(
+            rig.send(ix, &[&owner]),
+            UserRegistryError::InvalidInstructionData,
+        );
+        assert_eq!(rig.svm.get_account(&record_address), Some(before.clone()));
+        assert_eq!(rig.svm.get_balance(&owner.pubkey()), owner_balance);
+    }
+}
+
+#[test]
+fn reserved_owner_records_cannot_be_mutated() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = funded_keypair(&mut rig);
+    let value = keys(39);
+    register(&mut rig, &owner, value);
+    let record_address = user_record_pda(&owner.pubkey()).0;
+    let mut legacy = rig.svm.get_account(&record_address).expect("record");
+    legacy.data[34] = 1;
+    rig.svm
+        .set_account(record_address, legacy.clone())
+        .expect("legacy record");
+    for ix in [
+        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true),
+        user_registry_tests::build_update_keys_ix(
+            &owner.pubkey(),
+            value.nullifier,
+            keys(40).viewing,
+        ),
+    ] {
+        assert_registry_error(
+            rig.send(ix, &[&owner]),
+            UserRegistryError::InvalidRecordAccount,
+        );
+        assert_eq!(rig.svm.get_account(&record_address), Some(legacy.clone()));
+    }
 }

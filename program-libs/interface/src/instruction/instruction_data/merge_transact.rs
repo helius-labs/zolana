@@ -10,8 +10,7 @@ pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 3] =
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
-/// raw big-endian G2 point (128 bytes). The merge circuit carries no P256
-/// gadget, so there is no BSB22 commitment.
+/// raw big-endian G2 point (128 bytes). Merge proofs carry no lookup commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],
@@ -48,8 +47,8 @@ pub struct MergeTransactIxData {
     pub expiry_unix_ts: u64,
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
-    /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
-    /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
+    /// Retained wire flag. Must be true to bind the registry
+    /// owner identity for Ed25519 keys and PDAs.
     pub eddsa_owner: bool,
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
@@ -175,7 +174,7 @@ mod tests {
             utxo_tree_root_index: 4,
             nullifier_tree_root_index: 10,
             private_tx_hash: [3u8; 32],
-            eddsa_owner: false,
+            eddsa_owner: true,
         }
     }
 

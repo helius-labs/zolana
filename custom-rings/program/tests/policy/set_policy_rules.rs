@@ -10,13 +10,13 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, address_tree, consumed, curator_policy_config_account_with, curator_slot,
-    curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
-    namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
-    program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
-    specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
-    PINNED_RULES, RELEASED_RULES, TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS,
-    WARPED_SLOT,
+    account, address_tree, anonymous_config_account, consumed, curator_policy_config_account_with,
+    curator_slot, curator_source_slots, initialized_curator_policy_config_account, largest_table,
+    mixed_sources, namespace_pda, own_source_slots, own_specs, policy_config_account_with,
+    policy_config_pda, policy_hash_for, program_data_account, rent_recipient,
+    set_policy_rules_fixture, setup_mollusk, specs_with_block_source, stored_policy_config,
+    table_ix_data, velocity_policy_config_account, PINNED_RULES, RELEASED_RULES,
+    TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -107,6 +107,61 @@ fn the_same_window_duration_re_pins() {
         &set_policy_rules_fixture(velocity_policy_config_account(), &table),
     );
     assert_eq!(config.rules.window_slots(), VELOCITY_WINDOW_SLOTS);
+}
+
+/// A windowed table names the spender, so an anonymous ring's members could
+/// never prove a spend against it and the immutable window would keep it pinned.
+#[test]
+fn an_anonymous_ring_refuses_a_windowed_table_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", anonymous_config_account());
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::UnsupportedAnonymousPolicy),
+    );
+}
+
+#[test]
+fn a_refused_windowed_table_leaves_the_policy_config_unchanged() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", anonymous_config_account());
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(
+        result.program_result,
+        mollusk_svm::result::ProgramResult::Failure(custom(
+            CustomRingError::UnsupportedAnonymousPolicy
+        ))
+    );
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &policy_config_pda().0)
+        .map(|(_, account)| account)
+        .expect("policy config account");
+    assert_eq!(written.data, released_config().data);
+}
+
+#[test]
+fn an_anonymous_ring_re_pins_a_table_without_a_window() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", anonymous_config_account());
+    let config = stored_policy_config(&mollusk, &fixture);
+    assert_eq!(config.rules, TRANSFER_CAP_RULES.encode());
+}
+
+#[test]
+fn a_config_that_is_not_initialized_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", account(0));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
 
 #[test]

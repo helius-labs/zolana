@@ -124,7 +124,6 @@ fn user_record(
     }
     Ok(Some(UserRecord {
         owner: *owner,
-        owner_p256: record.owner_p256.map(|key| Base64String(key.to_vec())),
         nullifier_pubkey: Hash(record.nullifier_pubkey),
         viewing_pubkey: Base64String(record.viewing_pubkey.to_vec()),
         merging_enabled: record.merging_enabled,
@@ -147,19 +146,18 @@ mod tests {
         SerializablePubkey::from([value; 32])
     }
 
-    fn registered(owner: &SerializablePubkey, owner_p256: Option<[u8; 33]>) -> UserRecordAccount {
+    fn registered(owner: &SerializablePubkey) -> UserRecordAccount {
         UserRecordAccount {
             owner: owner.0,
             bump: user_record_pda(&owner.0).1,
-            owner_p256,
+            reserved_owner: Default::default(),
             nullifier_pubkey: [3; 32],
             viewing_pubkey: [4; 33],
             merging_enabled: true,
         }
     }
 
-    /// The program allocates every record at the fixed size, so a record
-    /// without a P256 owner carries zero padding after its borsh encoding.
+    /// The record preserves its fixed allocation and zero-padded tail.
     fn record_data(record: &UserRecordAccount) -> Vec<u8> {
         let mut data = vec![UserRecordAccount::DISCRIMINATOR];
         data.extend(borsh::to_vec(record).unwrap());
@@ -256,26 +254,40 @@ mod tests {
         let owner = owner(1);
         let (address, bump) = user_record_pda(&owner.0);
 
-        let mut foreign = registered(&owner, None);
+        let mut foreign = registered(&owner);
         foreign.owner = Pubkey::from([2; 32]);
         assert!(matches!(
             user_record(&owner, address, bump, &record_account(&foreign)),
             Err(PhotonApiError::UnexpectedError(message)) if message.contains("stores owner")
         ));
 
-        let mut wrong_bump = registered(&owner, None);
+        let mut wrong_bump = registered(&owner);
         wrong_bump.bump = bump.wrapping_add(1);
         assert!(matches!(
             user_record(&owner, address, bump, &record_account(&wrong_bump)),
             Err(PhotonApiError::UnexpectedError(message)) if message.contains("stores bump")
         ));
 
-        let mut truncated = record_account(&registered(&owner, None));
+        let mut truncated = record_account(&registered(&owner));
         truncated.data.pop();
         assert!(matches!(
             user_record(&owner, address, bump, &truncated),
             Err(PhotonApiError::UnexpectedError(message)) if message.contains("malformed")
         ));
+    }
+
+    #[test]
+    fn legacy_owner_records_are_errors_not_unregistered_owners() {
+        let owner = owner(1);
+        let (address, bump) = user_record_pda(&owner.0);
+        let mut legacy = record_account(&registered(&owner));
+        for reserved in [1, 2, 255] {
+            legacy.data[34] = reserved;
+            assert!(matches!(
+                user_record(&owner, address, bump, &legacy),
+                Err(PhotonApiError::UnexpectedError(message)) if message.contains("malformed")
+            ));
+        }
     }
 
     #[test]
@@ -294,14 +306,14 @@ mod tests {
     #[tokio::test]
     async fn reads_every_owner_in_request_order_no_earlier_than_the_indexer() {
         let owners = vec![owner(1), owner(2), owner(3)];
-        let p256_owner = registered(&owners[0], Some([7; 33]));
-        let solana_owner = registered(&owners[2], None);
+        let first_owner = registered(&owners[0]);
+        let solana_owner = registered(&owners[2]);
         let (url, node) = serve_in_order(&[(
             "200 OK",
             &accounts_answer(
                 77,
                 &[
-                    Some(record_account(&p256_owner)),
+                    Some(record_account(&first_owner)),
                     None,
                     Some(record_account(&solana_owner)),
                 ],
@@ -332,7 +344,6 @@ mod tests {
             vec![
                 Some(UserRecord {
                     owner: owners[0],
-                    owner_p256: Some(Base64String(vec![7; 33])),
                     nullifier_pubkey: Hash([3; 32]),
                     viewing_pubkey: Base64String(vec![4; 33]),
                     merging_enabled: true,
@@ -340,7 +351,6 @@ mod tests {
                 None,
                 Some(UserRecord {
                     owner: owners[2],
-                    owner_p256: None,
                     nullifier_pubkey: Hash([3; 32]),
                     viewing_pubkey: Base64String(vec![4; 33]),
                     merging_enabled: true,

@@ -51,7 +51,7 @@ resumes the ring, writes the authority-written lists and points a list at a
 curator or back at the ring's own entries. A curator is a ring whose lists
 other rings read. It writes its own entries and touches nothing on its
 subscribers, every subscriber trusts its writes wholly.
-The auditor holds the ring's P-256 viewing key and reads transfers. That key
+The auditor holds the ring's X25519 viewing key and reads transfers. That key
 does not authorize a transfer to another owner or a withdrawal. A permanent
 delegate is a separate Solana signer authorized to move members' notes. An
 operator holding both keys can recover notes as the auditor and move them as
@@ -91,7 +91,7 @@ governance enables it for the ring with `set_ring_activation`. A move spends
 the source member's notes with that member's nullifier key. `init` creates
 the ring's key registry, a member-keyed tree the ring owns and Photon
 indexes, and `transact` and `transfer` escrow the sender's key there on
-first use, sealed to the ring auditor's P-256 key with a proof that binds
+first use, sealed to the ring auditor's X25519 key with a proof that binds
 the ciphertext to the auditor the config pins. `zolana-ring key register`
 runs that step alone. Registration binds the member's signature to an
 encrypted nullifier key, but does not prove that the key matches the member's
@@ -121,9 +121,9 @@ binds the zero nullifier key `Poseidon(0)`. A plain deposit is refused with
 `DepositAuditRequired`, the audited deposit carries the check in its proof. A
 merge keeps the key of its inputs. Notes created before the delegate is set
 carry no check, so members register first. The SDKs refuse an unregistered
-output key before proving, `UnregisteredOutputKey` in Rust. A P-256 owner
-cannot sign `register_key` and cannot receive on an escrowed ring. A PDA owner
-registers only through a signed CPI from its program. `register_key` needs no
+output key before proving, `UnregisteredOutputKey` in Rust. Ed25519 owners
+sign registration directly. A PDA owner registers through a signed CPI
+from its program. `register_key` needs no
 ring authority, so more than 32 registrations between a proof and its landing
 make the proof stale, and the SDKs prove again on `StaleKeyRegistryRoot`.
 
@@ -367,10 +367,12 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 
 ## Limits
 
-Senders are not anonymous and deposits are public. Supported SDK paths accept
-validated P-256 auditor keys. Raw config data is checked only for compressed
-form and reserved points. An invalid P-256 curve point makes its ring unable
-to transact.
+Anonymous mode hides Ed25519 owners in custom rings and discloses them to
+the auditor. Deposit amounts remain public. The default ring stays nonanonymous.
+Anonymous builders are Rust-only and exclude delegates, merges, windowed
+policies, caches and direct outputs to the default ring. Auditor and viewing
+keys use canonical X25519 encodings. P-256 ownership and historical viewing
+data require migration before upgrading.
 
 The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its

@@ -3,7 +3,7 @@ use zolana_api::{
     Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey,
 };
-use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_keypair::{x25519::X25519_PUBKEY_LEN, X25519Pubkey};
 use zolana_user_registry_interface::user_record_pda;
 
 use crate::{
@@ -46,7 +46,7 @@ pub(super) fn convert_encrypted_utxo_match(
         slot: item.slot,
         tx_signature: item.tx_signature.0,
         output_slot: convert_output_slot(item.output_slot),
-        tx_viewing_pk: decode_optional_p256(
+        tx_viewing_pk: decode_optional_x25519(
             item.tx_viewing_pk,
             &format!("matches[{index}].txViewingPk"),
         )?,
@@ -110,7 +110,7 @@ pub(super) fn convert_shielded_transaction(
         slot: item.slot,
         tx_signature: item.tx_signature.0,
         event_index: item.event_index,
-        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
+        tx_viewing_pk: decode_optional_x25519(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
             .output_slots
@@ -208,14 +208,11 @@ fn convert_user_record(
     Ok(UserRecord {
         owner: record.owner.0,
         bump: user_record_pda(&record.owner.0).1,
-        owner_p256: record
-            .owner_p256
-            .map(|key| fixed_bytes(key.0, P256_PUBKEY_LEN, &field("ownerP256")))
-            .transpose()?,
+        reserved_owner: Default::default(),
         nullifier_pubkey: record.nullifier_pubkey.0,
         viewing_pubkey: fixed_bytes(
             record.viewing_pubkey.0,
-            P256_PUBKEY_LEN,
+            X25519_PUBKEY_LEN,
             &field("viewingPubkey"),
         )?,
         merging_enabled: record.merging_enabled,
@@ -241,14 +238,14 @@ pub(super) fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
     cursor.map(Base64String::from)
 }
 
-fn decode_optional_p256(
+fn decode_optional_x25519(
     value: Option<Base64String>,
     field: &str,
-) -> Result<Option<P256Pubkey>, ClientError> {
+) -> Result<Option<X25519Pubkey>, ClientError> {
     value
         .map(|value| {
-            let bytes = fixed_bytes(value.0, P256_PUBKEY_LEN, field)?;
-            P256Pubkey::from_bytes(bytes).map_err(|error| decode_error(field, error))
+            let bytes = fixed_bytes(value.0, X25519_PUBKEY_LEN, field)?;
+            X25519Pubkey::from_bytes(bytes).map_err(|error| decode_error(field, error))
         })
         .transpose()
 }

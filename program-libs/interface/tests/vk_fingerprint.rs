@@ -38,51 +38,13 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 
 #[test]
 fn verifying_key_fingerprint_is_pinned() {
-    let keys: [(&str, &Groth16Verifyingkey); 122] = vks![
+    let keys: [(&str, &Groth16Verifyingkey); 88] = vks![
         merge_8_1,
         merge_24_1,
         merge_54_1,
         merge_ring_8_1,
         merge_ring_24_1,
         merge_ring_54_1,
-        transfer_p256_ring_1_2,
-        transfer_p256_ring_1_4,
-        transfer_p256_ring_1_8,
-        transfer_p256_ring_2_2,
-        transfer_p256_ring_2_4,
-        transfer_p256_ring_1_16,
-        transfer_p256_ring_2_8,
-        transfer_p256_ring_3_2,
-        transfer_p256_ring_3_4,
-        transfer_p256_ring_2_16,
-        transfer_p256_ring_3_8,
-        transfer_p256_ring_4_2,
-        transfer_p256_ring_4_4,
-        transfer_p256_ring_4_8,
-        transfer_p256_ring_5_2,
-        transfer_p256_ring_5_4,
-        transfer_p256_ring_4_16,
-        transfer_p256_ring_5_8,
-        transfer_p256_ring_6_2,
-        transfer_p256_ring_6_4,
-        transfer_p256_ring_5_16,
-        transfer_p256_ring_6_8,
-        transfer_p256_ring_8_2,
-        transfer_p256_ring_8_4,
-        transfer_p256_ring_8_8,
-        transfer_p256_ring_8_16,
-        transfer_p256_ring_12_2,
-        transfer_p256_ring_12_4,
-        transfer_p256_ring_12_8,
-        transfer_p256_ring_16_2,
-        transfer_p256_ring_16_4,
-        transfer_p256_ring_16_8,
-        transfer_p256_ring_24_2,
-        transfer_p256_ring_24_4,
-        transfer_p256_ring_32_2,
-        transfer_p256_ring_40_2,
-        transfer_p256_ring_48_2,
-        transfer_p256_ring_49_2,
         transfer_confidential_1_2,
         transfer_confidential_1_4,
         transfer_confidential_1_8,
@@ -161,6 +123,10 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_ring_49_2,
         transfer_ring_authority_2_2,
         transfer_ring_authority_4_4,
+        transfer_ed25519_ring_2_2,
+        transfer_ed25519_ring_2_4,
+        transfer_ed25519_ring_3_4,
+        transfer_ed25519_ring_4_2,
     ];
 
     let mut preimage = Vec::new();
@@ -173,7 +139,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00630b6a1368f9ac4c447d5371f815b5efd905434cb467ddc22eeda38c7193ac",
+        fingerprint, "00cb31d2dda91ca472ae91cc13f37764f758ac268f559552cf98de1334b411da",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

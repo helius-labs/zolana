@@ -129,7 +129,7 @@ pub struct BatchAddressAppendInputs {
 }
 
 /// Flat, pre-computed witness for the Solana-only spp_transaction circuit. This
-/// rail has no P256 gadget, so there is no P256 pubkey/signature/message-hash.
+/// Owner signatures are checked by the Solana transaction.
 /// Mirrors prover/server/prover/transfer_eddsa_only/params.go TransferParameters.
 #[derive(Debug, Clone)]
 pub struct TransferInputs {
@@ -148,45 +148,6 @@ pub struct TransferInputs {
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
     /// slots are (0, 0).
-    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
-    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
-    pub ring_program_id: BigUint,
-    pub signer_pk_hashes: Vec<BigUint>,
-    /// The dummy-input policy packed with every input's tree index, from
-    /// `zolana_interface::tree_slot::pack_input_flags`.
-    pub input_flags: BigUint,
-    pub published_output_owner_pk_hashes: Vec<BigUint>,
-    pub cache: CacheReadInputs,
-    pub public_input_hash: BigUint,
-}
-
-/// Flat witness for the custom-ring P256 transaction circuit.
-#[derive(Debug, Clone)]
-pub struct TransferP256Inputs {
-    pub inputs: Vec<TransferInput>,
-    pub outputs: Vec<TransferOutput>,
-    /// The trees inputs may be spent from, one slot per tree; every input
-    /// selects one privately. Unused slots are all zero and sit at the end.
-    pub tree_slots: [TreeSlotFields; INPUT_TREES],
-    /// Raw `u16` id of the tree every output is appended to.
-    pub output_tree_id: BigUint,
-    /// The transaction's private random root seed. See
-    /// [`TransferInputs::blinding_seed`].
-    pub blinding_seed: BigUint,
-    pub external_data_hash: BigUint,
-    pub private_tx_hash: BigUint,
-    pub p256_pub_x: BigUint,
-    pub p256_pub_y: BigUint,
-    pub p256_sig_r: BigUint,
-    pub p256_sig_s: BigUint,
-    /// Full SHA-256 digest split into big-endian 128-bit limbs. The low limb is
-    /// the final 16 digest bytes; the high limb is the first 16 bytes.
-    pub p256_message_hash_low: BigUint,
-    pub p256_message_hash_high: BigUint,
-    /// Program-derived public hash of the P256 x-coordinate when the shared
-    /// owner spends a default-ring UTXO; zero for ring-only P256 and for
-    /// address slots, which never publish the owner.
-    pub default_p256_owner_pk_hash: BigUint,
     pub public_assets: [BigUint; N_PUBLIC_SLOTS],
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub ring_program_id: BigUint,

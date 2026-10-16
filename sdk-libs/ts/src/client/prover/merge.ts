@@ -237,12 +237,10 @@ function assembleMergeUnchecked(
       }
       checkNullifierRoot(inputTree, proof.nullifier, index);
     }
-    // A P256 owner contributes the 0 sentinel: the merge circuit recomputes its
-    // pk_field from the witnessed point and ignores the per-input value.
-    const ownerPublicKeyHash =
-      input.utxo.owner.signatureType() === "p256"
-        ? 0n
-        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
+    const ownerPublicKeyHash = bytesField(
+      input.utxo.owner.ownerProofInputHash(),
+      "merge owner public key",
+    );
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
     proofIndex++;
@@ -327,10 +325,9 @@ export function prepareMerge(
   const slots = prepared.inputs.map((input, index) => {
     const nullifier = input.isDummy() ? dummyNullifiers[dummyIndex++] : input.nullifier();
     if (nullifier === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
-    const owner =
-      input.isDummy() || input.utxo.owner.signatureType() === "p256"
-        ? 0n
-        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
+    const owner = input.isDummy()
+      ? 0n
+      : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     return Object.freeze({
       input: prepareInput(input, {
         owner,
@@ -374,7 +371,7 @@ export function prepareMerge(
     outputHashes: [outputHash],
     blinding: privateTxBlinding,
   });
-  const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
+  const eddsaOwner = true;
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",

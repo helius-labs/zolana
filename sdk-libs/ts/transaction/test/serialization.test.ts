@@ -68,14 +68,14 @@ function keys(inputs: Readonly<Record<string, unknown>>): Readonly<{
   tx: ViewingKey;
   viewing: ViewingKey;
 }> {
-  const signing = SigningKey.fromP256Bytes(
+  const signing = SigningKey.fromEd25519Bytes(
     hexBytes(fixtureString(inputs, "signingSecretBytes")) as Bytes32,
   );
   const viewing = ViewingKey.fromBytes(
     hexBytes(fixtureString(inputs, "viewingSecretBytes")) as Bytes32,
   );
   const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
-  const recipientSigning = SigningKey.fromP256Bytes(
+  const recipientSigning = SigningKey.fromEd25519Bytes(
     hexBytes(fixtureString(inputs, "recipientSigningSecretBytes")) as Bytes32,
   );
   const recipientViewing = ViewingKey.fromBytes(
@@ -572,12 +572,12 @@ describe("manifest-verified transaction serialization", () => {
       const value = fixtureObject(entry, "scheme");
       return Number(fixtureString(value, "byte"));
     });
-    expect(schemes).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(schemes).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(() => decodeOutputData(Uint8Array.of(4, 0, 0, 0, 0))).toThrow();
-    expect(() => encryptedSchemeFromByte(9)).toThrow(
+    expect(() => encryptedSchemeFromByte(10)).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_BAD_DISCRIMINATOR",
-        details: { byte: 9 },
+        details: { byte: 10 },
       }),
     );
     expect(() =>

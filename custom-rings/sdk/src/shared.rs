@@ -2,20 +2,17 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot,
-    PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
-    DEPOSIT_AUDIT, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingMode, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT,
+    KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
     RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{AsyncRpc, ClientError, Rpc};
-use zolana_interface::{
-    is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
-    RING_AUTH_PDA_SEED,
-};
-use zolana_keypair::P256Pubkey;
+use zolana_interface::{pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
+use zolana_keypair::X25519Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_ring_policy::{
     ListId, ListNamespace, PolicyHashError, RuleTable, RuleTableError, SourceMap, SourceOwner,
@@ -31,12 +28,12 @@ pub struct CustomRing {
 
 pub struct CustomRingConfig {
     pub authority: Address,
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     /// A policy ring enforces its compiled rules, an audit-only ring proves only
     /// the audit statement.
     pub has_policy: bool,
-    /// Once on, every output key but a namespace-owned record's must be enrolled in the registry.
-    pub key_escrow: KeyEscrow,
+    /// Selects the proof and disclosure rail accepted by the program.
+    pub mode: RingMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -317,16 +314,19 @@ impl CustomRing {
             return Ok(None);
         };
         let bump = Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).1;
-        if config.bump != bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
+        if config.bump != bump {
             return Err(AccountReadError::InvalidAccount { address });
         }
-        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+        let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
             .map_err(|_| AccountReadError::InvalidAccount { address })?;
+        let mode = config
+            .mode()
+            .ok_or(AccountReadError::InvalidAccount { address })?;
         Ok(Some(CustomRingConfig {
             authority: config.authority,
             auditor_pubkey,
             has_policy: config.has_policy != 0,
-            key_escrow: config.key_escrow(),
+            mode,
         }))
     }
 
@@ -773,8 +773,6 @@ mod tests {
     };
     use solana_account::Account;
     use solana_pubkey::Pubkey;
-    use zolana_interface::P_DERIVE_SEC1;
-    use zolana_keypair::ViewingKey;
     use zolana_ring_policy::{ListSet, Rule, Subject, MAX_RULES};
 
     use super::*;
@@ -818,10 +816,10 @@ mod tests {
         RingProgramConfig {
             discriminator: RING_PROGRAM_CONFIG,
             authority: Address::new_from_array([3u8; 32]),
-            auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+            auditor_pubkey: *zolana_keypair::X25519Secret::new().pubkey().as_bytes(),
             bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         }
     }
 
@@ -912,7 +910,7 @@ mod tests {
         let mut invalid_key = value;
         invalid_key.auditor_pubkey = [0u8; 33];
         let mut reserved_key = value;
-        reserved_key.auditor_pubkey = P_DERIVE_SEC1;
+        reserved_key.auditor_pubkey = [3; 33];
 
         let invalid = [
             AccountRpc {
@@ -938,7 +936,16 @@ mod tests {
 
     #[test]
     fn reader_read_rejects_substituted_state() {
-        let reader = ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader");
+        let reader = ReaderKey::p256(
+            zolana_ring_client::P256ReaderKey::from_bytes(
+                hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .expect("reader");
         let address = ring().read_access_record_pda(&reader);
         let reader_bytes = reader.to_bytes();
         let seed_hash = ReadAccessRecord::seed_hash(&reader_bytes).expect("seed hash");

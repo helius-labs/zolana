@@ -7,8 +7,7 @@ use wincode::{
     SchemaRead, SchemaWrite,
 };
 use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
-    P256Pubkey, PublicKey,
+    constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, X25519Pubkey,
 };
 
 pub mod asset;
@@ -21,7 +20,6 @@ pub mod instructions;
 pub mod keys;
 pub mod selection;
 pub mod serialization;
-pub mod signature;
 pub mod utxo;
 
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
@@ -42,7 +40,6 @@ pub use selection::{select_merge, select_spend, select_spend_excluding};
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
-pub use signature::P256Signature;
 pub use solana_address::Address;
 pub use utxo::wallet as spendable;
 pub use utxo::{
@@ -55,29 +52,29 @@ pub const TRANSFER: u8 = 1;
 pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;
 
-pub(crate) struct P256PubkeySchema;
+pub(crate) struct X25519PubkeySchema;
 pub(crate) struct PublicKeySchema;
 
-unsafe impl<C: ConfigCore> SchemaWrite<C> for P256PubkeySchema {
-    type Src = P256Pubkey;
+unsafe impl<C: ConfigCore> SchemaWrite<C> for X25519PubkeySchema {
+    type Src = X25519Pubkey;
 
-    fn size_of(_: &P256Pubkey) -> WriteResult<usize> {
-        Ok(P256_PUBKEY_LEN)
+    fn size_of(_: &X25519Pubkey) -> WriteResult<usize> {
+        Ok(X25519_PUBKEY_LEN)
     }
 
-    fn write(writer: impl Writer, src: &P256Pubkey) -> WriteResult<()> {
-        <[u8; P256_PUBKEY_LEN] as SchemaWrite<C>>::write(writer, src.as_bytes())
+    fn write(writer: impl Writer, src: &X25519Pubkey) -> WriteResult<()> {
+        <[u8; X25519_PUBKEY_LEN] as SchemaWrite<C>>::write(writer, src.as_bytes())
     }
 }
 
-unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for P256PubkeySchema {
-    type Dst = P256Pubkey;
+unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for X25519PubkeySchema {
+    type Dst = X25519Pubkey;
 
-    fn read(reader: impl Reader<'de>, dst: &mut MaybeUninit<P256Pubkey>) -> ReadResult<()> {
-        let mut bytes = MaybeUninit::<[u8; P256_PUBKEY_LEN]>::uninit();
-        <[u8; P256_PUBKEY_LEN] as SchemaRead<'de, C>>::read(reader, &mut bytes)?;
-        let pubkey = P256Pubkey::from_bytes(unsafe { bytes.assume_init() })
-            .map_err(|_| ReadError::Custom("invalid p256 public key"))?;
+    fn read(reader: impl Reader<'de>, dst: &mut MaybeUninit<X25519Pubkey>) -> ReadResult<()> {
+        let mut bytes = MaybeUninit::<[u8; X25519_PUBKEY_LEN]>::uninit();
+        <[u8; X25519_PUBKEY_LEN] as SchemaRead<'de, C>>::read(reader, &mut bytes)?;
+        let pubkey = X25519Pubkey::from_bytes(unsafe { bytes.assume_init() })
+            .map_err(|_| ReadError::Custom("invalid X25519 public key"))?;
         dst.write(pubkey);
         Ok(())
     }

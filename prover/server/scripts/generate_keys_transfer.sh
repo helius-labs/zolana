@@ -10,6 +10,7 @@ go build -o light-prover .
 
 # Set SKIP_AUTHORITY_KEYS=1 when rotating only the owner-authorized rails. This
 # preserves the existing authority keys when its circuit fingerprint is unchanged.
+# Set SKIP_OWNER_RAIL_KEYS=1 to keep the confidential and ring keys.
 
 # Keep in sync with SPP_SUPPORTED_SHAPES.
 shapes=(
@@ -60,10 +61,10 @@ shapes=(
 rails=(
     "transfer-confidential transfer_confidential"
     "transfer-ring transfer_ring"
-    "transfer-p256-ring transfer_p256_ring"
 )
 
 for entry in "${rails[@]}"; do
+    [[ "${SKIP_OWNER_RAIL_KEYS:-0}" == "1" ]] && break
     read -r circuit prefix <<<"$entry"
     for shape in "${shapes[@]}"; do
         read -r n_inputs n_outputs <<<"$shape"
@@ -75,6 +76,25 @@ for entry in "${rails[@]}"; do
             --n-outputs "$n_outputs" \
             --output "$output"
     done
+done
+
+# The anonymous ring rail has keys only for the shapes whose audit disclosure
+# fits a transaction. Keep in sync with ANONYMOUS_RING_ED25519_SHAPES.
+anonymous_ring_ed25519_shapes=(
+    "2 2"
+    "2 4"
+    "3 4"
+    "4 2"
+)
+for shape in "${anonymous_ring_ed25519_shapes[@]}"; do
+    read -r n_inputs n_outputs <<<"$shape"
+    output="${keys_dir}/transfer_ed25519_ring_${n_inputs}_${n_outputs}.key"
+    echo "Generating transfer-ed25519-ring ${n_inputs}x${n_outputs} -> ${output}"
+    ./light-prover setup-transfer \
+        --circuit "transfer-ed25519-ring" \
+        --n-inputs "$n_inputs" \
+        --n-outputs "$n_outputs" \
+        --output "$output"
 done
 
 # The ring-authority rail (transfer_ring_authority) re-owns N inputs into N

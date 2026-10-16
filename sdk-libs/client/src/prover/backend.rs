@@ -6,7 +6,7 @@ use crate::{
     error::ClientError,
     prover::{
         client::ProveRequest,
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         proof::Proof,
         requests,
         transact::witness::{assemble_with_dummy_policy, SpendProof},
@@ -74,11 +74,6 @@ pub trait ProverExt: Prover {
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_ring(inputs)?)
-    }
-
-    /// Prove a custom-ring P256 transfer.
-    fn prove_transfer_p256_ring(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_p256_ring(inputs)?)
     }
 
     /// Prove a nullifier-tree batch address-append update. Call

@@ -7,7 +7,7 @@ use zolana_interface::{
     state::cache::bind_cache_write,
     verifying_keys::{CacheAccess, CacheWrite},
 };
-use zolana_keypair::{hash::sha256, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
+use zolana_keypair::{hash::sha256, NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::transact::{CacheAccounts, PrivateTxHash, Shape, SppProofInputs},
     utxo::{
@@ -603,23 +603,19 @@ fn dummy_hash_has_fixed_domain_and_tree_bound_zero_secret_nullifier() {
 }
 
 #[test]
-fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies_and_p256() {
+fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies() {
     let alice = keypair(7);
     let bob = keypair(9);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[11; 32]).unwrap()).unwrap();
     let mut tx = proof();
     let alice_input = SppProofInputUtxo::from(wallet_utxo(&alice, Mint::SOL, 10, 0, 1));
     let mut same_owner = alice_input.clone();
     same_owner.nullifier_pubkey = field(99);
     let bob_input = SppProofInputUtxo::from(wallet_utxo(&bob, Mint::SOL, 10, 0, 2));
-    let p256_input = SppProofInputUtxo::from(wallet_utxo(&p256, Mint::SOL, 10, 0, 3));
     let mut pda_input = alice_input.clone();
     pda_input.utxo.owner = PublicKey::from_pda(&address(13));
     tx.input_utxos = vec![
         alice_input.clone(),
         SppProofInputUtxo::dummy_with_blinding(field(7), 0).unwrap(),
-        p256_input.clone(),
         bob_input.clone(),
         same_owner,
         pda_input.clone(),
@@ -644,7 +640,7 @@ fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies_and_p256
     for width in [0, 1, 3] {
         assert!(matches!(
             tx.signer_pk_hashes(width),
-            Err(TransactionError::UnsupportedShape { n_in: 7, n_out: 0 })
+            Err(TransactionError::UnsupportedShape { n_in: 6, n_out: 0 })
         ));
     }
     tx.payer = alice_address;
@@ -657,7 +653,7 @@ fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies_and_p256
         tx.owner_signer_pubkeys().unwrap(),
         vec![alice_address, bob_address]
     );
-    tx.input_utxos = vec![p256_input];
+    tx.input_utxos = vec![SppProofInputUtxo::dummy(0).unwrap()];
     assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![]);
     assert_eq!(
         tx.signer_pk_hashes(1).unwrap(),

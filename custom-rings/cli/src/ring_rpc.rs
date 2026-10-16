@@ -5,7 +5,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_indexer_api::Hash;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
@@ -28,7 +28,7 @@ pub enum Trust {
 }
 
 pub struct AttestedAuditorKey {
-    pub auditor_pk: P256Pubkey,
+    pub auditor_pk: X25519Pubkey,
     pub service_pubkey: Address,
 }
 
@@ -135,7 +135,7 @@ fn config_view_tag(status: &RingStatusResponse) -> Hash {
 }
 
 impl AttestedAuditorKey {
-    pub fn require(self, trust: Trust) -> Result<P256Pubkey, RingRpcClientError> {
+    pub fn require(self, trust: Trust) -> Result<X25519Pubkey, RingRpcClientError> {
         match trust {
             Trust::Pinned(pinned) if pinned == self.service_pubkey => Ok(self.auditor_pk),
             Trust::Pinned(pinned) => Err(RingRpcClientError::PinMismatch {
@@ -294,13 +294,13 @@ impl RingRpcClient {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::X25519Secret;
 
     use super::*;
 
     const SERVICE: Address = Address::new_from_array([7u8; 32]);
 
-    fn attested(auditor_pk: P256Pubkey) -> AttestedAuditorKey {
+    fn attested(auditor_pk: X25519Pubkey) -> AttestedAuditorKey {
         AttestedAuditorKey {
             auditor_pk,
             service_pubkey: SERVICE,
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn trust_accepts_the_pinned_key_or_an_explicit_waiver() {
-        let auditor_pk = ViewingKey::new().pubkey();
+        let auditor_pk = X25519Secret::new().pubkey();
         assert_eq!(
             attested(auditor_pk)
                 .require(Trust::Pinned(SERVICE))

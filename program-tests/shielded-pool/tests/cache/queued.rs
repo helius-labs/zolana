@@ -204,7 +204,7 @@ fn prepare(
         .collect();
     let write_slots = cache_write_slots(&pairs).expect("cache writes");
     let selection = cache_read_selection(spec.input_tree.id, &reads).expect("cache reads");
-    data.circuit = CircuitId::ConfidentialEddsaCached(
+    data.circuit = CircuitId::ConfidentialEd25519Cached(
         spec.n_inputs as u8,
         outputs.len() as u8,
         3,
@@ -441,7 +441,7 @@ fn with_circuit(ix: &Instruction, edit: impl FnOnce(&mut CacheAccess)) -> Instru
     let mut data =
         zolana_interface::instruction::TransactIxData::deserialize(ix.data.get(1..).expect("body"))
             .expect("decode");
-    if let CircuitId::ConfidentialEddsaCached(_, _, _, access) = &mut data.circuit {
+    if let CircuitId::ConfidentialEd25519Cached(_, _, _, access) = &mut data.circuit {
         edit(access);
     }
     ix.data = std::iter::once(zolana_interface::instruction::tag::TRANSACT)

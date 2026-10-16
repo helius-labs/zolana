@@ -20,7 +20,7 @@ fn confidential_verifying_key(
     let n_in = u8::try_from(n_inputs).map_err(|_| shape_err())?;
     let n_out = u8::try_from(n_outputs).map_err(|_| shape_err())?;
     let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| shape_err())?;
-    CircuitId::ConfidentialEddsa(n_in, n_out, slots)
+    CircuitId::ConfidentialEd25519(n_in, n_out, slots)
         .verifying_key()
         .ok_or_else(shape_err)
 }
@@ -29,7 +29,7 @@ fn confidential_verifying_key(
 /// shape-specific verifying key and the locally constructed public input.
 ///
 /// Call this before allowing an external prover response to influence a
-/// signing request. Custom-ring and P-256 proofs use different public inputs
+/// signing request. Custom-ring proofs use different public inputs
 /// and verifying keys and are intentionally outside this function.
 pub fn verify_confidential_transfer_proof(
     result: &TransferProofResult,

@@ -59,7 +59,7 @@ pub(crate) fn stranger_cannot(
 }
 
 pub(crate) fn golden_decrypts(world: &mut KeypairWorld, recipient: String, ephemeral: String) {
-    let ciphertext = hex::decode("0dedf6fb1c2c64f57a31740887").unwrap();
+    let ciphertext = hex::decode("ea82df97f14bd244e83b4fabfd").unwrap();
     let plaintext = world
         .vk(&recipient)
         .decrypt_utxo(&ciphertext, &world.vk(&ephemeral).pubkey(), [0u8; 16], 0)

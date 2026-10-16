@@ -10,10 +10,10 @@ use crate::{
     error::ClientError,
     prover::{
         client::{Delivery, ProveRequest},
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
-            to_json_p256_ring, to_json_ring, to_json_ring_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring, to_json_ring,
+            to_json_ring_authority,
         },
         proving_key::ExpectedProvingKey,
     },
@@ -64,13 +64,6 @@ pub(crate) fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, 
     let key =
         ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring_authority(inputs)?, key))
-}
-
-pub(crate) fn transfer_p256_ring(
-    inputs: &TransferP256Inputs,
-) -> Result<CircuitRequest, ClientError> {
-    let key = ExpectedProvingKey::transfer_p256_ring(inputs.inputs.len(), inputs.outputs.len())?;
-    Ok(in_response(to_json_p256_ring(inputs)?, key))
 }
 
 pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {

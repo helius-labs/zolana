@@ -1,3 +1,8 @@
+export { P256ReaderKey } from "@heliuslabs/zolana/ring";
+export { X25519PublicKey, X25519Secret } from "@heliuslabs/zolana/keypair";
+import { ShieldedPoolError as ErrorCodes } from "@heliuslabs/zolana/interface";
+
+export const anonymousOutputOwnerTag: 7085 = ErrorCodes.AnonymousRingEd25519OutputOwnerTag;
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -77,6 +82,7 @@ export type {
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type {
   CustomRingBasePublicInput,
+  DecryptedAnonymousRingTrace,
   RingAuditReader,
   RingRpcOptions,
   RingTransferClient,
@@ -118,6 +124,7 @@ export {
   ringDepositAuditAddress,
   sealRingDepositOpenings,
   openRingDepositOpening,
+  ConfirmedDeposit,
   ringDepositContextHash,
   ringDepositPublicInputHash,
 } from "@heliuslabs/zolana/ring";
@@ -126,6 +133,7 @@ export type {
   RingDepositClient,
   RingDepositAudit,
   RingDepositOpening,
+  AuditedDepositSource,
   RingDelegateTransferParams,
   RingSpendRegistrationClient,
   RingSpendRegistrationParams,

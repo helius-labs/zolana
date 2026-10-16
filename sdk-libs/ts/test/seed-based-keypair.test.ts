@@ -36,10 +36,10 @@ const GOLDEN = [
     signingPubkey: "f036276246a75b9de3349ed42b15e232f6518fc20f5fcd4f1d64e81f9bd258f7",
     nullifierSecret: "85e3a0d6bf9d62582e6500ea3245ddddbf65e517dbc985c85982e383e4751e",
     nullifierPubkey: "070a4386ec323b299c7d7b9faf744e001b545974ac02fd148b537a4528ab8474",
-    viewingSecret: "1694bc1c8a456511d0364e26c71409b4912c5b2ff56bed3fc9c706e066496a54",
-    viewingPubkey: "03170ee9cf7a6f1ad811bd2019d386f67ce337458e0bf585c3cad7ddac85373e32",
+    viewingSecret: "900a295a5d309fbb7af1c86b8baf24423b2fc63c359842731a2dcef3935b6f4f",
+    viewingPubkey: "0411e50fb712145d4327be7764b4e1fafe45abff32cbf2d0e150bb853510699350",
     ownerHash: "06385c1c29400b46f21e0198c9f993663f8ee0475620734df093bdd1e4bae73b",
-    compressedAddressHash: "0be057850ea4e8239c67b2d66e6524447acf0f0ca734ab492d519592678173c1",
+    compressedAddressHash: "1e5122ba5ad0b21b1bc28861ec1f85982696fdb0414f17f8d28c60740dc3a6de",
   },
   {
     account: 1,
@@ -47,10 +47,10 @@ const GOLDEN = [
     signingPubkey: "f8029acf5cbcbdd5ac46ec147f3b78a3df6e5022ef0411db2bab650d329a4cd4",
     nullifierSecret: "62351d526f51996740cc2e88978b084117fdee00af7c04df999a22321c9001",
     nullifierPubkey: "1053061c5b9c4fc75b26b72d83d88d62f80e397cea6f36c07e25c9d8645106fc",
-    viewingSecret: "60a8c80b23007c79c1dcf1821446dc77e6fcd2bb3e747ddca629784adaf8fa18",
-    viewingPubkey: "03bb3b5ea4e0a873297d1f80e2ee1ebfabf472129debca75fced4753a95769fe27",
+    viewingSecret: "5849d47866cc64837aae098d73f5f102eed8f84f413eadbc68f151fbbdf0d15a",
+    viewingPubkey: "04bf56646c84b5a325b98e840d094fa1017368d118a9f655f1f5e8eff96387cf1b",
     ownerHash: "0fab761c5b882064cb84cdaed9809753d94cfb358375fc9b9f443750119edc86",
-    compressedAddressHash: "2917df75fb88bd858e8a006ff7e0afbc6860b2c7e461a4e509b1793175ba0256",
+    compressedAddressHash: "0b0843d78a9047f4a0a2a6602a43c8ec20849869351f9e4ce6c766fbb81bbd80",
   },
 ] as const;
 
@@ -87,7 +87,7 @@ class SeedBasedShieldedKeypair implements ShieldedKeypairLike {
         ) as Bytes31,
       );
       this.#viewingKey = ViewingKey.fromBytes(
-        deriveKey(walletCore.Curve.nist256p1, `m/44'/${TSPP_COIN_TYPE}'/${account}'/2'/0'`),
+        deriveKey(walletCore.Curve.ed25519, `m/44'/${TSPP_COIN_TYPE}'/${account}'/2'/0'`),
       );
     } finally {
       wallet.delete();
@@ -127,11 +127,6 @@ class SeedBasedShieldedKeypair implements ShieldedKeypairLike {
 
   sign(message: Uint8Array): Bytes64 {
     return this.signingKey.sign(message);
-  }
-
-  signHash(messageHash: Bytes32): Bytes64 {
-    this.signingPublicKey().p256();
-    return this.signingKey.sign(messageHash);
   }
 
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
@@ -243,7 +238,7 @@ describe("seed-based shielded keypair (docs/spec.md Seed phrase)", () => {
     );
   });
 
-  it("signs messages and refuses derivation inputs and P256 prehash signing", () => {
+  it("signs messages and refuses derivation inputs", () => {
     const keypair = new SeedBasedShieldedKeypair(TEST_MNEMONIC, 0);
     const message = new TextEncoder().encode("private tx hash binding");
     const signature = keypair.sign(message);
@@ -255,9 +250,6 @@ describe("seed-based shielded keypair (docs/spec.md Seed phrase)", () => {
     );
     expect(() => keypair.sign(ed25519DerivationMessage(signerPubkey))).toThrow(
       "KEYPAIR_DERIVATION_INPUT",
-    );
-    expect(() => keypair.signHash(new Uint8Array(32).fill(7) as Bytes32)).toThrow(
-      "KEYPAIR_INVALID_SIGNATURE_TYPE",
     );
   });
 });

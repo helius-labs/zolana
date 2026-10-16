@@ -8,6 +8,7 @@
 //! with the mint authority parked on the payer.
 
 use std::path::PathBuf;
+use zolana_keypair::X25519Pubkey;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_cli::transact::{self, Probe};
@@ -30,7 +31,7 @@ use zolana_interface::{
     state::{default_tree_fees, nullifier_tree_params, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{P256Pubkey, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program::instruction::SetRingActivation;
 use zolana_program_test::{
@@ -186,6 +187,7 @@ impl std::ops::DerefMut for TestWallet {
 
 pub enum Tier {
     AuditOnly,
+    AnonymousAuditOnly,
     Policy {
         address_tree: Address,
         rules: &'static RuleTable,
@@ -208,7 +210,7 @@ impl Tier {
 pub struct RegisterRing<'a> {
     pub ring: CustomRing,
     pub payer: &'a Keypair,
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     pub tier: Tier,
 }
 
@@ -236,18 +238,19 @@ impl<'a> RegisterRing<'a> {
 
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
-        send(
-            rpc,
-            self.payer,
-            &[CreateConfig {
-                ring: self.ring,
-                payer: authority,
-                authority,
-                auditor_pubkey: self.auditor_pubkey,
-                has_policy: matches!(self.tier, Tier::Policy { .. }),
-            }
-            .instruction()?],
-        )?;
+        let config = CreateConfig {
+            ring: self.ring,
+            payer: authority,
+            authority,
+            auditor_pubkey: self.auditor_pubkey,
+            has_policy: matches!(self.tier, Tier::Policy { .. }),
+        };
+        let instruction = if matches!(self.tier, Tier::AnonymousAuditOnly) {
+            config.anonymous_instruction()?
+        } else {
+            config.instruction()?
+        };
+        send(rpc, self.payer, &[instruction])?;
         Ok(ConfiguredRing {
             ring: self.ring,
             payer: self.payer,

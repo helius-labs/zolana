@@ -1,4 +1,6 @@
-use custom_ring_interface::{RegisterKeyIxData, RegisterKeyPublicInput};
+use custom_ring_interface::{
+    RegisterKeyIxData, RegisterKeyPublicInput, RingMode, VIEWING_PUBKEY_TAG,
+};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_ring_policy::Member;
@@ -6,7 +8,7 @@ use zolana_ring_policy::Member;
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_config, load_key_registry_root_mut},
+        loader::{load_audited_config, load_key_registry_root_mut},
         verifier::verify_groth16,
     },
     state::RootTransition,
@@ -35,7 +37,14 @@ pub fn process_register_key_ix(
     .check(&root)?;
     let member = Member::owner_tag(member_signer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
-    let auditor_pubkey = load_config(program_id, config_account)?.auditor_pubkey;
+    let config = load_audited_config(program_id, config_account)?;
+    // An anonymous ring escrows no key, its auditor already sees every opening.
+    if config.mode == RingMode::Anonymous {
+        return Err(CustomRingError::AnonymousRingRefused.into());
+    }
+    if ix.eph_pk[0] != VIEWING_PUBKEY_TAG {
+        return Err(CustomRingError::InvalidAuditorMessage.into());
+    }
     // 2. Prove key encryption to the pinned auditor and insertion under the
     // signed member identity.
     let public_input = RegisterKeyPublicInput {
@@ -43,7 +52,7 @@ pub fn process_register_key_ix(
         registry_new_root: &ix.registry_new_root,
         member: member.as_bytes(),
         nullifier_pk: &ix.nullifier_pk,
-        auditor_pk: &auditor_pubkey,
+        auditor_pk: &config.auditor_pubkey,
         eph_pk: &ix.eph_pk,
         ciphertext: &ix.ciphertext,
         new_index: ix.registry_next_index,

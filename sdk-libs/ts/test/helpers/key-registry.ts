@@ -1,8 +1,9 @@
+import { X25519PublicKey } from "../../src/keypair/x25519.js";
 import type { RingKeyRegistryEntry } from "../../src/client/ports.js";
 import { Writer } from "../../src/interface/internal.js";
 import type { Bytes32 } from "../../src/interface/types.js";
 import type { NullifierKey } from "../../src/keypair/nullifier-key.js";
-import type { P256PublicKey } from "../../src/keypair/public-key.js";
+
 import { RING_KEY_REGISTRY_ROOT_HISTORY } from "../../src/ring/codecs.js";
 import {
   KEY_REGISTRY_EMPTY_ROOT,
@@ -52,7 +53,7 @@ export function keyRegistryRootData(
 
 /** A registry holding `member`'s key alone, the indexer entry opens it under the new root. */
 export function oneMemberRegistry(
-  input: Readonly<{ member: Bytes32; nullifierKey: NullifierKey; auditor: P256PublicKey }>,
+  input: Readonly<{ member: Bytes32; nullifierKey: NullifierKey; auditor: X25519PublicKey }>,
 ): Readonly<{ root: Bytes32; entry: RingKeyRegistryEntry }> {
   const insertion = firstInsertion(input.member);
   const envelope = sealNullifierKey(input.nullifierKey, input.auditor);

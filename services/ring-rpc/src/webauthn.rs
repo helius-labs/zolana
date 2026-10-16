@@ -2,7 +2,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use p256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use zolana_keypair::P256Pubkey;
+use zolana_ring_client::P256ReaderKey;
 
 use crate::{api::WebAuthnAssertion, authorize::Unauthorized, origins::Origins};
 
@@ -14,7 +14,7 @@ const AUTHENTICATOR_DATA_MIN: usize = 37;
 pub struct Verification<'a> {
     pub assertion: &'a WebAuthnAssertion,
     pub signature_der: &'a [u8],
-    pub pubkey: &'a P256Pubkey,
+    pub pubkey: &'a P256ReaderKey,
     pub attestation: &'a [u8],
     pub origins: &'a Origins,
 }
@@ -79,7 +79,6 @@ struct ClientData<'a> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::ViewingKey;
 
     use crate::origins::OriginPolicy;
 
@@ -120,7 +119,13 @@ mod tests {
         Verification {
             assertion: &assertion,
             signature_der: &[0; 8],
-            pubkey: &ViewingKey::new().pubkey(),
+            pubkey: &zolana_ring_client::P256ReaderKey::from_bytes(
+                hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
             attestation: ATTESTATION,
             origins: &origins(),
         }

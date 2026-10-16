@@ -83,7 +83,7 @@ impl RevocationTargets<'_> {
     /// An audit-only statement reads no facts.
     pub fn require_empty(self) -> ProgramResult {
         if self.targets.iter().any(|target| *target != [0u8; 32]) {
-            return Err(CustomRingError::InvalidInstructionData.into());
+            return Err(CustomRingError::InvalidRevocationTarget.into());
         }
         if self.tree_indexes.iter().any(|index| *index != 0) {
             return Err(CustomRingError::InvalidRevocationTreeIndex.into());

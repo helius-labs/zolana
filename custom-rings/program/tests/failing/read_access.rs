@@ -75,7 +75,7 @@ fn grant_of_an_unsignable_key_is_rejected() {
     noncanonical[32] = 0x7f;
     let mut reserved = [0u8; 34];
     reserved[0] = READER_KEY_P256;
-    reserved[1..].copy_from_slice(&zolana_interface::P_CONST_SEC1);
+    reserved[1..].copy_from_slice(&custom_ring_interface::RESERVED_READER_KEYS[0]);
     let mut mixed_torsion = [0u8; 34];
     mixed_torsion[0] = READER_KEY_ED25519;
     mixed_torsion[1..33].copy_from_slice(
@@ -315,7 +315,7 @@ fn grant_under_a_config_with_another_authority_is_rejected() {
     let other = Pubkey::new_from_array([70; 32]);
     fixture.set_account(
         "config",
-        initialized_config_account(other, auditor_pubkey(2)),
+        initialized_config_account(other, auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }

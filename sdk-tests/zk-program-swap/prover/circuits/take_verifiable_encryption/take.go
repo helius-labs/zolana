@@ -27,9 +27,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	takerOwnerHash := gnarksdk.Poseidon(api, c.Core.Order.TakerPkFe, c.TakerNullifierPk)
 	api.AssertIsEqual(c.Core.TakerIn.Owner, takerOwnerHash)
 
-	c.Core.Check(api, c.Public.PrivateTxHash)
+	destinationOutputHash := c.Core.Check(api, c.Public.PrivateTxHash)
 
-	ctHash := c.checkVerifiableEncryption(api)
+	ctHash := c.checkVerifiableEncryption(api, destinationOutputHash)
 
 	c.Public.Check(api, c.Core.Order.Expiry, ctHash)
 	return nil
@@ -46,16 +46,17 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
-func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
-	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, orderterms.TakeEncKdfDomain)
-	aesGadget := aes.NewAESGadget(api)
+func (c *Circuit) checkVerifiableEncryption(api frontend.API, destinationOutputHash frontend.Variable) frontend.Variable {
+	// The destination output hash rides in the same transact slot as the ciphertext, so the
+	// maker has it before decrypting, and it gives every take of one order a fresh keystream.
+	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, destinationOutputHash, orderterms.TakeEncKdfDomain)
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
 
 	var plaintext [72]frontend.Variable
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
 	copy(plaintext[40:72], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 32))
-	ciphertext := aes.CTREncrypt(api, aesGadget, key, nonce, plaintext[:])
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext[:])
 	return gnarksdk.HashBytes(api, ciphertext)
 }
 

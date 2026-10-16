@@ -13,11 +13,12 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, address_tree, auditor_pubkey, authority, cosigner_account, custom,
-    initialized_config_account, initialized_other_tree_account, initialized_policy_config_account,
-    namespace_pda, other_tree, payer, policy_delegate_transact_fixture, register_spend_fixture,
-    setup_mollusk, spend_record_output, spend_record_output_in, transact_fixture,
-    velocity_policy_config_account, window_slot, Fixture, Slot, ADDRESS_TREE_ID, OTHER_TREE_ID,
+    account, address_tree, auditor_message_len, auditor_pubkey, authority, cosigner_account,
+    custom, initialized_config_account, initialized_other_tree_account,
+    initialized_policy_config_account, namespace_pda, other_tree, payer,
+    policy_delegate_transact_fixture, register_spend_fixture, setup_mollusk, spend_record_output,
+    spend_record_output_in, transact_fixture, velocity_policy_config_account, window_slot, Fixture,
+    Slot, ADDRESS_TREE_ID, OTHER_TREE_ID,
 };
 use crate::transact::{body, confidential_output, transact_data};
 
@@ -27,7 +28,7 @@ const SPENT_RECORD_NULLIFIER: [u8; 32] = [0x5eu8; 32];
 /// Synthetic openings exercise program validation without a valid policy proof.
 fn velocity_transact() -> TransactIxData {
     let mut content = transact_data();
-    content.circuit = CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
+    content.circuit = CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8);
     content.inputs = vec![InputUtxo {
         nullifier_hash: SPENT_RECORD_NULLIFIER,
         tree_index: 0,
@@ -53,12 +54,15 @@ fn velocity_transact() -> TransactIxData {
     record.data = confidential_output().data;
     record.data.as_mut().unwrap()[5] = zolana_interface::event::CONFIDENTIAL_ENCRYPTED_SCHEME_TAG;
     content.outputs = vec![confidential_output(), record];
+    if let Some(auditor) = content.messages.last_mut() {
+        auditor.data.resize(auditor_message_len(2), 0);
+    }
     content
 }
 
 fn velocity_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, approval_required, transact),
     );
     fixture.set_account("policy_config", velocity_policy_config_account());
@@ -155,6 +159,9 @@ fn a_transfer_without_a_record_output_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut content = velocity_transact();
     content.outputs.truncate(1);
+    if let Some(auditor) = content.messages.last_mut() {
+        auditor.data.truncate(auditor_message_len(1));
+    }
     velocity_fixture(0, content).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
@@ -215,7 +222,7 @@ fn an_approval_needs_the_configured_cosigner() {
 fn an_approval_outside_velocity_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, 1, transact_data()),
     )
     .expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));

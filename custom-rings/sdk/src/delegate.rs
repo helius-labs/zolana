@@ -13,7 +13,7 @@ use zolana_client::{
     AsyncRpc, IndexerRpcConfig, Proof, ProofAuthority, ProofInputUtxo, RingAuthorityProver, Rpc,
 };
 use zolana_interface::instruction::TransactIxData;
-use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{random_salt, NullifierKey, ShieldedAddress, ViewingKey, X25519Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo, AssetRegistry,
@@ -242,7 +242,7 @@ impl<'a> DelegateTransfer<'a> {
     /// The auditor message joins `external_data` ahead of every hash over it.
     fn stage(
         self,
-        auditor_pk: zolana_keypair::P256Pubkey,
+        auditor_pk: X25519Pubkey,
         key_registry: KeyRegistry,
     ) -> Result<StagedDelegateTransfer, TransferError> {
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
@@ -586,7 +586,7 @@ mod tests {
                 panic!("a padded slot must publish as encrypted");
             };
             let body = ring_confidential_encrypted_output_body(data).expect("ring scheme");
-            assert!(matches!(body.first(), Some(2 | 3)));
+            assert_eq!(body.first(), Some(&zolana_keypair::x25519::X25519_KEY_TAG));
         }
     }
 

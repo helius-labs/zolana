@@ -15,12 +15,14 @@ import type {
   Signature,
 } from "../interface/types.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
+import { SOLANA_OWNER_TAG } from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
-import { P256PublicKey } from "../keypair/public-key.js";
+import { X25519PublicKey } from "../keypair/x25519.js";
 
+import type { DecryptedAnonymousRingTrace } from "./audit.js";
 import { RingError } from "./error.js";
 import { memberOfIdentity, type Member } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
@@ -80,7 +82,7 @@ export function ringReadAttestation(
 /** Mirrors Rust `auditor_key_attestation`. */
 export function auditorKeyAttestation(
   ringProgramId: Address,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): Uint8Array {
   const domain = encoder.encode(AUDITOR_KEY_DOMAIN);
   const ring = addressBytes(ringProgramId, "ringProgramId");
@@ -254,7 +256,7 @@ export interface RingRpcHealth {
 /** Mirrors Rust `CreateAuditorKeyResponse`, the signature covers `auditorKeyAttestation`. */
 export interface RingAuditorKey {
   readonly ringProgramId: Address;
-  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorPublicKey: X25519PublicKey;
   readonly auditorViewTag: Bytes32;
   readonly servicePublicKey: Address;
   readonly signature: Uint8Array;
@@ -286,13 +288,13 @@ export interface RingStatus {
   readonly ringProgramId: Address;
   readonly state: RingState;
   /** The key the ring's config names, absent until the config exists. */
-  readonly configAuditorPublicKey?: P256PublicKey;
+  readonly configAuditorPublicKey?: X25519PublicKey;
   readonly servicePublicKey: Address;
 }
 
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
-  readonly recipientViewingPublicKey: P256PublicKey;
+  readonly recipientViewingPublicKey: X25519PublicKey;
   /** `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner. */
   readonly ownerTag: Bytes32;
   readonly asset: Address;
@@ -330,8 +332,9 @@ export interface DecryptedRingSpendCounter {
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly outputs: readonly DecryptedRingOutput[];
+  readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. */
@@ -341,6 +344,8 @@ export interface DecryptedRingTransaction {
   /** Empty unless a velocity transfer published one. */
   readonly spendRecords: readonly DecryptedRingSpendRecord[];
 }
+
+export type { DecryptedAnonymousRingTrace } from "./audit.js";
 
 /** Mirrors Rust `SkippedReason`. */
 export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";
@@ -436,7 +441,7 @@ export class RingRpc {
     );
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
     if (key.length !== 33) throw invalid("result.auditorPubkey");
-    const auditorPublicKey = P256PublicKey.fromBytes(key as Bytes33);
+    const auditorPublicKey = X25519PublicKey.fromBytes(key as Bytes33);
     const servicePublicKey = address(wire["servicePubkey"], "result.servicePubkey");
     const signature = base58(wire["signature"], "result.signature");
     const ring = address(wire["ringProgramId"], "result.ringProgramId");
@@ -517,7 +522,11 @@ export class RingRpc {
       state,
       ...(config === undefined || config === null
         ? {}
-        : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
+        : {
+            configAuditorPublicKey: X25519PublicKey.fromBytes(
+              base64(config, "result.configAuditorPubkey"),
+            ),
+          }),
       servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }
@@ -662,7 +671,10 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
-    txViewingPublicKey: p256Key(wire["txViewingPk"], "txViewingPk"),
+    txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
+    ...(wire["anonymous"] === undefined || wire["anonymous"] === null
+      ? {}
+      : { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
         decodeOutput(record(entry, `outputs[${index}]`)),
@@ -692,6 +704,44 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
         spendRecordFromWire(record(entry, `spendRecords[${index}]`)),
       ),
     ),
+  });
+}
+
+/** Checks owner encodings and canonical recipient slot order before exposing a trace. */
+function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymousRingTrace {
+  // Decode bounded input openings without narrowing an unchecked integer.
+  const inputs = list(wire["inputs"], "anonymous.inputs").map((entry) => {
+    const input = record(entry, "anonymous.inputs");
+    const treeId = u32(input["treeId"], "anonymous.inputs.treeId");
+    if (treeId > 0xffff) throw invalid("anonymous.inputs.treeId");
+    return Object.freeze({
+      treeId,
+      amount: u64(input["amount"], "anonymous.inputs.amount"),
+      asset: hash(input["asset"], "anonymous.inputs.asset"),
+    });
+  });
+  // Real outputs retain their original slot indices after dummy slots are removed.
+  let previous = -1;
+  const recipients = list(wire["recipients"], "anonymous.recipients").map((entry) => {
+    const output = record(entry, "anonymous.recipients");
+    const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
+    if (slotIndex <= previous) throw invalid("anonymous.recipients.slotIndex");
+    const identityTag = output["identityTag"];
+    if (identityTag !== SOLANA_OWNER_TAG) throw invalid("anonymous.recipients.identityTag");
+    previous = slotIndex;
+    return Object.freeze({
+      slotIndex,
+      identityTag,
+      identityKey: hash(output["identityKey"], "anonymous.recipients.identityKey"),
+      nullifierPk: hash(output["nullifierPk"], "anonymous.recipients.nullifierPk"),
+      amount: u64(output["amount"], "anonymous.recipients.amount"),
+      asset: hash(output["asset"], "anonymous.recipients.asset"),
+    });
+  });
+  return Object.freeze({
+    sender: address(wire["sender"], "anonymous.sender"),
+    inputs: Object.freeze(inputs),
+    recipients: Object.freeze(recipients),
   });
 }
 
@@ -745,7 +795,7 @@ function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
   return Object.freeze({
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
-    recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
+    recipientViewingPublicKey: x25519Key(output["recipientViewingPk"], "recipientViewingPk"),
     ownerTag: hash(output["ownerTag"], "ownerTag"),
     asset: address(output["asset"], "asset"),
     amount: integer(output["amount"], "amount"),
@@ -946,8 +996,12 @@ function hash(value: unknown, path: string): Bytes32 {
   return bytes as Bytes32;
 }
 
-function p256Key(value: unknown, path: string): P256PublicKey {
+function x25519Key(value: unknown, path: string): X25519PublicKey {
   const bytes = base64(value, path);
   if (bytes.length !== 33) throw invalid(path);
-  return P256PublicKey.fromBytes(bytes as Bytes33);
+  try {
+    return X25519PublicKey.fromBytes(bytes as Bytes33);
+  } catch {
+    throw invalid(path);
+  }
 }

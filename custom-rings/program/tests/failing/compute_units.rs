@@ -32,13 +32,13 @@ fn consumed_until_spp_cpi(fixture: Fixture) -> u64 {
 #[test]
 fn operator_instructions_fit_their_published_budgets() {
     assert!(
-        consumed(create_config_fixture(auditor_pubkey(2)))
+        consumed(create_config_fixture(auditor_pubkey(4)))
             <= u64::from(CREATE_CONFIG_COMPUTE_UNIT_LIMIT)
     );
     assert!(
         consumed_until_spp_cpi(init_spp_ring_config_fixture(initialized_config_account(
             authority(),
-            auditor_pubkey(2)
+            auditor_pubkey(4)
         ))) <= u64::from(INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT)
     );
     assert!(consumed(set_authority_fixture()) <= u64::from(SET_AUTHORITY_COMPUTE_UNIT_LIMIT));

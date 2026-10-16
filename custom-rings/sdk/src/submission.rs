@@ -556,6 +556,7 @@ impl RingOperation<'_> {
         };
         Ok(match self {
             Self::Transfer(transfer) => {
+                transfer.check_fee_payer(env.payer.pubkey())?;
                 let proven = transfer.as_ref().clone().prove(proving)?;
                 ProvedOperation {
                     instruction: proven.instruction()?,
@@ -607,15 +608,18 @@ impl RingOperation<'_> {
                     budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
-            Self::Deposit(deposit) => ProvedOperation {
-                instruction: deposit.prove(DepositProofEnvironment {
-                    indexer: env.indexer,
-                    rpc: env.rpc,
-                    prover: env.prover,
-                })?,
-                window: None,
-                budget: deposit.budget(),
-            },
+            Self::Deposit(deposit) => {
+                deposit.check_fee_payer(env.payer.pubkey())?;
+                ProvedOperation {
+                    instruction: deposit.prove(DepositProofEnvironment {
+                        indexer: env.indexer,
+                        rpc: env.rpc,
+                        prover: env.prover,
+                    })?,
+                    window: None,
+                    budget: deposit.budget(),
+                }
+            }
         })
     }
     async fn prove_async<I: AsyncRpc>(
@@ -629,6 +633,7 @@ impl RingOperation<'_> {
         };
         Ok(match self {
             Self::Transfer(transfer) => {
+                transfer.check_fee_payer(env.payer.pubkey())?;
                 let proven = transfer.as_ref().clone().prove_async(proving).await?;
                 ProvedOperation {
                     instruction: proven.instruction()?,
@@ -684,11 +689,14 @@ impl RingOperation<'_> {
                     budget: ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
                 }
             }
-            Self::Deposit(deposit) => ProvedOperation {
-                instruction: deposit.prove_async(proving).await?,
-                window: None,
-                budget: deposit.budget(),
-            },
+            Self::Deposit(deposit) => {
+                deposit.check_fee_payer(env.payer.pubkey())?;
+                ProvedOperation {
+                    instruction: deposit.prove_async(proving).await?,
+                    window: None,
+                    budget: deposit.budget(),
+                }
+            }
         })
     }
 }
@@ -714,7 +722,7 @@ mod tests {
         SOL_MINT,
     };
 
-    fn pending(sender: &ShieldedKeypair, attempts: u8) -> RingTransferSubmission<'_> {
+    fn transfer(sender: &ShieldedKeypair, payer: Address) -> CustomRingTransfer<'_> {
         let ring = CustomRing::new(Address::new_from_array([5; 32]));
         let input = zolana_test_utils::utxo::wallet(
             Utxo {
@@ -732,16 +740,20 @@ mod tests {
             None,
         )
         .unwrap();
-        let mut transaction = ConfidentialTransaction::new(vec![input], sender.pubkey()).unwrap();
+        let mut transaction = ConfidentialTransaction::new(vec![input], payer).unwrap();
         transaction
             .transfer_sol(&sender.shielded_address().unwrap(), 4)
             .unwrap();
-        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+        CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender,
             nullifier_key: Some(&sender.nullifier_key),
             transaction,
-        });
+        })
+    }
+
+    fn pending(sender: &ShieldedKeypair, attempts: u8) -> RingTransferSubmission<'_> {
+        let transfer = transfer(sender, sender.pubkey());
         let message = compile_message(
             &sender.pubkey(),
             &[],
@@ -1280,6 +1292,70 @@ mod tests {
             value
         }
         requires_send(future).await.unwrap()
+    }
+
+    #[test]
+    fn anonymous_submission_rejects_the_owner_as_outer_payer_before_rpc() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let sponsor = ShieldedKeypair::new_ed25519().unwrap();
+        let transfer = transfer(&owner, sponsor.pubkey()).with_anonymous_signer(&owner.signing_key);
+        transfer.check_fee_payer(sponsor.pubkey()).unwrap();
+        let operation = RingOperation::from(transfer);
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = ExpiryObservation {
+            requests: requests.clone(),
+            statuses_after_expiry: None,
+        }
+        .into_rpc();
+        let result = operation.prove(&SubmissionEnvironment {
+            indexer: &rpc,
+            rpc: &rpc,
+            prover: &ProverClient::local(),
+            payer: &owner,
+            signers: &[&sponsor],
+        });
+        assert!(matches!(
+            result,
+            Err(SubmissionError::Prove(
+                TransferError::AnonymousPublicSignerLinksOwner
+            ))
+        ));
+        assert_eq!(requests.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn anonymous_async_submission_rejects_the_owner_as_outer_payer_before_rpc() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let sponsor = ShieldedKeypair::new_ed25519().unwrap();
+        let transfer = transfer(&owner, sponsor.pubkey()).with_anonymous_signer(&owner.signing_key);
+        transfer.check_fee_payer(sponsor.pubkey()).unwrap();
+        let operation = RingOperation::from(transfer);
+        let requests = Arc::new(AtomicUsize::new(0));
+        let rpc = AsyncSolanaRpc::with_client(
+            solana_rpc_client::nonblocking::rpc_client::RpcClient::new_sender(
+                ExpiryObservation {
+                    requests: requests.clone(),
+                    statuses_after_expiry: None,
+                },
+                Default::default(),
+            ),
+        );
+        let result = operation
+            .prove_async(&AsyncSubmissionEnvironment {
+                indexer: &rpc,
+                rpc: &rpc,
+                prover: &AsyncProverClient::local(),
+                payer: &owner,
+                signers: &[&sponsor],
+            })
+            .await;
+        assert!(matches!(
+            result,
+            Err(SubmissionError::Prove(
+                TransferError::AnonymousPublicSignerLinksOwner
+            ))
+        ));
+        assert_eq!(requests.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]

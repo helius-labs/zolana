@@ -3,7 +3,7 @@ use zolana_interface::{
     pda, N_PUBLIC_SLOTS,
 };
 use zolana_transaction::{
-    instructions::transact::{inputs_require_p256, CacheAccounts, SppProofInputs},
+    instructions::transact::{CacheAccounts, SppProofInputs},
     utxo::SppProofInputUtxo,
 };
 
@@ -193,9 +193,6 @@ pub fn assemble_with_dummy_policy(
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
-    if inputs_require_p256(&proof_inputs.input_utxos)? {
-        return Err(ClientError::P256TransactUnsupported);
-    }
 
     let zolana_transaction::ExternalData {
         expiry_unix_ts,
@@ -237,9 +234,9 @@ pub fn assemble_with_dummy_policy(
     let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
     let circuit_id = match result.cache_access {
         Some(access) => {
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
+            CircuitId::ConfidentialEd25519Cached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
         }
-        None => CircuitId::ConfidentialEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
+        None => CircuitId::ConfidentialEd25519(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
     };
     let prover_inputs = result.inputs;
     let public_input_hash = result.public_input_hash;
@@ -318,7 +315,6 @@ mod tests {
     };
 
     use super::{assemble, attach_input_proofs, SpendProof};
-    use crate::error::ClientError;
     use crate::rpc::{
         MerkleContext, MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
     };
@@ -376,43 +372,6 @@ mod tests {
             .map(|input_utxo| input_utxo.nullifier_proof.clone())
             .collect();
         assert_eq!(attached, proofs.map(Some).to_vec());
-    }
-
-    #[test]
-    fn default_transact_rejects_p256_owned_inputs() {
-        let keypair = ShieldedKeypair::new_p256().expect("P256 keypair");
-        let input = wallet_input(
-            Utxo {
-                owner: keypair.signing_pubkey(),
-                asset: zolana_transaction::Mint::SOL,
-                amount: 1,
-                blinding: [1u8; 32],
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            &keypair.nullifier_key,
-            0,
-        );
-        let proof_inputs = SppProofInputs {
-            input_utxos: vec![input.into()],
-            output_utxos: vec![SppProofOutputUtxo::default(), SppProofOutputUtxo::default()],
-            external_data: ExternalData::new(
-                [0u8; 33],
-                [0u8; 16],
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ),
-            payer: Address::default(),
-            blinding_seed: [7; 32],
-            output_tree_id: 0,
-            cache_accounts: Default::default(),
-        };
-
-        assert!(matches!(
-            assemble(proof_inputs, &[], &[]),
-            Err(ClientError::P256TransactUnsupported)
-        ));
     }
 
     #[test]

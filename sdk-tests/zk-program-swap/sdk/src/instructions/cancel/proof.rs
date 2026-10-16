@@ -2,14 +2,14 @@ use anyhow::{bail, Result};
 use swap_program::instructions::cancel::CancelPublicInput;
 use swap_prover::{CancelProofInputs, OrderTermsProofInput};
 use zolana_client::ProofInputUtxo;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct CancelProofInputParams {
     pub order_utxo: OrderUtxo,
-    pub taker_viewing_pubkey: P256Pubkey,
+    pub taker_viewing_pubkey: X25519Pubkey,
     pub source_output: SppProofOutputUtxo,
     /// `SppProofInputs::private_tx_blinding()`, the last `private_tx_hash`
     /// preimage element.

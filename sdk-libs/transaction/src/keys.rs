@@ -5,8 +5,9 @@
 //! remote holder answers a sync or a spend in one round trip per method.
 //!
 //! `decrypt` returns the transfer cipher's output rather than the ECDH shared
-//! point. The view root is itself an ECDH with a fixed point and ECDH is
-//! linear, so a chosen-point oracle over the viewing key would leak every
+//! point. The view root is HKDF-Extract over the clamped X25519 secret with
+//! the salt `TSPP/view_root/x25519/v1`, so no ECDH query reaches it, but a
+//! chosen-point oracle over the viewing key would still leak every
 //! per-transaction key the wallet has used; keystream results do not compose
 //! that way. The cipher is unauthenticated, so a ciphertext addressed to
 //! another wallet decrypts to noise rather than failing, and the caller detects
@@ -19,7 +20,7 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    NullifierKey, P256Pubkey, ViewingKey,
+    NullifierKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::{
@@ -42,8 +43,8 @@ pub struct DecryptRequest<'a> {
     pub ciphertext: &'a [u8],
     /// Which of the wallet's viewing keys opens this slot. A retired key still
     /// opens what was sent to it before the rotation.
-    pub viewing_pubkey: P256Pubkey,
-    pub tx_viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
+    pub tx_viewing_pubkey: X25519Pubkey,
     pub salt: Salt,
     /// Zero for a ring deposit.
     pub slot_index: u32,
@@ -73,7 +74,7 @@ pub enum DeriveRequest {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactionKeyRequest {
-    pub viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
     pub first_nullifier: [u8; 32],
 }
 
@@ -81,7 +82,7 @@ pub trait ShieldedKeys {
     fn address(&self) -> Result<ShieldedAddress, TransactionError>;
 
     /// Every viewing key held, the current one first. A sync opens under each.
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey>;
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey>;
 
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError>;
 
@@ -134,7 +135,7 @@ impl LocalShieldedKeys {
         )
     }
 
-    fn viewing_key(&self, pubkey: &P256Pubkey) -> Result<&ViewingKey, TransactionError> {
+    fn viewing_key(&self, pubkey: &X25519Pubkey) -> Result<&ViewingKey, TransactionError> {
         self.viewing
             .iter()
             .find(|key| &key.pubkey() == pubkey)
@@ -147,7 +148,7 @@ impl ShieldedKeys for LocalShieldedKeys {
         Ok(self.address)
     }
 
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.viewing.iter().map(|key| key.pubkey()).collect()
     }
 
@@ -217,7 +218,7 @@ impl ShieldedKeys for ShieldedKeypair {
         Ok(self.shielded_address()?)
     }
 
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         vec![self.viewing_pubkey()]
     }
 

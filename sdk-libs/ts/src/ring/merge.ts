@@ -38,7 +38,8 @@ export interface RingMergeTransactionParams {
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  readonly feePayer: Address;
+  /** Defaults to the owner. */
+  readonly feePayer?: Address;
   readonly asset?: Address;
   /** The most notes merged, smallest first, from 2 through `MAX_MERGE_INPUTS`, default `MERGE_INPUT_COUNT`. */
   readonly maxInputs?: number;
@@ -115,6 +116,7 @@ async function buildRingMerge(
     retry.entries = entries;
     retry.reservation ??= reserveEntries(params.wallet, entries, retry.lifetime);
     const owner = params.keys.address();
+    const feePayer = params.feePayer ?? owner.solanaAddress();
     const inputs = entries.map((entry) => ringProofInput(entry, owner, params.client));
     const prepared = await prepareMerge(
       {
@@ -140,7 +142,7 @@ async function buildRingMerge(
       throw ringIntentMismatch("retryIntent");
     retry.intent = planned;
     const approval = await (params.approve ?? approveUnattended)({
-      solanaPublicKey: ownerSolanaAccount(owner, params.feePayer),
+      solanaPublicKey: ownerSolanaAccount(owner, feePayer),
       intent,
       summary: `merge ${String(inputs.length)} inputs in ring ${params.ringProgramId}`,
     });
@@ -156,7 +158,7 @@ async function buildRingMerge(
         ringProgramId: params.ringProgramId,
         inputTree: params.client.tree,
         outputTree: outputTree.tree,
-        payer: params.feePayer,
+        payer: feePayer,
         data,
         outputRingDataHash: new Uint8Array(32) as Bytes32,
         ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
@@ -165,7 +167,7 @@ async function buildRingMerge(
     ]);
     return {
       transaction: compileUnsignedTransaction({
-        feePayer: params.feePayer,
+        feePayer,
         lifetime,
         instructions: [instruction],
         computeUnitLimit: 1_400_000,

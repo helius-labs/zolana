@@ -183,6 +183,8 @@ pub enum ShieldedPoolError {
     ZeroInputNullifier = 7078,
     #[error("output utxo hash must be nonzero; zero marks compact padding")]
     ZeroOutputUtxoHash = 7079,
+    #[error("every AnonymousRingEd25519 output owner tag must be the inline zero tag")]
+    AnonymousRingEd25519OutputOwnerTag = 7085,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -307,6 +309,7 @@ mod tests {
                 CacheRentRecipientMismatch => 7077,
                 ZeroInputNullifier => 7078,
                 ZeroOutputUtxoHash => 7079,
+                AnonymousRingEd25519OutputOwnerTag => 7085,
             }
         }
 
@@ -391,8 +394,11 @@ mod tests {
             CacheRentRecipientMismatch,
             ZeroInputNullifier,
             ZeroOutputUtxoHash,
+            AnonymousRingEd25519OutputOwnerTag,
         ];
-        let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
+        // 7080..=7084 are reserved for the merge envelope errors.
+        let codes = (7000_u32..)
+            .filter(|code| *code != 7063 && *code != 7072 && !(7080..=7084).contains(code));
         for (variant, code) in variants.into_iter().zip(codes) {
             assert_eq!(
                 variant as u32,
@@ -402,7 +408,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 78, "variant count drifted");
+        assert_eq!(variants.len(), 79, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

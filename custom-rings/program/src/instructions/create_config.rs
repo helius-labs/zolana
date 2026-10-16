@@ -1,4 +1,4 @@
-use custom_ring_interface::{CreateConfigIxData, RingProgramConfig};
+use custom_ring_interface::{CreateConfigIxData, RingMode, RingProgramConfig};
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, Address, ProgramResult,
@@ -8,7 +8,7 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{loader::UpgradeAuthorityCheck, shared::PdaCheck},
-    state::{is_p256_key, RingProgramConfigInitParams},
+    state::{is_x25519_key, RingProgramConfigInitParams},
 };
 
 /// Creates the ring's singleton config account (authority + auditor key).
@@ -23,10 +23,11 @@ pub fn process_create_config_ix(
     let CreateConfigIxData {
         auditor_pubkey,
         has_policy,
+        anonymous,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
     // The tier is a boolean, transact treats any nonzero as policy, so a stored
     // 2 would read as policy while looking distinct.
-    if has_policy > 1 {
+    if has_policy > 1 || anonymous > 1 {
         return Err(CustomRingError::InvalidInstructionData.into());
     }
 
@@ -48,10 +49,8 @@ pub fn process_create_config_ix(
         program_data,
     }
     .verify()?;
-    // Only SEC1-compressed points are stored: the circuit witnesses the
-    // uncompressed auditor key and re-compresses it in-circuit, so a key with
-    // any other prefix could never match a proof.
-    if !is_p256_key(&auditor_pubkey) {
+    // The envelope proves agreement with this tagged canonical X25519 key.
+    if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
 
@@ -93,6 +92,11 @@ pub fn process_create_config_ix(
         auditor_pubkey,
         bump,
         has_policy,
+        mode: if anonymous == 1 {
+            RingMode::Anonymous
+        } else {
+            RingMode::Off
+        },
     }
     .init(config_account)
 }

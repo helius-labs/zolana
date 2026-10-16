@@ -3,7 +3,7 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, X25519Pubkey};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances},
@@ -375,12 +375,14 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     {
                         return Ok(None);
                     }
-                    let Some((_, ciphertext)) = body.split_at_checked(P256_PUBKEY_LEN) else {
+                    let Some((_, ciphertext)) = body.split_at_checked(X25519_PUBKEY_LEN) else {
                         return Ok(None);
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                EncryptedScheme::AnonymousRecipient => (body, shielded_keys.viewing_public_keys()),
+                EncryptedScheme::AnonymousRecipient | EncryptedScheme::RingAnonymous => {
+                    (body, shielded_keys.viewing_public_keys())
+                }
                 _ => return Ok(None),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
@@ -407,13 +409,26 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     want: requests.len(),
                 });
             }
+            let mut unresolved_asset = None;
             for bytes in plaintexts {
                 let utxos = match scheme {
-                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
+                    EncryptedScheme::Confidential
+                    | EncryptedScheme::RingConfidential
+                    | EncryptedScheme::RingAnonymous => {
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };
-                        Confidential::into_utxos(plaintext, &owner_cx)?
+                        match Confidential::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(error) if scheme != EncryptedScheme::RingAnonymous => {
+                                return Err(error)
+                            }
+                            Err(TransactionError::UnknownAsset(asset)) => {
+                                unresolved_asset = Some(asset);
+                                continue;
+                            }
+                            Err(_) => continue,
+                        }
                     }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
@@ -426,11 +441,30 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     _ => return Ok(None),
                 };
+                // Trial decryption has no authentication tag. A parseable wrong-key
+                // plaintext must not hide a later key's committed note.
+                if scheme == EncryptedScheme::RingAnonymous
+                    && !utxos.iter().any(|utxo| {
+                        utxo.hash(
+                            &address.nullifier_pubkey,
+                            &[0; 32],
+                            &[0; 32],
+                            slot.output_context.tree_id,
+                        )
+                        .ok()
+                            == Some(slot.output_context.hash)
+                    })
+                {
+                    continue;
+                }
                 return Ok(Some(DecodedSlot {
                     utxos,
                     data_hash: None,
                     ring_data_hash: None,
                 }));
+            }
+            if let Some(asset) = unresolved_asset {
+                return Err(TransactionError::UnknownAsset(asset));
             }
             Ok(None)
         }
@@ -452,7 +486,7 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
     let Ok(output) = EncryptedRingDepositOutput::try_from_slice(body) else {
         return Ok(None);
     };
-    let Ok(tx_viewing_pubkey) = P256Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
+    let Ok(tx_viewing_pubkey) = X25519Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
         return Ok(None);
     };
     let requests: Vec<_> = shielded_keys

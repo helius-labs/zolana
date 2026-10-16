@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
 import { ZolanaApi, ApiError } from "../api/index.js";
@@ -22,7 +23,6 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
@@ -188,7 +188,7 @@ export class ZolanaIndexer {
         nextIndex: response.nextIndex,
         next: hashBytes(response.next),
         index: response.index,
-        ephemeralPublicKey: decodeP256(response.ephPk, method, "$.ephPk"),
+        ephemeralPublicKey: decodeX25519(response.ephPk, method, "$.ephPk"),
         ciphertext: decodeCiphertext(response.ciphertext, method, "$.ciphertext"),
         proof: Object.freeze(response.proof.map(hashBytes)),
       });
@@ -396,11 +396,8 @@ function convertRegistryRecord(
   if (record.owner !== owner) throw invalidResponse(method, `${path}.owner`);
   return Object.freeze({
     owner: record.owner,
-    ...(record.ownerP256 === undefined
-      ? {}
-      : { ownerP256: decodeP256(record.ownerP256, method, `${path}.ownerP256`) }),
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
-    viewingPublicKey: decodeP256(record.viewingPubkey, method, `${path}.viewingPubkey`),
+    viewingPublicKey: decodeX25519(record.viewingPubkey, method, `${path}.viewingPubkey`),
     mergingEnabled: record.mergingEnabled,
   });
 }
@@ -522,7 +519,7 @@ function convertEncryptedUtxoMatch(
     outputSlot: convertOutputSlot(item.outputSlot),
     ...(item.txViewingPk === undefined
       ? {}
-      : { txViewingPk: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
+      : { txViewingPk: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
   });
 }
@@ -580,7 +577,7 @@ function convertShieldedTransaction(
     ...(item.txViewingPk === undefined
       ? {}
       : {
-          txViewingPublicKey: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`),
+          txViewingPublicKey: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`),
         }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
     outputSlots: Object.freeze(item.outputSlots.map(convertOutputSlot)),
@@ -607,17 +604,18 @@ function convertOutputSlot(
     outputContext: Object.freeze({
       hash: copyHash(slot.outputContext.hash),
       tree: slot.outputContext.tree,
+      treeId: slot.outputContext.treeId,
       leafIndex: slot.outputContext.leafIndex,
     }),
     payload: decodeBase64(slot.payload, "output_slot.payload"),
   });
 }
 
-function decodeP256(value: string, method: string, path: string): P256PublicKey {
+function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
   const bytes = decodeBase64(value, path);
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
   try {
-    return P256PublicKey.fromBytes(bytes as Bytes33);
+    return X25519PublicKey.fromBytes(bytes as Bytes33);
   } catch {
     throw invalidResponse(method, path);
   }
