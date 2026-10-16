@@ -12,7 +12,7 @@ import (
 
 func policyCircuit(circuit common.CircuitType) bool {
 	switch circuit {
-	case common.CustomRingPolicyCircuitType, common.CustomRingCompressedPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
+	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		return true
 	default:
 		return false
@@ -23,16 +23,12 @@ func policyCircuit(circuit common.CircuitType) bool {
 func decodePolicy(request Request) (*preparedProof, error) {
 	var value any
 	var p *ring.PolicyParams
-	switch request.CircuitType {
-	case common.CustomRingPolicyCircuitType:
-		p = &ring.PolicyParams{}
-		value = p
-	case common.CustomRingDelegatePolicyCircuitType:
+	if request.CircuitType == common.CustomRingDelegatePolicyCircuitType {
 		wrapper := &ring.DelegatePolicyParams{}
 		value, p = wrapper, &wrapper.Policy
-	default:
-		wrapper := &ring.CompressedPolicyParams{}
-		value, p = wrapper, &wrapper.Policy
+	} else {
+		p = &ring.PolicyParams{}
+		value = p
 	}
 	if err := ring.Unmarshal(request.Prepared, value); err != nil {
 		return nil, fmt.Errorf("invalid prepared policy: %w", err)

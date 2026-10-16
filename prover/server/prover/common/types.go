@@ -41,9 +41,6 @@ const (
 	CustomRingPolicyCircuitType         CircuitType = "custom-ring-policy"
 	CustomRingDelegatePolicyCircuitType CircuitType = "custom-ring-delegate-policy"
 
-	// Windowed members must seal their successor counters for disclosure.
-	CustomRingCompressedPolicyCircuitType CircuitType = "custom-ring-compressed-policy"
-
 	// Key registration inserts a member's auditor-encrypted nullifier key at the cursor.
 	CustomRingKeyRegisterCircuitType CircuitType = "custom-ring-register-key"
 
@@ -56,7 +53,6 @@ var RingCircuitTypes = []CircuitType{
 	CustomRingPolicyCircuitType,
 	CustomRingBaseCircuitType,
 	CustomRingDelegatePolicyCircuitType,
-	CustomRingCompressedPolicyCircuitType,
 	CustomRingKeyRegisterCircuitType,
 	CustomRingDepositCircuitType,
 }

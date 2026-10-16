@@ -80,13 +80,6 @@ func zeroListFact() ListFact {
 	}
 }
 
-func zeroRecord() SpendRecord {
-	return SpendRecord{
-		Commitment: fi(0), Salt: fi(0), NextSalt: fi(0),
-		Assets: zeros(policy.NVelocityAssets), Spent: zeros(policy.NVelocityAssets),
-	}
-}
-
 func zeroTreeSlots() TreeSlots {
 	slots := make(TreeSlots, shared.InputTrees)
 	for i := range slots {
@@ -131,14 +124,13 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 		InlineAssets: zeros(policy.NInlineAssets), InlineLimits: zeros(policy.NInlineAssets),
 		TreeSlots:     zeroTreeSlots(),
 		AddressTreeID: fi(0x0f), RingID: fi(0x5a), NamespaceOwnerHash: fi(0x99), KeyRegistryRoot: fi(0),
-		Record: zeroRecord(),
 	}
 	p.TreeSlots[0] = common.TreeSlotParams{ID: p.AddressTreeID.Int, UtxoRoot: root, NullifierRoot: big.NewInt(0x0e)}
 	for range policy.NSources {
 		p.Sources = append(p.Sources, Source{OwnerHash: fi(0)})
 	}
-	for range policy.NVelocityAssets {
-		p.Velocity = append(p.Velocity, VelocityRow{fi(0), fi(0), fi(0)})
+	for range policy.NOutflowLimits {
+		p.Limits = append(p.Limits, OutflowLimit{fi(0), fi(0), fi(0)})
 	}
 	for range policy.NInputs {
 		p.Inputs = append(p.Inputs, zeroOpening())
@@ -181,8 +173,8 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 	for range p.Sources {
 		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
 	}
-	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.VelocityCount)), new(big.Int).SetUint64(p.WindowSlots))
-	for _, row := range p.Velocity[:p.VelocityCount] {
+	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.LimitCount)))
+	for _, row := range p.Limits[:p.LimitCount] {
 		preimage = append(preimage, row.Asset.Int, row.Cap.Int, row.CosignAbove.Int)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
@@ -196,7 +188,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 		keyEscrow.SetInt64(1)
 	}
 	elements = append(elements, policyHash, spptest.MustTreeSlotsHashChain(t, slots), p.AddressTreeID.Int,
-		p.RingID.Int, p.NamespaceOwnerHash.Int, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0),
+		p.RingID.Int, p.NamespaceOwnerHash.Int, big.NewInt(0),
 		keyEscrow, p.KeyRegistryRoot.Int, big.NewInt(0))
 	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), policy.NListFacts)...)
 	p.PublicInputHash = fb(spptest.MustHashChain(t, append(elements, tail...)))

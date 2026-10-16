@@ -77,9 +77,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	case common.MergeRingCircuitType:
 		expected = 8
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
-		expected = 19
-	case common.CustomRingCompressedPolicyCircuitType:
-		expected = 20
+		expected = 18
 	}
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")

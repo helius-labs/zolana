@@ -44,12 +44,12 @@ func policyFixture(t *testing.T, enabled bool) (Request, response[stateProof], r
 		answers[0]["enabled"], answers[0]["absentBranch"] = true, 2
 		lookups[0] = Lookup{TreeSlot: 0, Commitment: &state.Proofs[0].Leaf, Nullifier: &exclusion.Proofs[0].Leaf}
 	}
-	sources, velocity := make([]map[string]any, 8), make([]map[string]any, 8)
+	sources, limits := make([]map[string]any, 8), make([]map[string]any, 8)
 	for i := range sources {
 		sources[i] = map[string]any{"listId": 0, "ownerHash": "0x" + strings.Repeat("00", 32)}
 	}
-	for i := range velocity {
-		velocity[i] = map[string]any{"asset": "0x" + strings.Repeat("00", 32), "cap": "0x" + strings.Repeat("00", 32), "cosignAbove": "0x" + strings.Repeat("00", 32)}
+	for i := range limits {
+		limits[i] = map[string]any{"asset": "0x" + strings.Repeat("00", 32), "cap": "0x" + strings.Repeat("00", 32), "cosignAbove": "0x" + strings.Repeat("00", 32)}
 	}
 	rules := make([]string, 16)
 	for i := range rules {
@@ -61,13 +61,13 @@ func policyFixture(t *testing.T, enabled bool) (Request, response[stateProof], r
 		"auditorPk": "0x09" + strings.Repeat("00", 31),
 		"salt":      "0x" + strings.Repeat("00", 16), "nIn": 1, "nOut": 1, "inputs": openings(5), "outputs": openings(4),
 		"addressChain": "0x" + strings.Repeat("00", 32), "privateTxBlinding": "0x" + strings.Repeat("00", 32), "sources": sources, "policyLen": 0, "ruleEnc": rules,
-		"inlineAssets": zeroFields(8), "inlineLimits": zeroFields(8), "inlineCount": 0, "windowSlots": 0, "velocity": velocity, "velocityCount": 0,
-		"addressTreeId": "0x" + strings.Repeat("00", 32), "ringId": "0x" + strings.Repeat("00", 31) + "01", "namespaceOwnerHash": "0x" + strings.Repeat("00", 31) + "01", "windowIndex": 0, "approvalRequired": false, "keyEscrow": false, "keyRegistryRoot": "0x" + strings.Repeat("00", 32),
-		"record": map[string]any{"version": 0, "window": 0, "commitment": "0x" + strings.Repeat("00", 32), "salt": "0x" + strings.Repeat("00", 32), "assets": zeroFields(8), "spent": zeroFields(8), "nextSalt": "0x" + strings.Repeat("00", 32)}, "answers": answers,
+		"inlineAssets": zeroFields(8), "inlineLimits": zeroFields(8), "inlineCount": 0, "limits": limits, "limitCount": 0,
+		"addressTreeId": "0x" + strings.Repeat("00", 32), "ringId": "0x" + strings.Repeat("00", 31) + "01", "namespaceOwnerHash": "0x" + strings.Repeat("00", 31) + "01", "approvalRequired": false, "keyEscrow": false, "keyRegistryRoot": "0x" + strings.Repeat("00", 32),
+		"answers": answers,
 	}
 	tree := transaction.Trees[0]
 	tree.Fallback = &common.ResolvedTree{Tree: tree.Address, ID: tree.ID, UtxoRoot: state.Proofs[0].Root.hex(), NullifierRoot: exclusion.Proofs[0].Root.hex(), UtxoRootIndex: state.Proofs[0].RootIndex, NullifierRootIndex: exclusion.Proofs[0].RootIndex}
-	return Request{CircuitType: common.CustomRingPolicyCircuitType, Prepared: encoded(t, prepared), Trees: []Tree{tree}, Inputs: lookups, PublicInputs: zeroFields(19)}, state, exclusion
+	return Request{CircuitType: common.CustomRingPolicyCircuitType, Prepared: encoded(t, prepared), Trees: []Tree{tree}, Inputs: lookups, PublicInputs: zeroFields(18)}, state, exclusion
 }
 
 func TestPolicyResolvesOnlyEnabledFacts(t *testing.T) {
@@ -122,7 +122,7 @@ func TestPolicyResolvesOnlyEnabledFacts(t *testing.T) {
 }
 
 func TestPolicyRejectsNullFactsInEveryWrapper(t *testing.T) {
-	for _, circuit := range []common.CircuitType{common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType, common.CustomRingCompressedPolicyCircuitType} {
+	for _, circuit := range []common.CircuitType{common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType} {
 		t.Run(string(circuit), func(t *testing.T) {
 			request, _, _ := policyFixture(t, false)
 			var base map[string]any
@@ -134,10 +134,7 @@ func TestPolicyRejectsNullFactsInEveryWrapper(t *testing.T) {
 			if circuit == common.CustomRingPolicyCircuitType {
 				request.Prepared = encoded(t, base)
 			} else {
-				request.Prepared = encoded(t, map[string]any{"circuitType": circuit, "policy": base, "transactionSalt": "0x" + strings.Repeat("00", 16)})
-			}
-			if circuit == common.CustomRingCompressedPolicyCircuitType {
-				request.PublicInputs = append(request.PublicInputs, "0x0")
+				request.Prepared = encoded(t, map[string]any{"circuitType": circuit, "policy": base})
 			}
 			if Validate(encoded(t, request)) == nil {
 				t.Fatal("null fact accepted")

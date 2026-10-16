@@ -7,17 +7,17 @@ import (
 
 // Capacities of one proof.
 const (
-	NInputs         = 5
-	NOutputs        = 4
-	NRules          = 16
-	NListFacts      = 10
-	NInlineAssets   = 8
-	NSources        = 8
-	NVelocityAssets = 8
+	NInputs        = 5
+	NOutputs       = 4
+	NRules         = 16
+	NListFacts     = 10
+	NInlineAssets  = 8
+	NSources       = 8
+	NOutflowLimits = 8
 )
 
 // PolicyVersion is committed in policy_hash.
-const PolicyVersion = 7
+const PolicyVersion = 8
 
 // Subjects select the transaction value a rule checks, SubjectExitDestination is rejected.
 const (
@@ -54,11 +54,9 @@ var (
 	policyAddressDomain = packedASCII("zolana:ring-policy:address:v1")
 	policyRecordDomain  = packedASCII("zolana:ring-policy:record:v1")
 	policyTableDomain   = packedASCII("zolana:ring-policy:policy:v1")
-	SpendAddressDomain  = packedASCII("zolana:ring-policy:spend:v1")
-	SpendRecordDomain   = packedASCII("zolana:ring-spend:record:v1")
 )
 
-// solAssetField is Poseidon(0, 0), the asset of policy entries and spend records.
+// solAssetField is Poseidon(0, 0), the asset of policy entries.
 var solAssetField, _ = new(big.Int).SetString("2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
 
 const amountBits = 64

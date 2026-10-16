@@ -11,7 +11,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
+func TestDelegatePolicyKeepsRulesButExemptsOutflowLimits(t *testing.T) {
 	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder,
 		&CustomRingDelegatePolicyCircuit{}, frontend.WithCompressThreshold(300))
 	if err != nil {
@@ -19,19 +19,17 @@ func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
 	}
 	cases := []struct {
 		name   string
-		window uint64
 		change func(*fixture, *statement, *[]int)
 		fails  bool
 	}{
-		{"key escrow off", 0, func(_ *fixture, s *statement, _ *[]int) { s.keyEscrow, s.keyRegistryRoot = false, nil }, true},
-		{"over per-transfer cap and threshold", 0, nil, false},
-		{"over windowed cap without record", 100, nil, false},
-		{"allow fact still required", 100, func(_ *fixture, _ *statement, facts *[]int) { *facts = []int{senderNotFrozen} }, true},
-		{"freeze fact still required", 100, func(_ *fixture, _ *statement, facts *[]int) { *facts = []int{allowedActive} }, true},
-		{"asset allow rule still required", 100, func(_ *fixture, s *statement, _ *[]int) { s.inlineAssets[0] = big.NewInt(17) }, true},
-		{"approval cannot be raised", 100, func(_ *fixture, s *statement, _ *[]int) { s.approval = true }, true},
-		{"window must be zero", 100, func(_ *fixture, s *statement, _ *[]int) { s.windowIndex = 1 }, true},
-		{"namespace output without rules", 100, func(_ *fixture, s *statement, facts *[]int) {
+		{"key escrow off", func(_ *fixture, s *statement, _ *[]int) { s.keyEscrow, s.keyRegistryRoot = false, nil }, true},
+		{"over the cap and the co-sign threshold", nil, false},
+		{"allow fact still required", func(_ *fixture, _ *statement, facts *[]int) { *facts = []int{senderNotFrozen} }, true},
+		{"freeze fact still required", func(_ *fixture, _ *statement, facts *[]int) { *facts = []int{allowedActive} }, true},
+		{"asset allow rule still required", func(_ *fixture, s *statement, _ *[]int) { s.inlineAssets[0] = big.NewInt(17) }, true},
+		{"approval cannot be raised", func(_ *fixture, s *statement, _ *[]int) { s.approval = true }, true},
+		{"a row without a bound", func(_ *fixture, s *statement, _ *[]int) { s.limits[0].cap, s.limits[0].cosign = 0, 0 }, true},
+		{"namespace output without rules", func(_ *fixture, s *statement, facts *[]int) {
 			s.rules, s.inlineAssets, *facts = nil, nil, nil
 			s.sources = emptySources()
 			s.outputs[0].OwnerPkHash = pkField(t, fill(0x11))
@@ -42,8 +40,7 @@ func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := defaultFixture()
 			s := newStatement(t, f)
-			s.windowSlots = tc.window
-			s.velocity = []velocityRow{{asset: assetField(t, f.transferred), cap: 1, cosign: 1}}
+			s.limits = []limitRow{{asset: assetField(t, f.transferred), cap: 1, cosign: 1}}
 			facts := f.listFacts
 			s.escrowOutputs(t)
 			if tc.change != nil {

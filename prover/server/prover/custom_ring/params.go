@@ -72,20 +72,10 @@ type Source struct {
 	OwnerHash Field `json:"ownerHash"`
 }
 
-type VelocityRow struct {
+type OutflowLimit struct {
 	Asset       Field `json:"asset"`
 	Cap         Field `json:"cap"`
 	CosignAbove Field `json:"cosignAbove"`
-}
-
-type SpendRecord struct {
-	Version    uint64  `json:"version"`
-	Window     uint64  `json:"window"`
-	Commitment Field   `json:"commitment"`
-	Salt       Field   `json:"salt"`
-	Assets     []Field `json:"assets"`
-	Spent      []Field `json:"spent"`
-	NextSalt   Field   `json:"nextSalt"`
 }
 
 type ListFact struct {
@@ -123,30 +113,21 @@ type PolicyParams struct {
 	InlineAssets       []Field         `json:"inlineAssets"`
 	InlineLimits       []Field         `json:"inlineLimits"`
 	InlineCount        uint8           `json:"inlineCount"`
-	WindowSlots        uint64          `json:"windowSlots"`
-	Velocity           []VelocityRow   `json:"velocity"`
-	VelocityCount      uint8           `json:"velocityCount"`
+	Limits             []OutflowLimit  `json:"limits"`
+	LimitCount         uint8           `json:"limitCount"`
 	TreeSlots          TreeSlots       `json:"treeSlots"`
 	AddressTreeID      Field           `json:"addressTreeId"`
 	RingID             Field           `json:"ringId"`
 	NamespaceOwnerHash Field           `json:"namespaceOwnerHash"`
-	WindowIndex        uint64          `json:"windowIndex"`
 	ApprovalRequired   bool            `json:"approvalRequired"`
 	KeyEscrow          bool            `json:"keyEscrow"`
 	KeyRegistryRoot    Field           `json:"keyRegistryRoot"`
-	Record             SpendRecord     `json:"record"`
 	ListFacts          []ListFact      `json:"answers"`
 }
 
 type DelegatePolicyParams struct {
 	CircuitType string       `json:"circuitType"`
 	Policy      PolicyParams `json:"policy"`
-}
-
-type CompressedPolicyParams struct {
-	CircuitType     string       `json:"circuitType"`
-	Policy          PolicyParams `json:"policy"`
-	TransactionSalt Bytes        `json:"transactionSalt"`
 }
 
 type KeyRegisterParams struct {

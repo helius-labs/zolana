@@ -36,10 +36,8 @@ type utxoView struct {
 	// opening carries the owner masked to zero outside the UTXO domain, hash commits it.
 	opening base.AuditOutputWires
 	hash    frontend.Variable
-	// active is a selected slot, utxo a selected UTXO, record the windowed spend record slot.
-	active, utxo, record frontend.Variable
-	// live is a UTXO outside the record, only it creates policy obligations.
-	live frontend.Variable
+	// active is a selected slot, utxo a selected UTXO, only it creates policy obligations.
+	active, utxo frontend.Variable
 }
 
 type transaction struct {
@@ -48,17 +46,17 @@ type transaction struct {
 	nOut    base.Count
 }
 
-// constrainTransaction binds the openings to the SPP transaction hash, the record is the last selected slot.
-func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc frontend.Rangechecker, recordEnabled frontend.Variable) transaction {
+// constrainTransaction binds the openings to the SPP transaction hash.
+func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc frontend.Rangechecker) transaction {
 	tx := transaction{nOut: base.SelectCount(api, c.NOut, 1, NOutputs)}
 	nIn := base.SelectCount(api, c.NIn, 1, NInputs)
 	inputHashes, outputHashes := make([]frontend.Variable, NInputs), make([]frontend.Variable, NOutputs)
 	for i, w := range c.Inputs {
-		tx.inputs[i] = w.check(api, rc, nIn.Active[i], api.Mul(recordEnabled, nIn.OneHot[i]), true)
+		tx.inputs[i] = w.check(api, rc, nIn.Active[i], true)
 		inputHashes[i] = api.Mul(tx.inputs[i].utxo, tx.inputs[i].hash)
 	}
 	for i, w := range c.Outputs {
-		tx.outputs[i] = w.check(api, rc, tx.nOut.Active[i], api.Mul(recordEnabled, tx.nOut.OneHot[i]), false)
+		tx.outputs[i] = w.check(api, rc, tx.nOut.Active[i], false)
 		outputHashes[i] = api.Mul(tx.outputs[i].utxo, tx.outputs[i].hash)
 	}
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
@@ -68,7 +66,7 @@ func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc fron
 }
 
 // check admits UTXO and dummy slots, and address slots on inputs.
-func (w UtxoWires) check(api frontend.API, rc frontend.Rangechecker, active, record frontend.Variable, input bool) utxoView {
+func (w UtxoWires) check(api frontend.API, rc frontend.Rangechecker, active frontend.Variable, input bool) utxoView {
 	rc.Check(w.Amount, amountBits)
 	isUtxo := api.IsZero(api.Sub(w.Domain, shared.UtxoDomain))
 	allowed := api.Add(isUtxo, api.IsZero(api.Sub(w.Domain, shared.DummyDomain)))
@@ -81,26 +79,23 @@ func (w UtxoWires) check(api frontend.API, rc frontend.Rangechecker, active, rec
 		Domain: w.Domain, TreeID: w.TreeID, OwnerHash: api.Mul(isUtxo, owner), Asset: w.Asset, Amount: w.Amount,
 		Blinding: w.Blinding, DataHash: w.DataHash, RingDataHash: w.RingDataHash, RingProgramID: w.RingProgramID,
 	}
-	utxo := api.Mul(active, isUtxo)
 	return utxoView{
 		ownerPkHash: w.OwnerPkHash, nullifierPk: w.NullifierPk, asset: w.Asset, amount: w.Amount, ringProgramID: w.RingProgramID,
 		owner: owner, opening: opening, hash: opening.Hash(api),
-		active: active, utxo: utxo, record: record, live: api.Mul(utxo, api.Sub(1, record)),
+		active: active, utxo: api.Mul(active, isUtxo),
 	}
 }
 
-// Only the member's record pair may use the namespace owner.
+// The namespace owner holds list entries only, never a transaction slot.
 func (c *CustomRingPolicyCircuit) constrainNamespace(api frontend.API, tx transaction) {
 	for _, slot := range append(tx.inputs[:], tx.outputs[:]...) {
-		shared.AssertWhen(api, api.Mul(slot.active, api.Sub(1, slot.record)), base.NonZero(api, api.Sub(slot.owner, c.NamespaceOwnerHash)))
+		shared.AssertWhen(api, slot.active, base.NonZero(api, api.Sub(slot.owner, c.NamespaceOwnerHash)))
 	}
 }
 
-// Namespace records skip the registry, their owner hash binds the zero nullifier key.
 func (c *CustomRingPolicyCircuit) constrainOutputKeys(api frontend.API, tx transaction) {
 	registry.AssertMode(api, c.KeyEscrow, c.KeyRegistryRoot)
 	for i, output := range tx.outputs {
-		escrowed := api.Mul(output.utxo, c.KeyEscrow, base.NonZero(api, api.Sub(output.owner, c.NamespaceOwnerHash)))
-		c.Outputs[i].Key.AssertEscrowed(api, escrowed, c.KeyRegistryRoot, output.ownerPkHash, output.nullifierPk)
+		c.Outputs[i].Key.AssertEscrowed(api, api.Mul(output.utxo, c.KeyEscrow), c.KeyRegistryRoot, output.ownerPkHash, output.nullifierPk)
 	}
 }

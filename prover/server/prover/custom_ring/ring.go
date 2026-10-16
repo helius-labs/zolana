@@ -37,7 +37,6 @@ var RingCircuits = []RingCircuit{
 	ring[PolicyParams, policy.CustomRingPolicyCircuit](common.CustomRingPolicyCircuitType),
 	ring[BaseParams, base.CustomRingBaseCircuit](common.CustomRingBaseCircuitType),
 	ring[DelegatePolicyParams, policy.CustomRingDelegatePolicyCircuit](common.CustomRingDelegatePolicyCircuitType),
-	ring[CompressedPolicyParams, policy.CompressedPolicyCircuit](common.CustomRingCompressedPolicyCircuitType),
 	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
 	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
 }

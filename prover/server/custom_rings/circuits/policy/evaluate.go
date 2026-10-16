@@ -24,8 +24,8 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 	var liveOwner, liveAsset [NOutputs]frontend.Variable
 	var limits [NOutputs]assetLimit
 	for o, output := range tx.outputs {
-		liveOwner[o] = api.Mul(output.live, base.NonZero(api, output.ownerPkHash))
-		liveAsset[o] = api.Mul(output.live, base.NonZero(api, output.asset))
+		liveOwner[o] = api.Mul(output.utxo, base.NonZero(api, output.ownerPkHash))
+		liveAsset[o] = api.Mul(output.utxo, base.NonZero(api, output.asset))
 		limits[o] = c.matchInlineAssets(api, output.asset, checked.inline.Active)
 	}
 	totals := sumOutputs(api, tx.outputs, liveOwner, liveAsset)
@@ -51,7 +51,7 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 			for f := range facts {
 				hits[f] = api.Mul(matches[f], sameSender[f][i])
 			}
-			shared.AssertWhen(api, api.Mul(onInput, input.live, base.NonZero(api, input.ownerPkHash)), base.AnyOf(api, hits[:]...))
+			shared.AssertWhen(api, api.Mul(onInput, input.utxo, base.NonZero(api, input.ownerPkHash)), base.AnyOf(api, hits[:]...))
 		}
 	}
 }

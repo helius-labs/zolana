@@ -102,7 +102,7 @@ func TestAssignNamesEveryMissingValue(t *testing.T) {
 		}
 	}
 	err := assign(RingCircuits[0].Circuit(), &PolicyParams{})
-	for _, name := range []string{"PrivateTxHash: missing", "TxViewingSk: expected 32 values", "Inputs: expected 5 values", "Record.Commitment: missing", "TreeSlots: expected 5 values"} {
+	for _, name := range []string{"PrivateTxHash: missing", "TxViewingSk: expected 32 values", "Inputs: expected 5 values", "Limits: expected 8 values", "TreeSlots: expected 5 values"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("%q is not reported in %v", name, err)
 		}

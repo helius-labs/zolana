@@ -11,7 +11,7 @@ import (
 )
 
 // Properties: the audit statement holds, every enabled rule passes for each live subject on list facts
-// that open at the slot roots, and windowed outflow stays within each cap, with output keys escrowed.
+// that open at the slot roots, and the transfer's outflow stays within each cap, with output keys escrowed.
 
 type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -32,20 +32,16 @@ type CustomRingPolicyCircuit struct {
 	InlineAssets [NInlineAssets]frontend.Variable
 	InlineLimits [NInlineAssets]frontend.Variable
 	InlineCount  frontend.Variable
-	// Zero caps each transfer alone, without a spend record.
-	WindowSlots   frontend.Variable
-	Velocity      [NVelocityAssets]VelocityRowWires
-	VelocityCount frontend.Variable
+	Limits       [NOutflowLimits]OutflowLimitWires
+	LimitCount   frontend.Variable
 
 	TreeSlots          [shared.InputTrees]shared.TreeSlot
 	AddressTreeID      frontend.Variable
 	RingID             frontend.Variable
 	NamespaceOwnerHash frontend.Variable
-	WindowIndex        frontend.Variable
 	ApprovalRequired   frontend.Variable
 	KeyEscrow          frontend.Variable
 	KeyRegistryRoot    frontend.Variable
-	Record             RecordWires
 	ListFacts          [NListFacts]ListFactWires
 }
 
@@ -62,30 +58,23 @@ const (
 )
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _ := c.constrain(api, memberRail)
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, c.constrain(api, memberRail)))
 	return nil
 }
 
 // The compiled circuit fixes the rail, no witness selects it.
-func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) ([]frontend.Variable, successorCounters) {
+func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) []frontend.Variable {
 	rc := rangecheck.New(api)
 	checked := c.checkPolicy(api, rc)
-	recordEnabled := checked.velocity.windowEnabled
-	if rail == delegateRail {
-		recordEnabled = 0
-	}
-	tx := c.constrainTransaction(api, rc, recordEnabled)
+	tx := c.constrainTransaction(api, rc)
 	c.constrainNamespace(api, tx)
 	facts, factSlots := c.checkListFacts(api, rc)
 	c.constrainRules(api, tx, facts, checked)
-	var counters successorCounters
 	if rail == delegateRail {
-		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
 	} else {
-		counters = c.constrainVelocity(api, rc, checked.velocity, tx)
+		c.constrainLimits(api, checked.limits, tx)
 	}
 	c.constrainOutputKeys(api, tx)
 
@@ -96,9 +85,9 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) (
 	}
 	audit := c.Audit.Define(api, rc, openings, hashes, tx.nOut)
 	chain := append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
-		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired, c.KeyEscrow, c.KeyRegistryRoot, factSlots)
+		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.KeyRegistryRoot, factSlots)
 	for _, fact := range facts {
 		chain = append(chain, fact.revocationTarget)
 	}
-	return chain, counters
+	return chain
 }

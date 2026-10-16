@@ -80,22 +80,3 @@ func TestOutputKeysMustBeEscrowed(t *testing.T) {
 		})
 	}
 }
-
-func TestNamespaceRecordNeedsNoRegisteredKey(t *testing.T) {
-	cs := testConstraintSystem(t)
-	f := velocityDefault()
-	s := newStatement(t, f)
-	s.escrowOutputs(t)
-	records := 0
-	for i, output := range s.outputs {
-		owner := spptest.MustOwnerHash(t, spptest.AsBigInt(output.OwnerPkHash), spptest.AsBigInt(output.NullifierPk))
-		if owner.Cmp(s.ownOwnerHash) == 0 {
-			s.outputKeys[i] = nil
-			records++
-		}
-	}
-	if records != 1 {
-		t.Fatalf("statement holds %d namespace records", records)
-	}
-	solve(t, cs, s.assignment(t, f.facts()))
-}

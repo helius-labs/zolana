@@ -26,7 +26,7 @@ type checkedPolicy struct {
 	rules       [NRules]ruleFields
 	ruleEnabled []frontend.Variable
 	inline      base.Count
-	velocity    velocityPolicy
+	limits      base.Count
 }
 
 // Byte 31 is the subject, then mode, list mask, guard tag, an 8-byte threshold and the opposite mode mask.
@@ -46,7 +46,7 @@ func decodeRule(api frontend.API, packed frontend.Variable) ruleFields {
 	}
 }
 
-// checkPolicy binds evaluation to the committed rules, sources, inline assets and velocity rows.
+// checkPolicy binds evaluation to the committed rules, sources, inline assets and outflow limits.
 func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rangechecker) checkedPolicy {
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
 	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
@@ -63,8 +63,8 @@ func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rang
 		api.AssertIsEqual(api.Mul(padding, c.InlineLimits[i]), 0)
 	}
 	c.checkGuardAssets(api, checked)
-	checked.velocity = c.checkVelocityTable(api, rc)
-	checked.hash = c.policyHash(api, rules, checked.inline.Active, checked.velocity.rows.Active)
+	checked.limits = c.checkLimitTable(api, rc)
+	checked.hash = c.policyHash(api, rules, checked.inline.Active, checked.limits.Active)
 	return checked
 }
 
@@ -109,20 +109,19 @@ func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, checked che
 	}
 }
 
-// The section counts bind the boundaries between rules, inline assets and velocity rows.
-func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, rules base.Count, inlineEnabled, velocityEnabled []frontend.Variable) frontend.Variable {
+// The section counts bind the boundaries between rules, inline assets and outflow limits.
+func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, rules base.Count, inlineEnabled, limitEnabled []frontend.Variable) frontend.Variable {
 	preimage := []frontend.Variable{policyTableDomain, PolicyVersion}
 	for _, source := range c.Sources {
 		preimage = append(preimage, source.ListId, source.OwnerHash)
 	}
-	head := gadget.HashChain(api, append(preimage, c.PolicyLen, c.InlineCount, c.VelocityCount))
+	head := gadget.HashChain(api, append(preimage, c.PolicyLen, c.InlineCount, c.LimitCount))
 	hash := base.ExtendHashPrefix(api, head, c.Rules[:], rules)
 	for i, asset := range c.InlineAssets {
 		hash = api.Select(inlineEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, asset, c.InlineLimits[i]}), hash)
 	}
-	hash = gadget.HashChain(api, []frontend.Variable{hash, c.WindowSlots})
-	for i, row := range c.Velocity {
-		hash = api.Select(velocityEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove}), hash)
+	for i, row := range c.Limits {
+		hash = api.Select(limitEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove}), hash)
 	}
 	return hash
 }

@@ -169,13 +169,13 @@ func (s *statement) revocationTreeIndexes(listFacts []int) *big.Int {
 	return new(big.Int).SetUint64(packed)
 }
 
-// Mirrors CustomRingPolicyPublicInput, the compressed rail appends its tail.
+// Mirrors CustomRingPolicyPublicInput.
 func (s *statement) policyChainElements(t *testing.T, listFacts []int) []*big.Int {
 	t.Helper()
 	elements := s.auditChainElements(t)
 	elements = append(elements,
 		s.policyHash, spptest.MustTreeSlotsHashChain(t, s.treeSlots(t)), big.NewInt(addressTreeID),
-		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
+		s.ringID, s.ownOwnerHash, boolVar(s.approval),
 		boolVar(s.keyEscrow), s.registryRoot(), s.revocationTreeIndexes(listFacts),
 	)
 	return append(elements, s.revocationTargets(listFacts)...)

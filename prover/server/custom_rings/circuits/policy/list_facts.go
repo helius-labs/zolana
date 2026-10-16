@@ -101,7 +101,7 @@ func (w ListFactWires) check(api frontend.API, rc frontend.Rangechecker, owner f
 	return listFact{enabled: w.Enabled, mode: w.Mode, member: w.Member, revocationTarget: api.Mul(w.Enabled, target), onList: onList}
 }
 
-// entryAddress mirrors the ring_policy entry and spend addresses, a nullifier of the address UTXO.
+// entryAddress mirrors the ring_policy entry address, a nullifier of the address UTXO.
 func entryAddress(api frontend.API, owner, seed, treeID frontend.Variable) frontend.Variable {
 	utxo := shared.UtxoHashCircuit(api, shared.UtxoCircuitFields{
 		Domain: shared.AddressDomain, Owner: owner, Asset: 0, Amount: 0, Blinding: seed, DataHash: 0, RingDataHash: 0, RingProgramID: 0,
