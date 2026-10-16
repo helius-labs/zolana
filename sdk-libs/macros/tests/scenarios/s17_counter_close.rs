@@ -15,7 +15,7 @@ use crate::{
     shared::{data_input, keypair},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Close {
     pub(crate) private: ClosePrivateInputs,
     pub(crate) public: ClosePublicInputs,

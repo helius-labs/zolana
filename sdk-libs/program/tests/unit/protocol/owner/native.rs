@@ -11,9 +11,9 @@ use zolana_program::{
 
 use super::{
     fixtures::{
-        Identity, KeyEqual, KeyEqualIf, KeyIsEqual, KeySelected, OwnerDataHash, OwnerEqual,
-        OwnerEqualIf, OwnerHash, OwnerIsEqual, OwnerSelected, PreimageHash, EQUAL_BROKEN,
-        HASH_BROKEN, IDENTITY_BROKEN, IS_EQUAL_BROKEN,
+        owner_tag, Identity, KeyEqual, KeyEqualIf, KeyIsEqual, KeySelected, OwnerDataHash,
+        OwnerEqual, OwnerEqualIf, OwnerHash, OwnerIsEqual, OwnerSelected, PreimageHash,
+        EQUAL_BROKEN, HASH_BROKEN, IDENTITY_BROKEN, IS_EQUAL_BROKEN,
     },
     keys,
     vectors::{
@@ -29,7 +29,7 @@ use crate::{
 };
 
 pub const TAG_RULE: &str = "the owner tag is neither S nor P";
-pub const TAG_FILE: &str = "sdk-libs/program/src/conversion/owner.rs";
+pub const TAG_FILE: &str = "sdk-libs/keypair/src/circuit/conversion.rs";
 pub const TAG_BROKEN: Refusal = rule_broken(TAG_RULE, TAG_FILE);
 
 fn circuit(owner: &impl ProofInput<Circuit = Owner>) -> Owner {
@@ -547,5 +547,33 @@ fn default_owner_can_be_converted_back_into_a_valid_circuit_owner() {
     assert_eq!(
         value(&owner.hash().unwrap()).unwrap(),
         value(&restored.hash().unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn assert_equal_unless_never_skipping_refuses_every_owner_tag_but_s_and_p_natively() {
+    let tags = [b'S', b'P', 0, b'Q', b'T', u8::MAX];
+    assert_eq!(
+        tags.map(|tag| (tag, native(&owner_tag(tag)))),
+        [
+            (b'S', Ok(())),
+            (b'P', Ok(())),
+            (
+                0,
+                Err(("CircuitError.RuleBroken", Some(TAG_RULE), TAG_FILE))
+            ),
+            (
+                b'Q',
+                Err(("CircuitError.RuleBroken", Some(TAG_RULE), TAG_FILE))
+            ),
+            (
+                b'T',
+                Err(("CircuitError.RuleBroken", Some(TAG_RULE), TAG_FILE))
+            ),
+            (
+                u8::MAX,
+                Err(("CircuitError.RuleBroken", Some(TAG_RULE), TAG_FILE))
+            ),
+        ]
     );
 }

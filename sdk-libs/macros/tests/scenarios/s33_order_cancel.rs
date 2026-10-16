@@ -16,7 +16,7 @@ use crate::{
     shared::keypair,
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Cancel {
     private: CancelPrivateInputs,
     public: CancelPublicInputs,

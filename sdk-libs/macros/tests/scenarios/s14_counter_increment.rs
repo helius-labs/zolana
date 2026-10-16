@@ -11,7 +11,7 @@ use crate::{
     shared::{data_input, keypair, refused},
 };
 
-#[derive(Clone, ProofInput)] // SHouldnt there be a circuit entrypoing macro?
+#[derive(Clone, ZkProgram)] // SHouldnt there be a circuit entrypoing macro?
 pub struct Increment {
     pub(crate) private: IncrementPrivateInputs,
     pub(crate) public: IncrementPublicInputs,

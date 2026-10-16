@@ -83,13 +83,19 @@ check-all:
     cargo check -p zolana-test-utils --features parallel --all-targets
     # A wallet that brings its own HTTP client links neither crate's reqwest.
     cargo check -p zolana-api -p zolana-client --no-default-features
+    just check-deps
+
+# The zk crates depend on no zolana crate but each other and zolana-hasher, and
+# no crate depends on both zolana-program and a zk crate (xtask/src/check_deps.rs).
+check-deps:
+    cargo run -q -p xtask -- check-deps
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zolana-program-unit test-zolana-program-release
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk test-zolana-program-unit test-zolana-program-release
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
@@ -595,7 +601,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression,zolana-program/client,zolana-program/setup,zolana-program/parallel
+    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression,zolana-program/client,zolana-program/setup,zolana-program/parallel,zolana-zk-dsl/test-support,zolana-zk-dsl/setup
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -819,10 +825,28 @@ bench-zolana-program:
 test-zolana-macros:
     cargo test --release -p zolana-macros
 
+# The zk crates alone: the circuit DSL and prover, the gadgets, the core
+# derives, and a standalone circuit that uses them without zolana-program.
+# Their R1CS fingerprints pin every gadget and DSL operation.
+test-zk:
+    cargo test -p zolana-zk-macros-core -p zolana-zk-macros -p zolana-zk-standalone-fixture
+    cargo test -p zolana-zk-dsl --features test-support,setup
+    cargo test -p zolana-zk-gadgets
+
+# The zk crates build without features (the no_std CompressedProof that
+# on-chain programs link), with only the circuit DSL, and with every feature.
+check-zk:
+    cargo check -p zolana-zk-dsl
+    cargo check -p zolana-zk-dsl --features circuit
+    cargo check --tests -p zolana-zk-dsl --features test-support,setup,parallel,serde,tsify,wasm
+    cargo check --tests -p zolana-zk-gadgets -p zolana-zk-macros -p zolana-zk-macros-core -p zolana-zk-standalone-fixture
+
 # Full SDK validation: crate checks, hermetic units, two external runs, release tests.
 # External tool requirements are listed on test-zolana-program-external below.
 test-zolana-program:
     cargo check --tests --all-features -p zolana-program -p zolana-macros
+    just check-zk
+    just test-zk
     cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
     cargo check --lib -p timelock-escrow-program --features circuits,r1cs-export
     just test-zolana-program-unit
@@ -845,6 +869,8 @@ test-zolana-program-unit filter="":
 # CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
 # An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
 test-zolana-program-external filter="":
+    cargo test --release -p zolana-zk-dsl --features test-support,setup,external-tools --test unit "{{filter}}" -- --test-threads=4
+    cargo test --release -p zolana-zk-gadgets --features external-tools --test unit "{{filter}}" -- --test-threads=4
     cargo test --release -p zolana-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
 
 # Checks that the ZK program SDK, the escrow circuits and the escrow wasm

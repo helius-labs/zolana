@@ -1,3 +1,4 @@
+use zolana_program::ZkProgram;
 use zolana_program::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
@@ -10,7 +11,7 @@ use zolana_transaction::WalletUtxo;
 
 use super::EscrowTerms;
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Withdraw {
     pub private: WithdrawPrivateInputs,
     pub public: WithdrawPublicInputs,

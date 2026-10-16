@@ -21,7 +21,7 @@ const SWEPT: u64 = 500;
 
 /// Sweeps the sender's tokens to a recipient and proves that the public root
 /// is the integer square root of a private square.
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct SquareRootSweep {
     private: SweepPrivateInputs,
     public: SquareRootSweepPublicInputs,

@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{constant, Bytes, CircuitVar},
+    circuit::{constant, Bytes, CircuitVar, HashBytes},
     CircuitError,
 };
 

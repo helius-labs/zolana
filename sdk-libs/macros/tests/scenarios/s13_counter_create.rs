@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -15,12 +15,12 @@ use crate::{
     shared::{keypair, token_input},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Counter {
     pub count: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CounterCreate {
     pub(crate) private: CounterCreatePrivateInputs,
     pub(crate) public: CounterCreatePublicInputs,

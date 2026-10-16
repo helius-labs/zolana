@@ -5,12 +5,12 @@ use borsh::BorshSerialize;
 use super::{utxo_domain, Amount, Balance, HasBalance, Output, SpentInput, Utxo, UtxoTrait};
 use crate::{
     circuit::{
-        constant, labels::Scope, poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, Owner,
-        PublicTransfer, Uint,
+        constant, labels::Scope, poseidon, zero, Assert, Asset, Bool, Bytes, CircuitVar, HashBytes,
+        Owner, PublicTransfer, Uint,
     },
     conversion::{to_bytes, FromCircuit},
     hasher::{DataHasher, CLOSED_DATA_HASH_DOMAIN, DATA_HASH_DOMAIN, UNIQUE_DATA_HASH_DOMAIN},
-    CircuitError, CircuitErrorKind,
+    CircuitError, ProtocolCircuitErrorKind,
 };
 
 const CLOSED_LEAVES_BALANCE: &str = "a closed data utxo leaves a balance";
@@ -25,9 +25,9 @@ pub trait UtxoData: DataHash + Sized {
     fn utxo_data(&self) -> Result<Vec<u8>, CircuitError> {
         let client = Self::Client::from_circuit(self)?;
         if DataHasher::hash(&client)? != to_bytes(&DataHash::hash(self)?)? {
-            return Err(CircuitErrorKind::DataHashMismatch.into());
+            return Err(ProtocolCircuitErrorKind::DataHashMismatch.into());
         }
-        Ok(borsh::to_vec(&client).map_err(CircuitErrorKind::StateEncoding)?)
+        Ok(borsh::to_vec(&client).map_err(ProtocolCircuitErrorKind::StateEncoding)?)
     }
 }
 
@@ -46,6 +46,12 @@ impl DataHash for Bool {
 impl<const BITS: usize> DataHash for Uint<BITS> {
     fn hash(&self) -> Result<CircuitVar, CircuitError> {
         Ok(self.var())
+    }
+}
+
+impl DataHash for Owner {
+    fn hash(&self) -> Result<CircuitVar, CircuitError> {
+        Owner::hash(self)
     }
 }
 
@@ -167,7 +173,7 @@ impl<S> DataUtxo<S> {
     #[track_caller]
     pub fn with_asset(mut self, asset: &Asset) -> Result<Self, CircuitError> {
         if self.spent.is_some() || !self.balance.is_untouched() {
-            return Err(CircuitErrorKind::AssetOfUsedUtxo.into());
+            return Err(ProtocolCircuitErrorKind::AssetOfUsedUtxo.into());
         }
         self.balance.set_asset(asset);
         Ok(self)

@@ -151,6 +151,19 @@ jobs:
       - run: just test-sdk-libs
       - run: just test-example-provers
 
+  test-zk:
+    name: tests / zk
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: zk
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just check-zk
+      - run: just test-zk
+
   test-zk-program:
     name: tests / zk program
     runs-on: ubuntu-latest

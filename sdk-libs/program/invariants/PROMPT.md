@@ -8,12 +8,12 @@ Your only task is to extract from the source code a complete and precise list of
 
 Analyze the following code (a builtin's behavior is spread between the DSL, the synthesis and the export -- all are mandatory):
 
-- `src/circuit/builtins/**` -- the DSL builtins: `field/` (`var.rs` operators and `Field`, `primitive.rs` arkworks wrappers, `arithmetic.rs`, `bits.rs`), `gadgets/`, `ops/` (`Assert`, `Select`), `types/` (`Bool`, `Bytes`, `Uint`)
-- `src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the output binding in `src/circuit/output.rs` (`CheckedTransaction` binds one public hash, `()` has no public inputs), the public-input count check, the unsatisfied-row and free-variable analysis
-- `src/prover/snarkjs.rs` -- the iden3 `.r1cs` and `.wtns` export
-- `src/conversion/**` -- client values to circuit values and back, the canonical byte checks
-- `src/circuit/mod.rs` (`Circuit<Output = ()>`) and `src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
-- `src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
+- `zk/dsl/src/circuit/builtins/**` -- the DSL builtins: `field/` (`var.rs` operators and `Field`, `primitive.rs` arkworks wrappers, `arithmetic.rs`, `bits.rs`), `gadgets/`, `ops/` (`Assert`, `Select`), `types/` (`Bool`, `Bytes`, `Uint`)
+- `zk/dsl/src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the output binding in `zk/dsl/src/circuit/output.rs` (`CheckedTransaction` binds one public hash, `()` has no public inputs), the public-input count check, the unsatisfied-row and free-variable analysis
+- `zk/dsl/src/prover/snarkjs.rs` -- the iden3 `.r1cs` and `.wtns` export
+- `zk/dsl/src/conversion/**` -- client values to circuit values and back, the canonical byte checks
+- `zk/dsl/src/circuit/mod.rs` (`Circuit<Output = ()>`) and `zk/dsl/src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
+- `zk/dsl/src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
 - `../spec.md` -- the source of truth for the DSL semantics; use it only as a reference
 
 For a protocol type, also analyze (mandatory):
@@ -138,7 +138,7 @@ Matrix cells contain the invariant IDs covering that cell (e.g. `INV-CV-ADD-07`)
 
 ### Test Layout (one directory per builtin operation)
 
-Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/<type>/` for a protocol type), which holds the same files for every builtin, on top of the shared `tests/unit/harness/`:
+Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/<type>/` for a protocol type), which holds the same files for every builtin, on top of the shared `zk/test-harness/`:
 
 | File | Holds |
 |---|---|
@@ -157,4 +157,4 @@ Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/
 - Invariants that only exercise the `ProofInput` derive, unless a test depends on its allocation order (the circom variable mapping does).
 - Generic statements without specifics ("addition is correct", "the circuit is sound").
 
-Now start the analysis with `src/circuit/builtins/field/var.rs` (the `CircuitVar` operators), then walk `src/circuit/builtins/` in module order.
+Now start the analysis with `zk/dsl/src/circuit/builtins/field/var.rs` (the `CircuitVar` operators), then walk `zk/dsl/src/circuit/builtins/` in module order.

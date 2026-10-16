@@ -1,0 +1,3 @@
+# The zk crates: the circuit DSL, its prover, the gadgets and their R1CS
+# fingerprints. A change here can change every proving key built on them.
+/zk/ @ananas-block

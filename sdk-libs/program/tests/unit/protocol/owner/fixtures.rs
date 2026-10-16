@@ -258,3 +258,26 @@ impl Circuit for OwnerSelectedCircuit {
             .assert_equal(&self.hash, HASH_RULE)
     }
 }
+
+#[derive(Clone, Copy, Debug, ProofInput)]
+pub struct OwnerTag {
+    pub owner: ClientOwner,
+}
+
+impl Circuit for OwnerTagCircuit {
+    type Output = ();
+
+    fn circuit(&self) -> Result<Self::Output, CircuitError> {
+        Ok(())
+    }
+}
+
+pub fn owner_tag(tag: u8) -> OwnerTag {
+    OwnerTag {
+        owner: ClientOwner {
+            tag,
+            key: [7u8; 32],
+            nullifier_pk: [9u8; 32],
+        },
+    }
+}

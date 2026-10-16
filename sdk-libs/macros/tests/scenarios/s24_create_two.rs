@@ -15,7 +15,7 @@ use crate::{
     shared::{dummy, keypair, token_input},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CreateTwo {
     private: CreateTwoPrivateInputs,
     public: CreateTwoPublicInputs,

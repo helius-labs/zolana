@@ -19,7 +19,6 @@ pub mod __private;
 pub mod circuit;
 #[cfg(feature = "circuit")]
 mod client;
-mod compressed_proof;
 #[cfg(feature = "compression")]
 pub mod compression;
 #[cfg(feature = "circuit")]
@@ -28,8 +27,6 @@ pub mod conversion;
 mod error;
 #[cfg(feature = "circuit")]
 pub mod hasher;
-#[cfg(feature = "circuit")]
-mod prover;
 #[cfg(feature = "test-support")]
 pub mod testing;
 #[cfg(feature = "verifier")]
@@ -45,18 +42,26 @@ pub use client::{
     TxContext,
 };
 #[cfg(feature = "client")]
-pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};
-pub use compressed_proof::CompressedProof;
+pub use client::{ProgramTransaction, PublicHashCircuit, ZkCircuit, ZkProgram};
 #[cfg(feature = "circuit")]
-pub use error::{
-    CircuitError, CircuitErrorKind, ClientError, ClientErrorKind, ProverError, ProverErrorKind,
-    SlotKind, SourceLocation,
+pub use error::{ClientError, ClientErrorKind, ProtocolCircuitErrorKind, SlotKind};
+#[cfg(feature = "circuit")]
+pub use zolana_keypair::circuit::OwnerCircuitErrorKind;
+#[cfg(feature = "circuit")]
+pub use zolana_macros::ZkProgram;
+#[cfg(feature = "circuit")]
+pub use zolana_transaction::circuit::UtxoCircuitErrorKind;
+pub use zolana_zk_dsl::CompressedProof;
+#[cfg(feature = "setup")]
+pub use zolana_zk_dsl::R1cs;
+#[cfg(feature = "circuit")]
+pub use zolana_zk_dsl::{
+    CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind, ProverError, ProverErrorKind,
+    SourceLocation,
 };
-#[cfg(feature = "setup")]
-pub use prover::R1cs;
 #[cfg(feature = "client")]
-pub use prover::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+pub use zolana_zk_dsl::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
 #[cfg(feature = "client")]
-pub use prover::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
+pub use zolana_zk_dsl::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
 #[cfg(feature = "setup")]
-pub use prover::{SetupKind, VerifyingKeyExport};
+pub use zolana_zk_dsl::{SetupKind, VerifyingKeyExport};

@@ -16,7 +16,7 @@ use crate::{
     shared::{data_input, keypair, poseidon_bytes},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct IssueCredential {
     private: IssueCredentialPrivateInputs,
     public: IssueCredentialPublicInputs,

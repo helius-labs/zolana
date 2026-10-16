@@ -9,8 +9,8 @@ prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
 
 `INV-UTXO`
 
-Covers `Utxo` of `src/circuit/protocol/utxo/input.rs` as `WalletUtxo` instantiates it
-(`src/conversion/utxo.rs`), against the native `zolana-transaction` commitment
+Covers `Utxo` of `sdk-libs/transaction/src/circuit/utxo.rs` as `WalletUtxo` instantiates it
+(`sdk-libs/transaction/src/circuit/conversion/utxo.rs`), against the native `zolana-transaction` commitment
 (`ProofInputUtxo::hash`, `utxo::Utxo::hash`, `SppProofOutputUtxo::hash`, `WalletUtxo::utxo_hash`)
 and nullifier (`utxo::Utxo::nullifier`). In `tests/unit/protocol/utxo/fixtures.rs`,
 `UtxoHash` asserts `utxo.hash() == hash` with "the utxo hash is the native commitment"
@@ -31,7 +31,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `every_preimage_hashes_to_the_native_utxo_commitment`; `tests/unit/protocol/utxo/properties.rs` `every_random_preimage_hashes_to_its_native_commitment_natively_and_in_r1cs` (property)
   - Kind: native equivalence
   - Statement: for every preimage and every random Ed25519 preimage (random mint, amount, blinding, data hash, ring and tree id), the native value of `Utxo::hash` of the instantiated `WalletUtxo` is exactly `ProofInputUtxo::hash` of its proof input fields and exactly `utxo::Utxo::hash`, the wallet's `utxo_hash`.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91` (`fn hash`, `fn hash_with`), `src/conversion/utxo.rs:15-107`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91` (`fn hash`, `fn hash_with`), `sdk-libs/transaction/src/circuit/conversion/utxo.rs:15-107`
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/properties.rs`
 
@@ -39,7 +39,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `every_preimage_hashes_when_spent_to_its_native_output_commitment`
   - Kind: native equivalence
   - Statement: for every preimage, the native value of `Utxo::hash` is exactly `SppProofOutputUtxo::hash(tree_id)` of the output with the same owner address, mint, amount, blinding, ring, data hash and tree id: a UTXO spends under the commitment it was created with.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -47,7 +47,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_circuit_fields_are_the_native_proof_input_fields`
   - Kind: native equivalence
   - Statement: for every preimage, the native values of the domain, the tree id, the asset hash, the owner hash, the blinding, the data hash, the ring data hash and the ring program id are exactly the corresponding `ProofInputUtxo` fields.
-  - Location: `src/conversion/utxo.rs:15-98` (`fn instantiate`)
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:15-98` (`fn instantiate`)
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -55,7 +55,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `every_preimage_and_a_dummy_satisfy_every_row_with_the_commitment_on_the_claim_wire`
   - Kind: native equivalence
   - Statement: for every preimage, wire 1 of the exported `UtxoHash` assignment is exactly the native commitment.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -63,7 +63,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_carried_nullifier_is_the_wallets_native_nullifier`
   - Kind: native equivalence
   - Statement: for every preimage, the native value of the internal UTXO nullifier is exactly the wallet's `nullifier`, `utxo::Utxo::nullifier(hash, key)`, and exactly `Poseidon(commitment, blinding, right_align(nullifier secret))`.
-  - Location: `src/conversion/utxo.rs:83-88` ("utxo nullifier", `VariableRole::Carried`)
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:83-88` ("utxo nullifier", `VariableRole::Carried`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -72,7 +72,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `every_preimage_field_change_moves_the_hash_to_the_native_commitment_of_the_change`
   - Kind: semantics
   - Statement: for the data UTXO in a ring and each change of exactly one of the domain, tree id, asset, owner, blinding, data hash, ring data hash, ring program id and amount, the circuit commitment is exactly `ProofInputUtxo::hash` of the equally changed fields and differs from the original's; changing the domain to dummy also selects zero owner/asset hashes while retaining the other fields.
-  - Location: `src/circuit/protocol/utxo/input.rs:73-91` (`fn hash_with`)
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:73-91` (`fn hash_with`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -80,7 +80,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `every_preimage_holds_natively_with_its_native_commitment`; `tests/unit/protocol/utxo/properties.rs` `every_random_preimage_hashes_to_its_native_commitment_natively_and_in_r1cs` (property)
   - Kind: semantics
   - Statement: for every preimage and every random preimage, native `UtxoHash` with the native commitment returns exactly `Ok(())`.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: High
   - Suggested test: positive + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/properties.rs`
 
@@ -88,7 +88,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_latest_tree_id_and_its_flag_carry_the_wallets_value`
   - Kind: semantics
   - Statement: for every preimage, native `Carried` with the wallet's nullifier, `latest_tree_id.unwrap_or(0)` and `latest_tree_id.is_some()` returns exactly `Ok(())`.
-  - Location: `src/conversion/utxo.rs:89-95`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:89-95`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -96,7 +96,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_circuit_dummy_has_the_dummy_domain_and_no_nullifier_key`
   - Kind: semantics
   - Statement: `Utxo::dummy()` has domain exactly `DUMMY_DOMAIN` = 1, asset hash exactly `hash_bytes([0; 32])`, and tag, nullifier key, blinding, data hash, ring data hash, ring program id, tree id, nullifier, latest tree id and flag exactly 0; `Utxo::default()` uses domain 0 and the valid Solana owner tag; `UTXO_DOMAIN` is 3.
-  - Location: `src/circuit/protocol/utxo/input.rs:32-57` (`impl Default`, `fn dummy`)
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:32-57` (`impl Default`, `fn dummy`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -104,7 +104,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `a_dummy_wallet_utxo_instantiates_with_an_all_zero_owner_preimage_and_skips_the_tag_check`
   - Kind: semantics
   - Statement: for the dummy wallet UTXO (zeroed owner), the instantiated domain is exactly `DUMMY_DOMAIN`, the tag and nullifier key exactly 0, the identity exactly `hash_bytes([0; 33])`, and the blinding and tree id exactly the wallet's; the zero tag is accepted natively.
-  - Location: `src/conversion/utxo.rs:28-41` (the dummy branch), `src/conversion/owner.rs:42-61`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:28-41` (the dummy branch), `sdk-libs/keypair/src/circuit/conversion.rs:42-61`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/native.rs`
 
@@ -112,7 +112,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_hash_of_a_dummy_is_the_native_dummy_commitment`; `tests/unit/protocol/utxo/r1cs.rs` `dummy_commitments_bind_the_tree_and_blinding_and_reject_hashed_dummy_preimages`; `tests/unit/protocol/utxo/properties.rs` `every_random_dummy_has_its_native_commitment_and_rejects_the_unmasked_preimages` (property)
   - Kind: native equivalence
   - Statement: for every tested dummy wallet or constructed circuit dummy, including tree ids 0 and 65535, blindings 0, 1 and p-1, and generated canonical blindings/tree ids, `Utxo::hash` is exactly the native dummy commitment `Poseidon(1, tree, 0, 0, 0, Poseidon(0, 0), Poseidon(0, blinding))`. The owner/asset-preimage commitment is rejected by the native claim rule and its exported/proving row.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-65` (`fn hash`), `src/conversion/utxo.rs:28-41`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-65` (`fn hash`), `sdk-libs/transaction/src/circuit/conversion/utxo.rs:28-41`
   - Severity: Medium
   - Suggested test: positive + negative + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/properties.rs`
 
@@ -121,7 +121,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `a_claimed_commitment_of_another_preimage_breaks_exactly_the_hash_rule`; `tests/unit/protocol/utxo/properties.rs` `a_commitment_claimed_for_another_amount_is_refused_natively_and_in_r1cs` (property)
   - Kind: error
   - Statement: for every preimage with the next preimage's commitment, and for every random preimage with the commitment of another amount, native `UtxoHash` returns exactly `RuleBroken("the utxo hash is the native commitment")` located in `fixtures.rs`.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative + property; `tests/unit/protocol/utxo/native.rs`, `tests/unit/protocol/utxo/properties.rs`
@@ -130,7 +130,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `a_utxo_field_of_at_least_p_is_refused_before_it_reaches_the_circuit`
   - Kind: error
   - Statement: a wallet UTXO whose blinding, data hash, ring data hash or nullifier is the big-endian bytes of p is refused by native instantiation with exactly `CircuitError.BytesTooLarge` and "utxo blinding" (respectively "utxo data hash", "utxo ring data hash", "utxo nullifier") "is too large for a circuit value", and by `check_constraints(UtxoHash)` with exactly `CircuitError.BytesTooLarge`; the native `utxo::Utxo::hash` refuses the first three with exactly "keypair error: poseidon hash failed (code 8002)" and does not read the nullifier.
-  - Location: `src/conversion/utxo.rs:100-107` (`fn field`), `src/conversion/var.rs:13-20` (`fn field`)
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:100-107` (`fn field`), `zk/dsl/src/conversion/var.rs:13-20` (`fn field`)
   - Error: `CircuitErrorKind::BytesTooLarge`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/utxo/native.rs`
@@ -139,7 +139,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/native.rs` `the_latest_tree_id_and_its_flag_carry_the_wallets_value`
   - Kind: error
   - Statement: for every preimage, native `Carried` with the flag negated or the latest tree id plus 1 returns exactly `RuleBroken("the utxo carries the claimed spend values")`.
-  - Location: `src/conversion/utxo.rs:83-95`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:83-95`
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Medium
   - Suggested test: negative; `tests/unit/protocol/utxo/native.rs`
@@ -149,7 +149,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `the_utxo_fixtures_have_pinned_sizes_digest_and_no_public_input`
   - Kind: constraint
   - Statement: the `UtxoHash` export has exactly 2167 constraints and 2178 variables with sha256 `73266cfb46af8d8f6df5b458e37fe47823104d74d55f5719365733b9a2cf1dbe` and exactly 0 public inputs and 0 public outputs; `Carried` exactly 585 and 595; `Instantiated` exactly 581 and 592.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`, `src/conversion/utxo.rs:15-107`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`, `sdk-libs/transaction/src/circuit/conversion/utxo.rs:15-107`
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -158,7 +158,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `every_preimage_and_a_dummy_satisfy_every_row_with_the_commitment_on_the_claim_wire`; `tests/unit/protocol/utxo/properties.rs` `every_random_preimage_hashes_to_its_native_commitment_natively_and_in_r1cs` (property)
   - Kind: completeness
   - Statement: for every preimage, every random preimage and the dummy (with its independently computed native wallet commitment), the honest `UtxoHash` assignment leaves no exported row unsatisfied.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/properties.rs`
 
@@ -167,7 +167,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `a_claimed_commitment_of_another_preimage_breaks_exactly_the_hash_row`; `tests/unit/protocol/utxo/properties.rs` `a_commitment_claimed_for_another_amount_is_refused_natively_and_in_r1cs` (property)
   - Kind: soundness
   - Statement: for every preimage, wire 1 set to the next preimage's commitment leaves exactly row 2166 as the first unsatisfied row, and `check_tampered` returns exactly `ProofInputsBreakRule` at row 2166 with the hash rule; so does every random commitment of another amount in the export.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Error: `ProverErrorKind::ProofInputsBreakRule`
   - Severity: Critical
   - Suggested test: negative + property; `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/properties.rs`
@@ -176,7 +176,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `every_changed_preimage_field_with_the_original_commitment_breaks_exactly_the_hash_row`
   - Kind: soundness
   - Statement: for the data UTXO in a ring and each change of exactly one of the amount, blinding, data hash, ring data hash, ring program id, tree id, owner and asset, the changed preimage's commitment differs from the original's, and its honest assignment with wire 1 set to the original commitment leaves exactly row 2166 as the first unsatisfied row.
-  - Location: `src/circuit/protocol/utxo/input.rs:73-91` (`fn hash_with`)
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:73-91` (`fn hash_with`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -184,7 +184,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `every_preimage_wire_changed_alone_leaves_a_row_unsatisfied`
   - Kind: soundness
   - Statement: in the data UTXO's `UtxoHash` assignment (64 byte variables), adding 1 to exactly one wire leaves exactly this first unsatisfied row: domain 0, owner tag 290, nullifier key 826, amount 1794, blinding 1548, data hash 1797, ring data hash 1305, ring program id 1308, tree id 1788, owner key byte 0 row 10, owner key byte 31 row 289, asset byte 0 row 300, asset byte 31 row 579.
-  - Location: `src/conversion/utxo.rs:15-98`, `src/circuit/protocol/utxo/input.rs:73-91`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:15-98`, `sdk-libs/transaction/src/circuit/utxo.rs:73-91`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -192,7 +192,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `only_the_carried_nullifier_and_latest_tree_id_are_unconstrained`; `tests/unit/protocol/utxo/r1cs.rs` `a_dummy_hash_has_no_free_wire_beyond_carried_fields_and_equality_inverse_hints`; `tests/unit/protocol/utxo/native.rs` `the_sdk_carries_a_nullifier_it_does_not_check`
   - Kind: soundness
   - Statement: `check_private_variables(UtxoHash)` reports exactly 2167 constraints, 2177 private variables, no free variable, and exactly the "utxo nullifier" and "utxo latest tree id" allocations tolerated as `VariableRole::Carried` (the SPP proof constrains them, `../spec.md`); natively, a wallet with another preimage's nullifier still holds `UtxoHash` and `Carried`. For a dummy, the report has no free variable either and also tolerates exactly the two equality inverse hints (the conversion domain check and the hash domain check).
-  - Location: `src/conversion/utxo.rs:83-95`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:83-95`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`, `tests/unit/protocol/utxo/native.rs`
 
@@ -200,7 +200,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `a_claimed_nullifier_or_latest_tree_id_other_than_the_carried_one_breaks_the_carried_rule`
   - Kind: soundness
   - Statement: for the P256 token reporting latest tree 4, `check_constraints(Carried)` returns exactly `Ok(585)`; `check_tampered` of wire 1 (another nullifier), wire 2 (latest tree 5) and wire 3 (flag 0) returns exactly `ProofInputsBreakRule` with "the utxo carries the claimed spend values" at the rule's first, second and third row.
-  - Location: `src/conversion/utxo.rs:83-95`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:83-95`
   - Error: `ProverErrorKind::ProofInputsBreakRule`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
@@ -209,7 +209,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `the_tag_check_is_skipped_exactly_for_a_dummy_input`; `tests/unit/protocol/utxo/native.rs` `a_dummy_wallet_utxo_instantiates_with_an_all_zero_owner_preimage_and_skips_the_tag_check`
   - Kind: soundness
   - Statement: in the `Instantiated` export (tag wire 4, product wire 293), for every tag in 0..=255 with a consistent product, a real input's assignment breaks exactly the tag rule row when the tag is neither S nor P and no row otherwise; a dummy's assignment (tag 0) breaks no row for every tag.
-  - Location: `src/conversion/utxo.rs:28-41` (`dummy = domain == DUMMY_DOMAIN`), `src/circuit/protocol/owner.rs:28-46` (`assert_equal_unless`)
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:28-41` (`dummy = domain == DUMMY_DOMAIN`), `sdk-libs/keypair/src/circuit/owner.rs:28-46` (`assert_equal_unless`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -217,7 +217,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Partial coverage: `tests/unit/protocol/utxo/picus.rs` `picus_finds_no_second_utxo_commitment_for_one_preimage` runs Picus (cvc5) on the `UtxoHash` Picus export with the claim promoted, bounded at 60 s, and asserts only that it finds no counterexample: the run ends `Unknown` (the owner and asset byte range checks alone exceed the bound, see INV-OWNER-22), so determinism is not proven; INV-UTXO-19 and -20 are the hermetic substitutes.
   - Kind: soundness
   - Statement: Picus reports the `UtxoHash` Picus export with wire 1 promoted exactly `Safe`.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: Medium
   - Suggested test: external (Picus); `tests/unit/protocol/utxo/picus.rs`
 
@@ -226,7 +226,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/r1cs.rs` `every_preimage_instantiates_to_the_dummy_placeholders_shape`; `tests/unit/protocol/utxo/r1cs.rs` `every_preimage_and_a_dummy_satisfy_every_row_with_the_commitment_on_the_claim_wire`
   - Kind: shape
   - Statement: for every preimage, `check_constraints(Instantiated)` returns exactly `Ok(581)`, and for every preimage and the dummy `check_constraints(UtxoHash)` returns exactly `Ok(2167)`: setup from the `WalletUtxo::dummy(0)` placeholder and proving build the same matrices for tokens, data UTXOs, rings and every curve.
-  - Location: `src/conversion/utxo.rs:109-113` (`impl Placeholder for WalletUtxo`)
+  - Location: `sdk-libs/transaction/src/circuit/conversion/utxo.rs:109-113` (`impl Placeholder for WalletUtxo`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/utxo/r1cs.rs`
 
@@ -235,7 +235,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/external.rs` `snarkjs_accepts_every_preimage_and_rejects_a_claimed_commitment_of_another`; `tests/unit/protocol/utxo/external.rs` `snarkjs_proves_the_native_dummy_commitment_and_rejects_hashed_dummy_preimages`
   - Kind: interop
   - Statement: for every preimage, `snarkjs wtns check` on the `UtxoHash` export returns exactly `WITNESS IS CORRECT` for the honest assignment and `WITNESS IS NOT CORRECT` with wire 1 set to the next preimage's commitment; for the dummy it accepts the native commitment and rejects the owner/asset-preimage commitment.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/utxo/external.rs`
 
@@ -243,7 +243,7 @@ crate-private and built only by the `TokenUtxos` and `DataUtxo` spends (`INV-TOK
   - Covered by: `tests/unit/protocol/utxo/external.rs` `snarkjs_proves_and_verifies_the_utxo_hash_circuit_for_a_data_utxo_in_a_ring`; `tests/unit/protocol/utxo/external.rs` `snarkjs_proves_the_native_dummy_commitment_and_rejects_hashed_dummy_preimages`
   - Kind: interop
   - Statement: snarkjs Groth16 setup, prove and verify accept the `UtxoHash` export with either the data UTXO or the native dummy assignment, with exactly the public signals `[]`.
-  - Location: `src/circuit/protocol/utxo/input.rs:59-91`
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:59-91`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/utxo/external.rs`
 
@@ -365,7 +365,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `every_valid_vector_checks_exactly_the_pinned_count_for_every_holder`; `tests/unit/protocol/balance/properties.rs` `every_fitting_transfer_checks_exactly_the_pinned_count` (property)
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(1642)`, `Ok(1577)`, `Ok(1643)` and `Ok(1579)` for every transfer, transfer_all, withdrawal and withdraw_all vector and every holder pair, and `Ok(1642)` for every random fitting transfer.
-  - Location: `src/prover/synthesis.rs` (`fn check`)
+  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive + property; `tests/unit/protocol/balance/r1cs.rs`, `tests/unit/protocol/balance/properties.rs`
 
@@ -391,7 +391,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `balance_reads_no_owner_so_only_the_nullifier_keys_are_free`
   - Kind: soundness
   - Statement: `check_private_variables` reports exactly the owner addresses' unused nullifier keys ("a 32-byte proof input" allocations) free and nothing tolerated: two for a transfer and a withdraw_all, one for two deposits, and none for the accessors, which hash the owner.
-  - Location: `src/testing.rs` (`fn check_private_variables`)
+  - Location: `zk/dsl/src/testing.rs` (`fn check_private_variables`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`
 
@@ -399,7 +399,7 @@ deposit or withdraw 0.
   - Partial coverage: `tests/unit/protocol/balance/picus.rs` `picus_finds_no_counterexample_for_the_balance_arithmetic_within_its_limit` runs Picus on the constant-owner `Arithmetic` Picus export, alone and with both balance claims promoted, bounded at 30 s, and asserts only that it finds no counterexample: both runs end `Unknown`, as they do at 120 s, because Picus does not settle the 64-bit range checks of the deposit and the remainder (the bits fixtures prove widths up to 5, INV-CV-BITS-23). INV-LEDGER-12 and -14 are the hermetic substitutes.
   - Kind: soundness
   - Statement: Picus reports exactly Safe for the `Arithmetic` Picus export, and exactly Safe with both balance claims promoted to outputs.
-  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `src/prover/snarkjs.rs` (`fn picus_r1cs`)
+  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `zk/dsl/src/prover/snarkjs.rs` (`fn picus_r1cs`)
   - Severity: Critical
   - Suggested test: external (Picus); `tests/unit/protocol/balance/picus.rs`
 
@@ -473,7 +473,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/external.rs` `snarkjs_accepts_every_honest_balance_pair_and_rejects_a_tampered_balance`
   - Kind: interop
   - Statement: for every transfer vector, `snarkjs wtns check` accepts the token-to-token transfer R1CS with the honest assignment and rejects it with the source balance claim increased by 1.
-  - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/balance/external.rs`
 
@@ -481,7 +481,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/external.rs` `snarkjs_proves_and_verifies_a_withdrawal`
   - Kind: interop
   - Statement: snarkjs Groth16 setup, prove and verify accept the withdrawal R1CS with the assignment of 1 withdrawn from 2^64 - 1, with exactly the empty public signal list.
-  - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/balance/external.rs`
 
@@ -551,7 +551,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `every_honest_spend_checks_exactly_the_pinned_count`
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(2169)`, `Ok(3689)` and `Ok(5144)` for every one-, two- and three-input vector, dummies included.
-  - Location: `src/prover/synthesis.rs` (`fn check`)
+  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/token/r1cs.rs`
 
@@ -577,7 +577,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `the_carried_nullifiers_are_tolerated_and_no_other_variable_is_free`
   - Kind: soundness
   - Statement: tampering a nullifier leaves every row satisfied (it is passed on to `check`, INV-TX-09), `check_private_variables` reports no free variable and exactly 4 tolerated ones for 300 + 200 SOL and 7 with a dummy (including its intentionally unused owner nullifier key), and the balance of two inputs owns exactly one 64-bit check.
-  - Location: `src/circuit/protocol/utxo/input.rs:64-71` (`fn spent`), `src/conversion/utxo.rs` (the carried allocations)
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:64-71` (`fn spent`), `sdk-libs/transaction/src/circuit/conversion/utxo.rs` (the carried allocations)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/r1cs.rs`
 
@@ -687,7 +687,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/r1cs.rs` `every_held_counter_checks_exactly_the_pinned_count`
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(2448)` for every held vector.
-  - Location: `src/prover/synthesis.rs` (`fn check`)
+  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/data/r1cs.rs`
 
@@ -705,7 +705,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/r1cs.rs` `only_the_carried_nullifier_and_latest_tree_are_tolerated`
   - Kind: soundness
   - Statement: `check_private_variables` of the counter at 5 reports no free variable and exactly 2 tolerated ones.
-  - Location: `src/circuit/protocol/utxo/input.rs:64-71` (`fn spent`)
+  - Location: `sdk-libs/transaction/src/circuit/utxo.rs:64-71` (`fn spent`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/data/r1cs.rs`
 

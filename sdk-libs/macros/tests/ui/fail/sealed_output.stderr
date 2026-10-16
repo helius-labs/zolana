@@ -1,0 +1,26 @@
+error[E0277]: the trait bound `CustomOutput: zolana_zk_dsl::circuit::output::private::Binding` is not satisfied
+ --> tests/ui/fail/sealed_output.rs:7:24
+  |
+7 | impl CircuitOutput for CustomOutput {}
+  |                        ^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `PublicHashOutput` is not implemented for `CustomOutput`
+ --> tests/ui/fail/sealed_output.rs:5:1
+  |
+5 | struct CustomOutput;
+  | ^^^^^^^^^^^^^^^^^^^
+help: the trait `PublicHashOutput` is implemented for `CheckedTransaction`
+ --> $WORKSPACE/sdk-libs/program/src/circuit/protocol/transaction.rs
+  |
+  | impl PublicHashOutput for CheckedTransaction {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: required for `CustomOutput` to implement `zolana_zk_dsl::circuit::output::private::Binding`
+note: required by a bound in `CircuitOutput`
+ --> $WORKSPACE/zk/dsl/src/circuit/output.rs
+  |
+  | pub trait CircuitOutput: private::Binding {}
+  |                          ^^^^^^^^^^^^^^^^ required by this bound in `CircuitOutput`
+  = note: `CircuitOutput` is a "sealed trait", because to implement it you also need to implement `zolana_zk_dsl::circuit::output::private::Binding`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+  = help: the following types implement the trait:
+            T
+            ()

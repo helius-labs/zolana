@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos, UtxoTrait,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, Owner, TxContext, ZkProgram,
@@ -21,13 +21,13 @@ pub(crate) fn escrow_authority() -> ProgramOwner {
     ProgramOwner::new(40)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct EscrowTerms {
     pub creator: Owner,
     pub unlock: u64,
 }
 // TODO: check how we enforce that impl Circuit for <Escrow as ProofInput>::Circuit { has public and private inputs
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Escrow {
     pub(crate) private: EscrowPrivateInputs,
     pub(crate) public: EscrowPublicInputs,

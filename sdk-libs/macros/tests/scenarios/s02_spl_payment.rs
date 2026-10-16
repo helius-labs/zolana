@@ -13,7 +13,7 @@ use crate::{
     shared::{keypair, token_input, USDC},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct SplPayment {
     private: SplPaymentPrivateInputs,
     public: SplPaymentPublicInputs,

@@ -16,7 +16,7 @@ use crate::{
     shared::{data_input, keypair, poseidon_bytes, BONK, USDC},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct TypedUpdate {
     private: TypedUpdatePrivateInputs,
     public: TypedUpdatePublicInputs,

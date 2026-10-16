@@ -109,7 +109,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `every_refresh_and_one_of_each_other_shape_checks_exactly_the_pinned_count`
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(4195)` for all four refreshes, whichever output tree they select, and exactly `Ok(9748)`, `Ok(8979)` and `Ok(6465)` for a payment, a funding and a settlement: the setup matrices over the placeholder and the proving matrices agree.
-  - Location: `src/prover/synthesis.rs` (`fn check`)
+  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -119,7 +119,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `only_the_first_nullifier_enters_the_program_circuit_and_the_rest_are_carried`
   - Kind: soundness
   - Statement: in a payment, tampering the first input's nullifier breaks a row of "a poseidon hash" (the blindings), and its latest tree a row of "the transaction's outputs and hashes"; tampering the second or third input's nullifier or latest tree leaves every row satisfied, because the shielded pool circuit checks them.
-  - Location: `src/circuit/protocol/transaction.rs:199-205`, `src/circuit/protocol/utxo/input.rs:24-30` (`SpentInput`)
+  - Location: `src/circuit/protocol/transaction.rs:199-205`, `sdk-libs/transaction/src/circuit/utxo.rs:24-30` (`SpentInput`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -143,7 +143,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `no_variable_is_free_and_only_carried_spend_values_are_tolerated`
   - Kind: soundness
   - Statement: `check_private_variables` reports no free variable for a refresh, a payment, a funding and a settlement, and exactly 0, 8, 2 and 0 tolerated ones.
-  - Location: `src/prover/synthesis.rs` (`fn unconstrained_private_variables`)
+  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn unconstrained_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -189,7 +189,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_accepts_every_honest_refresh_and_rejects_each_tampered_hash_claim`
   - Kind: interop
   - Statement: for every refresh, `snarkjs wtns check` accepts the refresh R1CS with the honest assignment and rejects it with each of the three hash claims increased by 1.
-  - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -197,7 +197,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_and_verifies_a_whole_refresh`
   - Kind: interop
   - Statement: snarkjs Groth16 setup over a throwaway ptau, prove and verify accept the refresh R1CS with the assignment of the 2^64 - 1 USDC refresh, with exactly the empty public signal list.
-  - Location: `src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -208,7 +208,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_payment_with_dummy_padding_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the payment with two real inputs and a padded dummy, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -216,7 +216,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_data_utxo_update_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the counter update funded by a token input, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -224,7 +224,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_public_deposit_and_withdrawal_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the transaction containing a public deposit and withdrawal, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `src/prover/snarkjs.rs`
+  - Location: `src/circuit/protocol/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 

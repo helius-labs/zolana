@@ -1,4 +1,5 @@
 use zolana_keypair::ShieldedAddress;
+use zolana_program::ZkProgram;
 use zolana_program::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
@@ -13,7 +14,7 @@ use super::EscrowTermsCircuit;
 
 pub const ESCROW_TOKEN_INPUTS: usize = 5;
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Escrow {
     pub private: EscrowPrivateInputs,
     pub public: EscrowPublicInputs,

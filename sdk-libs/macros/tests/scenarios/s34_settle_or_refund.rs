@@ -3,8 +3,8 @@ use zolana_interface::shape::Shape;
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxos, Uint, UtxoTrait,
+        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxos, Uint, UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -17,13 +17,13 @@ use crate::{
     shared::{data_input, keypair},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Reservation {
     pub limit_price: u64,
     pub fill_price: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Settle {
     private: SettlePrivateInputs,
     public: SettlePublicInputs,

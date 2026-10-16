@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        Uint,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, Uint,
+        UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -15,17 +15,17 @@ use crate::{
     shared::{data_input, keypair},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Profile {
     pub score: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Badge {
     pub level: u16,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CreateAndUpdate {
     private: CreateAndUpdatePrivateInputs,
     public: CreateAndUpdatePublicInputs,

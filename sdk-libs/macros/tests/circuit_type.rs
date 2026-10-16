@@ -2,19 +2,19 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_program::{
-    circuit::{CircuitType, DataHash, UtxoData},
+    circuit::{CircuitType, DataHash, UtxoData, UtxoState},
     conversion::{to_bytes, Allocator, FromCircuit, ProofInput},
     hasher::{state_discriminator, DataHasher, Discriminator, Hasher, Poseidon},
     Owner,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 struct Limits {
     daily: u64,
     frozen: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 struct Portfolio {
     owner: Owner,
     nonce: u32,
@@ -23,12 +23,12 @@ struct Portfolio {
     label: [u8; 32],
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 struct Issuer {
     value: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 struct Credential {
     value: u64,
 }
@@ -163,4 +163,20 @@ fn the_discriminator_and_the_state_hash_are_pinned() {
     let limits_hash = "2365ec38d7481dd3ce2a43ca09f796ead3aec510edace48d3c07065d69a37c14";
     assert_eq!(hex(&byte_hash(&limits)), limits_hash);
     assert_eq!(hex(&circuit_hash(&native(&limits))), limits_hash);
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, CircuitType)]
+struct Point {
+    x: u64,
+    y: u32,
+}
+
+#[test]
+fn a_plain_circuit_type_converts_both_ways_without_a_data_hash() {
+    let point = Point { x: 7, y: 9 };
+    assert_eq!(
+        Point::from_circuit(&native(&point)).expect("from circuit"),
+        point
+    );
+    let _default = <Point as ProofInput>::Circuit::default();
 }

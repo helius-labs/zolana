@@ -16,7 +16,7 @@ use crate::{
     shared::{keypair, token_input, USDC},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Take {
     pub(crate) private: TakePrivateInputs,
     pub(crate) public: TakePublicInputs,

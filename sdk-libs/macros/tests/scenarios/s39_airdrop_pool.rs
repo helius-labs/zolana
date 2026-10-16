@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos, UtxoTrait,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -21,13 +21,13 @@ pub(crate) fn airdrop_authority() -> ProgramOwner {
     ProgramOwner::new(42)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Pool {
     pub root: [u8; 32],
     pub airdrop_id: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CreatePool {
     private: CreatePoolPrivateInputs,
     public: CreatePoolPublicInputs,

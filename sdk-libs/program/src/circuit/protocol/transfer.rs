@@ -1,5 +1,5 @@
 use crate::{
-    circuit::{constant, poseidon, Asset, Bytes, CircuitVar, Uint},
+    circuit::{constant, poseidon, Asset, Bytes, CircuitVar, HashBytes, Uint},
     CircuitError,
 };
 

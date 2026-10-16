@@ -1,4 +1,9 @@
-use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
+use zolana_hasher::{
+    primitives::{hash_bytes, right_align},
+    Hasher, HasherError, Poseidon,
+};
+
+use crate::client::{Bytes, Owner};
 
 pub trait ToByteArray {
     fn to_byte_array(&self) -> Result<[u8; 32], HasherError>;
@@ -37,5 +42,21 @@ impl<T: ToByteArray, const N: usize> ToByteArray for [T; N] {
             *target = element.to_byte_array()?;
         }
         Poseidon::hashv(&elements.each_ref().map(<[u8; 32]>::as_slice))
+    }
+}
+
+impl<const N: usize> ToByteArray for Bytes<N> {
+    fn to_byte_array(&self) -> Result<[u8; 32], HasherError> {
+        hash_bytes(&self.0)
+    }
+}
+
+impl ToByteArray for Owner {
+    fn to_byte_array(&self) -> Result<[u8; 32], HasherError> {
+        let mut tagged = [0u8; 33];
+        let (tag, key) = tagged.split_at_mut(1);
+        tag.fill(self.tag);
+        key.copy_from_slice(&self.key);
+        Poseidon::hashv(&[&hash_bytes(&tagged)?, &self.nullifier_pk])
     }
 }

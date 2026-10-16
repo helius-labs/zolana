@@ -13,11 +13,15 @@ The SDK for Solana programs built on the shielded pool (SPP). It has three parts
   - natively on the client, where it builds the SPP transaction's inputs and outputs;
   - as R1CS in the prover, where it checks the constraints and the public hash.
 
-  The circuits are arkworks 0.6 R1CS over BN254. The derives come from
-  [`zolana-macros`](../macros).
+  The circuits are arkworks 0.6 R1CS over BN254. The DSL, the prover and the core derives
+  come from [`zolana-zk-dsl`](../../zk/dsl), the gadgets from
+  [`zolana-zk-gadgets`](../../zk/gadgets), and the UTXO derives from
+  [`zolana-macros`](../macros). This crate re-exports all of them at the paths below.
 
 The ZK program part implements [`spec.md`](spec.md); [`invariants/`](invariants) states what
-each builtin guarantees and which tests cover it.
+each protocol type guarantees and which tests cover it. The builtins' invariants live with the
+DSL in [`zk/dsl/invariants`](../../zk/dsl/invariants) and
+[`zk/gadgets/invariants`](../../zk/gadgets/invariants).
 
 A developer writes plain Rust input types, and the client, the tests and the prover all take
 them. `CircuitVar` appears only in the `circuit` impls.
@@ -48,9 +52,11 @@ verifies ZK program proofs. Its client enables `client`, and a key setup needs `
 
 ## Building a ZK program
 
-1. Declare each instruction's inputs as a plain struct with `#[derive(ProofInput)]`, a
-   program state with `#[derive(CircuitType)]`, and the public inputs with
-   `#[derive(PublicInputs)]`.
+1. Declare each instruction's inputs as a struct with exactly the fields `private` and
+   `public` and `#[derive(ZkProgram)]`, its private inputs with `#[derive(ProofInput)]`, a
+   program state with `#[derive(UtxoState)]`, and the public inputs with
+   `#[derive(PublicInputs)]`. `#[derive(CircuitType)]` declares a plain circuit type that is
+   not stored in a UTXO.
 2. Implement `Circuit` on the derived circuit type.
 3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
    `<target>/zk/<crate>`, the verifier modules to `src/verifier/`, builds the wasm module and
@@ -70,20 +76,26 @@ verifies ZK program proofs. Its client enables `client`, and a key setup needs `
 
 ## Layout
 
-zolana-program groups its modules by the phase that uses them:
+The ZK program part spans several crates. The generic pieces live under `zk/` and know
+nothing of the protocol; this crate holds the protocol and re-exports everything:
+
+| Crate | Holds |
+| --- | --- |
+| [`zolana-zk-dsl`](../../zk/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
+| [`zolana-zk-gadgets`](../../zk/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
+| `zolana-keypair` (feature `circuit`) | The owner circuit types and how a `ShieldedAddress` enters a circuit. |
+| `zolana-transaction` (feature `circuit`) | The asset and UTXO circuit types and how a `Mint` and a `WalletUtxo` enter a circuit. |
+
+In this crate, modules are grouped by the phase that uses them:
 
 | Module | Phase |
 | --- | --- |
-| `circuit/` | The DSL a `circuit` fn is written in: the builtins, the UTXO types, the transaction and the `Circuit` trait. `builtins/` holds the values, operations and gadgets, `protocol/` the UTXOs and the transaction. |
-| `conversion/` | Between client and circuit values: `ProofInput`, `FromCircuit`, `Allocator`, `Records`, and bytes to fields and back. |
-| `client/` | The plain Rust side: `TxContext`, `Owner`, `ProgramOwner`, `DataUtxo`, and with feature `client`, `ZkProgram`, `ProgramTransaction` and `ZkCircuit`. |
-| `prover/` | `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis behind them. |
+| `circuit/` | The DSL a `circuit` fn is written in, re-exported, plus `protocol/`: the UTXOs built on the circuit types and the transaction. |
+| `conversion/` | Between client and circuit values: the re-exported conversion traits and the `TxContext` conversion. |
+| `client/` | The plain Rust side: `TxContext`, `ProgramOwner`, `DataUtxo`, and with feature `client`, `ZkProgram` and `ProgramTransaction`. |
 | `hasher/` | The data hashes and discriminators that Solana programs and circuits share. |
 | `compression/` | Compressed accounts for pinocchio programs. |
 | `wasm/` | The wasm bindings. |
-
-The phases have equivalent files: `utxo.rs` and `transaction.rs` hold one concept in
-`circuit/`, `conversion/` and `client/`.
 
 The public paths follow the same split. The crate root holds what the client and the prover
 use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what lies between.
@@ -166,7 +178,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `ConfidentialTransaction<P>` | The transaction's inputs and outputs, in call order of `with_token_utxos` and `with_data_utxo`, with no SPP shape. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a trailing `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `zolana_transaction`'s `add_empty_output_utxo`. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | Defines `type Output: CircuitOutput` and `fn circuit(&self) -> Result<Self::Output, CircuitError>`. Used for both standalone constraints and transaction programs. |
-| `CircuitOutput` | Sealed output contract. `()` adds no public inputs; `CheckedTransaction` binds its public hash to one public input. The SDK owns the allocation and equality constraints for these outputs. |
+| `CircuitOutput` | Sealed output contract. `()` adds no public inputs; a `PublicHashOutput`, such as `CheckedTransaction`, binds its public hash to one public input. The SDK owns the allocation and equality constraints for these outputs. |
 
 **Diagnostics**
 
@@ -222,8 +234,9 @@ program that proves and verifies with Groth16 using a declared root input.
 
 ### Implementing a derived circuit
 
-`#[derive(ProofInput)]` generates the circuit form of a client type. Implement
-`Circuit` on its associated type with ordinary Rust:
+`#[derive(ProofInput)]` generates the circuit form of a client type, and
+`#[derive(ZkProgram)]` does the same for a program's inputs and adds its wasm bindings and r1cs
+export hook. Implement `Circuit` on the associated type with ordinary Rust:
 
 ```rust,ignore
 impl Circuit for <Transfer as ProofInput>::Circuit {
@@ -266,8 +279,8 @@ pub struct Transfer {
   names the field.
 - The item type implements `Dummy`; today that is `WalletUtxo`. A padded `u64` has no
   empty marker, so `Vec<u64>` does not compile.
-- `CircuitType` and `PublicInputs` refuse bounded fields: a state and a public input have a
-  fixed layout.
+- `UtxoState`, `CircuitType` and `PublicInputs` refuse bounded fields: a state and a public
+  input have a fixed layout.
 
 Set `#![deny(unused_must_use, unused_variables, unused_assignments)]`,
 `#![forbid(unsafe_code)]`, and `#![deny(clippy::let_underscore_must_use)]` on circuit
@@ -293,7 +306,7 @@ Everything the derives generate goes through these, and each can be written by h
 
 | Name | What it is good for |
 | --- | --- |
-| `DataHasher` | The hash of a state that its data UTXO commits to. `#[derive(CircuitType)]` implements it to match the circuit's `DataHash`. |
+| `DataHasher` | The hash of a state that its data UTXO commits to. `#[derive(UtxoState)]` implements it to match the circuit's `DataHash`. |
 | `Discriminator`, `state_discriminator` | An 8-byte state type tag: the first bytes of `sha256("account:" \|\| type_name)`. |
 | `data_hash`, `unique_data_hash` | A data UTXO's data hash under the `DATA` and `UNIQ` domains: a state or an addressed state. |
 | `ToByteArray` | A value as the 32 bytes a hash takes. |
@@ -507,8 +520,10 @@ implement `ZkProgram` automatically, providing transaction construction and
 encryption. Import `ZkCircuit` to call its methods on a concrete program input;
 a generic `P: ZkProgram` already inherits those methods.
 
-`CheckedTransaction` allocates the public hash as the first public input,
-before the circuit instantiates any private input, and constrains it to the
-circuit's public hash after the circuit runs. Variable 1 is therefore always the
-public hash, and moving that allocation changes every proving key.
-`CircuitOutput` is sealed: `()` and `CheckedTransaction` are the only outputs.
+For a `PublicHashOutput` such as `CheckedTransaction`, the SDK allocates the
+public hash as the first public input, before the circuit instantiates any
+private input, and constrains it to the output's public hash after the circuit
+runs. Variable 1 is therefore always the public hash, and moving that allocation
+changes every proving key. `CircuitOutput` is sealed: an output is `()` or a
+`PublicHashOutput`, which only names its hash; it never allocates or constrains
+the public input itself.

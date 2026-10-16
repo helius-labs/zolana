@@ -1,0 +1,11 @@
+error: a ZK program is a struct with exactly the fields `private` and `public`
+ --> tests/ui/fail/zk_program_shape.rs:4:8
+  |
+4 | struct MissingPublic {
+  |        ^^^^^^^^^^^^^
+
+error: a ZK program is a struct with exactly the fields `private` and `public`
+ --> tests/ui/fail/zk_program_shape.rs:9:8
+  |
+9 | struct ExtraField {
+  |        ^^^^^^^^^^

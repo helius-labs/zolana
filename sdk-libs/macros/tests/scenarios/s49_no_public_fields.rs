@@ -14,7 +14,7 @@ use crate::{
     shared::{dummy, keypair, token_input},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct PrivateSweep {
     private: PrivateSweepPrivateInputs,
     public: NoPublicInputs,

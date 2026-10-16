@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{circuit::CircuitType, Owner};
+use zolana_program::{circuit::UtxoState, Owner};
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct EscrowTerms {
     pub creator: Owner,
     pub unlock: u64,

@@ -2,10 +2,9 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::DeriveInput;
 
-use crate::{
-    paths,
-    shape::{snake_case, Shape},
-};
+use zolana_zk_macros_core::shape::{snake_case, Shape};
+
+use crate::paths;
 
 pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
     if !input.generics.params.is_empty() || !shape.is_program() {

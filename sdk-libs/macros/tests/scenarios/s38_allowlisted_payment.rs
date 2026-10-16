@@ -14,7 +14,7 @@ use crate::{
     shared::{keypair, token_input, MerklePath, MerkleTree},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct AllowlistedPayment {
     private: AllowlistedPaymentPrivateInputs,
     public: AllowlistedPaymentPublicInputs,

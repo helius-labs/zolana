@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_program::{
-    circuit::{constant, poseidon, value, Asset, Bytes},
+    circuit::{constant, poseidon, value, Asset, Bytes, HashBytes},
     transaction_hash, PublicTransfer,
 };
 

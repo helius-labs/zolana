@@ -13329,8 +13329,10 @@ name = "zolana-keypair"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "ark-bn254 0.6.0",
  "aws-sdk-kms",
  "aws-smithy-mocks",
+ "borsh",
  "bs58",
  "ctr",
  "ed25519-dalek 2.2.0",
@@ -13356,6 +13358,8 @@ dependencies = [
  "wasm-bindgen",
  "zeroize",
  "zolana-hasher",
+ "zolana-zk-dsl",
+ "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -13375,6 +13379,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-transaction",
+ "zolana-zk-macros-core",
 ]
 
 [[package]]
@@ -13395,24 +13400,15 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-circom",
- "ark-ec 0.6.0",
  "ark-ff 0.6.0",
- "ark-groth16",
- "ark-poly 0.6.0",
- "ark-r1cs-std",
- "ark-relations",
- "ark-serialize 0.6.0",
- "ark-std 0.6.0",
  "borsh",
  "console_error_panic_hook",
  "groth16-solana",
  "hex",
  "js-sys",
- "light-poseidon 0.5.0",
  "num-bigint 0.4.8",
  "pinocchio 0.11.2",
  "proptest",
- "rayon",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -13435,6 +13431,8 @@ dependencies = [
  "zolana-macros",
  "zolana-transaction",
  "zolana-tree",
+ "zolana-zk-dsl",
+ "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -13675,6 +13673,7 @@ dependencies = [
 name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.6.0",
  "borsh",
  "criterion",
  "hex",
@@ -13692,6 +13691,8 @@ dependencies = [
  "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-zk-dsl",
+ "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -13740,6 +13741,90 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "solana-secp256r1-program",
+]
+
+[[package]]
+name = "zolana-zk-dsl"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-circom",
+ "ark-ec 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-groth16",
+ "ark-poly 0.6.0",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-std 0.6.0",
+ "borsh",
+ "groth16-solana",
+ "hex",
+ "js-sys",
+ "num-bigint 0.4.8",
+ "proptest",
+ "rayon",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-bn254",
+ "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
+ "wasmer",
+ "wincode",
+ "zolana-hasher",
+ "zolana-zk-gadgets",
+ "zolana-zk-macros",
+]
+
+[[package]]
+name = "zolana-zk-gadgets"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-circom",
+ "ark-ff 0.6.0",
+ "ark-r1cs-std",
+ "hex",
+ "light-poseidon 0.5.0",
+ "num-bigint 0.4.8",
+ "proptest",
+ "serde_json",
+ "sha2 0.10.9",
+ "wasmer",
+ "zolana-hasher",
+ "zolana-zk-dsl",
+]
+
+[[package]]
+name = "zolana-zk-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.119",
+ "trybuild",
+ "zolana-zk-dsl",
+ "zolana-zk-macros-core",
+]
+
+[[package]]
+name = "zolana-zk-macros-core"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "zolana-zk-standalone-fixture"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zolana-zk-dsl",
+ "zolana-zk-gadgets",
 ]
 
 [[package]]

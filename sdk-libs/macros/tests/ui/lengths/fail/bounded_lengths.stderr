@@ -4,13 +4,13 @@ error[E0080]: evaluation panicked: a padded field takes min_len <= max_len
   |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::conversion::instantiate_padded::<zolana_transaction::WalletUtxo, 3, 2>::{constant#1}` failed here
   |
- ::: $WORKSPACE/sdk-libs/program/src/conversion/mod.rs
+ ::: $WORKSPACE/zk/dsl/src/conversion/mod.rs
   |
   |     const { assert!(MIN <= MAX, "a padded field takes min_len <= max_len") };
   |             -------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
- --> $WORKSPACE/sdk-libs/program/src/conversion/mod.rs
+ --> $WORKSPACE/zk/dsl/src/conversion/mod.rs
   |
   |     const { assert!(MIN <= MAX, "a padded field takes min_len <= max_len") };
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

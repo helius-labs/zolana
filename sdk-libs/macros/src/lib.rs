@@ -1,29 +1,22 @@
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
-mod circuit_type;
 #[cfg(test)]
 mod discriminator_tests;
-mod error_name;
 mod paths;
-mod proof_input;
 mod public_inputs;
 mod r1cs_hook;
-mod serialization;
-mod shape;
+mod utxo_state;
+mod zk_program;
 mod zk_program_wasm;
 
-#[doc(hidden)]
-#[proc_macro_derive(ErrorName, attributes(error_name))]
-pub fn derive_error_name(input: TokenStream) -> TokenStream {
+/// A ZK program's proof inputs: a struct with exactly the fields `private` and
+/// `public`. Derives `ProofInput` plus the program's wasm bindings and r1cs
+/// export hook.
+#[proc_macro_derive(ZkProgram, attributes(max_len, min_len))]
+pub fn derive_zk_program(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    into_token_stream(error_name::expand(&input))
-}
-
-#[proc_macro_derive(ProofInput, attributes(max_len, min_len))]
-pub fn derive_proof_input(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    into_token_stream(proof_input::expand(&input))
+    into_token_stream(zk_program::expand(&input))
 }
 
 #[proc_macro_derive(PublicInputs, attributes(max_len, min_len))]
@@ -32,10 +25,12 @@ pub fn derive_public_inputs(input: TokenStream) -> TokenStream {
     into_token_stream(public_inputs::expand(&input))
 }
 
-#[proc_macro_derive(CircuitType, attributes(max_len, min_len))]
-pub fn derive_circuit_type(input: TokenStream) -> TokenStream {
+/// State kept in a data utxo: its circuit type plus the discriminator and the
+/// data hash that commit it.
+#[proc_macro_derive(UtxoState, attributes(max_len, min_len))]
+pub fn derive_utxo_state(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    into_token_stream(circuit_type::expand(&input))
+    into_token_stream(utxo_state::expand(&input))
 }
 
 fn into_token_stream(result: syn::Result<proc_macro2::TokenStream>) -> TokenStream {

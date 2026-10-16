@@ -1,0 +1,18 @@
+[package]
+name = "zolana-zk-standalone-fixture"
+version = "0.1.0"
+description = "A circuit built on the zk DSL and gadgets alone, without zolana-program: pins that the derives and the DSL paths work for standalone circuits."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+zolana-zk-dsl = { workspace = true, features = ["client", "setup", "serde"] }
+zolana-zk-gadgets = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints.clippy]
+disallowed_types = "allow"

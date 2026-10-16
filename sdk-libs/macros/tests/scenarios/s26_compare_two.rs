@@ -14,7 +14,7 @@ use crate::{
     shared::{data_input, keypair},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CompareTwo {
     private: CompareTwoPrivateInputs,
     public: CompareTwoPublicInputs,

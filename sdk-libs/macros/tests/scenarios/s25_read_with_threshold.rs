@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -13,12 +13,12 @@ use crate::{
     shared::{data_input, keypair, refused},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Account {
     pub balance: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct ReadThreshold {
     private: ReadThresholdPrivateInputs,
     public: ReadThresholdPublicInputs,

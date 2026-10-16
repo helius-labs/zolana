@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{CircuitType, PublicInputs},
+    circuit::{UtxoState, PublicInputs},
     conversion::ProofInput,
 };
 use zolana_transaction::WalletUtxo;
@@ -28,7 +28,7 @@ struct BoundedTwice {
     utxos: Vec<WalletUtxo>,
 }
 
-#[derive(CircuitType)]
+#[derive(UtxoState)]
 struct BoundedState {
     #[max_len(2)]
     utxos: Vec<WalletUtxo>,

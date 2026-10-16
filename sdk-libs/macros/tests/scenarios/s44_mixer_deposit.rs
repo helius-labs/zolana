@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program::{
     circuit::{
-        poseidon, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxos, UtxoTrait,
+        poseidon, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxos, UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -22,12 +22,12 @@ pub(crate) fn mixer_authority() -> ProgramOwner {
     ProgramOwner::new(45)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct MixerCommitment {
     pub commitment: [u8; 32],
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct MixerDeposit {
     private: MixerDepositPrivateInputs,
     public: MixerDepositPublicInputs,

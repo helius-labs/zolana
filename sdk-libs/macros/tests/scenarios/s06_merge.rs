@@ -17,7 +17,7 @@ use crate::{
 
 const MERGED_INPUTS: usize = 36;
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Merge {
     private: MergePrivateInputs,
     public: MergePublicInputs,

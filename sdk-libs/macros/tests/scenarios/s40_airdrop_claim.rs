@@ -16,7 +16,7 @@ use crate::{
     shared::{keypair, poseidon_bytes, MerklePath, MerkleTree},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Claim {
     private: ClaimPrivateInputs,
     public: ClaimPublicInputs,

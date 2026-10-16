@@ -14,7 +14,7 @@ use crate::{
     shared::{keypair, token_input},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub(crate) struct Payment<const N: usize, const R: usize> {
     pub(crate) private: PaymentPrivateInputs<N, R>,
     pub(crate) public: PaymentPublicInputs<R>,

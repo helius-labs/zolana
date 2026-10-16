@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        Assert, CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo,
-        PublicInputs, TokenUtxos, UtxoTrait,
+        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        TokenUtxos, UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -19,7 +19,7 @@ fn vesting_authority() -> ProgramOwner {
     ProgramOwner::new(43)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Vesting {
     pub beneficiary_hash: [u8; 32],
     pub total: u64,
@@ -28,7 +28,7 @@ pub struct Vesting {
     pub end: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct VestingClaim {
     private: VestingClaimPrivateInputs,
     public: VestingClaimPublicInputs,

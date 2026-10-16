@@ -3,8 +3,8 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos, UtxoTrait,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -22,7 +22,7 @@ pub(crate) fn order_authority() -> ProgramOwner {
     ProgramOwner::new(41)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct OrderTerms {
     pub maker_hash: [u8; 32],
     pub ask_asset_hash: [u8; 32],
@@ -30,7 +30,7 @@ pub struct OrderTerms {
     pub expiry: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Make {
     private: MakePrivateInputs,
     public: MakePublicInputs,

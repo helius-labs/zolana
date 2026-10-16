@@ -16,7 +16,7 @@ use crate::{
     shared::{data_input, keypair, poseidon_bytes, state_hash},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct VerifyCredential {
     private: VerifyCredentialPrivateInputs,
     public: VerifyCredentialPublicInputs,

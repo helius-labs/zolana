@@ -1,0 +1,92 @@
+[package]
+name = "zolana-zk-dsl"
+version = "0.1.0"
+description = "Circuit DSL over BN254 for Groth16 on Solana: circuit types and operations, proof input conversion, and the arkworks prover."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bn254 = { version = "0.6", optional = true }
+ark-ec = { version = "0.6", optional = true }
+ark-ff = { version = "0.6", optional = true }
+ark-groth16 = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-poly = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-r1cs-std = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-relations = { version = "0.6", default-features = false, features = ["std"], optional = true }
+ark-std = { version = "0.6", features = ["getrandom"], optional = true }
+borsh = { workspace = true, optional = true }
+groth16-solana = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_bytes = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+solana-address = { workspace = true }
+solana-bn254 = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wincode = { workspace = true }
+zolana-hasher = { workspace = true, optional = true }
+zolana-zk-macros = { workspace = true, optional = true }
+
+[features]
+default = []
+# The circuit DSL: types, operations, proof input conversion and errors.
+circuit = [
+    "dep:ark-bn254",
+    "dep:ark-ff",
+    "dep:ark-r1cs-std",
+    "dep:ark-relations",
+    "dep:ark-std",
+    "dep:borsh",
+    "dep:thiserror",
+    "dep:zolana-hasher",
+    "dep:zolana-zk-macros",
+]
+# Proving, verification and key handling.
+client = [
+    "circuit",
+    "dep:ark-ec",
+    "dep:ark-groth16",
+    "dep:ark-poly",
+    "dep:groth16-solana",
+    "dep:sha2",
+    "dep:solana-bn254",
+]
+setup = ["client", "groth16-solana/circom-vk", "dep:serde_json"]
+parallel = ["client", "dep:rayon", "ark-groth16/parallel", "ark-poly/parallel"]
+serde = ["circuit", "dep:serde", "dep:serde_bytes"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
+wasm = ["client", "tsify", "dep:js-sys"]
+# Diagnostic and metadata inspection helpers for tests, not application circuits.
+test-support = ["client"]
+# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+external-tools = []
+
+[dev-dependencies]
+ark-circom = { version = "0.6.0", default-features = false }
+hex = { workspace = true }
+num-bigint = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+wasmer = { version = "6.1", default-features = false }
+zolana-zk-gadgets = { workspace = true }
+
+[[test]]
+name = "unit"
+required-features = ["test-support", "setup"]
+
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen"]
+
+[lints.clippy]
+disallowed_types = "allow"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(target_os, values("solana"))']

@@ -9,22 +9,12 @@ publish = false
 
 [dependencies]
 ark-bn254 = { version = "0.6", optional = true }
-ark-ec = { version = "0.6", optional = true }
 ark-ff = { version = "0.6", optional = true }
-ark-groth16 = { version = "0.6", default-features = false, features = ["std"], optional = true }
-ark-poly = { version = "0.6", default-features = false, features = ["std"], optional = true }
-ark-r1cs-std = { version = "0.6", default-features = false, features = ["std"], optional = true }
-ark-relations = { version = "0.6", default-features = false, features = ["std"], optional = true }
-ark-serialize = { version = "0.6", optional = true }
-ark-std = { version = "0.6", features = ["getrandom"], optional = true }
 borsh = { workspace = true, optional = true }
 groth16-solana = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
-# arkworks 0.6 port of light-poseidon (crates.io 0.4.0 is on arkworks 0.5).
-light-poseidon = { git = "https://github.com/Lightprotocol/light-poseidon", rev = "08e037e20910e86aa62641217643540d1f902443", optional = true }
 pinocchio = { workspace = true, features = ["cpi"], optional = true }
-rayon = { workspace = true, optional = true }
 solana-address = { workspace = true }
 solana-bn254 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
@@ -42,6 +32,8 @@ zolana-instruction = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true, optional = true }
 zolana-macros = { path = "../macros", optional = true }
+zolana-zk-dsl = { workspace = true }
+zolana-zk-gadgets = { workspace = true, optional = true }
 zolana-transaction = { workspace = true, optional = true }
 zolana-tree = { workspace = true, optional = true }
 
@@ -60,37 +52,44 @@ compression = ["cpi", "dep:pinocchio", "dep:zolana-tree", "dep:thiserror"]
 circuit = [
     "dep:ark-bn254",
     "dep:ark-ff",
-    "dep:ark-r1cs-std",
-    "dep:ark-relations",
-    "dep:ark-std",
     "dep:borsh",
-    "dep:light-poseidon",
     "dep:solana-signature",
     "dep:thiserror",
     "dep:zolana-keypair",
     "dep:zolana-macros",
     "dep:zolana-transaction",
+    "dep:zolana-zk-gadgets",
+    "zolana-keypair/circuit",
+    "zolana-transaction/circuit",
+    "zolana-zk-dsl/circuit",
     "solana-address/curve25519",
 ]
 client = [
     "circuit",
     "verifier",
-    "dep:ark-ec",
-    "dep:ark-groth16",
-    "dep:ark-poly",
-    "dep:ark-serialize",
     "dep:sha2",
     "dep:solana-bn254",
+    "zolana-zk-dsl/client",
 ]
-setup = ["client", "groth16-solana/circom-vk", "dep:serde_json"]
-parallel = ["client", "dep:rayon", "ark-groth16/parallel", "ark-poly/parallel"]
-serde = ["circuit", "dep:serde", "zolana-keypair/serde", "zolana-transaction/serde"]
+setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "zolana-zk-dsl/setup"]
+parallel = [
+    "client",
+    "zolana-zk-dsl/parallel",
+]
+serde = [
+    "circuit",
+    "dep:serde",
+    "zolana-keypair/serde",
+    "zolana-transaction/serde",
+    "zolana-zk-dsl/serde",
+]
 tsify = [
     "serde",
     "dep:tsify",
     "dep:wasm-bindgen",
     "zolana-keypair/tsify",
     "zolana-transaction/tsify",
+    "zolana-zk-dsl/tsify",
 ]
 wasm = [
     "client",
@@ -98,6 +97,7 @@ wasm = [
     "dep:console_error_panic_hook",
     "dep:js-sys",
     "dep:serde-wasm-bindgen",
+    "zolana-zk-dsl/wasm",
 ]
 wasm-prover = ["wasm"]
 r1cs-export = ["setup"]
@@ -107,7 +107,7 @@ wasm-verify = ["wasm", "groth16-solana/gnark-vk"]
 # Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
 external-tools = []
 # Diagnostic and metadata inspection helpers for tests, not application circuits.
-test-support = ["client"]
+test-support = ["client", "zolana-zk-dsl/test-support"]
 
 [dev-dependencies]
 ark-circom = { version = "0.6.0", default-features = false }

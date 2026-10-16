@@ -5,7 +5,7 @@ use zolana_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
 use super::transaction::SppTransactionBuilder;
 use crate::{
     circuit::Asset,
-    conversion::{to_bytes, FromCircuit},
+    conversion::{to_bytes, FromCircuit, MintRecords, OwnerRecords, UtxoRecords},
     ClientError, ClientErrorKind, SlotKind,
 };
 
@@ -14,23 +14,27 @@ impl SppTransactionBuilder<'_> {
         &self,
         first_nullifier: &[u8; 32],
     ) -> Result<Vec<WalletUtxo>, ClientError> {
-        let spent =
-            self.checked
-                .inputs
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, hash)| match to_bytes(hash) {
-                    Ok(hash) if hash == [0u8; 32] => None,
-                    Ok(hash) => Some(self.records.utxo(&hash).cloned().ok_or(
-                        ClientErrorKind::Slot {
+        let spent = self
+            .checked
+            .inputs
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, hash)| match to_bytes(hash) {
+                Ok(hash) if hash == [0u8; 32] => None,
+                Ok(hash) => Some(
+                    self.records
+                        .get::<UtxoRecords>()
+                        .and_then(|records| records.get(&hash))
+                        .cloned()
+                        .ok_or(ClientErrorKind::Slot {
                             kind: SlotKind::Input,
                             index: slot,
                             problem: "is not an input of the proof inputs",
-                        },
-                    )),
-                    Err(error) => Some(Err(ClientErrorKind::Circuit(error))),
-                })
-                .collect::<Result<Vec<_>, ClientErrorKind>>()?;
+                        }),
+                ),
+                Err(error) => Some(Err(ClientErrorKind::Circuit(error))),
+            })
+            .collect::<Result<Vec<_>, ClientErrorKind>>()?;
         let first = match self.checked.addresses.first() {
             Some(address) => to_bytes(&address.address)?,
             None => spent.first().ok_or(ClientErrorKind::NoInputs)?.nullifier,
@@ -52,12 +56,13 @@ impl SppTransactionBuilder<'_> {
             .iter()
             .map(|created| {
                 let owner_hash = to_bytes(&created.owner.hash()?)?;
-                let owner =
-                    self.records
-                        .owner(&owner_hash)
-                        .ok_or(ClientErrorKind::TransactionMismatch(
-                            "an address owner is not named by the proof inputs",
-                        ))?;
+                let owner = self
+                    .records
+                    .get::<OwnerRecords>()
+                    .and_then(|records| records.get(&owner_hash))
+                    .ok_or(ClientErrorKind::TransactionMismatch(
+                        "an address owner is not named by the proof inputs",
+                    ))?;
                 let input = zolana_transaction::utxo::SppProofInputUtxo::new_address(
                     owner.signing_pubkey,
                     to_bytes(&created.seed)?,
@@ -95,7 +100,11 @@ impl SppTransactionBuilder<'_> {
                 };
                 let output = &checked.output;
                 let owner_hash = to_bytes(&output.owner.hash()?)?;
-                let owner = match self.records.owner(&owner_hash) {
+                let owner = match self
+                    .records
+                    .get::<OwnerRecords>()
+                    .and_then(|records| records.get(&owner_hash))
+                {
                     Some(owner) => *owner,
                     None if owner_hash == sender_hash => *sender,
                     None => return Err(problem("has an owner no input names").into()),
@@ -122,10 +131,16 @@ impl SppTransactionBuilder<'_> {
 
     pub(super) fn mint(&self, asset: &Asset) -> Result<Option<Mint>, ClientError> {
         let asset_hash = to_bytes(&asset.hash()?)?;
-        Ok(match self.records.mint(&asset_hash) {
-            Some(mint) => Some(*mint),
-            None if asset_hash == hash_bytes(Mint::SOL.asset.as_array())? => Some(Mint::SOL),
-            None => None,
-        })
+        Ok(
+            match self
+                .records
+                .get::<MintRecords>()
+                .and_then(|records| records.get(&asset_hash))
+            {
+                Some(mint) => Some(*mint),
+                None if asset_hash == hash_bytes(Mint::SOL.asset.as_array())? => Some(Mint::SOL),
+                None => None,
+            },
+        )
     }
 }

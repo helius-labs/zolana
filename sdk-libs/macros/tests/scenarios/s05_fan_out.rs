@@ -17,7 +17,7 @@ use crate::{
 
 const RECIPIENTS: usize = 7;
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct FanOut {
     private: FanOutPrivateInputs,
     public: FanOutPublicInputs,

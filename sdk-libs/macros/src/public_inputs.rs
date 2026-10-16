@@ -2,10 +2,12 @@ use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{spanned::Spanned, DeriveInput, Result};
 
-use crate::{
-    paths, proof_input,
+use zolana_zk_macros_core::{
+    proof_input,
     shape::{twin_ident, Shape},
 };
+
+use crate::paths;
 
 pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let shape = Shape::of(input)?;

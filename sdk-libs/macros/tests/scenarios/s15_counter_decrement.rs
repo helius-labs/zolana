@@ -11,7 +11,7 @@ use crate::{
     shared::{data_input, keypair, refused},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Decrement {
     pub(crate) private: DecrementPrivateInputs,
     pub(crate) public: DecrementPublicInputs,

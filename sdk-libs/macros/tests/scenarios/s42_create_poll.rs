@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -21,14 +21,14 @@ pub(crate) fn poll_authority() -> ProgramOwner {
     ProgramOwner::new(44)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Poll {
     pub poll_id: u64,
     pub root: [u8; 32],
     pub tally: [u64; 3],
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct CreatePoll {
     private: CreatePollPrivateInputs,
     public: CreatePollPublicInputs,

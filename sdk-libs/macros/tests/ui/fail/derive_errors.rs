@@ -1,5 +1,5 @@
 use zolana_program::{
-    circuit::{CircuitType, PublicInputs},
+    circuit::{UtxoState, PublicInputs},
     conversion::ProofInput,
 };
 
@@ -27,7 +27,7 @@ struct TooManyPublicInputs {
     l: u64,
 }
 
-#[derive(CircuitType)]
+#[derive(UtxoState)]
 struct TooManyStateFields {
     a: u64,
     b: u64,

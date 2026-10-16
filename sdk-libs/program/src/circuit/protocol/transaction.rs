@@ -8,8 +8,8 @@ use super::utxo::{CreatedAddress, Output, SpentInput};
 use crate::{
     circuit::{
         builtins::field::var::system_of, constant, labels::Scope, nonzero_hash_chain, poseidon,
-        zero, Assert, Bool, CircuitVar, DataHash, DataUtxo, PublicTransfer, TokenUtxos, Uint,
-        UniqueDataUtxo, UtxoData, UtxoMeta,
+        zero, Assert, Bool, CircuitType, CircuitVar, DataHash, DataUtxo, PublicHashOutput,
+        PublicTransfer, TokenUtxos, Uint, UniqueDataUtxo, UtxoData, UtxoMeta,
     },
     CircuitError, CircuitErrorKind,
 };
@@ -342,10 +342,21 @@ fn transaction_hash(
     poseidon(&[private_tx_hash.clone(), transfers_hash])
 }
 
+impl CircuitType for TxContext {}
+
+impl PublicHashOutput for CheckedTransaction {
+    fn public_hash(&self) -> &CircuitVar {
+        CheckedTransaction::public_hash(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::circuit::{Asset, ConstraintSystem, Owner};
+    use crate::{
+        circuit::{Asset, ConstraintSystem, Owner, VariableRole},
+        conversion::Allocator,
+    };
     use ark_bn254::Fr;
 
     #[test]
@@ -354,7 +365,11 @@ mod tests {
         let output = |empty_if_zero| Output {
             owner: Owner::default(),
             asset: Asset::sol(),
-            amount: Uint::trusted(CircuitVar::witness(&cs, || Ok(Fr::from(0u64))).unwrap()),
+            amount: Uint::trusted(
+                Allocator::R1cs(cs.clone())
+                    .witness(Fr::from(0u64), "an amount", VariableRole::Constrained)
+                    .unwrap(),
+            ),
             data_hash: zero(),
             data: None,
             empty_if_zero,

@@ -14,11 +14,9 @@ pub use types::{
 
 use borsh::BorshDeserialize;
 use zolana_transaction::WalletUtxo;
+use zolana_zk_dsl::js_error::js_error;
 
-use crate::{
-    hasher::DataHasher, CircuitError, ClientError, ClientErrorKind, ProverError, SourceLocation,
-    ZkProgram,
-};
+use crate::{hasher::DataHasher, ClientError, ClientErrorKind, ZkProgram};
 #[cfg(feature = "wasm-prover")]
 use crate::{Groth16Keys, Groth16Prover, ProofInputs};
 
@@ -49,31 +47,8 @@ pub fn start() {
     console_error_panic_hook::set_once();
 }
 
-fn js_error(name: &str, message: &str, location: SourceLocation) -> JsValue {
-    let error = js_sys::Error::new(message);
-    error.set_name(name);
-    let _ = js_sys::Reflect::set(
-        &error,
-        &JsValue::from_str("location"),
-        &JsValue::from_str(&location.to_string()),
-    );
-    error.into()
-}
-
-impl From<CircuitError> for JsValue {
-    fn from(error: CircuitError) -> Self {
-        js_error(error.name(), &error.to_string(), error.location())
-    }
-}
-
 impl From<ClientError> for JsValue {
     fn from(error: ClientError) -> Self {
-        js_error(error.name(), &error.to_string(), error.location())
-    }
-}
-
-impl From<ProverError> for JsValue {
-    fn from(error: ProverError) -> Self {
         js_error(error.name(), &error.to_string(), error.location())
     }
 }
@@ -166,8 +141,9 @@ pub fn verify_proof(
     if !compressed_matches(&proof) {
         return Ok(false);
     }
-    let verifying_key = parse_gnark_vk_bytes(verifying_key)
-        .map_err(|error| ProverError::from(crate::ProverErrorKind::InvalidVerifyingKey(error)))?;
+    let verifying_key = parse_gnark_vk_bytes(verifying_key).map_err(|error| {
+        crate::ProverError::from(crate::ProverErrorKind::InvalidVerifyingKey(error))
+    })?;
     let verifying_key = verifying_key.as_borrowed();
     let public_inputs = [proof.public_hash];
     Ok(Groth16Verifier::new(

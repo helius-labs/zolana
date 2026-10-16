@@ -13,7 +13,7 @@ use crate::{
     shared::{keypair, token_input},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct TopUp {
     private: TopUpPrivateInputs,
     public: TopUpPublicInputs,

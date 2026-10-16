@@ -3,8 +3,8 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -16,7 +16,7 @@ use crate::{
     shared::{keypair, token_input, USDC},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct TypedState {
     pub amount: u64,
     pub count: u32,
@@ -27,7 +27,7 @@ pub struct TypedState {
     pub asset_hash: [u8; 32],
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct TypedCreate {
     private: TypedCreatePrivateInputs,
     public: TypedCreatePublicInputs,

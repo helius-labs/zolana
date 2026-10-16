@@ -254,9 +254,10 @@ impl<const OP: usize> Circuit for EmptyCircuit<OP> {
 }
 
 pub fn spendable_constant() -> Utxo {
-    let mut utxo = Utxo::default();
-    utxo.domain = constant(u64::from(UTXO_DOMAIN));
-    utxo
+    Utxo {
+        domain: constant(u64::from(UTXO_DOMAIN)),
+        ..Utxo::default()
+    }
 }
 
 /// A transfer from a funded token holder into a closed `DESTINATION`: a

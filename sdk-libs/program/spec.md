@@ -484,6 +484,11 @@ zolana-program follows the same split:
 | `zolana_program::testing` | Feature `test-support`: `constraint_labels`, `check_tampered` and `check_private_variables`. |
 | `zolana_program::conversion` | Between the two: `ProofInput`, `FromCircuit`, `Placeholder`, `Dummy`, `instantiate_padded`, `placeholders`, `Allocator`, `Records`, and bytes to fields and back. |
 
+The DSL, the conversion traits and the prover are defined in `zolana-zk-dsl`, the gadgets in
+`zolana-zk-gadgets` (both under `zk/`), and the owner, asset and UTXO circuit types in the
+`circuit` features of `zolana-keypair` and `zolana-transaction`; this crate re-exports them at
+these paths.
+
 Everything a future macro derives can also be written by hand, so `conversion` stays public.
 A feature may gate it later.
 

@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_keypair::ShieldedAddress;
 use zolana_program::{
     circuit::{
-        CheckedTransaction, Circuit, CircuitType, ConfidentialTransaction, DataUtxo, PublicInputs,
-        TokenUtxos,
+        CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
+        UtxoState,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgram,
@@ -15,7 +15,7 @@ use crate::{
     shared::{keypair, token_input},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Limits {
     pub daily: u64,
     pub weekly: u64,
@@ -24,7 +24,7 @@ pub struct Limits {
     pub tier: u16,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, CircuitType)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct Portfolio {
     pub owner_hash: [u8; 32],
     pub nonce: u32,
@@ -33,7 +33,7 @@ pub struct Portfolio {
     pub labels: [u16; 2],
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct PortfolioCreate {
     private: PortfolioCreatePrivateInputs,
     public: PortfolioCreatePublicInputs,

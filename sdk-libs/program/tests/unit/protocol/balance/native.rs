@@ -266,7 +266,7 @@ fn a_balance_too_wide_to_check_points_at_the_circuit_line() {
 fn emptying_a_data_utxo_does_not_make_its_asset_mutable_again() {
     use zolana_program::{
         circuit::{Asset, Bytes, DataUtxo, Owner, TokenUtxos, Uint, UtxoTrait},
-        CircuitErrorKind,
+        ProtocolCircuitErrorKind,
     };
     let owner = Owner::default();
     let mut source = TokenUtxos::new_init(&owner, &Asset::sol());
@@ -278,5 +278,9 @@ fn emptying_a_data_utxo_does_not_make_its_asset_mutable_again() {
     source.transfer_all(&mut account).unwrap();
     account.transfer_all(&mut recipient).unwrap();
     let error = account.with_asset(&Asset::sol()).unwrap_err();
-    assert!(matches!(error.kind(), CircuitErrorKind::AssetOfUsedUtxo));
+    assert!(matches!(
+        error.protocol_kind(),
+        Some(ProtocolCircuitErrorKind::AssetOfUsedUtxo)
+    ));
+    assert_eq!(error.name(), "CircuitError.AssetOfUsedUtxo");
 }

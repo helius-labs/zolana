@@ -1,6 +1,4 @@
-mod bytes;
 mod data_utxo;
-mod owner;
 mod program_owner;
 mod public_layout;
 #[cfg(feature = "client")]
@@ -9,21 +7,19 @@ mod transaction;
 mod transfer;
 #[cfg(feature = "client")]
 mod utxo;
-#[cfg(feature = "client")]
-mod zk_circuit;
 
 use zolana_keypair::random_blinding;
 
-pub use bytes::Bytes;
 pub use data_utxo::DataUtxo;
-pub use owner::Owner;
 pub use program_owner::ProgramOwner;
 pub use public_layout::{PublicField, PublicFieldKind, PublicInputLayout};
+pub use zolana_keypair::circuit::client::Owner;
+pub use zolana_zk_dsl::Bytes;
 
 #[cfg(feature = "client")]
 pub use transaction::{ProgramTransaction, ZkProgram};
 #[cfg(feature = "client")]
-pub use zk_circuit::ZkCircuit;
+pub use zolana_zk_dsl::{PublicHashCircuit, ZkCircuit};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(

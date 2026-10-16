@@ -4,7 +4,7 @@ use crate::{
         labels::Scope,
         zero, Assert, Asset, Bytes, CircuitSystem, CircuitVar, Owner, PublicTransfer, Uint,
     },
-    CircuitError, CircuitErrorKind,
+    CircuitError, CircuitErrorKind, ProtocolCircuitErrorKind,
 };
 
 const AMOUNT_BITS: usize = 64;
@@ -151,7 +151,7 @@ impl Balance {
 #[track_caller]
 fn check_destination(asset: &Asset, destination: &impl HasBalance) -> Result<(), CircuitError> {
     if destination.is_closed() {
-        return Err(CircuitErrorKind::TransferToClosedUtxo.into());
+        return Err(ProtocolCircuitErrorKind::TransferToClosedUtxo.into());
     }
     let held = &destination.balance().asset;
     if asset.is_clone_of(held) {

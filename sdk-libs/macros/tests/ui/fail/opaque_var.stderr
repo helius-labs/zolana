@@ -4,7 +4,7 @@ error[E0277]: `/` on `CircuitVar` multiplies by a field inverse, which is not in
 4 |     let quotient = left.clone() / right;
   |                                 ^ use `Uint::div_rem` for integer division
   |
-  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `&CircuitVar`
+  = help: the trait `zolana_program::circuit::builtins::field::var::rules::UseDivRem` is not implemented for `&CircuitVar`
   = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
   = note: for deliberate field division, use `CircuitVar::div`
   = note: required for `CircuitVar` to implement `Div<&CircuitVar>`
@@ -15,7 +15,7 @@ error[E0277]: `%` on `CircuitVar` has no meaning in the field
 5 |     let remainder = &quotient % Field::from(2u64);
   |                               ^ use the remainder that `Uint::div_rem` returns
   |
-  = help: the trait `circuit::builtins::field::var::rules::UseRemOfDivRem` is not implemented for `zolana_program::circuit::Field`
+  = help: the trait `zolana_program::circuit::builtins::field::var::rules::UseRemOfDivRem` is not implemented for `zolana_program::circuit::Field`
   = note: turn the value into a `Uint<BITS>` with `Uint::try_from` first
   = note: required for `&CircuitVar` to implement `Rem<zolana_program::circuit::Field>`
 
@@ -25,7 +25,7 @@ error[E0277]: cannot divide-assign `CircuitVar` by `CircuitVar`
 7 |     total /= right.clone();
   |           ^^ no implementation for `CircuitVar /= CircuitVar`
   |
-  = help: the trait `circuit::builtins::field::var::rules::UseDivRem` is not implemented for `CircuitVar`
+  = help: the trait `zolana_program::circuit::builtins::field::var::rules::UseDivRem` is not implemented for `CircuitVar`
   = note: required for `CircuitVar` to implement `DivAssign`
 
 error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
@@ -34,7 +34,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |          ^^ no implementation for `&CircuitVar == &CircuitVar`
    |
-   = help: the trait `circuit::builtins::field::var::rules::UseAssertEqual` is not implemented for `CircuitVar`
+   = help: the trait `zolana_program::circuit::builtins::field::var::rules::UseAssertEqual` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialEq`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialEq<&CircuitVar>`
@@ -45,7 +45,7 @@ error[E0277]: can't compare `&CircuitVar` with `&CircuitVar`
 12 |     left == right || left < right
    |                           ^ no implementation for `&CircuitVar < &CircuitVar` and `&CircuitVar > &CircuitVar`
    |
-   = help: the trait `circuit::builtins::field::var::rules::UseUintComparison` is not implemented for `CircuitVar`
+   = help: the trait `zolana_program::circuit::builtins::field::var::rules::UseUintComparison` is not implemented for `CircuitVar`
    = note: required for `CircuitVar` to implement `PartialOrd`
    = note: 1 redundant requirement hidden
    = note: required for `&CircuitVar` to implement `PartialOrd<&CircuitVar>`
@@ -61,6 +61,12 @@ error[E0599]: no associated function or constant named `new_witness` found for s
    |
 20 |     CircuitVar::new_witness(cs, || Ok(Field::from(1u64))).unwrap()
    |                 ^^^^^^^^^^^ associated function or constant not found in `CircuitVar`
+   |
+note: if you're trying to build a new `CircuitVar`, consider using `zolana_program::circuit::builtins::field::primitive::<impl CircuitVar>::from_boolean` which returns `CircuitVar`
+  --> $WORKSPACE/zk/dsl/src/circuit/builtins/field/primitive.rs
+   |
+   |     pub fn from_boolean(bit: Boolean<Fr>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0599]: no associated function or constant named `Constant` found for struct `CircuitVar` in the current scope
   --> tests/ui/fail/opaque_var.rs:25:21

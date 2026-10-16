@@ -316,7 +316,7 @@ fn compile_r1cs(
         .collect();
     if written.is_empty() {
         bail!(
-            "{} derives no ZK program: a program is a struct with exactly `private` and `public` fields deriving ProofInput",
+            "{} derives no ZK program: a program is a struct with exactly `private` and `public` fields deriving ZkProgram",
             circuits.manifest.display()
         );
     }

@@ -15,7 +15,7 @@ use crate::{
     shared::{keypair, poseidon_bytes},
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct MixerWithdrawal {
     private: MixerWithdrawalPrivateInputs,
     public: MixerWithdrawalPublicInputs,

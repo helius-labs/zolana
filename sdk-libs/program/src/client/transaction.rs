@@ -6,11 +6,12 @@ use zolana_transaction::instructions::transact::{
 };
 use zolana_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
 
+use zolana_zk_dsl::{prover::ArkworksCircuit, ProofInputs};
+
 use super::transfer::public_transfer;
 use crate::{
     circuit::{value, CheckedTransaction, Circuit},
     conversion::{field_bytes, to_bytes, u16_value, Allocator, Records},
-    prover::{ArkworksCircuit, ProofInputs},
     ClientError, ClientErrorKind, SlotKind, ZkCircuit,
 };
 

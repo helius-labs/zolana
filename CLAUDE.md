@@ -31,6 +31,17 @@ prover
 - go prover server
 - rust prover client
 
+zk
+- generic zero-knowledge crates: the circuit DSL with its Groth16 prover, the
+  gadgets, and the core derives
+- know nothing of the zolana protocol: depend on no zolana crate except another
+  `zolana-zk-*` crate and `zolana-hasher` (`just check-deps` enforces it)
+- no crate depends on both `zolana-program` and a zk crate: ZK programs use the
+  `zolana-program` re-exports, standalone circuits use the zk crates with
+  `extern crate zolana_zk_dsl as zolana_program;` in their root
+- every gadget and DSL operation pins its R1CS digest in its crate's
+  `fingerprints` test; a changed digest changes proving keys, re-pin deliberately
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: the SPP Solana program.
@@ -42,6 +53,9 @@ prover
 - `forester`: compilable forester skeleton for future nullifier-tree
   maintenance work.
 - `prover`: proof client and prover server.
+- `zk`: the circuit DSL and prover (`zk/dsl`), gadgets (`zk/gadgets`), core
+  derives (`zk/macros`, `zk/macros-core`), the shared unit-test harness
+  (`zk/test-harness`) and a standalone circuit fixture (`zk/tests/standalone`).
 
 ## Project Structure
 
@@ -75,14 +89,29 @@ sdk-libs/
   instruction/         -- SBF-buildable shielded-pool instruction builders and the
                           SPP hash and blinding derivations programs recompute;
                           feature `cpi` (transact CPI)
-  keypair/             -- shielded key material and hashes
-  macros/              -- zolana-macros: the ZK program derives
-  program/             -- SDK for programs: re-exports zolana-instruction; feature
-                          `compression` (compressed accounts, SBF-buildable) and
-                          the host-only ZK program features `circuit`, `client`,
-                          `setup`; no default features
+  keypair/             -- shielded key material and hashes; feature `circuit`
+                          (owner circuit types, ShieldedAddress as proof input)
+  macros/              -- zolana-macros: the ZK program derives (UtxoState,
+                          ZkProgram, PublicInputs) over zk/macros-core
+  program/             -- SDK for programs: re-exports zolana-instruction and the
+                          zk crates; feature `compression` (compressed accounts,
+                          SBF-buildable) and the host-only ZK program features
+                          `circuit`, `client`, `setup`; no default features
   program-test/        -- reusable local test/indexer harness
-  transaction/         -- wallet, UTXO, encryption, and transaction logic
+  transaction/         -- wallet, UTXO, encryption, and transaction logic; feature
+                          `circuit` (asset and UTXO circuit types, Mint and
+                          WalletUtxo as proof inputs)
+
+zk/
+  dsl/                 -- zolana-zk-dsl: circuit DSL, proof input conversion,
+                          errors, Groth16 prover, CompressedProof (no_std without
+                          features)
+  gadgets/             -- zolana-zk-gadgets: poseidon, hash chains, membership,
+                          indexing, byte hashing
+  macros/              -- zolana-zk-macros: CircuitType, ProofInput, ErrorName
+  macros-core/         -- expansion logic shared with zolana-macros
+  test-harness/        -- unit-test harness, included by #[path] into test crates
+  tests/standalone/    -- a circuit on the zk crates alone
 
 cli/                   -- root Zolana developer/operator CLI
 forester/              -- forester skeleton
@@ -353,7 +382,10 @@ crate: the shielded-pool program links the interface and must not carry client
 surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
 CPI into SPP use the same builders as clients. `zolana-transaction` depends on
 `zolana-instruction`. It cannot depend on `zolana-program`, which depends on
-`zolana-transaction` for its ZK program features. Reference: `create_spl_interface.rs`
+`zolana-transaction` for its ZK program features. The circuit types and proof
+input impls of the wallet types sit in the `circuit` features of
+`zolana-keypair` and `zolana-transaction`, on top of the zk crates, because the
+orphan rule keeps them out of `zolana-program`. Reference: `create_spl_interface.rs`
 
 ```rust
 use alloc::vec;

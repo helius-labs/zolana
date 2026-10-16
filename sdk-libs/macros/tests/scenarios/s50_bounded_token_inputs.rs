@@ -15,7 +15,7 @@ use crate::shared::{keypair, token_input_in};
 const TOKEN_INPUTS: usize = 3;
 const INPUT_TREE_ID: u16 = 7;
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct BoundedPayment {
     private: BoundedPaymentPrivateInputs,
     public: PaymentPublicInputs,
@@ -29,7 +29,7 @@ struct BoundedPaymentPrivateInputs {
     amount: u64,
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct PaddedPayment {
     private: PaddedPaymentPrivateInputs,
     public: PaymentPublicInputs,

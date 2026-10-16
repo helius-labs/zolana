@@ -15,7 +15,7 @@ use crate::{
     shared::keypair,
 };
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Withdraw {
     pub(crate) private: WithdrawPrivateInputs,
     pub(crate) public: WithdrawPublicInputs,

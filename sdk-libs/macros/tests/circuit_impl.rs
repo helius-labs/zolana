@@ -21,7 +21,7 @@ impl DoublerCircuit {
     }
 }
 
-#[derive(Clone, ProofInput)]
+#[derive(Clone, ZkProgram)]
 pub struct Empty {
     private: EmptyPrivateInputs,
     public: EmptyPublicInputs,
