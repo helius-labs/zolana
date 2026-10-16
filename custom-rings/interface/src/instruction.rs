@@ -100,7 +100,7 @@ pub struct SetDepositAuditIxData {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
-    /// Auditor P256 public key in SEC1 compressed form.
+    /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
     /// Selects a policy ring over an audit-only ring.
     pub has_policy: bool,
@@ -143,7 +143,7 @@ pub struct SetSpendWindowIxData {
     pub withdrawal_cap: Option<NonZeroU64>,
 }
 
-/// Emulated P256 adds one BSB22 commitment, its point and proof of knowledge are mandatory.
+/// Emulated field arithmetic adds one BSB22 commitment, its point and proof of knowledge are mandatory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable, SchemaRead, SchemaWrite)]
 #[repr(C)]
 pub struct CustomRingProof {
@@ -295,7 +295,7 @@ pub struct RegisterKeyIxData {
     pub registry_next_index: u64,
     /// The member's nullifier public key, bound by the proof to the ciphertext.
     pub nullifier_pk: [u8; 32],
-    /// SEC1-compressed ephemeral key the auditor rederives the shared secret from.
+    /// Tagged X25519 ephemeral key the auditor rederives the shared secret from.
     pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
     /// AES-256-CTR ciphertext of the nullifier secret, sealed to the auditor.
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],

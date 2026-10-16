@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -26,7 +26,7 @@ type Keys struct {
 	ephSk     [32]byte
 	txPk      [33]byte
 	ephPk     [33]byte
-	auditorPk [65]byte
+	auditorPk [32]byte
 	dh        [32]byte
 }
 
@@ -35,8 +35,8 @@ func DefaultKeys(t testing.TB) Keys {
 	txSk := Scalar(0x11)
 	ephSk := Scalar(0x22)
 	txPriv := PrivateKey(t, txSk)
-	ephPriv := PrivateKey(t, ephSk)
-	auditorPriv := PrivateKey(t, Scalar(0x33))
+	ephPriv := XPrivateKey(t, ephSk)
+	auditorPriv := XPrivateKey(t, Scalar(0x33))
 
 	dh, err := ephPriv.ECDH(auditorPriv.PublicKey())
 	if err != nil {
@@ -46,8 +46,8 @@ func DefaultKeys(t testing.TB) Keys {
 		txSk:      txSk,
 		ephSk:     ephSk,
 		txPk:      compress(t, txPriv.PublicKey().Bytes()),
-		ephPk:     compress(t, ephPriv.PublicKey().Bytes()),
-		auditorPk: Uncompressed(t, auditorPriv.PublicKey().Bytes()),
+		ephPk:     Tagged(ephPriv.PublicKey().Bytes()),
+		auditorPk: [32]byte(auditorPriv.PublicKey().Bytes()),
 		dh:        [32]byte(dh),
 	}
 }
@@ -65,21 +65,26 @@ func (k Keys) WithTxScalar(t testing.TB, value *big.Int) Keys {
 	return k
 }
 
-func (k Keys) WithEphScalar(t testing.TB, value *big.Int) Keys {
+// WithForgedInfinityEphScalar witnesses the P-256 infinity a forged prover would publish.
+func (k Keys) WithForgedInfinityEphScalar(value *big.Int) Keys {
 	value.FillBytes(k.ephSk[:])
 	k.ephPk, k.dh = infinityPk, [32]byte{}
-	if reduced := reduce(value); reduced != nil {
-		eph := PrivateKey(t, *reduced)
-		auditor, err := ecdh.P256().NewPublicKey(k.auditorPk[:])
-		if err != nil {
-			t.Fatal(err)
-		}
-		dh, err := eph.ECDH(auditor)
-		if err != nil {
-			t.Fatal(err)
-		}
-		k.ephPk, k.dh = compress(t, eph.PublicKey().Bytes()), [32]byte(dh)
+	return k
+}
+
+// WithEphScalar computes an honest envelope, including RFC 7748 clamping.
+func (k Keys) WithEphScalar(t testing.TB, scalar [32]byte) Keys {
+	t.Helper()
+	key := XPrivateKey(t, scalar)
+	peer, err := ecdh.X25519().NewPublicKey(k.auditorPk[:])
+	if err != nil {
+		t.Fatal(err)
 	}
+	dh, err := key.ECDH(peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.ephSk, k.ephPk, k.dh = scalar, Tagged(key.PublicKey().Bytes()), [32]byte(dh)
 	return k
 }
 
@@ -98,7 +103,7 @@ func (k Keys) EphSk() [32]byte {
 	return k.ephSk
 }
 
-func (k Keys) AuditorPk() [65]byte {
+func (k Keys) AuditorPk() [32]byte {
 	return k.auditorPk
 }
 
@@ -115,7 +120,7 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	t.Helper()
 	dhLo, dhHi := pack32(k.dh)
 	ephLo, ephHi := pack33(k.ephPk)
-	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
+	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
 
 	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
 		tag(base.DomSepCRShared),
@@ -278,7 +283,7 @@ func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte
 	return key, nonce
 }
 
-// Mirrors aes.CTREncrypt, the first keystream block counts from nonce || 2.
+// Mirrors aes.Cipher.CTREncrypt, the first keystream block counts from nonce || 2.
 func ctrEncrypt(t testing.TB, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
 	t.Helper()
 	block, err := stdaes.NewCipher(key[:])
@@ -303,3 +308,13 @@ func setBytes(dst []frontend.Variable, src []byte) {
 		dst[i] = int(b)
 	}
 }
+
+func XPrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
+	t.Helper()
+	key, err := ecdh.X25519().NewPrivateKey(scalar[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+func Tagged(key []byte) [33]byte { var out [33]byte; out[0] = 4; copy(out[1:], key); return out }

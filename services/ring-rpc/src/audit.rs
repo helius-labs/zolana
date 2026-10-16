@@ -4,7 +4,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
@@ -37,7 +37,7 @@ pub struct Page {
 
 pub struct AuditService<S> {
     ring: Address,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     view_tag: [u8; 32],
     shared: Arc<Shared<S>>,
 }
@@ -85,7 +85,7 @@ impl Page {
 }
 
 impl<S: TransactionSource> AuditService<S> {
-    pub(crate) fn new(ring: Address, auditor: ViewingKey, shared: Arc<Shared<S>>) -> Self {
+    pub(crate) fn new(ring: Address, auditor: X25519Secret, shared: Arc<Shared<S>>) -> Self {
         Self {
             ring,
             view_tag: auditor_view_tag(&auditor.pubkey()),
@@ -98,7 +98,7 @@ impl<S: TransactionSource> AuditService<S> {
         self.ring
     }
 
-    pub fn auditor_pubkey(&self) -> P256Pubkey {
+    pub fn auditor_pubkey(&self) -> X25519Pubkey {
         self.auditor.pubkey()
     }
 
@@ -107,7 +107,7 @@ impl<S: TransactionSource> AuditService<S> {
     }
 
     /// `None` until the config exists. The config fixes the key forever.
-    pub async fn configured_auditor(&self) -> Result<Option<P256Pubkey>, RingRpcError> {
+    pub async fn configured_auditor(&self) -> Result<Option<X25519Pubkey>, RingRpcError> {
         let config = self.shared.source.ring_config(self.ring).await?;
         Ok(config.map(|config| config.auditor_pubkey))
     }

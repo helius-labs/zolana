@@ -5,7 +5,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInp
 use zeroize::Zeroizing;
 use zolana_client::{prover::indexed::IndexedPolicyData, ProofInputUtxo};
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{P256Pubkey, ViewingKey, X25519Pubkey};
 use zolana_ring_client::{AuditorEncryption, AuditorMessage};
 use zolana_ring_policy::POLICY_OUTPUT_SLOTS;
 
@@ -20,7 +20,7 @@ use crate::{
 pub struct CustomRingProofParams {
     /// The AES plaintext.
     pub tx_viewing_key: ViewingKey,
-    pub auditor_pk: P256Pubkey,
+    pub auditor_pk: X25519Pubkey,
     pub salt: [u8; 16],
     pub outputs: Vec<ProofInputUtxo>,
 }
@@ -36,7 +36,7 @@ pub struct EncryptedAudit {
 pub struct PendingCustomRingProof {
     tx_viewing_key: ViewingKey,
     tx_viewing_pk: P256Pubkey,
-    auditor_pk: P256Pubkey,
+    auditor_pk: X25519Pubkey,
     ephemeral_sk: Zeroizing<[u8; 32]>,
     message: AuditorMessage,
     salt: [u8; 16],
@@ -171,7 +171,7 @@ impl PendingCustomRingProof {
         Ok(AuditSecrets {
             private_tx_hash,
             tx_viewing_key: self.tx_viewing_key.clone(),
-            ephemeral_key: ViewingKey::from_bytes(&self.ephemeral_sk)?,
+            ephemeral_sk: self.ephemeral_sk.clone(),
             auditor_key: self.auditor_pk,
             salt: self.salt,
         })

@@ -28,6 +28,7 @@ solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-curve25519 = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
+zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-ring-policy = { workspace = true }

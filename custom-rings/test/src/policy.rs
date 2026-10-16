@@ -14,7 +14,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_policy::{
     EntryState, ListId, ListSet, Member, Rule, RuleTable, Subject, VelocityRow,
 };
@@ -106,7 +106,7 @@ impl CuratedRings {
         RegisterRing {
             ring: curator,
             payer: &env.payer,
-            auditor_pubkey: ViewingKey::new().pubkey(),
+            auditor_pubkey: X25519Secret::new().pubkey(),
             tier: Tier::policy(&BLOCK_ONLY, env.tree),
         }
         .send(env.client.rpc())?;

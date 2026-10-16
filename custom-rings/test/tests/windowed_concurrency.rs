@@ -10,7 +10,7 @@ use custom_ring_test_validator::shared::{
 };
 use solana_signer::Signer;
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_policy::{Member, RuleTable, VelocityRow};
 use zolana_transaction::instructions::transact::{canonical_shape, ConfidentialTransaction};
 
@@ -34,7 +34,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Secret::new().pubkey(),
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;
@@ -123,7 +123,7 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Secret::new().pubkey(),
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;

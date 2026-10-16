@@ -98,7 +98,7 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
 #[test]
 fn a_policy_deposit_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
-    deposit_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
+    deposit_fixture_with(initialized_config_account(authority(), auditor_pubkey(4)))
         .expect_spp_cpi(&mollusk);
 }
 

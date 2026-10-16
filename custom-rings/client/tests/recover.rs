@@ -8,7 +8,7 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
 };
 use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Secret};
 use zolana_ring_client::{
     seal_deposits, AuditError, AuditedOutput, AuditorEncryption, DepositOpening, MemberRecovery,
     NoteDataHashes, RecoveredNotes, RingOrigin, RingRecovery, SourceMember, TransactionOrigin,
@@ -27,7 +27,7 @@ const SALT: [u8; 16] = [7; 16];
 struct Fixture {
     member: ShieldedKeypair,
     address: ShieldedAddress,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     sequence: Cell<u8>,
 }
 
@@ -37,7 +37,7 @@ impl Fixture {
         Self {
             address: member.shielded_address().expect("address"),
             member,
-            auditor: ViewingKey::new(),
+            auditor: X25519Secret::new(),
             sequence: Cell::new(0),
         }
     }

@@ -9,3 +9,6 @@ pub use hash_bytes::{
 };
 pub use pack_be::{pack_be, pack_be_chunks, PACK_BE_CHUNK_BYTES};
 pub use right_align::right_align;
+
+mod x25519;
+pub use x25519::is_canonical_x25519_public_key;

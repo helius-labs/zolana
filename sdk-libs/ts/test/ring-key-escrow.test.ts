@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { AccountRole, address, getAddressDecoder, type Address } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -52,7 +53,7 @@ beforeAll(initializePoseidon);
 
 /** A ring whose registry holds `member` alone, its root at history slot 1. */
 async function escrowedRing() {
-  const auditor = ViewingKey.generate();
+  const auditor = X25519Secret.generate();
   const member = ShieldedKeypair.generate();
   const registry = oneMemberRegistry({
     member: memberOfTag(member.shieldedAddress().confidentialViewTag()),
@@ -386,7 +387,7 @@ describe("escrowed deposits", () => {
   }
 
   it("refuses a plain deposit and lists the registry root after the deposit audit", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const sealed = sealRingDepositOpenings(
       [{ ownerHash: filled(0), blinding: filled(0), recipientCiphertext: Uint8Array.of(1) }],
       auditor.publicKey(),
@@ -546,7 +547,7 @@ describe("policy trees", () => {
             treeAccount({
               stateCursor: 4,
               written: 5,
-              nullifierCursor: 6n,
+              nullifierCursor: 4n,
               treeId: ADDRESS.treeId,
             }),
           )

@@ -15,7 +15,7 @@ use zolana_client::{
 use zolana_hasher::primitives::right_align;
 use zolana_indexer_api::{Base64String, Context, Hash};
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{NullifierKey, ViewingKey};
+use zolana_keypair::{NullifierKey, X25519Secret};
 use zolana_ring_client::NullifierKeyEnvelope;
 use zolana_ring_key_registry::{KeyRegistryTree, Registration};
 use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
@@ -35,7 +35,7 @@ struct Fixture {
     member: Member,
     query: RingMemberProofRequest,
     response: GetRingKeyRegistryRegisterProofResponse,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     nullifier_key: NullifierKey,
     envelope: NullifierKeyEnvelope,
     tree: KeyRegistryTree,
@@ -46,7 +46,7 @@ impl Fixture {
     /// One sealed key at index 1 above the sentinel, with the response an indexer serves for it.
     fn new() -> Self {
         let ring = CustomRing::new(Address::new_from_array([5; 32]));
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let nullifier_key = NullifierKey::from_secret([7; 31]);
         let envelope = NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).unwrap();
         let member = Member::owner_tag(&[9; 32]).unwrap();
@@ -171,8 +171,8 @@ fn registration_matches_the_reference_and_encodes_the_prover_wire() {
     let secret = json["nullifierSecret"].as_str().unwrap();
     assert_eq!(secret.len(), 66);
     assert!(secret.starts_with("0x00"));
-    // The auditor key is witnessed SEC1 uncompressed, 65 bytes behind the `0x`.
-    assert_eq!(json["auditorPk"].as_str().unwrap().len(), 132);
+    // The auditor coordinate is witnessed as 32 little-endian bytes behind the `0x`.
+    assert_eq!(json["auditorPk"].as_str().unwrap().len(), 66);
     assert_eq!(json["ephSk"].as_str().unwrap().len(), 66);
 }
 
@@ -216,7 +216,7 @@ fn the_registered_entry_opens_to_the_sealed_key_under_the_root() {
         opened.secret().as_slice(),
         fixture.nullifier_key.secret().as_slice()
     );
-    assert!(entry.open(&ViewingKey::new()).is_err());
+    assert!(entry.open(&X25519Secret::new()).is_err());
 }
 
 #[test]

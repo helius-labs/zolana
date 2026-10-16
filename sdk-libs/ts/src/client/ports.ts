@@ -1,3 +1,4 @@
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { Address, Commitment, Signature } from "@solana/kit";
 
 import type {
@@ -152,7 +153,7 @@ export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
 export interface RingKeyRegistryEntry extends RingMemberProofContext {
   readonly next: Bytes32;
   readonly index: bigint;
-  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ephemeralPublicKey: X25519PublicKey;
   readonly ciphertext: Bytes32;
   readonly proof: readonly Bytes32[];
 }

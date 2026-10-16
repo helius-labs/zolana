@@ -7,7 +7,7 @@ use zolana_client::ProofInputUtxo;
 use zolana_event::MessageData;
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::event::{confidential_encrypted_output_body, OutputDataEncoding};
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_policy::{spend_record_message_tag, SpendCounters, SpendRecord};
 use zolana_transaction::{
     serialization::confidential::Confidential, utxo::program_id_proof_input_hash, AssetRegistry,
@@ -23,7 +23,7 @@ use crate::{
 
 #[must_use]
 pub struct TransactionAudit<'a> {
-    pub auditor: &'a ViewingKey,
+    pub auditor: &'a X25519Secret,
     pub transaction: &'a ShieldedTransaction,
     pub assets: &'a AssetRegistry,
 }
@@ -92,7 +92,7 @@ impl TransactionAudit<'_> {
 /// The one auditor-tagged message, which the program requires to be the last message.
 fn auditor_message(
     tx: &ShieldedTransaction,
-    auditor_pk: &P256Pubkey,
+    auditor_pk: &X25519Pubkey,
 ) -> Result<AuditorMessage, AuditError> {
     let view_tag = auditor_view_tag(auditor_pk);
     let mut tagged = tx
@@ -113,7 +113,7 @@ fn auditor_message(
 
 /// The circuit pins the secret below the P-256 order, so a representative above it is refused.
 pub fn recover_tx_viewing_key(
-    auditor: &ViewingKey,
+    auditor: &X25519Secret,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
     ViewingKey::from_bytes(&*message.decrypt(auditor)?)
@@ -237,8 +237,8 @@ mod tests {
 
     /// Seals raw bytes as the transaction secret, no scalar check runs on the way in.
     fn recover(secret: [u8; 32]) -> Result<ViewingKey, AuditError> {
-        let auditor = ViewingKey::new();
-        let ephemeral = ViewingKey::new();
+        let auditor = X25519Secret::new();
+        let ephemeral = X25519Secret::new();
         let mut ciphertext = secret;
         seal_stream(
             &ephemeral,

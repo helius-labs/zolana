@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../keypair/x25519.js";
 import {
   AccountRole,
   downgradeRoleToNonSigner,
@@ -38,8 +39,7 @@ import type {
   TransactWithdrawal,
   TreeContext,
 } from "../interface/types.js";
-import { isDerivationPoint } from "../keypair/derivation.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
+
 import { SOL_MINT } from "../transaction/asset.js";
 
 import { Writer } from "../interface/internal.js";
@@ -114,14 +114,11 @@ export async function createRingConfigInstruction(
     ringProgramId: Address;
     payer: SignerAccount;
     authority: SignerAccount;
-    auditorPublicKey: P256PublicKey;
+    auditorPublicKey: X25519PublicKey;
     /** A policy ring enforces its compiled rules, an audit-only ring skips them. */
     hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
-  if (isDerivationPoint(input.auditorPublicKey)) {
-    throw new RingError("RING_RESERVED_AUDITOR_KEY");
-  }
   const [config, programData] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),

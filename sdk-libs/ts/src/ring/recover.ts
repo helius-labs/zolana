@@ -1,3 +1,4 @@
+import { X25519Secret } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
@@ -8,7 +9,7 @@ import { readRingDepositCapsule } from "./deposit-capsule.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import type { ViewingKey } from "../keypair/viewing-key.js";
+
 import type { AssetRegistry } from "../transaction/asset.js";
 import type {
   IndexedShieldedTransaction,
@@ -33,7 +34,7 @@ export type RingRecoveryClient = RingAuditReader &
 export interface RingRecoveryParams {
   readonly client: RingRecoveryClient;
   readonly ringProgramId: Address;
-  readonly auditor: ViewingKey;
+  readonly auditor: X25519Secret;
   readonly source: ShieldedAddress;
   readonly nullifierKey: NullifierKey;
   readonly assets: AssetRegistry;

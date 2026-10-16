@@ -20,7 +20,12 @@ import {
   checkAuthorizedBinding,
   type TransactionIntent,
 } from "../src/transaction/wallet/intent.js";
-import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
+import {
+  createMultiTransfer,
+  createSplit,
+  createTransfer,
+  createWithdrawal,
+} from "../src/wallet/actions.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
 
 /** The wallet and the client build against tree id 0, so the address is that id's PDA. */
@@ -351,5 +356,83 @@ describe("authorized transaction binding", () => {
       client.assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys }),
     ).rejects.toBeDefined();
     expect(fetch).toHaveBeenCalled();
+  });
+});
+
+describe("multi-recipient transfer binding", () => {
+  async function authorizeMulti(amounts: readonly bigint[]) {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair);
+    const keys = LocalKeys.fromKeypair(keypair, {
+      prove: () => Promise.reject(new Error("prove must not be called")),
+      proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+    });
+    const payments = amounts.map((amount) => ({
+      recipient: ShieldedKeypair.generate().shieldedAddress(),
+      amount,
+    }));
+    const created = await createMultiTransfer({
+      wallet,
+      payer: keypair.shieldedAddress().solanaAddress(),
+      asset: SOL_MINT,
+      payments,
+    });
+    const authorized = await authorizePrivateTransaction(created.transaction, wallet, keys);
+    const material = authorizedPrivateTransactionMaterial(authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    const intent = material.intent;
+    if (intent.kind !== "multiTransfer") throw new Error("expected multiTransfer");
+    return { material, intent, payments };
+  }
+
+  it("pays each recipient its own output in order, beside only the sender's change", async () => {
+    const { material, intent, payments } = await authorizeMulti([25n, 5n]);
+    expect(intent.asset).toBe(SOL_MINT);
+    expect(intent.payments.map((payment) => payment.amount)).toEqual([25n, 5n]);
+    const outputs = material.proofInputs.outputs;
+    const paid = outputs.slice(material.senderOutputCount).filter((output) => !output.isDummy());
+    expect(paid.map((output) => output.amount)).toEqual([25n, 5n]);
+    expect(paid.map((output) => output.ownerAddress?.toBytes())).toEqual(
+      payments.map((payment) => payment.recipient.toBytes()),
+    );
+    expect(material.senderOutputCount).toBe(1);
+    expect(outputs[0]?.amount).toBe(70n);
+    expect(outputs[0]?.ownerAddress?.toBytes()).toEqual(material.owner.toBytes());
+    expect(outputs).toHaveLength(4);
+    expect(() => checkAuthorizedBinding(material, mismatch)).not.toThrow();
+  });
+
+  it("binds every payment's recipient, amount and position", async () => {
+    const { material, intent } = await authorizeMulti([25n, 5n]);
+    const [first, second] = intent.payments;
+    if (first === undefined || second === undefined) throw new Error("expected two payments");
+    expectMismatch(withIntent(material, { ...intent, payments: [second, first] }), "recipient");
+    expectMismatch(
+      withIntent(material, { ...intent, payments: [first, { ...second, amount: 6n }] }),
+      "amount",
+    );
+    expectMismatch(
+      withIntent(material, {
+        ...intent,
+        payments: [
+          first,
+          second,
+          { recipient: ShieldedKeypair.generate().shieldedAddress(), amount: 1n },
+        ],
+      }),
+      "payments",
+    );
+    expectMismatch(withIntent(material, { ...intent, payments: [first] }), "payments");
+    expectMismatch(withIntent(material, { ...intent, asset: SPL_MINT }), "asset");
+    // A single-recipient approval cannot cover a second, unapproved output.
+    expectMismatch(
+      withIntent(material, {
+        kind: "transfer",
+        asset: SOL_MINT,
+        amount: 30n,
+        recipient: first.recipient,
+      }),
+      "recipient",
+    );
   });
 });

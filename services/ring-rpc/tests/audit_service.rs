@@ -17,7 +17,7 @@ use solana_signer::Signer;
 use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo};
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
@@ -520,7 +520,7 @@ fn proof_output(asset_id: u64, amount: u64, slot_index: u32) -> ProofInputUtxo {
 
 fn auditor_message(
     tx: &ViewingKey,
-    auditor_pk: &P256Pubkey,
+    auditor_pk: &X25519Pubkey,
     outputs: &[ProofInputUtxo],
 ) -> MessageData {
     AuditorEncryption::new_with_outputs(tx, auditor_pk, SALT, outputs)
@@ -551,7 +551,7 @@ fn transaction(
 }
 
 struct Fixture {
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     recipient: P256Pubkey,
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
@@ -560,7 +560,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let auditor_pk = auditor.pubkey();
         let recipient = ViewingKey::new().pubkey();
         let tx = ViewingKey::new();
@@ -583,7 +583,7 @@ impl Fixture {
         let tx = ViewingKey::new();
         let mut message = auditor_message(
             &tx,
-            &ViewingKey::new().pubkey(),
+            &X25519Secret::new().pubkey(),
             &[proof_output(SOL_ASSET_ID, 9, 0)],
         );
         message.view_tag = auditor_view_tag(&auditor_pk);
@@ -861,7 +861,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
     source.configs.insert(
         RING,
         RingConfiguration {
-            auditor_pubkey: ViewingKey::new().pubkey(),
+            auditor_pubkey: X25519Secret::new().pubkey(),
             authority: authority().pubkey(),
         },
     );
@@ -1691,7 +1691,7 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     );
     assert_eq!(
         hex::encode(key_a.as_bytes()),
-        "029b177a781c3adfce4d089128bdbd53d006ae9d5166b257d7e394cd1ee31f06b5"
+        "046ac65f6fa828249939ac012a53b665c474fadedc018f71010fb7fcf4b5585248"
     );
     assert_ne!(key_a, key_b);
     let second = Hub::builder(fixture.source(), genesis_hash)

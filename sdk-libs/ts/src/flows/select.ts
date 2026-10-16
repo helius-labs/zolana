@@ -1,3 +1,4 @@
+import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Address } from "../interface/types.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -11,6 +12,19 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
  * wider shape does not. A wider balance merges first.
  */
 export const MAX_SPEND_INPUTS = 40;
+
+/**
+ * @internal UTXOs a spend with `outputs` outputs selects at most: the widest
+ * shape holding that many outputs, capped at `MAX_SPEND_INPUTS`. A transfer with
+ * two payments and change proves on 4-output keys, which take at most 24 UTXOs.
+ */
+export function maxSpendInputs(outputs: number): number {
+  const widest = SPP_SUPPORTED_SHAPES.filter((shape) => shape.outputs >= outputs).reduce(
+    (max, shape) => Math.max(max, shape.inputs),
+    0,
+  );
+  return Math.min(MAX_SPEND_INPUTS, widest);
+}
 
 /** @internal Rust `WalletUtxo::is_plain`, a UTXO the default rail can always prove. */
 export function isPlainUtxo(entry: WalletUtxo): boolean {

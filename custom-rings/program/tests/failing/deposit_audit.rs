@@ -47,7 +47,7 @@ fn setter(required: u8, existing: Account) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: audit_only_config_account(authority(), auditor_pubkey(2)),
+                account: audit_only_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "deposit_audit",
@@ -104,7 +104,7 @@ fn proven_fixture(count: usize) -> Fixture {
         8 => include_bytes!("../fixtures/deposit-audit/8.bin").as_slice(),
         _ => panic!("unsupported deposit fixture"),
     };
-    let auditor = hex::decode("020217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed")
+    let auditor = hex::decode("047b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13")
         .unwrap()
         .try_into()
         .unwrap();
@@ -168,7 +168,7 @@ fn proven_disclosures_reject_changed_tree_auditor_and_deposit_context() {
     let mut other_auditor = proven_fixture(2);
     other_auditor.set_account(
         "config",
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
     );
     other_auditor.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut other_amount = proven_fixture(2);

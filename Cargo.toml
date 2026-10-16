@@ -228,6 +228,7 @@ futures = "0.3.31"
 governor = "0.8.0"
 heck = "0.5"
 hex = "0.4"
+x25519-dalek = { version = "2.0.1", features = ["static_secrets", "zeroize"] }
 hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 libc = "0.2"
 http-body-util = "0.1.3"

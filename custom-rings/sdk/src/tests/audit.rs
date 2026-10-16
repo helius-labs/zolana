@@ -8,7 +8,7 @@ use zolana_ring_policy::{
 };
 
 use crate::{
-    golden_tests::{key, AUDITOR_SK, TX_SK},
+    golden_tests::{auditor, key, TX_SK},
     request::{CustomRingOpening, Escrow},
     trees::TransactRoots,
     witness::{CustomRingWitness, PolicyTree},
@@ -78,7 +78,7 @@ pub(super) fn witness() -> CustomRingWitness {
 pub(super) fn encrypted(outputs: Vec<ProofInputUtxo>) -> EncryptedAudit {
     CustomRingProofParams {
         tx_viewing_key: key(TX_SK),
-        auditor_pk: key(AUDITOR_SK).pubkey(),
+        auditor_pk: auditor(),
         salt: [3; 16],
         outputs,
     }
@@ -114,7 +114,7 @@ fn finish_binds_the_public_input_the_program_recomputes() {
         audit: CustomRingBasePublicInput {
             private_tx_hash: &private_tx_hash(),
             tx_viewing_pk: key(TX_SK).pubkey().as_bytes(),
-            auditor_pk: key(AUDITOR_SK).pubkey().as_bytes(),
+            auditor_pk: auditor().as_bytes(),
             eph_pk: message.ephemeral_pubkey_bytes(),
             ciphertext: message.ciphertext(),
             output_hashes: &[outputs[0].hash().unwrap()],
@@ -165,7 +165,7 @@ fn the_base_statement_binds_the_same_audit_fields() {
     let expected = CustomRingBasePublicInput {
         private_tx_hash: &private_tx_hash(),
         tx_viewing_pk: key(TX_SK).pubkey().as_bytes(),
-        auditor_pk: key(AUDITOR_SK).pubkey().as_bytes(),
+        auditor_pk: auditor().as_bytes(),
         eph_pk: message.ephemeral_pubkey_bytes(),
         ciphertext: message.ciphertext(),
         output_hashes: &hashes,
@@ -205,7 +205,7 @@ fn an_audit_without_outputs_or_past_the_policy_slots_is_refused() {
     for count in [0, POLICY_OUTPUT_SLOTS + 1] {
         let refused = CustomRingProofParams {
             tx_viewing_key: key(TX_SK),
-            auditor_pk: key(AUDITOR_SK).pubkey(),
+            auditor_pk: auditor(),
             salt: [3; 16],
             outputs: vec![ProofInputUtxo::default(); count],
         }

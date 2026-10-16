@@ -32,7 +32,7 @@ fn set_authority_writes_the_new_authority() {
         &RingProgramConfig {
             discriminator: RING_PROGRAM_CONFIG,
             authority: Address::new_from_array(new_authority().to_bytes()),
-            auditor_pubkey: auditor_pubkey(2),
+            auditor_pubkey: auditor_pubkey(4),
             bump: config_pda().1,
             has_policy: 1,
             key_escrow: 0,

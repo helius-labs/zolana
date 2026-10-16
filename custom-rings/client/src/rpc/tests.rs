@@ -1,5 +1,6 @@
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
+use zolana_keypair::ViewingKey;
 use zolana_ring_policy::{Member, SpendCounters, SpendRecord, MAX_VELOCITY_ASSETS};
 use zolana_transaction::Data;
 
@@ -245,7 +246,7 @@ fn keygen_writes_a_secret_the_loader_reads_and_a_matching_public_key() {
 fn public_key_files_round_trip_and_reject_other_lengths() {
     let dir = temp_dir("pubkey");
     let path = dir.join("nested").join("auditor.key.pub");
-    let key = ViewingKey::new();
+    let key = X25519Secret::new();
     write_auditor_pubkey(&path, &key.pubkey()).expect("write");
     assert_eq!(read_auditor_pubkey(&path).expect("read"), key.pubkey());
     let short = dir.join("short.pub");
@@ -258,14 +259,12 @@ fn public_key_files_round_trip_and_reject_other_lengths() {
 }
 
 #[test]
-fn a_zero_or_malformed_auditor_secret_is_refused() {
+fn a_malformed_auditor_secret_is_refused_and_a_zero_one_clamps() {
     let dir = temp_dir("zero");
     let zero = dir.join("zero.key");
     create_new(&zero, "00".repeat(32).as_bytes(), Visibility::Secret).expect("zero");
-    assert!(matches!(
-        read_auditor_key(&zero, Access::OwnerOnly),
-        Err(KeyFileError::Key(_))
-    ));
+    let key = read_auditor_key(&zero, Access::OwnerOnly).expect("RFC 7748 clamps zero");
+    assert_ne!(key.pubkey().u(), [0; 32]);
     let upper = dir.join("upper.key");
     create_new(&upper, "AA".repeat(32).as_bytes(), Visibility::Secret).expect("upper");
     assert!(matches!(

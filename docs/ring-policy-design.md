@@ -247,10 +247,11 @@ revocation_target[0..ANSWER_SLOTS]
 Windowed member transfers append `counters_disclosure_hash`. That path
 selects `CompressedPolicyCircuit`.
 
-The audit block requires both P-256 scalars, the transaction viewing secret
-and the ephemeral secret, in `1..n`. A second encoding `sk + n` would derive
-the same public key but a different disclosure stream, so the auditor reads
-the recovered bytes as they are and refuses a key outside that range.
+The audit block requires the transaction viewing secret, a P-256 scalar, in
+`1..n`. A second encoding `sk + n` would derive the same public key but a
+different disclosure stream, so the auditor reads the recovered bytes as they
+are and refuses a key outside that range. The X25519 ephemeral secret keys no
+stream of its own, and every clamping alias of it seals the same envelope.
 
 The program recomputes this chain from accounts it trusts and runs one
 Groth16 verification. Policy enforcement costs no second proof, and a

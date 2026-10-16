@@ -221,7 +221,7 @@ fn the_deposit_request_uses_fixed_slots_and_canonical_names() {
     assert!(json["keys"][1].is_null());
     assert_eq!(json["keyEscrow"], true);
     assert_eq!(json["keyRegistryRoot"], hex(&[9; 32]));
-    assert_eq!(json["auditorPk"].as_str().unwrap().len(), 132);
+    assert_eq!(json["auditorPk"].as_str().unwrap().len(), 66);
     assert_eq!(json["ephSk"], hex(&EPH_SK));
 }
 

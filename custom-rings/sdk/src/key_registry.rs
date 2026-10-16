@@ -15,7 +15,7 @@ use zolana_indexer_api::{
     RingMemberProofRequest, SerializablePubkey,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{NullifierKey, P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{NullifierKey, ShieldedKeypair, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
@@ -94,7 +94,7 @@ impl RegisterKey<'_> {
 /// The insert must hold under the root the query names.
 pub(crate) fn register(
     envelope: &NullifierKeyEnvelope,
-    auditor: P256Pubkey,
+    auditor: X25519Pubkey,
     secret: Zeroizing<[u8; 32]>,
     query: &RingMemberProofRequest,
     response: GetRingKeyRegistryRegisterProofResponse,
@@ -265,7 +265,7 @@ impl ReadSealedKey {
             .as_slice()
             .try_into()
             .ok()
-            .and_then(|eph_pk| P256Pubkey::from_bytes(eph_pk).ok())
+            .and_then(|eph_pk| X25519Pubkey::from_bytes(eph_pk).ok())
             .zip(response.ciphertext.0.as_slice().try_into().ok())
             .map(|(eph_pk, ciphertext)| SealedNullifierKey { eph_pk, ciphertext })
             .ok_or(RingError::InvalidEntryProof)?;
@@ -282,7 +282,7 @@ impl ReadSealedKey {
 
 impl SealedKeyEntry {
     /// The opened key must reproduce the leaf under the root read from Solana.
-    pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey, RingError> {
+    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey, RingError> {
         let nullifier_key = self.sealed.open(auditor)?;
         self.verify_nullifier_pubkey(&nullifier_key.pubkey()?)?;
         Ok(nullifier_key)

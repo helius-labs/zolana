@@ -8,9 +8,9 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
@@ -48,7 +48,7 @@ func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, 
 		slices.Reverse(spent)
 		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, asset, 32), spent)
 	}
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), [32]frontend.Variable(first), [12]frontend.Variable(second[:12]), plaintext)
+	ciphertext := aes.NewCipher(api, [32]frontend.Variable(first)).CTREncrypt([12]frontend.Variable(second[:12]), plaintext)
 	return gadget.HashBytes(api, slices.Concat(base.ConstBytes(CountersDisclosureDomain), salt[:], compressed[:], ciphertext)), nil
 }
 
@@ -57,7 +57,8 @@ func counterHMAC(api frontend.API, key, message []frontend.Variable) ([]frontend
 	for i := range inner {
 		inner[i], outer[i] = 0x36, 0x5c
 		if i < len(key) {
-			inner[i], outer[i] = aes.XorByte(api, key[i], 0x36), aes.XorByte(api, key[i], 0x5c)
+			bits := api.ToBinary(key[i], 8)
+			inner[i], outer[i] = xorPad(api, bits, 0x36), xorPad(api, bits, 0x5c)
 		}
 	}
 	digest, err := counterSHA256(api, slices.Concat(inner, message))
@@ -83,4 +84,15 @@ func counterSHA256(api frontend.API, input []frontend.Variable) ([]frontend.Vari
 		out[i] = b.Val
 	}
 	return out, nil
+}
+
+// xorPad flips the key bits where the constant pad is set.
+func xorPad(api frontend.API, bits []frontend.Variable, pad byte) frontend.Variable {
+	out := slices.Clone(bits)
+	for i := range out {
+		if pad>>i&1 == 1 {
+			out[i] = api.Sub(1, out[i])
+		}
+	}
+	return api.FromBinary(out...)
 }

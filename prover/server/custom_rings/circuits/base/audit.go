@@ -4,8 +4,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 )
 
 const (
@@ -22,7 +22,7 @@ type Audit struct {
 	PrivateTxHash frontend.Variable
 	TxViewingSk   [32]frontend.Variable
 	EphSk         [32]frontend.Variable
-	AuditorPk     [65]frontend.Variable
+	AuditorPk     [32]frontend.Variable
 	Salt          [16]frontend.Variable
 }
 
@@ -48,11 +48,11 @@ func (w AuditOutputWires) Hash(api frontend.API) frontend.Variable {
 // Define returns the chain elements in CustomRingBasePublicInput order, hashes commit the outputs.
 func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, outputs [AuditOutputSlots]AuditOutputWires, hashes [AuditOutputSlots]frontend.Variable, count Count) [11]frontend.Variable {
 	CheckBytes(rc, a.TxViewingSk[:], a.Salt[:])
-	// The auditor reduces the key mod n, a key at or above n would key the disclosure stream apart.
+	// The auditor reads the recovered bytes as they are, a key at or above n would key another stream.
 	p256.AssertScalarInRange(api, a.TxViewingSk)
 	tx := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, a.TxViewingSk))
 	txPk := gadget.PackBytesBE(api, tx[:])
-	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo}.Seal(api, rc)
+	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo}.Seal(api)
 	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
 	disclosure := make([]frontend.Variable, 0, AuditOutputSlots*AuditOutputFieldCount)

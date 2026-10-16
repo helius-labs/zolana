@@ -15,7 +15,7 @@ import (
 const NfKeyEncInfo = "CRING/nfk1"
 
 // Properties: the member's absence from the registry and the insertion of Poseidon(nullifier_pk, ct_hash),
-// where the nullifier secret is AES-CTR encrypted to AuditorPk. No UTXO owner is bound.
+// where the nullifier secret is AES-CTR encrypted to the X25519 key AuditorPk. No UTXO owner is bound.
 
 type KeyRegisterCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -28,7 +28,7 @@ type KeyRegisterCircuit struct {
 	// A zero byte 0 keeps the secret below the field order.
 	NullifierSecret [32]frontend.Variable
 	EphSk           [32]frontend.Variable
-	AuditorPk       [65]frontend.Variable
+	AuditorPk       [32]frontend.Variable
 
 	LowMember frontend.Variable
 	LowNext   frontend.Variable
@@ -39,11 +39,10 @@ type KeyRegisterCircuit struct {
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
-	rc := rangecheck.New(api)
-	base.CheckBytes(rc, c.NullifierSecret[:])
+	base.CheckBytes(rangecheck.New(api), c.NullifierSecret[:])
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
 	nullifierPk := gadget.PoseidonHash(api, gadget.PackBytesBE(api, c.NullifierSecret[1:]))
-	sealed := base.Envelope{Plaintext: c.NullifierSecret[:], EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: NfKeyEncInfo}.Seal(api, rc)
+	sealed := base.Envelope{Plaintext: c.NullifierSecret[:], EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: NfKeyEncInfo}.Seal(api)
 	ctHash := gadget.HashBytes(api, sealed.Ciphertext)
 	newRoot := registry.Insertion{
 		OldRoot:  c.RegistryOldRoot,

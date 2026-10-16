@@ -34,7 +34,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 /// The auditor key this fixture's config account carries, and the view tag its
 /// messages must use: the compressed key minus its SEC1 prefix.
 fn config_auditor_pubkey() -> [u8; 33] {
-    auditor_pubkey(2)
+    auditor_pubkey(4)
 }
 
 fn auditor_view_tag() -> [u8; 32] {

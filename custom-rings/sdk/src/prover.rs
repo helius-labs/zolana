@@ -118,17 +118,16 @@ pub fn to_plain_proof(proof: Proof) -> Result<PlainGroth16Proof, RingError> {
 
 /// Field elements and byte strings as `0x` lowercase hex, integers right aligned to 32 bytes.
 pub(crate) mod fe {
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
     use serde::{ser::Error, Serialize, Serializer};
     use zeroize::{Zeroize, Zeroizing};
     use zolana_hasher::primitives::right_align;
-    use zolana_keypair::{P256Pubkey, ViewingKey};
+    use zolana_keypair::{ViewingKey, X25519Pubkey};
 
     const HEX: &[u8; 16] = b"0123456789abcdef";
 
     /// A stack buffer, so a secret never lands in a heap string of its own.
     pub(crate) fn bytes<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        let mut buffer = [0u8; 2 + 2 * 65];
+        let mut buffer = [0u8; 2 + 2 * 32];
         let len = 2 + 2 * bytes.len();
         let out = buffer
             .get_mut(..len)
@@ -182,16 +181,12 @@ pub(crate) mod fe {
         bytes(key.secret_bytes().as_slice(), serializer)
     }
 
-    /// The circuit witnesses the key SEC1 uncompressed.
-    pub(crate) fn uncompressed<S: Serializer>(
-        key: &P256Pubkey,
+    /// The circuit witnesses the untagged 32-byte coordinate.
+    pub(crate) fn coordinate<S: Serializer>(
+        key: &X25519Pubkey,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let point = key
-            .to_p256()
-            .map_err(S::Error::custom)?
-            .to_encoded_point(false);
-        bytes(point.as_bytes(), serializer)
+        bytes(&key.u(), serializer)
     }
 
     pub(crate) fn seq<S: Serializer, T: AsRef<[u8]>>(

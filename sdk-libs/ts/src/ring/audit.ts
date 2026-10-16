@@ -22,6 +22,7 @@ import {
 import { bigIntToBytes } from "../keypair/bytes.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
+import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
 import { TransactionError } from "../transaction/error.js";
 import { commitmentPoseidon, equal, rightAlign, ZERO_32 } from "../transaction/internal.js";
 import { addressBytes } from "../interface/internal.js";
@@ -89,7 +90,7 @@ const DEFAULT_MAX_PAGES = 32;
 /** Mirrors Rust `auditor_message`, the program accepts the tagged message only as the unique last entry. */
 export function auditorMessage(
   transaction: IndexedShieldedTransaction,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): AuditorMessage {
   const viewTag = auditorViewTag(auditorPublicKey);
   const tagged = transaction.messages.flatMap((message, index) =>
@@ -118,7 +119,7 @@ export function auditorMessage(
  * disclosure stream with these exact bytes, so another representative is refused.
  */
 export function recoverTransactionViewingKey(
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   message: AuditorMessage,
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
@@ -134,7 +135,7 @@ export function recoverTransactionViewingKey(
 /** Mirrors Rust `TransactionAudit::run`. */
 export function auditRingTransaction(
   input: Readonly<{
-    auditor: ViewingKey;
+    auditor: X25519Secret;
     transaction: IndexedShieldedTransaction;
     assets: AssetRegistry;
   }>,
@@ -234,7 +235,7 @@ export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTra
 export async function auditRing(
   input: Readonly<{
     client: RingAuditReader;
-    auditor: ViewingKey;
+    auditor: X25519Secret;
     ringProgramId: Address;
     assets: AssetRegistry;
     origin?: TransactionOrigin;

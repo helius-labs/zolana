@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
@@ -21,7 +20,7 @@ const (
 )
 
 // Properties: the first Count of 1..8 owner commitments open to (owner hash, blinding) pairs that are AES-CTR
-// encrypted to AuditorPk under 0 < EphSk < n, padding slots are zero, and escrow puts every owner key in the registry.
+// encrypted to the X25519 key AuditorPk, padding slots are zero, and escrow puts every owner key in the registry.
 
 type CustomRingDepositCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -31,7 +30,7 @@ type CustomRingDepositCircuit struct {
 	NullifierPks    [MaxDeposits]frontend.Variable
 	Blindings       [MaxDeposits]frontend.Variable
 	EphSk           [32]frontend.Variable
-	AuditorPk       [65]frontend.Variable
+	AuditorPk       [32]frontend.Variable
 	KeyEscrow       frontend.Variable
 	KeyRegistryRoot frontend.Variable
 	Keys            [MaxDeposits]registry.KeyOpening
@@ -52,7 +51,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		// The canonical field encoding keeps one plaintext per opening.
 		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, owners[i], 32), ve.FieldToBytesBE(api, c.Blindings[i], 32))
 	}
-	sealed := base.Envelope{Plaintext: plaintext, EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: EncryptionInfo}.Seal(api, rangecheck.New(api))
+	sealed := base.Envelope{Plaintext: plaintext, EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: EncryptionInfo}.Seal(api)
 	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
 	for i, owner := range owners {
 		commitment := gadget.PoseidonHash(api, []frontend.Variable{owner, c.Blindings[i]})

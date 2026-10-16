@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "./x25519.js";
 import {
   inputTreeSlots,
   treeIdField,
@@ -20,7 +21,6 @@ import {
 import { symmetricApply } from "./merge/index.js";
 import { poseidon } from "./poseidon.js";
 import { P256PublicKey } from "./public-key.js";
-import { ViewingKey } from "./viewing-key.js";
 
 /** Rust `AUDIT_ENC_INFO`. */
 export const AUDIT_ENC_INFO = new TextEncoder().encode("CRING/adt1");
@@ -48,7 +48,7 @@ export interface AuditOutputOpening {
 }
 
 export interface AuditorMessage {
-  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ephemeralPublicKey: X25519PublicKey;
   readonly ciphertext: Bytes32;
   readonly disclosure: readonly Bytes32[];
 }
@@ -84,8 +84,8 @@ function pack32(bytes: Bytes32): readonly [Bytes32, Bytes32] {
  */
 export function auditSharedSecret(
   dh: Bytes32,
-  ephemeralPublicKey: P256PublicKey,
-  auditorPublicKey: P256PublicKey,
+  ephemeralPublicKey: X25519PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): Bytes32 {
   const [dhLow, dhHigh] = pack32(dh);
   try {
@@ -109,13 +109,13 @@ export function auditSharedSecret(
 /** `(ephemeral, auditor)` fixes the keystream, so the ephemeral scalar is never taken from a caller. */
 export function encryptTransactionViewingSecret(
   txViewingSecret: Bytes32,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
   outputDisclosure?: Readonly<{
     salt: Bytes16;
     outputs: readonly AuditOutputOpening[];
   }>,
 ): AuditorEncryption {
-  const ephemeral = ViewingKey.generate();
+  const ephemeral = X25519Secret.generate();
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
   try {
@@ -137,7 +137,7 @@ export function encryptTransactionViewingSecret(
 
 /** Mirrors Rust `decrypt_tx_viewing_sk`. */
 export function decryptTransactionViewingSecret(
-  auditor: ViewingKey,
+  auditor: X25519Secret,
   message: AuditorMessage,
 ): Bytes32 {
   let dh: Bytes32 | undefined;
@@ -152,13 +152,13 @@ export function decryptTransactionViewingSecret(
   }
 }
 
-export function auditorViewTag(auditorPublicKey: P256PublicKey): Bytes32 {
-  return auditorPublicKey.x();
+export function auditorViewTag(auditorPublicKey: X25519PublicKey): Bytes32 {
+  return auditorPublicKey.u();
 }
 
 export function auditorMessageData(
   message: AuditorMessage,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): MessageData {
   return Object.freeze({
     viewTag: auditorViewTag(auditorPublicKey),
@@ -179,7 +179,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
     return field;
   });
   return Object.freeze({
-    ephemeralPublicKey: P256PublicKey.fromBytes(bytes.subarray(0, 33) as never),
+    ephemeralPublicKey: X25519PublicKey.fromBytes(bytes.subarray(0, 33)),
     ciphertext: bytes.slice(33, 65) as Bytes32,
     disclosure: Object.freeze(disclosure),
   });
@@ -189,7 +189,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
 export interface CustomRingBasePublicInput {
   readonly privateTxHash: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
-  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorPublicKey: X25519PublicKey;
   readonly message: AuditorMessage;
   readonly outputHashes: readonly Bytes32[];
   readonly salt: Bytes16;

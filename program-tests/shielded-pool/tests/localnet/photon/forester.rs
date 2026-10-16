@@ -689,8 +689,8 @@ fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> 
 }
 
 /// Nullifier-PDA lifecycle after the drain. The localnet tree keeps the canonical
-/// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
-/// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
+/// 5 ZKP batches per queue batch, so with Z = 10 one queue batch holds
+/// B = 50 nullifiers; this suite queues 40, batch 0 never fills, and no
 /// batch becomes reclaimable: `close_before_index` must stay at zero, every nullifier PDA must
 /// survive the drain, and the forester vault's `close_nullifier_pdas` must be rejected
 /// with `NullifierPdaNotClosable` without moving lamports. The positive

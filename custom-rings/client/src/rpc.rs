@@ -12,7 +12,7 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
-use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
+use zolana_keypair::{KeypairError, X25519Pubkey, X25519Secret};
 use zolana_secret_file::{
     create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
 };
@@ -153,7 +153,7 @@ pub enum RingState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "Base64String", into = "Base64String")]
-pub struct AuditorPubkey(P256Pubkey);
+pub struct AuditorPubkey(X25519Pubkey);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -351,11 +351,14 @@ pub enum KeyFileError {
     PubkeyEncoding,
     #[error("key path must name a file")]
     InvalidPath,
-    #[error("auditor key is not a valid P256 secret key because {0}")]
+    #[error("auditor key is not a valid X25519 secret key because {0}")]
     Key(#[from] KeypairError),
 }
 
-pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
+pub fn auditor_key_attestation(
+    ring_program_id: &Address,
+    auditor_pubkey: &X25519Pubkey,
+) -> Vec<u8> {
     [
         ATTESTATION_DOMAIN,
         ring_program_id.as_ref(),
@@ -584,13 +587,13 @@ impl CreateAuditorKeyRequest {
 }
 
 impl AuditorPubkey {
-    pub fn as_key(&self) -> &P256Pubkey {
+    pub fn as_key(&self) -> &X25519Pubkey {
         &self.0
     }
 }
 
-impl From<P256Pubkey> for AuditorPubkey {
-    fn from(value: P256Pubkey) -> Self {
+impl From<X25519Pubkey> for AuditorPubkey {
+    fn from(value: X25519Pubkey) -> Self {
         Self(value)
     }
 }
@@ -609,7 +612,7 @@ impl TryFrom<Base64String> for AuditorPubkey {
             .0
             .try_into()
             .map_err(|_| "auditor public key length is invalid")?;
-        P256Pubkey::from_bytes(bytes)
+        X25519Pubkey::from_bytes(bytes)
             .map(Self)
             .map_err(|_| "auditor public key is invalid")
     }
@@ -635,27 +638,27 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
 }
 
 /// Lowercase hex, with the public key beside it in `<file>.pub`.
-pub fn read_auditor_key(path: &Path, access: Access) -> Result<ViewingKey, KeyFileError> {
+pub fn read_auditor_key(path: &Path, access: Access) -> Result<X25519Secret, KeyFileError> {
     let secret = read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?;
-    Ok(ViewingKey::from_bytes(&secret)?)
+    Ok(X25519Secret::from_bytes(&secret)?)
 }
 
 /// Neither file remains when either cannot be written.
-pub fn write_auditor_key(out: &Path) -> Result<ViewingKey, KeyFileError> {
+pub fn write_auditor_key(out: &Path) -> Result<X25519Secret, KeyFileError> {
     let public_path = public_key_path(out)?;
-    let key = ViewingKey::new();
+    let key = X25519Secret::new();
     let secret = Zeroizing::new(hex::encode(*key.secret_bytes()));
     let public = hex::encode(key.pubkey().as_bytes());
     create_pair((out, secret.as_bytes()), (&public_path, public.as_bytes()))?;
     Ok(key)
 }
 
-pub fn write_auditor_pubkey(path: &Path, pubkey: &P256Pubkey) -> Result<(), KeyFileError> {
+pub fn write_auditor_pubkey(path: &Path, pubkey: &X25519Pubkey) -> Result<(), KeyFileError> {
     let public = hex::encode(pubkey.as_bytes());
     Ok(create_new(path, public.as_bytes(), Visibility::Public)?)
 }
 
-pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
+pub fn read_auditor_pubkey(path: &Path) -> Result<X25519Pubkey, KeyFileError> {
     let text = std::fs::read_to_string(path).map_err(|source| SecretFileError::Read {
         path: path.to_path_buf(),
         source,
@@ -664,7 +667,7 @@ pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
         .ok()
         .and_then(|bytes| <[u8; 33]>::try_from(bytes).ok())
         .ok_or(KeyFileError::PubkeyEncoding)?;
-    Ok(P256Pubkey::from_bytes(bytes)?)
+    Ok(X25519Pubkey::from_bytes(bytes)?)
 }
 
 pub fn public_key_path(secret: &Path) -> Result<PathBuf, KeyFileError> {

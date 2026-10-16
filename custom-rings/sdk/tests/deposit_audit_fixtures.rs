@@ -8,14 +8,13 @@ use custom_ring_interface::{
     MAX_RING_DEPOSIT_AUDIT_SLOTS, PROVING_KEY_SHA256S,
 };
 use custom_ring_sdk::{to_instruction_proof, CustomRing, Deposit, DepositAsset, EscrowBinding};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde_json::{json, Value};
 use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::ExpectedProvingKey, ClientError, ProveRequest, Prover, ProverClient, ProverLaunch,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, X25519Secret};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
 use zolana_ring_client::{seal_deposits, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, RingDepositPlaintext};
@@ -52,7 +51,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     let ring = CustomRing::new(Address::new_from_array(RING));
     let tree = Address::new_from_array(TREE);
     let depositor = Address::new_from_array(DEPOSITOR);
-    let auditor = ViewingKey::from_bytes(&AUDITOR_SECRET)
+    let auditor = X25519Secret::from_bytes(&AUDITOR_SECRET)
         .expect("auditor key")
         .pubkey();
     // 1. Deposit to one recipient per slot, each output keeps its recipient
@@ -140,14 +139,6 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     }
     .hash()
     .expect("public input hash");
-    let mut auditor_uncompressed = [0; 65];
-    auditor_uncompressed.copy_from_slice(
-        auditor
-            .to_p256()
-            .expect("auditor point")
-            .to_encoded_point(false)
-            .as_bytes(),
-    );
     let request = DepositRequest(json!({
         "circuitType": "custom-ring-deposit",
         "publicInputHash": hex0x(&public_input_hash),
@@ -158,7 +149,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         "blindings": blindings.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
         "keys": vec![Value::Null; MAX_RING_DEPOSIT_AUDIT_SLOTS],
         "ephSk": hex0x(encryption.ephemeral_sk.as_slice()),
-        "auditorPk": hex0x(&auditor_uncompressed),
+        "auditorPk": hex0x(&auditor.u()),
         "keyEscrow": false,
         "keyRegistryRoot": hex0x(&[0; 32]),
     }));

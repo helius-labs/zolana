@@ -440,9 +440,9 @@ mod tests {
     /// `PrivateTxHash` too, `PUBLIC_INPUT_HASH` is exactly the public input the
     /// Go test solves the compiled circuit against.
     const TX_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
-    const EPH_PK: &str = "038bd43dcdaea72a1db879b1ca6faac09593fd17893d22eeef926b5c1c245a133c";
-    const AUDITOR_PK: &str = "039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec";
-    const CIPHERTEXT: &str = "6de7c18c3c3676ca517647a25df33a7150ace3e07b410bc296fac11b1355382b";
+    const EPH_PK: &str = "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966";
+    const AUDITOR_PK: &str = "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a";
+    const CIPHERTEXT: &str = "02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314";
     /// `big.NewInt(0xabcdef)` as a 32-byte big-endian field element, the Go
     /// fixture's `PrivateTxHash`.
     const PRIVATE_TX_HASH: &str =
@@ -450,9 +450,9 @@ mod tests {
 
     const TX_PK_LO: &str = "000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955";
     const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000c5d5";
-    const CT_HASH: &str = "1384dccfd224d268a2028165de1523e911e276a676568086166a3b782afdbada";
+    const CT_HASH: &str = "24d5092cd705b878e0c98d8d3dfb79dc71158dfd32358f532e944423716b9671";
     const PUBLIC_INPUT_HASH: &str =
-        "25266a07f9480618e9ab495065e3d2a4530ab8e2cefe44d6b5e7324466bb0093";
+        "2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");

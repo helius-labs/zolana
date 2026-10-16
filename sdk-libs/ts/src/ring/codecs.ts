@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../keypair/x25519.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -8,7 +9,7 @@ import {
 } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, addressBytes, encodeBase58 } from "../interface/internal.js";
-import { P256PublicKey } from "../keypair/public-key.js";
+
 import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 
@@ -17,7 +18,7 @@ import { checkedRegistryField, KEY_REGISTRY_CAPACITY } from "./key-registry-tree
 
 export interface RingProgramConfig {
   readonly authority: Address;
-  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorPublicKey: X25519PublicKey;
   readonly bump: number;
   readonly hasPolicy: boolean;
   /** Mirrors Rust `KeyEscrow::Registry`, set once with the delegate and never cleared. */
@@ -99,7 +100,9 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   const reader = new Reader(data);
   reader.u8("discriminator");
   const authority = encodeBase58(reader.bytes(32, "authority"));
-  const auditorPublicKey = P256PublicKey.fromBytes(reader.bytes(33, "auditorPublicKey") as Bytes33);
+  const auditorPublicKey = X25519PublicKey.fromBytes(
+    reader.bytes(33, "auditorPublicKey") as Bytes33,
+  );
   const bump = reader.u8("bump");
   const hasPolicy = reader.u8("hasPolicy") !== 0;
   // Any nonzero byte reads as on, escrow fails closed.

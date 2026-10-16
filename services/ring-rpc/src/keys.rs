@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, ViewingKey};
+use zolana_keypair::{KeypairError, X25519Secret};
 
 use crate::{config::RootSecret, error::RingRpcError};
 
@@ -10,28 +10,25 @@ const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";
 const SERVICE_KEY_INFO: &[u8] = b"zolana/ring-rpc-service/v1";
 
 pub(crate) enum KeySource {
-    Local { ring: Address, auditor: ViewingKey },
+    Local {
+        ring: Address,
+        auditor: X25519Secret,
+    },
     Derived(RootSecret),
 }
 
-/// The cluster and ring bind each key. A counter byte retries an expansion that is no scalar.
+/// The cluster and ring bind each key, the trailing zero byte keeps the first derivation's info.
 pub(crate) fn derive_auditor_key(
     root: &RootSecret,
     genesis_hash: &[u8; 32],
     ring: Address,
-) -> Result<ViewingKey, RingRpcError> {
-    let mut info = [DERIVATION_INFO, genesis_hash, ring.as_ref(), &[0]].concat();
-    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes());
-    for counter in 0..=u8::MAX {
-        *info.last_mut().ok_or(KeypairError::Hkdf)? = counter;
-        let mut secret = Zeroizing::new([0u8; 32]);
-        hkdf.expand(&info, secret.as_mut_slice())
-            .map_err(|_| KeypairError::Hkdf)?;
-        if let Ok(key) = ViewingKey::from_bytes(&secret) {
-            return Ok(key);
-        }
-    }
-    Err(KeypairError::ZeroScalar.into())
+) -> Result<X25519Secret, RingRpcError> {
+    let info = [DERIVATION_INFO, genesis_hash, ring.as_ref(), &[0]].concat();
+    let mut secret = Zeroizing::new([0u8; 32]);
+    hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes())
+        .expand(&info, secret.as_mut_slice())
+        .map_err(|_| KeypairError::Hkdf)?;
+    Ok(X25519Secret::from_bytes(&secret)?)
 }
 
 pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {
@@ -57,7 +54,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(auditor.pubkey().as_bytes()),
-            "028e275f69e9d0f3d8eef423d6d00838f8271a15451f49a422be7546dc89457d8f"
+            "04269a2c3596d0b1d0d5971be8132ee7f641f5948c2d8cb98b9896a9a8363dda42"
         );
         assert_eq!(
             service_keypair(root.as_bytes())

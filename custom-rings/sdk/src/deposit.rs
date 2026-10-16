@@ -12,7 +12,7 @@ use zolana_client::{
     prover::indexed::{IndexedDepositRequest, IndexedRegistry},
     AsyncIndexer, AsyncRpc, AsyncZolanaClient, ComputeBudgetConfig,
 };
-use zolana_keypair::{random_blinding, P256Pubkey, ShieldedKeypair};
+use zolana_keypair::{random_blinding, ShieldedKeypair, X25519Pubkey};
 use zolana_program::instruction::{DepositAsset, DepositBuildError, RingAssetDeposit};
 use zolana_ring_client::{seal_deposits, DepositEncryption, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, Data, Mint, RingDepositPlaintext, Utxo};
@@ -64,7 +64,7 @@ struct DepositDisclosure {
     key: OutputKey,
     blinding: Zeroizing<[u8; 32]>,
     encryption: DepositEncryption,
-    auditor: P256Pubkey,
+    auditor: X25519Pubkey,
     key_registry: Option<KeyRegistry>,
 }
 

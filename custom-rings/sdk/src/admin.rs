@@ -12,8 +12,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::MAX_TRANSACTION_SIZE;
 use wincode::{config::DefaultConfig, SchemaWrite};
 use zolana_client::{transaction_size, ComputeBudgetConfig};
-use zolana_interface::{is_reserved_p256_derivation_point, pda};
-use zolana_keypair::P256Pubkey;
+use zolana_interface::pda;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{ListId, Rule, RuleTable};
 
@@ -74,12 +74,9 @@ impl CustomRing {
         self,
         payer: Address,
         authority: Address,
-        auditor_pubkey: P256Pubkey,
+        auditor_pubkey: X25519Pubkey,
         has_policy: bool,
     ) -> Result<Instruction, RingError> {
-        if is_reserved_p256_derivation_point(auditor_pubkey.as_bytes()) {
-            return Err(RingError::ReservedAuditorKey);
-        }
         let data = tagged(
             tag::CREATE_CONFIG,
             &CreateConfigIxData {

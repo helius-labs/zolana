@@ -1,3 +1,4 @@
+export { X25519PublicKey, X25519Secret } from "@heliuslabs/zolana/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,

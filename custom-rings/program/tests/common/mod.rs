@@ -410,7 +410,7 @@ pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "cosigner_pda",
@@ -434,7 +434,7 @@ pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "cosigner_pda",
@@ -506,7 +506,7 @@ pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
             Slot {
                 label: "config",
                 meta: AccountMeta::new(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "delegate_pda",
@@ -604,7 +604,7 @@ pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Ac
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             window_slot(mint, existing),
             system_program_slot(),
@@ -655,7 +655,7 @@ pub fn create_key_registry_root_fixture(existing: Option<Account>) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "key_registry_root",
@@ -700,7 +700,7 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "key_registry_root",
@@ -725,7 +725,7 @@ pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             window_slot(mint, Some(existing)),
             Slot {
@@ -772,11 +772,11 @@ pub fn spp_program_account() -> (Pubkey, Account) {
     )
 }
 
-/// A well-formed SEC1-compressed auditor key, or a deliberately malformed one
-/// when `prefix` is not 2 or 3.
+/// A canonical tagged X25519 auditor key, or a deliberately malformed one
+/// when `prefix` is not 4.
 pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
     let mut key: [u8; 33] =
-        hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
+        hex::decode("04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a")
             .expect("valid hex")
             .try_into()
             .expect("compressed key");
@@ -1224,7 +1224,7 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1304,7 +1304,7 @@ pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1324,7 +1324,7 @@ fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
         Slot {
             label: "config",
             meta: AccountMeta::new_readonly(config_pda().0, false),
-            account: initialized_config_account(authority(), auditor_pubkey(2)),
+            account: initialized_config_account(authority(), auditor_pubkey(4)),
         },
         Slot {
             label: "policy_config",
@@ -1466,7 +1466,7 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
 
 /// A policy ring whose output nullifier keys are escrowed, as `set_delegate` leaves it.
 pub fn escrowed_config_account() -> Account {
-    config_account_with(authority(), auditor_pubkey(2), 1, 1)
+    config_account_with(authority(), auditor_pubkey(4), 1, 1)
 }
 
 /// An audit-only ring config, transact takes the lighter proof path.
@@ -1642,7 +1642,7 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "ring_auth",
@@ -1807,7 +1807,7 @@ pub fn deposit_fixture_with(config: Account) -> Fixture {
 }
 
 pub fn deposit_fixture() -> Fixture {
-    deposit_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+    deposit_fixture_with(audit_only_config_account(authority(), auditor_pubkey(4)))
 }
 
 pub fn merge_fixture_with(config: Account) -> Fixture {
@@ -1817,7 +1817,7 @@ pub fn merge_fixture_with(config: Account) -> Fixture {
 }
 
 pub fn merge_fixture() -> Fixture {
-    merge_fixture_with(audit_only_config_account(authority(), auditor_pubkey(2)))
+    merge_fixture_with(audit_only_config_account(authority(), auditor_pubkey(4)))
 }
 
 /// One policy tree at the address tree, no escrow index, no revocation targets.
@@ -2047,7 +2047,7 @@ pub fn set_authority_fixture() -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
         ],
     )
@@ -2070,7 +2070,7 @@ pub fn grant_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "read_access_record",
@@ -2094,7 +2094,7 @@ pub fn revoke_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
             Slot {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "read_access_record",

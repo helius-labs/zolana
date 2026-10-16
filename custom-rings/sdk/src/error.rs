@@ -158,8 +158,6 @@ pub enum RingError {
     },
     #[error("an escrowed ring accepts audited deposits only")]
     AuditRequired,
-    #[error("auditor public key is reserved for protocol derivation")]
-    ReservedAuditorKey,
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]

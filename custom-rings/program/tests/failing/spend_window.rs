@@ -215,7 +215,7 @@ fn windowed_transact(
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.interface_transfers = legs;
     let mut fixture = audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         audit_instruction_data(bogus_proof(), content),
     );
     fixture.insert_windows(windows);

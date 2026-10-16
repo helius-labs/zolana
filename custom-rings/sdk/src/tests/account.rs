@@ -8,7 +8,7 @@ use custom_ring_interface::{
 use solana_account::Account;
 use solana_address::Address;
 use zolana_interface::P_DERIVE_SEC1;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::{ViewingKey, X25519Secret};
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
     ListId, ListSet, PolicyHashError, Rule, RuleTable, RuleTableError, Subject, MAX_RULES,
@@ -42,7 +42,7 @@ fn config() -> RingProgramConfig {
     RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &program()).1,
         has_policy: 1,
         key_escrow: 0,
@@ -152,7 +152,7 @@ async fn config_read_accepts_only_canonical_typed_state() {
         ("wrong discriminator", |value| value.discriminator = 0),
         ("wrong bump", |value| value.bump ^= 1),
         ("invalid key", |value| value.auditor_pubkey = [0; 33]),
-        ("reserved key", |value| value.auditor_pubkey = P_DERIVE_SEC1),
+        ("P-256 key", |value| value.auditor_pubkey = P_DERIVE_SEC1),
     ];
     let mut invalid = vec![
         (

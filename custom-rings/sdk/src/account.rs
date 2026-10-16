@@ -5,11 +5,8 @@ use custom_ring_interface::{
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::AsyncRpc;
-use zolana_interface::{
-    is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
-    RING_AUTH_PDA_SEED,
-};
-use zolana_keypair::P256Pubkey;
+use zolana_interface::{pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{ListNamespace, RuleTable, SourceMap, SourceOwner, NAMESPACE_PDA_SEED};
 
@@ -22,7 +19,7 @@ pub struct CustomRing {
 
 pub struct CustomRingConfig {
     pub authority: Address,
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     /// A policy ring enforces its compiled rules, an audit-only ring proves only the audit statement.
     pub has_policy: bool,
     pub key_escrow: KeyEscrow,
@@ -184,12 +181,9 @@ impl CustomRing {
         let invalid = RingError::InvalidAccount {
             address: self.config_pda(),
         };
-        if is_reserved_p256_derivation_point(&config.auditor_pubkey) {
-            return Err(invalid);
-        }
         Ok(Some(CustomRingConfig {
             authority: config.authority,
-            auditor_pubkey: P256Pubkey::from_bytes(config.auditor_pubkey).map_err(|_| invalid)?,
+            auditor_pubkey: X25519Pubkey::from_bytes(config.auditor_pubkey).map_err(|_| invalid)?,
             has_policy: config.has_policy != 0,
             key_escrow: config.key_escrow(),
         }))

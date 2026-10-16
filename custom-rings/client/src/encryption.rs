@@ -1,5 +1,5 @@
 //! Host mirror of the ring circuits' auditor crypto (`prover/server/custom_rings/circuits/base`).
-//! Every stream is keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)` over the packed values.
+//! Every stream is keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)` over the packed X25519 values.
 
 use custom_ring_interface::{
     pack_2fe, FieldPair, RingDepositAuditCapsule, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
@@ -14,7 +14,7 @@ use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
-    symmetric_apply, NullifierKey, P256Pubkey, ViewingKey,
+    symmetric_apply, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
 };
 
 use crate::AuditError;
@@ -29,16 +29,16 @@ const DISCLOSURE_DOMAIN: u64 = 0x4352_5f4f44;
 
 type Result<T> = core::result::Result<T, AuditError>;
 
-/// The auditor key's x-coordinate, the tag the auditor scans for.
-pub fn auditor_view_tag(pk: &P256Pubkey) -> [u8; 32] {
-    pk.x()
+/// The auditor key's u-coordinate, the tag the auditor scans for.
+pub fn auditor_view_tag(pk: &X25519Pubkey) -> [u8; 32] {
+    pk.u()
 }
 
-/// Binds the ECDH x-coordinate to both keys that produced it, in the order `pack.go` hashes.
+/// Binds the X25519 output to both keys that produced it, in the order `pack.go` hashes.
 pub(crate) fn shared_secret(
     dh: &[u8; 32],
-    ephemeral: &P256Pubkey,
-    auditor: &P256Pubkey,
+    ephemeral: &X25519Pubkey,
+    auditor: &X25519Pubkey,
 ) -> Result<Zeroizing<[u8; 32]>> {
     let [dh, ephemeral, auditor] = [
         pack_2fe(dh),
@@ -58,8 +58,8 @@ pub(crate) fn shared_secret(
 
 /// Seals `data` from an ephemeral key to the auditor.
 pub(crate) fn seal_stream(
-    ephemeral: &ViewingKey,
-    auditor: &P256Pubkey,
+    ephemeral: &X25519Secret,
+    auditor: &X25519Pubkey,
     info: &[u8; 10],
     data: &mut [u8],
 ) -> Result<()> {
@@ -67,8 +67,8 @@ pub(crate) fn seal_stream(
 }
 
 fn open_stream(
-    auditor: &ViewingKey,
-    ephemeral: &P256Pubkey,
+    auditor: &X25519Secret,
+    ephemeral: &X25519Pubkey,
     info: &[u8; 10],
     data: &mut [u8],
 ) -> Result<()> {
@@ -77,13 +77,13 @@ fn open_stream(
 
 /// `local` is the ephemeral key when sealing and the auditor key when opening.
 fn auditor_stream(
-    local: &ViewingKey,
-    remote: &P256Pubkey,
+    local: &X25519Secret,
+    remote: &X25519Pubkey,
     sealing: bool,
     info: &[u8; 10],
     data: &mut [u8],
 ) -> Result<()> {
-    let dh = Zeroizing::new(local.ecdh(remote)?);
+    let dh = local.ecdh(remote)?;
     let local_pk = local.pubkey();
     let (ephemeral, auditor) = match sealing {
         true => (&local_pk, remote),
@@ -98,7 +98,7 @@ fn auditor_stream(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditorMessage {
-    eph_pk: P256Pubkey,
+    eph_pk: X25519Pubkey,
     /// AES-256-CTR ciphertext of the transaction viewing secret key.
     ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
     disclosure: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
@@ -111,7 +111,7 @@ pub struct AuditorEncryption {
 }
 
 impl AuditorMessage {
-    pub fn new(eph_pk: P256Pubkey, ciphertext: [u8; AUDIT_CIPHERTEXT_LEN]) -> Self {
+    pub fn new(eph_pk: X25519Pubkey, ciphertext: [u8; AUDIT_CIPHERTEXT_LEN]) -> Self {
         Self {
             eph_pk,
             ciphertext,
@@ -120,13 +120,13 @@ impl AuditorMessage {
     }
 
     /// The transaction viewing secret, unchecked as a scalar.
-    pub fn decrypt(&self, auditor: &ViewingKey) -> Result<Zeroizing<[u8; 32]>> {
+    pub fn decrypt(&self, auditor: &X25519Secret) -> Result<Zeroizing<[u8; 32]>> {
         let mut plaintext = Zeroizing::new(self.ciphertext);
         open_stream(auditor, &self.eph_pk, AUDIT_ENC_INFO, &mut *plaintext)?;
         Ok(plaintext)
     }
 
-    pub fn to_message_data(&self, auditor_pk: &P256Pubkey) -> MessageData {
+    pub fn to_message_data(&self, auditor_pk: &X25519Pubkey) -> MessageData {
         let mut data = Vec::with_capacity(AUDITOR_MESSAGE_LEN);
         data.extend_from_slice(self.eph_pk.as_bytes());
         data.extend_from_slice(&self.ciphertext);
@@ -137,7 +137,7 @@ impl AuditorMessage {
         }
     }
 
-    pub fn parse(message: &MessageData, auditor_pk: &P256Pubkey) -> Result<Self> {
+    pub fn parse(message: &MessageData, auditor_pk: &X25519Pubkey) -> Result<Self> {
         if message.view_tag != auditor_view_tag(auditor_pk) {
             return Err(AuditError::ViewTagMismatch);
         }
@@ -155,13 +155,13 @@ impl AuditorMessage {
         }
         let mut key = [0u8; COMPRESSED_P256_KEY_LEN];
         key.copy_from_slice(eph_pk);
-        let mut message = Self::new(P256Pubkey::from_bytes(key)?, [0; AUDIT_CIPHERTEXT_LEN]);
+        let mut message = Self::new(X25519Pubkey::from_bytes(key)?, [0; AUDIT_CIPHERTEXT_LEN]);
         message.ciphertext.copy_from_slice(ciphertext);
         message.disclosure = fields;
         Ok(message)
     }
 
-    pub fn ephemeral_pubkey(&self) -> P256Pubkey {
+    pub fn ephemeral_pubkey(&self) -> X25519Pubkey {
         self.eph_pk
     }
 
@@ -201,8 +201,8 @@ impl AuditorMessage {
 }
 
 impl AuditorEncryption {
-    pub fn new(tx_viewing_key: &ViewingKey, auditor_pk: &P256Pubkey) -> Result<Self> {
-        let ephemeral = ViewingKey::new();
+    pub fn new(tx_viewing_key: &ViewingKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
+        let ephemeral = X25519Secret::new();
         let mut ciphertext = tx_viewing_key.secret_bytes();
         seal_stream(&ephemeral, auditor_pk, AUDIT_ENC_INFO, &mut *ciphertext)?;
         Ok(Self {
@@ -213,7 +213,7 @@ impl AuditorEncryption {
 
     pub fn new_with_outputs(
         tx_viewing_key: &ViewingKey,
-        auditor_pk: &P256Pubkey,
+        auditor_pk: &X25519Pubkey,
         salt: [u8; 16],
         outputs: &[ProofInputUtxo],
     ) -> Result<Self> {
@@ -279,19 +279,19 @@ pub struct NullifierKeyEnvelope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SealedNullifierKey {
-    pub eph_pk: P256Pubkey,
+    pub eph_pk: X25519Pubkey,
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
 
 impl NullifierKeyEnvelope {
-    pub fn new(nullifier_key: &NullifierKey, auditor_pk: &P256Pubkey) -> Result<Self> {
-        Self::seal(nullifier_key, auditor_pk, ViewingKey::new())
+    pub fn new(nullifier_key: &NullifierKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
+        Self::seal(nullifier_key, auditor_pk, X25519Secret::new())
     }
 
     fn seal(
         nullifier_key: &NullifierKey,
-        auditor_pk: &P256Pubkey,
-        ephemeral: ViewingKey,
+        auditor_pk: &X25519Pubkey,
+        ephemeral: X25519Secret,
     ) -> Result<Self> {
         let mut ciphertext = Zeroizing::new(right_align(&nullifier_key.secret()));
         seal_stream(&ephemeral, auditor_pk, NF_KEY_ENC_INFO, &mut *ciphertext)?;
@@ -308,7 +308,7 @@ impl NullifierKeyEnvelope {
 
 impl SealedNullifierKey {
     /// The pad alone does not authenticate the key against its registry leaf.
-    pub fn open(&self, auditor: &ViewingKey) -> Result<NullifierKey> {
+    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey> {
         let mut plaintext = Zeroizing::new(self.ciphertext);
         open_stream(auditor, &self.eph_pk, NF_KEY_ENC_INFO, &mut *plaintext)?;
         if plaintext[0] != 0 {
@@ -329,7 +329,7 @@ pub struct DepositOpening {
 /// Batch ciphertexts and the ephemeral secret the disclosure proof witnesses.
 pub struct DepositEncryption {
     pub ephemeral_sk: Zeroizing<[u8; 32]>,
-    pub ephemeral_pk: P256Pubkey,
+    pub ephemeral_pk: X25519Pubkey,
     pub ciphertexts: Vec<[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]>,
 }
 
@@ -338,15 +338,15 @@ const DEPOSIT_STREAM_LEN: usize = RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN * MAX_RING_D
 /// Seals deposit openings to the ring's pinned auditor key.
 pub fn seal_deposits(
     openings: &[DepositOpening],
-    auditor_pk: &P256Pubkey,
+    auditor_pk: &X25519Pubkey,
 ) -> Result<DepositEncryption> {
-    seal_deposits_with(openings, auditor_pk, ViewingKey::new())
+    seal_deposits_with(openings, auditor_pk, X25519Secret::new())
 }
 
 fn seal_deposits_with(
     openings: &[DepositOpening],
-    auditor_pk: &P256Pubkey,
-    ephemeral: ViewingKey,
+    auditor_pk: &X25519Pubkey,
+    ephemeral: X25519Secret,
 ) -> Result<DepositEncryption> {
     if openings.is_empty() || openings.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
         return Err(AuditError::DepositCount(openings.len()));
@@ -373,7 +373,7 @@ fn seal_deposits_with(
 /// Opens one capsule at its offset in the batch stream, authenticated by the owner commitment.
 pub fn open_deposit(
     capsule: &RingDepositAuditCapsule<'_>,
-    auditor: &ViewingKey,
+    auditor: &X25519Secret,
     owner_utxo_hash: &[u8; 32],
 ) -> Result<DepositOpening> {
     let slot = usize::from(capsule.slot_index);
@@ -386,7 +386,7 @@ pub fn open_deposit(
     plaintext[opened.clone()].copy_from_slice(capsule.ciphertext);
     open_stream(
         auditor,
-        &P256Pubkey::from_bytes(*capsule.eph_pk)?,
+        &X25519Pubkey::from_bytes(*capsule.eph_pk)?,
         RING_DEPOSIT_AUDIT_INFO,
         &mut *plaintext,
     )?;
@@ -422,29 +422,29 @@ mod tests {
     #[test]
     fn shared_secret_matches_the_circuit_vector() {
         let diffie_hellman_x =
-            bytes("0adc4a9b4fc9112518acab2c346559372e9a5c2a9d8b93fb1b7650ea1edd4823");
-        let ephemeral_key = P256Pubkey::from_bytes(bytes(
-            "038bd43dcdaea72a1db879b1ca6faac09593fd17893d22eeef926b5c1c245a133c",
+            bytes("464b33b122dc1346a6012199742d7e14b2ee6436589c454a579fdda24feec92c");
+        let ephemeral_key = X25519Pubkey::from_bytes(bytes(
+            "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966",
         ))
         .expect("ephemeral key");
-        let auditor_key = P256Pubkey::from_bytes(bytes(
-            "039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec",
+        let auditor_key = X25519Pubkey::from_bytes(bytes(
+            "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a",
         ))
         .expect("auditor key");
         let secret =
             shared_secret(&diffie_hellman_x, &ephemeral_key, &auditor_key).expect("shared secret");
         assert_eq!(
             *secret,
-            bytes("009926f6e6fefd31699816632ef553197a3695424ddd9589e3d074518c40d605")
+            bytes("2590b2b949a2f87b9201e4d065167ea9282c4bd06a32e888e24e33c5bddae54f")
         );
     }
 
     #[test]
     fn shared_secret_binds_both_keys_and_the_ecdh_value() {
-        let auditor_key = ViewingKey::new().pubkey();
-        let other_auditor_key = ViewingKey::new().pubkey();
-        let ephemeral_key = ViewingKey::new().pubkey();
-        let other_ephemeral_key = ViewingKey::new().pubkey();
+        let auditor_key = X25519Secret::new().pubkey();
+        let other_auditor_key = X25519Secret::new().pubkey();
+        let ephemeral_key = X25519Secret::new().pubkey();
+        let other_ephemeral_key = X25519Secret::new().pubkey();
         let derive = |dh, eph, auditor| shared_secret(dh, eph, auditor).expect("shared secret");
         let secret = derive(&[7u8; 32], &ephemeral_key, &auditor_key);
         assert_ne!(secret, derive(&[8u8; 32], &ephemeral_key, &auditor_key));
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn nullifier_key_envelope_round_trips_through_the_auditor() {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let nullifier_key = NullifierKey::from_secret([7u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -477,8 +477,8 @@ mod tests {
 
     #[test]
     fn a_stranger_auditor_cannot_recover_the_nullifier_key() {
-        let auditor = ViewingKey::new();
-        let stranger = ViewingKey::new();
+        let auditor = X25519Secret::new();
+        let stranger = X25519Secret::new();
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -500,19 +500,19 @@ mod tests {
     const NULLIFIER_SECRET: &str = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
     const MEMBER_TAG: [u8; 32] = [9u8; 32];
     const NULLIFIER_PK: &str = "2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5";
-    const EPH_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
-    const CIPHERTEXT: &str = "f329a32e36717753ba70f955e2102b53fa3a1bfd7389ebda109030ea70602d40";
-    const KEY_HASH: &str = "095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94";
+    const EPH_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
+    const CIPHERTEXT: &str = "2c2a1650e3a2a0d012a0d438341ff610ad99bd3c1cde0dd169179174880e755d";
+    const KEY_HASH: &str = "1c73c14786dd7354525c98368bca8dbc5f836e957c45f552f377c84e266546c4";
     const REGISTRY_NEW_ROOT: &str =
-        "01c9026ae3349a610ca0d39793c06c924e3ad8e2dcacb64c120c800185372618";
+        "2ec354929355675625614fc9fd05405e3538fd0de45f028690d20e3c6a4e3b76";
     const PUBLIC_INPUT_HASH: &str =
-        "2f3163cf5ea64c46bcf1a4b97b0aabccc674aa6056daa42cb63007bb1d9534a9";
+        "27640a4aef274e2bd8e4fcc761ca86b1e70a4f203857cc2728dad0bc5b6a6085";
 
     #[test]
     fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
-        let auditor = ViewingKey::from_bytes(&bytes(AUDITOR_SK)).expect("auditor");
+        let auditor = X25519Secret::from_bytes(&bytes(AUDITOR_SK)).expect("auditor");
         let nullifier_key = NullifierKey::from_secret(bytes(NULLIFIER_SECRET));
-        let ephemeral = ViewingKey::from_bytes(&bytes(EPHEMERAL_SK)).expect("ephemeral");
+        let ephemeral = X25519Secret::from_bytes(&bytes(EPHEMERAL_SK)).expect("ephemeral");
         let envelope =
             NullifierKeyEnvelope::seal(&nullifier_key, &auditor.pubkey(), ephemeral).expect("seal");
         assert_eq!(envelope.nullifier_pk, bytes(NULLIFIER_PK));
@@ -565,8 +565,8 @@ mod tests {
 
     #[test]
     fn deposit_encryption_and_public_hash_match_the_typescript_vector() {
-        let auditor = ViewingKey::from_bytes(&[0x11; 32]).unwrap();
-        let ephemeral = ViewingKey::from_bytes(&[0x22; 32]).unwrap();
+        let auditor = X25519Secret::from_bytes(&[0x11; 32]).unwrap();
+        let ephemeral = X25519Secret::from_bytes(&[0x22; 32]).unwrap();
         let word = |value| {
             let mut bytes = [0; 32];
             bytes[31] = value;
@@ -585,14 +585,14 @@ mod tests {
         let sealed = seal_deposits_with(&openings, &auditor.pubkey(), ephemeral).unwrap();
         assert_eq!(
             hex::encode(auditor.pubkey().as_bytes()),
-            "020217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed"
+            "047b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13"
         );
         assert_eq!(
             hex::encode(sealed.ephemeral_pk.as_bytes()),
-            "03d65a93977caa3d1b081852ff57a79e465f1660577304baead505dd3a48589cf3"
+            "040faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20"
         );
-        assert_eq!(hex::encode(sealed.ciphertexts[0]), "146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5");
-        assert_eq!(hex::encode(sealed.ciphertexts[1]), "74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c");
+        assert_eq!(hex::encode(sealed.ciphertexts[0]), "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144");
+        assert_eq!(hex::encode(sealed.ciphertexts[1]), "24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820");
         let context_hash = custom_ring_interface::DepositContext {
             program_id: &[0x33; 32],
             tree: &[0x44; 32],
@@ -619,13 +619,13 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(public_hash),
-            "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030"
+            "0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef"
         );
     }
 
     #[test]
     fn every_slot_uses_its_batch_stream_offset() {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let openings: Vec<_> = (0..MAX_RING_DEPOSIT_AUDIT_SLOTS)
             .map(|index| DepositOpening {
                 owner_hash: [index as u8; 32],
@@ -653,7 +653,7 @@ mod tests {
 
     #[test]
     fn empty_and_oversized_batches_are_rejected() {
-        let auditor = ViewingKey::new().pubkey();
+        let auditor = X25519Secret::new().pubkey();
         assert!(matches!(
             seal_deposits(&[], &auditor),
             Err(AuditError::DepositCount(0))

@@ -1078,7 +1078,7 @@ mod tests {
                 mismatches: vec!["transfer_ring_2_2.key".into()],
             },
             ClientError::ProvingKeyMismatch {
-                key: "batch_address-append_40_250.key".into(),
+                key: "batch_address-append_40_4999.key".into(),
                 expected: "aa".into(),
                 reported: "bb".into(),
             },

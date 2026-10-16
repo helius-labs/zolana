@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
+	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -111,13 +111,13 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "auditor key off curve",
+			name: "auditor key high bit set",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
-				c.AuditorPk[64] = 0
+				c.AuditorPk[31] = 128
 			},
 		},
 		{
-			name: "auditor key uncompressed prefix not 4",
+			name: "auditor key byte changed",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.AuditorPk[0] = 6
 			},
@@ -133,12 +133,20 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			// public input hash commits to.
 			name: "valid but different auditor key",
 			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
-				other := ringaudit.PrivateKey(t, ringaudit.Scalar(0x44))
-				substitute := ringaudit.Uncompressed(t, other.PublicKey().Bytes())
+				other := ringaudit.XPrivateKey(t, ringaudit.Scalar(0x44))
+				substitute := other.PublicKey().Bytes()
 				for i, value := range substitute {
 					c.AuditorPk[i] = value
 				}
 			},
+		},
+		{
+			name: "forged infinity for zero ephemeral secret",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithForgedInfinityEphScalar(big.NewInt(0)) },
+		},
+		{
+			name: "forged infinity for P256-order ephemeral secret",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithForgedInfinityEphScalar(p256.GroupOrder()) },
 		},
 	}
 	for name, value := range map[string]*big.Int{
@@ -147,10 +155,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		"one above the order":        new(big.Int).Add(p256.GroupOrder(), big.NewInt(1)),
 		"a valid key plus the order": new(big.Int).Add(p256.GroupOrder(), big.NewInt(0xbeef)),
 	} {
-		tests = append(tests,
-			tamperCase{name: "tx scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithTxScalar(t, value) }},
-			tamperCase{name: "eph scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithEphScalar(t, value) }},
-		)
+		tests = append(tests, tamperCase{name: "tx scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithTxScalar(t, value) }})
 	}
 
 	for _, test := range tests {
@@ -175,11 +180,9 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	}
 }
 
-// Both scalars may take the largest canonical value.
-func TestCircuitSolvesTheLargestScalars(t *testing.T) {
+func TestCircuitSolvesTheLargestTxScalar(t *testing.T) {
 	largest := new(big.Int).Sub(p256.GroupOrder(), big.NewInt(1))
-	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, largest).WithEphScalar(t, largest)
-	solve(t, testConstraintSystem(t), buildAssignment(t, keys))
+	solve(t, testConstraintSystem(t), buildAssignment(t, ringaudit.DefaultKeys(t).WithTxScalar(t, largest)))
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *base.CustomRingBaseCircuit) {
@@ -206,5 +209,24 @@ func buildAssignment(t *testing.T, keys ringaudit.Keys) *base.CustomRingBaseCirc
 		Audit:           statement.Audit,
 		NOut:            statement.Count,
 		Outputs:         statement.Outputs,
+	}
+}
+
+// Clamping aliases of the ephemeral secret seal the same envelope, so no alias reaches another stream.
+func TestCircuitAcceptsClampedEphemeralSecrets(t *testing.T) {
+	cs := testConstraintSystem(t)
+	var order [32]byte
+	p256.GroupOrder().FillBytes(order[:])
+	keys := ringaudit.DefaultKeys(t)
+	alias := keys.EphSk()
+	alias[0] ^= 0x07
+	alias[31] ^= 0xc0
+	for _, secret := range [][32]byte{{}, order, alias} {
+		solve(t, cs, buildAssignment(t, keys.WithEphScalar(t, secret)))
+	}
+	statement := keys.Statement(big.NewInt(0xabcdef))
+	if spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)).Cmp(
+		spptest.MustHashChain(t, keys.WithEphScalar(t, alias).ChainElementsFor(t, statement))) != 0 {
+		t.Fatal("an ephemeral alias changed the public statement")
 	}
 }

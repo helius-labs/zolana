@@ -5,7 +5,7 @@ use custom_ring_sdk::{CustomRing, CustomRingConfig, PolicyConfig, RingError, Sou
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::rpc::{read_auditor_pubkey, write_auditor_pubkey};
 use zolana_ring_policy::ListId;
 
@@ -27,7 +27,7 @@ const POLICY_DRIFT: &str =
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyChoice {
     File,
-    Chain(P256Pubkey),
+    Chain(X25519Pubkey),
     RingRpc,
 }
 
@@ -177,7 +177,7 @@ fn key_choice(
     file_present: bool,
     hosted_rpc: bool,
     local_auditor: bool,
-    configured: Option<P256Pubkey>,
+    configured: Option<X25519Pubkey>,
 ) -> Option<KeyChoice> {
     match configured {
         Some(auditor_pk) => Some(KeyChoice::Chain(auditor_pk)),
@@ -209,11 +209,11 @@ fn create_config(
     ctx: &Context,
     deployer: Option<&Keypair>,
     config_authority: &Keypair,
-    auditor_pk: P256Pubkey,
+    auditor_pk: X25519Pubkey,
     has_policy: bool,
     existing: Option<&CustomRingConfig>,
 ) -> Result<(&'static str, &'static str)> {
-    let mismatch = |holder: Address, auditor: &P256Pubkey| {
+    let mismatch = |holder: Address, auditor: &X25519Pubkey| {
         anyhow!(
             "ring config exists under authority {holder} with auditor {}, ring.toml names another operator",
             hex::encode(auditor.as_bytes())
@@ -330,13 +330,11 @@ fn pinned(ctx: &Context) -> Result<PolicyConfig> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::ViewingKey;
-
     use super::*;
 
     #[test]
     fn a_config_wins_over_the_file_and_the_service() {
-        let pinned = ViewingKey::new().pubkey();
+        let pinned = zolana_keypair::X25519Secret::new().pubkey();
         for file_present in [true, false] {
             for hosted_rpc in [true, false] {
                 for local_auditor in [true, false] {

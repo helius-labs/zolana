@@ -15,8 +15,8 @@ use zolana_client::{
     program_data, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
 };
-use zolana_interface::{is_reserved_p256_derivation_point, BPF_LOADER_UPGRADEABLE_ID};
-use zolana_keypair::P256Pubkey;
+use zolana_interface::BPF_LOADER_UPGRADEABLE_ID;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ring_deposits_in, AuditError, ReaderKey, RingOrigin, TransactionOrigin};
 use zolana_transaction::AssetRegistry;
 
@@ -112,7 +112,7 @@ pub struct ReaderGrant {
 
 #[derive(Clone, Copy)]
 pub struct RingConfiguration {
-    pub auditor_pubkey: P256Pubkey,
+    pub auditor_pubkey: X25519Pubkey,
     pub authority: Address,
 }
 
@@ -313,10 +313,8 @@ fn configuration(
     bump: u8,
 ) -> Result<RingConfiguration, ClientError> {
     let config: RingProgramConfig = ring_account(account, &ring, bump, INVALID_CONFIG)?;
-    let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
-        .ok()
-        .filter(|_| !is_reserved_p256_derivation_point(&config.auditor_pubkey))
-        .ok_or_else(|| ClientError::Rpc(INVALID_CONFIG.to_owned()))?;
+    let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
+        .map_err(|_| ClientError::Rpc(INVALID_CONFIG.to_owned()))?;
     Ok(RingConfiguration {
         auditor_pubkey,
         authority: config.authority,
@@ -369,7 +367,7 @@ mod tests {
     fn config_accounts_require_the_canonical_layout() {
         let ring = Address::new_from_array([9; 32]);
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
-        let key = ViewingKey::new().pubkey();
+        let key = zolana_keypair::X25519Secret::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
         let config = configuration(&valid, ring, bump).expect("config");
         assert_eq!(config.auditor_pubkey, key);

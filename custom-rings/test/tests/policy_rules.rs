@@ -21,7 +21,7 @@ use custom_ring_test_validator::{
 };
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_client::{AuditedTransaction, RingScan};
 use zolana_ring_policy::{EntryState, ListId, Member};
 use zolana_ring_rpc::{
@@ -64,7 +64,7 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Secret::new().pubkey(),
         tier: Tier::policy(&RELEASED, env.tree),
     }
     .send(rpc)?;
@@ -155,7 +155,7 @@ fn an_entry_in_a_second_tree_answers_from_its_own_slot() -> Result<()> {
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Secret::new().pubkey(),
         tier: Tier::policy(&BLOCK_ONLY, env.tree),
     }
     .send(rpc)?;
@@ -372,7 +372,7 @@ struct DemoRing<'a> {
     env: &'a TestEnv,
     ring: CustomRing,
     tree: Address,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
     project: RingProject,
     _ring_rpc: LocalRingRpc,
 }
@@ -383,7 +383,7 @@ impl<'a> DemoRing<'a> {
         // Without `address_tree` the block pins the cli's default tree, the demo
         // deposits there too.
         let tree = env.register_default_tree()?;
-        let auditor = ViewingKey::new();
+        let auditor = X25519Secret::new();
         let ring_rpc = RingRpcSpec {
             env,
             ring: ring.program_id(),
@@ -452,7 +452,7 @@ impl<'a> DemoRing<'a> {
 struct RingRpcSpec<'a> {
     env: &'a TestEnv,
     ring: Address,
-    auditor: ViewingKey,
+    auditor: X25519Secret,
 }
 
 struct LocalRingRpc {

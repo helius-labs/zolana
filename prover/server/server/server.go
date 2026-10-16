@@ -1324,7 +1324,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	}
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
-		return "10-30 seconds"
+		return "1-5 minutes"
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
 	default:
@@ -1342,8 +1342,10 @@ func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) tim
 	if circuitType.IsRing() || isTransferCircuit(circuitType) {
 		return maxSyncProofTimeout
 	}
+	// A 4999-leaf append is ~211M constraints: ~90s warm on 192 cores, several
+	// minutes on a smaller host.
 	if circuitType == common.BatchAddressAppendCircuitType {
-		return time.Minute
+		return maxSyncProofTimeout
 	}
 	return 10 * time.Second
 }

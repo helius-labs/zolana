@@ -1,3 +1,4 @@
+import { X25519PublicKey, X25519Secret } from "../../keypair/x25519.js";
 import type {
   IndexedPolicyInputs,
   IndexedDepositInputs,
@@ -18,8 +19,6 @@ import {
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
-import { P256PublicKey } from "../../keypair/public-key.js";
-import { ViewingKey } from "../../keypair/viewing-key.js";
 import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -123,7 +122,6 @@ const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
 const ATTESTATION_PATH = "/tee/v1/attestation";
-const UNCOMPRESSED_P256_LENGTH = 65;
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
 
@@ -1011,8 +1009,8 @@ export function customRingDepositProofRequest(
   )
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   try {
-    P256PublicKey.fromUncompressed(input.auditorPublicKey);
-    ViewingKey.fromBytes(input.ephemeralSecret).destroy();
+    auditorPkHex(input.auditorPublicKey);
+    X25519Secret.fromBytes(input.ephemeralSecret).destroy();
   } catch {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -1158,14 +1156,14 @@ function hex32(bytes: Uint8Array, field: string): string {
   return bytesHex(checkedBytes(bytes, 32, field));
 }
 
-/** The uncompressed SEC1 auditor point the circuit witnesses, `0x04 || x || y`. */
+/** Canonical little-endian X25519 auditor coordinate witnessed by the circuit. */
 function auditorPkHex(auditorPublicKey: Uint8Array): string {
-  if (
-    !(auditorPublicKey instanceof Uint8Array) ||
-    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
-    auditorPublicKey[0] !== 0x04
-  ) {
-    throw new ClientError("CLIENT_INVALID_P256_KEY");
+  if (!(auditorPublicKey instanceof Uint8Array) || auditorPublicKey.length !== 32)
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  try {
+    X25519PublicKey.fromBytes(Uint8Array.of(4, ...auditorPublicKey));
+  } catch {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   return bytesHex(auditorPublicKey);
 }

@@ -52,7 +52,7 @@ pub struct ServeArgs {
         default_value = "http://127.0.0.1:8899"
     )]
     pub rpc_url: String,
-    /// Lowercase hex P256 scalar.
+    /// Lowercase hex X25519 secret bytes.
     #[arg(
         long,
         env = "RING_RPC_AUDITOR_KEY_FILE",

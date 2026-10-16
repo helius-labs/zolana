@@ -12,8 +12,8 @@ import { InterfaceError } from "./errors.js";
 export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
   "batch_address-append_40_10.key":
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
-  "batch_address-append_40_250.key":
-    "aacd3c81c4681acf0eb21e395df4f566738412da158153b1dee7ac83219dc425",
+  "batch_address-append_40_4999.key":
+    "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
   "custom_ring_base.key": "247bb8ac86106214f07946cbae3207ca6873b76aaba9b280f9d268b33560f73e",
   "custom_ring_compressed_policy.key":
     "77b0e6db880302ffd1c00de691cda75cebde6b61e66a70a7c5c5450b3c844186",

@@ -9,7 +9,7 @@ use std::{
 
 use solana_address::Address;
 use zolana_client::{next_page, AsyncRpc, ClientError, IndexerRpcConfig};
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -65,7 +65,7 @@ const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 #[must_use = "run or discard the scan explicitly"]
 pub struct RingScan {
     ring_program_id: Address,
-    auditor_key: P256Pubkey,
+    auditor_key: X25519Pubkey,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -73,7 +73,7 @@ pub struct RingScan {
 }
 
 impl RingScan {
-    pub fn new(ring_program_id: Address, auditor_key: P256Pubkey) -> Self {
+    pub fn new(ring_program_id: Address, auditor_key: X25519Pubkey) -> Self {
         Self {
             ring_program_id,
             auditor_key,
@@ -161,7 +161,7 @@ impl RingScan {
     /// Scans the tag of `auditor` and opens every match with it.
     pub async fn audit<I: AsyncRpc, O: TransactionOrigin>(
         mut self,
-        auditor: &ViewingKey,
+        auditor: &X25519Secret,
         indexer: &I,
         origin: &O,
         assets: &AssetRegistry,

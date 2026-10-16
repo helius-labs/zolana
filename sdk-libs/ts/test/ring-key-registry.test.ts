@@ -1,3 +1,5 @@
+import { ViewingKey } from "../src/keypair/viewing-key.js";
+import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   address,
   getAddressDecoder,
@@ -35,7 +37,7 @@ import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
-import { ViewingKey } from "../src/keypair/viewing-key.js";
+
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
@@ -110,11 +112,11 @@ const NULLIFIER_SECRET = hex(
 ) as Bytes31;
 const MEMBER_TAG = filled(9) as Bytes32;
 const NULLIFIER_PK = hex("2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5");
-const EPH_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5");
-const CIPHERTEXT = hex("f329a32e36717753ba70f955e2102b53fa3a1bfd7389ebda109030ea70602d40");
-const KEY_HASH = hex("095939aeb6e0dc92dd4455bab6058c5c5f639b52a610932c22e517fc87d64a94");
-const REGISTRY_NEW_ROOT = hex("01c9026ae3349a610ca0d39793c06c924e3ad8e2dcacb64c120c800185372618");
-const PUBLIC_INPUT_HASH = hex("2f3163cf5ea64c46bcf1a4b97b0aabccc674aa6056daa42cb63007bb1d9534a9");
+const EPH_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63");
+const CIPHERTEXT = hex("2c2a1650e3a2a0d012a0d438341ff610ad99bd3c1cde0dd169179174880e755d");
+const KEY_HASH = hex("1c73c14786dd7354525c98368bca8dbc5f836e957c45f552f377c84e266546c4");
+const REGISTRY_NEW_ROOT = hex("2ec354929355675625614fc9fd05405e3538fd0de45f028690d20e3c6a4e3b76");
+const PUBLIC_INPUT_HASH = hex("27640a4aef274e2bd8e4fcc761ca86b1e70a4f203857cc2728dad0bc5b6a6085");
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const TREE = treeAddress(0);
@@ -133,8 +135,8 @@ function actor(seed: number) {
 
 describe("nullifier key envelope", () => {
   it("matches the Rust vector and opens only for the auditor", () => {
-    const auditor = ViewingKey.fromBytes(AUDITOR_SK);
-    const ephemeral = ViewingKey.fromBytes(EPHEMERAL_SK);
+    const auditor = X25519Secret.fromBytes(AUDITOR_SK);
+    const ephemeral = X25519Secret.fromBytes(EPHEMERAL_SK);
     const nullifierKey = NullifierKey.fromSecret(NULLIFIER_SECRET);
     const envelope = sealNullifierKeyWith(ephemeral, nullifierKey, auditor.publicKey());
     expect(envelope.nullifierPublicKey).toEqual(NULLIFIER_PK);
@@ -143,7 +145,7 @@ describe("nullifier key envelope", () => {
     expect(envelope.ephemeralSecret).toEqual(EPHEMERAL_SK);
     const opened = openNullifierKey(envelope.sealed, auditor);
     expect(opened.secretBytes()).toEqual(NULLIFIER_SECRET);
-    const stranger = ViewingKey.fromBytes(EPHEMERAL_SK);
+    const stranger = X25519Secret.fromBytes(EPHEMERAL_SK);
     try {
       expect(openNullifierKey(envelope.sealed, stranger).secretBytes()).not.toEqual(
         NULLIFIER_SECRET,
@@ -157,7 +159,7 @@ describe("nullifier key envelope", () => {
   });
 
   it("hashes the registered key, the registry root and the statement like Rust", () => {
-    const auditor = ViewingKey.fromBytes(AUDITOR_SK);
+    const auditor = X25519Secret.fromBytes(AUDITOR_SK);
     const member = memberOfTag(MEMBER_TAG);
     const key = registeredKeyHash({
       nullifierPublicKey: NULLIFIER_PK as Bytes32,
@@ -185,7 +187,7 @@ describe("nullifier key envelope", () => {
         member,
         nullifierPublicKey: NULLIFIER_PK as Bytes32,
         auditorPublicKey: auditor.publicKey(),
-        ephemeralPublicKey: ViewingKey.fromBytes(EPHEMERAL_SK).publicKey(),
+        ephemeralPublicKey: X25519Secret.fromBytes(EPHEMERAL_SK).publicKey(),
         ciphertext: CIPHERTEXT as Bytes32,
         newIndex: 1n,
       }),
@@ -303,9 +305,9 @@ describe("key registry root", () => {
   });
 });
 
-function wrongKeyPassingPad(sealed: SealedNullifierKey): ViewingKey {
+function wrongKeyPassingPad(sealed: SealedNullifierKey): X25519Secret {
   for (let scalar = 2n; scalar < 4096n; scalar++) {
-    const key = ViewingKey.fromBytes(bigIntBytes(scalar) as Bytes32);
+    const key = X25519Secret.fromBytes(bigIntBytes(scalar) as Bytes32);
     try {
       openNullifierKey(sealed, key).destroy();
       return key;
@@ -317,7 +319,7 @@ function wrongKeyPassingPad(sealed: SealedNullifierKey): ViewingKey {
 }
 
 async function registrationFixture(input: Readonly<{ registered?: boolean }> = {}) {
-  const auditor = ViewingKey.fromBytes(AUDITOR_SK);
+  const auditor = X25519Secret.fromBytes(AUDITOR_SK);
   const member = actor(3);
   const identity = memberOfTag(member.address.confidentialViewTag());
   const [config, configBump] = await ringConfigPda(RING);
@@ -325,7 +327,7 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
   const insertion = firstInsertion(identity);
   // A pinned seal fixes which wrong key passes the pad byte.
   const envelope = sealNullifierKeyWith(
-    ViewingKey.fromBytes(EPHEMERAL_SK),
+    X25519Secret.fromBytes(EPHEMERAL_SK),
     member.keypair.nullifierKey(),
     auditor.publicKey(),
   );
@@ -425,10 +427,10 @@ describe("key registration flow", () => {
     expect(request.nullifierSecret.subarray(1)).toEqual(
       test.member.keypair.nullifierKey().secretBytes(),
     );
-    expect(request.auditorPublicKey).toEqual(test.auditor.publicKey().toUncompressed());
+    expect(request.auditorPublicKey).toEqual(test.auditor.publicKey().u());
     // The ephemeral scalar the prover witnesses reproduces the sealed envelope.
     const envelope = sealNullifierKeyWith(
-      ViewingKey.fromBytes(request.ephemeralSecret),
+      X25519Secret.fromBytes(request.ephemeralSecret),
       test.member.keypair.nullifierKey(),
       test.auditor.publicKey(),
     );
@@ -574,7 +576,7 @@ describe("key registration flow", () => {
     const opened = openRingSealedKey(entry, test.auditor);
     expect(opened.publicKey()).toEqual(test.member.keypair.nullifierPublicKey());
     // The pad byte is no authenticator, inclusion refuses a wrong key that passes it.
-    expect(() => openRingSealedKey(entry, ViewingKey.fromBytes(EPHEMERAL_SK))).toThrow(
+    expect(() => openRingSealedKey(entry, X25519Secret.fromBytes(EPHEMERAL_SK))).toThrow(
       /RING_KEY_(ENVELOPE|REGISTRY)_INVALID/,
     );
     expect(() => openRingSealedKey(entry, wrongKeyPassingPad(entry.sealed))).toThrow(
@@ -598,7 +600,7 @@ describe("key registration flow", () => {
 /** One ring transaction paying `outputs` to `source`, encrypted the way a sender does. */
 function ringTransaction(
   input: Readonly<{
-    auditor: ViewingKey;
+    auditor: X25519Secret;
     source: ReturnType<typeof actor>;
     outputs: readonly Readonly<{
       amount: bigint;
@@ -674,7 +676,7 @@ function ringTransaction(
 
 describe("ring member recovery", () => {
   it("rebuilds the member's unspent notes from the auditor's view", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const source = actor(3);
     const other = actor(4);
     const transaction = ringTransaction({
@@ -821,7 +823,7 @@ function mergeTransaction(
 describe("recovery closure", () => {
   it("reports recipient encrypted deposits separately without claiming their spend status", async () => {
     const source = actor(3);
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const key = source.keypair.nullifierKey();
     const ciphertext = new Uint8Array([35, 36, 37]);
     const body = new Writer()
@@ -906,7 +908,7 @@ describe("recovery closure", () => {
 
   it("recovers successive auditorless merges across trees and checks successor spends", async () => {
     const source = actor(3);
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const key = source.keypair.nullifierKey();
     const seed = ringTransaction({
       auditor,
@@ -1004,7 +1006,7 @@ describe("recovery closure", () => {
 
   it("recovers proof-bound data hashes without trusting a caller resolver", async () => {
     const source = actor(3);
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const key = source.keypair.nullifierKey();
     const dataHash = blinding(4);
     const ringDataHash = blinding(5);
@@ -1072,7 +1074,7 @@ describe("recovery closure", () => {
     { timeout: 120_000 },
     async () => {
       const source = actor(3);
-      const auditor = ViewingKey.generate();
+      const auditor = X25519Secret.generate();
       const key = source.keypair.nullifierKey();
       const seeds = Array.from({ length: 251 }, (_, batch) =>
         ringTransaction({
@@ -1116,7 +1118,7 @@ describe("recovery closure", () => {
 
 describe("recovered delegate move", () => {
   it("builds an escrowed recovered move requiring the delegate signature without source approval", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Secret.generate();
     const source = actor(3);
     const delegate = getAddressDecoder().decode(filled(8));
     const [config, configBump] = await ringConfigPda(RING);
@@ -1214,7 +1216,7 @@ describe("recovered delegate move", () => {
           if (key === TREE)
             return ownedAccount(
               SHIELDED_POOL_PROGRAM_ID,
-              treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 9n }),
+              treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 4n }),
             );
           return undefined;
         },
@@ -1241,7 +1243,7 @@ describe("recovered delegate move", () => {
               stateRoot: filled(92) as Bytes32,
               stateRootIndex: 4,
               nullifierRoot: filled(93) as Bytes32,
-              nullifierRootIndex: 5,
+              nullifierRootIndex: 3,
             },
           };
         },
@@ -1263,7 +1265,7 @@ describe("recovered delegate move", () => {
     });
     expect(Object.keys(transaction.signatures)).toEqual([delegate]);
     expect(owners).toEqual([source.keypair.signingPublicKey().toBytes().join(",")]);
-    expect(policy?.auditorPublicKey).toEqual(auditor.publicKey().toUncompressed());
+    expect(policy?.auditorPublicKey).toEqual(auditor.publicKey().u());
     expect(policy?.keyRegistryRoot).toEqual(registry.root);
     expect(policy?.treeSlots).toHaveLength(1);
     expect(policy?.outputs.filter((output) => output.key !== undefined)).toHaveLength(2);

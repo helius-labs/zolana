@@ -19,7 +19,7 @@ use zolana_client::{
     AsyncProverClient, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError,
     IndexerRpcConfig, InputWitnesses, Shape,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_client::{
     AuditError, RingOrigin, RingRecovery, RingScan, SourceMember, TransactionOrigin,
 };
@@ -154,7 +154,7 @@ fn policy_ring() -> Accounts {
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &program).1,
         has_policy: 1,
         key_escrow: 0,
@@ -295,7 +295,7 @@ fn every_operation_future_stays_small() {
         "RingSubmission::send_until_settled",
         submission.send_until_settled(&client, &keys, &[]),
     );
-    let auditor = ViewingKey::new();
+    let auditor = X25519Secret::new();
     let indexer = client.indexer();
     let assets = AssetRegistry::default();
     let scan = RingScan::new(ring().program_id(), auditor.pubkey());

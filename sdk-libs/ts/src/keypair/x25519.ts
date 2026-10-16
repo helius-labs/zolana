@@ -1,0 +1,86 @@
+import { x25519 } from "@noble/curves/ed25519.js";
+
+import { type Bytes32, type Bytes33, checkedBytes, concatBytes, randomBytes } from "./bytes.js";
+import { KeypairError } from "./error.js";
+
+/** Custom-ring envelope key: tag 4 followed by a canonical little-endian u. */
+export class X25519PublicKey {
+  readonly #bytes: Bytes33;
+
+  private constructor(bytes: Bytes33) {
+    this.#bytes = bytes;
+  }
+
+  static fromBytes(bytes: Uint8Array): X25519PublicKey {
+    const key = checkedBytes<Bytes33>(bytes, 33, "X25519 public key");
+    let u = 0n;
+    for (let i = 32; i >= 1; i--) u = (u << 8n) | BigInt(key[i] ?? 0);
+    if (key[0] !== 4 || u >= (1n << 255n) - 19n) {
+      throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY");
+    }
+    return new X25519PublicKey(key);
+  }
+
+  equals(other: X25519PublicKey): boolean {
+    return this.#bytes.every((b, i) => b === other.#bytes[i]);
+  }
+  toBytes(): Bytes33 {
+    return checkedBytes<Bytes33>(this.#bytes, 33, "X25519 public key");
+  }
+  u(): Bytes32 {
+    return checkedBytes<Bytes32>(this.#bytes.subarray(1), 32, "X25519 coordinate");
+  }
+}
+
+/** RFC 7748 secret used only for custom-ring envelopes, not wallet viewing keys. */
+export class X25519Secret {
+  #secret: Bytes32 | undefined;
+  private constructor(secret: Bytes32) {
+    this.#secret = secret;
+  }
+
+  static generate(): X25519Secret {
+    const secret = randomBytes(32);
+    try {
+      return X25519Secret.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+  static fromBytes(bytes: Uint8Array): X25519Secret {
+    return new X25519Secret(checkedBytes<Bytes32>(bytes, 32, "X25519 secret"));
+  }
+  #usable(): Bytes32 {
+    if (this.#secret === undefined) throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY");
+    return this.#secret;
+  }
+  publicKey(): X25519PublicKey {
+    return X25519PublicKey.fromBytes(
+      concatBytes(Uint8Array.of(4), x25519.getPublicKey(this.#usable())),
+    );
+  }
+  secretBytes(): Bytes32 {
+    return checkedBytes<Bytes32>(this.#usable(), 32, "X25519 secret");
+  }
+  clone(): X25519Secret {
+    return X25519Secret.fromBytes(this.#usable());
+  }
+  ecdh(peer: X25519PublicKey): Bytes32 {
+    const secret = this.#usable();
+    try {
+      // Noble rejects the all-zero result, including every low-order peer.
+      const shared = x25519.getSharedSecret(secret, peer.u());
+      try {
+        return checkedBytes<Bytes32>(shared, 32, "X25519 shared secret");
+      } finally {
+        shared.fill(0);
+      }
+    } catch {
+      throw new KeypairError("KEYPAIR_NON_CONTRIBUTORY_KEY");
+    }
+  }
+  destroy(): void {
+    this.#secret?.fill(0);
+    this.#secret = undefined;
+  }
+}

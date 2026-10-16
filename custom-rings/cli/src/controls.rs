@@ -6,7 +6,7 @@ use anyhow::{bail, ensure, Context as _, Result};
 use custom_ring_sdk::{CoSignThreshold, CustomRingCoSigner, SetSpendWindow};
 use solana_signer::Signer;
 use zolana_interface::state::RingConfig as SppRingConfig;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::X25519Secret;
 
 use crate::{
     config::{Base58Address, CoSignClass, CoSignerSpec, Mint, RingConfig},
@@ -239,7 +239,7 @@ pub fn delegate(ctx: &Context, command: DelegateCommand) -> Result<()> {
 }
 
 /// The auditor read key opens recovery material, it cannot authorize a transfer.
-pub(crate) fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey> {
+pub(crate) fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<X25519Secret> {
     let config = ctx
         .block(ctx.ring.config(ctx.chain()))?
         .context("the ring has no config, run `zolana-ring init` first")?;

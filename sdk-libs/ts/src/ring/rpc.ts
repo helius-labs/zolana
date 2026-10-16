@@ -1,3 +1,4 @@
+import { X25519PublicKey } from "../keypair/x25519.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
@@ -80,7 +81,7 @@ export function ringReadAttestation(
 /** Mirrors Rust `auditor_key_attestation`. */
 export function auditorKeyAttestation(
   ringProgramId: Address,
-  auditorPublicKey: P256PublicKey,
+  auditorPublicKey: X25519PublicKey,
 ): Uint8Array {
   const domain = encoder.encode(AUDITOR_KEY_DOMAIN);
   const ring = addressBytes(ringProgramId, "ringProgramId");
@@ -254,7 +255,7 @@ export interface RingRpcHealth {
 /** Mirrors Rust `CreateAuditorKeyResponse`, the signature covers `auditorKeyAttestation`. */
 export interface RingAuditorKey {
   readonly ringProgramId: Address;
-  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorPublicKey: X25519PublicKey;
   readonly auditorViewTag: Bytes32;
   readonly servicePublicKey: Address;
   readonly signature: Uint8Array;
@@ -286,7 +287,7 @@ export interface RingStatus {
   readonly ringProgramId: Address;
   readonly state: RingState;
   /** The key the ring's config names, absent until the config exists. */
-  readonly configAuditorPublicKey?: P256PublicKey;
+  readonly configAuditorPublicKey?: X25519PublicKey;
   readonly servicePublicKey: Address;
 }
 
@@ -436,7 +437,7 @@ export class RingRpc {
     );
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
     if (key.length !== 33) throw invalid("result.auditorPubkey");
-    const auditorPublicKey = P256PublicKey.fromBytes(key as Bytes33);
+    const auditorPublicKey = X25519PublicKey.fromBytes(key as Bytes33);
     const servicePublicKey = address(wire["servicePubkey"], "result.servicePubkey");
     const signature = base58(wire["signature"], "result.signature");
     const ring = address(wire["ringProgramId"], "result.ringProgramId");
@@ -517,7 +518,11 @@ export class RingRpc {
       state,
       ...(config === undefined || config === null
         ? {}
-        : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
+        : {
+            configAuditorPublicKey: X25519PublicKey.fromBytes(
+              base64(config, "result.configAuditorPubkey"),
+            ),
+          }),
       servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }

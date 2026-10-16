@@ -317,7 +317,7 @@ fn grant_under_a_config_with_another_authority_is_rejected() {
     let other = Pubkey::new_from_array([70; 32]);
     fixture.set_account(
         "config",
-        initialized_config_account(other, auditor_pubkey(2)),
+        initialized_config_account(other, auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }

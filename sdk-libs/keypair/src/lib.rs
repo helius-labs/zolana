@@ -66,3 +66,6 @@ pub use viewing_key::{random_blinding, random_salt, ViewingKey};
 pub type Signature = [u8; 64];
 
 pub type ECDSASignature = [u8; 64];
+
+pub mod x25519;
+pub use x25519::{X25519Pubkey, X25519Secret};

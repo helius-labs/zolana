@@ -9,7 +9,7 @@ use crate::{
         loader::check_upgrade_authority,
         shared::{check_system_program, create_pda, parse},
     },
-    state::{is_p256_key, Init},
+    state::{is_x25519_key, Init},
 };
 
 /// Only the active loader-v3 upgrade authority creates the ring's singleton config.
@@ -34,8 +34,8 @@ pub fn process_create_config_ix(
 
     check_system_program(system_program)?;
     check_upgrade_authority(program_id, authority, program, program_data)?;
-    // The circuit recompresses the auditor key, another prefix never matches a proof.
-    if !is_p256_key(&auditor_pubkey) {
+    // The envelope proves agreement with this tagged canonical X25519 key.
+    if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
     let bump =

@@ -8,8 +8,8 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
-// Properties: the published key is TxViewingSk*G and TxViewingSk is AES-CTR encrypted to AuditorPk, both scalars
-// in (0, n), with the first NOut outputs disclosed. The chain mirrors CustomRingBasePublicInput::hash on chain.
+// Properties: the published key is TxViewingSk*G with TxViewingSk in (0, n), sealed to the X25519 key AuditorPk,
+// with the first NOut outputs disclosed. The chain mirrors CustomRingBasePublicInput::hash on chain.
 
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`

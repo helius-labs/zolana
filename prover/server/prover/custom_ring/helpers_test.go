@@ -44,7 +44,7 @@ func testScalar(seed byte) Bytes {
 
 func auditorKey(t *testing.T, seed byte) Bytes {
 	t.Helper()
-	key, err := ecdh.P256().NewPrivateKey(testScalar(seed))
+	key, err := ecdh.X25519().NewPrivateKey(testScalar(seed))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,6 @@ num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
-p256 = { workspace = true }
 rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }

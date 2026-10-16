@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_indexer_api::{Base64String, Hash};
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
@@ -29,7 +29,7 @@ pub enum Trust {
 }
 
 pub struct AttestedAuditorKey {
-    pub auditor_pk: P256Pubkey,
+    pub auditor_pk: X25519Pubkey,
     pub service_pubkey: Address,
 }
 
@@ -57,7 +57,7 @@ pub fn run_check(ctx: &Context) -> Result<()> {
 }
 
 impl AttestedAuditorKey {
-    pub fn require(self, trust: Trust) -> Result<P256Pubkey> {
+    pub fn require(self, trust: Trust) -> Result<X25519Pubkey> {
         let actual = self.service_pubkey;
         match trust {
             Trust::Pinned(pinned) => ensure!(
@@ -211,14 +211,14 @@ fn find_decrypted(
 mod tests {
     use std::cell::Cell;
 
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::X25519Secret;
     use zolana_ring_client::rpc::{SkippedReason, SkippedTransaction};
 
     use super::*;
 
     const SERVICE: Address = Address::new_from_array([7u8; 32]);
 
-    fn attested(auditor_pk: P256Pubkey) -> AttestedAuditorKey {
+    fn attested(auditor_pk: X25519Pubkey) -> AttestedAuditorKey {
         AttestedAuditorKey {
             auditor_pk,
             service_pubkey: SERVICE,
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn trust_accepts_the_pinned_key_or_an_explicit_waiver() {
-        let auditor_pk = ViewingKey::new().pubkey();
+        let auditor_pk = X25519Secret::new().pubkey();
         let required = |trust| attested(auditor_pk).require(trust);
         assert_eq!(
             required(Trust::Pinned(SERVICE)).expect("pinned"),

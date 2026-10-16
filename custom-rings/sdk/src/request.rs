@@ -4,7 +4,7 @@ use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{ViewingKey, X25519Pubkey};
 use zolana_ring_policy::{SourceOwner, VelocityRow, MAX_VELOCITY_ASSETS, POLICY_OUTPUT_SLOTS};
 
 use crate::{
@@ -174,10 +174,10 @@ pub(crate) struct AuditSecrets {
     pub private_tx_hash: [u8; 32],
     #[serde(rename = "txViewingSk", serialize_with = "fe::secret")]
     pub tx_viewing_key: ViewingKey,
-    #[serde(rename = "ephSk", serialize_with = "fe::secret")]
-    pub ephemeral_key: ViewingKey,
-    #[serde(rename = "auditorPk", serialize_with = "fe::uncompressed")]
-    pub auditor_key: P256Pubkey,
+    #[serde(rename = "ephSk", serialize_with = "fe::zeroizing")]
+    pub ephemeral_sk: Zeroizing<[u8; 32]>,
+    #[serde(rename = "auditorPk", serialize_with = "fe::coordinate")]
+    pub auditor_key: X25519Pubkey,
     #[serde(with = "fe")]
     pub salt: [u8; 16],
 }
@@ -239,8 +239,8 @@ pub(crate) struct DepositBody {
     pub keys: [Option<RegistryKeyOpening>; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     #[serde(rename = "ephSk", serialize_with = "fe::zeroizing")]
     pub ephemeral_sk: Zeroizing<[u8; 32]>,
-    #[serde(serialize_with = "fe::uncompressed")]
-    pub auditor_pk: P256Pubkey,
+    #[serde(serialize_with = "fe::coordinate")]
+    pub auditor_pk: X25519Pubkey,
     pub key_escrow: bool,
     #[serde(with = "fe")]
     pub key_registry_root: [u8; 32],
@@ -265,8 +265,8 @@ pub(crate) struct RegisterKeyBody {
     pub nullifier_secret: Zeroizing<[u8; 32]>,
     #[serde(serialize_with = "fe::zeroizing")]
     pub eph_sk: Zeroizing<[u8; 32]>,
-    #[serde(serialize_with = "fe::uncompressed")]
-    pub auditor_pk: P256Pubkey,
+    #[serde(serialize_with = "fe::coordinate")]
+    pub auditor_pk: X25519Pubkey,
     #[serde(with = "fe")]
     pub low_member: [u8; 32],
     #[serde(with = "fe")]

@@ -1,3 +1,4 @@
+import { X25519Secret } from "../src/keypair/x25519.js";
 import { getAddressDecoder } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -91,7 +92,7 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
 
     it(`${name} custom ring transfer keeps the audit secrets readable`, async () => {
       const keys = make();
-      const auditor = ViewingKey.generate();
+      const auditor = X25519Secret.generate();
       const minted = trackMintedTxViewingKeys();
       const encrypted = await withTransactionKey(keys, filled(1), (tx) =>
         encryptCustomRingTransfer(tx, {
@@ -204,7 +205,7 @@ describe("custom ring transfer seals each slot once", () => {
       encryptCustomRingTransfer(tx, {
         outputs: [recipientOutput()],
         assets: new AssetRegistry(),
-        auditorPublicKey: ViewingKey.generate().publicKey(),
+        auditorPublicKey: X25519Secret.generate().publicKey(),
         outputTreeId: 0,
         ...extra,
       }),

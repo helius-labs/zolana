@@ -20,7 +20,6 @@ import {
 } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
-import { isDerivationPoint } from "../keypair/derivation.js";
 
 import {
   checkRingCoSignerConfig,
@@ -163,7 +162,7 @@ export async function fetchRingProgramConfig(
     });
   }
   const config = decodeRingProgramConfig(account.data);
-  if (config.bump !== bump || isDerivationPoint(config.auditorPublicKey)) {
+  if (config.bump !== bump) {
     throw new RingError("RING_CONFIG_INVALID", { details: { ringProgramId, address } });
   }
   return config;

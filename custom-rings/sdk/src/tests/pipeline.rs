@@ -16,7 +16,7 @@ use zolana_interface::{
     },
     MAX_INPUT_TREES,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Secret};
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{RuleTable, VelocityRow};
 use zolana_transaction::{
@@ -51,7 +51,7 @@ fn program() -> Address {
 fn audit_only() -> CustomRingConfig {
     CustomRingConfig {
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Secret::new().pubkey(),
         has_policy: false,
         key_escrow: KeyEscrow::Off,
     }

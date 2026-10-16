@@ -5,12 +5,15 @@
 Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
-opts out. Ring instructions follow the ring program's new layout, which binds
-the proven spend window, and ring submissions prove again over a replaced key
-registry root.
+opts out. One private transfer can pay several recipients. Ring instructions
+follow the ring program's new layout, which binds the proven spend window, and
+ring submissions prove again over a replaced key registry root.
 
 Breaking
 
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor
+  configuration with `X25519Secret`/`X25519PublicKey`; wallet viewing keys
+  remain P-256 and old auditor envelopes are unsupported.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`
@@ -38,9 +41,18 @@ Breaking
 - `setRingSpendWindowInstruction` refuses a window with neither a deposit nor a
   withdrawal cap with `RING_SPEND_WINDOW_INVALID` → set at least one nonzero
   cap, or clear the window.
+- Approval handlers receive a new `multiTransfer` intent for a transfer with
+  several payments → handle it, or refuse it explicitly.
 
 Added
 
+- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
+  one asset in one private transfer, each a `TransferPayment` in order (a
+  single payment stays a `transfer` intent), and accepts a `feePayer` other
+  than the wallet owner like `buildTransferTransaction`.
+- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
+  `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
+  fifteen, or holds a malformed payment.
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
@@ -83,13 +95,23 @@ A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
 path. A Nitro Enclave prover can be held to one encryption key, and a
-sponsor can pay the fee of a private transfer, withdrawal, or split.
+sponsor can pay the fee of a private transfer, withdrawal, or split. Nullifier
+trees append 4,999 nullifiers per proof, which shrinks a tree account to two
+creation instructions.
 
 Breaking
 
 - `TransactionErrorCode` no longer includes `TRANSACTION_ED25519_PAYER_MISMATCH`,
   since a fee payer other than the owner is now accepted → remove it from
   exhaustive switches.
+- `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE` is 4999 (was 250) and
+  `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 24,995 (was 25,000), so
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 5, `TREE_ACCOUNT_SIZE` is 18,608
+  and `TREE_CREATION_STEP_COUNT` is 2 → point the client at a deployment
+  created with this release, since tree accounts of the previous layout no
+  longer decode.
+- `PROVING_KEY_SHA256S` pins `batch_address-append_40_4999.key` in place of
+  `batch_address-append_40_250.key` → run a prover with the matching key set.
 
 Added
 
