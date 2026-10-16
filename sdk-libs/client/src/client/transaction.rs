@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use std::{
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use solana_address::Address;
 use solana_hash::Hash;
@@ -170,73 +174,75 @@ impl<'a> Submission<'a> {
     /// The unsigned v1 message of this submission, proved through `client`,
     /// and the last block height it can land at.
     ///
-    /// Fetches the blockhash itself, after proving rather than before.
-    /// Callers used to fetch one and hand it in, which put a multi-second
-    /// proof between the blockhash and the send. Under load that window
-    /// exceeded the blockhash lifetime and the transaction was rejected at
-    /// submission, having already paid for the sync and the proof: an
-    /// 80-worker run lost 297 of 337 transfers to "Blockhash not found".
+    /// Fetches the blockhash itself, beside the proof, and again after a
+    /// proof that took longer than `BLOCKHASH_AGE_WITH_PROOF` (see
+    /// `proved_with_blockhash`). Callers used to fetch one and hand it in,
+    /// which put a multi-second proof between the blockhash and the send.
+    /// Under load that window exceeded the blockhash lifetime and the
+    /// transaction was rejected at submission, having already paid for the
+    /// sync and the proof: an 80-worker run lost 297 of 337 transfers to
+    /// "Blockhash not found".
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<UnsignedMessage, ClientError> {
         let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
-        let (trees, data) = match (&self.prover, client.indexed_prover()) {
-            (None, Some(server)) => {
-                let proved = server
-                    .prove_indexed(
-                        &client
-                            .transfer_preparation(self.signed)
-                            .prepare(self.authority)?,
-                    )
-                    .await?;
-                (
-                    indexed_trees(proved.input_tree_ids, &self.signed.transaction),
-                    proved.data,
-                )
-            }
-            (prover, _) => {
-                let witnesses = client
-                    .indexer
-                    .transaction_proofs(&self.signed.transaction.input_utxos, None)
-                    .await?;
-                let mut assembled = assemble(
-                    self.signed.transaction.clone(),
-                    &witnesses.spend_proofs,
-                    &witnesses.dummy_nullifier_proofs,
-                )?;
-                let proof = match prover {
-                    Some(prover) => {
-                        let inputs = &mut assembled.prover_inputs;
-                        self.authority.complete_inputs(&mut inputs.inputs)?;
-                        let proof = prove_on_blocking_pool(
-                            Arc::clone(prover),
-                            crate::prover::requests::transfer(inputs)?,
+        let proving = async {
+            Ok::<_, ClientError>(match (&self.prover, client.indexed_prover()) {
+                (None, Some(server)) => {
+                    let proved = server
+                        .prove_indexed(
+                            &client
+                                .transfer_preparation(self.signed)
+                                .prepare(self.authority)?,
                         )
                         .await?;
-                        verify_confidential_transfer_inputs(
-                            inputs,
-                            assembled.public_input_hash,
-                            &proof,
-                        )?;
-                        ProofCompressed::try_from(proof)?.to_transact_proof()
-                    }
-                    None => {
-                        client
-                            .prove_assembled(&mut assembled, self.authority)
-                            .await?
-                    }
-                };
-                (
-                    transact_trees(&assembled, &self.signed.transaction),
-                    assembled.with_proof(proof),
-                )
-            }
+                    (
+                        indexed_trees(proved.input_tree_ids, &self.signed.transaction),
+                        proved.data,
+                    )
+                }
+                (prover, _) => {
+                    let witnesses = client
+                        .indexer
+                        .transaction_proofs(&self.signed.transaction.input_utxos, None)
+                        .await?;
+                    let mut assembled = assemble(
+                        self.signed.transaction.clone(),
+                        &witnesses.spend_proofs,
+                        &witnesses.dummy_nullifier_proofs,
+                    )?;
+                    let proof = match prover {
+                        Some(prover) => {
+                            let inputs = &mut assembled.prover_inputs;
+                            self.authority.complete_inputs(&mut inputs.inputs)?;
+                            let proof = prove_on_blocking_pool(
+                                Arc::clone(prover),
+                                crate::prover::requests::transfer(inputs)?,
+                            )
+                            .await?;
+                            verify_confidential_transfer_inputs(
+                                inputs,
+                                assembled.public_input_hash,
+                                &proof,
+                            )?;
+                            ProofCompressed::try_from(proof)?.to_transact_proof()
+                        }
+                        None => {
+                            client
+                                .prove_assembled(&mut assembled, self.authority)
+                                .await?
+                        }
+                    };
+                    (
+                        transact_trees(&assembled, &self.signed.transaction),
+                        assembled.with_proof(proof),
+                    )
+                }
+            })
         };
-        // Last thing before building, so the blockhash is as young as it can be
-        // when the transaction reaches the cluster.
-        let (recent_blockhash, last_valid_block_height) =
-            client.rpc().get_latest_blockhash().await?;
+        let ((trees, data), (recent_blockhash, last_valid_block_height)) =
+            proved_with_blockhash(client.rpc(), proving).await?;
         Ok(UnsignedMessage {
             message: build_unsigned_message(
                 client.compute_budget(),
@@ -288,6 +294,41 @@ impl<'a> Submission<'a> {
 /// The owners who sign `signed`, once it is known that `fee_payer` is the
 /// payer its proof binds and that it writes no cache, which these submission
 /// paths cannot do.
+/// How old a blockhash fetched beside a proof may be when the message is
+/// built. A proof that takes longer fetches a fresh one once done, so the
+/// blockhash's lifetime is spent on the way to the cluster, never on the
+/// proof.
+pub(crate) const BLOCKHASH_AGE_WITH_PROOF: Duration = Duration::from_secs(10);
+
+/// `proving` beside a fetch of the latest blockhash, so that a short proof
+/// costs no round trip after it: what it proved, and a blockhash at most
+/// [`BLOCKHASH_AGE_WITH_PROOF`] old, fetched again after a longer proof or a
+/// failed fetch.
+pub(crate) async fn proved_with_blockhash<R: AsyncRpc, T>(
+    rpc: &R,
+    proving: impl Future<Output = Result<T, ClientError>>,
+) -> Result<(T, (Hash, u64)), ClientError> {
+    proved_with_blockhash_within(rpc, proving, BLOCKHASH_AGE_WITH_PROOF).await
+}
+
+async fn proved_with_blockhash_within<R: AsyncRpc, T>(
+    rpc: &R,
+    proving: impl Future<Output = Result<T, ClientError>>,
+    max_age: Duration,
+) -> Result<(T, (Hash, u64)), ClientError> {
+    let fetching = async {
+        let blockhash = rpc.get_latest_blockhash().await;
+        (blockhash, Instant::now())
+    };
+    let (proved, (blockhash, fetched_at)) = tokio::join!(proving, fetching);
+    let proved = proved?;
+    let blockhash = match blockhash {
+        Ok(blockhash) if fetched_at.elapsed() <= max_age => blockhash,
+        _ => rpc.get_latest_blockhash().await?,
+    };
+    Ok((proved, blockhash))
+}
+
 fn submission_owner_signers(
     signed: &SignedPrivateTransaction,
     fee_payer: Address,
@@ -371,4 +412,92 @@ fn build_unsigned_message(
         recent_blockhash,
         compute_budget,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    /// Counts its blockhash fetches, each a new hash at its count as the
+    /// height; the first fails when `fail_first`.
+    struct Blockhashes {
+        fetched: AtomicU32,
+        fail_first: bool,
+    }
+
+    impl Blockhashes {
+        fn new(fail_first: bool) -> Self {
+            Self {
+                fetched: AtomicU32::new(0),
+                fail_first,
+            }
+        }
+
+        fn fetched(&self) -> u32 {
+            self.fetched.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for Blockhashes {
+        async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+            let count = self.fetched.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.fail_first && count == 1 {
+                return Err(ClientError::Rpc("blockhash".into()));
+            }
+            Ok((Hash::new_from_array([count as u8; 32]), count.into()))
+        }
+    }
+
+    const LONG: Duration = Duration::from_secs(60);
+
+    #[tokio::test]
+    async fn a_short_proof_uses_the_blockhash_fetched_beside_it() {
+        let rpc = Blockhashes::new(false);
+        let (proved, (hash, height)) = proved_with_blockhash_within(&rpc, async { Ok(7) }, LONG)
+            .await
+            .unwrap();
+        assert_eq!(
+            (proved, hash, height),
+            (7, Hash::new_from_array([1; 32]), 1)
+        );
+        assert_eq!(rpc.fetched(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_long_proof_fetches_the_blockhash_again() {
+        let rpc = Blockhashes::new(false);
+        let proving = async {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            Ok(7)
+        };
+        let (_, (_, height)) = proved_with_blockhash_within(&rpc, proving, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!((height, rpc.fetched()), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn a_fetch_that_failed_beside_the_proof_is_made_again_after_it() {
+        let rpc = Blockhashes::new(true);
+        let (_, (_, height)) = proved_with_blockhash_within(&rpc, async { Ok(7) }, LONG)
+            .await
+            .unwrap();
+        assert_eq!((height, rpc.fetched()), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn a_failed_proof_fails_without_another_fetch() {
+        let rpc = Blockhashes::new(false);
+        let failed = proved_with_blockhash_within::<_, u32>(
+            &rpc,
+            async { Err(ClientError::Rpc("proof".into())) },
+            LONG,
+        )
+        .await;
+        assert!(failed.is_err());
+        assert_eq!(rpc.fetched(), 1);
+    }
 }
