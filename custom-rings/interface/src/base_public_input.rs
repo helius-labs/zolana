@@ -53,7 +53,7 @@ impl CustomRingBasePublicInput<'_> {
             ciphertext_hash(self.ciphertext)?,
             create_hash_chain_4_from_slice(self.output_hashes)?,
             right_align(self.salt),
-            create_hash_chain_from_slice(self.disclosure)?,
+            create_hash_chain_4_from_slice(self.disclosure)?,
         ])
     }
 }
