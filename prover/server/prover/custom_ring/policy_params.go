@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	scalarLen  = 32
-	ruleEncLen = 32
+	scalarLen   = 32
+	ruleEncLen  = 32
+	identityLen = 33
 )
 
 // Opening is one UTXO slot the statement opens, ordered as the circuit
@@ -97,10 +98,13 @@ type SpendRecord struct {
 type PolicyParameters struct {
 	PublicInputHash *big.Int
 	PrivateTxHash   *big.Int
+	Anonymous       bool
 	TxViewingSk     [scalarLen]byte
 	EphSk           [scalarLen]byte
 	AuditorPk       [32]byte
 	Salt            [16]byte
+	Sender          [identityLen]byte
+	Recipients      [policy.NOutputs][identityLen]byte
 
 	NIn     uint8
 	NOut    uint8
@@ -196,10 +200,13 @@ type policyParametersJSON struct {
 	CircuitType        string            `json:"circuitType"`
 	PublicInputHash    string            `json:"publicInputHash"`
 	PrivateTxHash      string            `json:"privateTxHash"`
+	Anonymous          bool              `json:"anonymous,omitempty"`
 	TxViewingSk        string            `json:"txViewingSk"`
 	EphSk              string            `json:"ephSk"`
 	AuditorPk          string            `json:"auditorPk"`
 	Salt               string            `json:"salt"`
+	Sender             string            `json:"sender,omitempty"`
+	Recipients         []string          `json:"recipients,omitempty"`
 	NIn                uint8             `json:"nIn"`
 	NOut               uint8             `json:"nOut"`
 	Inputs             []openingJSON     `json:"inputs"`
@@ -236,10 +243,13 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		CircuitType:        string(common.CustomRingPolicyCircuitType),
 		PublicInputHash:    common.ToHex(p.PublicInputHash),
 		PrivateTxHash:      common.ToHex(p.PrivateTxHash),
+		Anonymous:          p.Anonymous,
 		TxViewingSk:        bytesHex(p.TxViewingSk[:]),
 		EphSk:              bytesHex(p.EphSk[:]),
 		AuditorPk:          bytesHex(p.AuditorPk[:]),
 		Salt:               bytesHex(p.Salt[:]),
+		Sender:             identityHex(p.Sender, p.Anonymous),
+		Recipients:         writeIdentities(p.Recipients[:], p.Anonymous),
 		NIn:                p.NIn,
 		NOut:               p.NOut,
 		Inputs:             writeOpenings(p.Inputs[:]),
@@ -313,6 +323,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if raw.NIn == 0 || int(raw.NIn) > policy.NInputs {
 		return fmt.Errorf("custom-ring: nIn %d is outside 1..%d", raw.NIn, policy.NInputs)
 	}
+	if raw.Anonymous && raw.NIn > base.AuditInputSlots {
+		return fmt.Errorf("custom-ring: anonymous nIn %d exceeds %d", raw.NIn, base.AuditInputSlots)
+	}
 	if raw.NOut == 0 || int(raw.NOut) > policy.NOutputs {
 		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, policy.NOutputs)
 	}
@@ -352,6 +365,13 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if err = bytesFromHex(p.Salt[:], raw.Salt, "salt"); err != nil {
+		return err
+	}
+	p.Anonymous = raw.Anonymous
+	if err = readSender(p.Sender[:], raw.Sender, raw.Anonymous); err != nil {
+		return err
+	}
+	if err = readIdentities(p.Recipients[:], raw.Recipients, raw.Anonymous); err != nil {
 		return err
 	}
 	if p.AddressChain, err = fieldFromHex(raw.AddressChain, "addressChain"); err != nil {
@@ -728,8 +748,8 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	circuit := &policy.CustomRingPolicyCircuit{
 		PublicInputHash:    p.PublicInputHash,
 		PrivateTxHash:      p.PrivateTxHash,
-		Anonymous:          0,
-		Sender:             base.ZeroAuditIdentity(),
+		Anonymous:          boolVar(p.Anonymous),
+		Sender:             identityWires(p.Sender),
 		AddressChain:       p.AddressChain,
 		PrivateTxBlinding:  p.PrivateTxBlinding,
 		WindowSlots:        p.WindowSlots,
@@ -776,7 +796,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	}
 	for i := range circuit.Outputs {
 		assignOpening(&circuit.Outputs[i], &p.Outputs[i])
-		circuit.Recipients[i] = base.ZeroAuditIdentity()
+		circuit.Recipients[i] = identityWires(p.Recipients[i])
 		assignRegistryKey(&circuit.OutputKeys[i], p.Outputs[i].Key)
 	}
 	for i, slot := range p.TreeSlots {
@@ -811,6 +831,58 @@ func assignOpening(dst *policy.UtxoWires, src *Opening) {
 	dst.DataHash = src.DataHash
 	dst.RingDataHash = src.RingDataHash
 	dst.RingProgramID = src.RingProgramID
+}
+
+func identityWires(src [identityLen]byte) base.AuditIdentityWires {
+	w := base.AuditIdentityWires{Tag: src[0]}
+	assignBytes(w.Key[:], src[1:])
+	return w
+}
+
+func identityHex(src [identityLen]byte, enabled bool) string {
+	if enabled {
+		return bytesHex(src[:])
+	}
+	return ""
+}
+
+func writeIdentities(src [][identityLen]byte, enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	out := make([]string, len(src))
+	for i := range src {
+		out[i] = bytesHex(src[i][:])
+	}
+	return out
+}
+
+func readSender(dst []byte, raw string, anonymous bool) error {
+	if !anonymous && raw == "" {
+		return nil
+	}
+	if err := bytesFromHex(dst, raw, "sender"); err != nil {
+		return err
+	}
+	if !anonymous && new(big.Int).SetBytes(dst).Sign() != 0 {
+		return fmt.Errorf("custom-ring: sender is set outside anonymous mode")
+	}
+	return nil
+}
+
+func readIdentities(dst [][identityLen]byte, raw []string, anonymous bool) error {
+	if !anonymous && len(raw) == 0 {
+		return nil
+	}
+	if len(raw) != len(dst) {
+		return fmt.Errorf("custom-ring: recipients holds %d slots, expected %d", len(raw), len(dst))
+	}
+	for i := range dst {
+		if err := bytesFromHex(dst[i][:], raw[i], "recipients"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // The circuit reads a count only through its one-hot, an out-of-range set bit

@@ -12,14 +12,21 @@ import (
 // BaseParameters is the audit statement witness, the prefix of the folded
 // PolicyParameters.
 type BaseParameters struct {
-	PublicInputHash *big.Int
-	PrivateTxHash   *big.Int
-	TxViewingSk     [scalarLen]byte
-	EphSk           [scalarLen]byte
-	AuditorPk       [32]byte
-	Salt            [16]byte
-	NOut            uint8
-	Outputs         [base.AuditOutputSlots]AuditOpening
+	PublicInputHash   *big.Int
+	PrivateTxHash     *big.Int
+	Anonymous         bool
+	TxViewingSk       [scalarLen]byte
+	EphSk             [scalarLen]byte
+	AuditorPk         [32]byte
+	Salt              [16]byte
+	NOut              uint8
+	Outputs           [base.AuditOutputSlots]AuditOpening
+	Sender            [identityLen]byte
+	NIn               uint8
+	Inputs            [base.AuditInputSlots]Opening
+	AnonymousOutputs  [base.AuditOutputSlots]Opening
+	Recipients        [base.AuditOutputSlots][identityLen]byte
+	PrivateTxBlinding *big.Int
 }
 
 type AuditOpening struct {
@@ -47,28 +54,42 @@ type auditOpeningJSON struct {
 }
 
 type baseParametersJSON struct {
-	CircuitType     string             `json:"circuitType"`
-	PublicInputHash string             `json:"publicInputHash"`
-	PrivateTxHash   string             `json:"privateTxHash"`
-	TxViewingSk     string             `json:"txViewingSk"`
-	EphSk           string             `json:"ephSk"`
-	AuditorPk       string             `json:"auditorPk"`
-	Salt            string             `json:"salt"`
-	NOut            uint8              `json:"nOut"`
-	Outputs         []auditOpeningJSON `json:"outputs"`
+	CircuitType       string             `json:"circuitType"`
+	PublicInputHash   string             `json:"publicInputHash"`
+	PrivateTxHash     string             `json:"privateTxHash"`
+	Anonymous         bool               `json:"anonymous,omitempty"`
+	TxViewingSk       string             `json:"txViewingSk"`
+	EphSk             string             `json:"ephSk"`
+	AuditorPk         string             `json:"auditorPk"`
+	Salt              string             `json:"salt"`
+	NOut              uint8              `json:"nOut"`
+	Outputs           []auditOpeningJSON `json:"outputs"`
+	Sender            string             `json:"sender,omitempty"`
+	NIn               uint8              `json:"nIn,omitempty"`
+	Inputs            []openingJSON      `json:"inputs,omitempty"`
+	AnonymousOutputs  []openingJSON      `json:"anonymousOutputs,omitempty"`
+	Recipients        []string           `json:"recipients,omitempty"`
+	PrivateTxBlinding string             `json:"privateTxBlinding,omitempty"`
 }
 
 func (p *BaseParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(baseParametersJSON{
-		CircuitType:     string(common.CustomRingBaseCircuitType),
-		PublicInputHash: common.ToHex(p.PublicInputHash),
-		PrivateTxHash:   common.ToHex(p.PrivateTxHash),
-		TxViewingSk:     bytesHex(p.TxViewingSk[:]),
-		EphSk:           bytesHex(p.EphSk[:]),
-		AuditorPk:       bytesHex(p.AuditorPk[:]),
-		Salt:            bytesHex(p.Salt[:]),
-		NOut:            p.NOut,
-		Outputs:         writeAuditOpenings(p.Outputs[:]),
+		CircuitType:       string(common.CustomRingBaseCircuitType),
+		PublicInputHash:   common.ToHex(p.PublicInputHash),
+		PrivateTxHash:     common.ToHex(p.PrivateTxHash),
+		Anonymous:         p.Anonymous,
+		TxViewingSk:       bytesHex(p.TxViewingSk[:]),
+		EphSk:             bytesHex(p.EphSk[:]),
+		AuditorPk:         bytesHex(p.AuditorPk[:]),
+		Salt:              bytesHex(p.Salt[:]),
+		NOut:              p.NOut,
+		Outputs:           writeAuditOpenings(p.Outputs[:]),
+		Sender:            identityHex(p.Sender, p.Anonymous),
+		NIn:               p.NIn,
+		Inputs:            writeAnonymousOpenings(p.Inputs[:], p.Anonymous),
+		AnonymousOutputs:  writeAnonymousOpenings(p.AnonymousOutputs[:], p.Anonymous),
+		Recipients:        writeIdentities(p.Recipients[:], p.Anonymous),
+		PrivateTxBlinding: anonymousFieldHex(p.PrivateTxBlinding, p.Anonymous),
 	})
 }
 
@@ -108,12 +129,32 @@ func (p *BaseParameters) UnmarshalJSON(data []byte) error {
 	if raw.NOut == 0 || int(raw.NOut) > base.AuditOutputSlots {
 		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, base.AuditOutputSlots)
 	}
+	if raw.Anonymous != (raw.NIn != 0) || int(raw.NIn) > base.AuditInputSlots {
+		return fmt.Errorf("custom-ring: nIn %d does not match anonymous %t", raw.NIn, raw.Anonymous)
+	}
 	if len(raw.Outputs) != base.AuditOutputSlots {
 		return fmt.Errorf("custom-ring: outputs has %d entries, expected %d", len(raw.Outputs), base.AuditOutputSlots)
 	}
-	p.NOut = raw.NOut
+	p.NOut, p.NIn, p.Anonymous = raw.NOut, raw.NIn, raw.Anonymous
 	for i := range p.Outputs {
 		if err = readAuditOpening(&p.Outputs[i], raw.Outputs[i], fmt.Sprintf("outputs[%d]", i)); err != nil {
+			return err
+		}
+	}
+	if err = readSender(p.Sender[:], raw.Sender, raw.Anonymous); err != nil {
+		return err
+	}
+	if err = readIdentities(p.Recipients[:], raw.Recipients, raw.Anonymous); err != nil {
+		return err
+	}
+	if raw.Anonymous {
+		if p.PrivateTxBlinding, err = fieldFromHex(raw.PrivateTxBlinding, "privateTxBlinding"); err != nil {
+			return err
+		}
+		if err = readOpenings(p.Inputs[:], raw.Inputs, "inputs"); err != nil {
+			return err
+		}
+		if err = readOpenings(p.AnonymousOutputs[:], raw.AnonymousOutputs, "anonymousOutputs"); err != nil {
 			return err
 		}
 	}
@@ -127,9 +168,12 @@ func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 	circuit := &base.CustomRingBaseCircuit{
 		PublicInputHash:   p.PublicInputHash,
 		PrivateTxHash:     p.PrivateTxHash,
-		Anonymous:         0,
-		Sender:            base.ZeroAuditIdentity(),
+		Anonymous:         boolVar(p.Anonymous),
+		Sender:            identityWires(p.Sender),
 		PrivateTxBlinding: 0,
+	}
+	if p.Anonymous {
+		circuit.PrivateTxBlinding = p.PrivateTxBlinding
 	}
 	assignBytes(circuit.TxViewingSk[:], p.TxViewingSk[:])
 	assignBytes(circuit.EphSk[:], p.EphSk[:])
@@ -138,12 +182,18 @@ func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 	for i := range circuit.Outputs {
 		assignAuditOpening(&circuit.Outputs[i], &p.Outputs[i])
 		circuit.AnonymousOutputs[i] = base.ZeroAuditUtxo()
-		circuit.Recipients[i] = base.ZeroAuditIdentity()
+		if p.Anonymous {
+			assignAnonymousOpening(&circuit.AnonymousOutputs[i], &p.AnonymousOutputs[i])
+		}
+		circuit.Recipients[i] = identityWires(p.Recipients[i])
 	}
 	for i := range circuit.Inputs {
 		circuit.Inputs[i] = base.ZeroAuditUtxo()
+		if p.Anonymous {
+			assignAnonymousOpening(&circuit.Inputs[i], &p.Inputs[i])
+		}
 	}
-	assignOneHot(circuit.InputCountSelected[:], 0)
+	assignOneHot(circuit.InputCountSelected[:], int(p.NIn))
 	assignOneHot(circuit.OutputCountSelected[:], int(p.NOut)-1)
 	return circuit, nil
 }
@@ -187,4 +237,25 @@ func assignAuditOpening(out *base.AuditOutputWires, opening *AuditOpening) {
 	out.Domain, out.TreeID, out.OwnerHash = opening.Domain, opening.TreeID, opening.OwnerHash
 	out.Asset, out.Amount, out.Blinding = opening.Asset, opening.Amount, opening.Blinding
 	out.DataHash, out.RingDataHash, out.RingProgramID = opening.DataHash, opening.RingDataHash, opening.RingProgramID
+}
+
+func assignAnonymousOpening(out *base.AuditUtxoWires, opening *Opening) {
+	out.Domain, out.TreeID = opening.Domain, opening.TreeID
+	out.OwnerPkHash, out.NullifierPk = opening.OwnerPkHash, opening.NullifierPk
+	out.Asset, out.Amount, out.Blinding = opening.Asset, opening.Amount, opening.Blinding
+	out.DataHash, out.RingDataHash, out.RingProgramID = opening.DataHash, opening.RingDataHash, opening.RingProgramID
+}
+
+func writeAnonymousOpenings(openings []Opening, anonymous bool) []openingJSON {
+	if !anonymous {
+		return nil
+	}
+	return writeOpenings(openings)
+}
+
+func anonymousFieldHex(value *big.Int, anonymous bool) string {
+	if anonymous {
+		return common.ToHex(value)
+	}
+	return ""
 }
