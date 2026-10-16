@@ -481,7 +481,7 @@ impl<'a> TransactProof<'a> {
             self.derived.output_tree_id,
             *self.ix.private_tx_hash,
         ]);
-        if self.ix.circuit.is_p256() {
+        if self.ix.circuit.signs_message_digest() {
             let message_digest = Sha256::hashv(&[
                 self.ix.private_tx_hash.as_slice(),
                 self.derived.external_data_hash.as_slice(),

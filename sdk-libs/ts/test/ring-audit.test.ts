@@ -61,12 +61,12 @@ const CIPHERTEXT = hex(
   "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354",
 ) as Bytes32;
 
-// Fixture from custom-rings/program/src/instructions/transact.rs.
+// Shared base vector in custom-rings/sdk/tests/go_vectors.rs.
 const TX_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63") as Bytes33;
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("1569b2c4bb38c6768a2b8f8ba7ee18c0c30ab441fb6b3edddc08a15c01b130e8");
+const PUBLIC_INPUT_HASH = hex("1b4e1ba78684f111c74fabe984dcf6b70cd0bd6cbdcaf90a672986ce1a89b0e0");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 describe("ring audit encryption", () => {
@@ -144,7 +144,7 @@ describe("ring audit encryption", () => {
         ...revocationTargets,
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "29fff514fd46f872736fdebb78c587ae409a2809bbc9862afabfea24439f8f5d",
+      "2aa0c875d2823f551bc4c1f5e98cc18fb0dc6171079af204193067ec124f07e6",
     );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },

@@ -23,9 +23,9 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/lookup"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/lookup"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/r1c"
 )
 
 // init registers untrusted decomposition, multiplication and ladder hints.
@@ -163,28 +163,16 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	var s1, s2 *frElement
 	var s1digits, s2digits []frontend.Variable
 	var s1Top, s2Top frontend.Variable
-	if c.lay.Lookups {
-		// Bits above bit 0 are consumed only through their radix-four digit.
-		// Bounding the digit is sufficient. The constituent hint values need
-		// not themselves be Boolean. Keep the hint's existing output shape.
-		s1digits = c.radixFourDigits(s1bits)
-		s2digits = c.radixFourDigits(s2bits)
-		s1Top, s2Top = s1digits[len(s1digits)-1], s2digits[len(s2digits)-1]
-		s1 = c.scalarFromRadixFour(s1bits[0], s1digits)
-		s2 = c.scalarFromRadixFour(s2bits[0], s2digits)
-		api.AssertIsDifferent(api.Add(s2bits[0], s2digits[0], s2digits[1:]...), 0)
-	} else {
-		for _, bits := range [][]frontend.Variable{s1bits, s2bits} {
-			api.AssertIsEqual(bits[halfScalarBits-1], 0)
-			for _, b := range bits[:halfScalarBits-1] {
-				api.AssertIsBoolean(b)
-			}
-		}
-		s1 = c.scalarFromBits(s1bits[:halfScalarBits-1])
-		s2 = c.scalarFromBits(s2bits[:halfScalarBits-1])
-		s1Top, s2Top = s1bits[halfScalarBits-2], s2bits[halfScalarBits-2]
-		api.AssertIsDifferent(api.Add(s2bits[0], s2bits[1], s2bits[2:]...), 0)
-	}
+	// Bits above bit 0 are consumed only through their radix-four digit.
+	// Bounding the digit is sufficient. The constituent hint values need
+	// not themselves be Boolean. Keep the hint's existing output shape.
+	s1digits = c.radixFourDigits(s1bits)
+	s2digits = c.radixFourDigits(s2bits)
+	s1Top, s2Top = s1digits[len(s1digits)-1], s2digits[len(s2digits)-1]
+	s1 = c.scalarFromRadixFour(s1bits[0], s1digits)
+	s2 = c.scalarFromRadixFour(s2bits[0], s2digits)
+	api.AssertIsDifferent(api.Add(s2bits[0], s2digits[0], s2digits[1:]...), 0)
+
 	// 2. Enforce s*signed(s2)+s1=0 in the selected scalar field.
 	c.scalarZero(T(1, s, fr.Select(sign, fr.Neg(s2), s2)), T(1, s1))
 
@@ -219,12 +207,7 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	api.AssertIsEqual(s1Top, 0)
 	api.AssertIsEqual(s2Top, 0)
 	acc = t2
-	lookup := func(i int) *point {
-		return c.muxSlot(slots, s1bits[i], s2bits[i], s1bits[i-1], s2bits[i-1])
-	}
-	if c.lay.Lookups {
-		lookup = c.packedTableLookup(slots, s1digits, s2digits)
-	}
+	lookup := c.packedTableLookup(slots, s1digits, s2digits)
 	// 6. Process each radix-four digit with the guarded lazy step.
 	// Certain scalar residues can make an intermediate accumulator the identity.
 	// This affine step then rejects an honest proof. A caller can retry with a
@@ -240,20 +223,6 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	target := c.selectPoint(s1bits[0], c.selectPoint(s2bits[0], r3, r4), t4)
 	c.assertEqual(acc, target)
 	return r
-}
-
-// scalarFromBits packs Boolean scalar bits into bounded limbs. FromBinary
-// constrains the bits, so the recorded limb widths follow from recomposition.
-func (c *curve) scalarFromBits(bits []frontend.Variable) *frElement {
-	var limbs []frontend.Variable
-	var widths []int
-	// Pack bounded binary chunks and record their exact widths.
-	for i := 0; i < len(bits); i += c.lay.LimbBits {
-		chunk := bits[i:min(len(bits), i+c.lay.LimbBits)]
-		limbs = append(limbs, c.api.FromBinary(chunk...))
-		widths = append(widths, len(chunk))
-	}
-	return c.fr.Bounded(limbs, widths)
 }
 
 // radixFourDigits bounds the reconstruction's low bit and paired radix-four
@@ -529,47 +498,6 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 		}
 		return &point{X: x, Y: c.unpackedCoordinate(cols[nbPackedX:nbPackedX+nbPackedY], c.packedYGroup(), true)}
 	}
-}
-
-// muxSlot selects the same signed ladder slot without lookup arguments.
-// The selector inputs must be Boolean, and all eight slots must already have
-// curve membership and reduced bounds. Coordinate selection preserves both.
-func (c *curve) muxSlot(slots []*point, b0, b1, b2, b3 frontend.Variable) *point {
-	// 1. Require reduced coordinate bounds for every candidate slot.
-	api, fp := c.api, c.fp
-	widths := fp.ReducedWidths()
-	for _, slot := range slots {
-		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
-			panic("table points must be reduced")
-		}
-	}
-	// 2. Select the slot through Boolean multiplexers.
-	sel := []frontend.Variable{api.Xor(b0, b3), api.Xor(b1, b3), api.Xor(b2, b3)}
-	mux := func(column func(int) []frontend.Variable) []frontend.Variable {
-		level := make([][]frontend.Variable, len(slots))
-		for i := range slots {
-			level[i] = column(i)
-		}
-		for _, bit := range sel {
-			next := make([][]frontend.Variable, len(level)/2)
-			for j := range next {
-				next[j] = make([]frontend.Variable, len(level[2*j]))
-				for l := range next[j] {
-					next[j][l] = api.Select(bit, level[2*j+1][l], level[2*j][l])
-				}
-			}
-			level = next
-		}
-		return level[0]
-	}
-	// 3. Restore the selected Y sign and retain the proven coordinate bounds.
-	xs := mux(func(i int) []frontend.Variable { return slots[i].X.Limbs() })
-	packed := mux(func(i int) []frontend.Variable { return c.packedCoordinate(slots[i].Y, c.packedYGroup()) })
-	sign := api.Sub(api.Mul(b0, 2), 1)
-	for g := range packed {
-		packed[g] = api.Mul(sign, packed[g])
-	}
-	return &point{X: fp.Reduced(xs), Y: c.unpackedCoordinate(packed, c.packedYGroup(), true)}
 }
 
 // packedYGroup keeps each packed Y below half the native-field width.

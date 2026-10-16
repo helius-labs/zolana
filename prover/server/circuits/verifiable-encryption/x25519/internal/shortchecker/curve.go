@@ -20,7 +20,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type fpElement = emfield.Element
@@ -141,7 +141,7 @@ func (c *curve) triple(p *point) *point {
 	lambda1 := c.tangent(p)
 	x2 := c.evalOrLazy(false, T(1, lambda1, lambda1), T(-2, p.X))
 	// 2. Bind the chord joining P and 2P and compute the reduced coordinates.
-	lambda2 := c.fp.Sub(c.ratio(c.fp.MulConst(p.Y, 2), c.fp.Sub(p.X, x2)), lambda1)
+	lambda2 := c.fp.Sub(c.ratio(c.fp.Lin([]int64{2}, p.Y), c.fp.Sub(p.X, x2)), lambda1)
 	x := c.fp.EvalProjected(T(1, lambda2, lambda2), T(-1, p.X), T(-1, x2))
 	y := c.fp.EvalProjected(T(1, lambda2, c.fp.Sub(p.X, x)), T(-1, p.Y))
 	return &point{X: x, Y: y}

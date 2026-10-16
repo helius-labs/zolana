@@ -542,7 +542,7 @@ impl KeySeal<'_> {
         }
         .hash()
         .map_err(|_| KeyRegistrationError::Hashing)?;
-        // The witness uses the raw coordinate; the transcript hashes the tagged key.
+        // The witness uses the raw coordinate. The transcript hashes the tagged key.
         let auditor_coordinate = self.auditor.u();
         Ok(KeyRegistration {
             request: RegisterKeyProofRequest {

@@ -97,6 +97,14 @@ pub mod transfer_confidential_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_8_8;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_2_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_2_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_3_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_4_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_12_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_12_4;
@@ -429,6 +437,22 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_confidential_8_8.key",
         transfer_confidential_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_2_2.key",
+        transfer_ed25519_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_2_4.key",
+        transfer_ed25519_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_3_4.key",
+        transfer_ed25519_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_4_2.key",
+        transfer_ed25519_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_p256_ring_12_2.key",

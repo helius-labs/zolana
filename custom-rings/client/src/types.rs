@@ -10,7 +10,7 @@ use zolana_keypair::X25519Pubkey;
 use zolana_ring_policy::{SpendCounters, SpendRecord};
 use zolana_transaction::Data;
 
-use crate::AuditOutputOpening;
+use crate::{AnonymousDisclosure, AuditOutputOpening};
 
 #[derive(PartialEq, Eq)]
 /// One output slot the auditor opened with the recovered transaction viewing
@@ -21,8 +21,8 @@ pub struct AuditedOutput {
     /// the slot index the ciphertext is bound to.
     pub slot_index: u32,
     pub recipient_viewing_pk: X25519Pubkey,
-    /// The slot's view tag, bound by the circuit to the output owner. The Solana
-    /// address of an Ed25519 or PDA owner, an x-coordinate for P256.
+    /// The output owner's tag, taken from the proved disclosure in an anonymous
+    /// ring and from the public slot otherwise.
     pub owner_tag: [u8; 32],
     pub asset: Address,
     pub amount: u64,
@@ -58,6 +58,8 @@ pub struct AuditedTransaction {
     pub tx_viewing_pk: X25519Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<AuditOutputOpening>,
+    /// Proven hidden sender, spent notes and recipients of an anonymous ring.
+    pub anonymous: Option<AnonymousDisclosure>,
     pub spend_records: Vec<AuditedSpendRecord>,
     /// Positions of output slots this audit could not open as a confidential
     /// plaintext: dummy slots (random bytes by construction), slots published

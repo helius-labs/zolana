@@ -2,6 +2,7 @@ package custom_ring
 
 import (
 	"bytes"
+	"crypto/elliptic"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -11,7 +12,6 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
@@ -391,7 +391,7 @@ func TestBaseParametersRejectBadInput(t *testing.T) {
 const zeroScalarHex = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 func orderScalarHex() string {
-	return "0x" + p256.GroupOrder().Text(16)
+	return "0x" + elliptic.P256().Params().N.Text(16)
 }
 
 func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[string]interface{})) {

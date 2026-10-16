@@ -181,6 +181,10 @@ impl VelocityProofInput {
 
 pub struct CustomRingPolicyProofRequest {
     pub indexed: Option<zolana_client::prover::indexed::IndexedPolicyData>,
+    pub anonymous: bool,
+    pub sender: [u8; 33],
+    pub recipients: [[u8; 33]; POLICY_OUTPUT_SLOTS],
+    pub recipient_viewing_keys: [[u8; 33]; POLICY_OUTPUT_SLOTS],
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
@@ -217,6 +221,14 @@ pub struct CustomRingBaseProofRequest {
     pub auditor_key: X25519Pubkey,
     pub salt: [u8; 16],
     pub outputs: Vec<ProofInputUtxo>,
+    pub anonymous: bool,
+    pub sender: [u8; 33],
+    pub recipients: [[u8; 33]; POLICY_OUTPUT_SLOTS],
+    pub recipient_viewing_keys: [[u8; 33]; POLICY_OUTPUT_SLOTS],
+    pub n_in: u8,
+    pub inputs: [CustomRingOpening; custom_ring_interface::AUDIT_INPUT_SLOTS],
+    pub anonymous_outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl ProveRequest for CustomRingBaseProofRequest {
@@ -242,6 +254,25 @@ impl ProveRequest for CustomRingBaseProofRequest {
             salt: bytes_to_hex(&self.salt),
             n_out: self.outputs.len() as u8,
             outputs,
+            anonymous: self.anonymous,
+            sender: self.anonymous.then(|| bytes_to_hex(&self.sender)),
+            recipients: self
+                .anonymous
+                .then(|| self.recipients.iter().map(|id| bytes_to_hex(id)).collect()),
+            recipient_viewing_keys: self.anonymous.then(|| {
+                self.recipient_viewing_keys
+                    .iter()
+                    .map(|key| bytes_to_hex(key))
+                    .collect()
+            }),
+            n_in: self.anonymous.then_some(self.n_in),
+            inputs: self
+                .anonymous
+                .then(|| self.inputs.iter().map(opening_json).collect()),
+            anonymous_outputs: self
+                .anonymous
+                .then(|| self.anonymous_outputs.iter().map(opening_json).collect()),
+            private_tx_blinding: self.anonymous.then(|| field_hex(&self.private_tx_blinding)),
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
@@ -278,6 +309,25 @@ struct CustomRingBaseProofRequestJson {
     #[serde(rename = "nOut")]
     n_out: u8,
     outputs: Vec<AuditOpeningJson>,
+    #[serde(skip_serializing_if = "is_false")]
+    anonymous: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipients: Option<Vec<String>>,
+    #[serde(
+        rename = "recipientViewingKeys",
+        skip_serializing_if = "Option::is_none"
+    )]
+    recipient_viewing_keys: Option<Vec<String>>,
+    #[serde(rename = "nIn", skip_serializing_if = "Option::is_none")]
+    n_in: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inputs: Option<Vec<CustomRingOpeningJson>>,
+    #[serde(rename = "anonymousOutputs", skip_serializing_if = "Option::is_none")]
+    anonymous_outputs: Option<Vec<CustomRingOpeningJson>>,
+    #[serde(rename = "privateTxBlinding", skip_serializing_if = "Option::is_none")]
+    private_tx_blinding: Option<String>,
 }
 
 impl CustomRingPolicyProofRequest {
@@ -308,6 +358,17 @@ impl CustomRingPolicyProofRequest {
             tree_slots: self.tree_slots.iter().map(tree_slot_json).collect(),
             address_tree_id: field_hex(&tree_id_field(self.address_tree_id)),
             key_escrow: self.key_registry_root.is_some(),
+            anonymous: self.anonymous,
+            sender: self.anonymous.then(|| bytes_to_hex(&self.sender)),
+            recipients: self
+                .anonymous
+                .then(|| self.recipients.iter().map(|id| bytes_to_hex(id)).collect()),
+            recipient_viewing_keys: self.anonymous.then(|| {
+                self.recipient_viewing_keys
+                    .iter()
+                    .map(|key| bytes_to_hex(key))
+                    .collect()
+            }),
             key_registry_root: field_hex(&self.key_registry_root.unwrap_or_default()),
             window_slots: self.velocity.window_slots,
             velocity: self.velocity.rows.iter().map(velocity_row_json).collect(),
@@ -569,6 +630,17 @@ struct RuleAnswerJson {
 pub(crate) struct CustomRingPolicyProofRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
+    #[serde(skip_serializing_if = "is_false")]
+    anonymous: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipients: Option<Vec<String>>,
+    #[serde(
+        rename = "recipientViewingKeys",
+        skip_serializing_if = "Option::is_none"
+    )]
+    recipient_viewing_keys: Option<Vec<String>>,
     #[serde(rename = "publicInputHash")]
     public_input_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -626,6 +698,10 @@ pub(crate) struct CustomRingPolicyProofRequestJson {
     answers: Vec<RuleAnswerJson>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 #[cfg(test)]
 mod tests {
     use zolana_ring_policy::ANSWER_SLOTS;
@@ -635,6 +711,10 @@ mod tests {
     fn request() -> CustomRingPolicyProofRequest {
         CustomRingPolicyProofRequest {
             indexed: None,
+            anonymous: false,
+            sender: [0; 33],
+            recipients: [[0; 33]; POLICY_OUTPUT_SLOTS],
+            recipient_viewing_keys: [[0; 33]; POLICY_OUTPUT_SLOTS],
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
             tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),

@@ -7,7 +7,7 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 var generatorTablesMu sync.Mutex
@@ -19,12 +19,7 @@ var generatorTables = map[int][][]hostPoint{}
 // odd digits D_i=2*d_i-(2^w-1), plus C=[2^252-1]H. Thus C+sum D_i*2^i H
 // equals [2*s]H=[8*s]G without a scalar-recoding hint.
 func MultiplyBase(api frontend.API, f *emfield.Field, bits []frontend.Variable) *emfield.Element {
-	// Choose a public window size suited to the selected constraint layout.
-	window := 7
-	if !f.Layout().Lookups {
-		window = 10
-	}
-	return multiplyBaseWindow(api, f, bits, window)
+	return multiplyBaseWindow(api, f, bits, 7)
 }
 
 // multiplyBaseWindow evaluates the fixed-base sum for a clamped scalar quotient.

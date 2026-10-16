@@ -41,6 +41,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(1000) {
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
     auditor: &'a X25519Secret,
+    mode: custom_ring_interface::RingMode,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -89,6 +90,7 @@ impl<'a> RingRecovery<'a> {
         Self {
             ring_program_id,
             auditor,
+            mode: custom_ring_interface::RingMode::Off,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
@@ -98,6 +100,13 @@ impl<'a> RingRecovery<'a> {
     #[must_use = "use the updated recovery"]
     pub fn with_page_size(mut self, page_size: NonZeroU32) -> Self {
         self.page_size = page_size;
+        self
+    }
+
+    /// Selects the ring's proved disclosure layout before recovery scans it.
+    #[must_use = "use the updated recovery"]
+    pub fn with_mode(mut self, mode: custom_ring_interface::RingMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -172,7 +181,7 @@ impl<'a> MemberRecovery<'a> {
                 transaction,
                 assets,
             }
-            .run()?;
+            .run_with_mode(self.recovery.mode)?;
             for output in &audited.outputs {
                 if output.recipient_viewing_pk != self.source.address.viewing_pubkey
                     || Member::owner_tag(&output.owner_tag)? != source_member

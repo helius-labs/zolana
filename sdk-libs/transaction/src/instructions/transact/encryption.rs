@@ -63,9 +63,28 @@ impl ConfidentialTransaction {
     ///    owner tag and ciphertext in output order.
     /// 6. Build the external data and return the assembled proof inputs.
     pub fn encrypt_with_viewing_key(
+        self,
+        sender: &ShieldedAddress,
+        tx_viewing_key: &ViewingKey,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, false)
+    }
+
+    /// Keeps recipient viewing keys in the auditor disclosure, not the public
+    /// output body. The caller must publish that disclosure before proving SPP.
+    pub fn encrypt_anonymous_with_viewing_key(
+        self,
+        sender: &ShieldedAddress,
+        tx_viewing_key: &ViewingKey,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, true)
+    }
+
+    fn encrypt_with_viewing_key_mode(
         mut self,
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
+        anonymous: bool,
     ) -> Result<SppProofInputs, TransactionError> {
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
@@ -93,7 +112,19 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = self.owner_tags(&sender.signing_pubkey)?;
+        // Anonymous outputs share the zero scan tag so no public field names
+        // either the recipient or a sender-owned change output.
+        let owner_tags = if anonymous {
+            vec![
+                ResolvedOwnerTag {
+                    tag: OwnerTag::Inline([0; 32]),
+                    resolved: [0; 32]
+                };
+                self.outputs.len()
+            ]
+        } else {
+            self.owner_tags(&sender.signing_pubkey)?
+        };
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
@@ -106,23 +137,29 @@ impl ConfidentialTransaction {
                 let Some(address) = output.owner_address else {
                     return Ok(None);
                 };
-                let mut message = Confidential::encode_plaintext(
-                    &ConfidentialOutputPlaintext {
-                        asset_id: output.asset.asset_id,
-                        amount: output.amount,
-                        blinding: output.blinding,
-                        ring_program_id: output.ring_program_id,
-                        data: output.data.clone(),
-                    },
-                    address.signing_pubkey.confidential_view_tag()?,
-                    &ConfidentialEncode {
-                        tx: tx_viewing_key.clone(),
-                        recipient_pubkey: address.viewing_pubkey,
-                        salt,
-                        slot_index: slot_index as u32,
-                    },
-                )?;
-                if output.ring_program_id.is_some() {
+                let plaintext = ConfidentialOutputPlaintext {
+                    asset_id: output.asset.asset_id,
+                    amount: output.amount,
+                    blinding: output.blinding,
+                    ring_program_id: output.ring_program_id,
+                    data: output.data.clone(),
+                };
+                let cx = ConfidentialEncode {
+                    tx: tx_viewing_key.clone(),
+                    recipient_pubkey: address.viewing_pubkey,
+                    salt,
+                    slot_index: slot_index as u32,
+                };
+                let mut message = if anonymous {
+                    Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)?
+                } else {
+                    Confidential::encode_plaintext(
+                        &plaintext,
+                        address.signing_pubkey.confidential_view_tag()?,
+                        &cx,
+                    )?
+                };
+                if output.ring_program_id.is_some() && !anonymous {
                     let OutputDataEncoding::Encrypted(mut blob) =
                         OutputDataEncoding::try_from_slice(&message.data)
                             .map_err(|error| TransactionError::Deserialize(error.to_string()))?

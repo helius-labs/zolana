@@ -194,7 +194,7 @@ export interface CustomRingBasePublicInput {
   readonly salt: Bytes16;
 }
 
-/** The eleven-element prefix every custom-ring public input starts with. */
+/** The twelve-element prefix binds the supported non-anonymous ring mode. */
 function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
@@ -211,6 +211,7 @@ function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[
     hashChain4(input.outputHashes),
     rightAlign(input.salt),
     hashChain(input.message.disclosure),
+    u64Field(0n),
   ];
 }
 

@@ -6,8 +6,8 @@ use zolana_interface::tree_slot::{populated_tree_slots_hash_chain, tree_id_field
 use crate::base_public_input::CustomRingBasePublicInput;
 use zolana_ring_policy::ANSWER_SLOTS;
 
-const AUDIT_LEN: usize = 11;
-const POLICY_PREFIX_LEN: usize = 21;
+const AUDIT_LEN: usize = 12;
+const POLICY_PREFIX_LEN: usize = 22;
 const POLICY_LEN: usize = POLICY_PREFIX_LEN + ANSWER_SLOTS;
 const COMPRESSED_POLICY_LEN: usize = POLICY_LEN + 1;
 const REVOCATION_TREE_INDEX_BITS: usize = 3;

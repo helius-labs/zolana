@@ -15,6 +15,7 @@ use std::{
 use zolana_keypair::{X25519Pubkey, X25519Secret};
 
 use borsh::BorshDeserialize;
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
@@ -22,15 +23,17 @@ use zolana_client::{
     Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
     ShieldedTransaction,
 };
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
 };
 use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditOutputOpening, AuditedOutput, AuditedTransaction,
-    AuditorEncryption, OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan,
-    TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening,
+    AuditOutputOpening, AuditedOutput, AuditedTransaction, AuditorEncryption, OriginError,
+    RingAudit, RingEnvironment, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
+    AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -369,10 +372,105 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 AuditOutputOpening::from(&proof_output(&sol_output, 0)),
                 AuditOutputOpening::from(&proof_output(&token_output, 1)),
             ],
+            anonymous: None,
             spend_records: vec![],
             undecryptable_slots: vec![],
         }
     );
+}
+
+#[test]
+fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
+    use zolana_transaction::serialization::confidential::ConfidentialEncode;
+
+    let auditor = X25519Secret::new();
+    let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
+    let ring = Address::new_from_array([9u8; 32]);
+    let owner_key = [4u8; 32];
+    let nullifier_pk = field(7);
+    let mut tagged_key = [0u8; 33];
+    tagged_key[0] = zolana_hasher::primitives::SOLANA_OWNER_TAG;
+    tagged_key[1..].copy_from_slice(&owner_key);
+    let identity = hash_bytes(&tagged_key).expect("owner identity");
+    let owner_hash = Poseidon::hashv(&[&identity, &nullifier_pk]).expect("owner hash");
+    let plaintext = ConfidentialOutputPlaintext {
+        ring_program_id: Some(ring),
+        ..plaintext(SOL_ASSET_ID, 42, 8)
+    };
+    let opening = ProofInputUtxo::new(
+        owner_hash,
+        &SOL_MINT,
+        plaintext.amount,
+        &plaintext.blinding,
+        TREE_ID,
+    )
+    .expect("output opening")
+    .with_ring([0; 32], &Some(ring))
+    .expect("ring opening");
+    let message = Confidential::encode_ring_anonymous_plaintext(
+        &plaintext,
+        &ConfidentialEncode {
+            tx: tx_key.clone(),
+            recipient_pubkey: recipient.pubkey(),
+            salt: SALT,
+            slot_index: 0,
+        },
+    )
+    .expect("anonymous output");
+    let slot = OutputSlot {
+        view_tag: [0; 32],
+        output_context: output_context(&opening, 0),
+        payload: message.data,
+    };
+    let disclosure = AnonymousDisclosure {
+        sender: [3; 32],
+        inputs: vec![AuditInputOpening::default()],
+        outputs: vec![AnonymousOutputOpening {
+            identity_tag: zolana_hasher::primitives::SOLANA_OWNER_TAG,
+            identity_key: owner_key,
+            viewing_pk: *recipient.pubkey().as_bytes(),
+            nullifier_pk,
+            amount: plaintext.amount,
+            asset: opening.asset,
+            blinding: plaintext.blinding,
+            data_hash: [0; 32],
+            ring_data_hash: [0; 32],
+            ring_note: 1,
+        }],
+    };
+    let sealed =
+        AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, &disclosure)
+            .expect("auditor capsule");
+    let mut tx = transaction(
+        &tx_key,
+        vec![slot],
+        vec![sealed.message.to_message_data(&auditor.pubkey())],
+    );
+    let audit = |tx: &ShieldedTransaction| {
+        TransactionAudit {
+            auditor: &auditor,
+            transaction: tx,
+            assets: &registry(),
+        }
+        .run_with_mode(RingMode::Anonymous)
+    };
+    let audited = audit(&tx).expect("anonymous audit");
+    assert_eq!(
+        audited.output_openings,
+        vec![AuditOutputOpening::from(&opening)]
+    );
+    assert_eq!(audited.outputs.len(), 1);
+    assert_eq!(audited.outputs[0].recipient_viewing_pk, recipient.pubkey());
+    assert_eq!(audited.outputs[0].owner_tag, owner_key);
+    assert_eq!(audited.outputs[0].amount, 42);
+    assert_eq!(audited.undecryptable_slots, Vec::<u32>::new());
+
+    tx.output_slots[0].output_context.hash[0] ^= 1;
+    assert!(matches!(
+        audit(&tx),
+        Err(AuditError::OutputCommitmentMismatch(0))
+    ));
 }
 
 #[test]

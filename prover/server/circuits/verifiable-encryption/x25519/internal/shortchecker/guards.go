@@ -6,7 +6,7 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/r1c"
 )
 
 // assertLadderOutputDistinct proves mu != 0 and mu+2*lambda != 0 modulo p.

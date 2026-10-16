@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
-    AUDITOR_MESSAGE_LEN, KEY_REGISTRY_ROOT_HISTORY,
+    KEY_REGISTRY_ROOT_HISTORY,
 };
 use custom_ring_program::CustomRingError;
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
@@ -22,13 +22,13 @@ use zolana_interface::state::NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
 
 use crate::common::{
     account, address_tree, address_tree_account, audit_ix_data, audit_only_config_account,
-    audit_transact_fixture, auditor_pubkey, authority, encode_transact, escrowed_config_account,
-    initialized_address_tree_account, initialized_address_tree_account_with_roots,
-    initialized_address_tree_account_with_state_roots, initialized_config_account,
-    initialized_policy_config_account, initialized_tree_account, insert_after_policy_trees,
-    key_registry_root_slot, nullifier_root_cursor, other_tree, other_tree_slot,
-    paused_address_tree_account, policy_delegate_transact_fixture, policy_ix_data, setup_mollusk,
-    transact_fixture, utxo_root_cursor, Fixture, Slot,
+    audit_transact_fixture, auditor_message_len, auditor_pubkey, authority, encode_transact,
+    escrowed_config_account, initialized_address_tree_account,
+    initialized_address_tree_account_with_roots, initialized_address_tree_account_with_state_roots,
+    initialized_config_account, initialized_policy_config_account, initialized_tree_account,
+    insert_after_policy_trees, key_registry_root_slot, nullifier_root_cursor, other_tree,
+    other_tree_slot, paused_address_tree_account, policy_delegate_transact_fixture, policy_ix_data,
+    setup_mollusk, transact_fixture, utxo_root_cursor, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -36,8 +36,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 }
 
 pub(crate) fn confidential_output() -> TransactOutput {
-    let mut key = [0u8; 33];
-    key[0] = 0x04;
+    let key = auditor_pubkey(4);
     let mut body = vec![RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG];
     body.extend_from_slice(&key);
     body.extend_from_slice(&[9u8; 32]);
@@ -56,7 +55,7 @@ pub(crate) fn transact_data() -> TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
         circuit: CircuitId::RingEddsa(1, 2, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: [0u8; 33],
+        tx_viewing_pk: auditor_pubkey(4),
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
         inputs: Vec::new(),
@@ -67,8 +66,8 @@ pub(crate) fn transact_data() -> TransactIxData {
         messages: vec![MessageData {
             view_tag: auditor_pubkey(4)[1..33].try_into().expect("view tag"),
             data: {
-                let mut data = vec![0u8; AUDITOR_MESSAGE_LEN];
-                data[0] = 0x02;
+                let mut data = vec![0u8; auditor_message_len(1)];
+                data[..33].copy_from_slice(&auditor_pubkey(4));
                 data
             },
         }],

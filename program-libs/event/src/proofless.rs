@@ -106,6 +106,7 @@ impl OutputDataEncoding {
 pub const CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 3;
 
 pub const RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 4;
+pub const RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG: u8 = 9;
 
 /// Returns whether `data` is a structurally valid encrypted output whose first
 /// payload byte selects the confidential encryption scheme.
@@ -119,6 +120,10 @@ pub fn confidential_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
 
 pub fn ring_confidential_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
     encrypted_output_body(data, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG)
+}
+
+pub fn ring_anonymous_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
+    encrypted_output_body(data, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG)
 }
 
 fn encrypted_output_body(data: &[u8], scheme: u8) -> Option<&[u8]> {

@@ -9,7 +9,7 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey`; old auditor envelopes are unsupported.
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
 - `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
@@ -24,6 +24,10 @@ Breaking
 
 Added
 
+- `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
+- `syncWallet` discovers anonymous ring deposits and transfers under the zero
+  view tag and verifies decrypted outputs against their committed UTXO hashes,
+  while transaction builders reject anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other

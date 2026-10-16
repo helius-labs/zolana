@@ -43,8 +43,9 @@ pub use crate::{
     deposit::{ring_deposits_in, RingDeposit},
     deposit_encryption::{DepositEncryption, DepositOpen, DepositOpening, DepositSeal},
     encryption::{
-        auditor_view_tag, AuditEncryptionError, AuditOutputOpening, AuditorEncryption,
-        AuditorMessage, NullifierKeyEnvelope, SealedNullifierKey,
+        auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditEncryptionError,
+        AuditInputOpening, AuditOutputOpening, AuditorEncryption, AuditorMessage,
+        NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::{AuditError, RecoveryError},
     origin::{

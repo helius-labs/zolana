@@ -1,5 +1,6 @@
 use custom_ring_interface::{
     CustomRingProof, DepositContext, DepositPublicInput, PlainGroth16Proof,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN as CT,
 };
 use zolana_hasher::HasherError;
 
@@ -38,9 +39,10 @@ fn context_binds_ring_tree_wire_and_wire_length() {
 #[test]
 fn public_statement_binds_each_opening_ciphertext_key_and_context() {
     let owners = [[1; 32], [2; 32]];
-    let ciphertexts = [[3; 64], [4; 64]];
+    let ciphertexts = [[3; CT], [4; CT]];
     let input = DepositPublicInput {
         context_hash: &[5; 32],
+        anonymous: false,
         owner_utxo_hashes: &owners,
         ciphertexts: &ciphertexts,
         auditor_pk: &[6; 33],
@@ -54,11 +56,15 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
             ..input
         },
         DepositPublicInput {
+            anonymous: true,
+            ..input
+        },
+        DepositPublicInput {
             owner_utxo_hashes: &[[2; 32], [1; 32]],
             ..input
         },
         DepositPublicInput {
-            ciphertexts: &[[4; 64], [3; 64]],
+            ciphertexts: &[[4; CT], [3; CT]],
             ..input
         },
         DepositPublicInput {
@@ -91,6 +97,7 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
 fn statement_rejects_empty_oversized_and_mismatched_batches() {
     let input = DepositPublicInput {
         context_hash: &[0; 32],
+        anonymous: false,
         owner_utxo_hashes: &[],
         ciphertexts: &[],
         auditor_pk: &[0; 33],
@@ -101,7 +108,7 @@ fn statement_rejects_empty_oversized_and_mismatched_batches() {
     assert_eq!(
         DepositPublicInput {
             owner_utxo_hashes: &[[0; 32]; 9],
-            ciphertexts: &[[0; 64]; 9],
+            ciphertexts: &[[0; CT]; 9],
             ..input
         }
         .hash(),

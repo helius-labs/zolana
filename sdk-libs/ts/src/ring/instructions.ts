@@ -122,7 +122,8 @@ export async function createRingConfigInstruction(
     ringConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
-  const data = new Uint8Array(1 + 33 + 1);
+  // The final zero byte selects the supported non-anonymous ring mode.
+  const data = new Uint8Array(1 + 33 + 1 + 1);
   data[0] = RingProgramTag.createConfig;
   data.set(input.auditorPublicKey.toBytes(), 1);
   data[34] = input.hasPolicy ? 1 : 0;

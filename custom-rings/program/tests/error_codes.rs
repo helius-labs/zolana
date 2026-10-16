@@ -73,6 +73,14 @@ fn error_codes_are_stable() {
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
+        (LegacyAuditorKey as u32, 8173),
+        (InvalidRingMode as u32, 8174),
+        (AnonymousRingRefused as u32, 8175),
+        (UnsupportedAnonymousPolicy as u32, 8176),
+        (InvalidAnonymousOutput as u32, 8177),
+        (InvalidAnonymousSigner as u32, 8178),
+        (InvalidMergeDisclosure as u32, 8179),
+        (UnexpectedRecordMessage as u32, 8180),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +160,14 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | PolicyFactRevoked
         | DelegateRequiresPolicy
         | InvalidRevocationTreeIndex
-        | InvalidPolicyTrees => {}
+        | InvalidPolicyTrees
+        | LegacyAuditorKey
+        | InvalidRingMode
+        | AnonymousRingRefused
+        | UnsupportedAnonymousPolicy
+        | InvalidAnonymousOutput
+        | InvalidAnonymousSigner
+        | InvalidMergeDisclosure
+        | UnexpectedRecordMessage => {}
     }
 }

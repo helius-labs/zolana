@@ -2,7 +2,7 @@ package shortchecker
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 // Multiply accepts bit-decomposed scalar input and applies X25519 clamping.

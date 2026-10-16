@@ -222,6 +222,95 @@ fn selector_dimensions_are_fail_closed() {
     assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 4), Ok(()));
 }
 
+const RING_ED25519: CircuitId = CircuitId::RingEd25519(
+    2,
+    4,
+    3,
+    Bsb22Commitment {
+        commitment: [1u8; 32],
+        commitment_pok: [2u8; 32],
+    },
+);
+
+fn validate_ring_ed25519(instruction: InstructionTag, owner_tags: &[OwnerTag]) -> ProgramResult {
+    let ix = TransactIxData {
+        expiry_unix_ts: 0,
+        private_tx_hash: [0u8; 32],
+        circuit: RING_ED25519,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        proof: TransactProof::zeroed(),
+        inputs: vec![
+            InputUtxo {
+                nullifier_hash: [1u8; 32],
+                tree_index: 0,
+            };
+            2
+        ],
+        interface_transfers: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        outputs: owner_tags
+            .iter()
+            .map(|owner_tag| TransactOutput {
+                utxo_hash: [1u8; 32],
+                owner_tag: *owner_tag,
+                data: None,
+            })
+            .collect(),
+        messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
+    };
+    let bytes = ix.serialize().unwrap();
+    validate_circuit_type(&TransactIxDataRef::from_bytes(&bytes).unwrap(), instruction)
+}
+
+/// RingEd25519 rides `ring_transact` only, and stays unsupported until its
+/// verifying keys exist.
+#[test]
+fn ring_ed25519_rides_ring_transact_only() {
+    let anonymous = [OwnerTag::Inline([0u8; 32]); 4];
+    for instruction in [
+        InstructionTag::Transact,
+        InstructionTag::RingAuthorityTransact,
+    ] {
+        assert_eq!(
+            validate_ring_ed25519(instruction, &anonymous),
+            Err(ShieldedPoolError::MismatchedCircuitType.into())
+        );
+    }
+    let expected = if RING_ED25519.is_supported() {
+        Ok(())
+    } else {
+        Err(ShieldedPoolError::InvalidTransactShape.into())
+    };
+    assert_eq!(
+        validate_ring_ed25519(InstructionTag::RingTransact, &anonymous),
+        expected
+    );
+}
+
+/// An owner tag names an account or a key in public instruction data, so a
+/// RingEd25519 output must carry the inline zero tag.
+#[test]
+fn ring_ed25519_outputs_carry_the_inline_zero_tag() {
+    let zero = OwnerTag::Inline([0u8; 32]);
+    for named in [OwnerTag::Inline([7u8; 32]), OwnerTag::Account(0)] {
+        for index in 0..4 {
+            let mut tags = [zero; 4];
+            tags[index] = named;
+            assert_eq!(
+                validate_ring_ed25519(InstructionTag::RingTransact, &tags),
+                Err(ShieldedPoolError::RingEd25519OutputOwnerTag.into()),
+                "{named:?} at output {index}"
+            );
+        }
+    }
+}
+
 /// The instruction carries at least one input and at most the circuit's slots;
 /// the missing suffix is compact padding. A sent zero would be indistinguishable
 /// from that padding, so it is rejected.

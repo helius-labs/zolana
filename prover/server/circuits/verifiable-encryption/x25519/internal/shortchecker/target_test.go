@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type finalBindingCircuit struct {
@@ -18,13 +18,13 @@ type finalBindingCircuit struct {
 }
 
 func (w *finalBindingCircuit) Define(api frontend.API) error {
-	lay := emfield.Layout{NbLimbs: 6, LimbBits: 43, PieceBits: 11, Lookups: true}
+	lay := emfield.Layout{NbLimbs: 6, LimbBits: 43, PieceBits: 11}
 	fp := emfield.NewFor(api, prime(), lay)
 	a, b := coefficients(false)
 	c := &curve{api: api, lay: lay, fp: fp, a: fp.Const(a), b: fp.Const(b)}
-	input := &point{X: fp.FromLimbs(w.AX[:]), Y: fp.FromLimbs(w.AY[:])}
-	table := &point{X: fp.FromLimbs(w.TX[:]), Y: fp.FromLimbs(w.TY[:])}
-	target := &point{X: fp.FromLimbs(w.EX[:]), Y: fp.FromLimbs(w.EY[:])}
+	input := &point{X: fromLimbs(fp, w.AX[:]), Y: fromLimbs(fp, w.AY[:])}
+	table := &point{X: fromLimbs(fp, w.TX[:]), Y: fromLimbs(fp, w.TY[:])}
+	target := &point{X: fromLimbs(fp, w.EX[:]), Y: fromLimbs(fp, w.EY[:])}
 	c.assertOnCurve(input)
 	c.assertOnCurve(table)
 	c.assertOnCurve(target)

@@ -15,6 +15,7 @@ import type {
   Signature,
 } from "../interface/types.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
+import { P256_OWNER_TAG, SOLANA_OWNER_TAG } from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
@@ -332,6 +333,7 @@ export interface DecryptedRingTransaction {
   readonly signature: Signature;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly outputs: readonly DecryptedRingOutput[];
+  readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. */
@@ -340,6 +342,20 @@ export interface DecryptedRingTransaction {
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
   /** Empty unless a velocity transfer published one. */
   readonly spendRecords: readonly DecryptedRingSpendRecord[];
+}
+
+/** Hidden identities and note openings disclosed only to authorized audit readers. */
+export interface DecryptedAnonymousRingTrace {
+  readonly sender: Address;
+  readonly inputs: readonly Readonly<{ treeId: number; amount: bigint; asset: Bytes32 }>[];
+  readonly recipients: readonly Readonly<{
+    slotIndex: number;
+    identityTag: typeof SOLANA_OWNER_TAG | typeof P256_OWNER_TAG;
+    identityKey: Bytes32;
+    nullifierPk: Bytes32;
+    amount: bigint;
+    asset: Bytes32;
+  }>[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -667,6 +683,9 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
+    ...(wire["anonymous"] === undefined || wire["anonymous"] === null
+      ? {}
+      : { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
         decodeOutput(record(entry, `outputs[${index}]`)),
@@ -696,6 +715,45 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
         spendRecordFromWire(record(entry, `spendRecords[${index}]`)),
       ),
     ),
+  });
+}
+
+/** Checks owner encodings and canonical recipient slot order before exposing a trace. */
+function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymousRingTrace {
+  // Decode bounded input openings without narrowing an unchecked integer.
+  const inputs = list(wire["inputs"], "anonymous.inputs").map((entry) => {
+    const input = record(entry, "anonymous.inputs");
+    const treeId = u32(input["treeId"], "anonymous.inputs.treeId");
+    if (treeId > 0xffff) throw invalid("anonymous.inputs.treeId");
+    return Object.freeze({
+      treeId,
+      amount: u64(input["amount"], "anonymous.inputs.amount"),
+      asset: hash(input["asset"], "anonymous.inputs.asset"),
+    });
+  });
+  // Real outputs retain their original slot indices after dummy slots are removed.
+  let previous = -1;
+  const recipients = list(wire["recipients"], "anonymous.recipients").map((entry) => {
+    const output = record(entry, "anonymous.recipients");
+    const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
+    if (slotIndex <= previous) throw invalid("anonymous.recipients.slotIndex");
+    const identityTag = output["identityTag"];
+    if (identityTag !== SOLANA_OWNER_TAG && identityTag !== P256_OWNER_TAG)
+      throw invalid("anonymous.recipients.identityTag");
+    previous = slotIndex;
+    return Object.freeze({
+      slotIndex,
+      identityTag,
+      identityKey: hash(output["identityKey"], "anonymous.recipients.identityKey"),
+      nullifierPk: hash(output["nullifierPk"], "anonymous.recipients.nullifierPk"),
+      amount: u64(output["amount"], "anonymous.recipients.amount"),
+      asset: hash(output["asset"], "anonymous.recipients.asset"),
+    });
+  });
+  return Object.freeze({
+    sender: address(wire["sender"], "anonymous.sender"),
+    inputs: Object.freeze(inputs),
+    recipients: Object.freeze(recipients),
   });
 }
 

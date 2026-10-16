@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 // pow2 returns a public power of two for limb weights and compile-time bounds.

@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
+use crate::{ReaderKeyBytes, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG};
 
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
 pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
@@ -46,14 +46,21 @@ pub struct RingProgramConfig {
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.
     pub has_policy: u8,
-    pub key_escrow: u8,
+    /// [`RingMode`] byte.
+    pub mode: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum KeyEscrow {
-    Off,
-    Registry,
+#[repr(u8)]
+pub enum RingMode {
+    Off = 0,
+    /// Escrows every output nullifier key in the registry.
+    Registry = 1,
+    /// Hides the sender and discloses every opening to the auditor.
+    Anonymous = 2,
 }
+
+pub type KeyEscrow = RingMode;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
@@ -67,12 +74,26 @@ impl RingProgramConfig {
     pub const SEED: &'static [u8] = CONFIG_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    /// Any nonzero byte reads as on, escrow fails closed.
     pub const fn key_escrow(&self) -> KeyEscrow {
-        match self.key_escrow {
-            0 => KeyEscrow::Off,
-            _ => KeyEscrow::Registry,
+        match self.mode {
+            1 => RingMode::Registry,
+            _ => RingMode::Off,
         }
+    }
+
+    /// `None` for an unknown byte, which every caller refuses.
+    pub const fn mode(&self) -> Option<RingMode> {
+        match self.mode {
+            0 => Some(RingMode::Off),
+            1 => Some(RingMode::Registry),
+            2 => Some(RingMode::Anonymous),
+            _ => None,
+        }
+    }
+
+    /// Only an X25519 auditor key can receive a proven disclosure.
+    pub const fn has_legacy_auditor_key(&self) -> bool {
+        self.auditor_pubkey[0] != VIEWING_PUBKEY_TAG
     }
 }
 

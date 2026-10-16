@@ -136,6 +136,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         .collect();
     let public_input_hash = DepositPublicInput {
         context_hash: &context_hash,
+        anonymous: false,
         owner_utxo_hashes: &owners,
         ciphertexts: &encryption.ciphertexts,
         auditor_pk: auditor.as_bytes(),
@@ -149,7 +150,9 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
             public_input_hash: &public_input_hash,
             context_hash: &context_hash,
             count: count as u8,
+            anonymous: false,
             owner_pk_hashes: &owner_pk_hashes,
+            owner_keys: &[[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
             nullifier_pks: &nullifier_pks,
             blindings: &blindings,
             keys: &[None; MAX_RING_DEPOSIT_AUDIT_SLOTS],

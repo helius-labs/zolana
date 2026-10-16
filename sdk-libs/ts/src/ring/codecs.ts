@@ -105,8 +105,10 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   );
   const bump = reader.u8("bump");
   const hasPolicy = reader.u8("hasPolicy") !== 0;
-  // Any nonzero byte reads as on, escrow fails closed.
-  const keyEscrow = reader.u8("keyEscrow") !== 0;
+  // Anonymous rings require a separate proving path that this builder does not support.
+  const mode = reader.u8("mode");
+  if (mode > 1) throw new RingError("RING_CONFIG_INVALID", { details: { mode } });
+  const keyEscrow = mode === 1;
   reader.done();
   return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy, keyEscrow });
 }

@@ -1,4 +1,4 @@
-use custom_ring_interface::Delegate;
+use custom_ring_interface::{Delegate, RingMode};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
@@ -54,11 +54,15 @@ pub fn process_set_delegate_ix(
     // 3. Escrow every output key in the registry the delegate recovers
     // nullifier secrets from.
     let mut config = load_config_mut(program_id, config_account)?;
+    match config.mode().ok_or(CustomRingError::InvalidRingMode)? {
+        RingMode::Anonymous => return Err(CustomRingError::AnonymousRingRefused.into()),
+        RingMode::Off | RingMode::Registry => {}
+    }
     if config.has_policy == 0 {
         return Err(CustomRingError::DelegateRequiresPolicy.into());
     }
     load_key_registry_root(program_id, key_registry_root)?;
-    config.key_escrow = 1;
+    config.mode = RingMode::Registry as u8;
     drop(config);
 
     // 4. Store the Solana signer at the canonical delegate PDA.

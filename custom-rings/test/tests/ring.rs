@@ -603,7 +603,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             auditor_pubkey,
             bump: config_bump,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         },
         "custom-ring config account"
     );
@@ -1045,6 +1045,15 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 /// audit statement and the auditor still recovers every output.
 #[test]
 fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
+    audit_only_lifecycle(false)
+}
+
+#[test]
+fn an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access() -> Result<()> {
+    audit_only_lifecycle(true)
+}
+
+fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     let mut env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
@@ -1058,7 +1067,11 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        tier: Tier::AuditOnly,
+        tier: if anonymous {
+            Tier::AnonymousAuditOnly
+        } else {
+            Tier::AuditOnly
+        },
     }
     .send(rpc)?;
 
@@ -1069,11 +1082,16 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let config: RingProgramConfig = fetch_state(rpc, &ring.config_pda())?;
     assert_eq!(config.has_policy, 0, "audit-only config flag");
 
+    let payer: &dyn Signer = if anonymous {
+        &env.payer
+    } else {
+        &env.sender.keypair
+    };
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
         let RingDepositReceipt { utxo, .. } = RingDeposit {
             ring,
-            payer: &env.sender.keypair,
+            payer,
             recipient: &env.sender.keypair,
             tree: env.tree,
             asset: DepositAsset::Sol,
@@ -1088,7 +1106,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         spendable.push(utxo);
     }
 
-    let sender_address = env.sender.keypair.pubkey();
+    let sender_address = payer.pubkey();
     let inputs = spendable
         .into_iter()
         .map(|utxo| indexed_note(utxo, &env.sender.keypair, &env, env.tree))
@@ -1111,21 +1129,32 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     };
 
     let prover = ProverClient::local();
-    let proven = CustomRingTransfer::new(CustomRingTransferInput {
+    let mut builder = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
-    })
-    .prove(TransferProofEnvironment {
+    });
+    if anonymous {
+        builder = builder.with_anonymous_signer(&env.sender.keypair.signing_key);
+    }
+    let proven = builder.prove(TransferProofEnvironment {
         indexer,
         rpc,
         prover: &prover,
     })?;
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
+    if anonymous {
+        assert_ne!(payer.pubkey(), env.sender.keypair.pubkey());
+        assert!(proven.owner_signers.is_empty());
+        assert!(matches!(
+            proven.data.circuit,
+            zolana_interface::instruction::instruction_data::transact::CircuitId::RingEd25519(..)
+        ));
+    }
 
     let transaction = TransactSend {
-        payer: &env.sender.keypair,
+        payer,
         signers: &[],
         instruction: proven.instruction()?,
     }
@@ -1144,7 +1173,24 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         "the on-chain tx_viewing_pk is the sender's"
     );
 
+    if anonymous {
+        assert!(indexed
+            .output_slots
+            .iter()
+            .all(|slot| slot.view_tag == [0; 32]));
+        assert!(indexed.output_slots.iter().all(|slot| matches!(
+            slot.output_data(),
+            Some(zolana_interface::event::OutputDataEncoding::Encrypted(ref body))
+                if body.first() == Some(&zolana_transaction::EncryptedScheme::RingAnonymous.as_byte())
+        )));
+    }
+    let mode = if anonymous {
+        custom_ring_interface::RingMode::Anonymous
+    } else {
+        custom_ring_interface::RingMode::Off
+    };
     let audited = RingAudit::new(ring_program, &auditor)
+        .with_mode(mode)
         .run(
             RingEnvironment {
                 indexer,
@@ -1183,6 +1229,29 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         .next()
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("recipient note"))?;
+    if anonymous {
+        assert_eq!(received.amount, RING_TRANSFER_AMOUNT);
+        let disclosure = audited.anonymous.as_ref().context("anonymous disclosure")?;
+        assert_eq!(
+            disclosure.sender,
+            env.sender.keypair.signing_pubkey().as_ed25519()?
+        );
+        let mut input_amounts: Vec<_> =
+            disclosure.inputs.iter().map(|input| input.amount).collect();
+        input_amounts.sort_unstable();
+        assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
+        let scan = zolana_client::UtxoScan::new(&env.recipient.keypair, &env.assets)
+            .with_ring_deposit_payload(ring_program, zolana_ring_client::deposit_payload)
+            .fetch(indexer)?;
+        assert_eq!(
+            scan.spendable
+                .utxos()
+                .map(|note| note.utxo.amount)
+                .collect::<Vec<_>>(),
+            vec![RING_TRANSFER_AMOUNT]
+        );
+        return Ok(());
+    }
     // The second hop goes over the ASYNC transport, with a blocking proof of
     // the same note alongside it as the parity reference. `prove_async`
     // exists for a host that cannot link the blocking Solana client, and a

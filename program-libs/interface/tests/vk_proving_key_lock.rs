@@ -75,6 +75,10 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
                     CircuitId::RingP256(n_inputs, n_outputs, slots, p256),
                 ),
                 (
+                    "transfer_ed25519_ring",
+                    CircuitId::RingEd25519(n_inputs, n_outputs, slots, p256.bsb22_commitment),
+                ),
+                (
                     "transfer_ring_authority",
                     CircuitId::RingAuthority(n_inputs, n_outputs, slots),
                 ),

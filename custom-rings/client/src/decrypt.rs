@@ -1,25 +1,27 @@
 //! Recovering the transaction viewing key from an auditor message and opening
 //! the transaction's confidential output slots with it.
 //!
-//! Why one key is enough: every confidential slot of an SPP transact is HPKE'd
-//! under the per-transaction viewing key and carries the recipient's viewing
-//! pubkey in its own body
-//! (`sdk-libs/transaction/src/serialization/confidential.rs`), so
-//! [`Confidential::decrypt_with_tx_key`] needs the transaction key and nothing
-//! else. Recovering that one secret therefore opens everything the recipients
-//! see.
+//! Why one key is enough: every confidential slot uses the per-transaction
+//! viewing key. Regular slots carry the recipient viewing key in their body.
+//! Anonymous-ring slots keep that key in the proved auditor disclosure.
 
-use crate::encryption::{auditor_view_tag, AuditorMessage};
+use crate::encryption::{auditor_view_tag, AnonymousOutputOpening, AuditorMessage};
+use custom_ring_interface::{DisclosureShape, RingMode};
+use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::{hash_bytes, right_align};
+use zolana_hasher::{
+    primitives::{hash_bytes, right_align},
+    Hasher, Poseidon,
+};
 use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
-    ShieldedTransaction, SOL_MINT,
+    ShieldedTransaction, UtxoSerialization, SOL_MINT,
 };
 
 use zolana_event::MessageData;
@@ -43,7 +45,24 @@ pub struct TransactionAudit<'a> {
 
 impl TransactionAudit<'_> {
     pub fn run(self) -> Result<AuditedTransaction, AuditError> {
-        let message = auditor_message(self.transaction, &self.auditor.pubkey())?;
+        self.run_with_mode(RingMode::Off)
+    }
+
+    /// Uses the config mode to disambiguate disclosure sizes that coincide
+    /// across normal and anonymous rings.
+    pub fn run_with_mode(self, mode: RingMode) -> Result<AuditedTransaction, AuditError> {
+        // The on-chain mode selects the parser even when both layouts have 36 fields.
+        let anonymous = mode == RingMode::Anonymous;
+        let shape = DisclosureShape {
+            anonymous,
+            inputs: self.transaction.nullifiers.len(),
+            outputs: self.transaction.output_slots.len(),
+        };
+        let message = auditor_message_with_shape(
+            self.transaction,
+            &self.auditor.pubkey(),
+            anonymous.then_some(shape),
+        )?;
         let tx_viewing_pk = self
             .transaction
             .tx_viewing_pk
@@ -63,12 +82,31 @@ impl TransactionAudit<'_> {
                 self.transaction.output_slots.len(),
             ));
         }
-        let disclosed = message.open_outputs(&tx_key, salt)?;
+        // Reconstruct each real commitment from the anonymous opening before
+        // interpreting its encrypted output body.
+        let (disclosed, anonymous_disclosure) = if anonymous {
+            let disclosure = message.open_anonymous(&tx_key, salt, shape)?;
+            let openings = self
+                .transaction
+                .output_slots
+                .iter()
+                .zip(&disclosure.outputs)
+                .enumerate()
+                .map(|(index, (slot, output))| {
+                    anonymous_output_opening(output, slot, self.transaction.ring_program_id)
+                        .ok_or(AuditError::OutputCommitmentMismatch(index as u32))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            (openings, Some(disclosure))
+        } else {
+            (message.open_outputs(&tx_key, salt)?.to_vec(), None)
+        };
 
         let mut outputs = Vec::new();
         let mut output_openings = Vec::with_capacity(self.transaction.output_slots.len());
         let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
+        // Keep the legacy output and spend-record checks after disclosure opens.
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
@@ -84,7 +122,9 @@ impl TransactionAudit<'_> {
                 ring_data_hash: opening.ring_data_hash,
                 ring_program_id: opening.ring_program_id,
             };
-            if committed.hash().ok() != Some(slot.output_context.hash) {
+            if !(anonymous && opening == Default::default())
+                && committed.hash().ok() != Some(slot.output_context.hash)
+            {
                 return Err(AuditError::OutputCommitmentMismatch(slot_index));
             }
             output_openings.push(opening);
@@ -95,6 +135,9 @@ impl TransactionAudit<'_> {
                 slot_index,
                 assets: self.assets,
                 opening: &opening,
+                anonymous: anonymous_disclosure
+                    .as_ref()
+                    .and_then(|disclosure| disclosure.outputs.get(position)),
             }
             .run()?;
             let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
@@ -143,6 +186,7 @@ impl TransactionAudit<'_> {
             tx_viewing_pk,
             outputs,
             output_openings,
+            anonymous: anonymous_disclosure,
             spend_records,
             undecryptable_slots,
         })
@@ -156,9 +200,10 @@ impl TransactionAudit<'_> {
 /// are re-checked here so a client audit of an unverified or replayed
 /// transaction reports the deviation instead of silently reading a different
 /// message.
-pub fn auditor_message(
+fn auditor_message_with_shape(
     tx: &ShieldedTransaction,
     auditor_pk: &X25519Pubkey,
+    shape: Option<DisclosureShape>,
 ) -> Result<AuditorMessage, AuditError> {
     let view_tag = auditor_view_tag(auditor_pk);
     let mut tagged = tx
@@ -174,7 +219,43 @@ pub fn auditor_message(
     if index + 1 != count {
         return Err(AuditError::AuditorMessageNotLast { index, count });
     }
-    Ok(AuditorMessage::parse(message, auditor_pk)?)
+    Ok(match shape {
+        Some(shape) => AuditorMessage::parse_with_shape(message, auditor_pk, shape)?,
+        None => AuditorMessage::parse(message, auditor_pk)?,
+    })
+}
+
+/// Reconstructs a real output from its identity and ring-note flag. Dummy
+/// openings are zero in the circuit and carry no blinding to reconstruct.
+fn anonymous_output_opening(
+    output: &AnonymousOutputOpening,
+    slot: &OutputSlot,
+    ring: Option<Address>,
+) -> Option<crate::AuditOutputOpening> {
+    if *output == AnonymousOutputOpening::default() {
+        return Some(crate::AuditOutputOpening::default());
+    }
+    let mut identity_bytes = [output.identity_tag; 33];
+    identity_bytes[1..].copy_from_slice(&output.identity_key);
+    let identity = hash_bytes(&identity_bytes).ok()?;
+    let owner_hash = Poseidon::hashv(&[&identity, &output.nullifier_pk]).ok()?;
+    let ring_program_id = match output.ring_note {
+        0 => [0u8; 32],
+        1 => program_id_proof_input_hash(&Some(ring?)).ok()?,
+        _ => return None,
+    };
+    let opening = crate::AuditOutputOpening {
+        domain: right_align(&zolana_transaction::utxo::UTXO_DOMAIN.to_be_bytes()),
+        tree_id: tree_id_field(slot.output_context.tree_id),
+        owner_hash,
+        asset: output.asset,
+        amount: right_align(&output.amount.to_be_bytes()),
+        blinding: output.blinding,
+        data_hash: output.data_hash,
+        ring_data_hash: output.ring_data_hash,
+        ring_program_id,
+    };
+    Some(opening)
 }
 
 /// Decrypts the auditor message into the transaction viewing key.
@@ -195,6 +276,7 @@ struct OutputAudit<'a> {
     slot_index: u32,
     assets: &'a AssetRegistry,
     opening: &'a crate::AuditOutputOpening,
+    anonymous: Option<&'a AnonymousOutputOpening>,
 }
 
 impl OutputAudit<'_> {
@@ -205,20 +287,44 @@ impl OutputAudit<'_> {
         let Some((&scheme_byte, body)) = blob.split_first() else {
             return Ok(None);
         };
-        if !matches!(
-            EncryptedScheme::from_byte(scheme_byte),
-            Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
-        ) {
-            return Ok(None);
-        }
-        let Ok(recipient_viewing_pk) = Confidential::embedded_viewing_pk(body) else {
-            return Ok(None);
-        };
-        let Ok(plaintext) =
-            Confidential::decrypt_with_tx_key(self.tx_key, body, self.salt, self.slot_index)
-        else {
-            return Ok(None);
-        };
+        let (recipient_viewing_pk, plaintext, owner_tag) =
+            match EncryptedScheme::from_byte(scheme_byte) {
+                Ok(EncryptedScheme::RingAnonymous) => {
+                    let Some(disclosed) = self.anonymous else {
+                        return Ok(None);
+                    };
+                    let Ok(viewing_pk) = X25519Pubkey::from_bytes(disclosed.viewing_pk) else {
+                        return Ok(None);
+                    };
+                    let Ok(bytes) = self.tx_key.decrypt_slot_ephemeral(
+                        &viewing_pk,
+                        body,
+                        self.salt,
+                        self.slot_index,
+                    ) else {
+                        return Ok(None);
+                    };
+                    let Ok(plaintext) = Confidential::deserialize(&bytes) else {
+                        return Ok(None);
+                    };
+                    (viewing_pk, plaintext, disclosed.identity_key)
+                }
+                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential) => {
+                    let Ok(viewing_pk) = Confidential::embedded_viewing_pk(body) else {
+                        return Ok(None);
+                    };
+                    let Ok(plaintext) = Confidential::decrypt_with_tx_key(
+                        self.tx_key,
+                        body,
+                        self.salt,
+                        self.slot_index,
+                    ) else {
+                        return Ok(None);
+                    };
+                    (viewing_pk, plaintext, self.slot.view_tag)
+                }
+                _ => return Ok(None),
+            };
         let asset =
             self.assets
                 .resolve(plaintext.asset_id)
@@ -240,7 +346,7 @@ impl OutputAudit<'_> {
         Ok(Some(AuditedOutput {
             slot_index: self.slot_index,
             recipient_viewing_pk,
-            owner_tag: self.slot.view_tag,
+            owner_tag,
             asset: asset.asset,
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),

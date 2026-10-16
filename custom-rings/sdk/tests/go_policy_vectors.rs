@@ -392,6 +392,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
     let audit = CustomRingBasePublicInput {
+        anonymous: false,
         private_tx_hash: &[1u8; 32],
         tx_viewing_pk: &[2u8; 33],
         auditor_pk: &[3u8; 33],
@@ -443,7 +444,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
 #[test]
 fn nonzero_revocation_tail_matches_go_and_typescript() {
     let mut elements = vec![hex32(
-        "2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779",
+        "1b4e1ba78684f111c74fabe984dcf6b70cd0bd6cbdcaf90a672986ce1a89b0e0",
     )];
     elements.extend_from_slice(&[
         [0x2a; 32],
@@ -462,7 +463,7 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c")
+        hex32("2aa0c875d2823f551bc4c1f5e98cc18fb0dc6171079af204193067ec124f07e6")
     );
 }
 

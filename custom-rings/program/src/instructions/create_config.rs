@@ -1,4 +1,4 @@
-use custom_ring_interface::{CreateConfigIxData, RingProgramConfig};
+use custom_ring_interface::{CreateConfigIxData, RingMode, RingProgramConfig};
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, Address, ProgramResult,
@@ -23,10 +23,11 @@ pub fn process_create_config_ix(
     let CreateConfigIxData {
         auditor_pubkey,
         has_policy,
+        anonymous,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
     // The tier is a boolean, transact treats any nonzero as policy, so a stored
     // 2 would read as policy while looking distinct.
-    if has_policy > 1 {
+    if has_policy > 1 || anonymous > 1 {
         return Err(CustomRingError::InvalidInstructionData.into());
     }
 
@@ -91,6 +92,11 @@ pub fn process_create_config_ix(
         auditor_pubkey,
         bump,
         has_policy,
+        mode: if anonymous == 1 {
+            RingMode::Anonymous
+        } else {
+            RingMode::Off
+        },
     }
     .init(config_account)
 }

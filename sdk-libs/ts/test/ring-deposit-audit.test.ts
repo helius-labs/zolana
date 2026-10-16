@@ -83,7 +83,7 @@ describe("deposit disclosure", () => {
         auditorPublicKey: auditor.publicKey(),
       });
       expect(Buffer.from(hash).toString("hex")).toBe(
-        "0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef",
+        "082572ed72398c62f6306725b8142c43daa0b5b9f83eb9d12663cdd59057a39a",
       );
     } finally {
       generate.mockRestore();

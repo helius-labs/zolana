@@ -2,7 +2,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, load_spp_tree_id, UpgradeAuthorityCheck},
-        policy_shared::{compute_policy_hash, namespace_pda, TableBinding},
+        policy_shared::{check_anonymous_policy, compute_policy_hash, namespace_pda, TableBinding},
         shared::PdaCheck,
     },
     state::PolicyConfigInit,
@@ -40,9 +40,13 @@ pub fn process_create_policy_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
-    if load_config(program_id, config)?.has_policy == 0 {
-        return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
-    }
+    let mode = {
+        let config = load_config(program_id, config)?;
+        if config.has_policy == 0 {
+            return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
+        }
+        config.mode().ok_or(CustomRingError::InvalidRingMode)?
+    };
     let address_tree_id = load_spp_tree_id(address_tree, CustomRingError::InvalidAddressTree)?;
     UpgradeAuthorityCheck {
         program_id,
@@ -74,6 +78,7 @@ pub fn process_create_policy_ix(
         address_tree: address_tree.address(),
     }
     .bind()?;
+    check_anonymous_policy(mode, &bound.rules)?;
     let policy_hash = compute_policy_hash(&bound.rules, &bound.sources)?;
     let generation_slot = Clock::get()?.slot;
 

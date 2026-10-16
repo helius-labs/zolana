@@ -326,6 +326,7 @@ export {
   RING_READ_PAGE_LIMIT,
 } from "./rpc.js";
 export type {
+  DecryptedAnonymousRingTrace,
   DecryptedRingOutput,
   DecryptedRingSpendCounter,
   DecryptedRingSpendRecord,

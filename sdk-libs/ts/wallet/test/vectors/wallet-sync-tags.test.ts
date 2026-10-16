@@ -131,7 +131,7 @@ describe("wallet sync stable-tag vectors", () => {
   });
 
   for (const item of fixture.cases as readonly Case[]) {
-    it(`queries only signing and bootstrap tags: ${item.id}`, async () => {
+    it(`queries signing, bootstrap and anonymous tags: ${item.id}`, async () => {
       const owner = keypair();
       const retained = item.viewingKeys.map(viewingKey);
       const recorded = recorder();

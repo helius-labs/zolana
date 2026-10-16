@@ -5,7 +5,7 @@
 // key.
 //
 // The circuit has exactly one public input, PublicInputHash, the Poseidon hash
-// chain over these eleven elements in this exact order:
+// chain over these twelve elements in this exact order:
 //
 //  1. private_tx_hash    -- pass-through, not recomputed here
 //  2. tx_viewing_pk_lo   -- packed compressed tx_viewing_sk * G
@@ -18,6 +18,7 @@
 //  9. output_hash_chain   -- SPP commitments for the published output prefix
 //  10. salt               -- transaction salt used by the disclosure stream
 //  11. disclosure_hash    -- encrypted output commitment fields
+//  12. anonymous          -- ring mode, selecting full spend disclosure
 //
 // The on-chain Rust recompute in
 // custom-rings/program/src/instructions/transact.rs
@@ -49,6 +50,7 @@ const auditEncInfo = "CRING/adt1"
 // binding and envelope each constrain their own public-key relation.
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
+	Anonymous       frontend.Variable
 
 	// PrivateTxHash is the SPP transaction hash, folded into the public input
 	// chain unchanged so the on-chain program can bind this proof to the
@@ -69,28 +71,48 @@ type CustomRingBaseCircuit struct {
 	Salt                [16]frontend.Variable
 	Outputs             [AuditOutputSlots]AuditOutputWires
 	OutputCountSelected [AuditOutputSlots]frontend.Variable
+	Sender              AuditIdentityWires
+	Inputs              [AuditInputSlots]AuditUtxoWires
+	InputCountSelected  [AuditInputSlots + 1]frontend.Variable
+	AnonymousOutputs    [AuditOutputSlots]AuditUtxoWires
+	Recipients          [AuditOutputSlots]AuditIdentityWires
+	PrivateTxBlinding   frontend.Variable
 }
 
 // AuditBlockWires carries the audit block's witnesses into a folding circuit.
 type AuditBlockWires struct {
 	PrivateTxHash       frontend.Variable
+	Anonymous           frontend.Variable
 	TxViewingSk         [32]frontend.Variable
 	EphSk               [32]frontend.Variable
 	AuditorPk           [32]frontend.Variable
 	Salt                [16]frontend.Variable
 	Outputs             [AuditOutputSlots]AuditOutputWires
 	OutputCountSelected [AuditOutputSlots]frontend.Variable
+	Sender              AuditIdentityWires
+	Inputs              [AuditInputSlots]AuditUtxoWires
+	InputCountSelected  [AuditInputSlots + 1]frontend.Variable
+	AnonymousOutputs    [AuditOutputSlots]AuditUtxoWires
+	Recipients          [AuditOutputSlots]AuditIdentityWires
+	PrivateTxBlinding   frontend.Variable
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 	elements := DefineAuditBlock(api, AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
+		Anonymous:           c.Anonymous,
 		TxViewingSk:         c.TxViewingSk,
 		EphSk:               c.EphSk,
 		AuditorPk:           c.AuditorPk,
 		Salt:                c.Salt,
 		Outputs:             c.Outputs,
 		OutputCountSelected: c.OutputCountSelected,
+		Sender:              c.Sender,
+		Inputs:              c.Inputs,
+		InputCountSelected:  c.InputCountSelected,
+		AnonymousOutputs:    c.AnonymousOutputs,
+		Recipients:          c.Recipients,
+		PrivateTxBlinding:   c.PrivateTxBlinding,
 	})
 
 	// (k) The single public input, chain order pinned by the package comment.
@@ -99,7 +121,9 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 }
 
 // DefineAuditBlock constrains the audit statement and returns its chain elements.
-func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
+func DefineAuditBlock(api frontend.API, w AuditBlockWires) [12]frontend.Variable {
+	api.AssertIsBoolean(w.Anonymous)
+	w.InputCountSelected[0] = api.Sub(1, w.Anonymous)
 	// (a) Prove the disclosed plaintext is the unique clamped byte encoding of
 	// its X25519 key. The generator constrains all remaining bytes below.
 	rangeChecker := rangecheck.New(api)
@@ -125,12 +149,15 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 		AuditorPk: w.AuditorPk,
 		Info:      auditEncInfo,
 	}.Seal(api)
-	outputHashChain, disclosureHash := disclosureElements(
+	legacyOutputHashChain, legacyDisclosureHash := disclosureElements(
 		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
+	outputHashChain, disclosureHash := anonymousDisclosureElements(api, w)
+	outputHashChain = api.Select(w.Anonymous, outputHashChain, legacyOutputHashChain)
+	disclosureHash = api.Select(w.Anonymous, disclosureHash, legacyDisclosureHash)
 	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 
-	return [11]frontend.Variable{
+	return [12]frontend.Variable{
 		w.PrivateTxHash,
 		txLo, txHi,
 		sealed.AuditorLo, sealed.AuditorHi,
@@ -139,6 +166,7 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable
 		outputHashChain,
 		saltField,
 		disclosureHash,
+		w.Anonymous,
 	}
 }
 

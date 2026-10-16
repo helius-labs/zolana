@@ -29,5 +29,5 @@ func (e *Execution) acquireQueued(stop <-chan struct{}) (func(), bool) {
 }
 
 func isTransferCircuit(circuit common.CircuitType) bool {
-	return GetQueueNameForCircuit(circuit) == "zk_transfer_queue"
+	return circuit.IsTransfer()
 }

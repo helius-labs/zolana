@@ -1,3 +1,4 @@
+import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
   Bytes16,
@@ -101,7 +102,7 @@ export function decryptRingDepositUtxo(
   return ringDepositUtxo(
     output,
     key.decryptRingDeposit(
-      output.encrypted.ciphertext,
+      ringDepositRecipientCiphertext(output.encrypted.ciphertext),
       X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey),
       output.encrypted.salt,
     ),

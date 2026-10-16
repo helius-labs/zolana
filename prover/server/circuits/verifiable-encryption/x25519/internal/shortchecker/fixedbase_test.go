@@ -12,7 +12,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type generatorWindowCircuit struct {
@@ -30,9 +30,7 @@ type finalGeneratorAddCircuit struct {
 func (c *finalGeneratorAddCircuit) Define(api frontend.API) error {
 	f := emfield.NewFor(api, prime(), c.Layout)
 	window := 7
-	if !c.Layout.Lookups {
-		window = 10
-	}
+
 	tables := generatorWindowTables(window)
 	last := tables[len(tables)-1]
 	p := last[len(last)-1] // The equal-point final-addition boundary.
@@ -49,16 +47,14 @@ func (c *finalGeneratorAddCircuit) Define(api frontend.API) error {
 	} else {
 		got = cv.baseFinalAddX(point, point)
 	}
-	f.AssertZeroProjected(T(1, got), T(-1, f.FromLimbs(c.Output)))
+	f.AssertZeroProjected(T(1, got), T(-1, fromLimbs(f, c.Output)))
 	return nil
 }
 
 func TestFixedBaseFinalTangentGuard(t *testing.T) {
-	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 10, Lookups: true}, emfield.PlainLayout} {
+	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 10}, emfield.Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}} {
 		window := 7
-		if !lay.Lookups {
-			window = 10
-		}
+
 		tables := generatorWindowTables(window)
 		last := tables[len(tables)-1]
 		p := last[len(last)-1]
@@ -102,7 +98,7 @@ func TestFixedBaseFinalTangentGuard(t *testing.T) {
 			}
 			err = cs.IsSolved(wit, solver.OverrideHint(solver.GetHintID(baseFinalSlopeHint), zero))
 			if !called || (err == nil) != mutant {
-				t.Fatalf("lookup%v mutant%v: forged tangent acceptance%v hintcalled%v", lay.Lookups, mutant, err == nil, called)
+				t.Fatalf("limbBits%d mutant%v: forged tangent acceptance%v hintcalled%v", lay.LimbBits, mutant, err == nil, called)
 			}
 		}
 	}
@@ -137,9 +133,9 @@ func TestGeneratorWindowSweep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 10, Lookups: true}, emfield.PlainLayout} {
+	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 10}, emfield.Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}} {
 		for _, window := range []int{5, 6, 7, 8, 9, 10} {
-			t.Run(fmt.Sprintf("lookup%v/window%d", lay.Lookups, window), func(t *testing.T) {
+			t.Run(fmt.Sprintf("limbBits%d/window%d", lay.LimbBits, window), func(t *testing.T) {
 				cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &generatorWindowCircuit{Window: window, Layout: lay})
 				if err != nil {
 					t.Fatal(err)

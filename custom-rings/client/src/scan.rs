@@ -13,6 +13,7 @@
 //! attributed to the ring through its confirmed call stack
 //! ([`TransactionOrigin`]).
 
+use custom_ring_interface::RingMode;
 use std::{
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
@@ -70,6 +71,7 @@ pub struct RingScan<'a> {
 pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
     auditor: &'a X25519Secret,
+    mode: RingMode,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -196,11 +198,19 @@ impl<'a> RingAudit<'a> {
         Self {
             ring_program_id,
             auditor,
+            mode: RingMode::Off,
             cursor: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
         }
+    }
+
+    /// Selects the ring's proved disclosure layout before auditing its slots.
+    #[must_use = "use the updated audit"]
+    pub fn with_mode(mut self, mode: RingMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     #[must_use = "use the updated audit"]
@@ -252,7 +262,7 @@ impl<'a> RingAudit<'a> {
                     transaction,
                     assets,
                 }
-                .run()
+                .run_with_mode(self.mode)
             })
             .collect::<Result<_, _>>()?;
         Ok(AuditedPage {

@@ -300,6 +300,9 @@ pub struct DecryptedTransaction {
     /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
     pub outputs: Vec<DecryptedOutput>,
+    /// Proven hidden sender and spent note metadata in an anonymous ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anonymous: Option<DecryptedAnonymousTrace>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
     /// Required signers, fee payer first. The sender is the one matching an
@@ -309,6 +312,33 @@ pub struct DecryptedTransaction {
     pub withdrawals: Vec<DecryptedWithdrawal>,
     /// Empty outside velocity transfers.
     pub spend_records: Vec<DecryptedSpendRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousTrace {
+    pub sender: SerializablePubkey,
+    pub inputs: Vec<DecryptedAnonymousInput>,
+    pub recipients: Vec<DecryptedAnonymousRecipient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousInput {
+    pub tree_id: u16,
+    pub amount: u64,
+    pub asset: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousRecipient {
+    pub slot_index: u32,
+    pub identity_tag: u8,
+    pub identity_key: Hash,
+    pub nullifier_pk: Hash,
+    pub amount: u64,
+    pub asset: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

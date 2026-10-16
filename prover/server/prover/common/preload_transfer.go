@@ -8,7 +8,22 @@ import (
 
 var transferPreloadCircuits = []CircuitType{
 	TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
-	TransferP256RingCircuitType, MergeCircuitType, MergeRingCircuitType,
+	TransferP256RingCircuitType, TransferEd25519RingCircuitType, MergeCircuitType, MergeRingCircuitType,
+}
+
+// TransferCircuitTypes returns the shared transfer/merge routing and preload set.
+func TransferCircuitTypes() []CircuitType {
+	return append([]CircuitType(nil), transferPreloadCircuits...)
+}
+
+// IsTransfer selects fixed-shape SPP requests, including merge circuits.
+func (c CircuitType) IsTransfer() bool {
+	for _, supported := range transferPreloadCircuits {
+		if c == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *LazyKeyManager) transferPreloadPaths(circuits []CircuitType) []string {
@@ -31,11 +46,7 @@ func (m *LazyKeyManager) transferPreloadPaths(circuits []CircuitType) []string {
 func (m *LazyKeyManager) selectedTransferPaths(selector string) ([]string, bool, error) {
 	parts := strings.Split(selector, ":")
 	circuit := CircuitType(parts[0])
-	found := false
-	for _, supported := range transferPreloadCircuits {
-		found = found || circuit == supported
-	}
-	if !found {
+	if !circuit.IsTransfer() {
 		return nil, false, nil
 	}
 	if len(parts) == 1 {
