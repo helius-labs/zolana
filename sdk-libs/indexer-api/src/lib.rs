@@ -20,7 +20,6 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactio
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
 pub const GET_RING_KEY_REGISTRY_ENTRY: &str = "getRingKeyRegistryEntry";
 pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegisterProof";
-pub const GET_RING_SPEND_RECORD: &str = "getRingSpendRecord";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 pub const GET_USER_RECORDS: &str = "getUserRecords";
@@ -37,7 +36,7 @@ pub mod error_code {
     pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32071;
     pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32072;
     pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32073;
-    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32074;
+    // -32074 retired with the ring spend records.
 }
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
@@ -57,7 +56,6 @@ pub mod method {
     pub struct GetMerkleProofs;
     pub struct GetRingKeyRegistryEntry;
     pub struct GetRingKeyRegistryRegisterProof;
-    pub struct GetRingSpendRecord;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
     pub struct GetUserRecords;
@@ -102,12 +100,6 @@ pub mod method {
         const NAME: &'static str = GET_RING_KEY_REGISTRY_REGISTER_PROOF;
         type Request = RingMemberProofRequest;
         type Response = GetRingKeyRegistryRegisterProofResponse;
-    }
-
-    impl RpcMethod for GetRingSpendRecord {
-        const NAME: &'static str = GET_RING_SPEND_RECORD;
-        type Request = RingSpendRecordRequest;
-        type Response = GetRingSpendRecordResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -788,31 +780,6 @@ pub struct GetRingKeyRegistryRegisterProofResponse {
     pub low_proof: Vec<Hash>,
     /// Computed after the predecessor update.
     pub new_proof: Vec<Hash>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingSpendRecordRequest {
-    pub ring_program_id: SerializablePubkey,
-    pub member: Hash,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingSpendRecord {
-    pub transaction: ShieldedTransaction,
-    pub output_index: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingSpendRecordResponse {
-    pub context: Context,
-    /// `None` until the member registers.
-    pub record: Option<RingSpendRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

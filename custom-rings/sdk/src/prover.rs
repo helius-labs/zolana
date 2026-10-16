@@ -1,7 +1,6 @@
 use custom_ring_interface::{
-    base_verifying_key, compressed_policy_verifying_key, delegate_policy_verifying_key,
-    deposit_verifying_key, policy_verifying_key, register_key_verifying_key, CustomRingProof,
-    PlainGroth16Proof, PROVING_KEY_SHA256S,
+    base_verifying_key, delegate_policy_verifying_key, deposit_verifying_key, policy_verifying_key,
+    register_key_verifying_key, CustomRingProof, PlainGroth16Proof, PROVING_KEY_SHA256S,
 };
 use serde::{Serialize, Serializer};
 use zeroize::Zeroizing;
@@ -16,7 +15,6 @@ use crate::RingError;
 pub(crate) enum RingCircuit {
     Base,
     Policy,
-    CompressedPolicy,
     DelegatePolicy,
     Deposit,
     RegisterKey,
@@ -27,7 +25,6 @@ impl RingCircuit {
         match self {
             Self::Base => "custom-ring-base",
             Self::Policy => "custom-ring-policy",
-            Self::CompressedPolicy => "custom-ring-compressed-policy",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
             Self::Deposit => "custom-ring-deposit",
             Self::RegisterKey => "custom-ring-register-key",
@@ -55,7 +52,6 @@ impl RingCircuit {
         let key = match self {
             Self::Base => &base_verifying_key::VERIFYINGKEY,
             Self::Policy => &policy_verifying_key::VERIFYINGKEY,
-            Self::CompressedPolicy => &compressed_policy_verifying_key::VERIFYINGKEY,
             Self::DelegatePolicy => &delegate_policy_verifying_key::VERIFYINGKEY,
             Self::Deposit => &deposit_verifying_key::VERIFYINGKEY,
             Self::RegisterKey => &register_key_verifying_key::VERIFYINGKEY,

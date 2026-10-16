@@ -26,8 +26,8 @@ use crate::{
     prover::fe,
     request::{sources, tree_slots, CustomRingOpening, Escrow, RuleAnswer},
     trees::{read_tree, TransactRoots},
-    EscrowBinding, LiveEntry, PinnedPolicy, PolicyReads, PolicyTreeContext, PoolTree, RingError,
-    VelocityProofInput,
+    EscrowBinding, LiveEntry, OutflowLimitProofInput, PinnedPolicy, PolicyReads, PolicyTreeContext,
+    PoolTree, RingError,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,7 +87,7 @@ pub(crate) struct CustomRingWitness {
     #[serde(flatten)]
     pub escrow: Escrow,
     #[serde(flatten)]
-    pub velocity: VelocityProofInput,
+    pub limits: OutflowLimitProofInput,
     pub answers: Vec<RuleAnswer>,
     #[serde(skip)]
     pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
@@ -125,9 +125,7 @@ pub(crate) struct WitnessInput<'a> {
     /// The tree the outputs are appended to, every output hashes under it.
     pub output_tree_id: u16,
     pub private_tx_blinding: [u8; 32],
-    pub velocity: VelocityProofInput,
-    /// A windowed rail places the record at the last real input and the last output.
-    pub record: bool,
+    pub limits: OutflowLimitProofInput,
     pub key_registry: Option<KeyRegistry>,
     /// The entries are read once the indexer persisted `require_slot`.
     pub indexer_config: Option<IndexerRpcConfig>,
@@ -334,23 +332,7 @@ impl<'a> WitnessInput<'a> {
         }
     }
 
-    fn active_input_count(&self) -> usize {
-        match self.record {
-            true => {
-                crate::pipeline::record_input_position(self.inputs).map_or(0, |record| record + 1)
-            }
-            false => self.inputs.len(),
-        }
-    }
-
-    /// Rule subjects skip the record slot the circuit excludes.
-    fn rule_inputs(&self) -> &[SppProofInputUtxo] {
-        let count =
-            self.active_input_count() - usize::from(self.record && self.active_input_count() > 0);
-        &self.inputs[..count]
-    }
-
-    /// Compact padding trails the record, so the record is the last active output.
+    /// Compact padding trails the money, so the active outputs lead.
     fn active_output_count(&self) -> usize {
         self.outputs
             .iter()
@@ -359,9 +341,9 @@ impl<'a> WitnessInput<'a> {
     }
 
     fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
-        let active = self.active_output_count();
-        let count = active - usize::from(self.record && active > 0);
-        self.outputs.get(..count).unwrap_or_default()
+        self.outputs
+            .get(..self.active_output_count())
+            .unwrap_or_default()
     }
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, RingError> {
@@ -372,7 +354,7 @@ impl<'a> WitnessInput<'a> {
         match rule.subject {
             Subject::OutputOwner => owned.map(owner_member).collect(),
             Subject::Sender => self
-                .rule_inputs()
+                .inputs
                 .iter()
                 .filter(|input| !input.is_dummy())
                 .map(|input| {
@@ -390,7 +372,7 @@ impl<'a> WitnessInput<'a> {
         }
     }
 
-    /// Unowned slots and namespace-owned records carry no key.
+    /// Unowned slots carry no key.
     fn output_keys(&self) -> Result<Vec<Option<OutputKey>>, RingError> {
         self.outputs
             .iter()
@@ -398,10 +380,6 @@ impl<'a> WitnessInput<'a> {
                 let Some(address) = output.owner_address.as_ref() else {
                     return Ok(None);
                 };
-                // Escrow admits the zero key only on the namespace owner, whose hash binds it.
-                if address.owner_hash()? == self.pinned.config.namespace_owner_hash {
-                    return Ok(None);
-                }
                 Ok(Some(OutputKey {
                     owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
                     nullifier_pk: address.nullifier_pubkey,
@@ -515,7 +493,7 @@ impl<'a> WitnessInput<'a> {
         Ok(Box::new(CustomRingWitness {
             indexed: indexed.then_some(lookups),
             indexed_registry,
-            n_in: self.active_input_count() as u8,
+            n_in: self.inputs.len() as u8,
             n_out: self.active_output_count() as u8,
             inputs,
             outputs,
@@ -537,7 +515,7 @@ impl<'a> WitnessInput<'a> {
                 .collect(),
             address_tree_id: config.address_tree_id(),
             escrow: Escrow(escrow.map(|escrow| escrow.root)),
-            velocity: self.velocity,
+            limits: self.limits,
             answers: rule_answers,
             revocation_targets,
             revocation_tree_indexes,

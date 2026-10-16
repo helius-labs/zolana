@@ -19,11 +19,10 @@ use zolana_client::{
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
         GetUserRecordsResponse, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-        OutputSlot, RingSpendRecordRequest, Rpc, ShieldedTransaction, UserRecord,
+        OutputSlot, Rpc, ShieldedTransaction, UserRecord,
     },
     ClientError,
 };
-use zolana_indexer_api::{Hash as ApiHash, SerializablePubkey};
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use zolana_user_registry_interface::user_record_pda;
 
@@ -624,48 +623,6 @@ fn by_signature_error_path_includes_transaction_nesting() {
         .contains("transactions[0].transaction.txViewingPk"));
 }
 
-fn spend_record_query() -> RingSpendRecordRequest {
-    RingSpendRecordRequest {
-        ring_program_id: SerializablePubkey::from(bytes32(1)),
-        member: ApiHash(bytes32(2)),
-    }
-}
-
-#[test]
-fn spend_record_transport_returns_the_indexed_record() {
-    let server = MockServer::respond_once(rpc_result(json!({
-        "context": {"blockTime": 90, "slot": 20},
-        "record": {
-            "transaction": {
-                "slot": 18,
-                "txSignature": signature(7).to_string(),
-                "eventIndex": 1,
-                "outputSlots": [],
-                "messages": [],
-                "nullifiers": [],
-                "proofless": false,
-            },
-            "outputIndex": 2,
-        },
-    })));
-    let query = spend_record_query();
-    let response = ZolanaIndexer::new(server.url())
-        .get_ring_spend_record(query.clone())
-        .unwrap();
-    let request = server.request();
-    assert_eq!(request.path, "/getRingSpendRecord");
-    assert_json_rpc_request(&request.body, "getRingSpendRecord");
-    assert_eq!(
-        request.body["params"],
-        json!({"ringProgramId": query.ring_program_id.to_string(), "member": encode_hash_string(bytes32(2))})
-    );
-    assert_eq!(response.context.slot, 20);
-    let record = response.record.unwrap();
-    assert_eq!(record.output_index, 2);
-    assert_eq!(record.transaction.slot, 18);
-    assert_eq!(record.transaction.event_index, Some(1));
-}
-
 #[test]
 fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
     let owners = [
@@ -762,24 +719,6 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
         ),
         "{error}"
     );
-}
-
-#[tokio::test]
-async fn async_spend_record_transport_reads_an_unregistered_member_as_none() {
-    let server = MockServer::respond_once(rpc_result(json!({
-        "context": {"blockTime": 90, "slot": 21},
-        "record": null,
-    })));
-    let query = spend_record_query();
-    let response = AsyncZolanaIndexer::new(server.url())
-        .get_ring_spend_record(query.clone())
-        .await
-        .unwrap();
-    let request = server.request();
-    assert_json_rpc_request(&request.body, "getRingSpendRecord");
-    assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
-    assert_eq!(response.context.slot, 21);
-    assert!(response.record.is_none());
 }
 
 fn assert_json_rpc_request(body: &Value, method: &str) {

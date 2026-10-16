@@ -4,20 +4,17 @@
 use custom_ring_interface::AUDIT_OUTPUT_SLOTS;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_event::MessageData;
 use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_interface::event::{confidential_encrypted_output_body, OutputDataEncoding};
+use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
-use zolana_ring_policy::{spend_record_message_tag, SpendCounters, SpendRecord};
 use zolana_transaction::{
     serialization::confidential::Confidential, utxo::program_id_proof_input_hash, AssetRegistry,
-    EncryptedScheme, OutputSlot, ShieldedTransaction, SOL_MINT,
+    EncryptedScheme, OutputSlot, ShieldedTransaction,
 };
 
 use crate::{
-    counters::{find_counters_message, open_counters},
     encryption::{auditor_view_tag, AuditorMessage},
-    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
+    types::{AuditedOutput, AuditedTransaction},
     AuditError,
 };
 
@@ -48,7 +45,6 @@ impl TransactionAudit<'_> {
             tx_viewing_pk,
             outputs: Vec::new(),
             output_openings: Vec::new(),
-            spend_records: Vec::new(),
             undecryptable_slots: Vec::new(),
         };
         let openings = message.open_outputs(&tx_key, salt)?;
@@ -59,30 +55,9 @@ impl TransactionAudit<'_> {
             }
             let opened = open_output(&tx_key, slot, salt, slot_index, self.assets, &opening)?;
             audited.output_openings.push(opening);
-            let last = position + 1 == tx.output_slots.len();
-            match (carried_record(slot, &tx.messages, last)?, opened) {
-                (Some(record), opened) => {
-                    let plaintext =
-                        matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)));
-                    // A sealed carrier must be the zero SOL note the record names.
-                    let carrier = opened.is_some_and(|output| {
-                        output.asset == SOL_MINT
-                            && output.amount == 0
-                            && output.ring_program_id.is_none()
-                            && output.recipient_viewing_pk == tx_viewing_pk
-                            && *output.blinding == record.blinding
-                    });
-                    if !plaintext && !carrier {
-                        return Err(AuditError::InvalidSpendRecordMessage);
-                    }
-                    audited.spend_records.push(AuditedSpendRecord {
-                        slot_index,
-                        counters: opened_counters(&tx_key, salt, &tx.messages, slot, &record)?,
-                        record,
-                    });
-                }
-                (None, Some(output)) => audited.outputs.push(output),
-                (None, None) => audited.undecryptable_slots.push(slot_index),
+            match opened {
+                Some(output) => audited.outputs.push(output),
+                None => audited.undecryptable_slots.push(slot_index),
             }
         }
         Ok(audited)
@@ -170,52 +145,6 @@ fn open_output(
         ring_program_id: plaintext.ring_program_id,
         data: plaintext.data,
     }))
-}
-
-/// A registration carries its record inline, a successor in the one message its namespace
-/// tags, from the last output slot.
-fn carried_record(
-    slot: &OutputSlot,
-    messages: &[MessageData],
-    last: bool,
-) -> Result<Option<SpendRecord>, AuditError> {
-    if let Some(record) = SpendRecord::from_output_data(&slot.payload) {
-        return Ok((record.version == 0).then_some(record));
-    }
-    let tag = spend_record_message_tag(&slot.view_tag)?;
-    let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
-    let Some(message) = tagged.next() else {
-        return Ok(None);
-    };
-    if tagged.next().is_some()
-        || !last
-        || confidential_encrypted_output_body(&slot.payload).is_none()
-    {
-        return Err(AuditError::InvalidSpendRecordMessage);
-    }
-    SpendRecord::from_output_data(&message.data)
-        .map(Some)
-        .ok_or(AuditError::InvalidSpendRecordMessage)
-}
-
-/// `None` for a registration, else the counters that open the record's commitment.
-fn opened_counters(
-    tx_key: &ViewingKey,
-    salt: [u8; SALT_LEN],
-    messages: &[MessageData],
-    slot: &OutputSlot,
-    record: &SpendRecord,
-) -> Result<Option<SpendCounters>, AuditError> {
-    if record.version == 0 {
-        return Ok(None);
-    }
-    find_counters_message(messages, &slot.view_tag)
-        .ok()
-        .flatten()
-        .and_then(|message| open_counters(&message.data, salt, tx_key).ok())
-        .filter(|counters| counters.commitment().ok() == Some(record.counters_commitment))
-        .map(Some)
-        .ok_or(AuditError::InvalidSpendCountersDisclosure)
 }
 
 #[cfg(test)]

@@ -30,9 +30,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
-    auditor_view_tag, seal_counters, AuditError, AuditedOutput, AuditedTransaction,
-    AuditorEncryption, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
-    AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption, RingOrigin,
+    RingScan, TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -228,79 +227,6 @@ fn free_form_message() -> MessageData {
 }
 
 #[test]
-fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as_money() {
-    use zolana_ring_policy::{spend_record_message_tag, Member, SpendCounters, SpendRecord};
-    let auditor = X25519Secret::new();
-    let tx_key = ViewingKey::new();
-    let namespace = [7u8; 32];
-    let counters = SpendCounters::EMPTY;
-    let record = SpendRecord {
-        member: Member::owner_tag(&[8; 32]).unwrap(),
-        version: 1,
-        window: 9,
-        counters_commitment: counters.commitment().unwrap(),
-        blinding: field(6),
-    };
-    let mut slot = confidential_slot(&tx_key, &tx_key.pubkey(), &plaintext(SOL_ASSET_ID, 0, 6), 0);
-    slot.view_tag = namespace;
-    let slots = vec![slot];
-    let record_message = MessageData {
-        view_tag: spend_record_message_tag(&namespace).unwrap(),
-        data: record.to_output_data().to_vec(),
-    };
-    let mut tx = transaction(
-        &tx_key,
-        slots.clone(),
-        vec![
-            record_message.clone(),
-            MessageData {
-                view_tag: namespace,
-                data: seal_counters(&tx_key, &tx_key.pubkey(), SALT, &counters).unwrap(),
-            },
-            auditor_message_data(&tx_key, &auditor.pubkey(), &slots),
-        ],
-    );
-    let assets = registry();
-    let audit = |tx: &ShieldedTransaction| {
-        TransactionAudit {
-            auditor: &auditor,
-            transaction: tx,
-            assets: &assets,
-        }
-        .run()
-    };
-    let opened = audit(&tx).unwrap();
-    assert!(opened.outputs.is_empty());
-    assert!(opened.undecryptable_slots.is_empty());
-    assert_eq!(opened.spend_records.len(), 1);
-    assert_eq!(opened.spend_records[0].record, record);
-    assert_eq!(opened.spend_records[0].counters, Some(counters));
-    tx.messages.insert(0, record_message);
-    assert!(matches!(
-        audit(&tx),
-        Err(AuditError::InvalidSpendRecordMessage)
-    ));
-    tx.messages.remove(0);
-    tx.messages[0].data.pop();
-    assert!(matches!(
-        audit(&tx),
-        Err(AuditError::InvalidSpendRecordMessage)
-    ));
-    tx.messages[0].data = record.to_output_data().to_vec();
-    tx.messages[0].data[85] ^= 1;
-    assert!(matches!(
-        audit(&tx),
-        Err(AuditError::InvalidSpendRecordMessage)
-    ));
-    tx.messages[0].data = record.to_output_data().to_vec();
-    tx.output_slots.push(dummy_slot(1));
-    assert!(matches!(
-        audit(&tx),
-        Err(AuditError::InvalidSpendRecordMessage)
-    ));
-}
-
-#[test]
 fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
     let auditor = X25519Secret::new();
     let tx_key = ViewingKey::new();
@@ -360,7 +286,6 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 },
             ],
             output_openings: vec![proof_output(&sol_output, 0), proof_output(&token_output, 1),],
-            spend_records: vec![],
             undecryptable_slots: vec![],
         }
     );

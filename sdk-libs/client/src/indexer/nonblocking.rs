@@ -10,10 +10,9 @@ use crate::{
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
-        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        GetUserRecordsResponse, IndexerRpcConfig, RingHistoryOptions, RingMemberProofRequest,
     },
 };
 
@@ -309,16 +308,6 @@ impl AsyncRpc for AsyncZolanaIndexer {
             },
         )
         .await
-    }
-
-    async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.api
-            .get_ring_spend_record(request)
-            .await
-            .map_err(indexer_error)
     }
 
     async fn get_ring_key_registry_entry(

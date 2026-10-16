@@ -1,11 +1,10 @@
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
 use zolana_keypair::ViewingKey;
-use zolana_ring_policy::{Member, SpendCounters, SpendRecord, MAX_VELOCITY_ASSETS};
 use zolana_transaction::Data;
 
 use super::*;
-use crate::{AuditedOutput, AuditedSpendRecord};
+use crate::AuditedOutput;
 
 fn temp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ring-rpc-{label}-{}", std::process::id()));
@@ -111,13 +110,6 @@ fn a_deposits_cursor_is_exactly_one_signature() {
 #[test]
 fn a_decrypted_page_keeps_its_wire_json() {
     let viewing = ViewingKey::from_bytes(&[3; 32]).expect("key").pubkey();
-    let mut counters = SpendCounters {
-        salt: [0; 32],
-        assets: [[0; 32]; MAX_VELOCITY_ASSETS],
-        spent: [0; MAX_VELOCITY_ASSETS],
-    };
-    counters.assets[1] = [6; 32];
-    counters.spent[1] = 77;
     let audited = AuditedTransaction {
         tx_signature: Signature::from([1; 64]),
         slot: 42,
@@ -133,17 +125,6 @@ fn a_decrypted_page_keeps_its_wire_json() {
             data: Data::default(),
         }],
         output_openings: Vec::new(),
-        spend_records: vec![AuditedSpendRecord {
-            slot_index: 0,
-            record: SpendRecord {
-                member: Member::owner_tag(&[8; 32]).expect("member"),
-                version: 3,
-                window: 11,
-                counters_commitment: [9; 32],
-                blinding: [0; 32],
-            },
-            counters: Some(counters),
-        }],
         undecryptable_slots: vec![2],
     };
     let withdrawal = RingWithdrawal {

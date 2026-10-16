@@ -19,8 +19,6 @@ pub enum ClientError {
     RingKeyRegistryMemberUnregistered,
     #[error("the member already registered a nullifier key")]
     RingKeyRegistryMemberAlreadyRegistered,
-    #[error("the ring spend-record indexer is catching up or recovering")]
-    RingSpendRecordOutOfSync,
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 

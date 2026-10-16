@@ -12,8 +12,8 @@ use crate::{
     request::{CustomRingOpening, Escrow},
     trees::TransactRoots,
     witness::{CustomRingWitness, PolicyTree},
-    CurrentKeyRegistryRoot, CustomRingProofParams, EncryptedAudit, PoolTree, RingError,
-    RingIdentity, VelocityProofInput,
+    CurrentKeyRegistryRoot, CustomRingProofParams, EncryptedAudit, OutflowLimitProofInput,
+    PoolTree, RingError, RingIdentity,
 };
 
 const REGISTRY_ROOT: [u8; 32] = [12; 32];
@@ -65,7 +65,7 @@ pub(super) fn witness() -> CustomRingWitness {
             next_index: 2,
             history_index: 3,
         })),
-        velocity: VelocityProofInput::off(RingIdentity {
+        limits: OutflowLimitProofInput::none(RingIdentity {
             ring_id: [10; 32],
             namespace_owner_hash: [11; 32],
         }),
@@ -126,7 +126,6 @@ fn finish_binds_the_public_input_the_program_recomputes() {
         address_tree_id: 0,
         ring_id: &[10; 32],
         namespace_owner_hash: &[11; 32],
-        window_index: 0,
         approval_required: false,
         key_registry_root: Some(&REGISTRY_ROOT),
         revocation_tree_indexes: &revocation_tree_indexes,

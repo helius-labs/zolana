@@ -24,7 +24,7 @@ use crate::{
     request::DepositBody,
     submission::BoundRoot,
     to_instruction_proof,
-    transact_ix::{ring_prefix, window_metas},
+    transact_ix::ring_prefix,
     CustomRing, EscrowBinding, RingError, RingSubmission, SettledSubmission,
 };
 
@@ -321,7 +321,6 @@ impl Deposit {
             }
             .into());
         }
-        let windows = window_metas(self.ring, settled_mints(&self.deposits));
         let mut instruction = zolana_program::instruction::RingDeposit {
             tree: self.tree,
             depositor: self.depositor,
@@ -343,27 +342,7 @@ impl Deposit {
             false,
         ));
         prefix.extend(self.escrow.meta(self.ring));
-        prefix.extend(windows);
         instruction.accounts.splice(0..0, prefix);
         Ok(instruction)
     }
-}
-
-/// SPP settles SOL first, then each SPL mint in first appearance, the windows follow that order.
-fn settled_mints(deposits: &[RingAssetDeposit]) -> Vec<Address> {
-    let mut mints = Vec::new();
-    if deposits
-        .iter()
-        .any(|deposit| matches!(deposit.asset, DepositAsset::Sol))
-    {
-        mints.push(Address::default());
-    }
-    for deposit in deposits {
-        if let DepositAsset::Spl(accounts) = deposit.asset {
-            if !mints.contains(&accounts.mint) {
-                mints.push(accounts.mint);
-            }
-        }
-    }
-    mints
 }

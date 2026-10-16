@@ -12,18 +12,17 @@ mod escrow;
 mod golden_tests;
 mod heap;
 mod key_registry;
+mod limits;
 mod merge;
 mod pipeline;
 mod projection;
 mod prover;
 mod request;
-mod spend;
 mod submission;
 #[cfg(test)]
 mod tests;
 mod transact_ix;
 mod trees;
-mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
@@ -36,7 +35,7 @@ pub use crate::{
         client_rules_match, policy_config_table, CoSignThreshold, CurrentKeyRegistryRoot,
         CustomRing, CustomRingCoSigner, CustomRingConfig, PinnedPolicy, PoolTree,
     },
-    admin::{SetSpendWindow, SourceOwner},
+    admin::SourceOwner,
     audit::{CustomRingProofParams, EncryptedAudit, PendingCustomRingProof},
     deposit::{Deposit, PreparedRingDeposit, RingDeposit, RingDepositReceipt},
     entry::{CreateEntry, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry},
@@ -55,10 +54,7 @@ pub use crate::{
         ProvenRingTransfer, ProvenTransfer, Rail, RailKind, RingTransfer,
     },
     prover::{to_instruction_proof, to_plain_proof},
-    request::{RingIdentity, SpendRecordProofInput, VelocityProofInput},
-    spend::{
-        LiveSpendRecord, ProvenSpendRegistration, ReadSpendRecord, RecordOrigin, RegisterSpend,
-    },
+    request::{OutflowLimitProofInput, RingIdentity},
     submission::{
         RingMergeOperation, RingOperation, RingSubmission, SettledSubmission, SubmissionStatus,
     },
@@ -67,5 +63,4 @@ pub use crate::{
         PolicyTreeContext,
     },
     trees::tree_id,
-    velocity::WINDOW_GUARD_SLOTS,
 };

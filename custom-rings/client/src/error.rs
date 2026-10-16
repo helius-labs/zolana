@@ -29,10 +29,6 @@ pub enum AuditError {
     OutputCommitmentMismatch(u32),
     #[error("recipient ciphertext disagrees with the proof-bound opening at slot {0}")]
     OutputPlaintextMismatch(u32),
-    #[error("the public spend record message is malformed or does not match its carrier")]
-    InvalidSpendRecordMessage,
-    #[error("invalid spend counters disclosure")]
-    InvalidSpendCountersDisclosure,
     #[error("decrypted output references unknown asset id {asset_id}")]
     UnknownAsset {
         asset_id: u64,
@@ -56,8 +52,6 @@ pub enum AuditError {
     DepositSlot(usize),
     #[error("deposit opening does not match the owner commitment")]
     DepositOpeningMismatch,
-    #[error("the counters message is malformed")]
-    MalformedCounters,
     #[error("recovered nullifier key does not match the source member identity")]
     NullifierKeyMismatch,
     #[error("ring history exceeds the scan bound, spent notes cannot be excluded")]

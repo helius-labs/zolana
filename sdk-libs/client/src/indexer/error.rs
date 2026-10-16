@@ -1,7 +1,7 @@
 use crate::error::ClientError;
 use zolana_indexer_api::error_code::{
     RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
+    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED,
 };
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
@@ -51,7 +51,6 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
             RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED => {
                 ClientError::RingKeyRegistryMemberAlreadyRegistered
             }
-            RING_SPEND_RECORD_OUT_OF_SYNC => ClientError::RingSpendRecordOutOfSync,
             JSON_RPC_INTERNAL_ERROR => ClientError::IndexerUnavailable(message),
             _ => ClientError::Indexer(message),
         },
@@ -101,10 +100,6 @@ mod tests {
             (
                 RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
                 ClientError::RingKeyRegistryMemberAlreadyRegistered,
-            ),
-            (
-                RING_SPEND_RECORD_OUT_OF_SYNC,
-                ClientError::RingSpendRecordOutOfSync,
             ),
         ];
         for (code, expected) in cases {

@@ -7,7 +7,7 @@ use zolana_client::{
     ProofInputUtxo, ProveRequest, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_interface::tree_slot::tree_id_field;
-use zolana_ring_policy::{ANSWER_SLOTS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS};
+use zolana_ring_policy::{ANSWER_SLOTS, MAX_OUTFLOW_LIMITS, MAX_RULES, MAX_SOURCES};
 
 use super::audit::{encrypted, private_tx_hash, tree, witness};
 use crate::{
@@ -66,6 +66,8 @@ fn the_policy_request_matches_the_server_wire_format() {
             "inputs",
             "keyEscrow",
             "keyRegistryRoot",
+            "limitCount",
+            "limits",
             "nIn",
             "nOut",
             "namespaceOwnerHash",
@@ -74,17 +76,12 @@ fn the_policy_request_matches_the_server_wire_format() {
             "privateTxBlinding",
             "privateTxHash",
             "publicInputHash",
-            "record",
             "ringId",
             "ruleEnc",
             "salt",
             "sources",
             "treeSlots",
             "txViewingSk",
-            "velocity",
-            "velocityCount",
-            "windowIndex",
-            "windowSlots",
         ]
     );
     assert_eq!(value["circuitType"], "custom-ring-policy");
@@ -93,20 +90,12 @@ fn the_policy_request_matches_the_server_wire_format() {
     assert_eq!(value["sources"].as_array().unwrap().len(), MAX_SOURCES);
     assert_eq!(sorted_keys(&value["sources"][0]), ["listId", "ownerHash"]);
     assert_eq!(
-        value["velocity"].as_array().unwrap().len(),
-        MAX_VELOCITY_ASSETS
+        value["limits"].as_array().unwrap().len(),
+        MAX_OUTFLOW_LIMITS
     );
     assert_eq!(
-        sorted_keys(&value["record"]),
-        [
-            "assets",
-            "commitment",
-            "nextSalt",
-            "salt",
-            "spent",
-            "version",
-            "window"
-        ]
+        sorted_keys(&value["limits"][0]),
+        ["asset", "cap", "cosignAbove"]
     );
 }
 
@@ -266,7 +255,6 @@ fn every_circuit_names_its_pinned_proving_key() {
     for circuit in [
         RingCircuit::Base,
         RingCircuit::Policy,
-        RingCircuit::CompressedPolicy,
         RingCircuit::DelegatePolicy,
         RingCircuit::Deposit,
         RingCircuit::RegisterKey,

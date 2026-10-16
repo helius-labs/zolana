@@ -2,7 +2,6 @@
 //! fixture `prover/server/custom_rings/circuits/policy/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
-use core::num::NonZeroU64;
 use custom_ring_interface::{
     CustomRingBasePublicInput, CustomRingPolicyPublicInput, PolicyConfig, SourceSlot,
     N_SOURCE_SLOTS, POLICY_CONFIG,
@@ -11,7 +10,7 @@ use custom_ring_interface::{
 use solana_address::Address;
 use zolana_ring_policy::{
     entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
-    Member, Mode, Rule, RuleTable, SourceMap, SpendCounters, SpendRecord, Subject, VelocityRow,
+    Member, Mode, OutflowLimit, Rule, RuleTable, SourceMap, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
@@ -30,31 +29,17 @@ const ASSET_MEMBERS: &[[u8; 32]] = &[[
 
 const RECORDS_OWNER_HASH: &str = "2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196";
 const CURATOR_OWNER_HASH: &str = "13463a1c543bbe328fea6b0990a4014a613371d7390be03f7bc35cb4540753bb";
-const POLICY_HASH: &str = "1dc104a68f88e4dd4b996279428075bf0aa451d1e88acf81a0998f1be4e13728";
-const EMPTY_POLICY_HASH: &str = "294f70a1b451b9ecffaaffbb8d37180860e9b38274423ceb1804fc7d249aebb2";
+const POLICY_HASH: &str = "0a478385e1bd09fe08107efd6ef0c639c42136e8c469f4430fafbfec4a26fab0";
+const EMPTY_POLICY_HASH: &str = "21e13c8adf02a23a214b2c986696071fe52944dd903ea99d945ed6094f303848";
 const ONE_RULE_POLICY_HASH: &str =
-    "1d8a93a84553310f84dfd405acf418ba45cc5795ace61fe26df9b7cd166840e5";
+    "18b62773777263f2f9a627ada2144e4c73e9c0ee259bd98ecb771cd05d0492ac";
 const TWO_RULE_POLICY_HASH: &str =
-    "28dcf787fd34c34ffc39f692fedd8c295a86af310d29b95c7c4a06fb1f649a39";
+    "058a629418a4a8c99f64a76865855436b2155aa593e2496bad6f6a9d8cbbb61c";
 const MIXED_RULE_POLICY_HASH: &str =
-    "14fd09dc751b7d98170f21ea2a7ee560188293bdd2bb769e3b50463446d6e830";
+    "0dd06e8e135f9898b02b75c070f6b9ad9b6723059214e2b0f0730996d0a48ae1";
 const PER_ASSET_POLICY_HASH: &str =
-    "2615043990115a61321550171e2c11c858f27bee4f52e38d358fd84e576784da";
-const VELOCITY_POLICY_HASH: &str =
-    "002e5e9bec81cd30d19b59b3b34aa3539958bf48eabb622bb717c83e45e2749d";
-const TRANSFER_CAP_POLICY_HASH: &str =
-    "2a2d6562f3e1ae1921dbc630cd2c723923c7967bf2e38a42174854bbcd390de8";
-/// The Go velocity fixture, version four inside window three spent into version five.
-const SPEND_ADDRESS: &str = "0a01f0d4758639415a4c9c37e42d1878ea52f3f7e3821aed313835aec0850586";
-const SPEND_COMMITMENT: &str = "2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76";
-const SPEND_DATA_HASH: &str = "2f0e7fc685bb0fdd86c6b1b4b75b9e18ec84dae130f3b5cdba0f12ec987f6de3";
-const SPEND_UTXO_HASH: &str = "05e7e17a7845a03bdac567ab45ebe5f11814cd25c24bbd5a3d0ac651c1bdb0fc";
-const SPEND_NEXT_COMMITMENT: &str =
-    "05d117786af1550b31f6b0a83d76baffd51c2e6f73428c747b2269de4f7bf769";
-const SPEND_NEXT_DATA_HASH: &str =
-    "0f43075f27ce364f00f1d80fc51cfa03e41270edea2e3921f2d9902317cf3878";
-const ZERO_COUNTERS_COMMITMENT: &str =
-    "03bcb66825613582f9362a608fd94f6c4be191680bca9f8e75b1fee93268e1df";
+    "2b233ab98d8eeca8857b4f26ce9c90bca8e0c2b63053f600823c404aa77c020f";
+const LIMIT_POLICY_HASH: &str = "01b1e3ec5e25ca05541c8e3ca0d0dff6e4a3481b912cc6dcd0e492567b783669";
 const PER_ASSET_RULES: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
     .inline_assets(ASSET_MEMBERS)
@@ -262,11 +247,10 @@ fn per_asset_limit_hashing_matches_the_go_fixture() {
 }
 
 #[test]
-fn velocity_rows_hash_to_the_go_fixture() {
+fn outflow_limits_hash_to_the_go_fixture() {
     let table = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .windowed(NonZeroU64::new(216_000).expect("nonzero"))
-        .velocity(&[VelocityRow {
+        .limits(&[OutflowLimit {
             asset: ASSET_MEMBERS[0],
             cap: 5000,
             cosign_above: 600,
@@ -274,82 +258,13 @@ fn velocity_rows_hash_to_the_go_fixture() {
         .build();
     let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
     assert_eq!(
-        table.hash(&map).expect("velocity hash"),
-        hex32(VELOCITY_POLICY_HASH)
-    );
-}
-
-#[test]
-fn transfer_cap_rows_hash_to_the_go_fixture() {
-    let table = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .velocity(&[VelocityRow {
-            asset: ASSET_MEMBERS[0],
-            cap: 5000,
-            cosign_above: 600,
-        }])
-        .build();
-    let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
-    assert_eq!(
-        table.hash(&map).expect("transfer cap hash"),
-        hex32(TRANSFER_CAP_POLICY_HASH)
+        table.hash(&map).expect("limit hash"),
+        hex32(LIMIT_POLICY_HASH)
     );
 }
 
 fn field(value: u64) -> [u8; 32] {
     zolana_hasher::primitives::right_align(&value.to_be_bytes())
-}
-
-#[test]
-fn spend_record_hashing_matches_the_go_fixture() {
-    let owner = owner();
-    let sender = Member::owner_tag(&SENDER_TAG).expect("member");
-    let address = owner.spend_address(&sender, TREE_ID).expect("address");
-    assert_eq!(address, hex32(SPEND_ADDRESS));
-
-    let mut counters = SpendCounters::zero(&[ASSET_MEMBERS[0]]).expect("one asset");
-    counters.salt = field(0x5a17);
-    counters.spent[0] = 700;
-    assert_eq!(
-        counters.commitment().expect("commitment"),
-        hex32(SPEND_COMMITMENT)
-    );
-    let record = SpendRecord {
-        member: sender,
-        version: 4,
-        window: 3,
-        counters_commitment: counters.commitment().expect("commitment"),
-        blinding: field(0x63),
-    };
-    assert_eq!(
-        record.data_hash(&address).expect("data hash"),
-        hex32(SPEND_DATA_HASH)
-    );
-    assert_eq!(
-        record.utxo_hash(&owner, &address, TREE_ID).expect("leaf"),
-        hex32(SPEND_UTXO_HASH)
-    );
-
-    let mut next = SpendCounters::zero(&[ASSET_MEMBERS[0]]).expect("one asset");
-    next.salt = field(0x5a18);
-    next.spent[0] = 1700;
-    assert_eq!(
-        next.commitment().expect("commitment"),
-        hex32(SPEND_NEXT_COMMITMENT)
-    );
-    let successor = SpendRecord {
-        version: 5,
-        counters_commitment: next.commitment().expect("commitment"),
-        ..record
-    };
-    assert_eq!(
-        successor.data_hash(&address).expect("data hash"),
-        hex32(SPEND_NEXT_DATA_HASH)
-    );
-    assert_eq!(
-        SpendCounters::EMPTY.commitment().expect("zero"),
-        hex32(ZERO_COUNTERS_COMMITMENT)
-    );
 }
 
 #[test]
@@ -376,10 +291,22 @@ fn policy_account_bytes_match_the_typescript_vector() {
         generation: 0x01020304u32.to_le_bytes(),
         generation_slot: 0x0102030405060708u64.to_le_bytes(),
     };
-    let encoded: String = include_str!("fixtures/policy-config.hex")
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/policy-config.hex"
+    );
+    if std::env::var_os("WRITE_POLICY_CONFIG_HEX").is_some() {
+        std::fs::write(path, hex::encode(bytemuck::bytes_of(&config)) + "\n").expect("write");
+    }
+    let encoded: String = std::fs::read_to_string(path)
+        .expect("fixture")
         .split_whitespace()
         .collect();
-    assert_eq!(hex::encode(bytemuck::bytes_of(&config)), encoded);
+    assert_eq!(
+        hex::encode(bytemuck::bytes_of(&config)),
+        encoded,
+        "run with WRITE_POLICY_CONFIG_HEX=1"
+    );
 }
 
 #[test]
@@ -415,7 +342,6 @@ fn the_public_input_chain_extends_the_audit_chain() {
         address_tree_id: TREE_ID,
         ring_id: &[8u8; 32],
         namespace_owner_hash: &[9u8; 32],
-        window_index: 3,
         approval_required: true,
         key_registry_root: None,
         revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
@@ -428,7 +354,6 @@ fn the_public_input_chain_extends_the_audit_chain() {
         zolana_interface::tree_slot::tree_id_field(TREE_ID),
         [8u8; 32],
         [9u8; 32],
-        field(3),
         field(1),
         [0u8; 32],
         [0u8; 32],
@@ -451,7 +376,6 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
         zolana_interface::tree_slot::tree_id_field(9),
         [8; 32],
         [10; 32],
-        field(3),
         field(1),
         field(1),
         [0x0b; 32],
@@ -462,7 +386,7 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c")
+        hex32("2a466546ba7c07253eb4871cde6fd696cdb886269320b19ee6b076c6a6f12139")
     );
 }
 
@@ -503,7 +427,6 @@ fn the_policy_transact_carries_the_policy_config() {
         },
         transact: transact_payload(),
         approval_required: false,
-        window_index: 0,
     }
     .instruction()
     .expect("build the policy transact");

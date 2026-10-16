@@ -98,7 +98,6 @@ impl ReadEntry {
 /// One output of the transaction consuming the lineage's current nullifier.
 #[derive(Clone, Copy)]
 pub(crate) struct SpentSlot<'a> {
-    pub transaction: &'a ShieldedTransaction,
     pub slot: &'a OutputSlot,
 }
 
@@ -209,15 +208,10 @@ pub(crate) async fn walk<L: LineageLookup>(
             let version = live
                 .as_ref()
                 .map_or(0, |live| L::version(live).saturating_add(1));
-            let successor = spender.output_slots.iter().find_map(|slot| {
-                lookup.decode(
-                    address,
-                    SpentSlot {
-                        transaction: spender,
-                        slot,
-                    },
-                )
-            });
+            let successor = spender
+                .output_slots
+                .iter()
+                .find_map(|slot| lookup.decode(address, SpentSlot { slot }));
             let successor = successor.ok_or_else(|| lookup.broken(version))?;
             if L::version(&successor) != version {
                 return Err(RingError::LineageStalled { version });

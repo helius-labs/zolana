@@ -252,8 +252,6 @@ pub struct DecryptedTransaction {
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
-    /// Empty outside velocity transfers.
-    pub spend_records: Vec<DecryptedSpendRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,29 +261,6 @@ pub struct DecryptedWithdrawal {
     pub recipient: SerializablePubkey,
     pub asset: SerializablePubkey,
     pub amount: u64,
-}
-
-/// Public record metadata with counters authenticated by auditor decryption.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedSpendRecord {
-    pub slot_index: u32,
-    pub member: Hash,
-    pub version: u64,
-    pub window: u64,
-    pub counters_commitment: Hash,
-    /// Absent when no sealed message opened to the commitment, populated slots only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub counters: Option<Vec<DecryptedSpendCounter>>,
-}
-
-/// Verified against the record commitment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedSpendCounter {
-    pub slot: u8,
-    pub asset: Hash,
-    pub spent: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -410,28 +385,6 @@ impl DecryptedTransaction {
                 asset: withdrawal.asset.to_bytes().into(),
                 amount: withdrawal.amount,
             });
-        let spend_records = audited.spend_records.into_iter().map(|spend| {
-            // A zero asset marks an empty counter slot.
-            let counters = spend.counters.map(|counters| {
-                (0u8..)
-                    .zip(counters.assets.iter().zip(counters.spent))
-                    .filter(|(_, (asset, _))| **asset != [0; 32])
-                    .map(|(slot, (asset, spent))| DecryptedSpendCounter {
-                        slot,
-                        asset: (*asset).into(),
-                        spent,
-                    })
-                    .collect()
-            });
-            DecryptedSpendRecord {
-                slot_index: spend.slot_index,
-                member: (*spend.record.member.as_bytes()).into(),
-                version: spend.record.version,
-                window: spend.record.window,
-                counters_commitment: spend.record.counters_commitment.into(),
-                counters,
-            }
-        });
         Self {
             slot: audited.slot,
             tx_signature: audited.tx_signature.into(),
@@ -444,7 +397,6 @@ impl DecryptedTransaction {
                 .map(|key| key.to_bytes().into())
                 .collect(),
             withdrawals: withdrawals.collect(),
-            spend_records: spend_records.collect(),
         }
     }
 }

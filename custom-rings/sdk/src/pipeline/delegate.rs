@@ -197,11 +197,9 @@ impl Delegated<'_> {
             pending,
             tx_viewing_key,
             pinned: Some(pinned),
-            velocity: None,
-            record: None,
+            limits: None,
             authority: TransferAuthority {
                 owner: Some(self.source.clone()),
-                spend_record: None,
             },
             key_registry: Some(key_registry),
             owner_signers: Vec::new(),

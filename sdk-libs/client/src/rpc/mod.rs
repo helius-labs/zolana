@@ -19,10 +19,10 @@ pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
     GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
-    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
-    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
+    GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsByNullifiersResponse,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
+    RingMemberProofRequest, ShieldedTransaction, ShieldedTransactionStream, UserRecord,
+    MAX_USER_RECORD_OWNERS,
 };
