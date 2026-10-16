@@ -16,7 +16,7 @@ pub struct MemberKey {
     pub index: u64,
     pub next: [u8; 32],
     pub key_hash: [u8; 32],
-    #[serde(with = "compressed_key")]
+    #[serde(with = "tagged_key")]
     pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }
@@ -113,7 +113,7 @@ impl Registration {
     }
 }
 
-mod compressed_key {
+mod tagged_key {
     use custom_ring_interface::TAGGED_X25519_KEY_LEN;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
