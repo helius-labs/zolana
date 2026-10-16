@@ -8,9 +8,8 @@
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
-use shielded_pool_tests::support::{
-    ring::RealRingTransact,
-    transact::{current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool},
+use shielded_pool_tests::support::transact::{
+    current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool,
 };
 
 use num_bigint::BigUint;
@@ -1828,50 +1827,6 @@ fn ring_transact_accepts_the_widest_input_shape() {
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
-}
-
-#[test]
-fn ring_transact_accepts_the_widest_input_shape() {
-    let mut env = proof_env();
-
-    let payer = env.rpc.payer.pubkey();
-    let tree = env.tree;
-    let shape = Shape::IN49_OUT2;
-    let ring_config = Keypair::new();
-    let proof = RealRingTransact {
-        n_inputs: shape.n_inputs(),
-        n_outputs: shape.n_outputs(),
-        ring_config: ring_config.pubkey(),
-    }
-    .build(&mut env);
-    assert!(matches!(proof.data.circuit, CircuitId::RingEddsa(49, 2, _)));
-    let ix = proof.instruction(payer, tree);
-    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
-    env.rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            &[ix],
-            &[&ring_config],
-            ComputeBudgetConfig::new(1_400_000),
-        )
-        .expect("widest-input-shape Ed25519 ring transact");
-
-    assert_eq!(
-        tree_progress(&env.rpc, &tree),
-        (
-            utxo_next_before + shape.n_outputs() as u64,
-            nullifier_next_before + shape.n_inputs() as u64
-        ),
-        "two outputs appended and 49 nullifiers queued"
-    );
-    let trace = env
-        .rpc
-        .last_transaction_trace()
-        .expect("widest-input-shape Ed25519 ring transact trace");
-    println!(
-        "transact ring ed25519 49x2: {} CU",
-        trace.compute_units_consumed
-    );
-    assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");
 }
 
 #[test]
