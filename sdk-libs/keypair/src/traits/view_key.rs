@@ -1,6 +1,6 @@
 use crate::{
     error::KeypairError,
-    pubkey::P256Pubkey,
+    x25519::X25519Pubkey,
     shielded::ShieldedKeypair,
     viewing_key::{Salt, ViewTag, ViewingKey},
 };
@@ -17,10 +17,10 @@ use crate::{
 pub trait ViewingKeyTrait {
     // --- identity / key agreement ---
 
-    fn pubkey(&self) -> P256Pubkey;
+    fn pubkey(&self) -> X25519Pubkey;
 
     /// ECDH with `counterparty`, returning the shared point's x-coordinate.
-    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError>;
+    fn ecdh(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError>;
 
     // --- view-tag derivation ---
 
@@ -30,13 +30,13 @@ pub trait ViewingKeyTrait {
 
     fn get_send_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError>;
 
     fn get_recipient_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError>;
 
@@ -51,7 +51,7 @@ pub trait ViewingKeyTrait {
 
     fn encrypt_slot(
         &self,
-        recipient_pubkey: &P256Pubkey,
+        recipient_pubkey: &X25519Pubkey,
         plaintext: &[u8],
         salt: Salt,
         slot_index: u32,
@@ -62,14 +62,14 @@ pub trait ViewingKeyTrait {
     fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
+        tx_viewing_pubkey: &X25519Pubkey,
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
 
     fn decrypt_slot_ephemeral(
         &self,
-        recipient_pubkey: &P256Pubkey,
+        recipient_pubkey: &X25519Pubkey,
         ciphertext: &[u8],
         salt: Salt,
         slot_index: u32,
@@ -80,13 +80,13 @@ pub trait ViewingKeyTrait {
 macro_rules! forward_viewing_key_trait {
     ($backend:ty => $field:ident) => {
         impl $crate::ViewingKeyTrait for $backend {
-            fn pubkey(&self) -> $crate::P256Pubkey {
+            fn pubkey(&self) -> $crate::X25519Pubkey {
                 self.$field.pubkey()
             }
 
             fn ecdh(
                 &self,
-                counterparty: &$crate::P256Pubkey,
+                counterparty: &$crate::X25519Pubkey,
             ) -> ::core::result::Result<[u8; 32], $crate::KeypairError> {
                 self.$field.ecdh(counterparty)
             }
@@ -107,7 +107,7 @@ macro_rules! forward_viewing_key_trait {
 
             fn get_send_shared_view_tag(
                 &self,
-                counterparty: &$crate::P256Pubkey,
+                counterparty: &$crate::X25519Pubkey,
                 i: u64,
             ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
                 self.$field.get_send_shared_view_tag(counterparty, i)
@@ -115,7 +115,7 @@ macro_rules! forward_viewing_key_trait {
 
             fn get_recipient_shared_view_tag(
                 &self,
-                counterparty: &$crate::P256Pubkey,
+                counterparty: &$crate::X25519Pubkey,
                 i: u64,
             ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
                 self.$field.get_recipient_shared_view_tag(counterparty, i)
@@ -134,7 +134,7 @@ macro_rules! forward_viewing_key_trait {
 
             fn encrypt_slot(
                 &self,
-                recipient_pubkey: &$crate::P256Pubkey,
+                recipient_pubkey: &$crate::X25519Pubkey,
                 plaintext: &[u8],
                 salt: $crate::viewing_key::Salt,
                 slot_index: u32,
@@ -146,7 +146,7 @@ macro_rules! forward_viewing_key_trait {
             fn decrypt_utxo(
                 &self,
                 ciphertext: &[u8],
-                tx_viewing_pubkey: &$crate::P256Pubkey,
+                tx_viewing_pubkey: &$crate::X25519Pubkey,
                 salt: $crate::viewing_key::Salt,
                 slot_index: u32,
             ) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::KeypairError> {
@@ -156,7 +156,7 @@ macro_rules! forward_viewing_key_trait {
 
             fn decrypt_slot_ephemeral(
                 &self,
-                recipient_pubkey: &$crate::P256Pubkey,
+                recipient_pubkey: &$crate::X25519Pubkey,
                 ciphertext: &[u8],
                 salt: $crate::viewing_key::Salt,
                 slot_index: u32,
@@ -169,11 +169,11 @@ macro_rules! forward_viewing_key_trait {
 }
 
 impl ViewingKeyTrait for ViewingKey {
-    fn pubkey(&self) -> P256Pubkey {
+    fn pubkey(&self) -> X25519Pubkey {
         self.pubkey()
     }
 
-    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
+    fn ecdh(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError> {
         self.ecdh(counterparty)
     }
 
@@ -187,7 +187,7 @@ impl ViewingKeyTrait for ViewingKey {
 
     fn get_send_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
         self.get_send_shared_view_tag(counterparty, i)
@@ -195,7 +195,7 @@ impl ViewingKeyTrait for ViewingKey {
 
     fn get_recipient_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
         self.get_recipient_shared_view_tag(counterparty, i)
@@ -214,7 +214,7 @@ impl ViewingKeyTrait for ViewingKey {
 
     fn encrypt_slot(
         &self,
-        recipient_pubkey: &P256Pubkey,
+        recipient_pubkey: &X25519Pubkey,
         plaintext: &[u8],
         salt: Salt,
         slot_index: u32,
@@ -225,7 +225,7 @@ impl ViewingKeyTrait for ViewingKey {
     fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
+        tx_viewing_pubkey: &X25519Pubkey,
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
@@ -234,7 +234,7 @@ impl ViewingKeyTrait for ViewingKey {
 
     fn decrypt_slot_ephemeral(
         &self,
-        recipient_pubkey: &P256Pubkey,
+        recipient_pubkey: &X25519Pubkey,
         ciphertext: &[u8],
         salt: Salt,
         slot_index: u32,

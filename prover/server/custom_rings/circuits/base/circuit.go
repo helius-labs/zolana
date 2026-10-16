@@ -34,9 +34,9 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 // auditEncInfo is the key-schedule info string. It MUST equal the Rust
@@ -45,8 +45,8 @@ const auditEncInfo = "CRING/adt1"
 
 // CustomRingBaseCircuit is the audit-only custom-ring proof.
 //
-// TxViewingSk retains its P-256 big-endian encoding. EphSk and AuditorPk
-// are RFC 7748 byte strings; the envelope owns their validation.
+// TxViewingSk, EphSk and AuditorPk are RFC 7748 byte strings. The viewing
+// binding and envelope each constrain their own public-key relation.
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -55,8 +55,8 @@ type CustomRingBaseCircuit struct {
 	// transaction it accompanies.
 	PrivateTxHash frontend.Variable
 
-	// TxViewingSk is the transaction viewing scalar, big-endian. It is both the
-	// AES plaintext and the scalar whose public key is chain elements 2 and 3.
+	// TxViewingSk is the transaction viewing secret. It is both the AES
+	// plaintext and the secret whose public key is chain elements 2 and 3.
 	TxViewingSk [32]frontend.Variable
 
 	// EphSk is a fresh X25519 secret byte string. Encrypting under an
@@ -100,16 +100,23 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 
 // DefineAuditBlock constrains the audit statement and returns its chain elements.
 func DefineAuditBlock(api frontend.API, w AuditBlockWires) [11]frontend.Variable {
-	// (a) P-256 viewing-key binding still needs its plaintext byte bounds.
+	// (a) Prove the disclosed plaintext is the unique clamped byte encoding of
+	// its X25519 key. The generator constrains all remaining bytes below.
 	rangeChecker := rangecheck.New(api)
-	for _, b := range w.TxViewingSk {
-		rangeChecker.Check(b, 8)
+	low := api.ToBinary(w.TxViewingSk[0], 8)
+	top := api.ToBinary(w.TxViewingSk[31], 8)
+	for i := 0; i < 3; i++ {
+		api.AssertIsEqual(low[i], 0)
 	}
+	api.AssertIsEqual(top[6], 1)
+	api.AssertIsEqual(top[7], 0)
 
-	// (c) Chain elements 2 and 3. This is the binding that the transaction's
-	// published tx_viewing_pk equals TxViewingSk * G, which is what makes the
-	// ciphertext below worth anything.
-	txCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.TxViewingSk))
+	// (c) Bind the published viewing key to the clamped ciphertext plaintext.
+	// The tag prevents interpreting the same bytes as a P-256 key.
+	txU := x25519.ScalarMulGenerator(api, w.TxViewingSk)
+	var txCompressed [33]frontend.Variable
+	txCompressed[0] = 4
+	copy(txCompressed[1:], txU[:])
 	txLo, txHi := Pack33To2FECircuit(api, txCompressed)
 
 	sealed := Envelope{

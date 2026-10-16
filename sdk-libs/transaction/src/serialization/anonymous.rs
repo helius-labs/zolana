@@ -1,21 +1,21 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, X25519Pubkey, PublicKey, ViewingKey};
 
 use super::{change_slots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, Mint, P256PubkeySchema, PublicKeySchema,
+    AssetRegistry, EncryptedScheme, Mint, X25519PubkeySchema, PublicKeySchema,
 };
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferRecipientPlaintext {
     #[wincode(with = "PublicKeySchema")]
     pub owner_pubkey: PublicKey,
-    #[wincode(with = "P256PubkeySchema")]
-    pub sender_pubkey: P256Pubkey,
+    #[wincode(with = "X25519PubkeySchema")]
+    pub sender_pubkey: X25519Pubkey,
     pub asset_id: u64,
     pub amount: u64,
     pub blinding: [u8; 32],
@@ -62,8 +62,8 @@ pub struct AnonymousTransferSenderPlaintext {
     pub spl_amount: u64,
     pub sol_amount: u64,
     pub blinding_seed: [u8; 32],
-    #[wincode(with = "containers::Vec<P256PubkeySchema, FixIntLen<u8>>")]
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
+    #[wincode(with = "containers::Vec<X25519PubkeySchema, FixIntLen<u8>>")]
+    pub recipient_viewing_pks: Vec<X25519Pubkey>,
     pub spl_data: Data,
     pub sol_data: Data,
 }
@@ -135,8 +135,8 @@ impl AnonymousTransferSenderPlaintext {
 
 pub struct AnonymousRecipientEncode {
     pub tx: ViewingKey,
-    pub recipient_pubkey: P256Pubkey,
-    pub sender_pubkey: P256Pubkey,
+    pub recipient_pubkey: X25519Pubkey,
+    pub sender_pubkey: X25519Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
 }
@@ -195,11 +195,11 @@ impl UtxoSerialization for AnonymousRecipient {
 
 pub struct AnonymousSenderEncode {
     pub tx: ViewingKey,
-    pub self_pubkey: P256Pubkey,
+    pub self_pubkey: X25519Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
     pub blinding_seed: [u8; 32],
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
+    pub recipient_viewing_pks: Vec<X25519Pubkey>,
 }
 
 pub struct AnonymousSenderBundle;

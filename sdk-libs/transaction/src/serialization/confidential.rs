@@ -1,8 +1,9 @@
 use solana_address::Address;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, SALT_LEN},
-    P256Pubkey, PublicKey, ViewingKey,
+    constants::SALT_LEN,
+    x25519::X25519_PUBKEY_LEN,
+    X25519Pubkey, PublicKey, ViewingKey,
 };
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
@@ -50,32 +51,32 @@ impl ConfidentialOutputPlaintext {
 
 pub struct ConfidentialEncode {
     pub tx: ViewingKey,
-    pub recipient_pubkey: P256Pubkey,
+    pub recipient_pubkey: X25519Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
 }
 
 pub struct Confidential;
 
-fn split_embedded_pk(body: &[u8]) -> Result<(P256Pubkey, &[u8]), TransactionError> {
+fn split_embedded_pk(body: &[u8]) -> Result<(X25519Pubkey, &[u8]), TransactionError> {
     let (prefix, rest) =
-        body.split_at_checked(P256_PUBKEY_LEN)
+        body.split_at_checked(X25519_PUBKEY_LEN)
             .ok_or(TransactionError::InvalidLength {
-                expected: P256_PUBKEY_LEN,
+                expected: X25519_PUBKEY_LEN,
                 actual: body.len(),
             })?;
-    let bytes: [u8; P256_PUBKEY_LEN] =
+    let bytes: [u8; X25519_PUBKEY_LEN] =
         prefix
             .try_into()
             .map_err(|_| TransactionError::InvalidLength {
-                expected: P256_PUBKEY_LEN,
+                expected: X25519_PUBKEY_LEN,
                 actual: prefix.len(),
             })?;
-    Ok((P256Pubkey::from_bytes(bytes)?, rest))
+    Ok((X25519Pubkey::from_bytes(bytes)?, rest))
 }
 
 impl Confidential {
-    pub fn embedded_viewing_pk(body: &[u8]) -> Result<P256Pubkey, TransactionError> {
+    pub fn embedded_viewing_pk(body: &[u8]) -> Result<X25519Pubkey, TransactionError> {
         Ok(split_embedded_pk(body)?.0)
     }
 
@@ -138,7 +139,7 @@ impl UtxoSerialization for Confidential {
         let ciphertext = cx
             .tx
             .encrypt_slot(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?;
-        let mut body = Vec::with_capacity(P256_PUBKEY_LEN + ciphertext.len());
+        let mut body = Vec::with_capacity(X25519_PUBKEY_LEN + ciphertext.len());
         body.extend_from_slice(cx.recipient_pubkey.as_bytes());
         body.extend_from_slice(&ciphertext);
         Ok(body)

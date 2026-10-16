@@ -1,7 +1,8 @@
 use crate::{
     error::KeypairError,
     nullifier_key::NullifierKey,
-    pubkey::{Curve, P256Pubkey, PublicKey},
+    pubkey::{Curve, PublicKey},
+    x25519::X25519Pubkey,
     shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair},
 };
 
@@ -24,7 +25,7 @@ pub trait ShieldedKeypairTrait {
 
     fn signing_pubkey(&self) -> PublicKey;
 
-    fn viewing_pubkey(&self) -> P256Pubkey;
+    fn viewing_pubkey(&self) -> X25519Pubkey;
 
     /// The signing curve / scheme of this keypair (P-256 shielded owner vs
     /// Ed25519 Solana-only owner), which selects the transfer rail.
@@ -73,7 +74,7 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
         self.signing_pubkey()
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_pubkey()
     }
 

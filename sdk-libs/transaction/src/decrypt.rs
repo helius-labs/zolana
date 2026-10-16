@@ -3,7 +3,7 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, X25519Pubkey};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances},
@@ -375,7 +375,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     {
                         return Ok(None);
                     }
-                    let Some((_, ciphertext)) = body.split_at_checked(P256_PUBKEY_LEN) else {
+                    let Some((_, ciphertext)) = body.split_at_checked(X25519_PUBKEY_LEN) else {
                         return Ok(None);
                     };
                     (ciphertext, vec![viewing_pubkey])
@@ -452,7 +452,7 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
     let Ok(output) = EncryptedRingDepositOutput::try_from_slice(body) else {
         return Ok(None);
     };
-    let Ok(tx_viewing_pubkey) = P256Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
+    let Ok(tx_viewing_pubkey) = X25519Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
         return Ok(None);
     };
     let requests: Vec<_> = shielded_keys

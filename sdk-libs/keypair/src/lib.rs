@@ -13,7 +13,7 @@
 //!   authorize a spend, which the SPP proof checks.
 //! - [`NullifierKey`] — derives `nullifier_pk` and the per-UTXO nullifiers that
 //!   prevent double-spends.
-//! - [`ViewingKey`] — P-256 key for HPKE-style UTXO encryption and labelled
+//! - [`ViewingKey`] — X25519 key for HPKE-style UTXO encryption and labelled
 //!   HKDF derivation of the view-tag secrets a wallet scans for. Secrets expand
 //!   from an ECDH-derived `view_root`, so the key can stay in an HSM.
 //!

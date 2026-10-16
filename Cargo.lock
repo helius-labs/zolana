@@ -11854,6 +11854,7 @@ dependencies = [
  "ed25519-dalek-bip32",
  "hex",
  "hkdf",
+ "num-bigint 0.4.8",
  "p256 0.13.2",
  "rand 0.8.8",
  "serde",
