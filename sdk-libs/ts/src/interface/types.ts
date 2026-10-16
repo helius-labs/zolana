@@ -10,6 +10,7 @@ export type Bytes31 = FixedBytes<31>;
 export type Bytes32 = FixedBytes<32>;
 export type Bytes33 = FixedBytes<33>;
 export type Bytes64 = FixedBytes<64>;
+export type Bytes96 = FixedBytes<96>;
 export type Bytes128 = FixedBytes<128>;
 
 export interface RequestContext {

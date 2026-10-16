@@ -15,7 +15,8 @@
 //!   prevent double-spends.
 //! - [`ViewingKey`] — X25519 key for HPKE-style UTXO encryption and labelled
 //!   HKDF derivation of the view-tag secrets a wallet scans for. Secrets expand
-//!   from an X25519 ECDH-derived `view_root`.
+//!   from a `view_root`, HKDF-Extract over the clamped secret with the salt
+//!   `TSPP/view_root/x25519/v1`, so no ECDH with a fixed peer reaches it.
 //!
 //! # Addresses
 //! - [`ShieldedKeypair`] — bundles the three keys and builds the

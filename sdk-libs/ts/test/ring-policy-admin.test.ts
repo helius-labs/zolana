@@ -152,6 +152,7 @@ describe("policy admin instructions", () => {
     });
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.WRITABLE],
       [RING, AccountRole.READONLY],
       [await ringProgramDataAddress(RING), AccountRole.READONLY],

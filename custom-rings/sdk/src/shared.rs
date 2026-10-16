@@ -2,9 +2,9 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot,
-    PolicyConfig, ReadAccessRecord, RingMode, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
-    DEPOSIT_AUDIT, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
+    pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingMode, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT,
+    KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
     RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
@@ -32,8 +32,6 @@ pub struct CustomRingConfig {
     /// A policy ring enforces its compiled rules, an audit-only ring proves only
     /// the audit statement.
     pub has_policy: bool,
-    /// Once on, every output key but a namespace-owned record's must be enrolled in the registry.
-    pub key_escrow: KeyEscrow,
     /// Selects the proof and disclosure rail accepted by the program.
     pub mode: RingMode,
 }
@@ -328,7 +326,6 @@ impl CustomRing {
             authority: config.authority,
             auditor_pubkey,
             has_policy: config.has_policy != 0,
-            key_escrow: config.key_escrow(),
             mode,
         }))
     }

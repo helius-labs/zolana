@@ -1,17 +1,27 @@
 export {
   auditorMessageData,
   auditorViewTag,
+  auditDisclosureLength,
   auditPublicInputHash,
   policyPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
+  AUDIT_INPUT_SLOTS,
   AUDITOR_MESSAGE_LENGTH,
+  anonymousAuditDisclosureShape,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  isDummyAnonymousOutput,
+  openAnonymousAuditDisclosure,
   openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "../keypair/audit.js";
 export type {
+  AnonymousAuditDisclosure,
+  AnonymousOutputOpening,
+  AuditDisclosureInput,
+  AuditDisclosureShape,
+  AuditInputOpening,
   AuditOutputOpening,
   AuditorEncryption,
   AuditorMessage,
@@ -118,6 +128,7 @@ export {
   encodeRingDepositCapsule,
   readRingDepositCapsule,
   RING_DEPOSIT_AUDIT_SLOTS,
+  RING_DEPOSIT_OPENING_LENGTH,
   type RingDepositCapsule,
 } from "./deposit-capsule.js";
 export {
@@ -140,6 +151,7 @@ export type {
   RingCoSigner,
   RingDelegate,
   RingDepositAudit,
+  RingMode,
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,

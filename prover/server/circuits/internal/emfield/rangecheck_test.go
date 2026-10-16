@@ -123,3 +123,19 @@ func TestLateRangeCheckRejectsCompilation(t *testing.T) {
 		t.Fatalf("late range check: %v", err)
 	}
 }
+
+// A composed width at or above the native field bit length wraps and is rejected.
+type wideComposeCircuit struct{ Pieces [24]frontend.Variable }
+
+func (c *wideComposeCircuit) Define(api frontend.API) error {
+	rc := NewRangeCheckerFor(api, 11)
+	rc.Compose(c.Pieces[:], api.Compiler().FieldBitLen())
+	return nil
+}
+
+func TestComposeRejectsFieldWidth(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &wideComposeCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "composed width must stay below the native field bit length") {
+		t.Fatalf("wide compose: %v", err)
+	}
+}

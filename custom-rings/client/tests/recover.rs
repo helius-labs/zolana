@@ -215,6 +215,7 @@ impl Fixture {
         let opening = DepositOpening {
             owner_hash: self.address.owner_hash().unwrap(),
             blinding: zeroize::Zeroizing::new(held.utxo.blinding),
+            owner_key: None,
         };
         let owner_utxo_hash =
             zolana_transaction::owner_utxo_hash(&opening.owner_hash, &opening.blinding).unwrap();

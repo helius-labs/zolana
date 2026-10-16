@@ -144,7 +144,12 @@ impl TransactRail {
             let binding = PolicyBinding::load(program_id, policy_config_account)?;
             let trees = PolicyTrees::load(&mut rest, policy_trees)?;
             if self == TransactRail::Delegate && config.mode != RingMode::Registry {
-                return Err(CustomRingError::InvalidKeyRegistryRoot.into());
+                let error = if anonymous {
+                    CustomRingError::AnonymousRingRefused
+                } else {
+                    CustomRingError::InvalidKeyRegistryRoot
+                };
+                return Err(error.into());
             }
             let key_registry_root = EscrowRoot {
                 program_id,

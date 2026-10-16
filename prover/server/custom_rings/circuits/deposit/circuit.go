@@ -14,7 +14,11 @@ import (
 )
 
 const MaxDeposits = 8
-const OpeningBytes = 64
+
+// One opening is `ownerHash || blinding || ownerKey`. The owner key is the
+// Ed25519 key of an anonymous ring deposit and zero otherwise, so the auditor
+// attributes an anonymous deposit before it is spent.
+const OpeningBytes = 96
 const Domain uint32 = 0x43524450 // CRDP
 const EncryptionInfo = "CRING/dep1"
 
@@ -70,6 +74,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		owner, blinding := canonicalBytes(api, ownerHashes[i]), canonicalBytes(api, c.Blindings[i])
 		copy(plaintext[i*OpeningBytes:], owner[:])
 		copy(plaintext[i*OpeningBytes+32:], blinding[:])
+		copy(plaintext[i*OpeningBytes+64:], c.OwnerKeys[i][:])
 	}
 
 	// 2. Bind the shared key to the auditor and published ephemeral key.

@@ -1276,8 +1276,8 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     )
 }
 
-/// Green `set_policy_rules` fixture, `[authority(s), policy_config(w), program,
-/// program_data]`, curators trail.
+/// Green `set_policy_rules` fixture, `[authority(s), config, policy_config(w),
+/// program, program_data]`, curators trail.
 pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::SET_POLICY_RULES, table),
@@ -1286,6 +1286,11 @@ pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxDat
                 label: "authority",
                 meta: AccountMeta::new_readonly(authority(), true),
                 account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",

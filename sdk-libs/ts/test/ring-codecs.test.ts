@@ -412,11 +412,16 @@ describe("ring config", () => {
     expect(config.auditorPublicKey.equals(AUDITOR)).toBe(true);
     expect(config.bump).toBe(254);
     expect(config.hasPolicy).toBe(true);
+    expect(config.mode).toBe("off");
     expect(config.keyEscrow).toBe(false);
-    expect(decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 1])).keyEscrow).toBe(
-      true,
-    );
-    for (const mode of [2, 0xff]) {
+    const registry = decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 1]));
+    expect(registry.mode).toBe("registry");
+    expect(registry.keyEscrow).toBe(true);
+    // Readers decode an anonymous ring, only the builders refuse it.
+    const anonymous = decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 2]));
+    expect(anonymous.mode).toBe("anonymous");
+    expect(anonymous.keyEscrow).toBe(false);
+    for (const mode of [3, 0xff]) {
       expect(() =>
         decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), mode])),
       ).toThrow("RING_CONFIG_INVALID");

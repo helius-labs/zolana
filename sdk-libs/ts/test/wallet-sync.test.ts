@@ -16,7 +16,7 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   type Bytes16,
   type Bytes32,
-  type Bytes64,
+  type Bytes96,
 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
@@ -1677,7 +1677,7 @@ describe("wallet sync", () => {
       const capsule = encodeRingDepositCapsule({
         slotIndex: 3,
         ephemeralPublicKey: ViewingKey.generate().publicKey().toBytes(),
-        ciphertext: new Uint8Array(64).fill(9) as Bytes64,
+        ciphertext: new Uint8Array(96).fill(9) as Bytes96,
         recipientCiphertext: envelope.encryptRingDeposit(
           recipient.viewingPublicKey(),
           encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
@@ -1738,7 +1738,7 @@ describe("wallet sync", () => {
       expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
       // The holder never sees the auditor slot, only the recipient ciphertext.
       expect(seen.flat().map((request) => request.ciphertext.length)).toEqual([
-        capsule.length - 106,
+        capsule.length - 138,
       ]);
       expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
     },

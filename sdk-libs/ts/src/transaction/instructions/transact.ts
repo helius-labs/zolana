@@ -1673,6 +1673,8 @@ function dummyCiphertextLength(salt: Bytes16): number {
 export interface OutputContext {
   readonly hash: Bytes32;
   readonly tree: Address;
+  /** Raw id `hash` folds in, present when the indexer reported it. */
+  readonly treeId?: number;
   readonly leafIndex: bigint;
 }
 

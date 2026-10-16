@@ -106,8 +106,10 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	iv[15] = 2
 	plaintext := make([]byte, deposit.MaxDeposits*deposit.OpeningBytes)
 	for i := range owners {
-		owners[i].FillBytes(plaintext[i*64 : i*64+32])
-		p.Blindings[i].FillBytes(plaintext[i*64+32 : (i+1)*64])
+		opening := plaintext[i*deposit.OpeningBytes : (i+1)*deposit.OpeningBytes]
+		owners[i].FillBytes(opening[:32])
+		p.Blindings[i].FillBytes(opening[32:64])
+		copy(opening[64:], p.OwnerKeys[i][:])
 	}
 	ciphertext := make([]byte, len(plaintext))
 	cipher.NewCTR(block, iv).XORKeyStream(ciphertext, plaintext)
@@ -120,7 +122,7 @@ func sealDeposits(t *testing.T, p *DepositParameters, owners []*big.Int) (deposi
 	for i := range owners {
 		if i < int(p.Count) {
 			owner := spptest.MustPoseidon(t, 3, []*big.Int{owners[i], p.Blindings[i]})
-			ct := ciphertext[i*64 : (i+1)*64]
+			ct := ciphertext[i*deposit.OpeningBytes : (i+1)*deposit.OpeningBytes]
 			hash, err := protocol.HashBytes(ct)
 			if err != nil {
 				t.Fatal(err)
@@ -166,15 +168,15 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 	}
 	vector, _ := sealDeposits(t, p, owners)
 	want := []string{
-		"006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144",
-		"24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820",
+		"006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba0268414424ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf6",
+		"588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a826aaeab0368c456598c7641706ce6de7dcdbafa8c64f3eba9526b5012da75c1a4c4fb93b88049bc84e8589460c06610c931447f57d2d4a9955f6ec638727886729",
 	}
 	for i := range want {
 		if vector.Ciphertexts[i] != want[i] {
 			t.Errorf("ciphertext %d: got %s want %s", i, vector.Ciphertexts[i], want[i])
 		}
 	}
-	if common.ToHex(p.PublicInputHash) != "0x082572ed72398c62f6306725b8142c43daa0b5b9f83eb9d12663cdd59057a39a" {
+	if common.ToHex(p.PublicInputHash) != "0x0313e323a3870bacb7042d78648a0d01d5f5b4ddfa56ee3024bcd26207ebe4f3" {
 		t.Fatalf("public hash %s differs from the Rust/TypeScript vector", common.ToHex(p.PublicInputHash))
 	}
 }
@@ -218,6 +220,13 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 	anonymous.OwnerPkHashes[0] = owner
 	encryptDepositVector(t, anonymous)
 	check(anonymous, true)
+	// The ciphertext must disclose the owner key, a zero slot is rejected.
+	disclosed := anonymous.OwnerKeys[0]
+	anonymous.OwnerKeys[0] = [32]byte{}
+	encryptDepositVector(t, anonymous)
+	anonymous.OwnerKeys[0] = disclosed
+	check(anonymous, false)
+	encryptDepositVector(t, anonymous)
 	anonymous.OwnerKeys[0][0] ^= 1
 	check(anonymous, false)
 	anonymous.OwnerKeys[0][0] ^= 1

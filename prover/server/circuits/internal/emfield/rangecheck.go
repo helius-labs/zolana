@@ -70,10 +70,13 @@ func (rc *RangeChecker) nbPieces(width int) int {
 }
 
 // Prove an unsigned bit bound by exact piece decomposition and table lookup.
-// Callers use widths below the native-field capacity so reconstruction is injective.
+// A width at or above the native field bit length wraps, so it is rejected.
 func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 	if rc.finalized {
 		panic("range table already finalized")
+	}
+	if bits >= rc.api.Compiler().FieldBitLen() {
+		panic("emfield: range width must stay below the native field bit length")
 	}
 	pieceBits := rc.pieceBits
 	switch {
@@ -105,9 +108,13 @@ func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 }
 
 // Bound every piece and join an exact-width unsigned integer. The requested
-// width must fit below the native modulus. Shape mismatches panic.
+// width must fit below the native modulus, or the pieces of the modulus itself
+// would compose to zero. Shape mismatches panic.
 func (rc *RangeChecker) Compose(pieces []frontend.Variable, width int) frontend.Variable {
 	pieceBits := rc.pieceBits
+	if width >= rc.api.Compiler().FieldBitLen() {
+		panic("emfield: composed width must stay below the native field bit length")
+	}
 	if len(pieces) != rc.nbPieces(width) {
 		panic("piece count mismatch")
 	}

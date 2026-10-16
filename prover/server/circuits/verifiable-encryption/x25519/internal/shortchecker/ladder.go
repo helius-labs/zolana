@@ -25,7 +25,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/lookup"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 // init registers untrusted decomposition, multiplication and ladder hints.
@@ -51,42 +51,9 @@ func (c *curve) nativeValue(e *fpElement) frontend.Variable {
 }
 
 // assertDistinctX rejects equality modulo p between reduced coordinates.
-// Reduced widths must already be constrained. Since coordinates lie below
-// 2^255, checking integer differences 0 and +/-p covers every alias.
+// Reduced widths must already be constrained.
 func (c *curve) assertDistinctX(a, b *fpElement) {
-	// 1. Require reduced bounds and pack each coordinate into two small chunks.
-	widths := c.fp.ReducedWidths()
-	if !a.IsReduced(widths) || !b.IsReduced(widths) {
-		panic("x25519: distinct point guard needs reduced coordinates")
-	}
-	pack := func(e *fpElement, start, end int) frontend.Variable {
-		out := frontend.Variable(0)
-		for i := start; i < end; i++ {
-			out = c.api.Add(out, c.api.Mul(e.Limbs()[i], pow2((i-start)*c.lay.LimbBits)))
-		}
-		return out
-	}
-	cut := (c.lay.NbLimbs + 1) / 2
-	B := pow2(cut * c.lay.LimbBits)
-	mask := new(big.Int).Sub(B, big.NewInt(1))
-	p := prime()
-	pl := new(big.Int).And(p, mask)
-	ph := new(big.Int).Rsh(p, uint(cut*c.lay.LimbBits))
-	lo := c.api.Sub(pack(a, 0, cut), pack(b, 0, cut))
-	hi := c.api.Sub(pack(a, cut, c.lay.NbLimbs), pack(b, cut, c.lay.NbLimbs))
-	// For reduced noncanonical coordinates in [0,2^255), equal Fp values
-	// differ by 0 or +/-p. Since p=2^255-19, only these three packed pairs are
-	// possible. A low-half borrow would need a high difference of +/-2^(255-cut).
-	// 2. Exclude all three possible equality aliases using checked inverses.
-	for _, k := range []int64{-1, 0, 1} {
-		dl := c.api.Sub(lo, new(big.Int).Mul(big.NewInt(k), pl))
-		dh := c.api.Sub(hi, new(big.Int).Mul(big.NewInt(k), ph))
-		inv, err := c.api.Compiler().NewHint(shortPackedNonzeroHint, 2, dl, dh)
-		if err != nil {
-			panic(err)
-		}
-		r1c.AssertProduct(c.api, inv[1], dh, c.api.Sub(1, c.api.Mul(inv[0], dl)))
-	}
+	shortladder.AssertDistinct(c.api, c.fp, a, b, shortPackedNonzeroHint)
 }
 
 // quadrupleAndAddLazy constrains one lazy 4A+T ladder step. T must be a
@@ -149,6 +116,8 @@ func (c *curve) scalarMulChecked(q *point, s *frElement) *point {
 // ensures this for clamped quotients. The hinted R is independently checked
 // on the curve and in the subgroup. A nonzero bounded reconstruction
 // denominator and the final target equality bind R uniquely to [s]Q.
+// Completeness holds up to a negligible set of scalars whose lazy-step
+// accumulator is the identity. It depends only on s, so the host resamples.
 func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	// 1. Obtain and bound signed reconstruction halves from an untrusted hint.
 	fr, fp, api := c.fr, c.fp, c.api
@@ -351,21 +320,6 @@ func implicitDoubledY(p *big.Int, lambda0, xA, xD, yA *big.Int) *big.Int {
 	return y.Mod(y, p)
 }
 
-// modRatio computes a variable-time host quotient modulo a public prime.
-// It returns zero for a zero denominator to allow witness generation at
-// exceptional inputs. Callers must constrain denominators or resolve those
-// cases through the ladder proof. This helper supplies no security check.
-func modRatio(p, num, den *big.Int) *big.Int {
-	// 1. Reduce the denominator and handle zero for witness generation.
-	d := new(big.Int).Mod(den, p)
-	if d.Sign() == 0 {
-		return new(big.Int)
-	}
-	// 2. Compute the host inverse and reduce the resulting quotient.
-	d.ModInverse(d, p)
-	return d.Mul(d, num).Mod(d, p)
-}
-
 // shortImplicitChordHint proposes the chord from 2A to T, or its tangent
 // when those points coincide. The hint is untrusted. The lazy step's equations,
 // output guard and final target equality jointly validate the equal-point case.
@@ -407,53 +361,6 @@ func shortImplicitSecondSlopeHint(q *big.Int, inputs, outputs []*big.Int) error 
 	})
 }
 
-// packedCoordinate combines already bounded limbs into native-field groups.
-// The caller selects a group width below the native modulus. Signed Y groups
-// are kept small enough for subsequent products and tracked as signed bounds.
-func (c *curve) packedCoordinate(e *fpElement, group int) []frontend.Variable {
-	api := c.api
-	limbs := e.Limbs()
-	var out []frontend.Variable
-	// Recompose each group using the caller's established limb bounds.
-	for g := 0; g < len(limbs); g += group {
-		sum := frontend.Variable(0)
-		for j := g; j < min(g+group, len(limbs)); j++ {
-			sum = api.Add(sum, api.Mul(limbs[j], pow2(c.lay.LimbBits*(j-g))))
-		}
-		out = append(out, sum)
-	}
-	return out
-}
-
-// unpackedCoordinate records packed groups as sparse emulated limbs.
-// The inputs must come from a checked lookup or Boolean selection of bounded
-// rows. WithBounds records that justification and adds no range constraints.
-func (c *curve) unpackedCoordinate(packed []frontend.Variable, group int, signed bool) *fpElement {
-	// 1. Derive each packed group's unsigned or signed interval.
-	widths := c.fp.ReducedWidths()
-	n := len(widths)
-	limbs := make([]frontend.Variable, n)
-	lo, hi := make([]*big.Int, n), make([]*big.Int, n)
-	for j := range limbs {
-		limbs[j] = 0
-		lo[j], hi[j] = new(big.Int), new(big.Int)
-		if j%group != 0 {
-			continue
-		}
-		bits := 0
-		for _, w := range widths[j:min(j+group, n)] {
-			bits += w
-		}
-		limbs[j] = packed[j/group]
-		hi[j].Sub(pow2(bits), big.NewInt(1))
-		if signed {
-			lo[j].Neg(hi[j])
-		}
-	}
-	// 2. Record the bounds justified by the checked selection, without new hints.
-	return c.fp.WithBounds(limbs, lo, hi)
-}
-
 // packedTableLookup creates a checked lookup over the 16 signed ladder slots.
 // Slots must have proven curve membership and reduced coordinate bounds.
 // The committed row lookup binds the selector and every output column,
@@ -483,7 +390,7 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 		if bitIndex&1 == 0 {
 			y = fp.Neg(y)
 		}
-		row := append(c.packedCoordinate(slot.X, packedXGroup), c.packedCoordinate(y, c.packedYGroup())...)
+		row := append(shortladder.PackCoordinate(api, fp, slot.X, packedXGroup), shortladder.PackCoordinate(api, fp, y, c.packedYGroup())...)
 		table.Insert(row)
 	}
 	// 3. Bind each query to a committed row and recover bounded coordinates.
@@ -491,15 +398,16 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 		digit := (i - 2) / 2
 		selector := api.Add(s1digits[digit], api.Mul(s2digits[digit], 4))
 		cols := table.Lookup(selector)
-		x := c.unpackedCoordinate(cols[:nbPackedX], packedXGroup, false)
+		x := shortladder.UnpackCoordinate(fp, cols[:nbPackedX], packedXGroup, false)
 		if i == 2 {
 			// The final guarded addition compares reduced X coordinates.
 			x = fp.Eval(T(1, x))
 		}
-		return &point{X: x, Y: c.unpackedCoordinate(cols[nbPackedX:nbPackedX+nbPackedY], c.packedYGroup(), true)}
+		return &point{X: x, Y: shortladder.UnpackCoordinate(fp, cols[nbPackedX:nbPackedX+nbPackedY], c.packedYGroup(), true)}
 	}
 }
 
 // packedYGroup keeps each packed Y below half the native-field width.
 // This prevents native wraparound in the subsequent squared differences.
+// Signed Y groups are tracked with symmetric bounds when unpacked.
 func (c *curve) packedYGroup() int { return min(3, 120/c.lay.LimbBits) }

@@ -1,13 +1,15 @@
 import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
 import { hashBytes } from "../hasher/index.js";
-import { addressBytes } from "../interface/internal.js";
+import { addressBytes, copyBytes } from "../interface/internal.js";
 import { pack33 } from "../interface/merge-utils.js";
 import {
   encodeRingDepositCapsule,
   RING_DEPOSIT_AUDIT_SLOTS,
+  RING_DEPOSIT_OPENING_LENGTH,
+  RING_DEPOSIT_OPENING_OWNER_KEY_OFFSET,
   type RingDepositCapsule,
 } from "./deposit-capsule.js";
-import type { Address, Bytes32, Bytes64 } from "../interface/types.js";
+import type { Address, Bytes32, Bytes96 } from "../interface/types.js";
 import { auditSharedSecret } from "../keypair/audit.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { symmetricApply } from "../keypair/merge/index.js";
@@ -16,7 +18,8 @@ import { ownerUtxoHash } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
 
 const INFO = new TextEncoder().encode("CRING/dep1");
-const OPENING_LENGTH = 64;
+const OPENING_LENGTH = RING_DEPOSIT_OPENING_LENGTH;
+const OWNER_KEY_OFFSET = RING_DEPOSIT_OPENING_OWNER_KEY_OFFSET;
 const PAYLOAD_LENGTH = OPENING_LENGTH * RING_DEPOSIT_AUDIT_SLOTS;
 const ZERO = new Uint8Array(32) as Bytes32;
 
@@ -24,6 +27,8 @@ const ZERO = new Uint8Array(32) as Bytes32;
 export interface RingDepositOpening {
   readonly ownerHash: Bytes32;
   readonly blinding: Bytes32;
+  /** The Ed25519 owner key an anonymous ring discloses, the proof binds it to `ownerHash`. */
+  readonly ownerKey?: Bytes32;
   readonly recipientCiphertext: Uint8Array;
 }
 
@@ -48,6 +53,11 @@ export function sealRingDepositOpenings(
         throw new RingError("RING_BUILD_DEPOSIT");
       plaintext.set(opening.ownerHash, index * OPENING_LENGTH);
       plaintext.set(opening.blinding, index * OPENING_LENGTH + 32);
+      if (opening.ownerKey !== undefined)
+        plaintext.set(
+          copyBytes(opening.ownerKey, 32, "deposit owner key"),
+          index * OPENING_LENGTH + OWNER_KEY_OFFSET,
+        );
     }
     const ephemeralPublicKey = ephemeral.publicKey();
     dh = ephemeral.ecdh(auditor);
@@ -61,7 +71,7 @@ export function sealRingDepositOpenings(
         ciphertext: encrypted.slice(
           index * OPENING_LENGTH,
           (index + 1) * OPENING_LENGTH,
-        ) as Bytes64,
+        ) as Bytes96,
         recipientCiphertext: new Uint8Array(opening.recipientCiphertext),
       }),
     );
@@ -79,11 +89,12 @@ export function sealRingDepositOpenings(
   }
 }
 
+/** `ownerKey` is the Ed25519 owner key of an anonymous ring deposit, absent otherwise. */
 export function openRingDepositOpening(
   capsule: RingDepositCapsule,
   auditor: X25519Secret,
   ownerCommitment: Bytes32,
-): Readonly<{ ownerHash: Bytes32; blinding: Bytes32 }> {
+): Readonly<{ ownerHash: Bytes32; blinding: Bytes32; ownerKey?: Bytes32 }> {
   encodeRingDepositCapsule(capsule);
   const ciphertext = new Uint8Array(PAYLOAD_LENGTH);
   ciphertext.set(capsule.ciphertext, capsule.slotIndex * OPENING_LENGTH);
@@ -97,7 +108,8 @@ export function openRingDepositOpening(
     plaintext = symmetricApply(shared, INFO, ciphertext);
     const start = capsule.slotIndex * OPENING_LENGTH;
     const ownerHash = plaintext.slice(start, start + 32) as Bytes32;
-    const blinding = plaintext.slice(start + 32, start + OPENING_LENGTH) as Bytes32;
+    const blinding = plaintext.slice(start + 32, start + OWNER_KEY_OFFSET) as Bytes32;
+    const ownerKey = plaintext.slice(start + OWNER_KEY_OFFSET, start + OPENING_LENGTH) as Bytes32;
     try {
       if (
         !isCanonicalField(ownerHash) ||
@@ -111,13 +123,19 @@ export function openRingDepositOpening(
       blinding.fill(0);
       throw cause;
     }
-    return Object.freeze({ ownerHash, blinding });
+    return Object.freeze(
+      isZero(ownerKey) ? { ownerHash, blinding } : { ownerHash, blinding, ownerKey },
+    );
   } finally {
     ciphertext.fill(0);
     dh?.fill(0);
     shared?.fill(0);
     plaintext?.fill(0);
   }
+}
+
+function isZero(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
 }
 
 export function ringDepositContextHash(ring: Address, tree: Address, sppWire: Uint8Array): Bytes32 {

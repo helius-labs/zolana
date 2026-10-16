@@ -195,6 +195,11 @@ pub enum ClientError {
     #[error("the P256 ring proof requires at least one real P256-owned input")]
     P256ProofWithoutP256Input,
 
+    /// The anonymous rail publishes no output owner, so a real output outside
+    /// the signing ring is only provable as an unspendable burn.
+    #[error("anonymous ring output {index} is not a note of the signing ring")]
+    AnonymousOutputNotInRing { index: usize },
+
     #[error(
         "outputs and resolved owner tags must have equal lengths: {outputs} outputs, {owner_tags} owner tags"
     )]

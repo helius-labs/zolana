@@ -22,6 +22,7 @@ import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 
+import type { DecryptedAnonymousRingTrace } from "./audit.js";
 import { RingError } from "./error.js";
 import { memberOfIdentity, type Member } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
@@ -344,19 +345,7 @@ export interface DecryptedRingTransaction {
   readonly spendRecords: readonly DecryptedRingSpendRecord[];
 }
 
-/** Hidden identities and note openings disclosed only to authorized audit readers. */
-export interface DecryptedAnonymousRingTrace {
-  readonly sender: Address;
-  readonly inputs: readonly Readonly<{ treeId: number; amount: bigint; asset: Bytes32 }>[];
-  readonly recipients: readonly Readonly<{
-    slotIndex: number;
-    identityTag: typeof SOLANA_OWNER_TAG | typeof P256_OWNER_TAG;
-    identityKey: Bytes32;
-    nullifierPk: Bytes32;
-    amount: bigint;
-    asset: Bytes32;
-  }>[];
-}
+export type { DecryptedAnonymousRingTrace } from "./audit.js";
 
 /** Mirrors Rust `SkippedReason`. */
 export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";

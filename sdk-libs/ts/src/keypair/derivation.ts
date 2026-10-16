@@ -9,14 +9,12 @@ import { p256 } from "@noble/curves/nist.js";
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { type Bytes31, type Bytes32, type Bytes33, bytesToBigInt } from "./bytes.js";
+import type { Bytes31, Bytes32, Bytes33 } from "./bytes.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { P256PublicKey } from "./public-key.js";
 import { X25519PublicKey, X25519Secret } from "./x25519.js";
 
 const encoder = new TextEncoder();
-
-export const DST_VIEW_ROOT_P_CONST = "TSPP/view_root/P_const/v1";
 
 export const DST_X25519_VIEW_ROOT = "TSPP/view_root/x25519/v1";
 
@@ -34,8 +32,6 @@ export const P_DERIVE_SEC1 = Uint8Array.from([
   0xaf,
 ]);
 
-export const DST_PDA_ROOT_P_PDA = "TSPP/pda_root/P_pda/v1";
-
 export const P_PDA_SEC1 = Uint8Array.from([
   0x03, 0x8a, 0x31, 0xd5, 0x3c, 0x5a, 0xd2, 0x0d, 0x1c, 0xd7, 0xee, 0x1f, 0xbb, 0x99, 0x27, 0xbd,
   0x0c, 0xdf, 0xb6, 0x1b, 0x1b, 0x89, 0xf6, 0xb2, 0xc5, 0xa9, 0x4a, 0x5f, 0x08, 0x1f, 0xe1, 0x6b,
@@ -46,15 +42,9 @@ export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 
 export const INFO_NF_KEY_ECDH = "TSPP/nf_key/ecdh/v1";
 
-export const INFO_VIEW_KEY_ED25519 = "TSPP/view_key/ed25519/v1";
-
-export const INFO_VIEW_KEY_ECDH = "TSPP/view_key/ecdh/v1";
-
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_VIEW_KEY_ECDH_X25519 = "TSPP/view_key/ecdh/x25519/v1";
-
-export const INFO_TX_VIEWING = "TSPP/tx_viewing";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
 
@@ -93,9 +83,6 @@ export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1 = 0x5458_4f42;
 /** `"TXPB"`: the blinding that keeps the private transaction hash unguessable. */
 export const DOMAIN_PRIVATE_TX_BLINDING_V1 = 0x5458_5042;
-
-const P256_ORDER =
-  115_792_089_210_356_248_762_697_446_949_407_573_529_996_955_224_135_760_342_422_259_061_068_512_044_369n;
 
 const DERIVATION_PAYLOAD_PREFIX_BYTES = encoder.encode(DERIVATION_PAYLOAD_PREFIX);
 
@@ -163,9 +150,9 @@ export function isDerivationInput(message: Uint8Array): boolean {
 }
 
 /**
- * Committed points whose shared secret is a derivation root; the guarded ecdh
- * entry points refuse all three, because `ECDH(viewing_sk, P_const)` is the
- * IKM `viewRoot` extracts from.
+ * Reserved P-256 peers the guarded ecdh entry points refuse. `P_derive` roots
+ * the signing-key roles; `P_const` and `P_pda` stay reserved so a legacy
+ * identity's agreement with them is never exposed.
  */
 export function isDerivationPoint(publicKey: P256PublicKey): boolean {
   const bytes = publicKey.toBytes();
@@ -250,25 +237,6 @@ export function viewRoot(secret: Uint8Array): Uint8Array {
   } finally {
     canonical.fill(0);
   }
-}
-
-/**
- * Reduces 48 uniform bytes to a P-256 scalar, numerically equal to Rust's RFC
- * 9380 `Scalar::from_okm`. Rust separates `ZeroScalar` from `InvalidSecretKey`,
- * so the zero case keeps its own code.
- */
-export function scalarFromOkm(okm: Uint8Array): Bytes32 {
-  const scalar = bytesToBigInt(okm) % P256_ORDER;
-  if (scalar === 0n) {
-    throw new KeypairError("KEYPAIR_ZERO_SCALAR");
-  }
-  const bytes = new Uint8Array(32);
-  let value = scalar;
-  for (let index = 31; index >= 0; index--) {
-    bytes[index] = Number(value & 0xffn);
-    value >>= 8n;
-  }
-  return bytes as Bytes32;
 }
 
 export type Rail = "ed25519" | "ecdh";

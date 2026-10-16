@@ -8,9 +8,6 @@ import (
 	"math/big"
 )
 
-// prime returns a fresh copy of p = 2^255 - 19 for public curve arithmetic.
-func prime() *big.Int { return new(big.Int).Sub(pow2(255), big.NewInt(19)) }
-
 // order returns the prime subgroup order of Curve25519 or its quadratic twist.
 // These fixed orders are used only after cofactor clearing or subgroup checks.
 func order(twist bool) *big.Int {
@@ -20,31 +17,6 @@ func order(twist bool) *big.Int {
 	}
 	c, _ := new(big.Int).SetString("27742317777372353535851937790883648493", 10)
 	return new(big.Int).Add(pow2(252), c)
-}
-
-// offset returns A/3 modulo p for the Montgomery-to-Weierstrass translation.
-// The fixed denominator three is invertible in the base field.
-func offset() *big.Int { return modRatio(prime(), big.NewInt(486662), big.NewInt(3)) }
-
-// coefficients computes the public Weierstrass parameters for X=B(u+A/3).
-// B is one on Curve25519 and two on its twist. The coordinate scaling gives
-// a=B^2(1-A^2/3) and b=B^3(2A^3/27-A/3), over the same base field.
-func coefficients(twist bool) (a, b *big.Int) {
-	// 1. Translate the Montgomery equation with A/3 to remove its quadratic term.
-	p := prime()
-	A := big.NewInt(486662)
-	a = new(big.Int).Mul(A, A)
-	a.Mul(a, new(big.Int).ModInverse(big.NewInt(3), p))
-	a.Sub(big.NewInt(1), a)
-	b = new(big.Int).Exp(A, big.NewInt(3), p)
-	b.Lsh(b, 1).Mul(b, new(big.Int).ModInverse(big.NewInt(27), p))
-	b.Sub(b, offset())
-	// 2. Scale X by two and Y by the corresponding twist map when selected.
-	if twist {
-		a.Lsh(a, 2)
-		b.Lsh(b, 3)
-	}
-	return a.Mod(a, p), b.Mod(b, p)
 }
 
 // MultiplyScalar proves the Montgomery coordinate [8*s]P for input u(P).

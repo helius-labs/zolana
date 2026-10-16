@@ -109,6 +109,6 @@ fn deposit_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "deposit_verifying_key",
         &custom_ring_interface::deposit_verifying_key::VERIFYINGKEY,
-        "00ab9d56819ee8ba88c6ac27e6e83bfb1185d552e0110fc8e3f5d7c4a0965097",
+        "003e9449c60cb0a4f02174f89646f6a04ea356208286536a639a36c4cdef8fe9",
     );
 }

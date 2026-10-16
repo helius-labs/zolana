@@ -28,7 +28,6 @@ export {
   VIEW_TAG_LENGTH,
 } from "./constants.js";
 export {
-  DST_VIEW_ROOT_P_CONST,
   ED25519_DERIVATION_MSG,
   ED25519_SEED_LEN,
   DERIVATION_PAYLOAD_PREFIX,
@@ -49,13 +48,22 @@ export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from ".
 export {
   auditorMessageData,
   auditorViewTag,
+  auditDisclosureLength,
+  anonymousAuditDisclosureShape,
   policyPublicInputHash,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  isDummyAnonymousOutput,
+  openAnonymousAuditDisclosure,
   openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "./audit.js";
 export type {
+  AnonymousAuditDisclosure,
+  AnonymousOutputOpening,
+  AuditDisclosureInput,
+  AuditDisclosureShape,
+  AuditInputOpening,
   AuditOutputOpening,
   AuditorEncryption,
   AuditorMessage,

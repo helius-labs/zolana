@@ -60,8 +60,6 @@ pub enum RingMode {
     Anonymous = 2,
 }
 
-pub type KeyEscrow = RingMode;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct ReadAccessRecord {
@@ -73,13 +71,6 @@ pub struct ReadAccessRecord {
 impl RingProgramConfig {
     pub const SEED: &'static [u8] = CONFIG_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn key_escrow(&self) -> KeyEscrow {
-        match self.mode {
-            1 => RingMode::Registry,
-            _ => RingMode::Off,
-        }
-    }
 
     /// `None` for an unknown byte, which every caller refuses.
     pub const fn mode(&self) -> Option<RingMode> {

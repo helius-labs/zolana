@@ -7,11 +7,10 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
-// bytePower constructs a public power of two for exact byte and limb packing.
-// Callers choose compile-time widths that fit the native-field bounds.
-func bytePower(n int) *big.Int { return new(big.Int).Lsh(big.NewInt(1), uint(n)) }
+var bytePower = shortladder.Pow2
 
 // splitByte decomposes a value into bounded high and low pieces.
 // The caller supplies 0 < lowBits < totalBits <= 8. Both pieces are checked,
@@ -154,10 +153,7 @@ func outputBytesHint(_ *big.Int, in, out []*big.Int) error {
 	}
 	// 2. Reconstruct the host integer and extract its low 32 bytes.
 	// outputBytes rejects any truncation through bounded recomposition.
-	value := new(big.Int)
-	for i := len(in) - 1; i >= 1; i-- {
-		value.Lsh(value, uint(in[0].Uint64())).Add(value, in[i])
-	}
+	value := shortladder.Integer(in[1:], int(in[0].Uint64()))
 	for _, o := range out {
 		o.And(value, big.NewInt(255))
 		value.Rsh(value, 8)

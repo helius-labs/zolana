@@ -1,6 +1,9 @@
 pub const MAX_RING_DEPOSIT_AUDIT_SLOTS: usize = 8;
-pub const RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN: usize = 64;
-pub const RING_DEPOSIT_AUDIT_PREFIX_LEN: usize = 106;
+/// One opening is `owner_hash || blinding || owner_key`. The owner key is the
+/// Ed25519 key of an anonymous ring deposit and zero otherwise.
+pub const RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN: usize = 96;
+pub const RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET: usize = 64;
+pub const RING_DEPOSIT_AUDIT_PREFIX_LEN: usize = 42 + RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN;
 pub const RING_DEPOSIT_AUDIT_INFO: &[u8; 10] = b"CRING/dep1";
 
 const MAGIC: &[u8; 8] = b"CRDEP001";
@@ -47,7 +50,7 @@ impl<'a> RingDepositAuditCapsule<'a> {
             eph_pk: header[9..42]
                 .try_into()
                 .map_err(|_| RingDepositAuditError::Truncated)?,
-            ciphertext: header[42..106]
+            ciphertext: header[42..RING_DEPOSIT_AUDIT_PREFIX_LEN]
                 .try_into()
                 .map_err(|_| RingDepositAuditError::Truncated)?,
             recipient_ciphertext,
@@ -77,7 +80,7 @@ mod tests {
         let frame = RingDepositAuditCapsule {
             slot_index: 7,
             eph_pk: &[2; 33],
-            ciphertext: &[3; 64],
+            ciphertext: &[3; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
             recipient_ciphertext: &raw,
         }
         .encode();
@@ -85,7 +88,7 @@ mod tests {
         let capsule = RingDepositAuditCapsule::parse(&frame).unwrap().unwrap();
         assert_eq!(capsule.slot_index, 7);
         assert_eq!(capsule.eph_pk, &[2; 33]);
-        assert_eq!(capsule.ciphertext, &[3; 64]);
+        assert_eq!(capsule.ciphertext, &[3; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]);
         assert_eq!(capsule.recipient_ciphertext, raw);
         for length in MAGIC.len()..RING_DEPOSIT_AUDIT_PREFIX_LEN {
             assert_eq!(

@@ -176,6 +176,15 @@ fn the_delegate_rail_requires_the_key_registry() {
     missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
 }
 
+/// An anonymous ring hides its senders, which a delegate move would publish.
+#[test]
+fn the_delegate_rail_refuses_an_anonymous_ring_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut anonymous = delegate_move(Vec::new());
+    anonymous.set_account("config", anonymous_config_account());
+    anonymous.expect_err(&mollusk, custom(CustomRingError::AnonymousRingRefused));
+}
+
 #[test]
 fn a_ring_without_a_delegate_refuses_the_rail_exactly() {
     let (mollusk, _) = setup_mollusk();

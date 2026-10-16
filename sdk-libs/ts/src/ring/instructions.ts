@@ -439,7 +439,8 @@ export async function createRingPolicyInstruction(
 export async function setRingPolicyRulesInstruction(
   input: RingPolicyTableInput & Readonly<{ ringProgramId: Address; authority: SignerAccount }>,
 ): Promise<Instruction> {
-  const [policyConfig, programData, body] = await Promise.all([
+  const [config, policyConfig, programData, body] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
     ringPolicyConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
     policyTableBody(input),
@@ -448,6 +449,7 @@ export async function setRingPolicyRulesInstruction(
     programAddress: input.ringProgramId,
     accounts: [
       meta(input.authority, true, false),
+      meta(config, false, false),
       meta(policyConfig, false, true),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),

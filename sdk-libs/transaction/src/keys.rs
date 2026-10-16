@@ -5,8 +5,9 @@
 //! remote holder answers a sync or a spend in one round trip per method.
 //!
 //! `decrypt` returns the transfer cipher's output rather than the ECDH shared
-//! point. The view root is itself an ECDH with a fixed point and ECDH is
-//! linear, so a chosen-point oracle over the viewing key would leak every
+//! point. The view root is HKDF-Extract over the clamped X25519 secret with
+//! the salt `TSPP/view_root/x25519/v1`, so no ECDH query reaches it, but a
+//! chosen-point oracle over the viewing key would still leak every
 //! per-transaction key the wallet has used; keystream results do not compose
 //! that way. The cipher is unauthenticated, so a ciphertext addressed to
 //! another wallet decrypts to noise rather than failing, and the caller detects

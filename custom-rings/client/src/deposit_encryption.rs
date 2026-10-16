@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
-    RING_DEPOSIT_AUDIT_INFO,
+    RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET,
 };
 use zeroize::Zeroizing;
 use zolana_keypair::{symmetric_apply, X25519Pubkey, X25519Secret};
@@ -11,6 +11,9 @@ use crate::encryption::{AuditEncryptionError, AuditSharedSecret};
 pub struct DepositOpening {
     pub owner_hash: [u8; 32],
     pub blinding: Zeroizing<[u8; 32]>,
+    /// The Ed25519 owner key an anonymous ring discloses, `None` otherwise.
+    /// The disclosure proof binds it to `owner_hash`.
+    pub owner_key: Option<[u8; 32]>,
 }
 
 /// Batch ciphertexts and the ephemeral secret needed by the disclosure proof.
@@ -57,7 +60,10 @@ impl DepositSeal<'_> {
             .zip(self.openings)
         {
             slot[..32].copy_from_slice(&opening.owner_hash);
-            slot[32..].copy_from_slice(opening.blinding.as_slice());
+            slot[32..RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET]
+                .copy_from_slice(opening.blinding.as_slice());
+            slot[RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET..]
+                .copy_from_slice(&opening.owner_key.unwrap_or_default());
         }
         // 2. CRING/dep1 separates the padded deposit stream from transaction
         // disclosures.
@@ -118,7 +124,12 @@ impl DepositOpen<'_> {
         owner_hash.copy_from_slice(&plaintext[offset..offset + 32]);
         let mut blinding = Zeroizing::new([0u8; 32]);
         blinding
-            .copy_from_slice(&plaintext[offset + 32..offset + RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]);
+            .copy_from_slice(&plaintext[offset + 32..offset + RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET]);
+        let mut owner_key = [0u8; 32];
+        owner_key.copy_from_slice(
+            &plaintext[offset + RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET
+                ..offset + RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
+        );
         // 2. The owner commitment authenticates the decrypted opening.
         if zolana_keypair::hash::poseidon(&[&owner_hash, &*blinding])? != *self.owner_utxo_hash {
             return Err(AuditEncryptionError::DepositOpeningMismatch);
@@ -126,6 +137,7 @@ impl DepositOpen<'_> {
         Ok(DepositOpening {
             owner_hash,
             blinding,
+            owner_key: (owner_key != [0; 32]).then_some(owner_key),
         })
     }
 }
@@ -147,10 +159,12 @@ mod tests {
             DepositOpening {
                 owner_hash: word(1),
                 blinding: Zeroizing::new(word(3)),
+                owner_key: None,
             },
             DepositOpening {
                 owner_hash: word(2),
                 blinding: Zeroizing::new(word(4)),
+                owner_key: None,
             },
         ];
         let sealed = DepositSeal {
@@ -167,8 +181,8 @@ mod tests {
             hex::encode(sealed.ephemeral_pk.as_bytes()),
             "040faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20"
         );
-        assert_eq!(hex::encode(sealed.ciphertexts[0]), "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144");
-        assert_eq!(hex::encode(sealed.ciphertexts[1]), "24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820");
+        assert_eq!(hex::encode(sealed.ciphertexts[0]), "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba0268414424ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf6");
+        assert_eq!(hex::encode(sealed.ciphertexts[1]), "588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a826aaeab0368c456598c7641706ce6de7dcdbafa8c64f3eba9526b5012da75c1a4c4fb93b88049bc84e8589460c06610c931447f57d2d4a9955f6ec638727886729");
         let context_hash = custom_ring_interface::DepositContext {
             program_id: &[0x33; 32],
             tree: &[0x44; 32],
@@ -196,7 +210,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(public_hash),
-            "082572ed72398c62f6306725b8142c43daa0b5b9f83eb9d12663cdd59057a39a"
+            "0313e323a3870bacb7042d78648a0d01d5f5b4ddfa56ee3024bcd26207ebe4f3"
         );
     }
 
@@ -207,6 +221,8 @@ mod tests {
             .map(|index| DepositOpening {
                 owner_hash: [index as u8; 32],
                 blinding: Zeroizing::new([index as u8 + 1; 32]),
+                // Odd slots disclose an owner key like an anonymous ring.
+                owner_key: (index % 2 == 1).then_some([index as u8 + 2; 32]),
             })
             .collect();
         let sealed = DepositSeal {
@@ -234,6 +250,7 @@ mod tests {
             .unwrap();
             assert_eq!(opened.owner_hash, openings[index].owner_hash);
             assert_eq!(*opened.blinding, *openings[index].blinding);
+            assert_eq!(opened.owner_key, openings[index].owner_key);
         }
     }
 
@@ -252,6 +269,7 @@ mod tests {
             .map(|_| DepositOpening {
                 owner_hash: [0; 32],
                 blinding: Zeroizing::new([0; 32]),
+                owner_key: None,
             })
             .collect();
         assert!(matches!(

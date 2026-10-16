@@ -70,7 +70,6 @@ pub fn symmetric_apply(
     Ok(())
 }
 
-// TODO: try to use a library directly and ensure HSM and yubikey compatibility (different pr)
 fn derive_key_nonce(
     dh: &[u8; 32],
     ephemeral_pubkey: &X25519Pubkey,

@@ -16,14 +16,20 @@ import { equalBytes } from "../wallet/internal.js";
 import { RingError } from "./error.js";
 import { checkedRegistryField, KEY_REGISTRY_CAPACITY } from "./key-registry-tree.js";
 
+/** Mirrors Rust `RingMode`, set once at creation and never cleared. */
+export type RingMode = "off" | "registry" | "anonymous";
+
 export interface RingProgramConfig {
   readonly authority: Address;
   readonly auditorPublicKey: X25519PublicKey;
   readonly bump: number;
   readonly hasPolicy: boolean;
-  /** Mirrors Rust `KeyEscrow::Registry`, set once with the delegate and never cleared. */
+  readonly mode: RingMode;
+  /** `mode === "registry"`, every output nullifier key is escrowed with the delegate. */
   readonly keyEscrow: boolean;
 }
+
+const RING_MODES: readonly RingMode[] = ["off", "registry", "anonymous"];
 
 /** Pins whether deposits must disclose their openings to the auditor. */
 export interface RingDepositAudit {
@@ -105,12 +111,19 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   );
   const bump = reader.u8("bump");
   const hasPolicy = reader.u8("hasPolicy") !== 0;
-  // Anonymous rings require a separate proving path that this builder does not support.
-  const mode = reader.u8("mode");
-  if (mode > 1) throw new RingError("RING_CONFIG_INVALID", { details: { mode } });
-  const keyEscrow = mode === 1;
+  const modeByte = reader.u8("mode");
+  const mode = RING_MODES[modeByte];
+  if (mode === undefined)
+    throw new RingError("RING_CONFIG_INVALID", { details: { mode: modeByte } });
   reader.done();
-  return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy, keyEscrow });
+  return Object.freeze({
+    authority,
+    auditorPublicKey,
+    bump,
+    hasPolicy,
+    mode,
+    keyEscrow: mode === "registry",
+  });
 }
 
 export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {

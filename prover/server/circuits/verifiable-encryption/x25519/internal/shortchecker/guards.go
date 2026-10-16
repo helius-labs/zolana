@@ -6,7 +6,9 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
+
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 // assertLadderOutputDistinct proves mu != 0 and mu+2*lambda != 0 modulo p.
@@ -18,15 +20,8 @@ func (c *curve) assertLadderOutputDistinct(lambda, mu *fpElement) {
 	c.checkExactSlopeGuardBounds()
 	api := c.api
 	cut := (c.lay.NbLimbs + 1) / 2
-	pack := func(e *fpElement, start, end int) frontend.Variable {
-		v := frontend.Variable(0)
-		for i := start; i < end; i++ {
-			v = api.Add(v, api.Mul(e.Limbs()[i], pow2((i-start)*c.lay.LimbBits)))
-		}
-		return v
-	}
 	// 2. Certify mu!=0 with two small signed chunks, avoiding native aliases.
-	ml, mh := pack(mu, 0, cut), pack(mu, cut, c.lay.NbLimbs)
+	ml, mh := shortladder.PackHalves(api, c.lay, mu)
 	w, err := api.Compiler().NewHint(shortPackedNonzeroHint, 2, ml, mh)
 	if err != nil {
 		panic(err)
@@ -36,8 +31,9 @@ func (c *curve) assertLadderOutputDistinct(lambda, mu *fpElement) {
 	r1c.AssertProduct(api, w[1], mh, api.Sub(1, api.Mul(w[0], ml)))
 
 	// 3. Detect when S=mu+2*lambda aliases 0 or +/-p in the native field.
-	lo := api.Add(ml, api.Mul(2, pack(lambda, 0, cut)))
-	hi := api.Add(mh, api.Mul(2, pack(lambda, cut, c.lay.NbLimbs)))
+	ll, lh := shortladder.PackHalves(api, c.lay, lambda)
+	lo := api.Add(ml, api.Mul(2, ll))
+	hi := api.Add(mh, api.Mul(2, lh))
 	cutBits := cut * c.lay.LimbBits
 	B := pow2(cutBits)
 	p, q := c.fp.Modulus(), api.Compiler().Field()
@@ -99,21 +95,9 @@ func init() { solver.RegisterHint(shortPackedNonzeroHint, shortSlopeAliasHint) }
 
 // shortPackedNonzeroHint proposes inverses certifying that two native values
 // are not both zero. The consuming product equation checks this certificate.
-// Host-side zero handling does not replace the circuit's nonzero assertion.
+// The name stays registered here so stored constraint systems resolve it.
 func shortPackedNonzeroHint(q *big.Int, in, out []*big.Int) error {
-	// 1. Validate the solver interface shape.
-	if len(in) != 2 || len(out) != 2 {
-		return errors.New("x25519: packed nonzero hint shape")
-	}
-	// 2. Invert a nonzero chunk if one exists. The circuit rejects two zero chunks.
-	out[0].SetInt64(0)
-	out[1].SetInt64(0)
-	if in[0].Sign() != 0 {
-		out[0].ModInverse(in[0], q)
-	} else if in[1].Sign() != 0 {
-		out[1].ModInverse(in[1], q)
-	}
-	return nil
+	return shortladder.PackedNonzero(q, in, out)
 }
 
 // shortSlopeAliasHint proposes k,n,1/n for S=k*p+n*q when S aliases 0 or +/-p
@@ -126,20 +110,8 @@ func shortSlopeAliasHint(q *big.Int, in, out []*big.Int) error {
 	}
 	// 2. Reconstruct the signed integer S from balanced native residues.
 	bits, n := int(in[0].Int64()), int(in[1].Int64())
-	integer := func(limbs []*big.Int) *big.Int {
-		v := new(big.Int)
-		half := new(big.Int).Rsh(new(big.Int).Set(q), 1)
-		for i := len(limbs) - 1; i >= 0; i-- {
-			d := new(big.Int).Set(limbs[i])
-			if d.Cmp(half) > 0 {
-				d.Sub(d, q)
-			}
-			v.Lsh(v, uint(bits)).Add(v, d)
-		}
-		return v
-	}
-	s := integer(in[2 : 2+n])
-	s.Add(s, new(big.Int).Lsh(integer(in[2+n:]), 1))
+	s := shortladder.BalancedInteger(q, in[2:2+n], bits)
+	s.Add(s, new(big.Int).Lsh(shortladder.BalancedInteger(q, in[2+n:], bits), 1))
 	r := new(big.Int).Mod(s, q)
 	p := prime()
 	for _, v := range out {

@@ -6,12 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DST_DERIVE_P_DERIVE,
-  DST_PDA_ROOT_P_PDA,
-  DST_VIEW_ROOT_P_CONST,
   ED25519_DERIVATION_MSG,
-  P_CONST_SEC1,
   P_DERIVE_SEC1,
-  P_PDA_SEC1,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
   isDerivationInput,
@@ -117,16 +113,9 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     );
   });
 
-  it("pins each committed point to hash_to_curve of its DST", () => {
-    const cases: readonly [string, Uint8Array][] = [
-      [DST_VIEW_ROOT_P_CONST, P_CONST_SEC1],
-      [DST_DERIVE_P_DERIVE, P_DERIVE_SEC1],
-      [DST_PDA_ROOT_P_PDA, P_PDA_SEC1],
-    ];
-    for (const [dst, committed] of cases) {
-      const point = p256_hasher.hashToCurve(new Uint8Array(0), { DST: dst });
-      expect(hex(point.toBytes(true)), dst).toBe(hex(committed));
-    }
+  it("pins P_derive to hash_to_curve of its DST", () => {
+    const point = p256_hasher.hashToCurve(new Uint8Array(0), { DST: DST_DERIVE_P_DERIVE });
+    expect(hex(point.toBytes(true))).toBe(hex(P_DERIVE_SEC1));
   });
 
   it("derives the ed25519 rail", () => {

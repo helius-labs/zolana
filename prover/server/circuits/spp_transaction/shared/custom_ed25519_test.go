@@ -285,6 +285,16 @@ func TestCustomRingEd25519RejectsPublishedOutputOwner(t *testing.T) {
 		rebuildAfterOwnerChange(t, a)
 		checkCachedWitness(t, ccs, asCustomRingEd25519(a, authorizeEd25519(t, a, publicKeyBytes(owner), owner)), false)
 	})
+	// The zero identity satisfies the zero published owner, so only the ring
+	// membership of real outputs keeps this burn out of the statement.
+	t.Run("default_ring_zero_identity", func(t *testing.T) {
+		ccs, a, owner := honestEd25519Ring(t)
+		a.Outputs[0].OwnerPkHash = 0
+		a.Outputs[0].Utxo.Owner = spptest.MustOwnerHash(t, big.NewInt(0), spptest.AsBigInt(a.Outputs[0].NullifierPk))
+		a.Outputs[0].Utxo.RingProgramID = 0
+		rebuildAfterOwnerChange(t, a)
+		checkCachedWitness(t, ccs, asCustomRingEd25519(a, authorizeEd25519(t, a, publicKeyBytes(owner), owner)), false)
+	})
 }
 
 func TestCustomRingEd25519RejectsDefaultRingHiddenInput(t *testing.T) {

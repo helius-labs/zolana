@@ -9,15 +9,17 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 // Short Weierstrass coordinates keep lazy values and balanced slopes. Signed odd
 // digits avoid identity points, and complete Edwards addition fixes zero and even scalars.
 type montPoint struct{ x, y *emfield.Element }
 
-var montOffset = new(big.Int).Mod(new(big.Int).Mul(big.NewInt(486662), new(big.Int).ModInverse(big.NewInt(3), fieldPrime())), fieldPrime())
-var montScale = new(big.Int).ModSqrt(new(big.Int).Sub(fieldPrime(), big.NewInt(486664)), fieldPrime())
-var montA = new(big.Int).Mod(new(big.Int).Sub(big.NewInt(1), new(big.Int).Mul(big.NewInt(486662), montOffset)), fieldPrime())
+// The shifted model X=u+A/3 shares its coefficients with the X25519 checker.
+var montOffset = shortladder.Offset()
+var montA, montB = shortladder.Coefficients(false)
+var montScale = new(big.Int).ModSqrt(new(big.Int).Sub(fieldPrime(), big.NewInt(shortladder.MontgomeryA+2)), fieldPrime())
 
 // Bind the birational map of an on-curve point. Checking the result closes the
 // order-two 0/0 case. The identity has no finite image and is rejected.
@@ -171,51 +173,11 @@ func (c *curve) montConstantSelect(points []hostPoint, bits []frontend.Variable)
 // Select all coordinate limbs from trusted curve constants. Boolean input
 // bits make the one-hot products exclusive, justifying metadata-only bounds.
 func (c *curve) montConstantSelectTable(points []hostPoint, bits []frontend.Variable) *montPoint {
-	w := len(bits)
-	n := layout.NbLimbs
-	colsN := (n+2-1)/2 + (n+3-1)/3
-	hotcost := func(k int) int {
-		if k < 2 {
-			return 0
-		}
-		return (1 << k) - k - 1
-	}
-	rb, best := 0, hotcost(w)
-	for k := 1; k <= w; k++ {
-		if cost := hotcost(k) + hotcost(w-k) + (1<<k)*colsN; cost < best {
-			rb, best = k, cost
-		}
-	}
+	rb := shortladder.RowSplit(len(bits), layout.NbLimbs)
 	rows, cols := oneHot(c.api, bits[:rb]), oneHot(c.api, bits[rb:])
-	selectV := func(coord func(hostPoint) *big.Int, off, width int) frontend.Variable {
-		out := frontend.Variable(0)
-		mask := new(big.Int).Sub(pow2(width), big.NewInt(1))
-		for i, rf := range rows {
-			inner := frontend.Variable(0)
-			for j, cf := range cols {
-				v := new(big.Int).And(new(big.Int).Rsh(coord(points[i+(j<<rb)]), uint(off)), mask)
-				inner = c.api.Add(inner, c.api.Mul(cf, v))
-			}
-			out = c.api.Add(out, c.api.Mul(rf, inner))
-		}
-		return out
-	}
-	pack := func(group int, coord func(hostPoint) *big.Int) *emfield.Element {
-		vs := make([]frontend.Variable, n)
-		lo, hi := make([]*big.Int, n), make([]*big.Int, n)
-		for i := range vs {
-			vs[i] = 0
-			lo[i] = new(big.Int)
-			hi[i] = new(big.Int)
-			if i%group == 0 {
-				width := min(group*layout.LimbBits, 255-i*layout.LimbBits)
-				vs[i] = selectV(coord, i*layout.LimbBits, width)
-				hi[i] = new(big.Int).Sub(pow2(width), big.NewInt(1))
-			}
-		}
-		return c.fp.WithBounds(vs, lo, hi)
-	}
-	return &montPoint{pack(2, func(p hostPoint) *big.Int { return p.x }), pack(3, func(p hostPoint) *big.Int { return p.y })}
+	x := shortladder.SelectConstant(c.api, c.fp, rows, cols, 2, func(i int) *big.Int { return points[i].x })
+	y := shortladder.SelectConstant(c.api, c.fp, rows, cols, 3, func(i int) *big.Int { return points[i].y })
+	return &montPoint{x, y}
 }
 
 // s is a reduced scalar below 2^253. The recoding and the comb bind its integer,
@@ -282,13 +244,7 @@ func init() {
 }
 
 // Computes a host field quotient for a hint. Circuit equations must bind the result.
-func ratio(p, num, den *big.Int) *big.Int {
-	d := new(big.Int).Mod(den, p)
-	if d.ModInverse(d, p) == nil {
-		return new(big.Int)
-	}
-	return d.Mul(d, num).Mod(d, p)
-}
+var ratio = shortladder.ModRatio
 
 // Suggest finite map coordinates. montFromEd checks both membership and map.
 func montFromEdHint(q *big.Int, in, out []*big.Int) error {
@@ -352,10 +308,7 @@ func oddRecodeHint(_ *big.Int, in, out []*big.Int) error {
 	if len(in) < 3 || int(in[0].Int64()) != len(out) {
 		return errors.New("odd recoding shape")
 	}
-	s := new(big.Int)
-	for i := len(in) - 1; i >= 2; i-- {
-		s.Lsh(s, uint(in[1].Uint64())).Add(s, in[i])
-	}
+	s := shortladder.Integer(in[2:], int(in[1].Uint64()))
 	if s.Sign() == 0 {
 		s.SetInt64(1)
 	} else if s.Bit(0) == 0 {

@@ -1,8 +1,7 @@
 use zolana_keypair::{
     constants::BLINDING_LEN,
     derivation::{
-        ed25519_derivation_message, DST_DERIVE_P_DERIVE, DST_PDA_ROOT_P_PDA, DST_VIEW_ROOT_P_CONST,
-        ED25519_DERIVATION_MSG, P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1,
+        ed25519_derivation_message, DST_DERIVE_P_DERIVE, ED25519_DERIVATION_MSG, P_DERIVE_SEC1,
     },
     KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
@@ -49,9 +48,8 @@ fn p256_ecdh_x(secret: &[u8; 32], point_sec1: &[u8]) -> [u8; 32] {
     x
 }
 
-/// Regenerates the legacy P-256 points from their domain strings. P_derive
-/// still roots signing-key roles. P_const and P_pda remain reserved on the
-/// signing ECDH API but no longer derive X25519 viewing roles.
+/// Regenerates P_derive, the point that roots signing-key roles, from its
+/// domain string.
 pub(crate) fn committed_points_match_dsts() {
     use p256::{
         elliptic_curve::{
@@ -62,26 +60,13 @@ pub(crate) fn committed_points_match_dsts() {
     };
     use sha2::Sha256;
 
-    let committed = [
-        ("P_derive", DST_DERIVE_P_DERIVE, P_DERIVE_SEC1),
-        ("P_const", DST_VIEW_ROOT_P_CONST, P_CONST_SEC1),
-        ("P_pda", DST_PDA_ROOT_P_PDA, P_PDA_SEC1),
-    ];
-
-    for (name, dst, sec1) in committed {
-        let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[dst]).unwrap();
-        assert_eq!(
-            point.to_affine().to_encoded_point(true).as_bytes(),
-            sec1,
-            "{name} does not match its DST",
-        );
-    }
-
-    for (index, (name, _, point)) in committed.iter().enumerate() {
-        for (other_name, _, other) in committed.iter().skip(index + 1) {
-            assert_ne!(point, other, "{name} and {other_name} collide");
-        }
-    }
+    let point =
+        NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_DERIVE_P_DERIVE]).unwrap();
+    assert_eq!(
+        point.to_affine().to_encoded_point(true).as_bytes(),
+        P_DERIVE_SEC1,
+        "P_derive does not match its DST",
+    );
 }
 
 pub(crate) fn derivation_seed_matches_rail_primitives(world: &mut KeypairWorld, key: String) {
@@ -196,10 +181,10 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
     let benign = SigningKey::new_p256().pubkey().as_p256().unwrap();
     assert!(sk.ecdh(&benign).is_ok());
 
-    let p_pda = P256Pubkey::from_bytes(P_PDA_SEC1).unwrap();
+    let p_pda = P256Pubkey::from_bytes(zolana_hasher::p256::P_PDA_SEC1).unwrap();
     assert_eq!(sk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
 
-    let p_const = P256Pubkey::from_bytes(P_CONST_SEC1).unwrap();
+    let p_const = P256Pubkey::from_bytes(zolana_hasher::p256::P_CONST_SEC1).unwrap();
     assert_eq!(sk.ecdh(&p_const), Err(KeypairError::DerivationInput));
 
     let vk = zolana_keypair::ViewingKey::new();

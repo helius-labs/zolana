@@ -2,20 +2,16 @@
 package x25519
 
 import (
-	"math/big"
-
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519/internal/shortchecker"
 )
 
 // prime returns a fresh Curve25519 base-field modulus for circuit construction.
-// It is a public constant, not a witness-derived parameter.
-func prime() *big.Int {
-	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(19))
-}
+var prime = shortladder.Prime
 
 var defaultLayout = emfield.Layout{NbLimbs: 7, LimbBits: 37, PieceBits: 10}
 

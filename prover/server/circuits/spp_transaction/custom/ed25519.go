@@ -11,6 +11,9 @@ import (
 
 // The anonymous ring rail. A zero input owner tag selects the hidden Ed25519
 // owner, whose signature over the shared ring-spend digest is verified in circuit.
+// Every real output stays in the signing ring. The rail publishes zero output
+// owners, and a default-ring output would have to publish its owner, so the
+// only one provable under zero would be the unspendable zero identity.
 
 type CustomRingEd25519Public struct {
 	Nullifiers       []frontend.Variable
@@ -125,6 +128,8 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	hiddenOwner := checked.SolanaOwnerIdentity(api, key)
 
 	// 2. Reuse the ring transaction preimage with every output owner hidden.
+	// An output carrying the confidential encrypted scheme bundle cannot verify
+	// under this rail. The program hashes its owner tag where the circuit commits zero.
 	publishedOutputOwners := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := range publishedOutputOwners {
 		publishedOutputOwners[i] = 0
@@ -140,7 +145,9 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	}
 
 	// 3. Restrict membership and bind each private output owner opening.
-	shared.AssertRingMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	// Inputs may leave the default ring, real outputs may not enter it.
+	shared.AssertRingMemberOrFree(api, tx.Inputs, nil, c.Public.RingProgramID)
+	shared.AssertRingMember(api, nil, tx.Outputs, c.Public.RingProgramID)
 	api.AssertIsDifferent(c.Public.RingProgramID, 0)
 	if err := shared.AssertOutputOwnerTags(
 		api,

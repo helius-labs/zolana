@@ -82,6 +82,15 @@ impl RingTransferEd25519Prover<'_> {
                 expected: shape.signer_width(),
             });
         }
+        for (index, output) in self.outputs.iter().enumerate() {
+            if !output.is_dummy()
+                && self
+                    .ring_program_id
+                    .is_none_or(|ring| output.ring_program_id != Some(ring))
+            {
+                return Err(ClientError::AnonymousOutputNotInRing { index });
+            }
+        }
         let owner = self.owner.pubkey();
         let owner_public_key = owner.as_ed25519()?;
 

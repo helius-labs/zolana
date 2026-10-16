@@ -70,8 +70,8 @@ describe("deposit disclosure", () => {
       expect(
         sealed.capsules.map((capsule) => Buffer.from(capsule.ciphertext).toString("hex")),
       ).toEqual([
-        "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144",
-        "24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820",
+        "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba0268414424ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf6",
+        "588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a826aaeab0368c456598c7641706ce6de7dcdbafa8c64f3eba9526b5012da75c1a4c4fb93b88049bc84e8589460c06610c931447f57d2d4a9955f6ec638727886729",
       ]);
       const hash = ringDepositPublicInputHash({
         contextHash,
@@ -83,7 +83,7 @@ describe("deposit disclosure", () => {
         auditorPublicKey: auditor.publicKey(),
       });
       expect(Buffer.from(hash).toString("hex")).toBe(
-        "082572ed72398c62f6306725b8142c43daa0b5b9f83eb9d12663cdd59057a39a",
+        "0313e323a3870bacb7042d78648a0d01d5f5b4ddfa56ee3024bcd26207ebe4f3",
       );
     } finally {
       generate.mockRestore();
@@ -93,9 +93,11 @@ describe("deposit disclosure", () => {
   });
   it("opens every slot of one shared stream and preserves recipient ciphertext", () => {
     const auditor = X25519Secret.generate();
+    // Odd slots disclose an owner key like an anonymous ring.
     const openings = Array.from({ length: 8 }, (_, index) => ({
       ownerHash: field(BigInt(index + 1)),
       blinding: field(BigInt(index + 11)),
+      ...(index % 2 === 0 ? {} : { ownerKey: new Uint8Array(32).fill(index) as Bytes32 }),
       recipientCiphertext: Uint8Array.of(index, 9),
     }));
     const sealed = sealRingDepositOpenings(openings, auditor.publicKey());
@@ -115,6 +117,7 @@ describe("deposit disclosure", () => {
         );
         expect(opened.ownerHash).toEqual(openings[index]?.ownerHash);
         expect(opened.blinding).toEqual(openings[index]?.blinding);
+        expect(opened.ownerKey).toEqual(opening.ownerKey);
         opened.ownerHash.fill(0);
         opened.blinding.fill(0);
         expect(() => openRingDepositOpening(capsule, auditor, field(0n))).toThrow(
@@ -125,7 +128,7 @@ describe("deposit disclosure", () => {
       const first = sealed.capsules[0];
       if (first === undefined) throw new Error("missing capsule");
       expect(() =>
-        readRingDepositCapsule(sealed.payloads[0]?.slice(0, 105) ?? new Uint8Array()),
+        readRingDepositCapsule(sealed.payloads[0]?.slice(0, 137) ?? new Uint8Array()),
       ).toThrow(
         expect.objectContaining({ code: "INTERFACE_CODEC", details: { field: "deposit capsule" } }),
       );
@@ -533,6 +536,52 @@ describe("deposit audit control", () => {
         expect(input.ephemeralSecret.every((byte) => byte === 0)).toBe(true);
         expect(input.blindings.every((field) => field.every((byte) => byte === 0))).toBe(true);
       }
+    } finally {
+      auditor.destroy();
+      recipient.destroy();
+    }
+  });
+});
+
+describe("deposit builder ring mode", () => {
+  it("refuses an anonymous ring before reading the deposit setting", async () => {
+    const auditor = X25519Secret.generate();
+    const recipient = ShieldedKeypair.generate();
+    const [config, bump] = await ringConfigPda(RING);
+    const proveCustomRingDeposit = vi.fn();
+    try {
+      const client = {
+        ...depositClient({
+          getAccount: async (address) =>
+            address === config
+              ? ownedAccount(
+                  RING,
+                  ringProgramConfigData({
+                    authority: RING,
+                    auditorPublicKey: auditor.publicKey().toBytes(),
+                    bump,
+                    hasPolicy: false,
+                    anonymous: true,
+                  }),
+                )
+              : undefined,
+        }),
+        proofDataSource: "client" as const,
+        proveCustomRingDeposit,
+        getRingKeyRegistryEntry: vi.fn(async () => {
+          throw new Error("the mode check comes first");
+        }),
+      };
+      await expect(
+        buildRingDepositTransaction({
+          client,
+          ringProgramId: RING,
+          feePayer: TREE,
+          recipient: recipient.shieldedAddress(),
+          amount: 1n,
+        }),
+      ).rejects.toMatchObject({ code: "RING_BUILD_DEPOSIT", causeCode: "RING_CONFIG_INVALID" });
+      expect(proveCustomRingDeposit).not.toHaveBeenCalled();
     } finally {
       auditor.destroy();
       recipient.destroy();

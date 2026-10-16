@@ -1178,6 +1178,7 @@ fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
         instruction.accounts,
         vec![
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),

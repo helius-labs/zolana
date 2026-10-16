@@ -7,7 +7,9 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
+
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 var generatorTablesMu sync.Mutex
@@ -212,51 +214,11 @@ func (c *curve) baseSelect(points []hostPoint, bits []frontend.Variable, foldSig
 		points = points[len(points)/2:]
 	}
 	// 2. Choose a public row/column split to minimize selection constraints.
-	n, limbBits := c.lay.NbLimbs, c.lay.LimbBits
-	columns := (n+1)/2 + (n+2)/3
-	hotCost := func(k int) int {
-		if k < 2 {
-			return 0
-		}
-		return (1 << k) - k - 1
-	}
-	rowBits, best := 0, hotCost(len(bits))
-	for k := 1; k <= len(bits); k++ {
-		if cost := hotCost(k) + hotCost(len(bits)-k) + (1<<k)*columns; cost < best {
-			rowBits, best = k, cost
-		}
-	}
+	rowBits := shortladder.RowSplit(len(bits), c.lay.NbLimbs)
 	// 3. Select packed coordinate constants with one-hot row and column weights.
 	rows, cols := baseOneHot(api, bits[:rowBits]), baseOneHot(api, bits[rowBits:])
-	pack := func(group int, coordinate func(hostPoint) *big.Int) *fpElement {
-		limbs := make([]frontend.Variable, n)
-		lo, hi := make([]*big.Int, n), make([]*big.Int, n)
-		for i := range limbs {
-			limbs[i] = 0
-			lo[i] = new(big.Int)
-			hi[i] = new(big.Int)
-			if i%group != 0 {
-				continue
-			}
-			width := min(group*limbBits, 255-i*limbBits)
-			mask := new(big.Int).Sub(pow2(width), big.NewInt(1))
-			value := frontend.Variable(0)
-			for row, rf := range rows {
-				inner := frontend.Variable(0)
-				for col, cf := range cols {
-					v := new(big.Int).Rsh(coordinate(points[row+col*len(rows)]), uint(i*limbBits))
-					v.And(v, mask)
-					inner = api.Add(inner, api.Mul(cf, v))
-				}
-				value = api.Add(value, api.Mul(rf, inner))
-			}
-			limbs[i] = value
-			hi[i] = mask
-		}
-		return f.WithBounds(limbs, lo, hi)
-	}
-	x := pack(2, func(p hostPoint) *big.Int { return p.x })
-	y := pack(3, func(p hostPoint) *big.Int { return p.y })
+	x := shortladder.SelectConstant(api, f, rows, cols, 2, func(i int) *big.Int { return points[i].x })
+	y := shortladder.SelectConstant(api, f, rows, cols, 3, func(i int) *big.Int { return points[i].y })
 	// 4. Restore the selected sign without changing curve membership.
 	if foldSign {
 		y = f.Select(sign, y, f.Neg(y))

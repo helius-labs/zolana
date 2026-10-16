@@ -2177,10 +2177,15 @@ impl RingDeposit<'_> {
         let key_registry = KeyRegistry::of(self.ring, &config);
         let disclosure =
             if anonymous || key_registry.is_some() || self.ring.read_deposit_audit(rpc)? {
+                let address = self.recipient.shielded_address()?;
+                let owner_key = anonymous
+                    .then(|| address.signing_pubkey.as_ed25519())
+                    .transpose()?;
                 let encryption = DepositSeal {
                     openings: &[DepositOpening {
                         owner_hash,
                         blinding: Zeroizing::new(blinding),
+                        owner_key,
                     }],
                     auditor_pk: &config.auditor_pubkey,
                 }
@@ -2208,7 +2213,6 @@ impl RingDeposit<'_> {
                 }
                 .hash()
                 .map_err(|_| DepositError::Hashing)?;
-                let address = self.recipient.shielded_address()?;
                 let auditor_coordinate = config.auditor_pubkey.u();
                 let mut blindings = Zeroizing::new([[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]);
                 blindings[0] = blinding;
@@ -2216,11 +2220,7 @@ impl RingDeposit<'_> {
                     context_hash,
                     anonymous,
                     owner_utxo_hash: deposit.owner_utxo_hash,
-                    owner_key: if anonymous {
-                        address.signing_pubkey.as_ed25519()?
-                    } else {
-                        [0; 32]
-                    },
+                    owner_key: owner_key.unwrap_or_default(),
                     key: OutputKey {
                         owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
                         nullifier_pk: address.nullifier_pubkey,

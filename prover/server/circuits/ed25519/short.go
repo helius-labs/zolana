@@ -10,7 +10,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 	"github.com/helius-labs/zolana/prover/server/circuits/internal/lookup"
-	"github.com/helius-labs/zolana/prover/server/circuits/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 const shortBits = 127
@@ -112,33 +112,8 @@ func (c *curve) constantPoint(points []hostPoint, flags []frontend.Variable) *po
 // Select trusted coordinates and optional d*x*y. Rows and columns must each
 // be one-hot. Their exclusivity is what justifies the attached limb bounds.
 func (c *curve) constantPoint2D(points []hostPoint, rows, cols []frontend.Variable, withT bool) *point {
-	selectValue := func(coord func(hostPoint) *big.Int, off, width int) frontend.Variable {
-		out := frontend.Variable(0)
-		mask := new(big.Int).Sub(pow2(width), big.NewInt(1))
-		for i, rf := range rows {
-			in := frontend.Variable(0)
-			for j, cf := range cols {
-				v := new(big.Int).And(new(big.Int).Rsh(coord(points[i+j*len(rows)]), uint(off)), mask)
-				in = c.api.Add(in, c.api.Mul(cf, v))
-			}
-			out = c.api.Add(out, c.api.Mul(rf, in))
-		}
-		return out
-	}
 	pack := func(group int, coord func(hostPoint) *big.Int) *emfield.Element {
-		vs := make([]frontend.Variable, layout.NbLimbs)
-		lo, hi := make([]*big.Int, layout.NbLimbs), make([]*big.Int, layout.NbLimbs)
-		for i := range vs {
-			vs[i] = 0
-			lo[i] = new(big.Int)
-			hi[i] = new(big.Int)
-			if i%group == 0 {
-				width := min(group*layout.LimbBits, 255-i*layout.LimbBits)
-				vs[i] = selectValue(coord, i*layout.LimbBits, width)
-				hi[i].Sub(pow2(width), big.NewInt(1))
-			}
-		}
-		return c.fp.WithBounds(vs, lo, hi)
+		return shortladder.SelectConstant(c.api, c.fp, rows, cols, group, func(i int) *big.Int { return coord(points[i]) })
 	}
 	p := &point{x: pack(2, func(p hostPoint) *big.Int { return p.x }), y: pack(3, func(p hostPoint) *big.Int { return p.y })}
 	if withT {
@@ -213,7 +188,7 @@ func (c *curve) shortVerify(a, r *point, h, s *emfield.Element) {
 	for start := shortBits - 3; start >= 0; start -= 2 {
 		selector := c.api.Add(ud[start/2], c.api.Mul(vd[start/2], 4))
 		row := table.Lookup(selector)
-		t := &montPoint{x: c.unpackCoordinate(row[:(layout.NbLimbs+1)/2]), y: c.unpackCoordinate(row[(layout.NbLimbs+1)/2:])}
+		t := &montPoint{x: shortladder.UnpackCoordinate(c.fp, row[:(layout.NbLimbs+1)/2], 2, false), y: shortladder.UnpackCoordinate(c.fp, row[(layout.NbLimbs+1)/2:], 2, false)}
 		acc = c.quadrupleAddChecked(acc, t)
 	}
 	final := c.montReduce(acc)
@@ -224,9 +199,9 @@ func (c *curve) shortVerify(a, r *point, h, s *emfield.Element) {
 }
 
 // Both inputs are reduced. The exact three-case guard excludes equality
-// modulo p, including the possible p-aliases within their255-bit ranges.
+// modulo p, including the possible p-aliases within their 255-bit ranges.
 func (c *curve) montGuardedAdd(p, q *montPoint) *montPoint {
-	c.assertDistinctReduced(p.x, q.x)
+	shortladder.AssertDistinct(c.api, c.fp, p.x, q.x, distinctHint)
 	return c.montAdd(p, q, false)
 }
 
@@ -250,7 +225,7 @@ func (c *curve) shortTable(a, b, j *point) (*montPoint, *lookup.Table) {
 	for col := 0; col < 4; col++ {
 		for row := 0; row < 4; row++ {
 			p := grid[row][col]
-			table.Insert(append(c.packCoordinate(p.x), c.packCoordinate(p.y)...))
+			table.Insert(append(shortladder.PackCoordinate(c.api, c.fp, p.x, 2), shortladder.PackCoordinate(c.api, c.fp, p.y, 2)...))
 		}
 	}
 	return grid[2][2], table
@@ -322,19 +297,6 @@ func init() {
 	solver.RegisterHint(torsionIndexHint, torsionRootHint, distinctHint, offsetHint)
 }
 
-// Reconstructs signed hint limbs modulo q. This is witness computation, not a constraint.
-func hintInteger(q *big.Int, limbs []*big.Int, bits int) *big.Int {
-	out := new(big.Int)
-	for i := len(limbs) - 1; i >= 0; i-- {
-		v := new(big.Int).Set(limbs[i])
-		if v.Cmp(new(big.Int).Rsh(new(big.Int).Set(q), 1)) > 0 {
-			v.Sub(v, q)
-		}
-		out.Lsh(out, uint(bits)).Add(out, v)
-	}
-	return out
-}
-
 // Suggest the torsion index. splitTorsion proves the complete decomposition.
 func torsionIndexHint(q *big.Int, in, out []*big.Int) error {
 	if len(in) != 1+2*layout.NbLimbs || len(out) != 1 {
@@ -342,7 +304,7 @@ func torsionIndexHint(q *big.Int, in, out []*big.Int) error {
 	}
 	n := layout.NbLimbs
 	bits := int(in[0].Int64())
-	p := hostPoint{hintInteger(q, in[1:1+n], bits), hintInteger(q, in[1+n:], bits)}
+	p := hostPoint{shortladder.BalancedInteger(q, in[1:1+n], bits), shortladder.BalancedInteger(q, in[1+n:], bits)}
 	p.x.Mod(p.x, fieldPrime())
 	p.y.Mod(p.y, fieldPrime())
 	t := hostMul(hostMul(p, groupOrder()), big.NewInt(5)) // L mod8=5, whose inverse is5.
@@ -375,7 +337,7 @@ func shortRelationHint(q *big.Int, in, out []*big.Int) error {
 	if len(in) < 2 || len(out) != 1+2*shortBits {
 		return errors.New("short relation shape")
 	}
-	h := hintInteger(q, in[1:], int(in[0].Int64()))
+	h := shortladder.BalancedInteger(q, in[1:], int(in[0].Int64()))
 	h.Mod(h, groupOrder())
 	r0, r1 := groupOrder(), new(big.Int).Set(h)
 	t0, t1 := new(big.Int), big.NewInt(1)
@@ -402,19 +364,8 @@ func shortRelationHint(q *big.Int, in, out []*big.Int) error {
 }
 
 // Suggest inverse certificates. The caller binds the relevant nonzero equation.
-func distinctHint(q *big.Int, in, out []*big.Int) error {
-	if len(in) != 2 || len(out) != 2 {
-		return errors.New("coordinate guard shape")
-	}
-	out[0].SetInt64(0)
-	out[1].SetInt64(0)
-	if in[0].Sign() != 0 {
-		out[0].ModInverse(in[0], q)
-	} else if in[1].Sign() != 0 {
-		out[1].ModInverse(in[1], q)
-	}
-	return nil
-}
+// The name stays registered here so stored constraint systems resolve it.
+func distinctHint(q *big.Int, in, out []*big.Int) error { return shortladder.PackedNonzero(q, in, out) }
 
 // Chooses the signed scalar representative used by the recoding hint.
 func adjustedScalar(v *big.Int) *big.Int {
@@ -438,7 +389,11 @@ func offsetHint(q *big.Int, in, out []*big.Int) error {
 		return errors.New("offset length")
 	}
 	pos := 4
-	take := func(count int) *big.Int { v := hintInteger(q, in[pos:pos+count], bits); pos += count; return v }
+	take := func(count int) *big.Int {
+		v := shortladder.BalancedInteger(q, in[pos:pos+count], bits)
+		pos += count
+		return v
+	}
 	u, v := adjustedScalar(take(nu)), adjustedScalar(take(nv))
 	a := hostPoint{take(n), take(n)}
 	b := hostPoint{take(n), take(n)}
@@ -505,9 +460,8 @@ func offsetHint(q *big.Int, in, out []*big.Int) error {
 // Constrain y²=x³+A*x+B for the shifted Montgomery model. Existing element
 // bounds are required. This adds membership, not a subgroup assertion.
 func (c *curve) assertMontOnCurve(p *montPoint) {
-	b := new(big.Int).Mod(new(big.Int).Sub(new(big.Int).Mul(big.NewInt(2), new(big.Int).Exp(montOffset, big.NewInt(3), fieldPrime())), montOffset), fieldPrime())
 	x2 := c.fp.Lazy(emfield.T(1, p.x, p.x))
-	c.fp.AssertZeroProjected(emfield.T(1, p.y, p.y), emfield.T(-1, x2, p.x), emfield.T(-1, c.fp.Const(montA), p.x), emfield.T(-1, c.fp.Const(b)))
+	c.fp.AssertZeroProjected(emfield.T(1, p.y, p.y), emfield.T(-1, x2, p.x), emfield.T(-1, c.fp.Const(montA), p.x), emfield.T(-1, c.fp.Const(montB)))
 }
 
 // Registers untrusted witness hints. Their callers enforce the required relations.
@@ -553,7 +507,7 @@ func shortRecodeHint(q *big.Int, in, out []*big.Int) error {
 	if e := oddRecodeHint(q, in, bits); e != nil {
 		return e
 	}
-	v := hintInteger(q, in[2:], int(in[1].Int64()))
+	v := shortladder.BalancedInteger(q, in[2:], int(in[1].Int64()))
 	out[0].SetUint64(uint64(v.Bit(0)))
 	for i := 0; i < (shortBits-1)/2; i++ {
 		out[1+i].Add(bits[2*i], new(big.Int).Lsh(bits[2*i+1], 1))
@@ -585,74 +539,4 @@ func (c *curve) shortRecode(s *emfield.Element) ([]frontend.Variable, frontend.V
 	}
 	api.AssertIsEqual(api.Add(api.Mul(2, cv), new(big.Int).Sub(big.NewInt(2), pow2(shortBits))), api.Add(sv, odd, api.Mul(2, zero)))
 	return digits, odd, zero
-}
-
-// Exclude equal Fp values across all 0/±p aliases of reduced 255-bit inputs.
-// Metadata is checked here. Its underlying limb constraints must already hold.
-func (c *curve) assertDistinctReduced(a, b *emfield.Element) {
-	widths := c.fp.ReducedWidths()
-	if !a.IsReduced(widths) || !b.IsReduced(widths) {
-		panic("ed25519: distinct point guard needs reduced coordinates")
-	}
-	pack := func(e *emfield.Element, start, end int) frontend.Variable {
-		out := frontend.Variable(0)
-		for i := start; i < end; i++ {
-			out = c.api.Add(out, c.api.Mul(e.Limbs()[i], pow2((i-start)*layout.LimbBits)))
-		}
-		return out
-	}
-	cut := (layout.NbLimbs + 1) / 2
-	B := pow2(cut * layout.LimbBits)
-	mask := new(big.Int).Sub(B, big.NewInt(1))
-	p := fieldPrime()
-	pl := new(big.Int).And(p, mask)
-	ph := new(big.Int).Rsh(p, uint(cut*layout.LimbBits))
-	lo := c.api.Sub(pack(a, 0, cut), pack(b, 0, cut))
-	hi := c.api.Sub(pack(a, cut, layout.NbLimbs), pack(b, cut, layout.NbLimbs))
-	// Equal residues below 2^255 differ by 0 or +-p, and a low-half borrow would
-	// need a high difference of +-2^(255-cut), so these three pairs cover all cases.
-	for _, k := range []int64{-1, 0, 1} {
-		dl := c.api.Sub(lo, new(big.Int).Mul(big.NewInt(k), pl))
-		dh := c.api.Sub(hi, new(big.Int).Mul(big.NewInt(k), ph))
-		inv, err := c.api.Compiler().NewHint(distinctHint, 2, dl, dh)
-		if err != nil {
-			panic(err)
-		}
-		r1c.AssertProduct(c.api, inv[1], dh, c.api.Sub(1, c.api.Mul(inv[0], dl)))
-	}
-}
-
-// Pack reduced limbs for row lookup without changing their represented value.
-func (c *curve) packCoordinate(e *emfield.Element) []frontend.Variable {
-	out := make([]frontend.Variable, 0, (layout.NbLimbs+1)/2)
-	for i := 0; i < layout.NbLimbs; i += 2 {
-		v := e.Limbs()[i]
-		if i+1 < layout.NbLimbs {
-			v = c.api.Add(v, c.api.Mul(e.Limbs()[i+1], pow2(layout.LimbBits)))
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
-// Recover bounded coordinate limbs from a previously bound table row. The
-// lookup must establish provenance before these coordinates enter group laws.
-func (c *curve) unpackCoordinate(packed []frontend.Variable) *emfield.Element {
-	widths := c.fp.ReducedWidths()
-	limbs := make([]frontend.Variable, layout.NbLimbs)
-	lo, hi := make([]*big.Int, layout.NbLimbs), make([]*big.Int, layout.NbLimbs)
-	for i := range limbs {
-		limbs[i] = 0
-		lo[i] = new(big.Int)
-		hi[i] = new(big.Int)
-		if i%2 == 0 {
-			w := widths[i]
-			if i+1 < len(widths) {
-				w += widths[i+1]
-			}
-			limbs[i] = packed[i/2]
-			hi[i].Sub(pow2(w), big.NewInt(1))
-		}
-	}
-	return c.fp.WithBounds(limbs, lo, hi)
 }

@@ -90,6 +90,7 @@ import {
   type RuleTable,
 } from "./policy.js";
 import {
+  checkBuildableRingMode,
   fetchRingCoSigner,
   fetchRingConfigs,
   ringPolicyNamespaceAddress,
@@ -464,6 +465,7 @@ async function buildRingSpend<R>(
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
+    checkBuildableRingMode(ringConfigs.config, "spend");
     // A windowed ring spends the spend record in one input slot after the real inputs.
     const maxInputs =
       windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
@@ -689,6 +691,7 @@ async function proveRingTransferStatement(
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
+  checkBuildableRingMode(config, "transfer");
   // Mirrors the program's `DelegateRequiresPolicy` and escrow checks, before any prover round.
   if (flow.kind === "delegate" && !(configs.hasPolicy && config.keyEscrow)) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
