@@ -521,7 +521,7 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
         assert!(rendered.contains(&format!(
-            "[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = \"{}\"",
+            "[policy]\n# entry addresses are claimed in the named tree\naddress_tree = \"{}\"",
             zolana_interface::pda::tree(0)
         )));
         let mut normalized = config;

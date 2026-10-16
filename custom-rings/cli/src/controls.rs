@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{bail, ensure, Context as _, Result};
-use custom_ring_sdk::{CoSignThreshold, CustomRingCoSigner, SetSpendWindow};
+use custom_ring_sdk::{CoSignThreshold, CustomRingCoSigner};
 use solana_signer::Signer;
 use zolana_interface::state::RingConfig as SppRingConfig;
 use zolana_keypair::X25519Secret;
@@ -13,7 +13,7 @@ use crate::{
     fund::MIN_AUTHORITY_BALANCE,
     keys, line,
     ui::{self, icon},
-    CoSignerCommand, Context, DelegateCommand, DepositAuditCommand, ReaderCommand, WindowCommand,
+    CoSignerCommand, Context, DelegateCommand, DepositAuditCommand, ReaderCommand,
     AUDITOR_KEY_FILE,
 };
 
@@ -85,66 +85,6 @@ pub(crate) fn print_cosigner(cosigner: &CustomRingCoSigner) {
             format_args!("{} above {}", Mint(threshold.mint), threshold.amount),
         );
     }
-}
-
-pub fn window(ctx: &Context, command: WindowCommand) -> Result<()> {
-    let mint = match command {
-        WindowCommand::Set {
-            mint,
-            slots,
-            deposit_cap,
-            withdrawal_cap,
-        } => {
-            ensure!(
-                deposit_cap != 0 || withdrawal_cap != 0,
-                "a spend window needs --deposit-cap or --withdrawal-cap"
-            );
-            let authority = ctx.funded_authority()?;
-            let set = SetSpendWindow {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                authority: authority.pubkey(),
-                mint: mint.0,
-                window_slots: slots,
-                deposit_cap,
-                withdrawal_cap,
-            }
-            .instruction()?;
-            ctx.send(&[authority], &[set])?;
-            line("spend window", format_args!("{mint} set"));
-            mint
-        }
-        WindowCommand::Clear { mint } => {
-            let authority = ctx.funded_authority()?;
-            let set = ctx.block(ctx.ring.spend_window(ctx.chain(), &mint.0))?;
-            ensure!(set.is_some(), "the mint has no spend window");
-            let a = authority.pubkey();
-            ctx.send(&[authority], &[ctx.ring.clear_spend_window(a, mint.0, a)])?;
-            line("spend window", "cleared");
-            mint
-        }
-        WindowCommand::Show { mint } => mint,
-    };
-    let Some(window) = ctx.block(ctx.ring.spend_window(ctx.chain(), &mint.0))? else {
-        line("spend window", format_args!("{mint} uncapped"));
-        return Ok(());
-    };
-    let cap = |cap: u64| match cap {
-        0 => "uncapped".to_owned(),
-        cap => cap.to_string(),
-    };
-    line("spend window", Mint(window.mint));
-    line("slots", window.window_slots());
-    line("window start", window.window_start_slot());
-    line(
-        "deposits",
-        format_args!("{} of {}", window.deposited(), cap(window.deposit_cap())),
-    );
-    line(
-        "withdrawals",
-        format_args!("{} of {}", window.withdrawn(), cap(window.withdrawal_cap())),
-    );
-    Ok(())
 }
 
 pub fn deposit_audit(ctx: &Context, command: DepositAuditCommand) -> Result<()> {

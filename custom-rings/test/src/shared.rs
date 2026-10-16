@@ -10,8 +10,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::{wait_for, Probe};
-use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, LiveSpendRecord, RingError};
+use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, RingError};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -567,19 +566,6 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
         zolana_ring_client::deposit_payload,
     );
     Ok(TestWallet { wallet, keypair })
-}
-
-pub fn wait_for_spend_record(
-    read: impl Fn() -> Result<Option<LiveSpendRecord>, RingError>,
-    version: u64,
-) -> Result<LiveSpendRecord> {
-    wait_for(format!("spend record v{version}"), || {
-        Ok(match read() {
-            Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
-            Ok(_) => Probe::NotYet,
-            Err(error) => Probe::Retry(error.into()),
-        })
-    })
 }
 
 /// Send instructions as a transaction **v1** message paid and signed by

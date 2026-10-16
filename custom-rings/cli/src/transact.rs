@@ -193,14 +193,13 @@ fn check_cosigner(
     Ok(())
 }
 
-/// A velocity row demands the co-signer strictly above its nonzero threshold.
+/// An outflow limit demands the co-signer strictly above its nonzero threshold.
 fn approval(mint: Address, outflow: u64, rules: Option<&RuleTable>) -> Result<bool> {
     let asset = *Member::asset(&mint)?.as_bytes();
     Ok(rules.is_some_and(|rules| {
-        rules
-            .velocity()
-            .iter()
-            .any(|row| row.asset == asset && row.cosign_above != 0 && outflow > row.cosign_above)
+        rules.limits().iter().any(|limit| {
+            limit.asset == asset && limit.cosign_above != 0 && outflow > limit.cosign_above
+        })
     }))
 }
 
@@ -248,10 +247,6 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
         SENDER_FEE_BUDGET,
     );
     ctx.send(&[payer], &[fee])?;
-    if let Some(policy) = t.policy.filter(|p| p.table.window_slots() != 0) {
-        let outcome = member::ensure_spend(ctx, t.sender, &policy.config)?;
-        line("spend record", outcome);
-    }
     line("member key", member::ensure_key(ctx, t.sender)?);
     let inputs = deposited_notes(ctx, t.sender, &receipts)?;
     let tree_id = inputs[0].tree_id;
@@ -390,7 +385,7 @@ fn read_back(ctx: &Context, reader: &Keypair, signature: Signature) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use zolana_ring_policy::VelocityRow;
+    use zolana_ring_policy::OutflowLimit;
 
     use super::*;
 
@@ -417,9 +412,9 @@ mod tests {
         result.expect_err("refused").to_string()
     }
 
-    fn velocity(cap: u64, cosign_above: u64) -> RuleTable {
+    fn limits(cap: u64, cosign_above: u64) -> RuleTable {
         RuleTable::builder()
-            .velocity(&[VelocityRow {
+            .limits(&[OutflowLimit {
                 asset: *Member::asset(&SOL_MINT).unwrap().as_bytes(),
                 cap,
                 cosign_above,
@@ -453,7 +448,7 @@ mod tests {
             recipient.signing_pubkey.owner_proof_input_hash().unwrap()
         );
         // A same-owner transfer charges zero outflow, so no approval row fires.
-        let approval = approval(SOL_MINT, 0, Some(&velocity(0, 10))).unwrap();
+        let approval = approval(SOL_MINT, 0, Some(&limits(0, 10))).unwrap();
         assert!(!approval);
         for (scope, required) in [
             (CoSignScope::WITHDRAWALS, false),
@@ -471,16 +466,15 @@ mod tests {
     fn a_different_owner_charges_the_payment_and_uses_a_strict_nonzero_threshold() {
         for (threshold, amount, required) in [(10, 10, false), (10, 11, true), (0, u64::MAX, false)]
         {
-            let rules = velocity(u64::MAX, threshold);
+            let rules = limits(u64::MAX, threshold);
             assert_eq!(approval(SOL_MINT, amount, Some(&rules)).unwrap(), required);
         }
         assert!(!approval(SOL_MINT, u64::MAX, None).unwrap());
     }
 
     #[test]
-    fn the_program_codes_the_submission_retries_on_are_pinned() {
+    fn the_program_code_the_submission_retries_on_is_pinned() {
         use custom_ring_interface::CustomRingError;
         assert_eq!(CustomRingError::StaleKeyRegistryRoot as u32, 8161);
-        assert_eq!(CustomRingError::WindowElapsed as u32, 8173);
     }
 }
