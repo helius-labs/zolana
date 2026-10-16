@@ -11,6 +11,8 @@ pub const MAX_RULES: usize = 16;
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
+/// Curator registries one policy may read lists from, a circuit width.
+pub const N_FOREIGN: usize = 1;
 /// Outflow limit slots per table, a circuit width.
 pub const MAX_OUTFLOW_LIMITS: usize = 8;
 /// Answer slots per transfer, a circuit width.
@@ -20,7 +22,7 @@ pub const POLICY_INPUT_SLOTS: usize = 5;
 /// Output slots the policy opens per transfer, a circuit width.
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 8;
+pub const POLICY_VERSION: u8 = 9;
 
 /// Distinct sender keys and live outputs of one transfer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,17 +37,17 @@ const GUARANTEED_LOAD: AnswerLoad = AnswerLoad {
     outputs: POLICY_OUTPUT_SLOTS,
 };
 
-/// One list and owner pair, list id 0 marks an empty slot with a zero hash.
+/// One list and the registry serving it, zero for the ring's own, list id 0 marks an empty slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SourceOwner {
+pub struct PolicySource {
     pub list_id: u8,
-    pub owner_hash: [u8; 32],
+    pub registry: [u8; 32],
 }
 
 /// Positional source map, slot `i` is empty or serves list `i + 1`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceMap {
-    slots: [SourceOwner; MAX_SOURCES],
+    slots: [PolicySource; MAX_SOURCES],
 }
 
 /// A slot violates the positional layout.
@@ -55,8 +57,8 @@ pub enum SourceMapError {
     NotPositional,
     #[error("list is already mapped")]
     Duplicate,
-    #[error("owner hash is zero")]
-    ZeroOwner,
+    #[error("the curator slots name more than {N_FOREIGN} registry")]
+    SeveralCurators,
 }
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
@@ -67,15 +69,6 @@ pub enum PolicyHashError {
     MissingSource(ListId),
     #[error(transparent)]
     Table(RuleTableError),
-}
-
-/// The slots break the positional layout, or an owner hash could not be derived.
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-pub enum SourceMapOwnerError<E> {
-    #[error(transparent)]
-    Map(SourceMapError),
-    #[error("owner hash derivation failed")]
-    Owner(E),
 }
 
 macro_rules! rule_errors {
@@ -129,63 +122,69 @@ rule_errors! {
     ZeroLimitAsset => "an outflow limit names no mint",
     DuplicateLimitAsset => "outflow limit mints must be unique",
     LimitWithoutBound => "an outflow limit needs a cap or a cosign threshold",
+    AssetListRule => "asset rules take the inline source only",
 }
 
 impl SourceMap {
     pub fn new(entries: &[(ListId, [u8; 32])]) -> Result<Self, SourceMapError> {
         let mut sources = Self::default();
-        for (list_id, owner_hash) in entries {
-            if *owner_hash == [0u8; 32] {
-                return Err(SourceMapError::ZeroOwner);
-            }
+        for (list_id, registry) in entries {
             let slot = &mut sources.slots[list_id.slot()];
             if slot.list_id != 0 {
                 return Err(SourceMapError::Duplicate);
             }
-            *slot = SourceOwner {
+            *slot = PolicySource {
                 list_id: *list_id as u8,
-                owner_hash: *owner_hash,
+                registry: *registry,
             };
         }
+        sources.check_curators()?;
         Ok(sources)
     }
 
     /// Validates stored slots instead of re-canonicalizing them.
-    pub fn from_slots(slots: [SourceOwner; MAX_SOURCES]) -> Result<Self, SourceMapError> {
+    pub fn from_slots(slots: [PolicySource; MAX_SOURCES]) -> Result<Self, SourceMapError> {
         for (index, slot) in slots.iter().enumerate() {
-            let empty = slot.list_id == 0 && slot.owner_hash == [0u8; 32];
-            let positional = slot.list_id as usize == index + 1 && slot.owner_hash != [0u8; 32];
+            let empty = slot.list_id == 0 && slot.registry == [0u8; 32];
+            let positional = slot.list_id as usize == index + 1;
             if !empty && !positional {
                 return Err(SourceMapError::NotPositional);
             }
         }
-        Ok(Self { slots })
+        let map = Self { slots };
+        map.check_curators()?;
+        Ok(map)
     }
 
-    /// The map of stored `(list_id, namespace)` slots, each namespace hashed to its owner.
-    pub fn from_namespaces<E>(
-        slots: &[(u8, [u8; 32]); MAX_SOURCES],
-        owner_hash: impl Fn(&[u8; 32]) -> Result<[u8; 32], E>,
-    ) -> Result<Self, SourceMapOwnerError<E>> {
-        let mut out = [SourceOwner::default(); MAX_SOURCES];
-        for (dst, (list_id, namespace)) in out.iter_mut().zip(slots) {
-            if *list_id != 0 {
-                *dst = SourceOwner {
-                    list_id: *list_id,
-                    owner_hash: owner_hash(namespace).map_err(SourceMapOwnerError::Owner)?,
-                };
-            }
+    /// Every curator slot names the one foreign registry the circuit opens.
+    fn check_curators(&self) -> Result<(), SourceMapError> {
+        let mut curators = self
+            .slots
+            .iter()
+            .map(|slot| slot.registry)
+            .filter(|registry| *registry != [0u8; 32]);
+        let first = curators.next();
+        if curators.any(|registry| Some(registry) != first) {
+            return Err(SourceMapError::SeveralCurators);
         }
-        Self::from_slots(out).map_err(SourceMapOwnerError::Map)
+        Ok(())
     }
 
-    /// The owner serving a list, `None` when unmapped.
-    pub fn owner_hash(&self, list_id: ListId) -> Option<&[u8; 32]> {
+    /// The registry serving a list, zero for the ring's own, `None` when unmapped.
+    pub fn registry(&self, list_id: ListId) -> Option<&[u8; 32]> {
         let slot = &self.slots[list_id.slot()];
-        (slot.list_id != 0).then_some(&slot.owner_hash)
+        (slot.list_id != 0).then_some(&slot.registry)
     }
 
-    pub const fn slots(&self) -> &[SourceOwner; MAX_SOURCES] {
+    /// The curator registry a slot names, `None` when every mapped list is the ring's own.
+    pub fn curator(&self) -> Option<[u8; 32]> {
+        self.slots
+            .iter()
+            .map(|slot| slot.registry)
+            .find(|registry| *registry != [0u8; 32])
+    }
+
+    pub const fn slots(&self) -> &[PolicySource; MAX_SOURCES] {
         &self.slots
     }
 }
@@ -427,6 +426,9 @@ impl Rule {
             RuleSource::InlineAssets if !matches!(self.subject, Subject::Asset) => {
                 return Err(RuleTableError::InlineNotAsset)
             }
+            RuleSource::Lists { .. } if matches!(self.subject, Subject::Asset) => {
+                return Err(RuleTableError::AssetListRule)
+            }
             RuleSource::Lists { .. } | RuleSource::InlineAssets => {}
         }
         match self.guard {
@@ -582,7 +584,7 @@ impl RuleTable {
         encoded
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered rule fails closed.
+    /// The map binds each referenced list to one registry, an uncovered rule fails closed.
     pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
         self.encode().hash(sources)
     }
@@ -872,13 +874,13 @@ impl EncodedRuleTable {
             .fold(ListSet::EMPTY, ListSet::union)
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered rule fails closed.
+    /// The map binds each referenced list to one registry, an uncovered rule fails closed.
     pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
         let (rows, members, limits) = self.counted().map_err(PolicyHashError::Table)?;
         if let Some(list_id) = self
             .referenced()
             .iter()
-            .find(|list_id| sources.owner_hash(*list_id).is_none())
+            .find(|list_id| sources.registry(*list_id).is_none())
         {
             return Err(PolicyHashError::MissingSource(list_id));
         }
@@ -890,7 +892,7 @@ impl EncodedRuleTable {
         elements.push(field_u8(POLICY_VERSION));
         for slot in sources.slots() {
             elements.push(field_u8(slot.list_id));
-            elements.push(slot.owner_hash);
+            elements.push(slot.registry);
         }
         // Counts make the variable length sections unambiguous.
         elements.push(field_u8(self.rule_count));
@@ -1088,18 +1090,26 @@ mod tests {
     }
 
     #[test]
-    fn from_namespaces_resolves_and_validates_positionally() {
-        let mut slots = [(0u8, [0u8; 32]); MAX_SOURCES];
-        slots[0] = (1, [9u8; 32]);
-        let map =
-            SourceMap::from_namespaces(&slots, |ns| Ok::<_, ()>(*ns)).expect("positional owners");
-        assert_eq!(map.owner_hash(ListId::Allow), Some(&[9u8; 32]));
-        let mut misplaced = [(0u8, [0u8; 32]); MAX_SOURCES];
-        misplaced[1] = (1, [9u8; 32]);
-        assert!(matches!(
-            SourceMap::from_namespaces(&misplaced, |ns| Ok::<_, ()>(*ns)),
-            Err(SourceMapOwnerError::Map(SourceMapError::NotPositional))
-        ));
+    fn an_own_list_maps_to_the_zero_registry_and_one_curator_serves_the_rest() {
+        let map = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Block, [9u8; 32])]);
+        assert_eq!(map.registry(ListId::Allow), Some(&[0u8; 32]));
+        assert_eq!(map.registry(ListId::Block), Some(&[9u8; 32]));
+        assert_eq!(map.registry(ListId::Frozen), None);
+        assert_eq!(map.curator(), Some([9u8; 32]));
+        assert_eq!(sources(&[(ListId::Allow, [0u8; 32])]).curator(), None);
+        assert_eq!(
+            SourceMap::new(&[(ListId::Allow, [9u8; 32]), (ListId::Block, [8u8; 32])]),
+            Err(SourceMapError::SeveralCurators)
+        );
+        let mut slots = *map.slots();
+        slots[ListId::Frozen.slot()] = PolicySource {
+            list_id: ListId::Frozen as u8,
+            registry: [8u8; 32],
+        };
+        assert_eq!(
+            SourceMap::from_slots(slots),
+            Err(SourceMapError::SeveralCurators)
+        );
     }
 
     #[test]
@@ -1190,7 +1200,7 @@ mod tests {
             Rule::require(Subject::OutputOwner, ListId::Allow),
             Rule::forbid(Subject::Sender, ListId::Frozen),
             Rule::require_any(
-                Subject::Asset,
+                Subject::Sender,
                 ListSet::of(&[ListId::Allow, ListId::Approval]),
             ),
             Rule::forbid_all(
@@ -1294,9 +1304,9 @@ mod tests {
 
     #[test]
     fn a_group_hash_binds_every_listed_source() {
-        let both = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [5u8; 32])]);
+        let both = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [5u8; 32])]);
         assert!(GROUP.hash(&both).is_ok());
-        let only_one = sources(&[(ListId::Allow, [4u8; 32])]);
+        let only_one = sources(&[(ListId::Allow, [0u8; 32])]);
         assert_eq!(
             GROUP.hash(&only_one),
             Err(PolicyHashError::MissingSource(ListId::Frozen))
@@ -1337,14 +1347,14 @@ mod tests {
 
     #[test]
     fn policy_hash_binds_the_sources_and_the_inline_members() {
-        let map = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [5u8; 32])]);
+        let map = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [5u8; 32])]);
         let baseline = TABLE.hash(&map).unwrap();
-        let other_owner = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [6u8; 32])]);
-        assert_ne!(baseline, TABLE.hash(&other_owner).unwrap());
+        let other_registry = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [6u8; 32])]);
+        assert_ne!(baseline, TABLE.hash(&other_registry).unwrap());
         let extra_slot = sources(&[
-            (ListId::Allow, [4u8; 32]),
+            (ListId::Allow, [0u8; 32]),
             (ListId::Frozen, [5u8; 32]),
-            (ListId::Escrow, [7u8; 32]),
+            (ListId::Escrow, [5u8; 32]),
         ]);
         assert_ne!(baseline, TABLE.hash(&extra_slot).unwrap());
         const REORDERED: RuleTable = RuleTable::builder()
@@ -1386,8 +1396,8 @@ mod tests {
     fn the_table_hash_is_the_image_hash() {
         let map = sources(&[
             (ListId::Allow, [4u8; 32]),
-            (ListId::Block, [8u8; 32]),
-            (ListId::Frozen, [5u8; 32]),
+            (ListId::Block, [0u8; 32]),
+            (ListId::Frozen, [4u8; 32]),
         ]);
         for table in [TABLE, EMPTY, GROUP, RELEASED] {
             assert_eq!(table.hash(&map), table.encode().hash(&map));
@@ -1422,10 +1432,6 @@ mod tests {
             SourceMap::new(&[(ListId::Allow, [4u8; 32]), (ListId::Allow, [5u8; 32]),]),
             Err(SourceMapError::Duplicate)
         );
-        assert_eq!(
-            SourceMap::new(&[(ListId::Allow, [0u8; 32])]),
-            Err(SourceMapError::ZeroOwner)
-        );
         let map = sources(&[(ListId::Frozen, [5u8; 32])]);
         assert_eq!(SourceMap::from_slots(*map.slots()), Ok(map));
         let mut slots = *map.slots();
@@ -1434,10 +1440,10 @@ mod tests {
             SourceMap::from_slots(slots),
             Err(SourceMapError::NotPositional)
         );
-        let mut zero_owner = *map.slots();
-        zero_owner[2].owner_hash = [0u8; 32];
+        let mut empty_with_registry = *map.slots();
+        empty_with_registry[0].registry = [6u8; 32];
         assert_eq!(
-            SourceMap::from_slots(zero_owner),
+            SourceMap::from_slots(empty_with_registry),
             Err(SourceMapError::NotPositional)
         );
     }
@@ -1580,8 +1586,13 @@ mod tests {
                 RuleTableError::ExitDestination,
             ),
             (
-                RuleTable::builder().rule(Rule::require(Subject::Asset, ListId::Approval).above(0)),
+                RuleTable::builder()
+                    .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(0)),
                 RuleTableError::ZeroThreshold,
+            ),
+            (
+                RuleTable::builder().rule(Rule::require(Subject::Asset, ListId::Approval)),
+                RuleTableError::AssetListRule,
             ),
             (
                 RuleTable::builder()
@@ -1715,7 +1726,7 @@ mod tests {
     #[test]
     fn signatures_ignore_the_guard_and_bind_both_sets() {
         let mixed = Rule::any_of(
-            Subject::Asset,
+            Subject::OutputOwner,
             ListSet::single(ListId::Allow),
             ListSet::single(ListId::Block),
         );
@@ -1728,7 +1739,7 @@ mod tests {
         );
         let distinct = RuleTable::builder()
             .rule(Rule::require_any(
-                Subject::Asset,
+                Subject::OutputOwner,
                 ListSet::single(ListId::Allow),
             ))
             .rule(mixed)
@@ -1909,16 +1920,21 @@ mod tests {
     }
 
     #[test]
-    fn an_asset_guard_needs_no_inline_asset() {
-        const ASSET_GUARD: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
-            .build();
-        const BESIDE_INLINE: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
-            .rule(Rule::allow_only_assets())
+    fn an_asset_rule_reads_the_inline_pool_only() {
+        assert_eq!(
+            RuleTable::builder()
+                .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
+                .try_build(),
+            Err(RuleTableError::AssetListRule)
+        );
+        assert_eq!(
+            Rule::decode(&packed([0, 0b0100_0000, 1, 4], 0, 0)),
+            Err(RuleTableError::AssetListRule)
+        );
+        const GUARDED_INLINE: RuleTable = RuleTable::builder()
+            .rule(Rule::allow_only_assets().above(7))
             .inline_assets(ASSETS)
             .build();
-        assert_eq!(ASSET_GUARD.rules().len(), 1);
-        assert_eq!(BESIDE_INLINE.rules().len(), 2);
+        assert_eq!(GUARDED_INLINE.rules().len(), 1);
     }
 }
