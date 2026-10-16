@@ -55,15 +55,26 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, outputs [Audit
 	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo}.Seal(api)
 	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
-	disclosure := make([]frontend.Variable, 0, AuditOutputSlots*AuditOutputFieldCount)
+	pad := disclosurePad(api, key, salt, AuditOutputSlots*AuditOutputFieldCount)
+	disclosure := make([]frontend.Variable, 0, len(pad))
 	for i, w := range outputs {
 		for _, field := range []frontend.Variable{w.Domain, w.TreeID, w.OwnerHash, w.Asset, w.Amount, w.Blinding, w.DataHash, w.RingDataHash, w.RingProgramID} {
-			stream := gadget.PoseidonHash(api, []frontend.Variable{outputDisclosureDomain, key[0], key[1], salt, len(disclosure)})
-			disclosure = append(disclosure, api.Add(api.Mul(count.Active[i], field), stream))
+			disclosure = append(disclosure, api.Add(api.Mul(count.Active[i], field), pad[len(disclosure)]))
 		}
 	}
 	return [11]frontend.Variable{
 		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
-		gadget.HashBytes(api, sealed.Ciphertext), HashPrefix4(api, hashes[:], count), salt, gadget.HashChain(api, disclosure),
+		gadget.HashBytes(api, sealed.Ciphertext), HashPrefix4(api, hashes[:], count), salt, gadget.HashChain4(api, disclosure),
 	}
+}
+
+// disclosurePad iterates a two-input Poseidon from the keyed seed, pad[i] is the state after step i.
+func disclosurePad(api frontend.API, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
+	state := gadget.PoseidonHash(api, []frontend.Variable{outputDisclosureDomain, key[0], key[1], salt})
+	pad := make([]frontend.Variable, n)
+	for i := range pad {
+		state = gadget.PoseidonHash(api, []frontend.Variable{state, i})
+		pad[i] = state
+	}
+	return pad
 }

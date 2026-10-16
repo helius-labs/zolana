@@ -18,8 +18,11 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-// Mirrors the unexported key-schedule info string of package base.
-const auditEncInfo = "CRING/adt1"
+// Mirrors the unexported key-schedule info string and disclosure domain of package base.
+const (
+	auditEncInfo           = "CRING/adt1"
+	outputDisclosureDomain = 0x4352_5f4f44
+)
 
 type Keys struct {
 	txSk      [32]byte
@@ -187,20 +190,11 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 		}, fields[1])
 		plaintext = append(plaintext, fields...)
 	}
-	keyLo, keyHi := pack32(k.txSk)
-	salt := make([]byte, len(s.Audit.Salt))
+	var salt [16]byte
 	for i, value := range s.Audit.Salt {
 		salt[i] = byte(spptest.AsBigInt(value).Uint64())
 	}
-	ciphertext := make([]*big.Int, len(plaintext))
-	for i, value := range plaintext {
-		stream := spptest.MustPoseidon(t, 6, []*big.Int{
-			new(big.Int).SetUint64(0x4352_5f4f44), keyLo, keyHi,
-			new(big.Int).SetBytes(salt), big.NewInt(int64(i)),
-		})
-		ciphertext[i] = new(big.Int).Add(value, stream)
-		ciphertext[i].Mod(ciphertext[i], ecc.BN254.ScalarField())
-	}
+	_, disclosureHash := Disclose(t, k.txSk, salt, plaintext)
 	return []*big.Int{
 		spptest.AsBigInt(s.Audit.PrivateTxHash),
 		txLo, txHi,
@@ -208,9 +202,34 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 		sealed.EphLo, sealed.EphHi,
 		sealed.CiphertextHash,
 		spptest.MustHashChain4(t, outputHashes),
-		new(big.Int).SetBytes(salt),
-		spptest.MustHashChain(t, ciphertext),
+		new(big.Int).SetBytes(salt[:]),
+		disclosureHash,
 	}
+}
+
+// DisclosurePad mirrors the base disclosure pad, a two-input Poseidon chain seeded by the key and salt.
+func DisclosurePad(t testing.TB, key [32]byte, salt [16]byte, n int) []*big.Int {
+	t.Helper()
+	keyLo, keyHi := pack32(key)
+	state := spptest.MustPoseidon(t, 5, []*big.Int{new(big.Int).SetUint64(outputDisclosureDomain), keyLo, keyHi, new(big.Int).SetBytes(salt[:])})
+	pad := make([]*big.Int, n)
+	for i := range pad {
+		state = spptest.MustPoseidon(t, 3, []*big.Int{state, big.NewInt(int64(i))})
+		pad[i] = state
+	}
+	return pad
+}
+
+// Disclose adds the pad to every field and folds the ciphertext with HashChain4, as base.Audit.Define does.
+func Disclose(t testing.TB, key [32]byte, salt [16]byte, fields []*big.Int) (ciphertext []*big.Int, hash *big.Int) {
+	t.Helper()
+	pad := DisclosurePad(t, key, salt, len(fields))
+	ciphertext = make([]*big.Int, len(fields))
+	for i, field := range fields {
+		ciphertext[i] = new(big.Int).Add(field, pad[i])
+		ciphertext[i].Mod(ciphertext[i], ecc.BN254.ScalarField())
+	}
+	return ciphertext, spptest.MustHashChain4(t, ciphertext)
 }
 
 // The leading 0x01 keeps every seed below the group order.
