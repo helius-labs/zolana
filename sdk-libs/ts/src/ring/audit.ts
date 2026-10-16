@@ -621,9 +621,18 @@ function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymou
   return Object.freeze({
     sender: encodeBase58(disclosure.sender),
     inputs: Object.freeze(
-      disclosure.inputs.map((input) =>
-        Object.freeze({ treeId: input.treeId, amount: input.amount, asset: input.asset }),
-      ),
+      disclosure.inputs
+        // Match RingRpc's complete dummy opening before discarding the blinding.
+        .filter(
+          (input) =>
+            input.treeId !== 0 ||
+            input.amount !== 0n ||
+            !equal(input.asset, ZERO_32) ||
+            !equal(input.blinding, ZERO_32),
+        )
+        .map((input) =>
+          Object.freeze({ treeId: input.treeId, amount: input.amount, asset: input.asset }),
+        ),
     ),
     recipients: Object.freeze(recipients),
   });

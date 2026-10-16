@@ -375,6 +375,7 @@ export type {
 } from "./audit.js";
 export {
   CachedTransactionOrigin,
+  ConfirmedDeposit,
   confirmedInstructionGroups,
   confirmedRingWithdrawals,
   senderOf,
@@ -385,6 +386,7 @@ export {
   RpcTransactionOrigin,
 } from "./origin.js";
 export type {
+  AuditedDepositSource,
   OriginInstruction,
   OriginInstructionGroup,
   RingWithdrawal,

@@ -8,7 +8,7 @@ import { ZolanaClient } from "../src/client/client.js";
 import { wireDecoder } from "../src/interface/decode.js";
 import type { CustomRingDepositProofRequest } from "../src/client/prover/types.js";
 import { DepositAsset } from "../src/interface/types.js";
-import type { Bytes16, Bytes32 } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes96 } from "../src/interface/types.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ringConfigPda, ringDepositAuditPda, treeAddress } from "../src/interface/pda/index.js";
 import { encodeRingDepositCapsule, readRingDepositCapsule } from "../src/ring/deposit-capsule.js";
@@ -16,7 +16,7 @@ import { InstructionTag } from "../src/interface/program.js";
 import { Writer, addressBytes } from "../src/interface/internal.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
-import { bigIntToBytes } from "../src/keypair/bytes.js";
+import { bigIntToBytes, checkedBytes } from "../src/keypair/bytes.js";
 import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { ownerUtxoHash, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
@@ -37,6 +37,8 @@ import {
 import { depositClient, ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { proofFor } from "./helpers/proofs.js";
+import { ConfirmedDeposit } from "../src/ring/origin.js";
+import { confirmedDepositTransaction } from "./helpers/confirmed-deposits.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const TREE = treeAddress(0);
@@ -101,6 +103,18 @@ describe("deposit disclosure", () => {
       recipientCiphertext: Uint8Array.of(index, 9),
     }));
     const sealed = sealRingDepositOpenings(openings, auditor.publicKey());
+    const signature = "1".repeat(87) as Signature;
+    const confirmed = ConfirmedDeposit.fromTransaction(
+      confirmedDepositTransaction(
+        RING,
+        signature,
+        sealed.capsules,
+        openings.map((opening) => ownerUtxoHash(opening.ownerHash, opening.blinding)),
+      ),
+      signature,
+      0,
+      RING,
+    );
     try {
       for (const [index, encoded] of sealed.payloads.entries()) {
         const capsule = readRingDepositCapsule(encoded);
@@ -110,17 +124,20 @@ describe("deposit disclosure", () => {
         expect(capsule.recipientCiphertext).toEqual(openings[index]?.recipientCiphertext);
         const opening = openings[index];
         if (opening === undefined) throw new Error("missing opening");
+        const binding = confirmed[index];
+        if (binding === undefined) throw new Error("missing confirmation");
         const opened = openRingDepositOpening(
           capsule,
           auditor,
           ownerUtxoHash(opening.ownerHash, opening.blinding),
+          binding,
         );
         expect(opened.ownerHash).toEqual(openings[index]?.ownerHash);
         expect(opened.blinding).toEqual(openings[index]?.blinding);
         expect(opened.ownerKey).toEqual(opening.ownerKey);
         opened.ownerHash.fill(0);
         opened.blinding.fill(0);
-        expect(() => openRingDepositOpening(capsule, auditor, field(0n))).toThrow(
+        expect(() => openRingDepositOpening(capsule, auditor, field(0n), binding)).toThrow(
           expect.objectContaining({ code: "RING_AUDIT_MESSAGE" }),
         );
       }
@@ -684,7 +701,7 @@ describe("deposit recovery", () => {
         payload: encodeOutputData(EncryptedScheme.ringDeposit, malformedBody, "encrypted"),
       })),
     };
-    let history = [deposit, malformed];
+    let history = [deposit];
     let spends: IndexedShieldedTransaction[] = [];
     const client = {
       ...ringAuditReader({
@@ -706,6 +723,17 @@ describe("deposit recovery", () => {
       assets: new AssetRegistry(),
       resolveTreeId: (tree: typeof TREE) => (tree === TREE ? 0 : 1),
       origin: { ringInvoked: async () => true },
+      depositSource: {
+        confirmedDeposits: async () =>
+          ConfirmedDeposit.fromTransaction(
+            confirmedDepositTransaction(RING, deposit.txSignature, sealed.capsules, [
+              ownerUtxoHash(address.ownerHash(), blinding),
+            ]),
+            deposit.txSignature,
+            0,
+            RING,
+          ),
+      },
     };
     try {
       const result = await recoverRingMemberNotes(params);
@@ -725,7 +753,14 @@ describe("deposit recovery", () => {
           })),
         },
       ];
-      expect((await recoverRingMemberNotes(params)).unsupportedDeposits).toEqual([field(99n)]);
+      await expect(recoverRingMemberNotes(params)).rejects.toMatchObject({
+        code: "RING_AUDIT_MESSAGE",
+      });
+      const unsupported = await recoverRingMemberNotes({
+        ...params,
+        depositSource: { confirmedDeposits: async () => [] },
+      });
+      expect(unsupported.unsupportedDeposits).toEqual([commitment, field(99n)]);
       history = [deposit];
       const merged = new Utxo({
         owner: address.signingPublicKey,
@@ -777,6 +812,93 @@ describe("deposit recovery", () => {
       key.destroy();
       auditor.destroy();
       source.destroy();
+    }
+  });
+});
+
+describe("confirmed deposit attribution", () => {
+  it("opens an unknown owner only with its confirmed capsule and rejects altered or swapped bytes", () => {
+    const auditor = X25519Secret.generate();
+    const signature = "1".repeat(87) as Signature;
+    const ownerKey = new Uint8Array(32).fill(7) as Bytes32;
+    const owners = [ownerUtxoHash(field(1n), field(2n)), ownerUtxoHash(field(3n), field(4n))];
+    const sealed = sealRingDepositOpenings(
+      [
+        {
+          ownerHash: field(1n),
+          blinding: field(2n),
+          ownerKey,
+          recipientCiphertext: Uint8Array.of(9),
+        },
+        { ownerHash: field(3n), blinding: field(4n), recipientCiphertext: Uint8Array.of(8) },
+      ],
+      auditor.publicKey(),
+    );
+    try {
+      const transaction = confirmedDepositTransaction(RING, signature, sealed.capsules, owners);
+      const bindings = ConfirmedDeposit.fromTransaction(transaction, signature, 0, RING);
+      const first = sealed.capsules[0];
+      const binding = bindings[0];
+      const other = bindings[1];
+      if (
+        first === undefined ||
+        binding === undefined ||
+        other === undefined ||
+        owners[0] === undefined
+      )
+        throw new Error("missing confirmation");
+      expect(openRingDepositOpening(first, auditor, owners[0], binding).ownerKey).toEqual(ownerKey);
+      const forged: unknown = Object.create(ConfirmedDeposit.prototype);
+      expect(ConfirmedDeposit.is(forged)).toBe(false);
+      expect(ConfirmedDeposit.is(binding)).toBe(true);
+      for (const offset of [0, 32, 64, 95]) {
+        const ciphertext = checkedBytes<Bytes96>(first.ciphertext, 96, "deposit ciphertext");
+        ciphertext[offset] = (ciphertext[offset] ?? 0) ^ 1;
+        expect(() =>
+          openRingDepositOpening({ ...first, ciphertext }, auditor, owners[0]!, binding),
+        ).toThrow("RING_AUDIT_MESSAGE");
+      }
+      expect(() =>
+        openRingDepositOpening(
+          { ...first, recipientCiphertext: Uint8Array.of(10) },
+          auditor,
+          owners[0]!,
+          binding,
+        ),
+      ).toThrow("RING_AUDIT_MESSAGE");
+      expect(() => openRingDepositOpening(first, auditor, owners[0]!, other)).toThrow(
+        "RING_AUDIT_MESSAGE",
+      );
+      expect(() => ConfirmedDeposit.fromTransaction(transaction, signature, 1, RING)).toThrow(
+        "RING_ORIGIN_DECODE",
+      );
+      expect(() =>
+        ConfirmedDeposit.fromTransaction(transaction, "2".repeat(87) as Signature, 0, RING),
+      ).toThrow("RING_ORIGIN_DECODE");
+      expect(() =>
+        ConfirmedDeposit.fromTransaction(
+          { ...transaction, meta: { ...transaction.meta, err: { InstructionError: [0, 1] } } },
+          signature,
+          0,
+          RING,
+        ),
+      ).toThrow("RING_ORIGIN_DECODE");
+      const source = transaction.meta.innerInstructions[0]?.instructions[0];
+      if (source === undefined) throw new Error("missing source");
+      const unaudited = {
+        ...transaction,
+        transaction: {
+          ...transaction.transaction,
+          message: {
+            ...transaction.transaction.message,
+            instructions: [{ ...source, programIdIndex: 0 }],
+          },
+        },
+      };
+      expect(ConfirmedDeposit.fromTransaction(unaudited, signature, 0, RING)).toEqual([]);
+    } finally {
+      sealed.ephemeralSecret.fill(0);
+      auditor.destroy();
     }
   });
 });

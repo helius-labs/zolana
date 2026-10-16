@@ -49,8 +49,8 @@ pub use crate::{
     },
     error::{AuditError, RecoveryError},
     origin::{
-        ring_event_origin_in, ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin,
-        RingWithdrawal, TransactionOrigin,
+        ring_event_origin_in, ring_invoked_in, ring_withdrawals_in, ConfirmedDeposit, OriginError,
+        RingOrigin, RingWithdrawal, TransactionOrigin,
     },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,

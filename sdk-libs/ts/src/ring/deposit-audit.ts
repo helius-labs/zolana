@@ -4,6 +4,7 @@ import { addressBytes, copyBytes } from "../interface/internal.js";
 import { pack33 } from "../interface/merge-utils.js";
 import {
   encodeRingDepositCapsule,
+  readRingDepositCapsule,
   RING_DEPOSIT_AUDIT_SLOTS,
   RING_DEPOSIT_OPENING_LENGTH,
   RING_DEPOSIT_OPENING_OWNER_KEY_OFFSET,
@@ -16,6 +17,7 @@ import { symmetricApply } from "../keypair/merge/index.js";
 import { bigIntBytes, equal, hashChain } from "../transaction/internal.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
+import { ConfirmedDeposit } from "./origin.js";
 
 const INFO = new TextEncoder().encode("CRING/dep1");
 const OPENING_LENGTH = RING_DEPOSIT_OPENING_LENGTH;
@@ -94,8 +96,13 @@ export function openRingDepositOpening(
   capsule: RingDepositCapsule,
   auditor: X25519Secret,
   ownerCommitment: Bytes32,
+  confirmed: ConfirmedDeposit,
 ): Readonly<{ ownerHash: Bytes32; blinding: Bytes32; ownerKey?: Bytes32 }> {
-  encodeRingDepositCapsule(capsule);
+  if (!ConfirmedDeposit.is(confirmed)) throw new RingError("RING_AUDIT_MESSAGE");
+  const snapshot = readRingDepositCapsule(encodeRingDepositCapsule(capsule));
+  if (snapshot === undefined) throw new RingError("RING_AUDIT_MESSAGE");
+  capsule = snapshot;
+  confirmed.authenticate(capsule, ownerCommitment);
   const ciphertext = new Uint8Array(PAYLOAD_LENGTH);
   ciphertext.set(capsule.ciphertext, capsule.slotIndex * OPENING_LENGTH);
   let dh: Bytes32 | undefined;

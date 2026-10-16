@@ -10,7 +10,7 @@ import (
 
 // PackCoordinate combines already bounded limbs into native groups for a
 // lookup row. The caller picks a group width whose packed value stays below
-// the native modulus; the represented value is unchanged.
+// the native modulus. The represented value is unchanged.
 func PackCoordinate(api frontend.API, f *emfield.Field, e *emfield.Element, group int) []frontend.Variable {
 	limbs := e.Limbs()
 	limbBits := f.Layout().LimbBits
@@ -76,7 +76,7 @@ func RowSplit(nbBits, nbLimbs int) int {
 // SelectConstant selects one packed coordinate of a public table with
 // one-hot row and column weights. Entry row+col*len(rows) is read through
 // coordinate. Exclusive weights justify the packed bounds recorded with
-// WithBounds; those bounds are metadata, not range constraints.
+// WithBounds. Those bounds are metadata, not range constraints.
 func SelectConstant(api frontend.API, f *emfield.Field, rows, cols []frontend.Variable, group int, coordinate func(index int) *big.Int) *emfield.Element {
 	lay := f.Layout()
 	fieldBits := f.Modulus().BitLen()

@@ -870,6 +870,7 @@ impl TransactionOrigin for KnownOrigins {
                 ring_invoked,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
+                deposits: Vec::new(),
             })
             .ok_or_else(|| OriginError::Unavailable {
                 signature,

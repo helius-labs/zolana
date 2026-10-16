@@ -81,7 +81,7 @@ pub struct RecoveredNotes {
     /// Audited or merge commitments without verified openings or confirmed
     /// spends.
     pub unopened: Vec<[u8; 32]>,
-    /// Tagged deposits with unknown ownership and spentness.
+    /// Deposits without a confirmed audit binding.
     pub unsupported_deposits: Vec<[u8; 32]>,
 }
 
@@ -253,7 +253,6 @@ impl<'a> MemberRecovery<'a> {
         // tags.
         let mut unsupported_deposits = Vec::new();
         let source_owner_hash = self.source.address.owner_hash()?;
-        let bootstrap_tag = self.source.address.viewing_pubkey.u();
         for deposit in (DepositHistory {
             environment: ring,
             ring: self.recovery.ring_program_id,
@@ -266,32 +265,29 @@ impl<'a> MemberRecovery<'a> {
             let DepositHistoryEntry {
                 output_context,
                 output,
-                tag,
                 slot,
                 tx_signature,
                 slot_index,
+                confirmed,
             } = deposit;
             if seen.contains(&output_context.hash) {
                 continue;
             }
-            let Ok(Some(capsule)) = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
-            else {
-                if tag == bootstrap_tag {
-                    unsupported_deposits.push(output_context.hash);
-                }
+            let (Ok(Some(capsule)), Some(confirmed)) = (
+                RingDepositAuditCapsule::parse(&output.encrypted.ciphertext),
+                confirmed.as_ref(),
+            ) else {
+                unsupported_deposits.push(output_context.hash);
                 continue;
             };
-            let Ok(opening) = (DepositOpen {
+            let opening = (DepositOpen {
                 capsule,
                 auditor: self.recovery.auditor,
                 owner_utxo_hash: &output.owner_utxo_hash,
+                confirmed,
             })
-            .open() else {
-                if tag == bootstrap_tag {
-                    unsupported_deposits.push(output_context.hash);
-                }
-                continue;
-            };
+            .open()
+            .map_err(|_| RecoveryError::DepositOpeningMismatch)?;
             if opening.owner_hash != source_owner_hash {
                 continue;
             }
@@ -449,10 +445,10 @@ struct DepositHistory<'a, I, O> {
 struct DepositHistoryEntry {
     output_context: OutputContext,
     output: EncryptedRingDepositOutput,
-    tag: [u8; 32],
     slot: u64,
     tx_signature: solana_signature::Signature,
     slot_index: u32,
+    confirmed: Option<crate::ConfirmedDeposit>,
 }
 
 impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
@@ -484,10 +480,10 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                             DepositHistoryEntry {
                                 output_context: slot.output_context.clone(),
                                 output,
-                                tag: slot.view_tag,
                                 slot: transaction.slot,
                                 tx_signature: transaction.tx_signature,
                                 slot_index: slot_index as u32,
+                                confirmed: None,
                             },
                         )
                     })
@@ -498,15 +494,20 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 let event_index = transaction
                     .event_index
                     .ok_or(AuditError::MissingEventIndex)?;
-                if !self
+                let origin = self
                     .environment
                     .origin
-                    .ring_invoked(transaction.tx_signature, event_index, self.ring)
-                    .map_err(AuditError::from)?
-                {
+                    .origin(transaction.tx_signature, event_index, self.ring)
+                    .map_err(AuditError::from)?;
+                if !origin.ring_invoked {
                     continue;
                 }
-                for deposit in tagged {
+                for mut deposit in tagged {
+                    deposit.confirmed = origin
+                        .deposits
+                        .iter()
+                        .find(|binding| u32::from(binding.slot_index()) == deposit.slot_index)
+                        .cloned();
                     if seen.insert(deposit.output_context.hash) {
                         deposits.push(deposit);
                     }

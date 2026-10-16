@@ -1,6 +1,9 @@
 import type {
   Address,
   Bytes32,
+  Bytes16,
+  Bytes33,
+  DepositAssetKind,
   CacheAccount,
   CircuitId,
   CreateCacheData,
@@ -123,6 +126,35 @@ function writeRingDepositData(writer: Writer, value: RingDepositInstructionData)
 
 export function encodeRingDepositInstructionData(value: RingDepositInstructionData): Uint8Array {
   return encoded(value, writeRingDepositData);
+}
+
+/** Decodes the unchanged SPP deposit wire, including its u16 ciphertext lengths. */
+export function decodeRingDepositInstructionData(bytes: Uint8Array): RingDepositInstructionData {
+  const reader = new Reader(bytes);
+  const assets = Array.from({ length: reader.u8("assets.length") }, (): DepositAssetKind => {
+    const kind = reader.u8("asset.kind");
+    if (kind === 0) return { kind: "sol" };
+    if (kind === 1) return { kind: "spl", splInterfaceBump: reader.u8("splInterfaceBump") };
+    return fail("INTERFACE_CODEC", { field: "asset.kind" });
+  });
+  const deposits = Array.from({ length: reader.u8("deposits.length") }, () => {
+    const assetIndex = reader.u8("assetIndex");
+    if (assetIndex >= assets.length) fail("INTERFACE_CODEC", { field: "assetIndex" });
+    return {
+      assetIndex,
+      viewTag: reader.bytes(32, "viewTag") as Bytes32,
+      ownerUtxoHash: reader.bytes(32, "ownerUtxoHash") as Bytes32,
+      amount: reader.u64("amount"),
+      ringDataHash: reader.bytes(32, "ringDataHash") as Bytes32,
+      encrypted: {
+        txViewingPublicKey: reader.bytes(33, "txViewingPublicKey") as Bytes33,
+        salt: reader.bytes(16, "salt") as Bytes16,
+        ciphertext: reader.bytes(reader.u16("ciphertext.length"), "ciphertext"),
+      },
+    };
+  });
+  reader.done();
+  return { assets, deposits };
 }
 
 function writeNullifierTreeParams(writer: Writer, value: NullifierTreeParams): void {

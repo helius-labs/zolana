@@ -9,6 +9,8 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
+- `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
+
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
 - `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.

@@ -368,6 +368,7 @@ impl TransactionSource for StaticSource {
             .map(|ring_invoked| RingOrigin {
                 ring_invoked,
                 signers: vec![SENDER],
+                deposits: Vec::new(),
                 withdrawals: vec![
                     RingWithdrawal {
                         recipient: RECIPIENT,

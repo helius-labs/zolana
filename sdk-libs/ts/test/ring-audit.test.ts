@@ -424,10 +424,10 @@ describe("anonymous ring audit", () => {
   });
   const shape = { anonymous: true, inputs: 2, outputs: 2 };
 
-  function transaction(): IndexedShieldedTransaction {
+  function transaction(opening = disclosure): IndexedShieldedTransaction {
     const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
       salt,
-      anonymous: disclosure,
+      anonymous: opening,
     });
     const body = encryptAnonymous(
       tx,
@@ -531,10 +531,7 @@ describe("anonymous ring audit", () => {
     });
     expect(audited.anonymous).toEqual({
       sender: encodeBase58(filled(3)),
-      inputs: [
-        { treeId: 4, amount: 9n, asset: solAsset },
-        { treeId: 0, amount: 0n, asset: ZERO_32 },
-      ],
+      inputs: [{ treeId: 4, amount: 9n, asset: solAsset }],
       recipients: [
         {
           slotIndex: 0,
@@ -595,6 +592,22 @@ describe("anonymous ring audit", () => {
         },
       }),
     ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+  });
+
+  it("retains a zero-value input whose blinding distinguishes it from padding", () => {
+    const audited = auditRingTransaction({
+      auditor,
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      transaction: transaction({
+        ...disclosure,
+        inputs: [
+          { treeId: 0, amount: 0n, asset: ZERO_32, blinding },
+          { treeId: 0, amount: 0n, asset: ZERO_32, blinding: ZERO_32 },
+        ],
+      }),
+    });
+    expect(audited.anonymous?.inputs).toEqual([{ treeId: 0, amount: 0n, asset: ZERO_32 }]);
   });
 
   it("recovers the member's note from an anonymous transaction", async () => {

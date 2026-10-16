@@ -120,6 +120,7 @@ export {
   ringDepositAuditAddress,
   sealRingDepositOpenings,
   openRingDepositOpening,
+  ConfirmedDeposit,
   ringDepositContextHash,
   ringDepositPublicInputHash,
 } from "@heliuslabs/zolana/ring";
@@ -128,6 +129,7 @@ export type {
   RingDepositClient,
   RingDepositAudit,
   RingDepositOpening,
+  AuditedDepositSource,
   RingDelegateTransferParams,
   RingSpendRegistrationClient,
   RingSpendRegistrationParams,

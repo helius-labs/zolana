@@ -92,10 +92,17 @@ pub struct DepositOpen<'a> {
     pub capsule: RingDepositAuditCapsule<'a>,
     pub auditor: &'a X25519Secret,
     pub owner_utxo_hash: &'a [u8; 32],
+    /// Fetched independently of the indexed capsule from its confirmed event.
+    pub confirmed: &'a crate::ConfirmedDeposit,
 }
 
 impl DepositOpen<'_> {
     pub fn open(self) -> Result<DepositOpening, AuditEncryptionError> {
+        // The owner commitment omits the disclosed key, so authenticate every
+        // ciphertext byte against the executed proof before decrypting it.
+        if !self.confirmed.matches(self.capsule, self.owner_utxo_hash) {
+            return Err(AuditEncryptionError::DepositOpeningMismatch);
+        }
         let slot_index = usize::from(self.capsule.slot_index);
         if slot_index >= MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(AuditEncryptionError::DepositSlot(slot_index));
@@ -141,6 +148,10 @@ impl DepositOpen<'_> {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/common/deposit.rs"]
+mod deposit_fixture;
 
 #[cfg(test)]
 mod tests {
@@ -231,27 +242,84 @@ mod tests {
         }
         .seal()
         .unwrap();
-        for (index, ciphertext) in sealed.ciphertexts.iter().enumerate() {
-            let opened = DepositOpen {
-                capsule: RingDepositAuditCapsule {
-                    slot_index: index as u8,
-                    eph_pk: sealed.ephemeral_pk.as_bytes(),
-                    ciphertext,
-                    recipient_ciphertext: &[],
-                },
-                auditor: &auditor,
-                owner_utxo_hash: &zolana_transaction::owner_utxo_hash(
+        let deposits: Vec<_> = sealed
+            .ciphertexts
+            .iter()
+            .enumerate()
+            .map(|(index, ciphertext)| {
+                let commitment = zolana_transaction::owner_utxo_hash(
                     &openings[index].owner_hash,
                     &openings[index].blinding,
                 )
-                .unwrap(),
-            }
-            .open()
-            .unwrap();
+                .unwrap();
+                let capsule = RingDepositAuditCapsule {
+                    slot_index: index as u8,
+                    eph_pk: sealed.ephemeral_pk.as_bytes(),
+                    ciphertext,
+                    recipient_ciphertext: &[1, 2, 3],
+                }
+                .encode();
+                (commitment, capsule)
+            })
+            .collect();
+        let ring = solana_address::Address::new_from_array([9; 32]);
+        let groups = [deposit_fixture::group(ring, true, deposits.clone())];
+        let origin = crate::ring_event_origin_in(&groups, 0, ring).unwrap();
+        for (index, (commitment, bytes)) in deposits.iter().enumerate() {
+            let open = |bytes: &[u8], confirmed: &crate::ConfirmedDeposit| {
+                DepositOpen {
+                    capsule: RingDepositAuditCapsule::parse(bytes).unwrap().unwrap(),
+                    auditor: &auditor,
+                    owner_utxo_hash: commitment,
+                    confirmed,
+                }
+                .open()
+            };
+            let opened = open(bytes, &origin.deposits[index]).unwrap();
             assert_eq!(opened.owner_hash, openings[index].owner_hash);
             assert_eq!(*opened.blinding, *openings[index].blinding);
             assert_eq!(opened.owner_key, openings[index].owner_key);
+            // The previously unauthenticated key occupies ciphertext bytes 64..96.
+            for offset in [8, 9, 42 + 64, bytes.len() - 1] {
+                let mut changed = bytes.clone();
+                changed[offset] ^= 1;
+                assert!(matches!(
+                    open(&changed, &origin.deposits[index]),
+                    Err(AuditEncryptionError::DepositOpeningMismatch)
+                ));
+            }
+            assert!(open(bytes, &origin.deposits[(index + 1) % deposits.len()]).is_err());
         }
+        assert!(DepositOpen {
+            capsule: RingDepositAuditCapsule::parse(&deposits[0].1)
+                .unwrap()
+                .unwrap(),
+            auditor: &auditor,
+            owner_utxo_hash: &[0; 32],
+            confirmed: &origin.deposits[0],
+        }
+        .open()
+        .is_err());
+        // The same opening in a different event has an independent capsule binding.
+        let mut other = deposits.clone();
+        other[0].1[42 + 64] ^= 1;
+        let groups = [groups[0].clone(), deposit_fixture::group(ring, true, other)];
+        let other_origin = crate::ring_event_origin_in(&groups, 1, ring).unwrap();
+        assert!(DepositOpen {
+            capsule: RingDepositAuditCapsule::parse(&deposits[0].1)
+                .unwrap()
+                .unwrap(),
+            auditor: &auditor,
+            owner_utxo_hash: &deposits[0].0,
+            confirmed: &other_origin.deposits[0],
+        }
+        .open()
+        .is_err());
+        let plain = [deposit_fixture::group(ring, false, deposits)];
+        assert!(crate::ring_event_origin_in(&plain, 0, ring)
+            .unwrap()
+            .deposits
+            .is_empty());
     }
 
     #[test]

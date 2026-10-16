@@ -610,3 +610,29 @@ fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
 
     assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
 }
+
+#[test]
+fn a_confirmed_response_for_another_signature_is_rejected() {
+    let result = ConfirmedTransaction {
+        signature: Signature::from([7; 64]),
+        transaction: withdrawing_transaction(Vec::new(), Vec::new()),
+    }
+    .origin(0, RING);
+    assert!(matches!(result, Err(OriginError::Unavailable { .. })));
+}
+
+#[test]
+fn a_failed_transaction_grants_no_origin() {
+    let mut response =
+        serde_json::to_value(withdrawing_transaction(Vec::new(), Vec::new())).unwrap();
+    response["meta"]["err"] = serde_json::json!("AccountNotFound");
+    let result = ConfirmedTransaction {
+        signature: Signature::from([6; 64]),
+        transaction: serde_json::from_value(response).unwrap(),
+    }
+    .origin(0, RING);
+    assert!(matches!(
+        result,
+        Err(OriginError::Decode(ClientError::TransactionFailed(_)))
+    ));
+}
