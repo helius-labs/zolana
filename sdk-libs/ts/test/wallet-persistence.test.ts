@@ -130,4 +130,20 @@ describe("wallet persistence", () => {
     legacy.viewingKeyHistory[0]!["txCount"] = "0";
     expect(() => deserializeWallet(JSON.stringify(legacy))).toThrow("TRANSACTION_DESERIALIZE");
   });
+
+  it("rejects a P-256 viewing snapshot until it is migrated", () => {
+    const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
+    const snapshot = JSON.parse(serializeWallet(wallet)) as {
+      identity: { viewingPublicKey: string };
+      viewingKeyHistory: { viewingPublicKey: string }[];
+    };
+    const oldViewingKey = Buffer.from(
+      "03170ee9cf7a6f1ad811bd2019d386f67ce337458e0bf585c3cad7ddac85373e32",
+      "hex",
+    ).toString("base64");
+    snapshot.identity.viewingPublicKey = oldViewingKey;
+    snapshot.viewingKeyHistory[0]!.viewingPublicKey = oldViewingKey;
+
+    expect(() => deserializeWallet(JSON.stringify(snapshot))).toThrow("TRANSACTION_DESERIALIZE");
+  });
 });

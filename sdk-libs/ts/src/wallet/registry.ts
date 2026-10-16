@@ -35,6 +35,7 @@ import {
   type Transaction,
 } from "../interface/types.js";
 import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { X25519PublicKey } from "../keypair/x25519.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
 import { hex } from "../transaction/wallet/state.js";
@@ -286,9 +287,9 @@ function signingPublicKeyFromRecord(owner: Address, record: UserRecord): Shielde
 }
 
 /** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
-export function viewingKeyIndex(viewingPublicKey: Uint8Array | P256PublicKey): string {
+export function viewingKeyIndex(viewingPublicKey: Uint8Array | X25519PublicKey): string {
   return hex(
-    viewingPublicKey instanceof P256PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
+    viewingPublicKey instanceof X25519PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
   );
 }
 
@@ -316,7 +317,7 @@ export async function fetchViewingKeyOwners(
 
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {
   const signingPublicKey = signingPublicKeyFromRecord(owner, record);
-  const viewingPublicKey = P256PublicKey.fromBytes(record.viewingPublicKey);
+  const viewingPublicKey = X25519PublicKey.fromBytes(record.viewingPublicKey);
   const address = ShieldedAddress.fromPublicKeys(
     signingPublicKey,
     record.nullifierPublicKey,

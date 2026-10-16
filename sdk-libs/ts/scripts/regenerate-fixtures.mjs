@@ -17,12 +17,10 @@ import {
   EncryptedScheme,
   decodeAnonymousRecipient,
   decodeAnonymousSender,
+  decodeConfidential,
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  decryptAnonymous,
-  decryptConfidential,
-  decryptSplit,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -30,12 +28,23 @@ import {
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
+  encodeSplitEncrypted,
   encryptAnonymous,
   encryptConfidential,
   encryptSplit,
 } from "../dist/transaction/serialization/index.js";
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
+
+function decryptAnonymous(viewing, txPublicKey, body, salt, slot) {
+  return viewing.decryptUtxo(body, txPublicKey, salt, slot);
+}
+
+const decryptSplit = decryptAnonymous;
+
+function decryptConfidential(viewing, txPublicKey, body, salt, slot) {
+  return decodeConfidential(viewing.decryptUtxo(body.subarray(33), txPublicKey, salt, slot));
+}
 
 function readJson(name) {
   return JSON.parse(readFileSync(new URL(name, FIXTURES), "utf8"));
@@ -83,6 +92,12 @@ const authority = readJson("transaction/authority-v1.json");
   const nullifierPubkey = hex(keypair.nullifierPublicKey());
   authority.expected.authority.nullifierPubkeyBytes = nullifierPubkey;
   authority.expected.authority.shieldedAddress.nullifierPubkeyBytes = nullifierPubkey;
+  authority.expected.authority.shieldedAddress.viewingPubkeyBytes = hex(
+    keypair.viewingPublicKey().toBytes(),
+  );
+  authority.expected.envelope.txViewingPkBytes = hex(
+    ViewingKey.fromBytes(bytes(authority.inputs.txViewingSecretBytes)).publicKey().toBytes(),
+  );
   const signature = signing.sign(bytes(authority.inputs.messageHashBytes));
   authority.expected.p256Signature.rBytes = hex(signature.slice(0, 32));
   authority.expected.p256Signature.sBytes = hex(signature.slice(32));
@@ -98,6 +113,15 @@ const walletState = readJson("transaction/wallet-state-v1.json");
       nullifierKey.nullifier(bytes(row.hashBytes), bytes(row.utxo.blindingBytes)),
     );
   }
+  const recipient = ViewingKey.fromBytes(
+    bytes(readJson("transaction/serialization-v1.json").inputs.recipientViewingSecretBytes),
+  );
+  for (const row of walletState.expected.history) {
+    if (row.counterpartyViewingPkBytes !== null) {
+      row.counterpartyViewingPkBytes = hex(recipient.publicKey().toBytes());
+    }
+  }
+  recipient.destroy();
   writeJson("transaction/wallet-state-v1.json", walletState);
 }
 
@@ -219,6 +243,14 @@ const serialization = readJson("transaction/serialization-v1.json");
       decodeSplitBundle(decryptSplit(keypair.viewingKey(), tx.publicKey(), splitBody, salt, 3)),
     ),
   );
+  families.splitEncrypted.wincodeBytes = hex(
+    encodeSplitEncrypted({
+      typePrefix: 2,
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      ciphertext: Uint8Array.of(1, 2, 3, 4, 5),
+    }),
+  );
 
   const plaintextTransfer = {
     typePrefix: 4,
@@ -263,6 +295,29 @@ const serialization = readJson("transaction/serialization-v1.json");
   );
 
   writeJson("transaction/serialization-v1.json", serialization);
+}
+
+const walletSync = readJson("transaction/wallet-sync-v1.json");
+{
+  const viewing = ViewingKey.fromBytes(bytes(walletSync.inputs.viewingSecretBytes));
+  const tag = hex(viewing.recipientBootstrapViewTag());
+  for (const tx of walletSync.inputs.transactions) {
+    for (const slot of tx.outputSlots) {
+      if (tx.proofless === true) slot.viewTagBytes = tag;
+    }
+  }
+  for (const tx of walletSync.inputs.history.transactions) {
+    for (const slot of tx.outputSlots) {
+      if (tx.proofless === true) slot.viewTagBytes = tag;
+    }
+  }
+  for (const step of walletSync.expected.history.steps) {
+    for (const entry of step.viewingKeyHistory) {
+      entry.viewingPkBytes = hex(viewing.publicKey().toBytes());
+    }
+  }
+  viewing.destroy();
+  writeJson("transaction/wallet-sync-v1.json", walletSync);
 }
 
 const manifest = readJson("manifest.json");

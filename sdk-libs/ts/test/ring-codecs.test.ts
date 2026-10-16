@@ -1594,6 +1594,9 @@ describe("ring transact", () => {
 
 // The P-256 key of the scalar [46; 32], its record printed by the Rust builders.
 const P256_HEX = "02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8";
+const X25519_HEX = Buffer.from(
+  X25519Secret.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
+).toString("hex");
 
 describe("ring reader delegation", () => {
   const AUTHORITY = addressOf(12);
@@ -1830,11 +1833,11 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
-                  txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                  txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputs: [
                     {
                       slotIndex: 1,
-                      recipientViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                      recipientViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                       ownerTag: addressOf(11),
                       asset: "11111111111111111111111111111111",
                       amount: 7,
@@ -1893,7 +1896,7 @@ describe("ring read request", () => {
     ]);
     const item = page.items[0];
     expect(item?.slot).toBe(8n);
-    expect(item?.txViewingPublicKey.toBytes()).toEqual(hex(P256_HEX));
+    expect(item?.txViewingPublicKey.toBytes()).toEqual(hex(X25519_HEX));
     expect(item?.undecryptableSlots).toEqual([0]);
     expect(item?.nullifiers).toEqual([filled(3, 32)]);
     expect(item?.outputs[0]).toMatchObject({
@@ -1962,11 +1965,11 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
-                  txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                  txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputs: [
                     {
                       slotIndex: 0,
-                      recipientViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                      recipientViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                       ownerTag: addressOf(11),
                       asset: "11111111111111111111111111111111",
                       amount: 7,
@@ -2011,7 +2014,7 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
-                  txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                  txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputs: [],
                   undecryptableSlots: [],
                   nullifiers: [],
@@ -2064,7 +2067,7 @@ describe("ring read request", () => {
                   {
                     slot: 8,
                     txSignature: signatureOf(1),
-                    txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                    txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                     outputs: [],
                     undecryptableSlots: [],
                     nullifiers: [],

@@ -1,5 +1,4 @@
 import { X25519Secret } from "../src/keypair/x25519.js";
-import { p256 } from "@noble/curves/nist.js";
 import { ClientError } from "../src/client/error.js";
 import {
   address,
@@ -31,7 +30,7 @@ import {
   auditorViewTag,
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
-import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
+import { bytesToBigInt } from "../src/keypair/bytes.js";
 import { symmetricApply } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
@@ -739,7 +738,7 @@ describe("frameDummyOutputs", () => {
               : EncryptedScheme.ringConfidential,
         });
         expect(body.body).toHaveLength(33 + plaintext.length);
-        expect([2, 3]).toContain(body.body[0]);
+        expect(body.body[0]).toBe(4);
       }
       expect(framed.outputs).toEqual(unframed.outputs);
       expect(framed.externalData.messages).toEqual(unframed.externalData.messages);
@@ -760,7 +759,7 @@ describe("frameDummyOutputs", () => {
       const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
       expect(frame.encoding).toBe("encrypted");
       expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
-      expect([2, 3]).toContain(frame.body[0]);
+      expect(frame.body[0]).toBe(4);
       return Buffer.from(frame.body.subarray(0, 33)).toString("hex");
     });
     expect(new Set(keys).size).toBe(keys.length);
@@ -1215,24 +1214,23 @@ describe("ring audit", () => {
     expect(getProgramAccounts).toHaveBeenCalledTimes(1);
   });
 
-  it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
+  it("rejects a noncanonical decrypted viewing secret", () => {
     const auditor = X25519Secret.generate();
-    const secret = bigIntToBytes(0x0123_4567_89ab_cdefn) as Bytes32;
-    const viewingKey = ViewingKey.fromBytes(secret);
-    const shifted = bigIntToBytes(bytesToBigInt(secret) + p256.Point.Fn.ORDER) as Bytes32;
+    const noncanonical = new Uint8Array(32).fill(0xff) as Bytes32;
     const ephemeral = X25519Secret.generate();
     const shared = auditSharedSecret(
       ephemeral.ecdh(auditor.publicKey()),
       ephemeral.publicKey(),
       auditor.publicKey(),
     );
-    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, shifted) as Bytes32;
-    const recovered = recoverTransactionViewingKey(auditor, {
-      ephemeralPublicKey: ephemeral.publicKey(),
-      ciphertext,
-      disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
-    });
-    expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, noncanonical) as Bytes32;
+    expect(() =>
+      recoverTransactionViewingKey(auditor, {
+        ephemeralPublicKey: ephemeral.publicKey(),
+        ciphertext,
+        disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
+      }),
+    ).toThrow();
   });
 });
 

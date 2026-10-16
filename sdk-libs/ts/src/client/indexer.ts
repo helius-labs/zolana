@@ -401,7 +401,7 @@ function convertRegistryRecord(
       ? {}
       : { ownerP256: decodeP256(record.ownerP256, method, `${path}.ownerP256`) }),
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
-    viewingPublicKey: decodeP256(record.viewingPubkey, method, `${path}.viewingPubkey`),
+    viewingPublicKey: decodeX25519(record.viewingPubkey, method, `${path}.viewingPubkey`),
     mergingEnabled: record.mergingEnabled,
   });
 }
@@ -523,7 +523,7 @@ function convertEncryptedUtxoMatch(
     outputSlot: convertOutputSlot(item.outputSlot),
     ...(item.txViewingPk === undefined
       ? {}
-      : { txViewingPk: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
+      : { txViewingPk: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
   });
 }
@@ -581,7 +581,7 @@ function convertShieldedTransaction(
     ...(item.txViewingPk === undefined
       ? {}
       : {
-          txViewingPublicKey: decodeP256(item.txViewingPk, method, `${path}.tx_viewing_pk`),
+          txViewingPublicKey: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`),
         }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
     outputSlots: Object.freeze(item.outputSlots.map(convertOutputSlot)),

@@ -1,15 +1,15 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
 import { concatBytes, copyBytes, u32be } from "./bytes.js";
-import { ENC_INFO_TRANSFER, HPKE_PREFIX, ecdhX, hkdfExpand } from "./derivation.js";
-import type { P256PublicKey } from "./public-key.js";
+import { ENC_INFO_TRANSFER, HPKE_PREFIX, hkdfExpand, x25519Ecdh } from "./derivation.js";
+import type { X25519PublicKey } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
 function deriveKeyNonce(
   dh: Uint8Array,
-  ephemeralPublicKey: P256PublicKey,
-  recipientPublicKey: P256PublicKey,
+  ephemeralPublicKey: X25519PublicKey,
+  recipientPublicKey: X25519PublicKey,
   salt: Uint8Array,
   slotIndex: number,
   infoLabel: string,
@@ -31,9 +31,9 @@ function deriveKeyNonce(
 
 export function applyTransferCipher(
   secret: Uint8Array,
-  counterparty: P256PublicKey,
-  ephemeralPublicKey: P256PublicKey,
-  recipientPublicKey: P256PublicKey,
+  counterparty: X25519PublicKey,
+  ephemeralPublicKey: X25519PublicKey,
+  recipientPublicKey: X25519PublicKey,
   input: Uint8Array,
   salt: Uint8Array,
   slotIndex: number,
@@ -42,7 +42,7 @@ export function applyTransferCipher(
   // Every derived secret is wiped on the way out, including when HKDF or the
   // cipher throws: a rejected ciphertext must not leave the shared secret or
   // the AES key sitting in a live buffer.
-  const shared = ecdhX(secret, counterparty);
+  const shared = x25519Ecdh(secret, counterparty);
   let key: Uint8Array | undefined;
   try {
     let nonce: Uint8Array;

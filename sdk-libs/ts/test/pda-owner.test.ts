@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
-  P256PublicKey,
+  ViewingKey,
   ShieldedAddress,
   ShieldedPublicKey,
   initializePoseidon,
@@ -42,7 +42,7 @@ describe("PDA owner", () => {
     await initializePoseidon();
     const address = filled(0x51);
     const nullifier = filled(0x00);
-    const viewing = P256PublicKey.fromSecret(filled(0x09));
+    const viewing = ViewingKey.fromBytes(filled(0x09)).publicKey();
     const shielded = ShieldedAddress.forPda({
       pda: address,
       nullifierPublicKey: nullifier,

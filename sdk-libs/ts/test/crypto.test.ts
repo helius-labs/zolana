@@ -12,10 +12,7 @@ import { SOL_MINT } from "../src/transaction/index.js";
 import { createDeposit } from "../src/wallet/deposit.js";
 import {
   KeypairError,
-  P256PublicKey,
-  P_CONST_SEC1,
-  P_DERIVE_SEC1,
-  P_PDA_SEC1,
+  X25519PublicKey,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
@@ -23,9 +20,13 @@ import {
   symmetricApply,
   type Bytes16,
   type Bytes32,
-  type Bytes33,
 } from "../src/keypair/index.js";
-import { roleExpansion, type RoleSecrets } from "../src/keypair/derivation.js";
+import {
+  X25519_PDA_ROOT_U,
+  X25519_VIEW_ROOT_U,
+  roleExpansion,
+  type RoleSecrets,
+} from "../src/keypair/derivation.js";
 import { MERGE_INFO } from "../src/keypair/merge/index.js";
 
 function bytes(hex: string): Uint8Array {
@@ -86,7 +87,7 @@ describe("shielded key material", () => {
     const keypair = ShieldedKeypair.generate();
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
-    expect(keypair.viewingPublicKey()).toBeInstanceOf(P256PublicKey);
+    expect(keypair.viewingPublicKey()).toBeInstanceOf(X25519PublicKey);
     expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });
 
@@ -141,15 +142,12 @@ describe("shielded key material", () => {
 
   it("refuses ECDH against the committed derivation points", () => {
     const viewing = ViewingKey.generate();
-    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_CONST_SEC1 as Bytes33))).toThrow(
-      KeypairError,
-    );
-    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_DERIVE_SEC1 as Bytes33))).toThrow(
-      KeypairError,
-    );
-    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_PDA_SEC1 as Bytes33))).toThrow(
-      KeypairError,
-    );
+    expect(() =>
+      viewing.ecdh(X25519PublicKey.fromBytes(Uint8Array.of(4, ...X25519_VIEW_ROOT_U))),
+    ).toThrow(KeypairError);
+    expect(() =>
+      viewing.ecdh(X25519PublicKey.fromBytes(Uint8Array.of(4, ...X25519_PDA_ROOT_U))),
+    ).toThrow(KeypairError);
   });
 
   it("encrypts transfer slots for the intended viewing key", () => {
