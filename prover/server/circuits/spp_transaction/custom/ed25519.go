@@ -161,8 +161,21 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	// 4. Authorize input owners and prevent address or cache metadata leaks.
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
 	// The zero-tag resolver is algorithm independent, and ed25519.Verify already asserts the signature.
-	inputOwners := shared.HiddenOwnerSigners(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner, 1)
-	shared.AssertHiddenRingOwner(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner)
+	inputOwners := shared.HiddenOwnerSigners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorizedEddsa,
+		hiddenOwner,
+		1,
+	)
+	shared.AssertHiddenRingOwner(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorizedEddsa,
+		hiddenOwner,
+	)
 	// A cache read publishes the commitment of the note it spends.
 	api.AssertIsEqual(c.CachedInputs.TreeID, 0)
 	for i := range c.CachedInputs.IsCached {
@@ -188,7 +201,8 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 
 const messageLimbBits = 128
 
-// bytes32FromBits encodes the two little-endian digest limbs as 32 big-endian bytes.
+// bytes32FromBits adapts a 256-bit little-endian bit decomposition to the
+// big-endian byte order the byte-oriented hash gadgets expect.
 func bytes32FromBits(api frontend.API, bits []frontend.Variable) [32]frontend.Variable {
 	var bytes [32]frontend.Variable
 	for i := range bytes {
