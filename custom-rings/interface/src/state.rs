@@ -1,4 +1,4 @@
-use core::{cmp::Ordering, num::NonZeroU64, ops::BitOr};
+use core::ops::BitOr;
 
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
@@ -111,8 +111,7 @@ ring_accounts! {
     CoSigner = CO_SIGNER: 4, CO_SIGNER_PDA_SEED: b"cosigner",
         InvalidCoSigner, InvalidCoSigner, InvalidCoSigner,
         |signer: &CoSigner| usize::from(signer.threshold_count) <= MAX_CO_SIGNER_THRESHOLDS;
-    SpendWindow = SPEND_WINDOW: 5, SPEND_WINDOW_PDA_SEED: b"window",
-        InvalidSpendWindow, InvalidSpendWindow, InvalidSpendWindow;
+    // Discriminator 5 is retired, never reuse it.
     Delegate = DELEGATE: 6, DELEGATE_PDA_SEED: b"delegate",
         InvalidDelegate, DelegateAlreadySet, InvalidDelegate;
     KeyRegistryRoot = KEY_REGISTRY_ROOT: 7, KEY_REGISTRY_ROOT_PDA_SEED: b"keyreg",
@@ -135,10 +134,6 @@ macro_rules! le_getters {
 le_getters! {
     WithdrawalThresholdRow { amount: u64 }
     KeyRegistryRoot { next_index: u64 }
-    SpendWindow {
-        window_slots: u64, deposit_cap: u64, withdrawal_cap: u64, window_start_slot: u64,
-        deposited: u64, withdrawn: u64
-    }
     PolicyConfig { address_tree_id: u16, generation: u32, generation_slot: u64 }
 }
 
@@ -310,48 +305,6 @@ impl KeyRegistryRoot {
     }
 }
 
-/// Ring-wide public deposit and withdrawal counters for one mint and fixed window.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
-#[repr(C)]
-pub struct SpendWindow {
-    pub discriminator: u8,
-    /// SOL under the zero address.
-    pub mint: Address,
-    pub window_slots: [u8; 8],
-    pub deposit_cap: [u8; 8],
-    pub withdrawal_cap: [u8; 8],
-    /// First slot of the window the counters belong to.
-    pub window_start_slot: [u8; 8],
-    pub deposited: [u8; 8],
-    pub withdrawn: [u8; 8],
-    pub bump: u8,
-}
-
-/// Windows start at multiples of `slots`, the counters reset at each start.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FixedWindow {
-    pub slots: NonZeroU64,
-}
-
-impl FixedWindow {
-    pub const fn start(self, slot: u64) -> u64 {
-        slot - slot % self.slots.get()
-    }
-
-    pub const fn index(self, slot: u64) -> u64 {
-        slot / self.slots.get()
-    }
-
-    /// `claimed` when it is the window of `slot`.
-    pub fn check_index(self, slot: u64, claimed: u64) -> Result<u64, CustomRingError> {
-        match claimed.cmp(&self.index(slot)) {
-            Ordering::Less => Err(CustomRingError::WindowElapsed),
-            Ordering::Greater => Err(CustomRingError::InvalidWindowIndex),
-            Ordering::Equal => Ok(claimed),
-        }
-    }
-}
-
 /// One list's source, slot `i` is empty (`list_id == 0`) or serves list `i + 1`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
@@ -367,13 +320,13 @@ pub struct SourceSlot {
 pub struct PolicyConfig {
     pub discriminator: u8,
     pub policy_hash: [u8; 32],
-    /// Every entry and spend record address is claimed in it.
+    /// Every entry address is claimed in it.
     pub address_tree: Address,
-    /// Little endian, every entry and spend record address hashes under it.
+    /// Little endian, every entry address hashes under it.
     pub address_tree_id: [u8; 2],
     pub namespace_bump: u8,
     pub bump: u8,
-    /// The shielded owner of every record the ring's namespace holds.
+    /// The shielded owner of every entry the ring's namespace holds.
     pub namespace_owner_hash: [u8; 32],
     /// Non-empty exactly for the lists `rules` references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
@@ -406,11 +359,10 @@ const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, next_index) == 1);
 const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history_cursor) == 10);
 const _: () = assert!(core::mem::offset_of!(KeyRegistryRoot, history) == 11);
 const _: () = assert!(KEY_REGISTRY_ROOT_HISTORY <= u8::MAX as usize);
-const _: () = assert!(SpendWindow::SIZE == 82);
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 1604);
+const _: () = assert!(PolicyConfig::SIZE == 1596);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, address_tree) == 33);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, address_tree_id) == 65);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 365);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1592);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1596);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1584);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1588);

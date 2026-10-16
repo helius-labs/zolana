@@ -14,5 +14,3 @@ mod set_policy_rules;
 mod transact;
 #[path = "policy/transfer_cap.rs"]
 mod transfer_cap;
-#[path = "policy/velocity.rs"]
-mod velocity;

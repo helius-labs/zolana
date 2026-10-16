@@ -1,7 +1,7 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_ring_policy::{PolicyHashError, RuleTableError, SpendRecordError};
+use zolana_ring_policy::{PolicyHashError, RuleTableError};
 
 macro_rules! ring_errors {
     ($($variant:ident = $code:literal => $message:literal,)*) => {
@@ -66,18 +66,15 @@ ring_errors! {
     InvalidCoSignerScope = 8145 => "co-signer scope must be a nonzero subset of the scope bits",
     InvalidCoSigner = 8146 => "co-signer account is invalid",
     InvalidCoSignerThresholds = 8147 => "co-signer thresholds exceed the table or repeat a mint",
-    SpendWindowExceeded = 8148 => "the public legs exceed a spend window cap",
-    InvalidSpendWindow = 8149 => "spend window account is invalid",
+    // 8148 and 8149 retired with the public spend windows.
     DelegateDisabled = 8150 => "the ring has no delegate",
     UnauthorizedDelegate = 8151 => "the delegate must sign",
     DelegatePublicLeg = 8152 => "a delegate move settles no public leg",
     DelegateAlreadySet = 8153 => "the delegate is permanent",
     InvalidDelegate = 8154 => "delegate account is invalid",
-    VelocityDepositLeg = 8155 => "a velocity transfer settles no deposit leg",
-    InvalidSpendRecord = 8156 => "the spend record output does not match its plaintext",
+    // 8155 and 8156 retired with the windowed spend records.
     ApprovalWithoutCoSigner = 8157 => "dual control needs a configured co-signer",
-    VelocityDisabled = 8158 => "the ring has no velocity window",
-    VelocityWindowImmutable = 8159 => "the velocity window duration cannot change once set",
+    // 8158 and 8159 retired with the windowed spend records.
     InvalidKeyRegistryRoot = 8160 => "key registry root account is invalid",
     StaleKeyRegistryRoot = 8161 => "key registry root changed",
     InvalidKeyRegistryCursor = 8162 => "key registry append cursor is invalid or exhausted",
@@ -85,22 +82,21 @@ ring_errors! {
     InvalidDepositAudit = 8164 => "invalid deposit audit setting",
     DepositAuditRequired = 8165 => "verified deposit disclosure required",
     InvalidDepositDisclosure = 8166 => "invalid deposit disclosure",
-    InvalidSpendCountersDisclosure = 8167 => "invalid spend counters disclosure",
+    // 8167 retired with the counters disclosure.
     InvalidRevocationTarget = 8168 => "revocation target account is invalid",
     PolicyFactRevoked = 8169 => "policy fact changed after proof creation",
     DelegateRequiresPolicy = 8170 => "a delegate needs a policy ring",
     InvalidRevocationTreeIndex = 8171 => "revocation tree index is invalid",
     InvalidPolicyTrees = 8172 => "policy tree accounts are invalid",
-    WindowElapsed = 8173 => "the spend window of the proof has elapsed",
-    InvalidWindowIndex = 8174 => "window index is not the current window of a windowed rail",
+    // 8173 and 8174 retired with the window index.
     UnexpectedKeyRegistryRoot = 8175 => "a ring without key escrow takes no key registry root",
-    UnexpectedApproval = 8176 => "approval needs a member transfer under amount controls",
+    UnexpectedApproval = 8176 => "approval needs a member transfer under outflow limits",
     InvalidSettlementAccounts = 8177 => "settlement accounts do not match the public legs",
     TooManyPublicLegs = 8178 => "too many public legs",
     InvalidAuditedDeposit = 8179 => "audited deposit does not wrap an SPP deposit",
     InvalidDepositData = 8180 => "forwarded deposit data is invalid",
     UnexpectedRevocationTarget = 8181 => "an audit-only statement takes no revocation target",
-    UncappedSpendWindow = 8182 => "a spend window needs a deposit or a withdrawal cap",
+    // 8182 retired with the public spend windows.
 }
 
 impl From<CustomRingError> for ProgramError {
@@ -127,15 +123,6 @@ impl From<PolicyHashError> for CustomRingError {
             PolicyHashError::Table(_) => Self::InvalidPolicyRules,
             PolicyHashError::MissingSource(_) => Self::InvalidSource,
             PolicyHashError::Hashing => Self::HashingFailed,
-        }
-    }
-}
-
-impl From<SpendRecordError> for CustomRingError {
-    fn from(error: SpendRecordError) -> Self {
-        match error {
-            SpendRecordError::Hashing => Self::HashingFailed,
-            _ => Self::InvalidSpendRecord,
         }
     }
 }

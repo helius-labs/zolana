@@ -14,7 +14,7 @@ use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
     clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, custom, deposit_fixture,
     merge_fixture, rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
-    sol_settlement, spl_settlement, stored, window_slot, Fixture, Slot, SOL, USDC,
+    sol_settlement, spl_settlement, stored, Fixture, Slot, SOL, USDC,
 };
 use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
@@ -233,11 +233,6 @@ fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixtu
     fixture
 }
 
-fn with_windows(mut fixture: Fixture, mints: &[Pubkey]) -> Fixture {
-    fixture.insert_windows(mints.iter().map(|mint| window_slot(*mint, None)).collect());
-    fixture
-}
-
 fn with_cosigner(mut fixture: Fixture, account: Account, signed: bool) -> Fixture {
     fixture.set_account("cosigner_pda", account);
     if signed {
@@ -300,12 +295,9 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
     )
     .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     with_cosigner(
-        with_windows(
-            gated_transact(
-                vec![InterfaceTransfer::SolDeposit { amount: 5 }],
-                sol_settlement(),
-            ),
-            &[SOL],
+        gated_transact(
+            vec![InterfaceTransfer::SolDeposit { amount: 5 }],
+            sol_settlement(),
         ),
         scoped,
         false,
@@ -317,26 +309,20 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
 fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 10)]);
-    let one_leg = with_windows(
-        gated_transact(
-            vec![InterfaceTransfer::SolWithdrawal { amount: 6 }],
-            sol_settlement(),
-        ),
-        &[SOL],
+    let one_leg = gated_transact(
+        vec![InterfaceTransfer::SolWithdrawal { amount: 6 }],
+        sol_settlement(),
     );
     with_cosigner(one_leg, scoped.clone(), false)
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut two_legs = sol_settlement();
     two_legs.extend(sol_settlement());
-    let split = with_windows(
-        gated_transact(
-            vec![
-                InterfaceTransfer::SolWithdrawal { amount: 6 },
-                InterfaceTransfer::SolWithdrawal { amount: 6 },
-            ],
-            two_legs,
-        ),
-        &[SOL, SOL],
+    let split = gated_transact(
+        vec![
+            InterfaceTransfer::SolWithdrawal { amount: 6 },
+            InterfaceTransfer::SolWithdrawal { amount: 6 },
+        ],
+        two_legs,
     );
     with_cosigner(split, scoped, false)
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
@@ -348,15 +334,12 @@ fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
     let scoped = cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 10)]);
     let mut settlements = sol_settlement();
     settlements.extend(sol_settlement());
-    let mixed = with_windows(
-        gated_transact(
-            vec![
-                InterfaceTransfer::SolDeposit { amount: 1 },
-                InterfaceTransfer::SolWithdrawal { amount: 11 },
-            ],
-            settlements,
-        ),
-        &[SOL, SOL],
+    let mixed = gated_transact(
+        vec![
+            InterfaceTransfer::SolDeposit { amount: 1 },
+            InterfaceTransfer::SolWithdrawal { amount: 11 },
+        ],
+        settlements,
     );
     with_cosigner(mixed, scoped, false)
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
@@ -366,28 +349,22 @@ fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
 fn a_withdrawn_mint_without_a_threshold_row_needs_the_cosigner() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 10)]);
-    let spl = with_windows(
-        gated_transact(
-            vec![InterfaceTransfer::SplWithdrawal {
-                amount: 1,
-                spl_interface_bump: 250,
-            }],
-            spl_settlement(USDC),
-        ),
-        &[USDC],
+    let spl = gated_transact(
+        vec![InterfaceTransfer::SplWithdrawal {
+            amount: 1,
+            spl_interface_bump: 250,
+        }],
+        spl_settlement(USDC),
     );
     with_cosigner(spl, scoped, false)
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
     let rowed = cosigner_account(CoSignScope::WITHDRAWALS, &[(USDC, 10)]);
-    let under = with_windows(
-        gated_transact(
-            vec![InterfaceTransfer::SplWithdrawal {
-                amount: 10,
-                spl_interface_bump: 250,
-            }],
-            spl_settlement(USDC),
-        ),
-        &[USDC],
+    let under = gated_transact(
+        vec![InterfaceTransfer::SplWithdrawal {
+            amount: 10,
+            spl_interface_bump: 250,
+        }],
+        spl_settlement(USDC),
     );
     with_cosigner(under, rowed, false)
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
@@ -432,18 +409,15 @@ fn withdrawal_thresholds_do_not_sum_different_mints() {
     let (mollusk, _) = setup_mollusk();
     let mut settlements = sol_settlement();
     settlements.extend(spl_settlement(USDC));
-    let fixture = with_windows(
-        gated_transact(
-            vec![
-                InterfaceTransfer::SolWithdrawal { amount: 6 },
-                InterfaceTransfer::SplWithdrawal {
-                    amount: 6,
-                    spl_interface_bump: 250,
-                },
-            ],
-            settlements,
-        ),
-        &[SOL, USDC],
+    let fixture = gated_transact(
+        vec![
+            InterfaceTransfer::SolWithdrawal { amount: 6 },
+            InterfaceTransfer::SplWithdrawal {
+                amount: 6,
+                spl_interface_bump: 250,
+            },
+        ],
+        settlements,
     );
     with_cosigner(
         fixture,
@@ -458,15 +432,12 @@ fn overflowing_withdrawals_cannot_skip_the_cosigner() {
     let (mollusk, _) = setup_mollusk();
     let mut settlements = sol_settlement();
     settlements.extend(sol_settlement());
-    let fixture = with_windows(
-        gated_transact(
-            vec![
-                InterfaceTransfer::SolWithdrawal { amount: u64::MAX },
-                InterfaceTransfer::SolWithdrawal { amount: 1 },
-            ],
-            settlements,
-        ),
-        &[SOL, SOL],
+    let fixture = gated_transact(
+        vec![
+            InterfaceTransfer::SolWithdrawal { amount: u64::MAX },
+            InterfaceTransfer::SolWithdrawal { amount: 1 },
+        ],
+        settlements,
     );
     with_cosigner(
         fixture,

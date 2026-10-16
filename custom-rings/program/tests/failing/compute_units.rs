@@ -5,8 +5,7 @@ use crate::common::{
     create_policy_fixture, delegate, ed25519_reader, grant_read_access_fixture,
     init_spp_ring_config_fixture, initialized_config_account, p256_reader,
     revoke_read_access_fixture, set_authority_fixture, set_cosigner_data, set_cosigner_fixture,
-    set_delegate_data, set_delegate_fixture, set_paused_fixture, set_spend_window_data,
-    set_spend_window_fixture, setup_mollusk, Fixture, USDC,
+    set_delegate_data, set_delegate_fixture, set_paused_fixture, setup_mollusk, Fixture, USDC,
 };
 use custom_ring_interface::{compute_unit_limit, CoSignScope, InstructionTag};
 
@@ -56,13 +55,6 @@ fn operator_instructions_fit_their_published_budgets() {
             set_cosigner_data(cosigner(), CoSignScope::ALL.bits(), &[(USDC, 1)]),
             None
         )) <= u64::from(compute_unit_limit(InstructionTag::SetCoSigner))
-    );
-    assert!(
-        consumed(set_spend_window_fixture(
-            USDC,
-            set_spend_window_data(USDC, 100, 1, 1),
-            None
-        )) <= u64::from(compute_unit_limit(InstructionTag::SetSpendWindow))
     );
     assert!(
         consumed(create_key_registry_root_fixture(None))

@@ -28,7 +28,6 @@ macro_rules! verifying_keys {
 
 verifying_keys! {
     base_verifying_key => "custom_ring_base.key",
-    compressed_policy_verifying_key => "custom_ring_compressed_policy.key",
     delegate_policy_verifying_key => "custom_ring_delegate_policy.key",
     deposit_verifying_key => "custom_ring_deposit.key",
     policy_verifying_key => "custom_ring_policy.key",
@@ -41,7 +40,7 @@ pub use deposit_audit::*;
 pub use error::CustomRingError;
 pub use instruction::*;
 pub use key_registry::*;
-pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
+pub use policy_public_input::CustomRingPolicyPublicInput;
 pub use state::*;
 
 /// SEC1-compressed P256 key length, also retained by tagged X25519 envelopes.

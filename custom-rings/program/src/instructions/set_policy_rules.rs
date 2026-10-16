@@ -1,4 +1,4 @@
-use custom_ring_interface::{CustomRingError, PolicyConfig, PolicyTableIxData};
+use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
@@ -28,10 +28,6 @@ pub fn process_set_policy_rules_ix(
     let mut live = load_mut::<PolicyConfig>(program_id, policy_config)?;
     let namespace = namespace_address(program_id, live.namespace_bump);
     let bound = bind_table(&ix, curators, &namespace, &live.address_tree)?;
-    let window_slots = live.rules.window_slots();
-    if window_slots != 0 && bound.rules.window_slots() != window_slots {
-        return Err(CustomRingError::VelocityWindowImmutable.into());
-    }
     live.rules = bound.rules;
     repin(&mut live, &bound.sources)
 }

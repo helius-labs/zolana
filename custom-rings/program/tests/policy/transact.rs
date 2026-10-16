@@ -192,7 +192,7 @@ fn revoking(mut ix: CustomRingTransactIxData) -> CustomRingTransactIxData {
 }
 
 fn with_target(mut fixture: Fixture, target: RevocationTarget) -> Fixture {
-    fixture.insert_windows(vec![Slot {
+    fixture.insert_before_spp(vec![Slot {
         label: "revocation_target",
         meta: AccountMeta::new_readonly(target.address, false),
         account: target.state,
@@ -514,22 +514,6 @@ fn a_registry_index_without_escrow_is_rejected_exactly() {
         encode_transact(tag::TRANSACT, &audit),
     )
     .expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
-}
-
-/// Only a windowed member statement carries a window index.
-#[test]
-fn a_window_index_on_an_unwindowed_statement_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut ix = ix_data(0, 0, false, transact_data());
-    ix.window_index = 1;
-    policy_fixture_with(ix).expect_err(&mollusk, custom(CustomRingError::InvalidWindowIndex));
-    let mut audit = audit_ix_data(bogus_proof(), transact_data());
-    audit.window_index = 1;
-    audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(4)),
-        encode_transact(tag::TRANSACT, &audit),
-    )
-    .expect_err(&mollusk, custom(CustomRingError::InvalidWindowIndex));
 }
 
 /// The transact path loads the policy config unconditionally, an uninitialized

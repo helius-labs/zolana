@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    CoSigner, CustomRingError, ReadAccessRecord, ReaderIxData, RingAccount, SpendWindow,
+    CoSigner, CustomRingError, ReadAccessRecord, ReaderIxData, RingAccount,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -19,20 +19,6 @@ pub fn process_clear_cosigner_ix(
         return Err(CustomRingError::InvalidInstructionData.into());
     }
     close::<CoSigner>(program_id, accounts, |_| true)
-}
-
-#[inline(never)]
-pub fn process_clear_spend_window_ix(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    data: &[u8],
-) -> ProgramResult {
-    let mint: [u8; 32] = data
-        .try_into()
-        .map_err(|_| CustomRingError::InvalidInstructionData)?;
-    close::<SpendWindow>(program_id, accounts, |window| {
-        window.mint.to_bytes() == mint
-    })
 }
 
 #[inline(never)]

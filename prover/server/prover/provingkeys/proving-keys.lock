@@ -13,11 +13,6 @@
       "size": 34472943,
       "source": "release"
     },
-    "custom_ring_compressed_policy.key": {
-      "sha256": "420135689337e7ea26eac620de2e703e32b3912b90ed789d5793649529fd0654",
-      "size": 406508233,
-      "source": "release"
-    },
     "custom_ring_delegate_policy.key": {
       "sha256": "a731f737af2872a06922682458bc427f75e3f97a38b4be2c92ee6e518319433e",
       "size": 135506392,

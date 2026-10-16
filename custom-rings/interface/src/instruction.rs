@@ -1,4 +1,4 @@
-use core::{mem::MaybeUninit, num::NonZeroU64};
+use core::mem::MaybeUninit;
 
 use bytemuck::{Pod, Zeroable};
 use wincode::{
@@ -9,13 +9,12 @@ use wincode::{
     ReadError, ReadResult, SchemaRead, SchemaWrite, WriteResult,
 };
 use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
-use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
+use zolana_ring_policy::{OutflowLimit, ANSWER_SLOTS};
 
 use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
 /// Account slot indices the processors and the indexer agree on.
 pub mod accounts {
-    pub const REGISTER_SPEND_PAYER: usize = 2;
     pub const REGISTER_KEY_MEMBER: usize = 0;
     pub const REGISTER_KEY_CONFIG: usize = 1;
     pub const REGISTER_KEY_ROOT: usize = 2;
@@ -80,12 +79,10 @@ instruction_tags! {
     /// Ring-local tags must not collide with the forwarded SPP deposit and merge tags.
     SetCoSigner = SET_CO_SIGNER: 27 => ACCOUNT_UNITS,
     ClearCoSigner = CLEAR_CO_SIGNER: 21 => ACCOUNT_UNITS,
-    SetSpendWindow = SET_SPEND_WINDOW: 22 => ACCOUNT_UNITS,
-    ClearSpendWindow = CLEAR_SPEND_WINDOW: 23 => ACCOUNT_UNITS,
+    // Tags 22, 23 and 26 are retired, never reuse them.
     SetDelegate = SET_DELEGATE: 24 => ACCOUNT_UNITS,
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     DelegateTransact = DELEGATE_TRANSACT: 25 => PROOF_UNITS,
-    RegisterSpend = REGISTER_SPEND: 26 => PROOF_UNITS,
     CreateKeyRegistryRoot = CREATE_KEY_REGISTRY_ROOT: 28 => ACCOUNT_UNITS,
     RegisterKey = REGISTER_KEY: 29 => PROOF_UNITS,
     SetDepositAudit = SET_DEPOSIT_AUDIT: 30 => ACCOUNT_UNITS,
@@ -131,16 +128,6 @@ pub struct SetCoSignerIxData {
     pub scope: u8,
     #[wincode(with = "containers::Vec<WithdrawalThreshold, FixIntLen<u8>>")]
     pub thresholds: Vec<WithdrawalThreshold>,
-}
-
-/// Public deposit and withdrawal caps for one mint over fixed slot windows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct SetSpendWindowIxData {
-    pub mint: [u8; 32],
-    pub window_slots: u64,
-    /// `None` leaves the direction uncapped, at least one cap is set.
-    pub deposit_cap: Option<NonZeroU64>,
-    pub withdrawal_cap: Option<NonZeroU64>,
 }
 
 /// Emulated field arithmetic adds one BSB22 commitment, its point and proof of knowledge are mandatory.
@@ -190,11 +177,9 @@ pub struct CustomRingTransactIxData {
     /// One per policy tree account in order, empty on an audit-only ring.
     #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
     pub policy_trees: Vec<TreeContext>,
-    /// The window of the proven spend record, zero on every other statement.
-    pub window_index: u64,
     /// The registry history slot of the bound root, zero unless the ring escrows nullifier keys.
     pub key_registry_root_index: u8,
-    /// Proof-bound approval demand, false when member amount controls do not apply.
+    /// Proof-bound approval demand, false when no outflow limit applies.
     pub approval_required: bool,
     /// Canonical target prefix with a zero suffix in the policy public input.
     #[wincode(with = "CompactRevocationTargets")]
@@ -269,21 +254,8 @@ pub struct PolicyTableIxData {
     pub inline_assets: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u64, FixIntLen<u8>>")]
     pub inline_limits: Vec<u64>,
-    pub window_slots: u64,
-    #[wincode(with = "containers::Vec<VelocityRow, FixIntLen<u8>>")]
-    pub velocity: Vec<VelocityRow>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct RegisterSpendIxData {
-    /// The SPP output blinding, the proof fails unless it is the derived one.
-    pub blinding: [u8; 32],
-    /// The window the proven record opens in.
-    pub window_index: u64,
-    pub private_tx_blinding: [u8; 32],
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
-    pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
+    #[wincode(with = "containers::Vec<OutflowLimit, FixIntLen<u8>>")]
+    pub limits: Vec<OutflowLimit>,
 }
 
 /// Proven enrollment of a member's auditor-encrypted nullifier key in the registry.

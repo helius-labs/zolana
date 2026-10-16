@@ -14,9 +14,8 @@ use crate::common::{
     curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
     namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
-    specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
-    PINNED_RULES, RELEASED_RULES, TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS,
-    WARPED_SLOT,
+    specs_with_block_source, stored_policy_config, table_ix_data, LIMIT_RULES, PINNED_RULES,
+    RELEASED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -73,48 +72,23 @@ fn invalid_rows_are_rejected_exactly() {
 }
 
 #[test]
-fn rows_without_a_window_select_per_transfer_caps() {
+fn outflow_limits_re_pin_and_mark_the_table_limited() {
     let (mollusk, _) = setup_mollusk();
-    let table = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
+    let table = table_ix_data(&LIMIT_RULES, &own_specs(&LIMIT_RULES));
     let config = stored_policy_config(
         &mollusk,
         &set_policy_rules_fixture(released_config(), &table),
     );
-    assert_eq!(config.rules, TRANSFER_CAP_RULES.encode());
-    assert!(matches!(
-        config.rules.velocity_mode(),
-        zolana_ring_policy::VelocityMode::PerTransfer
-    ));
+    assert_eq!(config.rules, LIMIT_RULES.encode());
+    assert!(config.rules.has_limits());
 }
 
-/// Existing record window indices retain their original duration.
 #[test]
-fn a_changed_window_duration_is_rejected_exactly() {
+fn a_limit_without_a_bound_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
-    table.window_slots = VELOCITY_WINDOW_SLOTS + 100;
-    let fixture = set_policy_rules_fixture(velocity_policy_config_account(), &table);
-    fixture.expect_err(&mollusk, custom(CustomRingError::VelocityWindowImmutable));
-}
-
-#[test]
-fn the_same_window_duration_re_pins() {
-    let (mut mollusk, _) = setup_mollusk();
-    mollusk.warp_to_slot(WARPED_SLOT);
-    let table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
-    let config = stored_policy_config(
-        &mollusk,
-        &set_policy_rules_fixture(velocity_policy_config_account(), &table),
-    );
-    assert_eq!(config.rules.window_slots(), VELOCITY_WINDOW_SLOTS);
-}
-
-#[test]
-fn a_window_without_rows_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
-    table.window_slots = 5;
-    table.velocity.clear();
+    let mut table = table_ix_data(&LIMIT_RULES, &own_specs(&LIMIT_RULES));
+    table.limits[0].cap = 0;
+    table.limits[0].cosign_above = 0;
     let fixture = set_policy_rules_fixture(released_config(), &table);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyRules));
 }
