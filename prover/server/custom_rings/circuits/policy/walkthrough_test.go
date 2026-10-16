@@ -7,21 +7,13 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-const (
-	bobNotBlocked = iota
-	aliceApproved
-	aliceBlocked
-	aliceNotFrozen
-	malloryBlocked
-	malloryNotApproved
-)
-
+// reviewedRecipients reads Block from the curator registry and Approval and Frozen
+// from the ring's own. Bob is on no list, Alice is approved and blocked, Mallory blocked.
 func reviewedRecipients(t *testing.T) *statement {
 	t.Helper()
 	s := newStatement(t, defaultFixture())
@@ -29,24 +21,16 @@ func reviewedRecipients(t *testing.T) *statement {
 	alice := pkField(t, approvedKey)
 	mallory := pkField(t, fill(0x77))
 	s.sources = emptySources()
-	s.sources[listBlock-1] = source{listId: listBlock, owner: s.curatorOwnerHash}
-	s.sources[listApproval-1] = source{listId: listApproval, owner: s.ownOwnerHash}
-	s.sources[listFrozen-1] = source{listId: listFrozen, owner: s.ownOwnerHash}
+	s.sources[listBlock-1] = source{listId: listBlock, registry: s.curatorRegistry}
+	s.sources[listApproval-1] = source{listId: listApproval, registry: big.NewInt(0)}
+	s.sources[listFrozen-1] = source{listId: listFrozen, registry: big.NewInt(0)}
 	s.rules = []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), altMask: listMask(listBlock)}}
 	s.inlineAssets = nil
 	s.inlineLimits = nil
-	s.entries = []entry{
-		bobNotBlocked:      {listId: listBlock, member: bob},
-		aliceApproved:      {listId: listApproval, member: alice, state: EntryStateActive},
-		aliceBlocked:       {listId: listBlock, member: alice, state: EntryStateActive},
-		aliceNotFrozen:     {listId: listFrozen, member: alice},
-		malloryBlocked:     {listId: listBlock, member: mallory, state: EntryStateActive},
-		malloryNotApproved: {listId: listApproval, member: mallory},
-	}
-	for i := range s.entries {
-		s.entries[i].content = big.NewInt(0)
-	}
-	s.deriveEntries(t)
+	s.setLists(t, s.members, bob, 0)
+	s.setLists(t, s.members, alice, listMask(listApproval))
+	s.setLists(t, s.curator, alice, listMask(listBlock))
+	s.setLists(t, s.curator, mallory, listMask(listBlock))
 	s.outputs[0].OwnerPkHash = bob
 	second := s.outputs[0]
 	second.OwnerPkHash = alice
@@ -57,22 +41,22 @@ func reviewedRecipients(t *testing.T) *statement {
 
 func TestRecipientsUseDifferentAlternatives(t *testing.T) {
 	s := reviewedRecipients(t)
-	solve(t, testConstraintSystem(t), s.assignment(t, []int{bobNotBlocked, aliceApproved}))
+	solve(t, testConstraintSystem(t), s.assignment(t))
 }
 
 func TestApprovalDoesNotOverrideFrozen(t *testing.T) {
 	s := reviewedRecipients(t)
+	alice := pkField(t, approvedKey)
 	s.outputs = s.outputs[1:]
 	s.rules = append(s.rules, rule{subject: SubjectOutputOwner, mode: ModeAbsent, mask: listMask(listFrozen)})
-	solve(t, testConstraintSystem(t), s.assignment(t, []int{aliceApproved, aliceNotFrozen}))
-	rejectAssignment(t, s.assignment(t, []int{aliceApproved}))
+	solve(t, testConstraintSystem(t), s.assignment(t))
 
-	s.entries[aliceNotFrozen].state = EntryStateActive
-	s.deriveEntries(t)
-	rejectAssignment(t, s.assignment(t, []int{aliceApproved, aliceNotFrozen}))
+	s.setLists(t, s.members, alice, listMask(listApproval, listFrozen))
+	rejectAssignment(t, s.assignment(t))
 }
 
-func TestListFactsReuseAcrossRulesAndChange(t *testing.T) {
+// One record serves every slot of its owner, a dropped opening fails the slot it leaves unread.
+func TestRecordsServeEverySlotOfAnOwner(t *testing.T) {
 	s := reviewedRecipients(t)
 	s.outputs = []UtxoWires{s.outputs[1], s.outputs[1], s.outputs[1]}
 	for i := range s.outputs {
@@ -83,43 +67,52 @@ func TestListFactsReuseAcrossRulesAndChange(t *testing.T) {
 		rule{subject: SubjectOutputOwner, mode: ModeAbsent, mask: listMask(listFrozen)},
 		rule{subject: SubjectSender, mode: ModePresent, mask: listMask(listApproval)},
 	)
-	c := s.assignment(t, []int{aliceApproved, aliceNotFrozen})
+	c := s.assignment(t)
 	solve(t, testConstraintSystem(t), c)
-	c.ListFacts[1].Enabled = big.NewInt(0)
+	c.Subjects[NInputs+2] = zeroMemberOpening()
+	rejectAssignment(t, c)
+	c = s.assignment(t)
+	c.Subjects[0] = zeroMemberOpening()
 	rejectAssignment(t, c)
 }
 
 func TestBlockedRecipientWithoutApprovalFails(t *testing.T) {
 	s := reviewedRecipients(t)
 	s.outputs = s.outputs[:1]
-	s.outputs[0].OwnerPkHash = s.entries[malloryBlocked].member
-	rejectAssignment(t, s.assignment(t, []int{malloryBlocked, malloryNotApproved}))
+	s.outputs[0].OwnerPkHash = pkField(t, fill(0x77))
+	rejectAssignment(t, s.assignment(t))
 }
 
-func TestInlineAssetsNeedNoListFacts(t *testing.T) {
+func TestInlineAssetsNeedNoRecords(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 	s.rules = []rule{{subject: SubjectAsset, mode: ModePresent}}
-	solve(t, testConstraintSystem(t), s.assignment(t, nil))
+	solve(t, testConstraintSystem(t), s.assignment(t))
 
 	s.inlineAssets = append(s.inlineAssets, s.inlineAssets[0])
-	solve(t, testConstraintSystem(t), s.assignment(t, nil))
+	solve(t, testConstraintSystem(t), s.assignment(t))
 }
 
-func TestDisabledListFactsNeedNotBeZero(t *testing.T) {
+// A slot that holds no UTXO leaves its openings unread.
+func TestDeadSlotsIgnoreTheirOpenings(t *testing.T) {
 	s := reviewedRecipients(t)
-	c := s.assignment(t, []int{bobNotBlocked, aliceApproved, aliceBlocked})
-	c.ListFacts[2].Enabled = big.NewInt(0)
-	c.PublicInputHash = s.publicInputHashFor(t, []int{bobNotBlocked, aliceApproved})
+	c := s.assignment(t)
+	c.Subjects[1] = openingWires(s.members.Opening(pkField(t, approvedKey)))
+	c.Subjects[1].Lists = big.NewInt(0xff)
+	c.ForeignSubjects[NInputs+2] = c.Subjects[1]
 	solve(t, testConstraintSystem(t), c)
 }
 
-func (s *statement) deriveEntries(t *testing.T) {
-	t.Helper()
-	s.derived = nil
-	for _, entry := range s.entries {
-		s.derived = append(s.derived, deriveRecord(t, s.sources[entry.listId-1].owner, entry))
+// A member off every list needs no record, the sentinel brackets it.
+func TestUnlistedRecipientOpensAnAbsence(t *testing.T) {
+	s := newStatement(t, defaultFixture())
+	s.rules = []rule{{subject: SubjectOutputOwner, mode: ModeAbsent, mask: listMask(listBlock)}}
+	s.inlineAssets = nil
+	s.outputs[0].OwnerPkHash = pkField(t, fill(0x78))
+	c := s.assignment(t)
+	if spptest.AsBigInt(c.Subjects[NInputs].Present).Sign() != 0 {
+		t.Fatal("the unlisted recipient has a record")
 	}
-	s.buildTrees(t)
+	solve(t, testConstraintSystem(t), c)
 }
 
 func (s *statement) updateHashes(t *testing.T) {
@@ -145,45 +138,33 @@ func (s *statement) updateHashes(t *testing.T) {
 		s.addressChain,
 		s.privateTxBlinding,
 	})
-	s.publicInputHash = s.publicInputHashFor(t, nil)
-}
-
-func (s *statement) revocationTargets(listFacts []int) []*big.Int {
-	targets := spptest.RepeatBigInt(big.NewInt(0), NListFacts)
-	for slot, index := range listFacts {
-		if s.entries[index].state == 0 {
-			targets[slot] = s.derived[index].address
-		} else {
-			targets[slot] = s.derived[index].nullifier
-		}
-	}
-	return targets
-}
-
-// Mirrors the Rust revocation_tree_indexes packing.
-func (s *statement) revocationTreeIndexes(listFacts []int) *big.Int {
-	packed := uint64(0)
-	for slot, index := range listFacts {
-		packed |= uint64(s.entries[index].slot) << (shared.TreeIndexBits * slot)
-	}
-	return new(big.Int).SetUint64(packed)
+	s.publicInputHash = spptest.MustHashChain(t, s.policyChainElements(t))
 }
 
 // Mirrors CustomRingPolicyPublicInput.
-func (s *statement) policyChainElements(t *testing.T, listFacts []int) []*big.Int {
+func (s *statement) policyChainElements(t *testing.T) []*big.Int {
 	t.Helper()
 	elements := s.auditChainElements(t)
-	elements = append(elements,
+	return append(elements,
 		s.policyHash, spptest.MustTreeSlotsHashChain(t, s.treeSlots(t)), big.NewInt(addressTreeID),
 		s.ringID, s.ownOwnerHash, boolVar(s.approval),
-		boolVar(s.keyEscrow), s.registryRoot(), s.revocationTreeIndexes(listFacts),
+		boolVar(s.keyEscrow), s.members.Root(), s.foreignRoot(),
 	)
-	return append(elements, s.revocationTargets(listFacts)...)
 }
 
-func (s *statement) publicInputHashFor(t *testing.T, listFacts []int) *big.Int {
+// Chain positions after the eleven audit elements.
+const (
+	chainMemberRegistryRoot = 18
+	chainForeignRoot        = 19
+)
+
+// rebind recomputes the statement over the roots the assignment carries, so only the openings can reject.
+func (s *statement) rebind(t *testing.T, c *CustomRingPolicyCircuit) {
 	t.Helper()
-	return spptest.MustHashChain(t, s.policyChainElements(t, listFacts))
+	elements := s.policyChainElements(t)
+	elements[chainMemberRegistryRoot] = spptest.AsBigInt(c.MemberRegistryRoot)
+	elements[chainForeignRoot] = spptest.AsBigInt(c.ForeignRoot)
+	c.PublicInputHash = spptest.MustHashChain(t, elements)
 }
 
 func (s *statement) auditChainElements(t *testing.T) []*big.Int {

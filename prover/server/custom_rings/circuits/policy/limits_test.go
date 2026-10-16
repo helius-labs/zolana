@@ -141,9 +141,9 @@ func reboundStatement(t *testing.T, f fixture, mutate func(*statement)) *CustomR
 	t.Helper()
 	f.rulesFree = true
 	s := newStatement(t, f)
-	solve(t, testConstraintSystem(t), s.assignment(t, nil))
+	solve(t, testConstraintSystem(t), s.assignment(t))
 	mutate(s)
-	assignment := s.assignment(t, nil)
+	assignment := s.assignment(t)
 	if err := test.IsSolved(&openingBindingCircuit{}, &openingBindingCircuit{Policy: *assignment}, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("mutated transaction must retain valid opening bindings: %v", err)
 	}

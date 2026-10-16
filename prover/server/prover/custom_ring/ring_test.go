@@ -142,35 +142,35 @@ func TestDecodeRejectsMalformedRequests(t *testing.T) {
 	field := strings.Repeat("0", 63) + "1"
 	slot := func(m map[string]any, key string, i int) map[string]any { return m[key].([]any)[i].(map[string]any) }
 	tests := map[string]func(map[string]any){
-		"unknown field":           func(m map[string]any) { m["externalDataHash"] = "0x" + field },
-		"unknown nested field":    func(m map[string]any) { slot(m, "inputs", 0)["owner"] = "0x" + field },
-		"unknown tree slot field": func(m map[string]any) { slot(m, "treeSlots", 0)["root"] = "0x" + field },
-		"key on an input":         func(m map[string]any) { slot(m, "inputs", 0)["key"] = slot(m, "outputs", 0)["key"] },
-		"missing field":           func(m map[string]any) { delete(m, "privateTxHash") },
-		"null field":              func(m map[string]any) { m["addressChain"] = nil },
-		"short field":             func(m map[string]any) { m["privateTxHash"] = "0x01" },
-		"uppercase":               func(m map[string]any) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) },
-		"missing prefix":          func(m map[string]any) { m["ephSk"] = strings.TrimPrefix(m["ephSk"].(string), "0x") },
-		"non hex":                 func(m map[string]any) { m["ephSk"] = "0x" + strings.Repeat("zz", 32) },
-		"field at the modulus":    func(m map[string]any) { m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16) },
-		"short scalar":            func(m map[string]any) { m["txViewingSk"] = "0x00" },
-		"long auditor key":        func(m map[string]any) { m["auditorPk"] = m["auditorPk"].(string) + "00" },
-		"count as a string":       func(m map[string]any) { m["nIn"] = "1" },
-		"count above a byte":      func(m map[string]any) { m["nIn"] = 256 },
-		"short inputs":            func(m map[string]any) { m["inputs"] = m["inputs"].([]any)[:1] },
-		"long rules":              func(m map[string]any) { m["ruleEnc"] = append(m["ruleEnc"].([]any), m["ruleEnc"].([]any)[0]) },
-		"short rule":              func(m map[string]any) { m["ruleEnc"].([]any)[0] = "0x00" },
-		"short answers":           func(m map[string]any) { m["answers"] = m["answers"].([]any)[:1] },
-		"short nullifier path": func(m map[string]any) {
-			fact := slot(m, "answers", 0)
-			fact["nfPathElements"] = fact["nfPathElements"].([]any)[1:]
+		"unknown field":               func(m map[string]any) { m["externalDataHash"] = "0x" + field },
+		"unknown nested field":        func(m map[string]any) { slot(m, "inputs", 0)["owner"] = "0x" + field },
+		"unknown tree slot field":     func(m map[string]any) { slot(m, "treeSlots", 0)["root"] = "0x" + field },
+		"ciphertext hash on an input": func(m map[string]any) { slot(m, "inputs", 0)["ctHash"] = slot(m, "outputs", 0)["ctHash"] },
+		"missing field":               func(m map[string]any) { delete(m, "privateTxHash") },
+		"null field":                  func(m map[string]any) { m["addressChain"] = nil },
+		"short field":                 func(m map[string]any) { m["privateTxHash"] = "0x01" },
+		"uppercase":                   func(m map[string]any) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) },
+		"missing prefix":              func(m map[string]any) { m["ephSk"] = strings.TrimPrefix(m["ephSk"].(string), "0x") },
+		"non hex":                     func(m map[string]any) { m["ephSk"] = "0x" + strings.Repeat("zz", 32) },
+		"field at the modulus":        func(m map[string]any) { m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16) },
+		"short scalar":                func(m map[string]any) { m["txViewingSk"] = "0x00" },
+		"long auditor key":            func(m map[string]any) { m["auditorPk"] = m["auditorPk"].(string) + "00" },
+		"count as a string":           func(m map[string]any) { m["nIn"] = "1" },
+		"count above a byte":          func(m map[string]any) { m["nIn"] = 256 },
+		"short inputs":                func(m map[string]any) { m["inputs"] = m["inputs"].([]any)[:1] },
+		"long rules":                  func(m map[string]any) { m["ruleEnc"] = append(m["ruleEnc"].([]any), m["ruleEnc"].([]any)[0]) },
+		"short rule":                  func(m map[string]any) { m["ruleEnc"].([]any)[0] = "0x00" },
+		"short subjects":              func(m map[string]any) { m["subjects"] = m["subjects"].([]any)[:1] },
+		"short subject path": func(m map[string]any) {
+			subject := slot(m, "subjects", 0)
+			subject["path"] = subject["path"].([]any)[1:]
 		},
-		"short key path": func(m map[string]any) {
-			key := slot(m, "outputs", 0)["key"].(map[string]any)
-			key["path"] = key["path"].([]any)[1:]
-		},
-		"no tree slots":  func(m map[string]any) { m["treeSlots"] = []any{} },
-		"six tree slots": func(m map[string]any) { m["treeSlots"] = append(m["treeSlots"].([]any), make([]any, 5)...) },
+		"lists as a string":      func(m map[string]any) { slot(m, "subjects", 0)["lists"] = "1" },
+		"present as a number":    func(m map[string]any) { slot(m, "subjects", 0)["present"] = 1 },
+		"unknown subject field":  func(m map[string]any) { slot(m, "subjects", 0)["member"] = "0x" + field },
+		"short foreign subjects": func(m map[string]any) { m["foreignSubjects"] = m["foreignSubjects"].([]any)[:1] },
+		"no tree slots":          func(m map[string]any) { m["treeSlots"] = []any{} },
+		"six tree slots":         func(m map[string]any) { m["treeSlots"] = append(m["treeSlots"].([]any), make([]any, 5)...) },
 	}
 	for name, tamper := range tests {
 		t.Run(name, func(t *testing.T) {

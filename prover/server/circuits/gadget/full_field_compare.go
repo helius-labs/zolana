@@ -70,3 +70,9 @@ func AssertStrictlyOrderedFullField(api frontend.API, lo, mid, hi frontend.Varia
 	AssertIsLessFullField(api, lo, mid)
 	AssertIsLessFullField(api, mid, hi)
 }
+
+// IsStrictlyOrderedFullField returns 1 iff lo < mid < hi over canonical field values.
+func IsStrictlyOrderedFullField(api frontend.API, lo, mid, hi frontend.Variable) frontend.Variable {
+	middle := CanonicalLimbs(api, mid)
+	return api.Mul(IsLessLimbs(api, CanonicalLimbs(api, lo), middle), IsLessLimbs(api, middle, CanonicalLimbs(api, hi)))
+}

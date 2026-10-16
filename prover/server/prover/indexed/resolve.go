@@ -46,7 +46,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	if err != nil {
 		return request, nil, err
 	}
-	if request.Registry != nil && !policyCircuit(request.CircuitType) {
+	if (request.Registry != nil || request.ForeignRegistry != nil) && !policyCircuit(request.CircuitType) {
 		return request, nil, fmt.Errorf("unexpected registry request")
 	}
 	maximumTrees := 2
@@ -77,7 +77,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	case common.MergeRingCircuitType:
 		expected = 8
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
-		expected = 18
+		expected = 8
 	}
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")
@@ -122,9 +122,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer finishFetch()
 	proofs := make([]treeProofs, len(request.Trees))
 	for index, input := range request.Inputs {
-		if prepared.inputs[index].disabled {
-			continue
-		}
 		group := &proofs[input.TreeSlot]
 		group.inputs = append(group.inputs, index)
 		if input.Commitment != nil {

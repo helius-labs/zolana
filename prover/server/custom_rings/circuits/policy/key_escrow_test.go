@@ -4,74 +4,73 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-// Registers every UTXO output's key and turns escrow on.
-func (s *statement) escrowOutputs(t *testing.T) *spptest.KeyRegistry {
+// escrowOutputs registers every UTXO output owner's key in the ring registry and turns escrow on.
+func (s *statement) escrowOutputs(t *testing.T) {
 	t.Helper()
-	keys := spptest.NewKeyRegistry(t, registry.Height)
-	registered := make([]*spptest.RegisteredKey, len(s.outputs))
+	s.ctHashes = make([]*big.Int, len(s.outputs))
 	for i, output := range s.outputs {
 		if spptest.AsBigInt(output.Domain).Int64() != protocol.UtxoDomain {
 			continue
 		}
-		key := keys.Register(t, spptest.AsBigInt(output.OwnerPkHash), spptest.AsBigInt(output.NullifierPk), big.NewInt(int64(0xc0+i)))
-		registered[i] = &key
+		s.ctHashes[i] = big.NewInt(int64(0xc0 + i))
+		s.members.RegisterKey(t, spptest.AsBigInt(output.OwnerPkHash), spptest.AsBigInt(output.NullifierPk), s.ctHashes[i])
 	}
-	s.outputKeys = make([]*registry.KeyOpening, len(s.outputs))
-	for i, key := range registered {
-		if key != nil {
-			s.outputKeys[i] = keyOpening(keys, *key)
-		}
-	}
-	s.keyEscrow, s.keyRegistryRoot = true, keys.Root()
-	return keys
-}
-
-func keyOpening(keys *spptest.KeyRegistry, key spptest.RegisteredKey) *registry.KeyOpening {
-	opening := &registry.KeyOpening{Next: key.Next, CtHash: key.CtHash, Index: key.Index}
-	for i, node := range keys.Path(key.Index) {
-		opening.Path[i] = new(big.Int).Set(&node)
-	}
-	return opening
+	s.keyEscrow = true
 }
 
 func TestOutputKeysMustBeEscrowed(t *testing.T) {
 	tests := []struct {
 		name   string
-		change func(*testing.T, *statement)
+		change func(*testing.T, *statement) *CustomRingPolicyCircuit
 		passes bool
 	}{
-		{"registered key beside a keyless dummy output", func(t *testing.T, s *statement) { s.escrowOutputs(t) }, true},
-		{"zero key for a member without a registration", func(t *testing.T, s *statement) {
-			s.outputs[0].NullifierPk = registry.ZeroNullifierPk
-			s.keyEscrow, s.keyRegistryRoot = true, spptest.NewKeyRegistry(t, registry.Height).Root()
-		}, false},
-		{"unregistered key with escrow off", func(*testing.T, *statement) {}, true},
-		{"unregistered key", func(t *testing.T, s *statement) {
+		{"registered key beside a keyless dummy output", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
 			s.escrowOutputs(t)
-			s.outputKeys[0] = nil
+			return s.assignment(t)
+		}, true},
+		{"zero key for a member without a registration", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			s.outputs[0].NullifierPk = spptest.ZeroNullifierPk()
+			s.keyEscrow = true
+			return s.assignment(t)
 		}, false},
-		{"registry root with escrow off", func(t *testing.T, s *statement) {
+		{"unregistered key with escrow off", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			return s.assignment(t)
+		}, true},
+		{"unregistered key", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			s.keyEscrow = true
+			return s.assignment(t)
+		}, false},
+		{"ciphertext of another key", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
 			s.escrowOutputs(t)
-			s.keyEscrow = false
+			s.ctHashes[0] = big.NewInt(0xdd)
+			return s.assignment(t)
 		}, false},
-		{"another owner's leaf", func(t *testing.T, s *statement) {
-			keys := s.escrowOutputs(t)
-			other := keys.Register(t, pkField(t, fill(0x5e)), spptest.AsBigInt(s.outputs[0].NullifierPk), big.NewInt(0xc0))
-			s.keyRegistryRoot = keys.Root()
-			s.outputKeys[0] = keyOpening(keys, other)
+		{"another nullifier key under the registered ciphertext", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			s.escrowOutputs(t)
+			s.outputs[0].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(99))
+			return s.assignment(t)
+		}, false},
+		{"escrow key claimed without a record", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			s.escrowOutputs(t)
+			c := s.assignment(t)
+			c.Subjects[NInputs].Present = big.NewInt(0)
+			return c
+		}, false},
+		{"recipient lists dropped with the key", func(t *testing.T, s *statement) *CustomRingPolicyCircuit {
+			s.escrowOutputs(t)
+			c := s.assignment(t)
+			c.Subjects[NInputs].Lists = big.NewInt(0)
+			return c
 		}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := defaultFixture()
-			s := newStatement(t, f)
-			tt.change(t, s)
-			c := s.assignment(t, f.listFacts)
+			s := newStatement(t, defaultFixture())
+			c := tt.change(t, s)
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {

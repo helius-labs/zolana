@@ -23,7 +23,7 @@ func TestOutflowLimitsAllowDummyInputs(t *testing.T) {
 				s.inputs = append(s.inputs, dummyOpening(t, int64(90+len(s.inputs))))
 			}
 			s.addressChain = spptest.MustNonZeroHashChain(t, spptest.RepeatBigInt(big.NewInt(0), count))
-			if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t, nil), ecc.BN254.ScalarField()); err != nil {
+			if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t), ecc.BN254.ScalarField()); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -35,7 +35,7 @@ func TestPolicyAllowsAddressClaims(t *testing.T) {
 		f.rulesFree = true
 		s := newStatement(t, f)
 		s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0x1234)})
-		if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t, nil), ecc.BN254.ScalarField()); err != nil {
+		if err := test.IsSolved(&CustomRingPolicyCircuit{}, s.assignment(t), ecc.BN254.ScalarField()); err != nil {
 			t.Fatal(err)
 		}
 	}

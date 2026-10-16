@@ -6,7 +6,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 // UtxoWires opens one transaction slot, SPP hashes it under TreeID.
@@ -23,10 +22,10 @@ type UtxoWires struct {
 	RingProgramID frontend.Variable
 }
 
-// OutputWires adds the registry opening of the output owner's nullifier key.
+// OutputWires adds the hash of the owner's escrowed key ciphertext, read only under escrow.
 type OutputWires struct {
 	UtxoWires
-	Key registry.KeyOpening
+	CtHash frontend.Variable
 }
 
 type utxoView struct {
@@ -44,6 +43,11 @@ type transaction struct {
 	inputs  [NInputs]utxoView
 	outputs [NOutputs]utxoView
 	nOut    base.Count
+}
+
+// slots lists the inputs then the outputs, the order Subjects follow.
+func (tx transaction) slots() []utxoView {
+	return append(tx.inputs[:], tx.outputs[:]...)
 }
 
 // constrainTransaction binds the openings to the SPP transaction hash.
@@ -86,16 +90,9 @@ func (w UtxoWires) check(api frontend.API, rc frontend.Rangechecker, active fron
 	}
 }
 
-// The namespace owner holds list entries only, never a transaction slot.
+// The namespace owner administers the ring, it never holds a transaction slot.
 func (c *CustomRingPolicyCircuit) constrainNamespace(api frontend.API, tx transaction) {
-	for _, slot := range append(tx.inputs[:], tx.outputs[:]...) {
+	for _, slot := range tx.slots() {
 		shared.AssertWhen(api, slot.active, base.NonZero(api, api.Sub(slot.owner, c.NamespaceOwnerHash)))
-	}
-}
-
-func (c *CustomRingPolicyCircuit) constrainOutputKeys(api frontend.API, tx transaction) {
-	registry.AssertMode(api, c.KeyEscrow, c.KeyRegistryRoot)
-	for i, output := range tx.outputs {
-		c.Outputs[i].Key.AssertEscrowed(api, api.Mul(output.utxo, c.KeyEscrow), c.KeyRegistryRoot, output.ownerPkHash, output.nullifierPk)
 	}
 }

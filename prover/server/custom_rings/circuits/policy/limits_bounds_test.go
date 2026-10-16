@@ -35,7 +35,7 @@ func TestOutflowLimitBoundsAtU64(t *testing.T) {
 			}
 			s.inputs = s.inputs[:len(tc.inputs)]
 			s.outputs[0].Amount = new(big.Int).SetUint64(tc.inputs[0])
-			assignment := s.assignment(t, nil)
+			assignment := s.assignment(t)
 			if tc.valid {
 				solve(t, testConstraintSystem(t), assignment)
 			} else {

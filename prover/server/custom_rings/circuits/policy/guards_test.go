@@ -33,7 +33,12 @@ func TestAmountGuardGrouping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newStatement(t, defaultFixture())
-			s.rules = []rule{{subject: tt.subject, mode: ModePresent, mask: listMask(listApproval), guardTag: tt.guard, threshold: 2000}}
+			// An asset rule checks the inline allowlist, the guard alone exempts the transfer.
+			mask := listMask(listApproval)
+			if tt.subject == SubjectAsset {
+				mask = 0
+			}
+			s.rules = []rule{{subject: tt.subject, mode: ModePresent, mask: mask, guardTag: tt.guard, threshold: 2000}}
 			second := s.outputs[0]
 			second.OwnerPkHash = new(big.Int).Add(second.OwnerPkHash.(*big.Int), big.NewInt(tt.ownerDelta))
 			second.Asset = new(big.Int).Add(second.Asset.(*big.Int), big.NewInt(tt.assetDelta))
@@ -52,7 +57,7 @@ func TestAmountGuardGrouping(t *testing.T) {
 			} else {
 				s.inlineAssets = nil
 			}
-			c := s.assignment(t, nil)
+			c := s.assignment(t)
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {

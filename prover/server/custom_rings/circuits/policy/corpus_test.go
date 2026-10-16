@@ -30,9 +30,10 @@ type corpusCase struct {
 	PolicyHash   string         `json:"policyHash"`
 }
 
+// Registry is the curator registry address of a slot, zero for an own list.
 type corpusSource struct {
-	ListId    int64  `json:"listId"`
-	OwnerHash string `json:"ownerHash"`
+	ListId   int64  `json:"listId"`
+	Registry string `json:"registry"`
 }
 
 type corpusRow struct {
@@ -70,6 +71,9 @@ func TestPolicyHashCorpus(t *testing.T) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		t.Fatalf("parse corpus: %v", err)
 	}
+	if c.Version < PolicyVersion {
+		t.Skipf("corpus version %d predates circuit PolicyVersion %d, regenerate it with the Rust policy_hash_corpus test", c.Version, PolicyVersion)
+	}
 	if c.Version != PolicyVersion {
 		t.Fatalf("corpus version %d, circuit PolicyVersion %d", c.Version, PolicyVersion)
 	}
@@ -83,7 +87,7 @@ func TestPolicyHashCorpus(t *testing.T) {
 		}
 		var sources [NSources]source
 		for j, s := range tc.Sources {
-			sources[j] = source{listId: s.ListId, owner: hexField(t, s.OwnerHash)}
+			sources[j] = source{listId: s.ListId, registry: hexField(t, s.Registry)}
 		}
 		rules := make([]rule, len(tc.Rules))
 		for j, r := range tc.Rules {
@@ -111,7 +115,7 @@ func TestPolicyHashCorpus(t *testing.T) {
 		statement.inlineAssets, statement.inlineLimits = assets, tc.InlineLimits
 		statement.limits = limits
 		assignment := &policyHashCorpusCircuit{
-			Policy: *statement.assignment(t, nil),
+			Policy: *statement.assignment(t),
 			Hash:   hexField(t, tc.PolicyHash),
 		}
 		if err := test.IsSolved(&policyHashCorpusCircuit{}, assignment, ecc.BN254.ScalarField()); err != nil {

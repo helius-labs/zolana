@@ -54,6 +54,12 @@ func MustNullifierPk(t testing.TB, secret *big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
+// ZeroNullifierPk is Poseidon(0), the nullifier public key of the zero secret.
+func ZeroNullifierPk() *big.Int {
+	value, _ := new(big.Int).SetString("2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c", 16)
+	return value
+}
+
 func MustOwnerHash(t testing.TB, ownerKeyHash, nullifierPk *big.Int) *big.Int {
 	t.Helper()
 	value, err := protocol.OwnerHash(ownerKeyHash, nullifierPk)
@@ -141,6 +147,8 @@ func AsBigInt(value frontend.Variable) *big.Int {
 		return big.NewInt(int64(v))
 	case int64:
 		return big.NewInt(v)
+	case uint64:
+		return new(big.Int).SetUint64(v)
 	default:
 		panic("spptest: unsupported frontend.Variable value type")
 	}

@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
@@ -20,25 +21,27 @@ const (
 )
 
 // Properties: the first Count of 1..8 owner commitments open to (owner hash, blinding) pairs that are AES-CTR
-// encrypted to the X25519 key AuditorPk, padding slots are zero, and escrow puts every owner key in the registry.
+// encrypted to the X25519 key AuditorPk, padding slots are zero, and escrow finds every owner's key in its
+// member record.
 
 type CustomRingDepositCircuit struct {
-	PublicInputHash frontend.Variable `gnark:",public"`
-	ContextHash     frontend.Variable
-	Count           frontend.Variable
-	OwnerPkHashes   [MaxDeposits]frontend.Variable
-	NullifierPks    [MaxDeposits]frontend.Variable
-	Blindings       [MaxDeposits]frontend.Variable
-	EphSk           [32]frontend.Variable
-	AuditorPk       [32]frontend.Variable
-	KeyEscrow       frontend.Variable
-	KeyRegistryRoot frontend.Variable
-	Keys            [MaxDeposits]registry.KeyOpening
+	PublicInputHash    frontend.Variable `gnark:",public"`
+	ContextHash        frontend.Variable
+	Count              frontend.Variable
+	OwnerPkHashes      [MaxDeposits]frontend.Variable
+	NullifierPks       [MaxDeposits]frontend.Variable
+	Blindings          [MaxDeposits]frontend.Variable
+	EphSk              [32]frontend.Variable
+	AuditorPk          [32]frontend.Variable
+	KeyEscrow          frontend.Variable
+	MemberRegistryRoot frontend.Variable
+	CtHashes           [MaxDeposits]frontend.Variable
+	Members            [MaxDeposits]registry.RecordOpening
 }
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	count := base.SelectCount(api, c.Count, 1, MaxDeposits)
-	registry.AssertMode(api, c.KeyEscrow, c.KeyRegistryRoot)
+	registry.AssertMode(api, c.KeyEscrow, c.MemberRegistryRoot)
 	owners := make([]frontend.Variable, MaxDeposits)
 	var plaintext []frontend.Variable
 	for i := range owners {
@@ -46,7 +49,10 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		for _, value := range []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i], c.Blindings[i]} {
 			api.AssertIsEqual(api.Mul(padding, value), 0)
 		}
-		c.Keys[i].AssertEscrowed(api, api.Mul(count.Active[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
+		escrowed := api.Mul(count.Active[i], c.KeyEscrow)
+		c.Members[i].AssertPresent(api, escrowed, c.MemberRegistryRoot, c.OwnerPkHashes[i])
+		key := gadget.PoseidonHash(api, []frontend.Variable{c.NullifierPks[i], c.CtHashes[i]})
+		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: c.Members[i].EscrowKey, B: key})
 		owners[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
 		// The canonical field encoding keeps one plaintext per opening.
 		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, owners[i], 32), ve.FieldToBytesBE(api, c.Blindings[i], 32))
@@ -58,7 +64,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		ciphertext := gadget.HashBytes(api, sealed.Ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])
 		chain = append(chain, api.Mul(count.Active[i], commitment), api.Mul(count.Active[i], ciphertext))
 	}
-	chain = slices.Concat(chain, sealed.Auditor, sealed.Eph, []frontend.Variable{c.KeyEscrow, c.KeyRegistryRoot})
+	chain = slices.Concat(chain, sealed.Auditor, sealed.Eph, []frontend.Variable{c.KeyEscrow, c.MemberRegistryRoot})
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }

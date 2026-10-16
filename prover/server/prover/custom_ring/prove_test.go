@@ -19,9 +19,6 @@ func TestGoldenRequestsProveWithTheInstalledKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, file := range files {
-		if goldenUnsolved[filepath.Base(file)] {
-			continue
-		}
 		t.Run(filepath.Base(file), func(t *testing.T) {
 			payload, err := os.ReadFile(file)
 			if err != nil {

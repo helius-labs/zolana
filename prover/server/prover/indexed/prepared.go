@@ -12,8 +12,6 @@ import (
 )
 
 type inputTarget struct {
-	fill                  func(state *stateProof, exclusion nullifierProof)
-	disabled              bool
 	slot, nullifier       *big.Int
 	dummy, cached         bool
 	state, exclusion      *[]*big.Int
@@ -158,10 +156,6 @@ func decodePrepared(request Request) (*preparedProof, error) {
 }
 
 func (input inputTarget) apply(state *stateProof, exclusion nullifierProof) {
-	if input.fill != nil {
-		input.fill(state, exclusion)
-		return
-	}
 	if state == nil {
 		*input.state = make([]*big.Int, 32)
 		for index := range *input.state {

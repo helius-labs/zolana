@@ -19,7 +19,7 @@ func policyCircuit(circuit common.CircuitType) bool {
 	}
 }
 
-// decodePolicy reads a policy request without the roots, paths and output keys the indexer supplies.
+// decodePolicy reads a policy request without the roots, member openings and ciphertext hashes the indexer supplies.
 func decodePolicy(request Request) (*preparedProof, error) {
 	var value any
 	var p *ring.PolicyParams
@@ -36,10 +36,10 @@ func decodePolicy(request Request) (*preparedProof, error) {
 	if p.TreeSlots != nil || p.PublicInputHash.Int != nil {
 		return nil, fmt.Errorf("prepared policy contains resolved roots")
 	}
-	if len(p.ListFacts) != policy.NListFacts || len(request.Inputs) != len(p.ListFacts) {
-		return nil, fmt.Errorf("invalid prepared fact count")
+	if len(request.Inputs) != 0 {
+		return nil, fmt.Errorf("policy requests carry no input lookups")
 	}
-	if err := prepareRegistry(p, request.Registry); err != nil {
+	if err := prepareRegistries(p, request); err != nil {
 		return nil, err
 	}
 	for _, tree := range request.Trees {
@@ -58,48 +58,15 @@ func decodePolicy(request Request) (*preparedProof, error) {
 	for i := range p.TreeSlots {
 		p.TreeSlots[i] = common.TreeSlotParams{ID: new(big.Int), UtxoRoot: new(big.Int), NullifierRoot: new(big.Int)}
 	}
-	inputs := make([]inputTarget, len(p.ListFacts))
-	for i := range p.ListFacts {
-		fact, lookup := &p.ListFacts[i], request.Inputs[i]
-		if fact.NullifierLowPathElements != nil || fact.StatePathElements != nil || fact.NullifierLowPathIndex != 0 || fact.StatePathIndex != 0 || fact.NullifierLowValue.Int != nil || fact.NullifierNextValue.Int != nil {
-			return nil, fmt.Errorf("prepared policy contains proof data")
-		}
-		cleared := fact.AbsentBranch == policy.AbsentBranchCleared
-		if int(lookup.TreeSlot) >= len(request.Trees) || fact.TreeSlot != lookup.TreeSlot || fact.Enabled != (lookup.Nullifier != nil) || (fact.Enabled && cleared != (lookup.Commitment != nil)) || (!fact.Enabled && lookup.Commitment != nil) {
-			return nil, fmt.Errorf("policy lookup mismatch")
-		}
-		fact.NullifierLowPathElements, fact.StatePathElements = zeroFields(shared.NullifierTreeHeight), zeroFields(shared.StateTreeHeight)
-		fact.NullifierLowValue, fact.NullifierNextValue = ring.Field{Int: new(big.Int)}, ring.Field{Int: new(big.Int)}
-		nullifier := new(big.Int)
-		if lookup.Nullifier != nil {
-			var err error
-			if nullifier, err = lookup.Nullifier.field(); err != nil {
-				return nil, err
-			}
-		}
-		inputs[i] = inputTarget{slot: big.NewInt(int64(lookup.TreeSlot)), nullifier: nullifier, cached: lookup.Commitment == nil, disabled: !fact.Enabled,
-			fill: func(state *stateProof, exclusion nullifierProof) {
-				if state != nil {
-					fact.StatePathElements, fact.StatePathIndex = hashFields(state.Path), state.LeafIndex
-				}
-				fact.NullifierLowPathElements, fact.NullifierLowPathIndex = hashFields(exclusion.Path), exclusion.LowElementIndex
-				fact.NullifierLowValue = ring.Field{Int: new(big.Int).SetBytes(exclusion.LowElement[:])}
-				fact.NullifierNextValue = ring.Field{Int: new(big.Int).SetBytes(exclusion.HighElement[:])}
-			}}
-	}
 	if _, err := ring.Assign(request.CircuitType, value); err != nil {
 		return nil, fmt.Errorf("invalid prepared policy: %w", err)
 	}
-	return &preparedProof{value: value, inputs: inputs, slots: (*[]common.TreeSlotParams)(&p.TreeSlots), hash: &p.PublicInputHash.Int, policy: true, registry: p}, nil
+	return &preparedProof{value: value, slots: (*[]common.TreeSlotParams)(&p.TreeSlots), hash: &p.PublicInputHash.Int, policy: true, registry: p}, nil
 }
 
 func canonical(value *big.Int) bool {
 	_, err := hashField(value)
 	return err == nil
-}
-
-func zeroFields(n int) []ring.Field {
-	return hashFields(make([]Hash, n))
 }
 
 func hashFields(hashes []Hash) []ring.Field {
@@ -108,4 +75,27 @@ func hashFields(hashes []Hash) []ring.Field {
 		out[i] = ring.Field{Int: new(big.Int).SetBytes(hash[:])}
 	}
 	return out
+}
+
+// liveSubjects lists the slots whose owner the indexer opens, inputs first as the circuit orders them.
+func liveSubjects(p *ring.PolicyParams) []int {
+	var live []int
+	for i, input := range p.Inputs {
+		if i < int(p.NIn) && input.Domain.Int != nil && input.Domain.Cmp(big.NewInt(shared.UtxoDomain)) == 0 {
+			live = append(live, i)
+		}
+	}
+	for o, output := range p.Outputs {
+		if o < int(p.NOut) && output.Domain.Int != nil && output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) == 0 {
+			live = append(live, policy.NInputs+o)
+		}
+	}
+	return live
+}
+
+func subjectOpening(p *ring.PolicyParams, slot int) *ring.Opening {
+	if slot < policy.NInputs {
+		return &p.Inputs[slot]
+	}
+	return &p.Outputs[slot-policy.NInputs].Opening
 }
