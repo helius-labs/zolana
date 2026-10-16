@@ -38,12 +38,12 @@ impl Placeholder for PrivateValue {
 }
 
 #[test]
-fn a_private_variable_cannot_be_read_as_a_public_hash() {
+fn a_private_variable_is_not_a_public_input() {
     let assignment = PrivateValue(7).proof_inputs().unwrap();
-    assert!(assignment.public_hash().is_err());
+    assert_eq!(assignment.public_inputs().unwrap(), Vec::<[u8; 32]>::new());
     let bytes = assignment.to_bytes().unwrap();
     let imported = ProofInputs::from_bytes(&bytes).unwrap();
-    assert!(imported.public_hash().is_err());
+    assert!(imported.public_inputs().is_err());
     assert_eq!(imported.to_bytes().unwrap(), bytes);
 }
 

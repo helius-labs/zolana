@@ -508,7 +508,9 @@ A feature may gate it later.
   zkey import and verifier export. `compression` exposes the on-chain compressed-account
   helpers, and `verifier` exposes proof verification. `client` includes encryption;
   `parallel` enables parallel proving. `serde`, `tsify` and the `wasm` feature family
-  support serialization and browser use. `protocol-instructions`, `cpi`, `r1cs-export`
+  support serialization and browser use; the prover classes, `verifyProof` and the proof
+  types are the zk DSL's wasm runtime, which these features forward to. `build` exposes the
+  circuit crate build (`zolana_program::build`). `protocol-instructions`, `cpi`, `r1cs-export`
   and `external-tools` gate their respective builders, exports and test tools. The full
   feature dependency list is in `Cargo.toml`.
 - The client-type derives generate the circuit forms and conversion/hash impls. Logic

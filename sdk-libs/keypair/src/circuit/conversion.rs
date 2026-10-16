@@ -5,7 +5,7 @@ use zolana_hasher::primitives::SOLANA_OWNER_TAG;
 use zolana_zk_dsl::{
     circuit::{Bool, VariableRole},
     conversion::{byte_value, field, Allocator, FromCircuit, Placeholder, ProofInput},
-    Bytes, CircuitError,
+    Bytes, CircuitError, PublicField, PublicFieldKind, PublicHashField,
 };
 
 use super::OwnerCircuitErrorKind;
@@ -105,3 +105,20 @@ impl Placeholder for client::Owner {
         })
     }
 }
+
+/// A ZK program binds an owner through its 32-byte hash.
+impl PublicField for ShieldedAddress {
+    fn kind() -> PublicFieldKind {
+        PublicFieldKind::Hash
+    }
+}
+
+impl PublicHashField for ShieldedAddress {}
+
+impl PublicField for client::Owner {
+    fn kind() -> PublicFieldKind {
+        PublicFieldKind::Hash
+    }
+}
+
+impl PublicHashField for client::Owner {}

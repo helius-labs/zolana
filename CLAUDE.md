@@ -105,13 +105,17 @@ sdk-libs/
 zk/
   dsl/                 -- zolana-zk-dsl: circuit DSL, proof input conversion,
                           errors, Groth16 prover, CompressedProof (no_std without
-                          features)
+                          features); feature `verifier` (no_std on-chain
+                          verifier), `wasm`/`wasm-prover`/`wasm-threads`/
+                          `wasm-verify` (the wasm runtime), `build` (the
+                          circuit crate build `zolana zk` wraps)
   gadgets/             -- zolana-zk-gadgets: poseidon, hash chains, membership,
                           indexing, byte hashing
   macros/              -- zolana-zk-macros: CircuitType, ProofInput, ErrorName
   macros-core/         -- expansion logic shared with zolana-macros
   test-harness/        -- unit-test harness, included by #[path] into test crates
-  tests/standalone/    -- a circuit on the zk crates alone
+  tests/standalone/    -- circuits on the zk crates alone and the SBF program
+                          verifying them (litesvm test: sdk-tests/zk-tests)
 
 cli/                   -- root Zolana developer/operator CLI
 forester/              -- forester skeleton

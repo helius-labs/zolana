@@ -31,26 +31,38 @@ pub mod hasher;
 pub mod testing;
 #[cfg(feature = "verifier")]
 pub mod verifier;
-#[cfg(feature = "circuit")]
-mod verifier_glue;
+// Build-time codegen: only the r1cs export hook and its tests render verifiers.
+#[cfg(feature = "setup")]
+mod verifier_codegen;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
 #[cfg(feature = "circuit")]
 pub use client::{
-    Bytes, DataUtxo, Owner, ProgramOwner, PublicField, PublicFieldKind, PublicInputLayout,
-    TxContext,
+    Bytes, DataUtxo, Owner, ProgramOwner, PublicField, PublicFieldKind, PublicHashField,
+    PublicInputLayout, TxContext,
 };
 #[cfg(feature = "client")]
-pub use client::{ProgramTransaction, PublicHashCircuit, ZkCircuit, ZkProgram};
+pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};
 #[cfg(feature = "circuit")]
 pub use error::{ClientError, ClientErrorKind, ProtocolCircuitErrorKind, SlotKind};
 #[cfg(feature = "circuit")]
 pub use zolana_keypair::circuit::OwnerCircuitErrorKind;
 #[cfg(feature = "circuit")]
 pub use zolana_macros::ZkProgram;
+// The gates of the ZkCircuit derive, on the zk DSL's features, which this
+// crate's features forward.
+#[cfg(feature = "circuit")]
+#[doc(hidden)]
+pub use zolana_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
+// The derive alone; with `client`, `zolana_zk_dsl::ZkCircuit` brings the
+// derive and the trait of the same name.
 #[cfg(feature = "circuit")]
 pub use zolana_transaction::circuit::UtxoCircuitErrorKind;
+#[cfg(feature = "build")]
+pub use zolana_zk_dsl::build;
+#[cfg(all(feature = "circuit", not(feature = "client")))]
+pub use zolana_zk_dsl::circuit::ZkCircuit;
 pub use zolana_zk_dsl::CompressedProof;
 #[cfg(feature = "setup")]
 pub use zolana_zk_dsl::R1cs;

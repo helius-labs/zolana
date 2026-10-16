@@ -105,16 +105,16 @@ fn a_program_using_an_external_gadget_proves_and_verifies() {
                 .iter()
                 .map(|output| (output.owner_address, output.asset, output.amount))
                 .collect::<Vec<_>>(),
-            result.public_hash,
+            result.public_inputs,
         ),
         (
             Vec::<FreeVariable>::new(),
             vec![(Some(recipient), Mint::SOL, SWEPT), (None, Mint::SOL, 0)],
-            Poseidon::hashv(&[
+            vec![Poseidon::hashv(&[
                 field_bytes(&Field::from(4u64)).as_slice(),
                 private_tx_hash.as_slice(),
             ])
-            .expect("public hash"),
+            .expect("public hash")],
         )
     );
 }

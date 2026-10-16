@@ -16,6 +16,8 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 #[cfg(feature = "setup")]
 pub use groth16_solana::vk::setup::SetupKind;
 
+#[cfg(feature = "client")]
+use super::proof_inputs::public_inputs;
 #[cfg(feature = "setup")]
 use super::r1cs::R1cs;
 #[cfg(feature = "client")]
@@ -27,7 +29,7 @@ use super::{
 };
 use crate::{conversion::be_bytes, ProverError, ProverErrorKind};
 #[cfg(feature = "client")]
-use crate::{CompressedProof, PublicHashCircuit};
+use crate::{CompressedProof, ZkCircuit};
 
 pub type ProvingKey = ark_groth16::ProvingKey<Bn254>;
 pub type VerifyingKey = ark_groth16::VerifyingKey<Bn254>;
@@ -141,12 +143,12 @@ impl Groth16Keys {
     }
 
     #[cfg(feature = "client")]
-    pub fn from_zkey_bytes<P: PublicHashCircuit>(bytes: &[u8]) -> Result<Self, ProverError> {
+    pub fn from_zkey_bytes<P: ZkCircuit + 'static>(bytes: &[u8]) -> Result<Self, ProverError> {
         Self::from_zkey_for(bytes, circuit_matrices::<P>()?.matrices())
     }
 
     #[cfg(all(feature = "client", not(target_arch = "wasm32")))]
-    pub fn load_zkey<P: PublicHashCircuit>(path: &Path) -> Result<Self, ProverError> {
+    pub fn load_zkey<P: ZkCircuit + 'static>(path: &Path) -> Result<Self, ProverError> {
         Self::from_zkey_bytes::<P>(&std::fs::read(path).map_err(|error| key_file(path, error))?)
     }
 
@@ -298,18 +300,60 @@ impl SolanaProof {
     pub fn verify(
         &self,
         verifying_key: &SolanaVerifyingKey,
-        public_input_hash: [u8; 32],
+        public_inputs: &[[u8; 32]],
     ) -> Result<(), ProverError> {
-        use groth16_solana::groth16::Groth16Verifier;
-
-        let public_inputs = [public_input_hash];
-        let verifying_key = Groth16Verifyingkey::from(verifying_key);
-        Ok(
-            Groth16Verifier::new(&self.a, &self.b, &self.c, &public_inputs, &verifying_key)
-                .and_then(|mut verifier| verifier.verify())
-                .map_err(|_| ProverErrorKind::ProofRejected)?,
+        verify_groth16(
+            self,
+            public_inputs,
+            &Groth16Verifyingkey::from(verifying_key),
         )
     }
+}
+
+/// The most public inputs a proof verified off-chain may carry. The
+/// groth16-solana verifier takes its input count as a const generic, so each
+/// count up to this bound is one monomorphized instance.
+#[cfg(feature = "client")]
+pub const MAX_PUBLIC_INPUTS: usize = 32;
+
+/// Verifies an uncompressed proof whose public input count is only known at
+/// run time, such as one handed in from JavaScript.
+#[cfg(feature = "client")]
+pub(crate) fn verify_groth16(
+    proof: &SolanaProof,
+    public_inputs: &[[u8; 32]],
+    verifying_key: &Groth16Verifyingkey,
+) -> Result<(), ProverError> {
+    macro_rules! dispatch {
+        ($($count:literal)*) => {
+            match public_inputs.len() {
+                $($count => verify_count::<$count>(proof, public_inputs, verifying_key),)*
+                count => Err(ProverErrorKind::TooManyPublicInputs {
+                    count,
+                    max: MAX_PUBLIC_INPUTS,
+                }
+                .into()),
+            }
+        };
+    }
+    dispatch!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32)
+}
+
+#[cfg(feature = "client")]
+fn verify_count<const N: usize>(
+    proof: &SolanaProof,
+    public_inputs: &[[u8; 32]],
+    verifying_key: &Groth16Verifyingkey,
+) -> Result<(), ProverError> {
+    use groth16_solana::groth16::Groth16Verifier;
+
+    let public_inputs = <&[[u8; 32]; N]>::try_from(public_inputs)
+        .map_err(|_| ProverErrorKind::WrongPublicInputCount)?;
+    Ok(
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, public_inputs, verifying_key)
+            .and_then(|mut verifier| verifier.verify())
+            .map_err(|_| ProverErrorKind::ProofRejected)?,
+    )
 }
 
 #[cfg(feature = "client")]
@@ -335,7 +379,7 @@ impl CompressedProof {
     pub fn verify(
         &self,
         verifying_key: &SolanaVerifyingKey,
-        public_hash: [u8; 32],
+        public_inputs: &[[u8; 32]],
     ) -> Result<(), ProverError> {
         use solana_bn254::compression::prelude::{
             alt_bn128_g1_decompress_be, alt_bn128_g2_decompress_be,
@@ -347,15 +391,16 @@ impl CompressedProof {
             b: alt_bn128_g2_decompress_be(&self.b).map_err(invalid)?,
             c: alt_bn128_g1_decompress_be(&self.c).map_err(invalid)?,
         }
-        .verify(verifying_key, public_hash)
+        .verify(verifying_key, public_inputs)
     }
 }
 
 #[cfg(feature = "client")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProofResult {
     pub proof: SolanaProof,
-    pub public_hash: [u8; 32],
+    /// The proof's public inputs in order, as 32-byte big-endian values.
+    pub public_inputs: Vec<[u8; 32]>,
 }
 
 #[cfg(feature = "client")]
@@ -373,7 +418,7 @@ pub struct Groth16Prover<P> {
 }
 
 #[cfg(feature = "client")]
-impl<P: PublicHashCircuit> Groth16Prover<P> {
+impl<P: ZkCircuit + 'static> Groth16Prover<P> {
     pub fn new(keys: Groth16Keys) -> Result<Self, ProverError> {
         Self::with_matrices(keys, circuit_matrices::<P>()?)
     }
@@ -427,22 +472,20 @@ impl<P: PublicHashCircuit> Groth16Prover<P> {
             self.matrices.matrices(),
             assignment,
         )?);
-        // The program matrices establish one public input and `check` above
-        // validates the assignment against them. WTNS alone has no such layout.
-        let public_hash =
-            assignment
-                .get(1)
-                .map(be_bytes)
-                .ok_or(ProverErrorKind::InvalidProofInputs(
-                    "the values hold no public hash",
-                ))?;
-        proof.verify(&self.keys.verifying_key, public_hash)?;
-        Ok(ProofResult { proof, public_hash })
+        // The circuit matrices establish the public input count and `check`
+        // above validates the assignment against them. WTNS alone has no such
+        // layout.
+        let public_inputs = public_inputs(assignment, self.matrices.public_inputs())?;
+        proof.verify(&self.keys.verifying_key, &public_inputs)?;
+        Ok(ProofResult {
+            proof,
+            public_inputs,
+        })
     }
 
     pub fn verify(&self, result: &ProofResult) -> Result<(), ProverError> {
         CompressedProof::try_from(&result.proof)?
-            .verify(&self.keys.verifying_key, result.public_hash)
+            .verify(&self.keys.verifying_key, &result.public_inputs)
     }
 }
 
@@ -450,7 +493,7 @@ impl<P: PublicHashCircuit> Groth16Prover<P> {
 const TEST_SETUP_SEED: u64 = 0;
 
 #[cfg(feature = "client")]
-fn circuit_matrices<P: PublicHashCircuit>() -> Result<Arc<CircuitMatrices>, ProverError> {
+fn circuit_matrices<P: ZkCircuit + 'static>() -> Result<Arc<CircuitMatrices>, ProverError> {
     use std::{any::TypeId, collections::HashMap, sync::OnceLock};
 
     // The matrices are deterministic per circuit, so synthesize them once

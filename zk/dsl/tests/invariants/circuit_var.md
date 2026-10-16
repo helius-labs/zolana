@@ -3,7 +3,7 @@
 Covers the `CircuitVar` operators and constants of `src/circuit/builtins/field/var.rs`,
 the methods of `src/circuit/builtins/field/arithmetic.rs` and the bit methods of
 `src/circuit/builtins/field/bits.rs`, one section per operation, each extracted by
-running [`PROMPT.md`](../../../sdk-libs/program/invariants/PROMPT.md). The tests live in `tests/unit/circuit_var/<op>/`; the
+running [`PROMPT.md`](../../../../sdk-libs/program/tests/invariants/PROMPT.md). The tests live in `tests/unit/circuit_var/<op>/`; the
 constants (`INV-CV-CONST`) are covered from `tests/unit/circuit_var/neg/constants.rs`,
 since negation is `zero().minus(..)`. Invariants every builtin shares live in
 `cross-cutting.md`.

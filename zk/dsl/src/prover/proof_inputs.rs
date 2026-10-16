@@ -32,7 +32,7 @@ impl ProofInputs {
     }
 
     /// Reads a WTNS assignment. WTNS does not record the public-input count;
-    /// obtain its public hash from a prover's verified `ProofResult` instead.
+    /// obtain its public inputs from a prover's verified `ProofResult` instead.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ProverError> {
         Self::new(snarkjs::read_wtns(bytes)?)
     }
@@ -41,25 +41,31 @@ impl ProofInputs {
         snarkjs::wtns(&self.values)
     }
 
-    /// Returns the hash only when synthesis established exactly one public
-    /// input. Raw WTNS assignments and circuits without public inputs reject it.
-    pub fn public_hash(&self) -> Result<[u8; 32], ProverError> {
-        if self.public_inputs != Some(1) {
-            return Err(ProverErrorKind::InvalidProofInputs(
-                "the assignment has no established single public hash",
-            )
-            .into());
-        }
-        Ok(self
-            .values
-            .get(1)
-            .map(be_bytes)
+    /// Returns the public inputs in proof order, only when synthesis
+    /// established their count. Raw WTNS assignments reject it.
+    pub fn public_inputs(&self) -> Result<Vec<[u8; 32]>, ProverError> {
+        let count = self
+            .public_inputs
             .ok_or(ProverErrorKind::InvalidProofInputs(
-                "the values hold no public hash",
-            ))?)
+                "the assignment has no established public input count",
+            ))?;
+        public_inputs(&self.values, count)
     }
 
     pub(crate) fn values(&self) -> &[Fr] {
         &self.values
     }
+}
+
+/// The `count` public inputs of an assignment: the values after the constant
+/// one, as 32-byte big-endian field elements.
+pub(crate) fn public_inputs(values: &[Fr], count: usize) -> Result<Vec<[u8; 32]>, ProverError> {
+    Ok(values
+        .get(1..=count)
+        .ok_or(ProverErrorKind::InvalidProofInputs(
+            "the values hold fewer public inputs than the circuit",
+        ))?
+        .iter()
+        .map(be_bytes)
+        .collect())
 }

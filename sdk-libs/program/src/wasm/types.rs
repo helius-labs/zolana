@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use solana_address::Address;
 use tsify::Tsify;
 use zolana_interface::instruction::instruction_data::transact::OwnerTag as TransactOwnerTag;
@@ -11,7 +11,7 @@ use zolana_transaction::{
 
 use wasm_bindgen::JsValue;
 
-use crate::{ClientError, ClientErrorKind, ProofResult, ProverError};
+use crate::{ClientError, ClientErrorKind};
 
 #[derive(Serialize, Tsify)]
 #[serde(rename_all = "camelCase")]
@@ -147,61 +147,4 @@ pub enum OwnerTag {
     Account {
         index: u8,
     },
-}
-
-#[derive(Serialize, Deserialize, Tsify)]
-#[serde(rename_all = "camelCase")]
-pub struct ProgramProof {
-    pub proof: Groth16Proof,
-    pub compressed_proof: CompressedGroth16Proof,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub public_hash: [u8; 32],
-}
-
-impl TryFrom<&ProofResult> for ProgramProof {
-    type Error = ProverError;
-
-    fn try_from(result: &ProofResult) -> Result<Self, ProverError> {
-        let compressed = result.compressed()?;
-        Ok(Self {
-            proof: Groth16Proof {
-                a: result.proof.a,
-                b: result.proof.b,
-                c: result.proof.c,
-            },
-            compressed_proof: CompressedGroth16Proof {
-                a: compressed.a,
-                b: compressed.b,
-                c: compressed.c,
-            },
-            public_hash: result.public_hash,
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize, Tsify)]
-pub struct Groth16Proof {
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub a: [u8; 64],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub b: [u8; 128],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub c: [u8; 64],
-}
-
-#[derive(Serialize, Deserialize, Tsify)]
-pub struct CompressedGroth16Proof {
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub a: [u8; 32],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub b: [u8; 64],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub c: [u8; 32],
 }

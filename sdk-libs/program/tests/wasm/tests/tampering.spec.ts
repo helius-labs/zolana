@@ -25,7 +25,9 @@ test("a proof with A and C swapped in either form, or checked against another pu
       };
       const otherHash = {
         ...proof,
-        publicHash: proof.publicHash.map((byte, index) => (index === 31 ? byte ^ 1 : byte)),
+        publicInputs: proof.publicInputs.map((input) =>
+          input.map((byte, index) => (index === 31 ? byte ^ 1 : byte)),
+        ),
       };
       return {
         valid: await window.zkProgram.verify(data.verifyingKey, proof),

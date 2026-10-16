@@ -282,13 +282,13 @@ fn unique_counter_create_prove_and_verify() {
         (
             to_bytes(checked.private_tx_hash()).expect("private tx hash"),
             to_bytes(checked.public_hash()).expect("public hash"),
-            result.public_hash,
+            result.public_inputs,
             create
                 .create_finalized_transaction(&viewer, payer)
                 .map(|_| ())
                 .map_err(|error| error.name()),
         ),
-        (private_tx_hash, public_hash, public_hash, Ok(()),)
+        (private_tx_hash, public_hash, vec![public_hash], Ok(()),)
     );
 }
 

@@ -1,17 +1,13 @@
-pub use groth16_solana;
-use groth16_solana::{
-    decompression::{decompress_g1, decompress_g2},
-    groth16::{Groth16Verifier, Groth16Verifyingkey},
-};
+//! On-chain verification of a ZK program proof. A program's public inputs hash
+//! into its one public input, the public hash; the Groth16 verification itself
+//! is the zk DSL's.
+
+use groth16_solana::groth16::Groth16Verifyingkey;
 use zolana_hasher::{Hasher, Poseidon};
+use zolana_zk_dsl::verifier::{boolean, integer};
+pub use zolana_zk_dsl::verifier::{groth16_solana, VerifyError};
 
 const MAX_HASH_INPUTS: usize = 12;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VerifyError {
-    PublicInputs,
-    Proof,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field<'a> {
@@ -24,8 +20,8 @@ pub enum Field<'a> {
 impl Field<'_> {
     fn value(&self) -> Result<[u8; 32], VerifyError> {
         match self {
-            Field::Integer(value) => Ok(right_aligned(*value)),
-            Field::Bool(value) => Ok(right_aligned(u128::from(*value))),
+            Field::Integer(value) => Ok(integer(*value)),
+            Field::Bool(value) => Ok(boolean(*value)),
             Field::Hash(hash) => Ok(**hash),
             Field::Array(items) => poseidon(items.iter().map(Field::value)),
         }
@@ -41,31 +37,13 @@ pub fn public_hash(fields: &[Field], private_tx_hash: &[u8; 32]) -> Result<[u8; 
     )
 }
 
-#[inline(never)]
+/// Verifies a ZK program proof, whose one public input is its public hash.
 pub fn verify_groth16(
     proof: &crate::CompressedProof,
     public_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
 ) -> Result<(), VerifyError> {
-    if verifying_key.vk_commitment.is_some() {
-        return Err(VerifyError::Proof);
-    }
-    let a = decompress_g1(&proof.a).map_err(|_| VerifyError::Proof)?;
-    let b = decompress_g2(&proof.b).map_err(|_| VerifyError::Proof)?;
-    let c = decompress_g1(&proof.c).map_err(|_| VerifyError::Proof)?;
-    let public_inputs = [public_hash];
-    Groth16Verifier::new(&a, &b, &c, &public_inputs, verifying_key)
-        .map_err(|_| VerifyError::Proof)?
-        .verify()
-        .map_err(|_| VerifyError::Proof)
-}
-
-fn right_aligned(value: u128) -> [u8; 32] {
-    let mut bytes = [0u8; 32];
-    for (target, source) in bytes.iter_mut().rev().zip(value.to_le_bytes()) {
-        *target = source;
-    }
-    bytes
+    zolana_zk_dsl::verifier::verify_groth16(proof, &[public_hash], verifying_key)
 }
 
 fn poseidon(

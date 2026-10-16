@@ -105,11 +105,11 @@ pub fn native_circuit<F: ZkCircuit>(fixture: &F) -> Result<F::Circuit, Refusal> 
     outcome(fixture.instantiate(&Allocator::native()))
 }
 
-pub fn native<F: ZkCircuit<Circuit: Circuit<Output = ()>>>(fixture: &F) -> Result<(), Refusal> {
+pub fn native<F: ZkCircuit>(fixture: &F) -> Result<(), Refusal> {
     outcome(
         fixture
             .instantiate(&Allocator::native())
-            .and_then(|circuit| circuit.circuit()),
+            .and_then(|circuit| circuit.circuit().map(drop)),
     )
 }
 

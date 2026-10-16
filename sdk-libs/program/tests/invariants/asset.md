@@ -50,7 +50,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/native.rs` `every_mint_hashes_to_the_native_hash_bytes_of_its_32_bytes`; `tests/unit/protocol/asset/native.rs` `every_mint_holds_natively_with_its_native_hash`
   - Kind: semantics
   - Statement: for every mint vector, `DataHash::hash` of the asset is exactly `Asset::hash`, and the `AssetDataHash` fixture holds natively with the native hash.
-  - Location: `src/circuit/protocol/utxo/data.rs:59-63` (`impl DataHash for Asset`)
+  - Location: `src/circuit/utxo/data.rs:59-63` (`impl DataHash for Asset`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/asset/native.rs`
 

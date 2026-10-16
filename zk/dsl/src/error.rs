@@ -278,8 +278,10 @@ pub enum ProverErrorKind {
     ConstraintsDiffer(Box<FailedConstraint>),
     #[error("the circuit reads a value while its shape is built")]
     ReadsValueDuringSetup,
-    #[error("a circuit has exactly one public input, its public hash")]
+    #[error("the circuit allocates another number of public inputs than its output binds")]
     WrongPublicInputCount,
+    #[error("a proof has {count} public inputs; the verifier takes at most {max}")]
+    TooManyPublicInputs { count: usize, max: usize },
     #[error("the circuit has no private variable {0}")]
     NoSuchVariable(usize),
     #[error("the proof does not verify under these keys")]
@@ -326,6 +328,12 @@ pub enum ProverErrorKind {
     InvalidProofInputs(&'static str),
     #[error("a proof input is too large for a circuit value")]
     ProofInputTooLarge,
+    #[cfg(feature = "wasm")]
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+    #[cfg(feature = "wasm")]
+    #[error("a result cannot be converted to a JavaScript value: {0}")]
+    JavaScriptConversion(String),
     #[error("{0}")]
     ExportTooLarge(&'static str),
     #[error("{0}")]

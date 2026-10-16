@@ -10,7 +10,7 @@ help: the trait `PublicHashOutput` is not implemented for `CustomOutput`
 5 | struct CustomOutput;
   | ^^^^^^^^^^^^^^^^^^^
 help: the trait `PublicHashOutput` is implemented for `CheckedTransaction`
- --> $WORKSPACE/sdk-libs/program/src/circuit/protocol/transaction.rs
+ --> $WORKSPACE/sdk-libs/program/src/circuit/transaction.rs
   |
   | impl PublicHashOutput for CheckedTransaction {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -24,3 +24,4 @@ note: required by a bound in `CircuitOutput`
   = help: the following types implement the trait:
             T
             ()
+            zolana_zk_dsl::circuit::output::Public<T>

@@ -4,7 +4,7 @@ pub mod types;
 
 pub use field::{
     bits::from_bits_le,
-    var::{constant, value, zero, CircuitSystem, CircuitVar, ConstraintSystem, Field},
+    var::{constant, system_of, value, zero, CircuitSystem, CircuitVar, ConstraintSystem, Field},
 };
 pub use ops::{assert::Assert, select::Select};
 pub use types::{

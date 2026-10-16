@@ -39,7 +39,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
                     #wasm::program_transaction::<super::#ident>(inputs, sender, payer)
                 }
 
-                ::zolana_program::__zk_program_wasm_prover!(#prover, super::#ident);
+                ::zolana_program::__zk_circuit_wasm_prover!(#prover, super::#ident);
             }
         }
     }

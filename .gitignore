@@ -31,6 +31,8 @@ experiments
 docs/spec.pdf
 docs/squads_policy_program.pdf
 build
+# The zk DSL's build module is source, not build output.
+!/zk/dsl/src/build/
 target-linux-x64/
 
 # `just coverage` / the CI coverage job write these at the repo root.

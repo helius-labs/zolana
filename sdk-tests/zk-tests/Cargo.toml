@@ -1,0 +1,21 @@
+[package]
+name = "zk-tests"
+version = "0.1.0"
+description = "Verifies a standalone circuit's proof in its Solana program: the zk DSL fixture's SBF build, run in litesvm."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+litesvm = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signer = { workspace = true }
+# The one implementation of the v1 header budget, so the test sends what the
+# SDK sends.
+zolana-client = { workspace = true }
+zolana-zk-dsl = { workspace = true, features = ["client", "setup"] }
+zolana-zk-standalone-fixture = { path = "../../zk/tests/standalone", features = ["circuits"] }

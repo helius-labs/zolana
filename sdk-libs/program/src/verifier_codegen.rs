@@ -1,3 +1,5 @@
+use zolana_zk_dsl::__private::{binding_base, rust_type};
+
 use crate::PublicFieldKind;
 
 const HASH_SIGNATURE: &str = "impl PublicInputs {
@@ -32,8 +34,9 @@ pub fn render_verifier(name: &str, layout: &[(&str, PublicFieldKind)]) -> String
             PublicFieldKind::Integer { .. } => integer(&format!("self.{field}")),
             PublicFieldKind::Bool => boolean(&format!("self.{field}")),
             PublicFieldKind::Hash => hash(&format!("&self.{field}")),
+            PublicFieldKind::Bytes { .. } => unsupported_bytes(),
             PublicFieldKind::Array { len, item } => {
-                let base = field.strip_prefix("r#").unwrap_or(field);
+                let base = binding_base(field);
                 let mut next = 0usize;
                 let (pattern, expression) = array_binding(*len, item, base, &mut next);
                 text.push_str(&format!("        let {pattern} = &self.{field};\n"));
@@ -48,15 +51,6 @@ pub fn render_verifier(name: &str, layout: &[(&str, PublicFieldKind)]) -> String
     ));
     text.push_str(VERIFY);
     text
-}
-
-fn rust_type(kind: &PublicFieldKind) -> String {
-    match kind {
-        PublicFieldKind::Integer { bits } => format!("u{bits}"),
-        PublicFieldKind::Bool => "bool".to_string(),
-        PublicFieldKind::Hash => "[u8; 32]".to_string(),
-        PublicFieldKind::Array { len, item } => format!("[{}; {len}]", rust_type(item)),
-    }
 }
 
 fn array_binding(
@@ -83,6 +77,7 @@ fn array_binding(
                 let expression = hash(&binding);
                 (binding, expression)
             }
+            PublicFieldKind::Bytes { .. } => (element_binding(base, next), unsupported_bytes()),
         })
         .unzip();
     (
@@ -107,4 +102,13 @@ fn boolean(value: &str) -> String {
 
 fn hash(value: &str) -> String {
     format!("Field::Hash({value})")
+}
+
+/// A program's public inputs hash into one value on-chain, and that hash has no
+/// encoding for packed bytes. The derive keeps them out through
+/// `PublicHashField`; a layout that has them anyway renders a module that
+/// refuses to compile.
+fn unsupported_bytes() -> String {
+    "compile_error!(\"a ZK program public input cannot be packed bytes; use [u8; 32] or a hash\")"
+        .to_string()
 }

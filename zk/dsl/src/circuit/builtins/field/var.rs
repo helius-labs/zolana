@@ -160,7 +160,9 @@ pub fn value(var: &CircuitVar) -> Result<Field, CircuitError> {
     Ok(Field(value))
 }
 
-#[doc(hidden)]
+/// The constraint system the variables belong to, or `CircuitSystem::None` when
+/// they are all constants: what [`Scope::open`](crate::circuit::Scope::open)
+/// takes.
 pub fn system_of<'a>(vars: impl IntoIterator<Item = &'a CircuitVar>) -> CircuitSystem {
     vars.into_iter()
         .fold(CircuitSystem::None, |cs, var| cs.or(var.cs()))

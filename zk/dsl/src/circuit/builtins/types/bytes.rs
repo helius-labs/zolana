@@ -31,6 +31,12 @@ impl<const N: usize> Bytes<N> {
     pub fn bytes(&self) -> &[CircuitVar; N] {
         &self.bytes
     }
+
+    /// The bytes as 31-byte big-endian chunks, the values they take as public
+    /// inputs (`zolana_hasher::primitives::pack_be`).
+    pub fn packed(&self) -> Vec<CircuitVar> {
+        packed(&self.bytes)
+    }
 }
 
 #[doc(hidden)]

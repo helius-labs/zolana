@@ -29,7 +29,7 @@ test("proof inputs built on the main thread prove in the worker, twice with fres
         firstVerifies: await window.zkProgram.verify(data.verifyingKey, first),
         secondVerifies: await window.zkProgram.verify(data.verifyingKey, second),
         proofsDiffer: JSON.stringify(first.proof) !== JSON.stringify(second.proof),
-        publicHashes: [first.publicHash, second.publicHash],
+        publicInputs: [first.publicInputs, second.publicInputs],
       };
     },
     { url: keyUrl("escrow", "arkworks"), data },
@@ -39,6 +39,6 @@ test("proof inputs built on the main thread prove in the worker, twice with fres
     firstVerifies: true,
     secondVerifies: true,
     proofsDiffer: true,
-    publicHashes: [data.transaction.publicHash, data.transaction.publicHash],
+    publicInputs: [[data.transaction.publicHash], [data.transaction.publicHash]],
   });
 });

@@ -18,9 +18,9 @@ The SDK for Solana programs built on the shielded pool (SPP). It has three parts
   [`zolana-zk-gadgets`](../../zk/gadgets), and the UTXO derives from
   [`zolana-macros`](../macros). This crate re-exports all of them at the paths below.
 
-The ZK program part implements [`spec.md`](spec.md); [`invariants/`](invariants) states what
+The ZK program part implements [`spec.md`](spec.md); [`tests/invariants/`](tests/invariants) states what
 each protocol type guarantees and which tests cover it. The builtins' invariants live with the
-DSL in [`zk/dsl/invariants`](../../zk/dsl/invariants) and
+DSL in [`zk/dsl/tests/invariants`](../../zk/dsl/tests/invariants) and
 [`zk/gadgets/invariants`](../../zk/gadgets/invariants).
 
 A developer writes plain Rust input types, and the client, the tests and the prover all take
@@ -341,12 +341,14 @@ Rules a program keeps:
 ### `zolana_program::wasm` (feature `wasm`)
 
 The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
-builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction`, `DataUtxo` and the proof
-types as TypeScript types, a prover per program from a proving key or a zkey (feature
-`wasm-prover`), `verifyProof` (feature `wasm-verify`), and `initProverThreads`, which starts
-a thread pool sized to the core count (feature `wasm-threads`). The TypeScript SDK's
-`decodeProgramTransaction` turns the transaction the module returns into SDK inputs and
-outputs.
+builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
+TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
+wasm runtime (`zolana_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
+program from a proving key or a zkey (feature `wasm-prover`) whose `prove` returns a `Proof`
+with `publicInputs` (a program has one, its public hash), `verifyProof` (feature
+`wasm-verify`), and `initProverThreads`, which starts a thread pool sized to the core count
+(feature `wasm-threads`). The TypeScript SDK's `decodeProgramTransaction` turns the
+transaction the module returns into SDK inputs and outputs.
 
 ## Flow
 
@@ -481,7 +483,7 @@ manifest. Export checks each selected `.pk` against `--checksums` before loading
 manifest paths are relative to the manifest directory. For several circuits,
 combine their manifests in that directory and select the keys to export.
 
-WASM `Prover.fromKey(provingKey, expectedSha256)` requires the expected SHA-256 as
+WASM `<Name>Prover.fromKey(provingKey, expectedSha256)` requires the expected SHA-256 as
 32 bytes. Pin that digest in trusted application metadata (for example, the
 release's key manifest). A missing, malformed, or mismatched digest rejects the
 load. Fetching a digest from the same untrusted source as the key does not

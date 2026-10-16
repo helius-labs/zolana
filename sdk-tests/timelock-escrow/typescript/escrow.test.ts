@@ -109,7 +109,7 @@ describe("timelock escrow", () => {
         ),
       );
       const escrowProof = prove(timings, "escrow", escrowTransaction);
-      expect(escrowProof.publicHash).toEqual(escrowTransaction.publicHash);
+      expect(escrowProof.publicInputs).toEqual([escrowTransaction.publicHash]);
       const escrowProofInputs = (
         await decodeProgramTransaction(escrowTransaction.finalizedTx, assets)
       ).toProofInputs(creator);
@@ -172,7 +172,7 @@ describe("timelock escrow", () => {
           ),
       );
       const withdrawProof = prove(timings, "withdraw", withdrawTransaction);
-      expect(withdrawProof.publicHash).toEqual(withdrawTransaction.publicHash);
+      expect(withdrawProof.publicInputs).toEqual([withdrawTransaction.publicHash]);
       const withdrawProofInputs = (
         await decodeProgramTransaction(withdrawTransaction.finalizedTx, assets)
       ).toProofInputs(creator);

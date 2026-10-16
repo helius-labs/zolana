@@ -4,7 +4,7 @@ use solana_address::Address;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_zk_dsl::{
     conversion::{Allocator, Placeholder, ProofInput},
-    Bytes, CircuitError,
+    Bytes, CircuitError, PublicField, PublicFieldKind, PublicHashField,
 };
 
 use crate::{circuit, Mint};
@@ -43,3 +43,12 @@ impl Placeholder for Mint {
         Ok(Mint::SOL)
     }
 }
+
+/// A ZK program binds a mint through its 32-byte asset hash.
+impl PublicField for Mint {
+    fn kind() -> PublicFieldKind {
+        PublicFieldKind::Hash
+    }
+}
+
+impl PublicHashField for Mint {}

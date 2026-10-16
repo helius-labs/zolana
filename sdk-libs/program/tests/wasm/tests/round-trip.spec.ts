@@ -22,7 +22,7 @@ for (const program of programs) {
           const proof = await window.zkProgram.prove(program, format, url, transaction.proofInputs);
           return {
             verified: await window.zkProgram.verify(verifyingKey, proof),
-            proofPublicHash: proof.publicHash,
+            proofPublicInputs: proof.publicInputs,
             transactionPublicHash: transaction.publicHash,
           };
         },
@@ -31,7 +31,7 @@ for (const program of programs) {
 
       expect(result).toEqual({
         verified: true,
-        proofPublicHash: data.transaction.publicHash,
+        proofPublicInputs: [data.transaction.publicHash],
         transactionPublicHash: data.transaction.publicHash,
       });
     });

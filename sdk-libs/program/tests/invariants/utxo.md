@@ -1,6 +1,6 @@
 # Utxo Invariants
 
-Covers `src/circuit/protocol/utxo/`, against the native `zolana-keypair` and
+Covers `src/circuit/utxo/`, against the native `zolana-keypair` and
 `zolana-transaction` values. Invariants every type shares live in `cross-cutting.md`. ID
 prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
 `tests/unit/protocol/{utxo,balance,token,data}/`.
@@ -252,7 +252,7 @@ INV-UTXO summary: 26 (Critical 10, High 12, Medium 4); covered 25, partial 1
 
 ## Balance (`transfer`, `transfer_all`, `deposit`, `withdraw`, `withdraw_all` on `TokenUtxos` and `DataUtxo`)
 
-Covers the `UtxoTrait` trait and its `Balance` of `src/circuit/protocol/utxo/balance.rs`, shared
+Covers the `UtxoTrait` trait and its `Balance` of `src/circuit/utxo/balance.rs`, shared
 by `TokenUtxos` and `DataUtxo`: a balance amount that tracks its bit width, the
 destination checks, and the 64-bit bounds. The fixtures in
 `tests/unit/protocol/balance/fixtures.rs` are:
@@ -281,7 +281,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `every_transfer_leaves_exactly_the_native_balances_for_every_holder_pair`; `tests/unit/protocol/balance/properties.rs` `natively_a_transfer_holds_exactly_when_it_fits_the_balance` (property)
   - Kind: semantics
   - Statement: for every transfer vector and each of the four token/data source and destination pairs, the native run returns exactly `Ok(())` with the balances deposit - amount and amount, and exactly `RuleBroken` with "the balances are the native balances" when the source balance claim is off by one; for every random deposit and amount, it holds exactly when the amount is at most the deposit.
-  - Location: `src/circuit/protocol/utxo/balance.rs:182-196` (`fn transfer`), `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`)
+  - Location: `src/circuit/utxo/balance.rs:182-196` (`fn transfer`), `src/circuit/utxo/balance.rs:80-85` (`fn debit`)
   - Severity: Critical
   - Suggested test: positive + negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
 
@@ -289,7 +289,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `transfer_all_moves_exactly_the_whole_balance_for_every_holder_pair`
   - Kind: semantics
   - Statement: for the deposits 10 and 2^64 - 1 and each of the four holder pairs, `transfer_all` leaves exactly 0 in the source and the whole deposit in the destination, and an off-by-one source claim breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/balance.rs:199-210` (`fn transfer_all`)
+  - Location: `src/circuit/utxo/balance.rs:199-210` (`fn transfer_all`)
   - Severity: Critical
   - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
@@ -297,7 +297,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_withdrawal_leaves_exactly_the_deposit_minus_the_amount_for_every_source`; `tests/unit/protocol/balance/properties.rs` `natively_a_withdrawal_holds_exactly_when_it_fits_the_balance` (property)
   - Kind: semantics
   - Statement: for every withdrawal vector and both source kinds, the native run leaves exactly deposit - amount in the source and nothing in the destination, and an off-by-one claim breaks exactly the balances rule; for every random deposit and nonzero amount, it holds exactly when the amount is at most the deposit.
-  - Location: `src/circuit/protocol/utxo/balance.rs:222-231` (`fn withdraw`)
+  - Location: `src/circuit/utxo/balance.rs:222-231` (`fn withdraw`)
   - Severity: Critical
   - Suggested test: positive + negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
 
@@ -305,7 +305,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `withdraw_all_returns_exactly_the_balance_and_leaves_zero_for_every_source`
   - Kind: semantics
   - Statement: for the deposits 10 and 2^64 - 1 and both source kinds, `withdraw_all` returns exactly the deposit and leaves 0; a claimed result one below the deposit breaks exactly "withdraw_all returns the native balance".
-  - Location: `src/circuit/protocol/utxo/balance.rs:234-241` (`fn withdraw_all`)
+  - Location: `src/circuit/utxo/balance.rs:234-241` (`fn withdraw_all`)
   - Severity: Critical
   - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
@@ -313,7 +313,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `deposits_add_exactly_their_amounts`
   - Kind: semantics
   - Statement: the balance after deposits [3], [3, 4] and [2^64 - 2, 1] is exactly 3, 7 and 2^64 - 1, withdraw_all after [2^64 - 1] returns exactly 2^64 - 1, and the claim 8 after [3, 4] breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/balance.rs:213-219` (`fn deposit`)
+  - Location: `src/circuit/utxo/balance.rs:213-219` (`fn deposit`)
   - Severity: High
   - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
@@ -321,7 +321,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `owner_and_asset_hash_to_the_native_owner_hash_and_hash_bytes_of_the_mint`
   - Kind: native equivalence
   - Statement: for a token and a data holder over SOL and USDC, `owner().hash()` is exactly the native `owner_hash` and `asset().hash()` exactly `hash_bytes(mint)`; another owner's hash breaks exactly "the owner hash is the native one".
-  - Location: `src/circuit/protocol/utxo/balance.rs:168-174` (`fn owner`, `fn asset`)
+  - Location: `src/circuit/utxo/balance.rs:168-174` (`fn owner`, `fn asset`)
   - Severity: High
   - Suggested test: positive + negative; `tests/unit/protocol/balance/native.rs`
 
@@ -331,7 +331,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `every_balance_fixture_has_exactly_the_pinned_size_and_digest`
   - Kind: constraint
   - Statement: the token-to-token fixtures have exactly 1642 (transfer), 1644 (transfer into another held asset), 1577 (transfer_all), 1643 (withdraw) and 1579 (withdraw_all) constraints, with the variable counts and R1CS sha256 digests pinned in the test.
-  - Location: `src/circuit/protocol/utxo/balance.rs`
+  - Location: `src/circuit/utxo/balance.rs`
   - Severity: High
   - Suggested test: positive (digest); `tests/unit/protocol/balance/r1cs.rs`
 
@@ -339,7 +339,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `token_and_data_holders_export_byte_identical_r1cs_for_every_operation`
   - Kind: constraint
   - Statement: for every operation, the R1CS exported for each token/data holder pair is exactly the token-to-token R1CS, and `Accessors<DATA>` exports exactly `Accessors<TOKEN>`'s: `UtxoTrait` runs the same balance for both.
-  - Location: `src/circuit/protocol/utxo/balance.rs:159-242` (`trait HasBalance`, `trait UtxoTrait`)
+  - Location: `src/circuit/utxo/balance.rs:159-242` (`trait HasBalance`, `trait UtxoTrait`)
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
@@ -347,7 +347,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `each_rule_owns_exactly_its_pinned_rows`; `tests/unit/protocol/balance/r1cs.rs` `a_destination_built_from_the_source_asset_adds_no_asset_row_and_another_adds_exactly_two`
   - Kind: constraint
   - Statement: the nonzero rule owns one row per public transfer, a debit's exceeds rule exactly 65 rows (a 64-bit range check of the remainder) and `transfer_all` none; a destination built from the source's `asset()` adds no asset row, and one built from another mint exactly two.
-  - Location: `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`), `src/circuit/protocol/utxo/balance.rs:148-157` (`fn check_destination`)
+  - Location: `src/circuit/utxo/balance.rs:80-85` (`fn debit`), `src/circuit/utxo/balance.rs:148-157` (`fn check_destination`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
@@ -355,7 +355,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `balance_is_free_within_64_bits_and_one_range_check_beyond`
   - Kind: constraint
   - Statement: after one deposit `amount()` adds no "the balance does not fit in 64 bits" row; after two deposits it adds exactly 65, and the second deposit costs exactly 1 + 65 + 65 constraints.
-  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
+  - Location: `src/circuit/utxo/balance.rs:71-77` (`fn narrow`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/balance/r1cs.rs`
 
@@ -375,7 +375,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `a_tampered_witness_breaks_the_rule_that_owns_its_row`
   - Kind: soundness
   - Statement: tampering the first witness of the nonzero rule, of the transfer's and the withdrawal's exceeds rules and of the 64-bit balance check breaks exactly that rule inside its own rows, and tampering either balance claim breaks exactly the balances rule.
-  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `src/circuit/protocol/utxo/balance.rs:213-241`
+  - Location: `src/circuit/utxo/balance.rs:80-85`, `src/circuit/utxo/balance.rs:213-241`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`
 
@@ -383,7 +383,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/r1cs.rs` `a_witness_whose_destination_holds_another_asset_breaks_the_asset_rows`; `tests/unit/protocol/balance/native.rs` `a_destination_holding_another_asset_breaks_exactly_that_rule`
   - Kind: soundness
   - Statement: natively a transfer or transfer_all into a destination holding USDC breaks exactly "the destination holds another asset" for every holder kind; in R1CS the honest SOL assignment satisfies the other-asset export and the USDC assignment leaves exactly row 1575, the first asset row, unsatisfied.
-  - Location: `src/circuit/protocol/utxo/balance.rs:148-157` (`fn check_destination`)
+  - Location: `src/circuit/utxo/balance.rs:148-157` (`fn check_destination`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/balance/r1cs.rs`, `tests/unit/protocol/balance/native.rs`
 
@@ -399,7 +399,7 @@ deposit or withdraw 0.
   - Partial coverage: `tests/unit/protocol/balance/picus.rs` `picus_finds_no_counterexample_for_the_balance_arithmetic_within_its_limit` runs Picus on the constant-owner `Arithmetic` Picus export, alone and with both balance claims promoted, bounded at 30 s, and asserts only that it finds no counterexample: both runs end `Unknown`, as they do at 120 s, because Picus does not settle the 64-bit range checks of the deposit and the remainder (the bits fixtures prove widths up to 5, INV-CV-BITS-23). INV-LEDGER-12 and -14 are the hermetic substitutes.
   - Kind: soundness
   - Statement: Picus reports exactly Safe for the `Arithmetic` Picus export, and exactly Safe with both balance claims promoted to outputs.
-  - Location: `src/circuit/protocol/utxo/balance.rs:80-85`, `zk/dsl/src/prover/snarkjs.rs` (`fn picus_r1cs`)
+  - Location: `src/circuit/utxo/balance.rs:80-85`, `zk/dsl/src/prover/snarkjs.rs` (`fn picus_r1cs`)
   - Severity: Critical
   - Suggested test: external (Picus); `tests/unit/protocol/balance/picus.rs`
 
@@ -407,7 +407,7 @@ deposit or withdraw 0.
   - Partial coverage: `tests/unit/protocol/balance/picus.rs` `picus_finds_no_counterexample_for_a_whole_transfer_within_its_limit` runs Picus on the token-to-token transfer with both balances promoted, bounded at 30 s, and asserts only that it finds no counterexample: the run ends `Unknown` (the owner and asset byte checks and the 64-bit range checks exceed the bound).
   - Kind: soundness
   - Statement: Picus reports exactly Safe for the transfer's Picus export with both balances promoted.
-  - Location: `src/circuit/protocol/utxo/balance.rs`
+  - Location: `src/circuit/utxo/balance.rs`
   - Severity: Medium
   - Suggested test: external (Picus); `tests/unit/protocol/balance/picus.rs`
 
@@ -417,7 +417,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_debit_beyond_the_balance_breaks_exactly_its_rule`; `tests/unit/protocol/balance/properties.rs` `natively_every_other_source_balance_breaks_the_balance_rule` (property)
   - Kind: error
   - Statement: for every exceeding vector, a transfer returns exactly `RuleBroken` with "the transfer exceeds the balance" for every holder pair and a withdrawal exactly `RuleBroken` with "the withdrawal exceeds the balance" for both sources, located in the fixture's file: the 64-bit range check's `ValueTooLarge` is reported as the rule.
-  - Location: `src/circuit/protocol/utxo/balance.rs:80-85` (`fn debit`)
+  - Location: `src/circuit/utxo/balance.rs:80-85` (`fn debit`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative + property; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/properties.rs`
@@ -426,7 +426,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_public_transfer_of_zero_breaks_the_nonzero_rule`
   - Kind: error
   - Statement: a deposit of 0 before a transfer (every holder pair), a withdrawal of 0 (both sources) and a withdraw_all of an empty holder each return exactly `RuleBroken` with "a public transfer moves a nonzero amount", located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/balance.rs:213-241`
+  - Location: `src/circuit/utxo/balance.rs:213-241`
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/balance/native.rs`
@@ -435,7 +435,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_of_at_least_2_pow_64_does_not_fit`
   - Kind: error
   - Statement: after the deposits [2^64 - 1, 1] and [2^64 - 1, 2^64 - 1], `amount()` and `withdraw_all` each return exactly `RuleBroken` with "the balance does not fit in 64 bits", located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
+  - Location: `src/circuit/utxo/balance.rs:71-77` (`fn narrow`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/balance/native.rs`
@@ -444,7 +444,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_transfer_into_a_burned_utxo_is_a_structural_error`; `tests/unit/protocol/balance/r1cs.rs` `a_transfer_into_a_burned_utxo_is_refused_before_any_row`
   - Kind: error
   - Statement: a transfer or transfer_all into a burned `TokenUtxos` or `DataUtxo` returns exactly `CircuitError.TransferToBurnedUtxo`, with no rule, natively, from `export_r1cs` and from `check_constraints`.
-  - Location: `src/circuit/protocol/utxo/balance.rs:148-152` (`fn check_destination`)
+  - Location: `src/circuit/utxo/balance.rs:148-152` (`fn check_destination`)
   - Error: `CircuitErrorKind::TransferToBurnedUtxo`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
@@ -453,7 +453,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_summed_over_more_than_253_bits_is_too_wide_to_check`; `tests/unit/protocol/balance/r1cs.rs` `a_balance_too_wide_to_check_is_refused_before_any_row`
   - Kind: error
   - Statement: 190 deposits of 1 hold natively and check exactly 13472 constraints; 191 deposits make `amount()` and `withdraw_all` return exactly `CircuitError.BitWidthTooLarge` natively and from `export_r1cs`.
-  - Location: `src/circuit/protocol/utxo/balance.rs:60-68` (`fn bounded`)
+  - Location: `src/circuit/utxo/balance.rs:60-68` (`fn bounded`)
   - Error: `CircuitErrorKind::BitWidthTooLarge`
   - Severity: Medium
   - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
@@ -462,7 +462,7 @@ deposit or withdraw 0.
   - Covered by: `tests/unit/protocol/balance/native.rs` `a_balance_too_wide_to_check_points_at_the_circuit_line`; `tests/unit/protocol/balance/r1cs.rs` `oversized_amount_errors_keep_the_operation_location_through_the_prover`
   - Kind: error
   - Statement: after 191 deposits of 1, every tested `amount`, `withdraw_all`, `withdraw` and `transfer` operation returns exactly `CircuitError.BitWidthTooLarge { bits: 254 }` at the file and line of that operation's circuit call, natively and through R1CS export, assignment export and `check_constraints`.
-  - Location: `src/circuit/protocol/utxo/balance.rs:60-68` (`fn bounded`)
+  - Location: `src/circuit/utxo/balance.rs:60-68` (`fn bounded`)
   - Error: `CircuitErrorKind::BitWidthTooLarge`
   - Severity: Low
   - Suggested test: negative; `tests/unit/protocol/balance/native.rs`, `tests/unit/protocol/balance/r1cs.rs`
@@ -490,7 +490,7 @@ INV-LEDGER summary: 24 (Critical 7, High 13, Medium 3, Low 1); covered 22, parti
 
 ## TokenUtxos (`new_init`, `new_mut`, `new_burn`, dummies, change)
 
-Covers `TokenUtxos` of `src/circuit/protocol/utxo/token.rs`, spent from `WalletUtxo` inputs
+Covers `TokenUtxos` of `src/circuit/utxo/token.rs`, spent from `WalletUtxo` inputs
 built by `tests/unit/protocol/transaction/wallets.rs`. `Spend<N, LAST>` in
 `tests/unit/protocol/token/fixtures.rs` runs `TokenUtxos::new_mut` over N inputs and asserts:
 
@@ -515,7 +515,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/native.rs` `every_spend_holds_exactly_the_real_inputs_total_under_the_first_inputs_owner_and_asset`; `tests/unit/protocol/token/properties.rs` `natively_a_spend_holds_the_real_total_exactly_when_it_fits_64_bits` (property)
   - Kind: native equivalence
   - Statement: for every one-, two- and three-input vector, the native run returns exactly `Ok(())`: the balance is the sum of the non-dummy amounts, and the owner and asset hashes are the first input's native `owner_hash` and `hash_bytes(mint)`; for every random pair of USDC amounts it holds exactly when their sum fits in 64 bits, and every random SOL amount with two dummies holds.
-  - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
+  - Location: `src/circuit/utxo/token.rs:85-142` (`fn spend`)
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/token/native.rs`, `tests/unit/protocol/token/properties.rs`
 
@@ -523,7 +523,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/native.rs` `a_wrong_total_owner_or_asset_breaks_exactly_its_rule`
   - Kind: semantics
   - Statement: for 300 + 200 SOL, the balance, owner hash or asset hash claim increased by 1 breaks exactly its rule natively, located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/balance.rs:168-179` (`fn owner`, `fn asset`, `fn amount`)
+  - Location: `src/circuit/utxo/balance.rs:168-179` (`fn owner`, `fn asset`, `fn amount`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/native.rs`
 
@@ -533,7 +533,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `every_spend_width_has_exactly_the_pinned_size_and_digest`
   - Kind: constraint
   - Statement: `Spend<1>`, `Spend<2>` and `Spend<3>` have exactly 2169, 3689 and 5144 constraints over 2176, 3696 and 5152 variables, with the R1CS sha256 digests pinned in the test.
-  - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
+  - Location: `src/circuit/utxo/token.rs:85-142` (`fn spend`)
   - Severity: High
   - Suggested test: positive (digest); `tests/unit/protocol/token/r1cs.rs`
 
@@ -541,7 +541,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `every_input_rule_owns_rows_for_every_input_it_applies_to`
   - Kind: constraint
   - Statement: in `Spend<2>`, the first-input dummy rule owns exactly one row; the ring rule owns two rows per input and the program state rule one per input; the spendable rule owns one row, the asset rule two and the owner rule three for the second input alone; `Spend<3>` doubles the per-later-input counts.
-  - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
+  - Location: `src/circuit/utxo/token.rs:85-142` (`fn spend`)
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/token/r1cs.rs`
 
@@ -561,7 +561,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `a_tampered_claim_breaks_exactly_its_rule`
   - Kind: soundness
   - Statement: for 300 + 200 SOL, tampering the balance, owner hash and asset hash claims breaks exactly their own rules inside their own rows.
-  - Location: `src/circuit/protocol/utxo/token.rs:85-142`
+  - Location: `src/circuit/utxo/token.rs:85-142`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/token/r1cs.rs`
 
@@ -569,7 +569,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/r1cs.rs` `a_tampered_amount_or_blinding_breaks_the_input_hash_and_a_dummys_amount_its_select`
   - Kind: soundness
   - Statement: tampering either real input's amount or blinding breaks a row of "a poseidon hash", the input's commitment, and tampering a dummy's amount breaks a row of "a token utxo's inputs", the select that zeroes it.
-  - Location: `src/circuit/protocol/utxo/token.rs:101-131`
+  - Location: `src/circuit/utxo/token.rs:101-131`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/token/r1cs.rs`
 
@@ -587,7 +587,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/native.rs` `every_malformed_input_set_breaks_exactly_its_rule`
   - Kind: error
   - Statement: natively, located in the fixture's file, each of these returns exactly `RuleBroken` with its rule: no input ("a token utxo spends at least one input"), a dummy first ("the first input of a token utxo is a dummy"), a first or later input in a ring ("the utxo is in a ring"), a first or later input with program state ("the input carries program state"), a later input with domain 7 ("the utxo is not a spendable utxo"), SOL then USDC ("the inputs hold different assets"), the sender then a stranger ("the inputs belong to different owners"); a dummy's owner key is ignored, as tested by `a_dummy_owner_key_does_not_change_the_spend`.
-  - Location: `src/circuit/protocol/utxo/token.rs:85-142` (`fn spend`)
+  - Location: `src/circuit/utxo/token.rs:85-142` (`fn spend`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/token/native.rs`
@@ -596,7 +596,7 @@ The change output, `new_burn` and `new_init` in a transaction are covered with t
   - Covered by: `tests/unit/protocol/token/native.rs` `two_inputs_of_2_pow_64_minus_1_do_not_fit_the_balance`
   - Kind: error
   - Statement: the spend of 2^64 - 1 + 2^64 - 1 USDC returns exactly `RuleBroken` with "the balance does not fit in 64 bits" from `amount()`, located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/balance.rs:71-77` (`fn narrow`)
+  - Location: `src/circuit/utxo/balance.rs:71-77` (`fn narrow`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/token/native.rs`
@@ -605,7 +605,7 @@ INV-TOKEN summary: 10 (Critical 5, High 5); covered 10.
 
 ## DataUtxo (`DataUtxo`, `UtxoData`, `UtxoData::utxo_data`)
 
-Covers `DataUtxo`, `UtxoData` and `UtxoData::utxo_data` of `src/circuit/protocol/utxo/data.rs`,
+Covers `DataUtxo`, `UtxoData` and `UtxoData::utxo_data` of `src/circuit/utxo/data.rs`,
 with the `Counter` state of `tests/unit/protocol/data/state.rs`, whose client and circuit
 hashes agree, and `Skewed`, whose hashes do not. The fixtures in
 `tests/unit/protocol/data/fixtures.rs` are:
@@ -625,7 +625,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `every_held_counter_keeps_its_native_count_balance_owner_and_asset`
   - Kind: native equivalence
   - Statement: for every held vector, both `new_mut` and `new_burn` hold natively: the dereferenced count is the state's, the balance the input's amount, and the owner and asset hashes the input's native `owner_hash` and `hash_bytes(mint)`.
-  - Location: `src/circuit/protocol/utxo/data.rs:118-150` (`fn new_mut`, `fn new_burn`, `fn spend`), `src/circuit/protocol/utxo/data.rs:185-197` (`Deref`)
+  - Location: `src/circuit/utxo/data.rs:118-150` (`fn new_mut`, `fn new_burn`, `fn spend`), `src/circuit/utxo/data.rs:185-197` (`Deref`)
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/data/native.rs`
 
@@ -633,7 +633,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `a_wrong_count_balance_owner_or_asset_breaks_exactly_its_rule`
   - Kind: semantics
   - Statement: for the counter at 5, each claim increased by 1 breaks exactly its own rule natively, located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/data.rs:129-150` (`fn spend`)
+  - Location: `src/circuit/utxo/data.rs:129-150` (`fn spend`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/data/native.rs`
 
@@ -641,7 +641,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `a_new_counter_starts_at_zero_under_its_owner_and_asset`
   - Kind: semantics
   - Statement: `new_init` over the sender with SOL and the recipient with USDC holds a count and balance of exactly 0 and the native owner and asset hashes; the recipient's address against the sender's claimed hash breaks exactly the owner rule.
-  - Location: `src/circuit/protocol/utxo/data.rs:106-116` (`fn new_init`)
+  - Location: `src/circuit/utxo/data.rs:106-116` (`fn new_init`)
   - Severity: High
   - Suggested test: positive + negative; `tests/unit/protocol/data/native.rs`
 
@@ -649,7 +649,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `default_utxo_data_is_the_borsh_encoding_when_both_hashes_agree`
   - Kind: native equivalence
   - Statement: for constant counters at 5 and 2^64 - 1, the default `UtxoData::utxo_data` returns exactly the borsh bytes of the client state. For `Skewed`, whose client hash differs, it returns `CircuitError.DataHashMismatch` before serialization.
-  - Location: `src/circuit/protocol/utxo/data.rs:20-39` (`trait UtxoData`, `UtxoData::utxo_data`)
+  - Location: `src/circuit/utxo/data.rs:20-39` (`trait UtxoData`, `UtxoData::utxo_data`)
   - Error: `CircuitErrorKind::DataHashMismatch`
   - Severity: High
   - Suggested test: positive + negative; `tests/unit/protocol/data/native.rs`
@@ -658,7 +658,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `default_utxo_data_runs_natively_only`
   - Kind: error
   - Statement: `Encoded` holds natively, and its `export_r1cs` returns exactly `CircuitError.ReadsVariableValue`: the encoding reads the state's values.
-  - Location: `src/circuit/protocol/utxo/data.rs:29-39` (`UtxoData::utxo_data`)
+  - Location: `src/circuit/utxo/data.rs:29-39` (`UtxoData::utxo_data`)
   - Error: `CircuitErrorKind::ReadsVariableValue`
   - Severity: Medium
   - Suggested test: negative; `tests/unit/protocol/data/native.rs`
@@ -669,7 +669,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/r1cs.rs` `every_data_fixture_has_exactly_the_pinned_size_and_digest_and_a_burn_spends_like_a_mut`
   - Kind: constraint
   - Statement: `Held<false>` and `Held<true>` export exactly the same R1CS of 2448 constraints, `Fresh` has exactly 1302, and `Burned<false>` and `Burned<true>` exactly 4014 and 5025, with the variable counts and digests pinned in the test.
-  - Location: `src/circuit/protocol/utxo/data.rs:118-150`
+  - Location: `src/circuit/utxo/data.rs:118-150`
   - Severity: High
   - Suggested test: positive (digest); `tests/unit/protocol/data/r1cs.rs`
 
@@ -677,7 +677,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/r1cs.rs` `every_input_rule_owns_its_pinned_rows`
   - Kind: constraint
   - Statement: in `Held<false>` the spendable rule owns exactly one row, the ring rule two and the state commitment rule one, and a burned counter's leftover-balance rule owns exactly one row of `Burned<false>`.
-  - Location: `src/circuit/protocol/utxo/data.rs:129-150`, `src/circuit/protocol/utxo/data.rs:167-182` (`fn output`)
+  - Location: `src/circuit/utxo/data.rs:129-150`, `src/circuit/utxo/data.rs:167-182` (`fn output`)
   - Severity: Critical
   - Suggested test: positive; `tests/unit/protocol/data/r1cs.rs`
 
@@ -697,7 +697,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/r1cs.rs` `a_tampered_claim_or_data_hash_breaks_exactly_its_rule`
   - Kind: soundness
   - Statement: tampering the count, balance, owner hash or asset hash claim breaks exactly its own rule, and tampering the input's data hash breaks exactly "the input does not commit to its program state".
-  - Location: `src/circuit/protocol/utxo/data.rs:136-139`
+  - Location: `src/circuit/utxo/data.rs:136-139`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/data/r1cs.rs`
 
@@ -715,7 +715,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `an_input_that_does_not_commit_to_the_state_breaks_exactly_its_rule`
   - Kind: error
   - Statement: natively, a counter at 5 spent with the state 6 and a token input spent with a state each break exactly "the input does not commit to its program state", a ring input exactly "the utxo is in a ring", and a dummy exactly "the utxo is not a spendable utxo", located in the fixture's file.
-  - Location: `src/circuit/protocol/utxo/data.rs:129-150` (`fn spend`)
+  - Location: `src/circuit/utxo/data.rs:129-150` (`fn spend`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/data/native.rs`
@@ -724,7 +724,7 @@ and at 0 with nothing.
   - Covered by: `tests/unit/protocol/data/native.rs` `a_burned_counter_must_leave_nothing_and_withdraw_all_empties_it`; `tests/unit/protocol/data/r1cs.rs` `the_prover_refuses_a_burned_counter_that_keeps_a_balance`
   - Kind: error
   - Statement: a burned counter holding 300 returns exactly `RuleBroken` with "a burned data utxo leaves a balance" natively and from `check_constraints`; withdrawn whole it holds (`Ok(5025)`), an empty burned counter holds (`Ok(4014)`), and withdrawing all of an empty one breaks exactly the nonzero rule.
-  - Location: `src/circuit/protocol/utxo/data.rs:167-182` (`fn output`)
+  - Location: `src/circuit/utxo/data.rs:167-182` (`fn output`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/data/native.rs`, `tests/unit/protocol/data/r1cs.rs`

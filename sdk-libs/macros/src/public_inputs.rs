@@ -1,9 +1,9 @@
 use proc_macro2::TokenStream;
-use quote::{quote, quote_spanned};
-use syn::{spanned::Spanned, DeriveInput, Result};
+use quote::quote;
+use syn::{DeriveInput, Result};
 
 use zolana_zk_macros_core::{
-    proof_input,
+    proof_input, public_inputs,
     shape::{twin_ident, Shape},
 };
 
@@ -22,7 +22,7 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let circuit_error = paths::circuit_error();
     let poseidon = paths::poseidon();
 
-    let layout = layout(input, &shape);
+    let layout = public_inputs::layout(input, &shape, &paths::public_hash_field());
 
     let hash = match shape {
         Shape::Named(fields) => {
@@ -54,24 +54,4 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             }
         }
     })
-}
-
-fn layout(input: &DeriveInput, shape: &Shape) -> TokenStream {
-    let ident = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let public_input_layout = paths::public_input_layout();
-    let public_field = paths::public_field();
-    let public_field_kind = paths::public_field_kind();
-    let entries = shape.fields().iter().map(|field| {
-        let name = field.ident.to_string();
-        let ty = field.ty;
-        quote_spanned!(ty.span()=> (#name, <#ty as #public_field>::kind()))
-    });
-    quote! {
-        impl #impl_generics #public_input_layout for #ident #ty_generics #where_clause {
-            fn layout() -> ::std::vec::Vec<(&'static str, #public_field_kind)> {
-                ::std::vec![#(#entries),*]
-            }
-        }
-    }
 }

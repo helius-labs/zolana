@@ -83,11 +83,11 @@ fn no_public_fields_prove_and_verify() {
                 .iter()
                 .map(|output| (output.owner_address, output.asset, output.amount))
                 .collect::<Vec<_>>(),
-            result.public_hash,
+            result.public_inputs,
         ),
         (
             vec![(Some(recipient), Mint::SOL, 500), (None, Mint::SOL, 0)],
-            Poseidon::hashv(&[private_tx_hash.as_slice()]).expect("public hash"),
+            vec![Poseidon::hashv(&[private_tx_hash.as_slice()]).expect("public hash")],
         )
     );
 }

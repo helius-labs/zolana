@@ -111,6 +111,11 @@ pub(crate) struct CircuitMatrices {
 }
 
 impl CircuitMatrices {
+    /// The public inputs after the constant one.
+    pub(crate) fn public_inputs(&self) -> usize {
+        self.matrices.num_instance_variables.saturating_sub(1)
+    }
+
     pub(crate) fn shape(&self) -> CircuitShape {
         CircuitShape {
             instance_variables: self.matrices.num_instance_variables,
@@ -346,11 +351,12 @@ pub struct ArkworksCircuit<'a, P: ProofInput<Circuit: Circuit>> {
 
 impl<P: ProofInput<Circuit: Circuit>> Clone for ArkworksCircuit<'_, P> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            proof_inputs: self.proof_inputs,
+            statement: self.statement.clone(),
+        }
     }
 }
-
-impl<P: ProofInput<Circuit: Circuit>> Copy for ArkworksCircuit<'_, P> {}
 
 impl<'a, P: ProofInput<Circuit: Circuit<Output: PublicHashOutput + Binding<Statement = Fr>>>>
     ArkworksCircuit<'a, P>

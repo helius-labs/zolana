@@ -1,6 +1,6 @@
 # PublicTransfer Invariants
 
-Covers `PublicTransfer` of `src/circuit/protocol/transfer.rs`: `hash`, against the native
+Covers `PublicTransfer` of `src/circuit/transfer.rs`: `hash`, against the native
 `PublicTransfer::hash` and `transaction_hash` of `src/program/transfer.rs`. Invariants every
 type shares live in `cross-cutting.md`. ID prefix: `INV-TRANSFER`; the tests live in
 `tests/unit/protocol/transfer/`.
@@ -33,7 +33,7 @@ to the account.
   - Covered by: `tests/unit/protocol/transfer/native.rs` `the_public_builtins_the_circuit_transfer_hash_composes_give_the_native_hash_on_constants`
   - Kind: native equivalence
   - Statement: for every transfer vector, the value of `poseidon([Asset::constant(mint).hash(), constant(amount), constant(is_deposit), Bytes::constant(account).hash_bytes()])` is exactly `PublicTransfer::hash`.
-  - Location: `src/circuit/protocol/transfer.rs:14-23` (`fn hash`, crate-private), `src/program/transfer.rs:12-25`
+  - Location: `src/circuit/transfer.rs:14-23` (`fn hash`, crate-private), `src/program/transfer.rs:12-25`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transfer/native.rs`
 

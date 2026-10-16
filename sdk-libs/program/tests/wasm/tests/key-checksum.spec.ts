@@ -38,7 +38,7 @@ test("fromKey requires the pinned checksum before loading an image", async ({ pa
     valid: "accepted",
     corrupted: "ProverError.KeyImageChecksumMismatch",
     wrong: "ProverError.KeyImageChecksumMismatch",
-    short: "ClientError.InvalidArgument",
+    short: "ProverError.InvalidArgument",
     omitted: "TypeError",
     stillLoads: "accepted",
   });

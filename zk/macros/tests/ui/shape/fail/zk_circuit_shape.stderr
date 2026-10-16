@@ -1,0 +1,11 @@
+error: a ZK circuit is a struct with exactly the fields `private` and `public`
+ --> tests/ui/shape/fail/zk_circuit_shape.rs:6:8
+  |
+6 | struct MissingPublic {
+  |        ^^^^^^^^^^^^^
+
+error: a ZK circuit is a struct with exactly the fields `private` and `public`
+  --> tests/ui/shape/fail/zk_circuit_shape.rs:11:8
+   |
+11 | struct ExtraField {
+   |        ^^^^^^^^^^

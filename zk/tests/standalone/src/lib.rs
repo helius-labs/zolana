@@ -1,59 +1,25 @@
-//! A circuit that depends only on the zk DSL and gadgets. The derives generate
-//! paths under `::zolana_program`, so the crate root names the DSL that way.
+//! A crate of zk circuits on the zk DSL and gadgets alone, without
+//! zolana-program, laid out like a Solana program that verifies them: the
+//! circuits build on the host with the `circuits` feature, and the SBF program
+//! links only the DSL's on-chain verifier and the generated verifier modules.
+//!
+//! The derives generate paths under `::zolana_program`, so the crate root
+//! names the DSL that way.
 
 extern crate zolana_zk_dsl as zolana_program;
 
-use zolana_zk_dsl::{
-    circuit::{Assert, Circuit, CircuitType, CircuitVar, Field, PublicHashOutput},
-    conversion::ProofInput,
-    CircuitError,
-};
-use zolana_zk_gadgets::poseidon;
+#[cfg(feature = "circuits")]
+mod circuits;
+#[cfg(not(feature = "r1cs-export"))]
+pub mod instruction;
+/// The verifier modules `zolana zk compile` generates from the circuits.
+#[cfg(not(feature = "r1cs-export"))]
+pub mod verifier;
 
-pub const RULE: &str = "the commitment hashes the point";
+#[cfg(feature = "circuits")]
+pub use circuits::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, CircuitType)]
-pub struct Point {
-    pub x: Field,
-    pub y: Field,
-}
-
-#[derive(Clone, Copy, Debug, ProofInput)]
-pub struct Opening {
-    pub point: Point,
-    pub commitment: Field,
-}
-
-impl Circuit for OpeningCircuit {
-    type Output = ();
-
-    fn circuit(&self) -> Result<Self::Output, CircuitError> {
-        poseidon(&[self.point.x.clone(), self.point.y.clone()])?
-            .assert_equal(&self.commitment, RULE)
-    }
-}
-
-/// The commitment to a point, bound as the proof's one public input.
-pub struct Commitment(CircuitVar);
-
-impl PublicHashOutput for Commitment {
-    fn public_hash(&self) -> &CircuitVar {
-        &self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, ProofInput)]
-pub struct PublicOpening {
-    pub point: Point,
-}
-
-impl Circuit for PublicOpeningCircuit {
-    type Output = Commitment;
-
-    fn circuit(&self) -> Result<Self::Output, CircuitError> {
-        Ok(Commitment(poseidon(&[
-            self.point.x.clone(),
-            self.point.y.clone(),
-        ])?))
-    }
+#[cfg(all(feature = "bpf-entrypoint", not(feature = "r1cs-export")))]
+mod entrypoint {
+    pinocchio::entrypoint!(crate::instruction::process_instruction);
 }

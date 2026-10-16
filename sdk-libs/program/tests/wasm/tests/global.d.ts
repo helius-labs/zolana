@@ -1,7 +1,7 @@
 type PlainProof = {
   proof: { a: number[]; b: number[]; c: number[] };
   compressedProof: { a: number[]; b: number[]; c: number[] };
-  publicHash: number[];
+  publicInputs: number[][];
 };
 
 type PlainTransaction = {

@@ -359,6 +359,15 @@ eject-mollusk-fixtures output="target/fuzz-fixtures": build-programs
 test-user-registry-litesvm: build-programs
     cargo nextest run -p user-registry-tests
 
+# The standalone zk fixture's verifier program, built like any circuit crate:
+# circuits, test keys, verifier modules and the SBF program.
+build-zk-standalone:
+    cargo run --release -p zolana-cli -- build-zk-program --manifest-path zk/tests/standalone/Cargo.toml --skip-wasm --sbf-features bpf-entrypoint
+
+# A standalone circuit's proof verified on-chain, in litesvm.
+test-zk-standalone-program: build-zk-standalone
+    cargo nextest run -p zk-tests
+
 # Unit, integration, and property tests for the client-side SDK crates, plus
 # the ring service and the custom-ring host crates, which all run against
 # in-memory fakes. nextest skips doctests, so the `--doc` line keeps the
@@ -829,17 +838,21 @@ test-zolana-macros:
 # derives, and a standalone circuit that uses them without zolana-program.
 # Their R1CS fingerprints pin every gadget and DSL operation.
 test-zk:
-    cargo test -p zolana-zk-macros-core -p zolana-zk-macros -p zolana-zk-standalone-fixture
-    cargo test -p zolana-zk-dsl --features test-support,setup
+    cargo test -p zolana-zk-macros-core -p zolana-zk-macros -p zolana-zk-standalone-fixture --features zolana-zk-standalone-fixture/circuits
+    cargo test -p zolana-zk-dsl --features test-support,setup,verifier
     cargo test -p zolana-zk-gadgets
+    cargo run -q -p zolana-cli -- zk compile --manifest-path zk/tests/standalone/Cargo.toml --check --skip-wasm
 
 # The zk crates build without features (the no_std CompressedProof that
-# on-chain programs link), with only the circuit DSL, and with every feature.
+# on-chain programs link), with only the on-chain verifier, with only the
+# circuit DSL, and with every feature.
 check-zk:
     cargo check -p zolana-zk-dsl
+    cargo check -p zolana-zk-dsl --features verifier
     cargo check -p zolana-zk-dsl --features circuit
-    cargo check --tests -p zolana-zk-dsl --features test-support,setup,parallel,serde,tsify,wasm
-    cargo check --tests -p zolana-zk-gadgets -p zolana-zk-macros -p zolana-zk-macros-core -p zolana-zk-standalone-fixture
+    cargo check --tests -p zolana-zk-dsl --features test-support,setup,parallel,serde,tsify,wasm,verifier
+    cargo check --tests -p zolana-zk-gadgets -p zolana-zk-macros -p zolana-zk-macros-core -p zolana-zk-standalone-fixture --features zolana-zk-standalone-fixture/circuits
+    cargo check -p zolana-zk-standalone-fixture
 
 # Full SDK validation: crate checks, hermetic units, two external runs, release tests.
 # External tool requirements are listed on test-zolana-program-external below.
@@ -873,11 +886,12 @@ test-zolana-program-external filter="":
     cargo test --release -p zolana-zk-gadgets --features external-tools --test unit "{{filter}}" -- --test-threads=4
     cargo test --release -p zolana-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
 
-# Checks that the ZK program SDK, the escrow circuits and the escrow wasm
-# module build for wasm32-unknown-unknown. Kept out of check-all, which runs
+# Checks that the ZK program SDK, the zk DSL's wasm runtime, the escrow
+# circuits and the escrow wasm module build for wasm32-unknown-unknown. Kept out of check-all, which runs
 # without the wasm target; the zk-program CI job installs it.
 check-wasm:
     cargo check -p zolana-program --no-default-features --features client --target wasm32-unknown-unknown
+    cargo check -p zolana-zk-dsl --features wasm-prover,wasm-verify --target wasm32-unknown-unknown
     cargo check -p timelock-escrow-program --features wasm --target wasm32-unknown-unknown
     cargo check -p timelock-escrow-program --features wasm,zolana-program/wasm-prover,zolana-program/wasm-verify --target wasm32-unknown-unknown
 
@@ -952,6 +966,13 @@ _zk-program-wasm-keys:
 # test-only verifier and the prover-free proof-inputs module, checks the
 # generated types, proves in the worker, and compares against the native
 # fixtures and snarkjs.
+# A standalone circuit (zk DSL only) built to a Node.js wasm package with
+# `zolana zk compile`, proved and verified in Node.
+test-zk-wasm:
+    cargo test -p zolana-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
+    cargo run --release -q -p zolana-cli -- zk compile --manifest-path zk/tests/standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/zolana-zk-standalone-fixture/wasm-node
+    node --test zk/tests/standalone/wasm/standalone.test.mjs
+
 test-zk-program-wasm: _zk-program-wasm-keys
     cargo test --release -p zolana-program-wasm-test-program --features fixtures --test fixtures
     cd sdk-libs/program/tests/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run check:dts && npm test

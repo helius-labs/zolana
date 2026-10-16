@@ -14,6 +14,8 @@ extern crate self as zolana_program;
 #[cfg(feature = "circuit")]
 #[doc(hidden)]
 pub mod __private;
+#[cfg(feature = "build")]
+pub mod build;
 #[cfg(feature = "circuit")]
 pub mod circuit;
 #[cfg(feature = "circuit")]
@@ -29,13 +31,19 @@ pub mod js_error;
 #[cfg(feature = "circuit")]
 #[doc(hidden)]
 pub mod prover;
+#[cfg(feature = "circuit")]
+pub mod r1cs_hook;
 #[cfg(feature = "test-support")]
 pub mod testing;
+#[cfg(feature = "verifier")]
+pub mod verifier;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
-#[cfg(feature = "circuit")]
-pub use client::Bytes;
 #[cfg(feature = "client")]
-pub use client::{PublicHashCircuit, ZkCircuit};
+pub use client::ZkCircuit;
+#[cfg(feature = "circuit")]
+pub use client::{Bytes, PublicField, PublicFieldKind, PublicHashField, PublicInputLayout};
 pub use compressed_proof::CompressedProof;
 #[cfg(feature = "circuit")]
 pub use error::{
@@ -53,3 +61,6 @@ pub use prover::{SetupKind, VerifyingKeyExport};
 #[cfg(feature = "circuit")]
 #[doc(hidden)]
 pub use zolana_zk_macros::ErrorName;
+// The derive; the trait of the same name comes from `client`.
+#[cfg(feature = "circuit")]
+pub use zolana_zk_macros::ZkCircuit;

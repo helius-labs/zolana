@@ -48,3 +48,19 @@ pub fn constant() -> TokenStream {
 pub fn private() -> TokenStream {
     quote!(::zolana_program::__private)
 }
+
+pub fn public_field() -> TokenStream {
+    quote!(::zolana_program::PublicField)
+}
+
+pub fn public_field_kind() -> TokenStream {
+    quote!(::zolana_program::PublicFieldKind)
+}
+
+pub fn public_input_layout() -> TokenStream {
+    quote!(::zolana_program::PublicInputLayout)
+}
+
+pub fn public_value() -> TokenStream {
+    quote!(::zolana_program::circuit::PublicValue)
+}

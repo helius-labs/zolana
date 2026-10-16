@@ -23,14 +23,16 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
             Representation::Address => {
                 quote!(#[serde(with = "::zolana_program::__private::address")])
             }
-            Representation::Serde => TokenStream::new(),
+            Representation::ByteNewtype | Representation::Serde => TokenStream::new(),
         };
         quote!(#with pub(super) #field_ident: #field_ty)
     });
     let tsify_fields = fields.iter().map(|field| {
         let (field_ident, field_ty) = (field.ident, field.ty);
         let ty = match Representation::of(field_ty) {
-            Representation::Bytes => quote!(#[tsify(type = "Uint8Array")]),
+            Representation::Bytes | Representation::ByteNewtype => {
+                quote!(#[tsify(type = "Uint8Array")])
+            }
             Representation::Address => quote!(#[tsify(type = "string")]),
             Representation::Array | Representation::Serde => TokenStream::new(),
         };
@@ -104,6 +106,8 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
 
 enum Representation {
     Bytes,
+    /// `Bytes<N>`: serializes itself as bytes; TypeScript sees a `Uint8Array`.
+    ByteNewtype,
     Array,
     Address,
     Serde,
@@ -121,6 +125,15 @@ impl Representation {
                     }) =>
             {
                 Self::Address
+            }
+            Type::Path(path)
+                if path.qself.is_none()
+                    && path.path.segments.last().is_some_and(|segment| {
+                        segment.ident == "Bytes"
+                            && matches!(segment.arguments, syn::PathArguments::AngleBracketed(_))
+                    }) =>
+            {
+                Self::ByteNewtype
             }
             _ => Self::Serde,
         }

@@ -65,6 +65,7 @@ members = [
     "sdk-tests/zk-program-swap/sdk",
     "sdk-tests/zk-program-swap/test",
     "sdk-tests/timelock-escrow/program",
+    "sdk-tests/zk-tests",
     "xtask",
 ]
 default-members = [

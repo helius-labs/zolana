@@ -194,3 +194,5 @@ jobs:
       - run: npm install -g snarkjs@0.7.6
       - run: npx --yes playwright@1.63.0 install-deps chromium
       - run: just test-zk-program-wasm
+      # A standalone circuit's Node.js wasm package, proved and verified in Node.
+      - run: just test-zk-wasm

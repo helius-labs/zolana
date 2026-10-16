@@ -6,5 +6,8 @@ pub mod circuit_type;
 pub mod error_name;
 pub mod paths;
 pub mod proof_input;
+pub mod public_inputs;
+pub mod r1cs_hook;
 mod serialization;
 pub mod shape;
+pub mod zk_circuit;

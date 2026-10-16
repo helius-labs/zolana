@@ -1,5 +1,5 @@
 use crate::{
-    circuit::{Circuit, PublicHashOutput},
+    circuit::Circuit,
     conversion::{Placeholder, ProofInput},
     prover::{ArkworksCircuit, ProofInputs},
     ProverError,
@@ -35,11 +35,3 @@ pub trait ZkCircuit: ProofInput<Circuit: Circuit> + Placeholder {
 }
 
 impl<T: ProofInput<Circuit: Circuit> + Placeholder> ZkCircuit for T {}
-
-/// A circuit whose output binds exactly one public input, its public hash.
-pub trait PublicHashCircuit:
-    ZkCircuit<Circuit: Circuit<Output: PublicHashOutput>> + 'static
-{
-}
-
-impl<T: ZkCircuit<Circuit: Circuit<Output: PublicHashOutput>> + 'static> PublicHashCircuit for T {}

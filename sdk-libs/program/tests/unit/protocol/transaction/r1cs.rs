@@ -269,7 +269,10 @@ fn a_program_transaction_carries_the_programs_own_proof_inputs() {
             transaction.proof_inputs.to_bytes().unwrap(),
             inputs.to_bytes().unwrap()
         );
-        assert_eq!(transaction.public_hash, inputs.public_hash().unwrap());
+        assert_eq!(
+            vec![transaction.public_hash],
+            inputs.public_inputs().unwrap()
+        );
     }
     let (refresh, payment, fund, settle) = programs();
     agree(&refresh);
@@ -305,7 +308,9 @@ fn a_forged_public_hash_breaks_the_public_hash_binding() {
 #[test]
 fn program_r1cs_assignment_and_public_hash_digests_are_pinned() {
     fn digests<P: ZkProgram>(program: &P) -> [String; 4] {
-        let public_hash = program.proof_inputs().unwrap().public_hash().unwrap();
+        let [public_hash] = program.proof_inputs().unwrap().public_inputs().unwrap()[..] else {
+            panic!("a program has exactly one public input");
+        };
         [
             sha256(&P::export_r1cs().unwrap()),
             sha256(&P::export_picus_r1cs().unwrap()),

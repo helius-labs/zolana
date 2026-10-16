@@ -56,8 +56,8 @@ import type {
   CompressedGroth16Proof,
   DataUtxo,
   EscrowTerms,
-  ProgramProof,
   ProgramTransaction,
+  Proof,
 } from "./wasm.js";
 import type { Timings } from "./timings.js";
 import { wasm } from "./wasm.js";
@@ -269,7 +269,7 @@ export function prove(
   timings: Timings,
   circuit: "escrow" | "withdraw",
   transaction: ProgramTransaction,
-): ProgramProof {
+): Proof {
   const key = timings.measure(`${circuit} read proving key`, () =>
     readFileSync(new URL(`${circuit}.pk`, PROVING_KEYS)),
   );

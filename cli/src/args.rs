@@ -175,7 +175,7 @@ pub(crate) struct ZkCompileOptions {
     #[arg(
         long = "r1cs-features",
         default_value = "circuits",
-        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables zolana-program/r1cs-export"
+        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables the r1cs-export feature of zolana-program or zolana-zk-dsl"
     )]
     pub(crate) r1cs_features: String,
 
@@ -233,12 +233,6 @@ pub(crate) struct ZkCompileOptions {
         help = "Directory for the wasm package (default: <target>/zk/<package>/wasm)"
     )]
     pub(crate) wasm_out: Option<PathBuf>,
-}
-
-impl ZkCompileOptions {
-    pub(crate) fn threads(&self) -> bool {
-        !self.single_threaded && !self.no_prover && self.wasm_target == ZkWasmTarget::Web
-    }
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]

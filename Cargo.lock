@@ -13071,6 +13071,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zk-tests"
+version = "0.1.0"
+dependencies = [
+ "litesvm",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-signer",
+ "zolana-client",
+ "zolana-zk-dsl",
+ "zolana-zk-standalone-fixture",
+]
+
+[[package]]
 name = "zlib-rs"
 version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13402,10 +13415,8 @@ dependencies = [
  "ark-circom",
  "ark-ff 0.6.0",
  "borsh",
- "console_error_panic_hook",
  "groth16-solana",
  "hex",
- "js-sys",
  "num-bigint 0.4.8",
  "pinocchio 0.11.2",
  "proptest",
@@ -13414,12 +13425,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
- "solana-bn254",
  "solana-signature",
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
- "wasm-bindgen-rayon",
  "wasmer",
  "wincode",
  "zolana-account-checks",
@@ -13757,6 +13766,8 @@ dependencies = [
  "ark-relations",
  "ark-std 0.6.0",
  "borsh",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
  "groth16-solana",
  "hex",
  "js-sys",
@@ -13764,6 +13775,7 @@ dependencies = [
  "proptest",
  "rayon",
  "serde",
+ "serde-wasm-bindgen",
  "serde_bytes",
  "serde_json",
  "sha2 0.10.9",
@@ -13772,6 +13784,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
+ "wasm-bindgen-rayon",
  "wasmer",
  "wincode",
  "zolana-hasher",
@@ -13822,7 +13835,9 @@ dependencies = [
 name = "zolana-zk-standalone-fixture"
 version = "0.1.0"
 dependencies = [
+ "pinocchio 0.11.2",
  "serde_json",
+ "solana-address 2.6.1",
  "zolana-zk-dsl",
  "zolana-zk-gadgets",
 ]

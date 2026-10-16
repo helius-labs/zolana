@@ -1,3 +1,7 @@
+#[cfg(feature = "setup")]
+pub use crate::r1cs_hook::{
+    binding_base, render_verifier, rust_type, write_circuit_r1cs, write_r1cs,
+};
 #[cfg(feature = "serde")]
 pub use serde;
 #[cfg(feature = "serde")]
@@ -90,6 +94,12 @@ macro_rules! feature_macro {
     };
 }
 
+feature_macro!(__zk_circuit_r1cs, "r1cs-export", $, {
+    ($($item:tt)*) => { $($item)* };
+});
+feature_macro!(__zk_circuit_wasm, "wasm", $, {
+    ($($item:tt)*) => { $($item)* };
+});
 feature_macro!(__proof_input_serde, "serde", $, {
     ($($item:tt)*) => { $($item)* };
 });
@@ -100,3 +110,42 @@ feature_macro!(__proof_input_tsify, "tsify", $, {
 #[cfg(feature = "tsify")]
 #[wasm_bindgen::prelude::wasm_bindgen(typescript_custom_section)]
 const FIELD_TYPE: &str = "export type Field = Uint8Array;";
+
+// The JavaScript class proving one circuit: `<Name>Prover`.
+feature_macro!(__zk_circuit_wasm_prover, "wasm-prover", $, {
+    ($prover:ident, $circuit:ty) => {
+        #[wasm_bindgen(wasm_bindgen = $crate::__private::wasm_bindgen)]
+        pub struct $prover($crate::Groth16Prover<$circuit>);
+
+        #[wasm_bindgen]
+        impl $prover {
+            #[wasm_bindgen(js_name = fromKey)]
+            pub fn from_key(
+                #[wasm_bindgen(js_name = provingKey)] proving_key: &[u8],
+                #[wasm_bindgen(js_name = expectedSha256)] expected_sha256: &[u8],
+            ) -> ::core::result::Result<$prover, $crate::__private::wasm_bindgen::JsValue>
+            {
+                $crate::wasm::prover_from_key::<$circuit>(proving_key, expected_sha256).map(Self)
+            }
+
+            #[wasm_bindgen(js_name = fromZkey)]
+            pub fn from_zkey(
+                zkey: &[u8],
+            ) -> ::core::result::Result<$prover, $crate::__private::wasm_bindgen::JsValue>
+            {
+                $crate::wasm::prover_from_zkey::<$circuit>(zkey).map(Self)
+            }
+
+            #[wasm_bindgen(unchecked_return_type = "Proof")]
+            pub fn prove(
+                &self,
+                #[wasm_bindgen(js_name = proofInputs)] proof_inputs: &[u8],
+            ) -> ::core::result::Result<
+                $crate::__private::wasm_bindgen::JsValue,
+                $crate::__private::wasm_bindgen::JsValue,
+            > {
+                $crate::wasm::prove(&self.0, proof_inputs)
+            }
+        }
+    };
+});

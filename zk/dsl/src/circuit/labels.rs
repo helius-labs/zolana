@@ -125,12 +125,14 @@ pub(crate) fn mark(
     );
 }
 
-#[doc(hidden)]
+/// Groups the constraints and variables a gadget adds under one name: error
+/// reports and the free-variable report point at the scope's text and the
+/// caller's location. The scope closes when it is dropped. It adds no
+/// constraint.
 #[must_use]
 pub struct Scope(Option<Open>);
 
 impl Scope {
-    #[doc(hidden)]
     #[track_caller]
     pub fn open(cs: &CircuitSystem, text: &'static str) -> Self {
         Self(Some(Open::new(

@@ -18,7 +18,7 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 
 For a protocol type, also analyze (mandatory):
 
-- `src/circuit/protocol/**` -- the protocol types: `asset.rs` (`Asset`), `owner.rs` (`OwnerKey`, `Owner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData`, `UtxoData::utxo_data`)
+- `src/circuit/**` -- the protocol types: `asset.rs` (`Asset`), `owner.rs` (`OwnerKey`, `Owner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData`, `UtxoData::utxo_data`)
 - the native references every circuit value must equal: `zolana-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `zolana-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `zolana-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
 
 ### Hard Rules
@@ -70,7 +70,7 @@ Provide in `README.md` a matrix with one row per builtin operation (for example 
 
 ### Output Format (strict)
 
-Do NOT answer inline. Write the results as md files into `sdk-libs/program/invariants/`, one file per builtin type (mirroring `tests/unit/<type>/`), plus cross-cutting and the index:
+Do NOT answer inline. Write the results as md files into `sdk-libs/program/tests/invariants/`, one file per builtin type (mirroring `tests/unit/<type>/`), plus cross-cutting and the index:
 
 | File | Covers |
 |---|---|

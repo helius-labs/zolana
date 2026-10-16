@@ -2,7 +2,7 @@
 
 ID prefixes: `INV-POSEIDON`, `INV-HASH-CHAIN`, `INV-MEMBER`, `INV-INDEX`.
 
-[`bytes.md`](../../dsl/invariants/bytes.md) lists the `hash_bytes` invariants and their tests under `INV-HASH-BYTES`. Shared exporter invariants live in `cross-cutting.md`.
+[`bytes.md`](../../dsl/tests/invariants/bytes.md) lists the `hash_bytes` invariants and their tests under `INV-HASH-BYTES`. Shared exporter invariants live in `cross-cutting.md`.
 
 The exact matrix fixtures use private inputs only. Membership and selection permit some unused input values to vary, while a dishonest claimed output must still fail. Equality inverse hints at zero are tolerated multipliers, and no invariant claims their values are unique.
 
