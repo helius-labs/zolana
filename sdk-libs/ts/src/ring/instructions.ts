@@ -11,7 +11,6 @@ import {
   SYSTEM_PROGRAM,
   meta,
   ringCoSignerMetas,
-  ringSpendWindowMetas,
   ringTransactAccounts,
   type SignerAccount,
 } from "../interface/instructions/index.js";
@@ -39,8 +38,6 @@ import type {
   TransactWithdrawal,
   TreeContext,
 } from "../interface/types.js";
-
-import { SOL_MINT } from "../transaction/asset.js";
 
 import { Writer } from "../interface/internal.js";
 
@@ -75,7 +72,6 @@ const RingProgramTag = Object.freeze({
   updateEntry: 9,
   setPolicySource: 10,
   setPolicyRules: 12,
-  registerSpend: 26,
   registerKey: 29,
 } as const);
 
@@ -88,7 +84,6 @@ export const RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
-export const RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 export const RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
 /** SPP input trees in tree context order, then the output tree. */
@@ -201,8 +196,6 @@ type RingTransactCommon = RingTransactTrees &
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
-      /** The window a windowed statement proves, zero or absent otherwise. */
-      windowIndex?: bigint;
       /** Non-payer input owners, the ed25519 rail adds them as signers. */
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
@@ -212,11 +205,10 @@ export async function ringTransactInstruction(
   if ("cacheAccess" in input.data.circuit) {
     throw new RingError("RING_CACHE_UNSUPPORTED", { details: { kind: input.data.circuit.kind } });
   }
-  const [config, ringAuth, cosignerPda, windows, policy] = await Promise.all([
+  const [config, ringAuth, cosignerPda, policy] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
-    ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
     policyAccountMetas(input.ringProgramId, input.policy),
   ]);
   const raw = await ringTransactAccounts({
@@ -243,17 +235,15 @@ export async function ringTransactInstruction(
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...policy,
-      ...windows,
       ...pool,
     ],
-    data: transactData(RingProgramTag.transact, input.windowIndex ?? 0n, input),
+    data: transactData(RingProgramTag.transact, input),
   };
 }
 
 /** Mirrors Rust `CustomRingTransactIxData`. */
 function transactData(
   tag: number,
-  windowIndex: bigint,
   input: Readonly<{
     proof: Uint8Array;
     policy?: RingTransactPolicy;
@@ -267,7 +257,6 @@ function transactData(
   const prefix = new Writer().u8(contexts.length, "policyTrees.length");
   for (const context of contexts) writeTreeContext(prefix, context);
   prefix
-    .u64(windowIndex, "windowIndex")
     .u8(policy?.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex")
     .bool(input.approvalRequired === true, "approvalRequired");
   const targets = policy?.revocationTargets ?? [];
@@ -340,24 +329,11 @@ export async function ringDelegateTransactInstruction(
       ...policy,
       ...pool,
     ],
-    data: transactData(RingProgramTag.delegateTransact, 0n, input),
+    data: transactData(RingProgramTag.delegateTransact, input),
   };
 }
 
 /** The mint of every public leg in leg order, an SPL leg settles through `withdrawal`. */
-function settledMints(
-  data: TransactInstructionData,
-  withdrawal: TransactWithdrawal | undefined,
-): Address[] {
-  return data.interfaceTransfers.map((leg) => {
-    if (leg.kind === "solDeposit" || leg.kind === "solWithdrawal") return SOL_MINT;
-    if (withdrawal?.kind !== "spl") {
-      throw new RingError("RING_BUILD_WITHDRAWAL", { details: { leg: leg.kind } });
-    }
-    return withdrawal.mint;
-  });
-}
-
 /** Mirrors Rust `TransactRail::verify_and_forward`, read-only and before the SPP list. */
 async function policyAccountMetas(
   ringProgramId: Address,
@@ -532,33 +508,6 @@ export async function updateRingEntryInstruction(
   return entryInstruction(input, data.finish());
 }
 
-/** Mirrors Rust `ProvenSpendRegistration::instruction`, the record content is derived on chain. */
-export async function registerRingSpendInstruction(
-  input: RingEntryTrees &
-    Readonly<{
-      ringProgramId: Address;
-      /** The member, its Solana key is the record's identity. */
-      payer: SignerAccount;
-      /** The SPP output blinding the registration proof derived. */
-      blinding: Bytes32;
-      /** The window the proven record opens in. */
-      windowIndex: bigint;
-      proof: RingEntryProof;
-    }>,
-): Promise<Instruction> {
-  const data = new Writer()
-    .u8(RingProgramTag.registerSpend, "tag")
-    .bytes(input.blinding, 32, "blinding")
-    .u64(input.windowIndex, "windowIndex")
-    .bytes(input.proof.privateTxBlinding, 32, "privateTxBlinding")
-    .u16(input.proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
-    .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")
-    .bytes(input.proof.proof.a, 32, "proof.a")
-    .bytes(input.proof.proof.b, 128, "proof.b")
-    .bytes(input.proof.proof.c, 32, "proof.c");
-  return entryInstruction(input, data.finish());
-}
-
 /** Mirrors Rust `ProvenKeyRegistration::instruction`, the member signs and pays. */
 export async function registerRingKeyInstruction(
   input: Readonly<{
@@ -683,13 +632,12 @@ async function policyTableBody(
   for (const asset of encoded.inlineAssets) writer.bytes(asset, 32, "inlineAsset");
   writer.u8(encoded.inlineCount, "inlineLimits.length");
   for (const limit of encoded.inlineLimits) writer.u64(limit, "inlineLimit");
-  writer.u64(encoded.windowSlots, "windowSlots");
-  writer.u8(encoded.velocityCount, "velocity.length");
-  for (const row of encoded.velocity) {
+  writer.u8(encoded.limitCount, "limits.length");
+  for (const limit of encoded.limits) {
     writer
-      .bytes(row.asset, 32, "velocity.asset")
-      .u64(row.cap, "velocity.cap")
-      .u64(row.cosignAbove, "velocity.cosignAbove");
+      .bytes(limit.asset, 32, "limits.asset")
+      .u64(limit.cap, "limits.cap")
+      .u64(limit.cosignAbove, "limits.cosignAbove");
   }
   return Object.freeze({
     data: writer.finish(),

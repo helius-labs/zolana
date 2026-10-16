@@ -5,14 +5,14 @@
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{
-    AuditedDepositPrefix, CreateConfigIxData, CustomRingError, CustomRingTransactIxData,
-    PlainGroth16Proof, PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetPausedIxData,
-    SourceSpec, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
+    AuditedDepositPrefix, CreateConfigIxData, CustomRingTransactIxData, PlainGroth16Proof,
+    PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetPausedIxData, SourceSpec,
+    CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
 };
 use custom_ring_sdk::{
     compute_unit_limit, tag, CoSignScope, CoSignThreshold, CustomRing, CustomRingDelegateTransact,
     CustomRingProof, CustomRingTransact, Deposit, EscrowBinding, InstructionTag, PolicyReads,
-    PolicyTreeContext, RingError, SetSpendWindow,
+    PolicyTreeContext, RingError,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -389,7 +389,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     .expect("single SOL deposit");
     // Deposit controls precede the forwarded SPP accounts.
     assert_eq!(
-        deposit.accounts.get(7).expect("ring_config meta").pubkey,
+        deposit.accounts.get(6).expect("ring_config meta").pubkey,
         ring_auth
     );
 }
@@ -453,7 +453,6 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().deposit_audit_pda(), false),
-            AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
             AccountMeta::new(tree, false),
             AccountMeta::new(depositor, true),
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
@@ -540,10 +539,6 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
             AccountMeta::new_readonly(ring().key_registry_root_pda(), false),
         ]
     );
-    assert_eq!(
-        escrowed.accounts[5],
-        AccountMeta::new(ring().spend_window_pda(&Address::default()), false)
-    );
     assert!(matches!(build(None), Err(RingError::AuditRequired)));
 }
 
@@ -617,18 +612,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(4..6)
-            .expect("window metas")
-            .to_vec(),
-        vec![
-            AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
-            AccountMeta::new(ring().spend_window_pda(&mint), false),
-        ]
-    );
-    assert_eq!(
-        instruction
-            .accounts
-            .get(10..)
+            .get(8..)
             .expect("settlement metas")
             .to_vec(),
         vec![
@@ -772,7 +756,6 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
         interface_transfer_accounts: Vec::new(),
         proof,
         approval_required: false,
-        window_index: 0,
         transact: transact.clone(),
     }
     .instruction()
@@ -817,7 +800,6 @@ fn custom_ring_transact_prepends_the_config_to_the_spp_list() {
         CustomRingTransactIxData {
             proof,
             policy_trees: vec![context(1, 2), context(3, 4)],
-            window_index: 0,
             key_registry_root_index: 5,
             approval_required: false,
             revocation_targets: reads.revocation_targets,
@@ -843,7 +825,6 @@ fn a_revocation_outside_the_policy_trees_is_refused() {
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
         approval_required: false,
-        window_index: 0,
         transact: transact_data(Vec::new()),
     }
     .instruction();
@@ -873,7 +854,6 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
         approval_required: false,
-        window_index: 0,
         transact: transact_data(Vec::new()),
     }
     .instruction()
@@ -918,7 +898,6 @@ fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
         approval_required: false,
-        window_index: 0,
         transact,
     }
     .instruction()
@@ -964,20 +943,15 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         )],
         proof: sample_proof(),
         approval_required: false,
-        window_index: 0,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
     .expect("serialize the custom-ring transact content");
 
     assert_eq!(
-        instruction.accounts.get(5).expect("window meta"),
-        &AccountMeta::new(ring().spend_window_pda(&Address::default()), false)
-    );
-    assert_eq!(
         instruction
             .accounts
-            .get(12..)
+            .get(11..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![
@@ -1078,8 +1052,7 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
             rules: encoded.rules[..3].to_vec(),
             inline_assets: vec![ASSET],
             inline_limits: vec![0],
-            window_slots: 0,
-            velocity: Vec::new(),
+            limits: Vec::new(),
         }
     );
     // The group row carries its absent alternative at byte 19.
@@ -1270,77 +1243,6 @@ fn clear_cosigner_closes_into_the_rent_recipient() {
 }
 
 #[test]
-fn set_spend_window_creates_or_replaces_under_the_config_authority() {
-    let mint = Address::new_from_array([60; 32]);
-    let instruction = SetSpendWindow {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        mint,
-        window_slots: 100,
-        deposit_cap: 0,
-        withdrawal_cap: 9,
-    }
-    .instruction()
-    .expect("instruction");
-
-    assert_eq!(instruction.program_id, ring().program_id());
-    assert_eq!(
-        instruction.accounts,
-        vec![
-            AccountMeta::new(payer(), true),
-            AccountMeta::new_readonly(authority(), true),
-            AccountMeta::new_readonly(ring().config_pda(), false),
-            AccountMeta::new(ring().spend_window_pda(&mint), false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
-        ]
-    );
-    let (ix_tag, body) = split_tag(&instruction);
-    assert_eq!(ix_tag, tag::SET_SPEND_WINDOW);
-    let mut expected = mint.to_bytes().to_vec();
-    expected.extend_from_slice(&100u64.to_le_bytes());
-    // `Option<NonZeroU64>`, a zero cap is absent.
-    expected.push(0);
-    expected.push(1);
-    expected.extend_from_slice(&9u64.to_le_bytes());
-    assert_eq!(body, expected.as_slice());
-    let uncapped = SetSpendWindow {
-        ring: ring(),
-        payer: payer(),
-        authority: authority(),
-        mint,
-        window_slots: 100,
-        deposit_cap: 0,
-        withdrawal_cap: 0,
-    }
-    .instruction();
-    assert!(matches!(
-        uncapped,
-        Err(RingError::Program(CustomRingError::UncappedSpendWindow))
-    ));
-}
-
-#[test]
-fn clear_spend_window_closes_into_the_rent_recipient() {
-    let mint = Address::new_from_array([60; 32]);
-    let rent_recipient = Address::new_from_array([38; 32]);
-    let instruction = ring().clear_spend_window(authority(), mint, rent_recipient);
-
-    assert_eq!(
-        instruction.accounts,
-        vec![
-            AccountMeta::new_readonly(authority(), true),
-            AccountMeta::new_readonly(ring().config_pda(), false),
-            AccountMeta::new(ring().spend_window_pda(&mint), false),
-            AccountMeta::new(rent_recipient, false),
-        ]
-    );
-    let (ix_tag, body) = split_tag(&instruction);
-    assert_eq!(ix_tag, tag::CLEAR_SPEND_WINDOW);
-    assert_eq!(body, mint.as_array());
-}
-
-#[test]
 fn set_delegate_runs_under_the_upgrade_authority() {
     let delegate = Address::new_from_array([47; 32]);
     let instruction = ring().set_delegate(payer(), authority(), delegate);
@@ -1429,7 +1331,6 @@ fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
     assert_eq!(ix_tag, 25);
     let decoded: CustomRingTransactIxData = wincode::deserialize_exact(body).expect("body");
     assert_eq!(decoded.key_registry_root_index, 4);
-    assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert!(matches!(
         build(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
@@ -1462,7 +1363,6 @@ fn the_cosigner_slot_signs_only_when_set() {
             },
             transact: transact_data(Vec::new()),
             approval_required: false,
-            window_index: 0,
         }
         .instruction()
         .expect("instruction")

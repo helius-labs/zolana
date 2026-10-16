@@ -104,22 +104,16 @@ capsules and transfer messages client-side.
 
 ### Ring projections
 
-`getRingSpendRecord` takes the ring program and a member. It answers the SPP
-transaction and output index of the member's newest spend record, or `null`
-when the member has not registered. `context.slot` is the projection tip, so a
-client waits until it reaches the slot of its own record update. The record is
-the event of `register_spend` or of the latest windowed transfer that spent the
-previous record. A stale answer cannot move funds, SPP refuses a spent record.
 `getRingKeyRegistryEntry` and `getRingKeyRegistryRegisterProof` take the ring
 program, member, and the exact root and append index read from the ring's
-key-registry PDA.
+key-registry PDA. `context.slot` is the projection tip, so a client waits until
+it reaches the slot of its own registration.
 
-One ring projector serves spend records and the key registry. It runs alongside
-SPP indexing with its own durable cursor and undo journal and applies confirmed
-blocks in order. On a fork it suspends lookups, rewinds its own rows, and
-replays canonical blocks. SPP tables stay untouched. An SPP indexer fork or
-archive gap can still prevent an ordinary SPP proof from being obtained. A spend
-record lookup also needs the SPP indexer to hold the record's transaction.
+One ring projector serves the key registry. It runs alongside SPP indexing with
+its own durable cursor and undo journal and applies confirmed blocks in order.
+On a fork it suspends lookups, rewinds its own rows, and replays canonical
+blocks. SPP tables stay untouched. An SPP indexer fork or archive gap can still
+prevent an ordinary SPP proof from being obtained.
 
 A ring whose instruction fails validation, or whose root or policy account is
 missing, is quarantined. Its lookups stay unavailable, every other ring keeps
@@ -131,14 +125,12 @@ Lookups wait until replay reaches the global projection tip.
 Use a persistent `--db-url` and run migrations before starting a new binary.
 The default temporary database is discarded on startup. For a fresh ring,
 `--ring-projection-start-slot` may name its creation slot and must repeat the
-stored value on every restart. Do not start after the ring's first
-`register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history
-available from that slot, and back up the database and its undo journal.
+stored value on every restart. Do not start after the ring's
+`CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history available from that
+slot, and back up the database and its undo journal.
 
-Error `-32074` means the spend-record projection is unavailable, quarantined,
-or ahead of the SPP indexer. Wait for indexing or recovery. The key registry
-answers `-32070` for an unavailable projection and `-32071` for a changed root
-or cursor. A key-registry lookup answers `-32072` for an unregistered member
+The key registry answers `-32070` for an unavailable projection and `-32071`
+for a changed root or cursor. A key-registry lookup answers `-32072` for an unregistered member
 and `-32073` for one already registered.
 
 Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A

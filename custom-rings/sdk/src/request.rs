@@ -5,7 +5,7 @@ use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::{ViewingKey, X25519Pubkey};
-use zolana_ring_policy::{SourceOwner, VelocityRow, MAX_VELOCITY_ASSETS, POLICY_OUTPUT_SLOTS};
+use zolana_ring_policy::{OutflowLimit, SourceOwner, MAX_OUTFLOW_LIMITS, POLICY_OUTPUT_SLOTS};
 
 use crate::{
     escrow::RegistryKeyOpening,
@@ -41,7 +41,7 @@ pub(crate) struct CustomRingOpening {
     pub ring_data_hash: [u8; 32],
     #[serde(with = "fe")]
     pub ring_program_id: [u8; 32],
-    /// `None` with escrow off, in padding, or on a namespace-owned record.
+    /// `None` with escrow off or in padding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<RegistryKeyOpening>,
 }
@@ -101,23 +101,6 @@ impl Default for RuleAnswer {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpendRecordProofInput {
-    pub version: u64,
-    pub window: u64,
-    #[serde(with = "fe")]
-    pub commitment: [u8; 32],
-    #[serde(with = "fe")]
-    pub salt: [u8; 32],
-    #[serde(serialize_with = "fe::seq")]
-    pub assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
-    #[serde(serialize_with = "fe::ints")]
-    pub spent: [u64; MAX_VELOCITY_ASSETS],
-    #[serde(with = "fe")]
-    pub next_salt: [u8; 32],
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingIdentity {
     pub ring_id: [u8; 32],
@@ -133,35 +116,29 @@ impl RingIdentity {
     }
 }
 
+/// The pinned outflow limits and the approval demand the transfer proves under them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VelocityProofInput {
-    pub window_slots: u64,
-    #[serde(rename = "velocity", serialize_with = "velocity_rows")]
-    pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
-    #[serde(rename = "velocityCount")]
-    pub row_count: u8,
+pub struct OutflowLimitProofInput {
+    #[serde(serialize_with = "outflow_limits")]
+    pub limits: [OutflowLimit; MAX_OUTFLOW_LIMITS],
+    pub limit_count: u8,
     #[serde(with = "fe")]
     pub ring_id: [u8; 32],
     #[serde(with = "fe")]
     pub namespace_owner_hash: [u8; 32],
-    pub window_index: u64,
     pub approval_required: bool,
-    pub record: SpendRecordProofInput,
 }
 
-impl VelocityProofInput {
-    /// A ring without a window still binds its id and namespace.
-    pub fn off(identity: RingIdentity) -> Self {
+impl OutflowLimitProofInput {
+    /// A ring without limits still binds its id and namespace.
+    pub fn none(identity: RingIdentity) -> Self {
         Self {
-            window_slots: 0,
-            rows: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
-            row_count: 0,
+            limits: [OutflowLimit::EMPTY; MAX_OUTFLOW_LIMITS],
+            limit_count: 0,
             ring_id: identity.ring_id,
             namespace_owner_hash: identity.namespace_owner_hash,
-            window_index: 0,
             approval_required: false,
-            record: SpendRecordProofInput::default(),
         }
     }
 }
@@ -207,15 +184,10 @@ pub(crate) struct PolicyBody {
     pub witness: Box<CustomRingWitness>,
 }
 
-/// The delegate and compressed circuits read the policy body under `policy`.
+/// The delegate circuit reads the policy body under `policy`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PolicyEnvelope<'a> {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "optional_salt"
-    )]
-    pub transaction_salt: Option<[u8; 16]>,
     pub circuit_type: RingCircuit,
     pub policy: &'a PolicyBody,
 }
@@ -343,24 +315,24 @@ fn fields<S: Serializer, const N: usize>(
     state.end()
 }
 
-pub(crate) fn velocity_rows<S: Serializer>(
-    rows: &[VelocityRow],
+pub(crate) fn outflow_limits<S: Serializer>(
+    limits: &[OutflowLimit],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    serializer.collect_seq(rows.iter().map(Row))
+    serializer.collect_seq(limits.iter().map(Limit))
 }
 
-struct Row<'a>(&'a VelocityRow);
+struct Limit<'a>(&'a OutflowLimit);
 
-impl Serialize for Row<'_> {
+impl Serialize for Limit<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let row = self.0;
+        let limit = self.0;
         fields(
             serializer,
             [
-                ("asset", &row.asset),
-                ("cap", &int(row.cap)),
-                ("cosignAbove", &int(row.cosign_above)),
+                ("asset", &limit.asset),
+                ("cap", &int(limit.cap)),
+                ("cosignAbove", &int(limit.cosign_above)),
             ],
         )
     }
@@ -421,10 +393,6 @@ impl Serialize for Escrow {
         )?;
         state.end()
     }
-}
-
-fn optional_salt<S: Serializer>(salt: &Option<[u8; 16]>, serializer: S) -> Result<S::Ok, S::Error> {
-    fe::bytes(&salt.unwrap_or_default(), serializer)
 }
 
 fn int(value: u64) -> [u8; 32] {

@@ -1,21 +1,18 @@
 //! Shared mollusk fixtures, each test binary uses a subset.
 #![allow(dead_code)]
 
-use core::num::NonZeroU64;
-
 use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CoSignScope, CoSigner, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
     CustomRingTransactIxData, Delegate, KeyRegistryRoot, PlainGroth16Proof, PolicyConfig,
-    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterKeyIxData, RegisterSpendIxData,
-    RingProgramConfig, SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot,
-    SourceSpec, SpendWindow, UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdRow,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
-    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
-    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterKeyIxData, RingProgramConfig,
+    SetCoSignerIxData, SetPausedIxData, SourceSlot, SourceSpec, UpdateEntryIxData,
+    WithdrawalThreshold, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
+    DELEGATE, DELEGATE_PDA_SEED, KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT,
+    KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS,
+    N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256,
+    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -31,15 +28,14 @@ use zolana_interface::{
         deposit::{
             DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         },
-        transact::{OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext},
+        transact::{TransactIxData, TransactProof, TreeContext},
     },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    ListId, ListNamespace, Member, Rule, RuleTable, SourceMap, SourceOwner, SpendCounters,
-    SpendRecord, Subject, VelocityRow, ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_SOURCES,
-    NAMESPACE_PDA_SEED,
+    ListId, ListNamespace, OutflowLimit, Rule, RuleTable, SourceMap, SourceOwner, Subject,
+    ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_SOURCES, NAMESPACE_PDA_SEED,
 };
 use zolana_tree::TreeAccount;
 
@@ -106,8 +102,8 @@ impl Fixture {
         self.labels.insert(index, slot.label);
     }
 
-    /// Window slots sit between the control accounts and the forwarded SPP list.
-    pub fn insert_windows(&mut self, slots: Vec<Slot>) {
+    /// Slots ahead of the forwarded SPP list, after the policy reads.
+    pub fn insert_before_spp(&mut self, slots: Vec<Slot>) {
         let at = self.position("spp_payer");
         for (index, slot) in slots.into_iter().enumerate() {
             self.insert(at + index, slot);
@@ -529,89 +525,6 @@ pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
     )
 }
 
-pub fn spend_window_pda(mint: Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[SPEND_WINDOW_PDA_SEED, mint.as_ref()], &program_id())
-}
-
-pub struct WindowState {
-    pub mint: Pubkey,
-    pub window_slots: u64,
-    pub deposit_cap: u64,
-    pub withdrawal_cap: u64,
-    pub window_start_slot: u64,
-    pub deposited: u64,
-    pub withdrawn: u64,
-}
-
-impl WindowState {
-    pub fn account(&self) -> Account {
-        let state = SpendWindow {
-            discriminator: SPEND_WINDOW,
-            mint: Address::new_from_array(self.mint.to_bytes()),
-            window_slots: self.window_slots.to_le_bytes(),
-            deposit_cap: self.deposit_cap.to_le_bytes(),
-            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
-            window_start_slot: self.window_start_slot.to_le_bytes(),
-            deposited: self.deposited.to_le_bytes(),
-            withdrawn: self.withdrawn.to_le_bytes(),
-            bump: spend_window_pda(self.mint).1,
-        };
-        owned_account(&state, 1_500_000)
-    }
-}
-
-pub fn window_slot(mint: Pubkey, account: Option<Account>) -> Slot {
-    Slot {
-        label: "window",
-        meta: AccountMeta::new(spend_window_pda(mint).0, false),
-        account: account.unwrap_or_else(|| self::account(0)),
-    }
-}
-
-pub fn set_spend_window_data(
-    mint: Pubkey,
-    window_slots: u64,
-    deposit_cap: u64,
-    withdrawal_cap: u64,
-) -> Vec<u8> {
-    let mut data = vec![tag::SET_SPEND_WINDOW];
-    data.extend_from_slice(
-        &wincode::serialize(&SetSpendWindowIxData {
-            mint: mint.to_bytes(),
-            window_slots,
-            deposit_cap: NonZeroU64::new(deposit_cap),
-            withdrawal_cap: NonZeroU64::new(withdrawal_cap),
-        })
-        .expect("serialize set_spend_window data"),
-    );
-    data
-}
-
-pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Account>) -> Fixture {
-    Fixture::new(
-        data,
-        vec![
-            Slot {
-                label: "payer",
-                meta: AccountMeta::new(payer(), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "authority",
-                meta: AccountMeta::new_readonly(authority(), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "config",
-                meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(4)),
-            },
-            window_slot(mint, existing),
-            system_program_slot(),
-        ],
-    )
-}
-
 pub fn key_registry_root_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[KEY_REGISTRY_ROOT_PDA_SEED], &program_id())
 }
@@ -711,32 +624,6 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
     )
 }
 
-pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
-    let mut data = vec![tag::CLEAR_SPEND_WINDOW];
-    data.extend_from_slice(mint.as_ref());
-    Fixture::new(
-        data,
-        vec![
-            Slot {
-                label: "authority",
-                meta: AccountMeta::new_readonly(authority(), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "config",
-                meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(4)),
-            },
-            window_slot(mint, Some(existing)),
-            Slot {
-                label: "rent_recipient",
-                meta: AccountMeta::new(rent_recipient(), false),
-                account: account(1_000_000_000),
-            },
-        ],
-    )
-}
-
 pub fn program_data_pda() -> Pubkey {
     Pubkey::find_program_address(&[program_id().as_ref()], &BPF_LOADER_UPGRADEABLE_PUBKEY).0
 }
@@ -816,23 +703,13 @@ pub const PINNED_RULES: RuleTable = RuleTable::builder()
     .inline_assets(&[[3u8; 32], [4u8; 32]])
     .build();
 
-pub const VELOCITY_ASSET: [u8; 32] = [3u8; 32];
-pub const VELOCITY_CAP: u64 = 1000;
-pub const VELOCITY_WINDOW_SLOTS: u64 = 100;
+pub const LIMIT_ASSET: [u8; 32] = [3u8; 32];
+pub const LIMIT_CAP: u64 = 1000;
 
-pub const VELOCITY_RULES: RuleTable = RuleTable::builder()
-    .windowed(NonZeroU64::new(VELOCITY_WINDOW_SLOTS).unwrap())
-    .velocity(&[VelocityRow {
-        asset: VELOCITY_ASSET,
-        cap: VELOCITY_CAP,
-        cosign_above: 0,
-    }])
-    .build();
-
-pub const TRANSFER_CAP_RULES: RuleTable = RuleTable::builder()
-    .velocity(&[VelocityRow {
-        asset: VELOCITY_ASSET,
-        cap: VELOCITY_CAP,
+pub const LIMIT_RULES: RuleTable = RuleTable::builder()
+    .limits(&[OutflowLimit {
+        asset: LIMIT_ASSET,
+        cap: LIMIT_CAP,
         cosign_above: 0,
     }])
     .build();
@@ -969,44 +846,12 @@ pub fn initialized_policy_config_account() -> Account {
     policy_config_account_with(&empty, own_source_slots(&empty))
 }
 
-pub fn velocity_policy_config_account() -> Account {
-    policy_config_account_with(&VELOCITY_RULES, own_source_slots(&VELOCITY_RULES))
-}
-
-pub fn transfer_cap_policy_config_account() -> Account {
-    policy_config_account_with(&TRANSFER_CAP_RULES, own_source_slots(&TRANSFER_CAP_RULES))
+pub fn limit_policy_config_account() -> Account {
+    policy_config_account_with(&LIMIT_RULES, own_source_slots(&LIMIT_RULES))
 }
 
 fn namespace_owner_of(ring: Pubkey) -> ListNamespace {
     ListNamespace::new(namespace_pda_of(ring).0.as_array()).expect("namespace owner")
-}
-
-/// The registration record opens zero counters at window zero.
-pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
-    spend_record_output_in(tag, ADDRESS_TREE_ID)
-}
-
-/// The record leaf hashes under the tree it lands in, its address under the address tree.
-pub fn spend_record_output_in(tag: [u8; 32], output_tree_id: u16) -> TransactOutput {
-    let owner = namespace_owner_of(program_id());
-    let member = Member::owner_tag(&tag).expect("member");
-    let record = SpendRecord {
-        member,
-        version: 0,
-        window: 0,
-        counters_commitment: SpendCounters::EMPTY.commitment().expect("commitment"),
-        blinding: [7u8; 32],
-    };
-    let address = owner
-        .spend_address(&member, ADDRESS_TREE_ID)
-        .expect("spend address");
-    TransactOutput {
-        utxo_hash: record
-            .utxo_hash(&owner, &address, output_tree_id)
-            .expect("record leaf"),
-        owner_tag: OwnerTag::Inline(namespace_pda().0.to_bytes()),
-        data: Some(record.to_output_data().to_vec()),
-    }
 }
 
 pub fn policy_config_account_with(
@@ -1191,8 +1036,7 @@ pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxDa
         rules: rules.rules().iter().map(Rule::encoded).collect(),
         inline_assets: rules.inline_assets().to_vec(),
         inline_limits: rules.inline_limits().to_vec(),
-        window_slots: rules.window_slots(),
-        velocity: rules.velocity().to_vec(),
+        limits: rules.limits().to_vec(),
     }
 }
 
@@ -1433,30 +1277,6 @@ impl EntryFixture {
         );
         Fixture::new(data, entry_mutation_slots(policy_config, self.writer))
     }
-}
-
-/// `payer` registers its own identity over the entry mutation layout in window zero.
-pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
-    Fixture::new(
-        register_spend_data(0),
-        entry_mutation_slots(policy_config, payer),
-    )
-}
-
-pub fn register_spend_data(window_index: u64) -> Vec<u8> {
-    let mut data = vec![tag::REGISTER_SPEND];
-    data.extend_from_slice(
-        &wincode::serialize(&RegisterSpendIxData {
-            blinding: [0u8; 32],
-            window_index,
-            private_tx_blinding: [0u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
-            proof: TransactProof::zeroed(),
-        })
-        .expect("register_spend data"),
-    );
-    data
 }
 
 /// An initialized policy-ring config as this program would have written it.
@@ -1798,7 +1618,6 @@ pub fn deposit_fixture_with(config: Account) -> Fixture {
         ),
         account: account(0),
     });
-    slots.push(window_slot(Pubkey::new_from_array([0; 32]), None));
     slots.extend(sol_deposit_slots());
     Fixture::new(
         ring_deposit_data(vec![DepositAssetKind::Sol], SOL_DEPOSIT_AMOUNT),
@@ -1839,7 +1658,6 @@ pub fn audit_ix_data(proof: CustomRingProof, transact: TransactIxData) -> Custom
     CustomRingTransactIxData {
         proof,
         policy_trees: Vec::new(),
-        window_index: 0,
         key_registry_root_index: 0,
         approval_required: false,
         revocation_targets: [[0; 32]; ANSWER_SLOTS],

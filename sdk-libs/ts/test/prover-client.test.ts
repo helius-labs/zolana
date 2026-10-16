@@ -19,7 +19,6 @@ import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
-  customRingCompressedPolicyProofRequest,
   customRingPolicyProofRequest,
   customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
@@ -30,7 +29,7 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
-import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
+import { disabledRuleAnswer, outflowLimitsOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { hashChain } from "../src/transaction/internal.js";
 import type { IndexedPolicyInputs } from "../src/client/ports.js";
@@ -154,7 +153,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     inlineCount: 0,
     treeSlots: [{ id: 3, utxoRoot: bytes(8), nullifierRoot: bytes(9) }],
     addressTreeId: 3,
-    velocity: velocityProofInputOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
+    limits: outflowLimitsOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
@@ -173,39 +172,17 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
   };
 }
 
-describe("compressed ring prover contracts", () => {
-  it.each(["compressed", "delegate"] as const)(
-    "decodes %s proofs and refuses malformed responses",
-    async (kind) => {
-      const proof = proofFor({ circuitType: `custom-ring-${kind}-policy` });
-      const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
-      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-      const policy = ringRequest(x25519.getPublicKey(bytes(4)));
-      const prove = () =>
-        kind === "compressed"
-          ? prover.proveCustomRingCompressedPolicy({
-              policy,
-              transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
-            })
-          : prover.proveCustomRingDelegatePolicy(policy);
-      await expect(prove()).resolves.toEqual(parseProof(proof));
-      fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
-      await expect(prove()).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
-      expect(fetch).toHaveBeenCalledTimes(2);
-    },
-  );
-
-  it("nests the member policy beside the transaction salt only", () => {
-    const request = {
-      policy: ringRequest(x25519.getPublicKey(bytes(4))),
-      transactionSalt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
-    };
-    const body = customRingCompressedPolicyProofRequest(request);
-    expect(body).toMatchObject({
-      circuitType: "custom-ring-compressed-policy",
-      policy: { circuitType: "custom-ring-policy" },
-    });
-    expect(Object.keys(body).sort()).toEqual(["circuitType", "policy", "transactionSalt"]);
+describe("delegate ring prover contracts", () => {
+  it("decodes delegate proofs and refuses malformed responses", async () => {
+    const proof = proofFor({ circuitType: "custom-ring-delegate-policy" });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+    const policy = ringRequest(x25519.getPublicKey(bytes(4)));
+    const prove = () => prover.proveCustomRingDelegatePolicy(policy);
+    await expect(prove()).resolves.toEqual(parseProof(proof));
+    fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
+    await expect(prove()).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", async () => {
@@ -260,7 +237,7 @@ describe("compressed ring prover contracts", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps delegate policy rows but sends no velocity charge", async () => {
+  it("keeps the delegate policy limits but sends no approval", async () => {
     const bodies: unknown[] = [];
     const prover = new ProverClient({
       tee: false,
@@ -271,20 +248,17 @@ describe("compressed ring prover contracts", () => {
       },
     });
     const request = ringRequest(x25519.getPublicKey(bytes(4)));
-    const velocity = {
-      ...request.velocity,
-      windowSlots: 100n,
-      rows: [{ asset: bytes(1), cap: 1n, cosignAbove: 1n }],
+    const limits = {
+      ...request.limits,
+      limits: [{ asset: bytes(1), cap: 1n, cosignAbove: 1n }],
     };
-    await prover.proveCustomRingDelegatePolicy({ ...request, velocity });
+    await prover.proveCustomRingDelegatePolicy({ ...request, limits });
     expect(bodies).toMatchObject([
       {
         circuitType: "custom-ring-delegate-policy",
         policy: {
           circuitType: "custom-ring-policy",
-          velocityCount: 1,
-          windowSlots: 100,
-          windowIndex: 0,
+          limitCount: 1,
           approvalRequired: false,
         },
       },
@@ -292,7 +266,7 @@ describe("compressed ring prover contracts", () => {
     await expect(
       prover.proveCustomRingDelegatePolicy({
         ...request,
-        velocity: { ...velocity, approvalRequired: true },
+        limits: { ...limits, approvalRequired: true },
       }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
     expect(bodies).toHaveLength(1);
@@ -377,28 +351,17 @@ const EXPECTED_RING_BODY = {
   inlineCount: 0,
   treeSlots: [{ id: `0x${"0".repeat(62)}03`, utxoRoot: fieldHex(8), nullifierRoot: fieldHex(9) }],
   addressTreeId: `0x${"0".repeat(62)}03`,
-  windowSlots: 0,
-  velocity: Array.from({ length: 8 }, () => ({
+  limits: Array.from({ length: 8 }, () => ({
     asset: fieldHex(0),
     cap: fieldHex(0),
     cosignAbove: fieldHex(0),
   })),
-  velocityCount: 0,
+  limitCount: 0,
   ringId: fieldHex(10),
   namespaceOwnerHash: fieldHex(11),
-  windowIndex: 0,
   approvalRequired: false,
   keyEscrow: false,
   keyRegistryRoot: fieldHex(0),
-  record: {
-    version: 0,
-    window: 0,
-    commitment: fieldHex(0),
-    salt: fieldHex(0),
-    assets: Array.from({ length: 8 }, () => fieldHex(0)),
-    spent: Array.from({ length: 8 }, () => fieldHex(0)),
-    nextSalt: fieldHex(0),
-  },
   answers: Array.from({ length: 10 }, () => EXPECTED_RULE_ANSWER),
 };
 
@@ -695,6 +658,8 @@ describe("prover request routing", () => {
       "inputs",
       "keyEscrow",
       "keyRegistryRoot",
+      "limitCount",
+      "limits",
       "nIn",
       "nOut",
       "namespaceOwnerHash",
@@ -703,17 +668,12 @@ describe("prover request routing", () => {
       "privateTxBlinding",
       "privateTxHash",
       "publicInputHash",
-      "record",
       "ringId",
       "ruleEnc",
       "salt",
       "sources",
       "treeSlots",
       "txViewingSk",
-      "velocity",
-      "velocityCount",
-      "windowIndex",
-      "windowSlots",
     ]);
     expect(body["circuitType"]).toBe("custom-ring-policy");
     expect(body["auditorPk"]).toHaveLength(66);
@@ -1359,11 +1319,7 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
       commitment: null,
       nullifier: null,
     })),
-    publicInputs: Array.from(
-      { length: circuit === "custom-ring-compressed-policy" ? 20 : 19 },
-      () => bytes(1),
-    ),
-    ...(circuit === "custom-ring-compressed-policy" ? { transactionSalt: new Uint8Array(16) } : {}),
+    publicInputs: Array.from({ length: 18 }, () => bytes(1)),
   };
   const hash = hashChain([
     inputs.publicInputs[0]!,
@@ -1384,59 +1340,58 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
 }
 
 describe("indexed policy proofs", () => {
-  it.each([
-    "custom-ring-policy",
-    "custom-ring-compressed-policy",
-    "custom-ring-delegate-policy",
-  ] as const)("binds returned roots for %s", async (circuit) => {
-    const { inputs, hash, resolution, proof, toHex } = indexedPolicy(circuit);
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({ ...proof, resolution }),
-    );
-    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    const result = await prover.proveIndexedPolicy(inputs);
-    expect(result.resolution.publicInputHash).toEqual(hash);
-    expect(String(fetch.mock.calls[0]?.[0])).toContain(
-      `/prove/${circuit.replaceAll("-", "_")}/indexed`,
-    );
-    const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-    const decoder = wireDecoder(() => new Error("invalid body"));
-    const body = decoder.record(wire, "body");
-    const wrapped = decoder.record(body["prepared"], "prepared");
-    const prepared =
-      circuit === "custom-ring-policy" ? wrapped : decoder.record(wrapped["policy"], "policy");
-    expect(body["minContextSlot"]).toBe(123);
-    expect(wrapped["minContextSlot"]).toBeUndefined();
-    expect(prepared["treeSlots"]).toBeUndefined();
-    expect(
-      decoder.record(decoder.list(prepared["answers"], "answers")[0], "answer")["nfPathElements"],
-    ).toBeUndefined();
-    const client = new ZolanaClient({
-      fetch,
-      indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
-    });
-    await expect(
-      client.proveIndexedRingPolicy({ ...inputs, minContextSlot: -1n }),
-    ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
-    for (const minContextSlot of [123n, 1000n]) {
-      await client.proveIndexedRingPolicy({ ...inputs, minContextSlot });
-      const clientWire: unknown = JSON.parse(String(fetch.mock.lastCall?.[1]?.body));
-      expect(decoder.record(clientWire, "client body")["minContextSlot"]).toBe(
-        Number(minContextSlot < 456n ? 456n : minContextSlot),
+  it.each(["custom-ring-policy", "custom-ring-delegate-policy"] as const)(
+    "binds returned roots for %s",
+    async (circuit) => {
+      const { inputs, hash, resolution, proof, toHex } = indexedPolicy(circuit);
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({ ...proof, resolution }),
       );
-    }
-    for (const changed of [
-      { ...resolution, publicInputHash: toHex(bytes(2)) },
-      { ...resolution, trees: [{ ...resolution.trees[0], utxoRootIndex: 9 }] },
-      { ...resolution, trees: [{ ...resolution.trees[0], utxoRoot: toHex(bytes(10)) }] },
-      { ...resolution, trees: [{ ...resolution.trees[0], tree: treeAddress(4) }] },
-    ]) {
-      fetch.mockResolvedValueOnce(Response.json({ ...proof, resolution: changed }));
-      await expect(prover.proveIndexedPolicy(inputs)).rejects.toMatchObject({
-        code: "CLIENT_PROOF_PARSE",
+      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+      const result = await prover.proveIndexedPolicy(inputs);
+      expect(result.resolution.publicInputHash).toEqual(hash);
+      expect(String(fetch.mock.calls[0]?.[0])).toContain(
+        `/prove/${circuit.replaceAll("-", "_")}/indexed`,
+      );
+      const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      const decoder = wireDecoder(() => new Error("invalid body"));
+      const body = decoder.record(wire, "body");
+      const wrapped = decoder.record(body["prepared"], "prepared");
+      const prepared =
+        circuit === "custom-ring-policy" ? wrapped : decoder.record(wrapped["policy"], "policy");
+      expect(body["minContextSlot"]).toBe(123);
+      expect(wrapped["minContextSlot"]).toBeUndefined();
+      expect(prepared["treeSlots"]).toBeUndefined();
+      expect(
+        decoder.record(decoder.list(prepared["answers"], "answers")[0], "answer")["nfPathElements"],
+      ).toBeUndefined();
+      const client = new ZolanaClient({
+        fetch,
+        indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
       });
-    }
-  });
+      await expect(
+        client.proveIndexedRingPolicy({ ...inputs, minContextSlot: -1n }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+      for (const minContextSlot of [123n, 1000n]) {
+        await client.proveIndexedRingPolicy({ ...inputs, minContextSlot });
+        const clientWire: unknown = JSON.parse(String(fetch.mock.lastCall?.[1]?.body));
+        expect(decoder.record(clientWire, "client body")["minContextSlot"]).toBe(
+          Number(minContextSlot < 456n ? 456n : minContextSlot),
+        );
+      }
+      for (const changed of [
+        { ...resolution, publicInputHash: toHex(bytes(2)) },
+        { ...resolution, trees: [{ ...resolution.trees[0], utxoRootIndex: 9 }] },
+        { ...resolution, trees: [{ ...resolution.trees[0], utxoRoot: toHex(bytes(10)) }] },
+        { ...resolution, trees: [{ ...resolution.trees[0], tree: treeAddress(4) }] },
+      ]) {
+        fetch.mockResolvedValueOnce(Response.json({ ...proof, resolution: changed }));
+        await expect(prover.proveIndexedPolicy(inputs)).rejects.toMatchObject({
+          code: "CLIENT_PROOF_PARSE",
+        });
+      }
+    },
+  );
 });
 
 describe("indexed prover failures", () => {

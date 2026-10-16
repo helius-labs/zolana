@@ -133,7 +133,6 @@ pub(crate) fn close_into(
 #[derive(Clone, Copy)]
 pub(crate) enum SppSigners {
     RingAuth,
-    RingAuthAndNamespace { bump: u8 },
     Namespace { bump: u8 },
 }
 
@@ -148,7 +147,7 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
 ) -> ProgramResult {
     let (ring_auth, ring_auth_bump) = match signers {
         SppSigners::Namespace { .. } => (None, 0),
-        SppSigners::RingAuth | SppSigners::RingAuthAndNamespace { .. } => {
+        SppSigners::RingAuth => {
             let (address, bump) =
                 Address::derive_program_address(&[RING_AUTH_PDA_SEED], program_id)
                     .ok_or(CustomRingError::MissingRingAuth)?;
@@ -157,9 +156,7 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     };
     let (namespace, namespace_bump) = match signers {
         SppSigners::RingAuth => (None, 0),
-        SppSigners::RingAuthAndNamespace { bump } | SppSigners::Namespace { bump } => {
-            (Some(namespace_address(program_id, bump)), bump)
-        }
+        SppSigners::Namespace { bump } => (Some(namespace_address(program_id, bump)), bump),
     };
     let raised = |address: &Address| [ring_auth, namespace].contains(&Some(*address));
     if ring_auth.is_some_and(|ring_auth| {
@@ -190,7 +187,6 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     ];
     let signers = match signers {
         SppSigners::RingAuth => &all[..1],
-        SppSigners::RingAuthAndNamespace { .. } => &all[..],
         SppSigners::Namespace { .. } => &all[1..],
     };
     let instruction = InstructionView {

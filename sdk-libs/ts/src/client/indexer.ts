@@ -30,8 +30,6 @@ import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
   RegistryRecord,
   RingMemberProofRequest,
-  RingMemberRequest,
-  RingSpendRecordLookup,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
   UserRecordsLookup,
@@ -141,36 +139,6 @@ export class ZolanaIndexer {
         throw wrapIndexer(cause, method);
       }
     });
-  }
-
-  async getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup> {
-    const method = "getRingSpendRecord";
-    try {
-      const response = await this.#api.getRingSpendRecord(
-        { ringProgramId: request.ringProgramId, member: hash(request.member) },
-        context,
-      );
-      const record = response.record;
-      return Object.freeze({
-        context: response.context,
-        record:
-          record === null
-            ? null
-            : Object.freeze({
-                transaction: convertShieldedTransaction(
-                  record.transaction,
-                  method,
-                  "record.transaction",
-                ),
-                outputIndex: record.outputIndex,
-              }),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
   }
 
   async getRingKeyRegistryEntry(
@@ -690,13 +658,12 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 /** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
 const RING_PROJECTION_CODES: ReadonlyMap<
   number,
-  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}` | "CLIENT_SPEND_RECORD_OUT_OF_SYNC">
+  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}`>
 > = new Map([
   [-32070, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
   [-32071, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
   [-32072, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
   [-32073, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
-  [-32074, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
 ]);
 
 function wrapIndexer(cause: unknown, method: string): ClientError {

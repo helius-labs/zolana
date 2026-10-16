@@ -1,47 +1,33 @@
 //! A child of `pipeline`, both rails stage through private items.
 
-use std::num::NonZeroU64;
-
 use custom_ring_interface::KeyEscrow;
 use solana_address::Address;
 use zolana_client::Shape;
-use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{
-            confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
-            TransactOutput,
-        },
-        tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
-        MessageData,
+use zolana_interface::instruction::{
+    instruction_data::transact::{
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
+        TransactOutput,
     },
-    MAX_INPUT_TREES,
+    tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
 };
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Secret};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey, X25519Secret};
 use zolana_program::instruction::TransactSolTransferAccounts;
-use zolana_ring_policy::{RuleTable, VelocityRow};
+use zolana_ring_policy::{OutflowLimit, RuleTable};
 use zolana_transaction::{
-    instructions::transact::{ConfidentialTransaction, ResolvedOwnerTag},
+    instructions::transact::ConfidentialTransaction,
     keys::{LocalShieldedKeys, TransactionKeyRequest},
-    serialization::{
-        confidential::{Confidential, ConfidentialOutputPlaintext},
-        DecodeCx,
-    },
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
-    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, UtxoSerialization, SOL_MINT,
+    serialization::confidential::ConfidentialOutputPlaintext,
+    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, SOL_MINT,
 };
 
 use super::{
     delegate::{check_balance, pad},
-    owner::{
-        append_record, check_membership, check_record_tree_count, money_shape, place_record_input,
-    },
+    owner::{check_membership, transaction_key},
     *,
 };
 use crate::{
-    entry::zero_nullifier_key,
     tests::support::{account, input, no_witnesses, note, pinned, ring, Accounts},
-    velocity::{record_shape, transaction_key, VelocityPlan},
-    CustomRingConfig, PoolTree, SpendRecordProofInput,
+    CustomRingConfig, PoolTree,
 };
 
 fn program() -> Address {
@@ -80,32 +66,26 @@ fn a_note_spent_twice_is_refused_before_proving() {
 }
 
 #[test]
-fn a_record_free_rail_commits_the_pinned_rows() {
+fn the_delegate_rail_commits_the_pinned_limits() {
     let asset = *zolana_ring_policy::Member::asset(&Address::new_from_array([9; 32]))
         .unwrap()
         .as_bytes();
-    let rows = [VelocityRow {
+    let limits = [OutflowLimit {
         asset,
         cap: 100,
         cosign_above: 10,
     }];
-    let table = RuleTable::builder()
-        .windowed(NonZeroU64::new(600).unwrap())
-        .velocity(&rows)
-        .build();
+    let table = RuleTable::builder().limits(&limits).build();
     let pinned = PinnedPolicy {
         config: pinned(ring(), &table, ring().namespace_pda(), PoolTree::from_id(0)),
         table,
     };
-    let velocity = committed(ring(), &pinned).unwrap();
-    assert_eq!(velocity.window_slots, 600);
-    assert_eq!(velocity.row_count, 1);
-    assert_eq!(velocity.rows[0], rows[0]);
-    assert_eq!(velocity.window_index, 0);
-    assert!(!velocity.approval_required);
-    assert_eq!(velocity.record, SpendRecordProofInput::default());
+    let committed = committed(ring(), &pinned).unwrap();
+    assert_eq!(committed.limit_count, 1);
+    assert_eq!(committed.limits[0], limits[0]);
+    assert!(!committed.approval_required);
     assert_eq!(
-        velocity.namespace_owner_hash,
+        committed.namespace_owner_hash,
         pinned.config.namespace_owner_hash
     );
 }
@@ -259,7 +239,7 @@ async fn an_audit_only_transfer_stages_the_auditor_message_under_the_ring_tag() 
     let staged = transfer.rail.stage(ring(), &rpc, &config).await.unwrap();
     // An audit-only ring reads no policy account.
     assert!(rpc.reads().is_empty());
-    assert!(staged.pinned.is_none() && staged.velocity.is_none() && staged.record.is_none());
+    assert!(staged.pinned.is_none() && staged.limits.is_none());
     assert!(staged.key_registry.is_none() && staged.delegate.is_none());
     let external = &staged.proof_inputs.external_data;
     assert_eq!(external.instruction_discriminator, RING_TRANSACT);
@@ -269,7 +249,7 @@ async fn an_audit_only_transfer_stages_the_auditor_message_under_the_ring_tag() 
     for encoded in &external.outputs {
         assert!(encoded.data.is_some());
     }
-    assert!(staged.authority.owner.is_some() && staged.authority.spend_record.is_none());
+    assert!(staged.authority.owner.is_some());
 }
 
 #[tokio::test]
@@ -292,520 +272,6 @@ async fn a_policy_ring_without_its_policy_account_is_refused() {
             .await,
         Err(RingError::MissingPolicyConfig)
     ));
-}
-
-/// Input tree ids once the record and one padding slot follow the spent inputs.
-fn record_input_trees(spend_trees: &[u16], record_tree: u16) -> Result<Vec<u16>, RingError> {
-    let sender = ShieldedKeypair::new_ed25519().unwrap();
-    let inputs = spend_trees
-        .iter()
-        .map(|&tree_id| note(&sender, 1, tree_id, None))
-        .collect();
-    let mut transaction =
-        ConfidentialTransaction::new(inputs, solana_signer::Signer::pubkey(&sender)).unwrap();
-    transaction
-        .transfer_sol(&sender.shielded_address().unwrap(), 1)
-        .unwrap();
-    check_record_tree_count(&transaction, record_tree)?;
-    let mut proof_inputs = transaction.encrypt(&sender).unwrap();
-    assert!(!proof_inputs.input_utxos[0].is_dummy());
-    let n_inputs = proof_inputs.input_utxos.len() + 2;
-    place_record_input(
-        &mut proof_inputs.input_utxos,
-        input(&sender, 0, record_tree, Some(program())),
-        n_inputs,
-    )?;
-    Ok(proof_inputs
-        .input_utxos
-        .iter()
-        .map(|input| input.tree_id)
-        .collect())
-}
-
-#[test]
-fn a_record_in_the_first_spend_tree_follows_the_spends_in_their_order() {
-    // The padding sits under the last tree the inputs declare.
-    assert_eq!(record_input_trees(&[4, 9], 4).unwrap(), vec![4, 9, 4, 9]);
-}
-
-#[test]
-fn a_record_in_a_new_tree_follows_the_spends_and_hosts_the_padding() {
-    assert_eq!(record_input_trees(&[4], 9).unwrap(), vec![4, 9, 9]);
-}
-
-#[test]
-fn a_record_tree_past_the_input_tree_limit_is_refused() {
-    let full: Vec<u16> = (1..=MAX_INPUT_TREES as u16).collect();
-    assert!(record_input_trees(&full, 1).is_ok());
-    assert!(matches!(
-        record_input_trees(&full, 99),
-        Err(RingError::Transaction(TransactionError::TooManyInputTrees { got, max }))
-            if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
-    ));
-}
-
-fn blinding_at(proof_inputs: &SppProofInputs, slot: u32) -> [u8; 32] {
-    let first = proof_inputs.first_nullifier().unwrap();
-    let seed = derive_output_blinding_seed(&first, &proof_inputs.blinding_seed).unwrap();
-    derive_transact_output_blinding(&first, &seed, slot).unwrap()
-}
-
-/// A record plan whose output takes `record_slot` under `shape`.
-fn plan(
-    proof_inputs: &SppProofInputs,
-    tx_viewing_key: &ViewingKey,
-    shape: Shape,
-    record_slot: usize,
-) -> VelocityPlan {
-    let record_owner = ShieldedAddress::for_pda(
-        &ring().namespace_pda(),
-        zero_nullifier_key().pubkey().unwrap(),
-        tx_viewing_key.pubkey(),
-    );
-    let owner = ShieldedKeypair::new_ed25519().unwrap();
-    VelocityPlan {
-        input: input(&owner, 0, 9, None),
-        output: SppProofOutputUtxo {
-            blinding: blinding_at(proof_inputs, record_slot as u32),
-            ..SppProofOutputUtxo::new(Mint::SOL, 0, record_owner).unwrap()
-        },
-        record_message: MessageData {
-            view_tag: [0; 32],
-            data: Vec::new(),
-        },
-        counters_message: MessageData {
-            view_tag: [0; 32],
-            data: Vec::new(),
-        },
-        proof_input: VelocityProofInput::off(RingIdentity {
-            ring_id: [1; 32],
-            namespace_owner_hash: [2; 32],
-        }),
-        shape,
-        record_slot,
-    }
-}
-
-struct RecordFixture {
-    sender: ShieldedKeypair,
-    recipient: ShieldedKeypair,
-    sender_tag: ResolvedOwnerTag,
-    tx_viewing_key: ViewingKey,
-    proof_inputs: SppProofInputs,
-}
-
-impl RecordFixture {
-    fn new(mint: Mint, amount: u64, sent: u64, sender_pays_fee: bool) -> Self {
-        let sender = ShieldedKeypair::new_ed25519().unwrap();
-        let recipient = ShieldedKeypair::new_ed25519().unwrap();
-        let payer = match sender_pays_fee {
-            true => solana_signer::Signer::pubkey(&sender),
-            false => Address::new_from_array([7; 32]),
-        };
-        let input = crate::tests::support::wallet(
-            zolana_transaction::Utxo {
-                owner: sender.signing_pubkey(),
-                asset: mint,
-                amount,
-                blinding: random_blinding(),
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            &sender.nullifier_key,
-            0,
-            0,
-            None,
-            None,
-        );
-        let mut tx = ConfidentialTransaction::new(vec![input], payer).unwrap();
-        tx.transfer_with_ring(&recipient.shielded_address().unwrap(), mint, sent, None)
-            .unwrap();
-        let sender_tag = tx.sender_owner_tag(&sender.signing_pubkey()).unwrap();
-        let tx_viewing_key = sender
-            .get_transaction_viewing_key(tx.first_nullifier())
-            .unwrap();
-        let proof_inputs = tx.encrypt(&sender).unwrap();
-        Self {
-            sender,
-            recipient,
-            sender_tag,
-            tx_viewing_key,
-            proof_inputs,
-        }
-    }
-
-    fn published_tag(&self, slot: usize) -> ResolvedOwnerTag {
-        let external = &self.proof_inputs.external_data;
-        ResolvedOwnerTag {
-            tag: external.outputs[slot].owner_tag,
-            resolved: external.resolved_owner_tags[slot],
-        }
-    }
-
-    /// Two spare slots precede the record, returns the real output count.
-    fn append(&mut self) -> usize {
-        let real = money_shape(&self.proof_inputs).n_outputs();
-        let plan = plan(
-            &self.proof_inputs,
-            &self.tx_viewing_key,
-            Shape::new(2, real + 3),
-            real + 2,
-        );
-        append_record(
-            &mut self.proof_inputs,
-            &plan,
-            &self.tx_viewing_key,
-            &self.sender.shielded_address().unwrap(),
-            self.sender_tag,
-        )
-        .unwrap();
-        assert_eq!(self.proof_inputs.output_utxos[real + 2], plan.output);
-        real
-    }
-
-    fn assert_padding(
-        &self,
-        real: usize,
-        owner: &ShieldedKeypair,
-        asset: Mint,
-        owner_tag: ResolvedOwnerTag,
-    ) {
-        let external = &self.proof_inputs.external_data;
-        for slot in real..real + 2 {
-            let output = &self.proof_inputs.output_utxos[slot];
-            let encoded = &external.outputs[slot];
-            assert_eq!(
-                output,
-                &SppProofOutputUtxo {
-                    blinding: blinding_at(&self.proof_inputs, slot as u32),
-                    ..SppProofOutputUtxo::new(asset, 0, owner.shielded_address().unwrap()).unwrap()
-                }
-            );
-            assert_eq!(
-                (encoded.owner_tag, external.resolved_owner_tags[slot]),
-                (owner_tag.tag, owner_tag.resolved)
-            );
-            assert_eq!(
-                encoded.utxo_hash,
-                output.hash(self.proof_inputs.output_tree_id).unwrap()
-            );
-            let body = encoded
-                .data
-                .as_deref()
-                .and_then(confidential_encrypted_output_body)
-                .unwrap();
-            let plaintext = Confidential::decode(
-                body,
-                &DecodeCx {
-                    viewing_key: &owner.viewing_key,
-                    tx_viewing_pk: Some(self.tx_viewing_key.pubkey()),
-                    salt: Some(external.salt),
-                    slot_index: slot as u32,
-                    first_nullifier: None,
-                },
-            )
-            .unwrap();
-            assert_eq!(
-                (
-                    plaintext.asset_id,
-                    plaintext.amount,
-                    plaintext.blinding,
-                    plaintext.ring_program_id
-                ),
-                (asset.asset_id, 0, output.blinding, None)
-            );
-        }
-    }
-}
-
-#[derive(serde::Deserialize)]
-struct RecordPaddingCase {
-    name: String,
-    sender_pays_fee: bool,
-    keeps_change: bool,
-    copies: String,
-    owner_tag: String,
-}
-
-fn record_padding_cases(copies: &str) -> Vec<RecordPaddingCase> {
-    #[derive(serde::Deserialize)]
-    struct Vectors {
-        cases: Vec<RecordPaddingCase>,
-    }
-    let vectors: Vectors =
-        serde_json::from_str(include_str!("../../../../test-vectors/record_padding.json")).unwrap();
-    let cases: Vec<_> = vectors
-        .cases
-        .into_iter()
-        .filter(|case| case.copies == copies)
-        .collect();
-    assert!(
-        !cases.is_empty(),
-        "no record padding vector copies {copies}"
-    );
-    cases
-}
-
-fn assert_record_padding_case(case: &RecordPaddingCase) {
-    let (mint, amount) = match case.keeps_change {
-        true => (Mint::new(Address::new_from_array([9; 32]), 9), 5),
-        false => (Mint::SOL, 1),
-    };
-    let mut fixture = RecordFixture::new(mint, amount, 1, case.sender_pays_fee);
-    let copies_sender = match case.copies.as_str() {
-        "sender" => true,
-        "recipient" => false,
-        other => panic!("{}: unknown copied owner {other}", case.name),
-    };
-    let copied_owner = match copies_sender {
-        true => fixture.sender.signing_pubkey(),
-        false => fixture.recipient.signing_pubkey(),
-    };
-    let resolved = copied_owner.confidential_view_tag().unwrap();
-    let expected = ResolvedOwnerTag {
-        tag: match case.owner_tag.as_str() {
-            "account_0" => OwnerTag::Account(0),
-            "inline" => OwnerTag::Inline(resolved),
-            other => panic!("{}: unknown owner tag {other}", case.name),
-        },
-        resolved,
-    };
-    let owned: Vec<usize> = fixture
-        .proof_inputs
-        .output_utxos
-        .iter()
-        .enumerate()
-        .filter(|(_, output)| {
-            output
-                .owner_address
-                .is_some_and(|address| address.signing_pubkey == copied_owner)
-        })
-        .map(|(slot, _)| slot)
-        .collect();
-    let copied = match copies_sender {
-        true => owned.first(),
-        false => owned.last(),
-    }
-    .copied()
-    .unwrap();
-    assert_eq!(fixture.published_tag(copied), expected, "{}", case.name);
-    let real = fixture.append();
-    let owner = match copies_sender {
-        true => &fixture.sender,
-        false => &fixture.recipient,
-    };
-    fixture.assert_padding(real, owner, mint, expected);
-}
-
-#[test]
-fn record_padding_copies_the_sender_change() {
-    for case in record_padding_cases("sender") {
-        assert!(case.keeps_change, "{}", case.name);
-        assert_record_padding_case(&case);
-    }
-}
-
-#[test]
-fn record_padding_copies_the_last_money_output_without_change() {
-    for case in record_padding_cases("recipient") {
-        assert!(!case.keeps_change, "{}", case.name);
-        assert_record_padding_case(&case);
-    }
-}
-
-#[test]
-fn record_padding_without_money_outputs_is_the_senders_zero_sol() {
-    let mut fixture = RecordFixture::new(Mint::SOL, 1, 1, true);
-    fixture.proof_inputs.output_utxos.clear();
-    fixture.proof_inputs.external_data.outputs.clear();
-    fixture
-        .proof_inputs
-        .external_data
-        .resolved_owner_tags
-        .clear();
-    let real = fixture.append();
-    fixture.assert_padding(real, &fixture.sender, Mint::SOL, fixture.sender_tag);
-}
-
-#[test]
-fn a_record_output_off_its_derived_blinding_is_refused() {
-    let mut fixture = RecordFixture::new(Mint::SOL, 1, 1, true);
-    let real = money_shape(&fixture.proof_inputs).n_outputs();
-    let mut plan = plan(
-        &fixture.proof_inputs,
-        &fixture.tx_viewing_key,
-        Shape::new(2, real + 1),
-        real,
-    );
-    plan.output.blinding[0] ^= 1;
-    assert!(matches!(
-        append_record(
-            &mut fixture.proof_inputs,
-            &plan,
-            &fixture.tx_viewing_key,
-            &fixture.sender.shielded_address().unwrap(),
-            fixture.sender_tag,
-        ),
-        Err(RingError::Client(ClientError::OutputBlindingMismatch { index })) if index == real
-    ));
-}
-
-#[test]
-fn a_record_shape_without_a_spare_slot_is_refused() {
-    let mut fixture = RecordFixture::new(Mint::SOL, 1, 1, true);
-    let real = money_shape(&fixture.proof_inputs).n_outputs();
-    let plan = plan(
-        &fixture.proof_inputs,
-        &fixture.tx_viewing_key,
-        Shape::new(2, real),
-        real,
-    );
-    assert!(matches!(
-        append_record(
-            &mut fixture.proof_inputs,
-            &plan,
-            &fixture.tx_viewing_key,
-            &fixture.sender.shielded_address().unwrap(),
-            fixture.sender_tag,
-        ),
-        Err(RingError::PolicyShapeUnsupported)
-    ));
-}
-
-fn record_slots_case(sent: u64) {
-    let sender = ShieldedKeypair::new_ed25519().unwrap();
-    let address = sender.shielded_address().unwrap();
-    let recipient = ShieldedKeypair::new_ed25519().unwrap();
-    let mut tx = ConfidentialTransaction::new(
-        vec![note(&sender, 5, 4, Some(program()))],
-        solana_signer::Signer::pubkey(&sender),
-    )
-    .unwrap();
-    tx.transfer_sol(&recipient.shielded_address().unwrap(), sent)
-        .unwrap();
-    tx.pad_utxos(Shape::IN2_OUT2, &address).unwrap();
-    let sender_tag = tx.sender_owner_tag(&sender.signing_pubkey()).unwrap();
-    let tx_viewing_key = sender
-        .get_transaction_viewing_key(tx.first_nullifier())
-        .unwrap();
-    let mut proof_inputs = tx.encrypt(&sender).unwrap();
-    let money_input = proof_inputs.input_utxos[0].clone();
-    assert!(proof_inputs
-        .input_utxos
-        .last()
-        .is_some_and(SppProofInputUtxo::is_dummy));
-    let money_outputs: Vec<_> = proof_inputs
-        .output_utxos
-        .iter()
-        .filter(|output| !output.is_dummy())
-        .cloned()
-        .collect();
-    assert_eq!(
-        money_outputs.len() < proof_inputs.output_utxos.len(),
-        sent == 5
-    );
-    let shape = Shape::IN4_OUT4;
-    let plan = plan(&proof_inputs, &tx_viewing_key, shape, 2);
-    append_record(
-        &mut proof_inputs,
-        &plan,
-        &tx_viewing_key,
-        &address,
-        sender_tag,
-    )
-    .unwrap();
-
-    assert_eq!(proof_inputs.check_shape().unwrap(), shape);
-    assert_eq!(
-        proof_inputs.first_nullifier().unwrap(),
-        money_input.nullifier()
-    );
-    let inputs: Vec<(bool, u16)> = proof_inputs
-        .input_utxos
-        .iter()
-        .map(|input| (input.is_dummy(), input.tree_id))
-        .collect();
-    assert_eq!(inputs, vec![(false, 4), (false, 9), (true, 9), (true, 9)]);
-    assert_eq!(
-        proof_inputs.input_utxos[1].nullifier(),
-        plan.input.nullifier()
-    );
-    assert_eq!(record_input_position(&proof_inputs.input_utxos), Some(1));
-    assert!(proof_inputs
-        .output_utxos
-        .iter()
-        .take(3)
-        .all(|output| !output.is_dummy()));
-    assert_eq!(
-        proof_inputs.output_utxos.get(..money_outputs.len()),
-        Some(money_outputs.as_slice())
-    );
-    let copied = match sent {
-        5 => recipient.shielded_address().unwrap(),
-        _ => address,
-    };
-    for slot in money_outputs.len()..2 {
-        assert_eq!(
-            proof_inputs.output_utxos[slot],
-            SppProofOutputUtxo {
-                blinding: blinding_at(&proof_inputs, slot as u32),
-                ..SppProofOutputUtxo::new(Mint::SOL, 0, copied).unwrap()
-            }
-        );
-    }
-    assert_eq!(proof_inputs.output_utxos[2], plan.output);
-    assert!(proof_inputs.output_utxos[3].is_compact());
-    assert_eq!(proof_inputs.external_data.outputs.len(), 3);
-    assert_eq!(proof_inputs.external_data.resolved_owner_tags.len(), 3);
-}
-
-#[test]
-fn record_slots_keep_every_dummy_after_the_real_slots() {
-    for sent in [1, 5] {
-        record_slots_case(sent);
-    }
-}
-
-#[test]
-fn the_record_shape_follows_the_real_outputs_not_the_padding() {
-    let sender = ShieldedKeypair::new_ed25519().unwrap();
-    let address = sender.shielded_address().unwrap();
-    let mut tx = ConfidentialTransaction::new(
-        vec![note(&sender, 5, 4, Some(program()))],
-        solana_signer::Signer::pubkey(&sender),
-    )
-    .unwrap();
-    for _ in 0..2 {
-        let recipient = ShieldedKeypair::new_ed25519().unwrap();
-        tx.transfer_sol(&recipient.shielded_address().unwrap(), 1)
-            .unwrap();
-    }
-    tx.pad_utxos(Shape::IN1_OUT4, &address).unwrap();
-    let sender_tag = tx.sender_owner_tag(&sender.signing_pubkey()).unwrap();
-    let tx_viewing_key = sender
-        .get_transaction_viewing_key(tx.first_nullifier())
-        .unwrap();
-    let mut proof_inputs = tx.encrypt(&sender).unwrap();
-    assert_eq!(proof_inputs.check_shape().unwrap(), Shape::IN1_OUT4);
-    let money = money_shape(&proof_inputs);
-    assert_eq!(money, Shape::new(1, 3));
-    let shape = record_shape(money).unwrap();
-    assert_eq!(shape, Shape::IN2_OUT4);
-    let money_outputs: Vec<_> = proof_inputs.output_utxos[..3].to_vec();
-    let plan = plan(&proof_inputs, &tx_viewing_key, shape, money.n_outputs());
-    append_record(
-        &mut proof_inputs,
-        &plan,
-        &tx_viewing_key,
-        &address,
-        sender_tag,
-    )
-    .unwrap();
-    assert_eq!(proof_inputs.check_shape().unwrap(), shape);
-    assert_eq!(record_input_position(&proof_inputs.input_utxos), Some(1));
-    assert_eq!(proof_inputs.output_utxos[..3], money_outputs[..]);
-    assert_eq!(proof_inputs.output_utxos[3], plan.output);
-    assert_eq!(proof_inputs.external_data.outputs.len(), 4);
 }
 
 fn framed_fixture(rings: &[Option<Address>]) -> SppProofInputs {
@@ -914,23 +380,6 @@ fn full_withdrawal_padding_uses_the_canonical_empty_payload_size() {
         .serialize()
         .unwrap();
         assert_eq!(body.len(), key_len + plaintext.len());
-    }
-}
-
-#[test]
-fn a_record_carrier_frames_a_full_withdrawals_dummy_outputs() {
-    let mut proof = framed_fixture(&[Some(program()); 4]);
-    let money_count = proof.output_utxos.len() - 1;
-    for output in &mut proof.output_utxos[..money_count] {
-        output.owner_address = None;
-    }
-    let record = proof.external_data.outputs.last().unwrap().clone();
-    frame_dummy_outputs(&proof.output_utxos, &mut proof.external_data.outputs).unwrap();
-    assert_eq!(proof.external_data.outputs.last(), Some(&record));
-    for encoded in &proof.external_data.outputs[..money_count] {
-        let data = encoded.data.as_deref().unwrap();
-        assert!(ring_confidential_encrypted_output_body(data).is_some());
-        assert_eq!(data.len(), record.data.as_ref().unwrap().len());
     }
 }
 
@@ -1164,7 +613,7 @@ async fn the_delegate_rail_stages_framed_padding_under_its_own_tag() {
     assert_eq!(staged.delegate, Some(delegate));
     assert!(staged.key_registry.is_some());
     assert!(staged.owner_signers.is_empty());
-    assert!(staged.pinned.is_some() && staged.velocity.is_none());
+    assert!(staged.pinned.is_some() && staged.limits.is_none());
 }
 
 #[tokio::test]

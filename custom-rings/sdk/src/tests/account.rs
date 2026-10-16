@@ -1,9 +1,8 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
     CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, ReadAccessRecord,
-    RingProgramConfig, SourceSlot, SpendWindow, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT,
-    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW,
+    RingProgramConfig, SourceSlot, CO_SIGNER, DELEGATE, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT,
+    KEY_REGISTRY_ROOT_HISTORY, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -64,20 +63,6 @@ fn delegate() -> Delegate {
         discriminator: DELEGATE,
         delegate: Address::new_from_array([47; 32]),
         bump: Address::find_program_address(&[Delegate::SEED], &program()).1,
-    }
-}
-
-fn window(mint: Address) -> SpendWindow {
-    SpendWindow {
-        discriminator: SPEND_WINDOW,
-        mint,
-        window_slots: 100u64.to_le_bytes(),
-        deposit_cap: 7u64.to_le_bytes(),
-        withdrawal_cap: 0u64.to_le_bytes(),
-        window_start_slot: 1200u64.to_le_bytes(),
-        deposited: 1u64.to_le_bytes(),
-        withdrawn: 0u64.to_le_bytes(),
-        bump: Address::find_program_address(&[SpendWindow::SEED, mint.as_array()], &program()).1,
     }
 }
 
@@ -255,34 +240,20 @@ async fn cosigner_read_preserves_valid_thresholds_and_scope() {
 }
 
 /// Reads the control at `address`, `true` when it is configured.
-async fn configured(
-    address: Address,
-    mint: Address,
-    account: Option<Account>,
-) -> Result<bool, RingError> {
+async fn configured(address: Address, account: Option<Account>) -> Result<bool, RingError> {
     let rpc = at(address, account);
     if address == ring().cosigner_pda() {
         ring().cosigner(&rpc).await.map(|value| value.is_some())
-    } else if address == ring().delegate_pda() {
-        ring().delegate(&rpc).await.map(|value| value.is_some())
     } else {
-        ring()
-            .spend_window(&rpc, &mint)
-            .await
-            .map(|value| value.is_some())
+        ring().delegate(&rpc).await.map(|value| value.is_some())
     }
 }
 
 #[tokio::test]
 async fn optional_control_readers_reject_malformed_accounts() {
-    let mint = Address::new_from_array([60; 32]);
     let controls = [
         (ring().cosigner_pda(), account(program(), &cosigner())),
         (ring().delegate_pda(), account(program(), &delegate())),
-        (
-            ring().spend_window_pda(&mint),
-            account(program(), &window(mint)),
-        ),
     ];
     let changes: [Mutation<Account>; 5] = [
         ("foreign owner", |account| {
@@ -298,20 +269,18 @@ async fn optional_control_readers_reject_malformed_accounts() {
         }),
     ];
     for (address, valid) in controls {
-        assert!(configured(address, mint, Some(valid.clone()))
-            .await
-            .unwrap());
+        assert!(configured(address, Some(valid.clone())).await.unwrap());
         for unconfigured in [
             None,
             Some(empty(Address::default())),
             Some(empty(program())),
         ] {
-            assert!(!configured(address, mint, unconfigured).await.unwrap());
+            assert!(!configured(address, unconfigured).await.unwrap());
         }
         for (name, change) in changes {
             let mut changed = valid.clone();
             change(&mut changed);
-            let result = configured(address, mint, Some(changed)).await;
+            let result = configured(address, Some(changed)).await;
             assert!(invalid_at(result, address), "{name} for {}", valid.data[0]);
         }
     }
@@ -320,7 +289,7 @@ async fn optional_control_readers_reject_malformed_accounts() {
         data: vec![0; 4],
         ..empty(program())
     };
-    assert!(configured(ring().cosigner_pda(), mint, Some(truncated))
+    assert!(configured(ring().cosigner_pda(), Some(truncated))
         .await
         .is_err());
 }
@@ -338,28 +307,6 @@ async fn delegate_read_rejects_substituted_state() {
     for value in [wrong_bump, zero_key] {
         let rpc = at(address, Some(account(program(), &value)));
         assert!(invalid_at(ring().delegate(&rpc).await, address));
-    }
-}
-
-#[tokio::test]
-async fn spend_window_read_rejects_substituted_state() {
-    let mint = Address::new_from_array([60; 32]);
-    let address = ring().spend_window_pda(&mint);
-    let value = window(mint);
-    let valid = at(address, Some(account(program(), &value)));
-    assert_eq!(
-        ring().spend_window(&valid, &mint).await.unwrap(),
-        Some(value)
-    );
-    let mut wrong_mint = value;
-    wrong_mint.mint = Address::new_from_array([61; 32]);
-    let mut wrong_bump = value;
-    wrong_bump.bump ^= 1;
-    let mut zero_window = value;
-    zero_window.window_slots = [0; 8];
-    for value in [wrong_mint, wrong_bump, zero_window] {
-        let rpc = at(address, Some(account(program(), &value)));
-        assert!(invalid_at(ring().spend_window(&rpc, &mint).await, address));
     }
 }
 

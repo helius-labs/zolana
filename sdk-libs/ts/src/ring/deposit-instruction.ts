@@ -19,8 +19,6 @@ import {
   tagged,
   meta,
   ringCoSignerMetas,
-  ringSpendWindowMetas,
-  SYSTEM_PROGRAM,
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import {
@@ -62,21 +60,15 @@ export async function ringDepositInstruction(
       ephemeralKey = capsule.ephemeralPublicKey;
     }
   }
-  const [ringAuth, config, cosignerPda, depositAudit, keyRegistryRoot, windows] = await Promise.all(
-    [
-      ringAuthAddress(input.ringProgramId),
-      ringConfigAddress(input.ringProgramId),
-      ringCoSignerAddress(input.ringProgramId),
-      ringDepositAuditAddress(input.ringProgramId),
-      input.keyRegistryRootIndex === undefined
-        ? undefined
-        : ringKeyRegistryRootAddress(input.ringProgramId),
-      ringSpendWindowMetas(input.ringProgramId, [
-        ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
-        ...layout.splGroups.map((spl) => spl.mint),
-      ]),
-    ],
-  );
+  const [ringAuth, config, cosignerPda, depositAudit, keyRegistryRoot] = await Promise.all([
+    ringAuthAddress(input.ringProgramId),
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringDepositAuditAddress(input.ringProgramId),
+    input.keyRegistryRootIndex === undefined
+      ? undefined
+      : ringKeyRegistryRootAddress(input.ringProgramId),
+  ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
     input.depositor,
@@ -88,7 +80,6 @@ export async function ringDepositInstruction(
     ...ringCoSignerMetas(cosignerPda, input.cosigner),
     meta(depositAudit, false, false),
     ...(keyRegistryRoot === undefined ? [] : [meta(keyRegistryRoot, false, false)]),
-    ...windows,
   );
   const sppWire = tagged(
     InstructionTag.ringDeposit,

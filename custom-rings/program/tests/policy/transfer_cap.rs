@@ -1,4 +1,4 @@
-//! Pins stateless transfer limits and their approval requirements.
+//! Pins the outflow limit statement and its approval requirement.
 
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{tag, CoSignScope};
@@ -14,45 +14,35 @@ use zolana_interface::{
 
 use crate::common::{
     account, auditor_pubkey, authority, cosigner_account, custom, initialized_config_account,
-    payer, policy_delegate_transact_fixture, register_spend_fixture, setup_mollusk,
-    spend_record_output, transact_fixture, transfer_cap_policy_config_account, window_slot,
+    limit_policy_config_account, policy_delegate_transact_fixture, setup_mollusk, transact_fixture,
     Fixture, Slot,
 };
 use crate::transact::{body, transact_data};
 
-/// Stateless caps do not confine transaction trees.
-fn transfer_cap_fixture(approval_required: bool, transact: TransactIxData) -> Fixture {
+/// Outflow limits do not confine transaction trees.
+fn limit_fixture(approval_required: bool, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, approval_required, transact),
     );
-    fixture.set_account("policy_config", transfer_cap_policy_config_account());
+    fixture.set_account("policy_config", limit_policy_config_account());
     fixture
 }
 
 #[test]
-fn a_cap_ring_reaches_the_proof_without_a_record() {
+fn a_limited_ring_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    transfer_cap_fixture(false, transact_data())
+    limit_fixture(false, transact_data())
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
+/// The circuit bounds the outflow, the program takes no view of the public legs.
 #[test]
-fn a_plaintext_record_output_is_a_money_output_without_a_window() {
-    let (mollusk, _) = setup_mollusk();
-    let mut content = transact_data();
-    content.outputs.push(spend_record_output([61u8; 32]));
-    transfer_cap_fixture(false, content)
-        .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
-}
-
-#[test]
-fn a_deposit_leg_is_rejected_exactly_without_a_window() {
+fn a_deposit_leg_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
-    let mut fixture = transfer_cap_fixture(false, content);
-    fixture.insert_windows(vec![window_slot(Pubkey::new_from_array([0; 32]), None)]);
+    let mut fixture = limit_fixture(false, content);
     for byte in [53u8, 54] {
         fixture.push(Slot {
             label: "settlement",
@@ -60,36 +50,29 @@ fn a_deposit_leg_is_rejected_exactly_without_a_window() {
             account: account(1_000_000_000),
         });
     }
-    fixture.expect_err(&mollusk, custom(CustomRingError::VelocityDepositLeg));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
-fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
+fn the_delegate_rail_is_exempt_from_outflow_limits() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     let mut data = body(0, 0, false, content);
     data[0] = tag::DELEGATE_TRANSACT;
     let mut fixture = policy_delegate_transact_fixture(data);
-    fixture.set_account("policy_config", transfer_cap_policy_config_account());
+    fixture.set_account("policy_config", limit_policy_config_account());
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
-fn an_approval_needs_the_configured_cosigner_without_a_window() {
+fn an_approval_needs_the_configured_cosigner() {
     let (mollusk, _) = setup_mollusk();
-    transfer_cap_fixture(true, transact_data())
+    limit_fixture(true, transact_data())
         .expect_err(&mollusk, custom(CustomRingError::ApprovalWithoutCoSigner));
 
-    let mut signed = transfer_cap_fixture(true, transact_data());
+    let mut signed = limit_fixture(true, transact_data());
     signed.set_account("cosigner_pda", cosigner_account(CoSignScope::DEPOSITS, &[]));
     signed.sign("cosigner");
     signed.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn per_transfer_caps_cannot_register_spend_records() {
-    let (mollusk, _) = setup_mollusk();
-    register_spend_fixture(transfer_cap_policy_config_account(), payer())
-        .expect_err(&mollusk, custom(CustomRingError::VelocityDisabled));
 }

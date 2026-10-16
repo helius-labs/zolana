@@ -6,16 +6,15 @@ pub mod grammar;
 pub mod render;
 
 pub use grammar::{
-    describe, describe_velocity, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
-    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName, VelocityRowSpec,
-    VelocitySpec,
+    describe, describe_limit, Alternative, AssetLimitSpec, CompiledPolicy, LimitSpec, ListName,
+    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName,
 };
 pub use render::render;
 
 use anyhow::{ensure, Context as _, Result};
 use custom_ring_sdk::{client_rules_match, CustomRing, PolicyConfig};
 use solana_signer::Signer;
-use zolana_ring_policy::{RuleTable, VelocityMode};
+use zolana_ring_policy::RuleTable;
 
 use crate::{
     catalogue::check_curator,
@@ -97,7 +96,7 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
             if let count @ 1.. = table.inline_assets().len() {
                 line("assets", format_args!("{count} listed inline"));
             }
-            print_velocity(&table);
+            print_limits(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
     }
@@ -169,17 +168,9 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
     Ok(())
 }
 
-fn print_velocity(table: &RuleTable) {
-    let mode = table.velocity_mode();
-    match mode {
-        VelocityMode::Off => return,
-        VelocityMode::PerWindow { window_slots } => {
-            line("velocity", format_args!("windows of {window_slots} slots"))
-        }
-        VelocityMode::PerTransfer => line("velocity", "each transfer"),
-    }
-    for row in table.velocity() {
-        line("velocity", describe_velocity(row, mode));
+fn print_limits(table: &RuleTable) {
+    for limit in table.limits() {
+        line("limit", describe_limit(limit));
     }
 }
 
@@ -197,7 +188,7 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
         let count = new.inline_assets().len();
         line("assets", format_args!("{count} listed inline"));
     }
-    if old.window_slots() != new.window_slots() || old.velocity() != new.velocity() {
-        print_velocity(new);
+    if old.limits() != new.limits() {
+        print_limits(new);
     }
 }

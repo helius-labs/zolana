@@ -164,18 +164,6 @@ export function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
   return ringAddress(ringDelegatePda(ringProgramId));
 }
 
-/** Mirrors Rust `CustomRing::spend_window_pda`, SOL under the zero address. */
-export function ringSpendWindowPda(
-  ringProgramId: Address,
-  mint: Address,
-): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("window"), addressEncoder.encode(mint));
-}
-
-export function ringSpendWindowAddress(ringProgramId: Address, mint: Address): Promise<Address> {
-  return ringAddress(ringSpendWindowPda(ringProgramId, mint));
-}
-
 export function ringKeyRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
   return ringPda(ringProgramId, encoder.encode("keyreg"));
 }

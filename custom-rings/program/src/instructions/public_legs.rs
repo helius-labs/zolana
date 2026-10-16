@@ -1,11 +1,5 @@
-use core::num::NonZeroU64;
-
-use custom_ring_interface::{CoSignScope, CustomRingError, FixedWindow, SpendWindow};
-use pinocchio::{
-    error::ProgramError,
-    sysvars::{clock::Clock, Sysvar},
-    AccountView, Address, ProgramResult,
-};
+use custom_ring_interface::{CoSignScope, CustomRingError};
+use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
     instruction::instruction_data::{
         deposit::{DepositAssetKind, RingDepositIxDataRef, MAX_DEPOSIT_ASSETS},
@@ -13,8 +7,6 @@ use zolana_interface::{
     },
     MAX_INTERFACE_TRANSFERS,
 };
-
-use crate::instructions::loader::load_spend_window_mut;
 
 const SOL: Address = Address::new_from_array([0; 32]);
 const MAX_LEGS: usize = if MAX_INTERFACE_TRANSFERS > MAX_DEPOSIT_ASSETS {
@@ -31,8 +23,7 @@ struct Leg<'a> {
     deposit: bool,
 }
 
-/// Public value entering or leaving SPP, shared by co-signer thresholds and
-/// ring-wide mint caps.
+/// Public value entering or leaving SPP, read by the co-signer thresholds.
 pub(crate) struct PublicLegs<'a> {
     legs: [Leg<'a>; MAX_LEGS],
     len: usize,
@@ -140,41 +131,6 @@ impl<'a> PublicLegs<'a> {
             .map(|(_, leg)| self.sum(leg.mint, false).map(|sum| (leg.mint, sum)))
     }
 
-    /// Charges each mint's window once, every leg of the mint names the same slot.
-    #[inline(never)]
-    pub fn apply_windows(
-        &self,
-        program_id: &Address,
-        windows: &mut [AccountView],
-    ) -> ProgramResult {
-        for (leg, window) in windows.iter().enumerate() {
-            if window.address() != windows[self.first_leg(leg)].address() {
-                return Err(CustomRingError::InvalidSpendWindow.into());
-            }
-        }
-        let slot = Clock::get()?.slot;
-        for (leg, window) in windows.iter_mut().enumerate() {
-            if self.first_leg(leg) != leg {
-                continue;
-            }
-            let mint = self.legs[leg].mint;
-            let writable = window.is_writable();
-            let Some(mut state) = load_spend_window_mut(program_id, window, mint)? else {
-                continue;
-            };
-            if !writable {
-                return Err(CustomRingError::InvalidSpendWindow.into());
-            }
-            charge(
-                &mut state,
-                slot,
-                self.sum(mint, true)?,
-                self.sum(mint, false)?,
-            )?;
-        }
-        Ok(())
-    }
-
     fn legs(&self) -> &[Leg<'a>] {
         &self.legs[..self.len]
     }
@@ -188,13 +144,6 @@ impl<'a> PublicLegs<'a> {
         self.len += 1;
     }
 
-    fn first_leg(&self, leg: usize) -> usize {
-        let mint = self.legs[leg].mint;
-        (0..leg)
-            .find(|earlier| self.legs[*earlier].mint == mint)
-            .unwrap_or(leg)
-    }
-
     fn sum(&self, mint: &Address, deposit: bool) -> Result<u64, ProgramError> {
         self.legs()
             .iter()
@@ -202,33 +151,4 @@ impl<'a> PublicLegs<'a> {
             .try_fold(0u64, |sum, leg| sum.checked_add(leg.amount))
             .ok_or(ProgramError::ArithmeticOverflow)
     }
-}
-
-/// The whole transaction lands before either cap is checked, counters reset at
-/// each window start.
-fn charge(state: &mut SpendWindow, slot: u64, deposited: u64, withdrawn: u64) -> ProgramResult {
-    let window = FixedWindow {
-        slots: NonZeroU64::new(state.window_slots()).ok_or(CustomRingError::InvalidSpendWindow)?,
-    };
-    let start = window.start(slot);
-    if start != state.window_start_slot() {
-        state.window_start_slot = start.to_le_bytes();
-        state.deposited = [0; 8];
-        state.withdrawn = [0; 8];
-    }
-    let deposited = state
-        .deposited()
-        .checked_add(deposited)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let withdrawn = state
-        .withdrawn()
-        .checked_add(withdrawn)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let capped = |total: u64, cap: u64| cap != 0 && total > cap;
-    if capped(deposited, state.deposit_cap()) || capped(withdrawn, state.withdrawal_cap()) {
-        return Err(CustomRingError::SpendWindowExceeded.into());
-    }
-    state.deposited = deposited.to_le_bytes();
-    state.withdrawn = withdrawn.to_le_bytes();
-    Ok(())
 }

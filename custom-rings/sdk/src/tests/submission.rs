@@ -1,12 +1,8 @@
 //! A child of `submission`, the pending attempt and its settlement are private to it.
 
-use std::{
-    collections::VecDeque,
-    num::NonZeroU64,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
 
 use async_trait::async_trait;
@@ -19,18 +15,15 @@ use solana_rpc_client::{
 use solana_rpc_client_api::request::RpcRequest;
 use zolana_client::{AsyncProverClient, AsyncSolanaRpc, ClientError};
 use zolana_keypair::ShieldedKeypair;
-use zolana_ring_policy::{Member, RuleTable, VelocityRow};
 use zolana_transaction::{instructions::transact::ConfidentialTransaction, SOL_MINT};
 
 use super::*;
 use crate::{
-    tests::support::{account, no_witnesses, note, pinned, ring},
-    CustomRing, CustomRingMerge, CustomRingTransferInput, DelegateOutput, DelegateTransferInput,
-    PoolTree,
+    tests::support::{account, no_witnesses, note, ring},
+    CustomRingMerge, CustomRingTransferInput, DelegateOutput, DelegateTransferInput,
 };
 
 const STALE_ROOT: u32 = CustomRingError::StaleKeyRegistryRoot as u32;
-const WINDOW_ELAPSED: u32 = CustomRingError::WindowElapsed as u32;
 const PROOF_FAILED: u32 = CustomRingError::ProofVerificationFailed as u32;
 
 /// Every indexer call fails as unsupported.
@@ -479,20 +472,23 @@ fn untagged() -> RingOperation<'static> {
 }
 
 #[tokio::test]
-async fn a_stale_root_or_an_elapsed_window_reproves_below_the_attempt_limit() {
+async fn a_stale_root_reproves_below_the_attempt_limit() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
-    for code in [STALE_ROOT, WINDOW_ELAPSED] {
-        let mut submission = pending(untagged(), &sender, 1);
-        assert!(matches!(
-            send(&mut submission, &mocked(failed(0, code), 10, 0), &sender).await,
-            Err(RingError::Program(CustomRingError::InvalidInstructionData))
-        ));
-        assert_eq!(submission.attempts(), 1);
-        assert!(submission.pending_transaction().is_none());
-    }
+    let mut submission = pending(untagged(), &sender, 1);
+    assert!(matches!(
+        send(
+            &mut submission,
+            &mocked(failed(0, STALE_ROOT), 10, 0),
+            &sender
+        )
+        .await,
+        Err(RingError::Program(CustomRingError::InvalidInstructionData))
+    ));
+    assert_eq!(submission.attempts(), 1);
+    assert!(submission.pending_transaction().is_none());
 }
 
-/// A failed proof is final whatever the slot, the window has its own code.
+/// A failed proof is final whatever the slot.
 #[tokio::test]
 async fn a_failed_proof_never_reproves() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
@@ -517,15 +513,11 @@ async fn a_failed_proof_never_reproves() {
 fn only_the_bound_ring_failure_can_retry() {
     let error =
         |index, code| TransactionError::InstructionError(index, InstructionError::Custom(code));
-    let window_index = CustomRingError::InvalidWindowIndex as u32;
     assert!(retryable(&error(0, STALE_ROOT), false));
     assert!(!retryable(&error(1, STALE_ROOT), false));
-    assert!(retryable(&error(0, WINDOW_ELAPSED), false));
-    assert!(!retryable(&error(1, WINDOW_ELAPSED), false));
     assert!(!retryable(&error(0, PROOF_FAILED), false));
     assert!(retryable(&error(0, PROOF_FAILED), true));
     assert!(!retryable(&error(1, PROOF_FAILED), true));
-    assert!(!retryable(&error(0, window_index), true));
     assert!(!retryable(&error(0, 8145), true));
     assert!(!retryable(&TransactionError::AccountInUse, true));
     assert!(retryable(&TransactionError::BlockhashNotFound, false));
@@ -534,29 +526,27 @@ fn only_the_bound_ring_failure_can_retry() {
 #[test]
 fn retry_decisions_preserve_unknown_attempts_and_stop_at_the_limit() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
-    for code in [STALE_ROOT, WINDOW_ELAPSED] {
-        let mut submission = pending(transfer(&sender), &sender, 1);
-        let transaction = submission.pending_transaction().unwrap().clone();
-        let signature = transaction.signatures[0];
-        assert_eq!(
-            submission.settle(signature, Outcome::Unknown, false),
-            Some(SubmissionStatus::Pending { signature })
-        );
-        assert_eq!(submission.pending_transaction(), Some(&transaction));
-        let failure = || {
-            Outcome::Failed(TransactionError::InstructionError(
-                0,
-                InstructionError::Custom(code),
-            ))
-        };
-        assert!(submission.settle(signature, failure(), false).is_none());
-        assert!(submission.pending_transaction().is_none());
-        submission.attempts = MAX_ATTEMPTS;
-        assert!(matches!(
-            submission.settle(signature, failure(), false),
-            Some(SubmissionStatus::Failed { .. })
-        ));
-    }
+    let mut submission = pending(transfer(&sender), &sender, 1);
+    let transaction = submission.pending_transaction().unwrap().clone();
+    let signature = transaction.signatures[0];
+    assert_eq!(
+        submission.settle(signature, Outcome::Unknown, false),
+        Some(SubmissionStatus::Pending { signature })
+    );
+    assert_eq!(submission.pending_transaction(), Some(&transaction));
+    let failure = || {
+        Outcome::Failed(TransactionError::InstructionError(
+            0,
+            InstructionError::Custom(STALE_ROOT),
+        ))
+    };
+    assert!(submission.settle(signature, failure(), false).is_none());
+    assert!(submission.pending_transaction().is_none());
+    submission.attempts = MAX_ATTEMPTS;
+    assert!(matches!(
+        submission.settle(signature, failure(), false),
+        Some(SubmissionStatus::Failed { .. })
+    ));
 }
 
 #[test]
@@ -651,11 +641,6 @@ fn operations(sender: &ShieldedKeypair) -> Vec<RingOperation<'_>> {
             }],
         })
         .into(),
-        RegisterSpend {
-            ring: ring(),
-            payer: sender.pubkey(),
-        }
-        .into(),
         RegisterKey {
             ring: ring(),
             member: sender,
@@ -690,74 +675,6 @@ async fn every_operation_keeps_the_signed_attempt_until_confirmation() {
         assert_eq!(submission.pending_transaction(), Some(&transaction));
         assert_eq!(submission.attempts(), 1);
     }
-}
-
-/// Serves a windowed policy and a slot sequence, the last slot repeats.
-struct WindowRpc {
-    ring: CustomRing,
-    policy: Account,
-    slots: Mutex<VecDeque<u64>>,
-    slot_reads: AtomicUsize,
-    policy_reads: AtomicUsize,
-}
-
-#[async_trait]
-impl AsyncRpc for WindowRpc {
-    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-        assert_eq!(address, self.ring.policy_config_pda());
-        self.policy_reads.fetch_add(1, Ordering::Relaxed);
-        Ok(Some(self.policy.clone()))
-    }
-
-    async fn get_slot(&self) -> Result<u64, ClientError> {
-        self.slot_reads.fetch_add(1, Ordering::Relaxed);
-        let mut slots = self.slots.lock().unwrap();
-        Ok(match slots.len() {
-            1 => slots[0],
-            _ => slots.pop_front().unwrap(),
-        })
-    }
-}
-
-#[tokio::test]
-async fn a_closing_window_is_waited_out_and_proved_again_without_an_attempt() {
-    let sender = ShieldedKeypair::new_ed25519().unwrap();
-    let asset = *Member::asset(&SOL_MINT).unwrap().as_bytes();
-    let table = RuleTable::builder()
-        .windowed(NonZeroU64::new(1000).unwrap())
-        .velocity(&[VelocityRow {
-            asset,
-            cap: 100,
-            cosign_above: 0,
-        }])
-        .build();
-    let config = pinned(ring(), &table, ring().namespace_pda(), PoolTree::from_id(0));
-    let rpc = WindowRpc {
-        ring: ring(),
-        policy: account(ring().program_id(), &config),
-        // 1950 lies in the guard of window 1, its successor starts at 2000.
-        slots: Mutex::new(VecDeque::from([1950, 1990, 2000])),
-        slot_reads: AtomicUsize::new(0),
-        policy_reads: AtomicUsize::new(0),
-    };
-    let client = AsyncZolanaClient::new(rpc, NoIndexer, AsyncProverClient::local());
-    let mut submission = RingSubmission::new(RegisterSpend {
-        ring: ring(),
-        payer: sender.pubkey(),
-    });
-    // The second proof reaches the indexer, which refuses every call.
-    assert!(matches!(
-        send(&mut submission, &client, &sender).await,
-        Err(RingError::Client(ClientError::UnsupportedRpcMethod(
-            "get_non_inclusion_proofs"
-        )))
-    ));
-    assert_eq!(submission.attempts(), 0);
-    assert!(submission.pending_transaction().is_none());
-    let rpc = client.rpc();
-    assert_eq!(rpc.policy_reads.load(Ordering::Relaxed), 2);
-    // One read refuses, two wait for the boundary, one proves again.
-    assert_eq!(rpc.slot_reads.load(Ordering::Relaxed), 4);
 }
 
 /// Serves one key registry root and one failed proof for every signature.

@@ -37,7 +37,7 @@ pub(crate) struct KeyRegistry {
 #[derive(Debug)]
 pub(crate) struct EscrowedKeys {
     pub root: CurrentKeyRegistryRoot,
-    /// Per output, `None` for an unowned slot or a namespace-owned record.
+    /// Per output, `None` for an unowned slot.
     pub keys: Vec<Option<RegistryKeyOpening>>,
 }
 

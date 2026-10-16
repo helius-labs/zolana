@@ -261,7 +261,6 @@ mod tests {
             nullifiers: Vec::new(),
             signers: Vec::new(),
             withdrawals: Vec::new(),
-            spend_records: Vec::new(),
         }
     }
 

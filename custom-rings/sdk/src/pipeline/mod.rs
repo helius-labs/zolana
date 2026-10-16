@@ -19,7 +19,6 @@ use zolana_client::{
     Proof, ProofAuthority, ProofCompressed, ProveRequest, RingAuthorityProver, RingTransferProver,
     TransferInput, TransferInputs,
 };
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::{instruction_data::transact::TreeContext, CircuitId, TransactIxData},
     N_PUBLIC_SLOTS,
@@ -34,11 +33,10 @@ pub use self::{
     delegate::{ring_authority_width, DelegateOutput, DelegateTransferInput, Delegated},
     owner::{CustomRingTransferInput, Owner},
 };
-pub(crate) use owner::{frame_dummy_outputs, record_input_position};
+pub(crate) use owner::frame_dummy_outputs;
 
 use crate::{
     audit::{PendingCustomRingProof, PolicyProof},
-    entry::zero_nullifier_key,
     escrow::KeyRegistry,
     heap::boxed,
     projection::retry_projection_lag,
@@ -48,8 +46,8 @@ use crate::{
     to_instruction_proof,
     trees::{spend_trees, SpendTrees},
     witness::WitnessInput,
-    CustomRing, CustomRingDelegateTransact, CustomRingProof, CustomRingTransact, PinnedPolicy,
-    PolicyReads, PolicyTreeContext, RingError, RingIdentity, VelocityProofInput,
+    CustomRing, CustomRingDelegateTransact, CustomRingProof, CustomRingTransact,
+    OutflowLimitProofInput, PinnedPolicy, PolicyReads, PolicyTreeContext, RingError, RingIdentity,
 };
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
 
@@ -88,15 +86,13 @@ pub struct ProvenRingTransfer {
     /// `None` on an audit-only ring.
     pub policy: Option<PolicyReads>,
     pub cosigner: Option<Address>,
-    /// The velocity statement demands the co-signer, the caller signs with it.
+    /// The outflow limits demand the co-signer, the caller signs with it.
     pub approval_required: bool,
     /// Padding included.
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The eddsa owners of the spent UTXOs, empty on the delegate rail.
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// The window a windowed statement proves, zero otherwise.
-    window_index: u64,
     payer: Address,
     delegate: Option<Address>,
     trees: SpendTrees,
@@ -112,10 +108,8 @@ pub(crate) struct Staged {
     pub pending: PendingCustomRingProof,
     pub tx_viewing_key: ViewingKey,
     pub pinned: Option<Box<PinnedPolicy>>,
-    /// `None` commits the pinned rows without charging them.
-    pub velocity: Option<VelocityProofInput>,
-    /// The windowed record rides at the last real input and the last output.
-    pub record: Option<CompressedDisclosure>,
+    /// `None` commits the pinned limits without bounding the transfer.
+    pub limits: Option<OutflowLimitProofInput>,
     pub authority: TransferAuthority,
     pub key_registry: Option<KeyRegistry>,
     pub owner_signers: Vec<Address>,
@@ -123,24 +117,13 @@ pub(crate) struct Staged {
     pub delegate: Option<Address>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct CompressedDisclosure {
-    pub transaction_salt: [u8; 16],
-    pub counters_disclosure_hash: [u8; 32],
-}
-
+/// `None` only for an all-padding transfer, which completes no input.
 pub(crate) struct TransferAuthority {
     pub owner: Option<NullifierKey>,
-    /// Position of the namespace-owned spend record, it nullifies under the zero key.
-    pub spend_record: Option<usize>,
 }
 
 impl ProofAuthority for TransferAuthority {
     fn complete_inputs(&self, inputs: &mut [TransferInput]) -> Result<(), ClientError> {
-        if let Some(position) = self.spend_record {
-            let record = inputs.get_mut(position).ok_or(ClientError::NoInputs)?;
-            zero_nullifier_key().complete_inputs(std::slice::from_mut(record))?;
-        }
         match &self.owner {
             Some(owner) => owner.complete_inputs(inputs),
             None => Ok(()),
@@ -221,10 +204,6 @@ impl<R: Rail> RingTransfer<R> {
             outputs,
             owner_signers: staged.owner_signers,
             interface_transfer_accounts: staged.interface_transfer_accounts,
-            window_index: staged
-                .record
-                .and(staged.velocity)
-                .map_or(0, |velocity| velocity.window_index),
             payer: staged.proof_inputs.payer,
             delegate: staged.delegate,
             trees,
@@ -240,8 +219,8 @@ impl<R: Rail> RingTransfer<R> {
         indexed: bool,
     ) -> Result<PolicyStatement, RingError> {
         let inputs = &staged.proof_inputs;
-        let velocity = match staged.velocity {
-            Some(velocity) => velocity,
+        let limits = match staged.limits {
+            Some(limits) => limits,
             None => committed(self.ring, pinned)?,
         };
         let witness = WitnessInput {
@@ -250,25 +229,22 @@ impl<R: Rail> RingTransfer<R> {
             outputs: &inputs.output_utxos,
             output_tree_id: inputs.output_tree_id,
             private_tx_blinding: inputs.private_tx_blinding()?,
-            velocity,
-            record: staged.record.is_some(),
+            limits,
             key_registry: staged.key_registry,
             indexer_config: self.indexer_config,
         }
         .build(client, indexed)
         .await?;
-        let circuit = match (staged.delegate, staged.record) {
-            (Some(_), _) => RingCircuit::DelegatePolicy,
-            (None, Some(_)) => RingCircuit::CompressedPolicy,
-            (None, None) => RingCircuit::Policy,
+        let circuit = match staged.delegate {
+            Some(_) => RingCircuit::DelegatePolicy,
+            None => RingCircuit::Policy,
         };
         Ok(PolicyStatement {
-            approval_required: witness.velocity.approval_required,
+            approval_required: witness.limits.approval_required,
             reads: witness.reads(),
             witness,
             policy_hash: pinned.config.policy_hash,
             circuit,
-            compressed: staged.record,
         })
     }
 }
@@ -282,15 +258,14 @@ async fn pinned_policy(
     Ok(Box::new(pinned.ok_or(RingError::MissingPolicyConfig)?))
 }
 
-/// A record-free rail evaluates every money slot while committing the pinned rows.
-fn committed(ring: CustomRing, pinned: &PinnedPolicy) -> Result<VelocityProofInput, RingError> {
-    let rows = pinned.table.velocity();
-    let mut velocity =
-        VelocityProofInput::off(RingIdentity::new(ring, pinned.config.namespace_owner_hash)?);
-    velocity.window_slots = pinned.table.window_slots();
-    velocity.row_count = rows.len() as u8;
-    velocity.rows[..rows.len()].copy_from_slice(rows);
-    Ok(velocity)
+/// The delegate rail commits the pinned limits without bounding its move.
+fn committed(ring: CustomRing, pinned: &PinnedPolicy) -> Result<OutflowLimitProofInput, RingError> {
+    let limits = pinned.table.limits();
+    let mut input =
+        OutflowLimitProofInput::none(RingIdentity::new(ring, pinned.config.namespace_owner_hash)?);
+    input.limit_count = limits.len() as u8;
+    input.limits[..limits.len()].copy_from_slice(limits);
+    Ok(input)
 }
 
 /// Each real input spends once, a repeated nullifier fails on chain after proving.
@@ -314,7 +289,6 @@ struct PolicyStatement {
     approval_required: bool,
     policy_hash: [u8; 32],
     circuit: RingCircuit,
-    compressed: Option<CompressedDisclosure>,
 }
 
 impl PolicyStatement {
@@ -323,34 +297,14 @@ impl PolicyStatement {
         pending: PendingCustomRingProof,
         private_tx_hash: [u8; 32],
     ) -> Result<PolicyRequest, RingError> {
-        let PolicyProof {
-            mut body,
-            mut indexed,
-        } = pending.finish(private_tx_hash, self.witness, &self.policy_hash)?;
-        // The compressed circuit folds the counters disclosure after the policy chain.
-        if let Some(compressed) = self.compressed {
-            if body.witness.velocity.window_slots == 0 {
-                return Err(RingError::CompressedWithoutWindow);
-            }
-            body.public_input_hash = Poseidon::hashv(&[
-                &body.public_input_hash,
-                &compressed.counters_disclosure_hash,
-            ])?;
-            if let Some(indexed) = &mut indexed {
-                indexed
-                    .public_inputs
-                    .push(compressed.counters_disclosure_hash);
-            }
-        }
+        let PolicyProof { body, indexed } =
+            pending.finish(private_tx_hash, self.witness, &self.policy_hash)?;
         Ok(PolicyRequest {
             body,
             indexed,
             reads: self.reads,
             approval_required: self.approval_required,
             circuit: self.circuit,
-            transaction_salt: self
-                .compressed
-                .map(|compressed| compressed.transaction_salt),
         })
     }
 }
@@ -361,19 +315,17 @@ pub(crate) struct PolicyRequest {
     pub reads: PolicyReads,
     pub approval_required: bool,
     pub circuit: RingCircuit,
-    pub transaction_salt: Option<[u8; 16]>,
 }
 
 impl PolicyRequest {
     fn envelope(&self) -> PolicyEnvelope<'_> {
         PolicyEnvelope {
-            transaction_salt: self.transaction_salt,
             circuit_type: self.circuit,
             policy: &self.body,
         }
     }
 
-    /// The prover's request body, the plain policy circuit takes the body unwrapped.
+    /// The prover's request body, the member circuit takes the body unwrapped.
     pub(crate) fn request(
         &self,
     ) -> Result<zolana_client::prover::requests::CircuitRequest, ClientError> {
@@ -624,7 +576,6 @@ impl ProvenRingTransfer {
                 proof: self.proof,
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
-                window_index: self.window_index,
             }
             .instruction(),
             Some(delegate) => CustomRingDelegateTransact {

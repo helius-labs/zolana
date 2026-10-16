@@ -1,6 +1,6 @@
 //! The `[policy]` table of `ring.toml` and its compilation to the pinned rule table.
 
-use std::{cmp::Ordering, collections::BTreeMap, fmt, num::NonZeroU64, str::FromStr};
+use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
 
 use custom_ring_sdk::CustomRing;
 use serde::{Deserialize, Serialize};
@@ -8,8 +8,8 @@ use solana_address::Address;
 use thiserror::Error;
 use zolana_interface::pda;
 use zolana_ring_policy::{
-    Guard, ListId, ListSet, Member, MemberError, Mode, Rule, RuleSource, RuleTable, RuleTableError,
-    Subject, VelocityMode, VelocityRow, Writer, MAX_INLINE_ASSETS, MAX_RULES, MAX_VELOCITY_ASSETS,
+    Guard, ListId, ListSet, Member, MemberError, Mode, OutflowLimit, Rule, RuleSource, RuleTable,
+    RuleTableError, Subject, Writer, MAX_INLINE_ASSETS, MAX_OUTFLOW_LIMITS, MAX_RULES,
 };
 
 use crate::{
@@ -28,24 +28,17 @@ pub struct PolicySpec {
     /// Every rule must hold, in row order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub velocity: Option<VelocitySpec>,
+    /// A sender's outflow per mint and transfer, at most one entry per mint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<LimitSpec>,
 }
 
 pub type Sources = BTreeMap<ListName, Base58Address>;
 
+/// A zero `cap` or `cosign_above` leaves that bound off, one of them is nonzero.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct VelocitySpec {
-    /// Zero caps each transfer alone, nonzero resets counters at fixed slot boundaries.
-    #[serde(default)]
-    pub window_slots: u64,
-    pub rows: Vec<VelocityRowSpec>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct VelocityRowSpec {
+pub struct LimitSpec {
     pub asset: Base58Address,
     #[serde(default)]
     pub cap: u64,
@@ -108,8 +101,7 @@ pub(crate) struct PolicyRows {
     pub rules: Vec<Rule>,
     pub assets: Vec<[u8; 32]>,
     pub limits: Vec<u64>,
-    pub window_slots: u64,
-    pub velocity: Vec<VelocityRow>,
+    pub outflow: Vec<OutflowLimit>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -151,19 +143,19 @@ pub enum PolicyError {
     },
     #[error("rule {} is refused, {message}", rule + 1)]
     Refused { rule: usize, message: &'static str },
-    #[error("{count} velocity rows exceed the {MAX_VELOCITY_ASSETS} slots of the table")]
-    TooManyVelocityRows { count: usize },
-    #[error("velocity row {} asset {mint} derives no member", row + 1)]
-    VelocityAsset {
+    #[error("{count} outflow limits exceed the {MAX_OUTFLOW_LIMITS} slots of the table")]
+    TooManyLimits { count: usize },
+    #[error("outflow limit {} asset {mint} derives no member", row + 1)]
+    LimitAsset {
         row: usize,
         mint: Address,
         #[source]
         source: MemberError,
     },
-    #[error("the velocity table is refused, {message}")]
-    VelocityRefused { message: &'static str },
-    #[error("velocity row {} {field} {amount} exceeds what a toml integer holds", row + 1)]
-    VelocityTooLarge {
+    #[error("the outflow limits are refused, {message}")]
+    LimitsRefused { message: &'static str },
+    #[error("outflow limit {} {field} {amount} exceeds what a toml integer holds", row + 1)]
+    LimitTooLarge {
         row: usize,
         field: &'static str,
         amount: u64,
@@ -481,16 +473,11 @@ impl PolicySpec {
         if count > MAX_INLINE_ASSETS {
             return Err(PolicyError::TooManyAssets { count });
         }
-        let (window_slots, velocity) = match &self.velocity {
-            None => (0, Vec::new()),
-            Some(spec) => (spec.window_slots, spec.rows()?),
-        };
         Ok(PolicyRows {
             rules,
             assets,
             limits,
-            window_slots,
-            velocity,
+            outflow: self.outflow_limits()?,
         })
     }
 
@@ -535,34 +522,31 @@ impl CompiledPolicy {
     }
 }
 
-impl VelocitySpec {
-    fn rows(&self) -> Result<Vec<VelocityRow>, PolicyError> {
-        let count = self.rows.len();
-        if count > MAX_VELOCITY_ASSETS {
-            return Err(PolicyError::TooManyVelocityRows { count });
+impl PolicySpec {
+    fn outflow_limits(&self) -> Result<Vec<OutflowLimit>, PolicyError> {
+        let count = self.limits.len();
+        if count > MAX_OUTFLOW_LIMITS {
+            return Err(PolicyError::TooManyLimits { count });
         }
-        let row = |(row, spec): (usize, &VelocityRowSpec)| {
+        let limit = |(row, spec): (usize, &LimitSpec)| {
             let mint = spec.asset.0;
-            let refused = |source| PolicyError::VelocityAsset { row, mint, source };
-            Ok(VelocityRow {
+            let refused = |source| PolicyError::LimitAsset { row, mint, source };
+            Ok(OutflowLimit {
                 asset: *Member::asset(&mint).map_err(refused)?.as_bytes(),
                 cap: spec.cap,
                 cosign_above: spec.cosign_above,
             })
         };
-        self.rows.iter().enumerate().map(row).collect()
+        self.limits.iter().enumerate().map(limit).collect()
     }
 }
 
 impl PolicyRows {
     fn build(&self, rule_count: usize) -> Result<RuleTable, RuleTableError> {
-        let mut builder = RuleTable::builder()
+        let builder = RuleTable::builder()
             .inline_assets(&self.assets)
             .inline_limits(&self.limits)
-            .velocity(&self.velocity);
-        if let Some(window_slots) = NonZeroU64::new(self.window_slots) {
-            builder = builder.windowed(window_slots);
-        }
+            .limits(&self.outflow);
         self.rules[..rule_count]
             .iter()
             .fold(builder, |builder, rule| builder.rule(*rule))
@@ -570,16 +554,15 @@ impl PolicyRows {
     }
 }
 
-/// A refusal names the first row that triggers it, a velocity refusal names the table.
+/// A refusal names the first row that triggers it, a limit refusal names the limits.
 pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> {
     rows.build(rows.rules.len()).map_err(|error| {
         let message = error.message();
         match error {
-            RuleTableError::TooManyVelocityAssets
-            | RuleTableError::WindowWithoutVelocity
-            | RuleTableError::ZeroVelocityAsset
-            | RuleTableError::DuplicateVelocityAsset
-            | RuleTableError::VelocityRowWithoutBound => PolicyError::VelocityRefused { message },
+            RuleTableError::TooManyOutflowLimits
+            | RuleTableError::ZeroLimitAsset
+            | RuleTableError::DuplicateLimitAsset
+            | RuleTableError::LimitWithoutBound => PolicyError::LimitsRefused { message },
             _ => PolicyError::Refused {
                 rule: (0..rows.rules.len())
                     .find(|rule| rows.build(rule + 1) == Err(error))
@@ -590,18 +573,14 @@ pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> 
     })
 }
 
-/// One sentence per velocity row, the wording every listing shares.
-pub fn describe_velocity(row: &VelocityRow, mode: VelocityMode) -> String {
-    let asset = hex::encode(&row.asset[..4]);
-    let per = match mode {
-        VelocityMode::PerWindow { .. } => "per window",
-        VelocityMode::PerTransfer | VelocityMode::Off => "per transfer",
-    };
-    match (row.cap, row.cosign_above) {
+/// One sentence per outflow limit, the wording every listing shares.
+pub fn describe_limit(limit: &OutflowLimit) -> String {
+    let asset = hex::encode(&limit.asset[..4]);
+    match (limit.cap, limit.cosign_above) {
         (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),
-        (cap, 0) => format!("asset {asset}.. is capped at {cap} {per}"),
+        (cap, 0) => format!("asset {asset}.. is capped at {cap} per transfer"),
         (cap, cosign) => format!(
-            "asset {asset}.. is capped at {cap} {per} and needs the co-signer above {cosign} per transfer"
+            "asset {asset}.. is capped at {cap} per transfer and needs the co-signer above {cosign}"
         ),
     }
 }
@@ -672,50 +651,48 @@ mod tests {
     }
 
     #[test]
-    fn rows_without_a_window_cap_each_transfer() {
+    fn limits_bound_each_transfer() {
         let policy = compiled(&format!(
             r#"
 address_tree = "{CURATOR}"
-
-[velocity]
-rows = [{{ asset = "{MINT}", cap = 1000 }}]
+limits = [{{ asset = "{MINT}", cap = 1000 }}]
 "#
         ))
         .expect("compiles");
-        assert_eq!(policy.rules.velocity_mode(), VelocityMode::PerTransfer);
-        assert_eq!(policy.rules.window_slots(), 0);
+        let limits = policy.rules.limits();
+        assert_eq!(limits.len(), 1);
+        assert_eq!((limits[0].cap, limits[0].cosign_above), (1000, 0));
     }
 
     #[test]
-    fn a_window_without_rows_is_refused() {
+    fn a_limit_without_a_bound_is_refused() {
         let error = compiled(&format!(
             r#"
 address_tree = "{CURATOR}"
-
-[velocity]
-window_slots = 100
-rows = []
+limits = [{{ asset = "{MINT}" }}]
 "#
         ))
-        .expect_err("a window needs rows");
+        .expect_err("a limit needs a bound");
         assert!(matches!(
             error,
-            PolicyError::VelocityRefused { message } if message == "a window needs velocity rows"
+            PolicyError::LimitsRefused { message }
+                if message == "an outflow limit needs a cap or a cosign threshold"
         ));
     }
 
     #[test]
-    fn the_description_reads_the_mode() {
-        let row = VelocityRow {
+    fn the_description_names_each_bound() {
+        let capped = OutflowLimit {
             asset: [3u8; 32],
             cap: 1000,
             cosign_above: 0,
         };
-        assert!(describe_velocity(&row, VelocityMode::PerTransfer).contains("per transfer"));
-        assert!(
-            describe_velocity(&row, VelocityMode::PerWindow { window_slots: 100 })
-                .contains("per window")
-        );
+        assert!(describe_limit(&capped).contains("capped at 1000 per transfer"));
+        let cosigned = OutflowLimit {
+            cosign_above: 400,
+            ..capped
+        };
+        assert!(describe_limit(&cosigned).contains("co-signer above 400"));
     }
 
     #[test]

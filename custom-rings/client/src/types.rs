@@ -6,7 +6,6 @@ use std::fmt;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::P256Pubkey;
-use zolana_ring_policy::{SpendCounters, SpendRecord};
 use zolana_transaction::Data;
 
 /// One opened output slot, its asset id resolved to the mint.
@@ -48,15 +47,6 @@ pub struct AuditedTransaction {
     pub tx_viewing_pk: P256Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<ProofInputUtxo>,
-    pub spend_records: Vec<AuditedSpendRecord>,
     /// Dummies, foreign schemes and slots sealed to another key, every transfer pads with dummies.
     pub undecryptable_slots: Vec<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuditedSpendRecord {
-    pub slot_index: u32,
-    pub record: SpendRecord,
-    /// `None` when no message under the record's tag opens to its commitment.
-    pub counters: Option<SpendCounters>,
 }

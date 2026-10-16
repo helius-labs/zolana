@@ -78,15 +78,6 @@ fn assert_rail_fingerprint(name: &str, vk: &Groth16Verifyingkey, expected: &str)
 }
 
 #[test]
-fn compressed_policy_verifying_key_fingerprint_is_pinned() {
-    assert_rail_fingerprint(
-        "compressed_policy_verifying_key",
-        &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
-        "001ec9fe760d4c4d1636fe4e54ddd160bc505987fcb659ec8de7a261133d6a9d",
-    );
-}
-
-#[test]
 fn delegate_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "delegate_policy_verifying_key",

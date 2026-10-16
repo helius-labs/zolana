@@ -6,7 +6,7 @@ use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_indexer_api::Hash;
 
-use super::{key_registry::MemberKey, spend_record::SpendUndo};
+use super::key_registry::MemberKey;
 use crate::{
     common::rings_tree::RingsTreeKind,
     ingester::{
@@ -116,13 +116,11 @@ impl Undo {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct BlockUndo {
-    pub spend_records: Vec<SpendUndo>,
     pub key_registry: Vec<Undo>,
 }
 
 impl BlockUndo {
     pub fn extend(&mut self, other: Self) {
-        self.spend_records.extend(other.spend_records);
         self.key_registry.extend(other.key_registry);
     }
 }
@@ -252,7 +250,6 @@ pub(crate) async fn rollback(
     let slot = vec![int(journal.metadata.slot)?];
     let sql = "DELETE FROM ring_projection_pending WHERE slot=$1";
     exec(tx, sql, slot.clone()).await?;
-    super::spend_record::restore(tx, &journal.undo.spend_records).await?;
     restore(tx, cursor, &journal.undo.key_registry).await?;
     // Partial replay must rewind with the block that advanced it.
     for mut candidate in pending(tx).await? {

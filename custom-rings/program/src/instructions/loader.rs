@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     CustomRingError, DepositAudit, KeyEscrow, KeyRegistryRoot, PolicyConfig, RingAccount,
-    RingProgramConfig, SpendWindow,
+    RingProgramConfig,
 };
 use pinocchio::{
     account::{Ref, RefMut},
@@ -83,29 +83,6 @@ pub fn load_deposit_audit<'a>(
         return Err(CustomRingError::InvalidDepositAudit.into());
     }
     load_optional(program_id, account, &[DepositAudit::SEED])
-}
-
-/// The mint's window, `None` when its canonical address is empty.
-pub fn load_spend_window_mut<'a>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-    mint: &Address,
-) -> Result<Option<RefMut<'a, SpendWindow>>, ProgramError> {
-    let invalid = CustomRingError::InvalidSpendWindow;
-    if account.data_len() == 0 {
-        verify_pda(
-            program_id,
-            account.address(),
-            &[SpendWindow::SEED, mint.as_array()],
-            invalid,
-        )?;
-        return Ok(None);
-    }
-    let window = load_mut::<SpendWindow>(program_id, account)?;
-    if window.mint != *mint {
-        return Err(invalid.into());
-    }
-    Ok(Some(window))
 }
 
 /// The registry root at `index` a statement binds, `None` with escrow off.

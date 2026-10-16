@@ -35,6 +35,9 @@ pub struct IndexedRegistry {
     pub next_index: u64,
 }
 
+/// The policy statement chain less the folded audit prefix and the tree commitment.
+const POLICY_PUBLIC_INPUTS: usize = 18;
+
 #[derive(Clone)]
 pub struct IndexedPolicyData {
     pub registry: Option<IndexedRegistry>,
@@ -72,12 +75,11 @@ impl IndexedPolicyRequest {
             .and_then(serde_json::Value::as_str)
             .ok_or_else(invalid)?
             .to_owned();
-        let expected = match circuit.as_str() {
-            "custom-ring-policy" | "custom-ring-delegate-policy" => 19,
-            "custom-ring-compressed-policy" => 20,
-            _ => return Err(invalid()),
-        };
-        if data.public_inputs.len() != expected {
+        if !matches!(
+            circuit.as_str(),
+            "custom-ring-policy" | "custom-ring-delegate-policy"
+        ) || data.public_inputs.len() != POLICY_PUBLIC_INPUTS
+        {
             return Err(invalid());
         }
         let policy = if circuit == "custom-ring-policy" {
@@ -294,14 +296,7 @@ mod tests {
                     };
                     10
                 ],
-                public_inputs: vec![
-                    field(3);
-                    if circuit == "custom-ring-compressed-policy" {
-                        20
-                    } else {
-                        19
-                    }
-                ],
+                public_inputs: vec![field(3); POLICY_PUBLIC_INPUTS],
             },
         )
         .unwrap()
@@ -309,11 +304,7 @@ mod tests {
 
     #[test]
     fn policy_resolution_rejects_changed_anchors_and_transcripts() {
-        for circuit in [
-            "custom-ring-policy",
-            "custom-ring-compressed-policy",
-            "custom-ring-delegate-policy",
-        ] {
+        for circuit in ["custom-ring-policy", "custom-ring-delegate-policy"] {
             let request = request(circuit);
             let mut resolution = ProofResolution {
                 trees: request.data.trees.clone(),

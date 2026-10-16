@@ -1,7 +1,6 @@
 //! The custom ring's auditor client. It never depends on test utilities, so the end-to-end
 //! test asserts on the code path an auditor runs.
 
-mod counters;
 mod decrypt;
 mod deposit;
 mod encryption;
@@ -17,7 +16,6 @@ mod types;
 #[cfg(feature = "solana-rpc")]
 pub use crate::origin::{confirmed_origin, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
-    counters::{find_counters_message, open_counters, seal_counters},
     decrypt::{recover_tx_viewing_key, TransactionAudit},
     deposit::{deposit_payload, ring_deposits_in, RingDeposit},
     encryption::{
@@ -34,6 +32,6 @@ pub use crate::{
         SourceMember,
     },
     scan::{AuditedPage, RingScan, RingScanPage, ScanPage},
-    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
+    types::{AuditedOutput, AuditedTransaction},
 };
 pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;

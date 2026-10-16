@@ -3,31 +3,25 @@ use solana_address::Address;
 use zolana_client::{AsyncRpc, ProofInputUtxo, SettlementAccountValidation};
 use zolana_interface::{
     event::OutputDataEncoding,
-    instruction::{tag::RING_TRANSACT, OwnerTag, TransactOutput},
-    MAX_INPUT_TREES,
+    instruction::{tag::RING_TRANSACT, TransactOutput},
 };
-use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{NullifierKey, ViewingKey};
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
-use zolana_ring_policy::{ListNamespace, Member, VelocityMode};
+use zolana_ring_policy::{Member, OutflowLimit};
 use zolana_transaction::{
-    instructions::transact::{
-        ConfidentialTransaction, ResolvedOwnerTag, SppProofInputs, SppProofOutputUtxo,
-    },
+    instructions::transact::{ConfidentialTransaction, SppProofOutputUtxo},
+    keys::TransactionKeyRequest,
     serialization::confidential::ConfidentialOutputPlaintext,
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
-    Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError,
+    utxo::SppProofInputUtxo,
+    Data, EncryptedScheme, ShieldedKeys, TransactionError,
 };
 
-use super::{
-    pinned_policy, sealed, CompressedDisclosure, Rail, RailKind, RingTransfer, Staged,
-    TransferAuthority,
-};
+use super::{pinned_policy, sealed, Rail, RailKind, RingTransfer, Staged, TransferAuthority};
 use crate::{
     escrow::KeyRegistry,
     heap::boxed,
-    velocity::{charge, transaction_key, Outflows, RecordSpend, VelocityContext, VelocityPlan},
-    CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, ReadSpendRecord,
-    RingError, RingIdentity, VelocityProofInput,
+    limits::{bound, Outflows},
+    CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, RingError, RingIdentity,
 };
 
 /// The sender's spends, it signs the assembled Solana transaction itself.
@@ -81,15 +75,30 @@ impl<'a> RingTransfer<Owner<'a>> {
     }
 }
 
-/// The window read is the one transport-bound step of a limit.
+/// The pinned limits a member transfer is bounded by.
 enum Limit {
     Unbounded,
-    PerTransfer(RingIdentity, Vec<zolana_ring_policy::VelocityRow>),
-    PerWindow(Box<crate::velocity::VelocityFacts>),
+    Bounded(RingIdentity, Vec<OutflowLimit>),
+}
+
+/// The transaction viewing key the sender derives for `first_nullifier`.
+pub(crate) fn transaction_key(
+    sender: &(dyn ShieldedKeys + Send + Sync),
+    first_nullifier: [u8; 32],
+) -> Result<ViewingKey, RingError> {
+    let keys = sender.transaction_keys(&[TransactionKeyRequest {
+        viewing_pubkey: sender.address()?.viewing_pubkey,
+        first_nullifier,
+    }])?;
+    let got = keys.len();
+    Ok(keys
+        .into_iter()
+        .next()
+        .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?)
 }
 
 impl Owner<'_> {
-    /// Record openings and the auditor ciphertext precede every hash over the external data.
+    /// The auditor ciphertext precedes every hash over the external data.
     pub(super) async fn stage(
         &self,
         ring: CustomRing,
@@ -103,39 +112,13 @@ impl Owner<'_> {
             false => None,
         };
         let limit = match &pinned {
-            None => Limit::Unbounded,
-            Some(pinned) => {
-                let identity = RingIdentity::new(ring, pinned.config.namespace_owner_hash)?;
-                let rows = pinned.table.velocity().to_vec();
-                match pinned.table.velocity_mode() {
-                    VelocityMode::Off => Limit::Unbounded,
-                    VelocityMode::PerTransfer => Limit::PerTransfer(identity, rows),
-                    VelocityMode::PerWindow { window_slots } => {
-                        let tree_id = pinned.config.address_tree_id();
-                        let live = ReadSpendRecord::new(ring, tree_id, member)
-                            .current(client)
-                            .await?
-                            .ok_or(RingError::SpendRecordMissing)?;
-                        let context = VelocityContext {
-                            namespace: ring.namespace_pda(),
-                            owner: ListNamespace {
-                                owner_hash: pinned.config.namespace_owner_hash,
-                            },
-                            identity,
-                            address_tree_id: tree_id,
-                            window_slots,
-                            rows,
-                        };
-                        let slot = client.get_slot().await?;
-                        Limit::PerWindow(Box::new(context.facts(self.sender, live, slot)?))
-                    }
-                }
-            }
+            Some(pinned) if !pinned.table.limits().is_empty() => Limit::Bounded(
+                RingIdentity::new(ring, pinned.config.namespace_owner_hash)?,
+                pinned.table.limits().to_vec(),
+            ),
+            _ => Limit::Unbounded,
         };
         let transaction = &self.transaction;
-        if let Limit::PerWindow(facts) = &limit {
-            check_record_tree_count(transaction, facts.live.tree_id)?;
-        }
         let program = ring.program_id();
         let transfers: Vec<_> = transaction
             .interface_transfers()?
@@ -148,7 +131,6 @@ impl Owner<'_> {
         }
         .validate()?;
         let tx_viewing_key = transaction_key(self.sender, *transaction.first_nullifier())?;
-        let sender_tag = transaction.sender_owner_tag(&sender.signing_pubkey)?;
         let mut proof_inputs = transaction
             .clone()
             .encrypt_with_viewing_key(&sender, &tx_viewing_key)?;
@@ -158,65 +140,23 @@ impl Owner<'_> {
             &proof_inputs.output_utxos,
         )?;
         proof_inputs.check_shape()?;
-        let first_nullifier = proof_inputs.first_nullifier()?;
-        let output_blinding_seed =
-            derive_output_blinding_seed(&first_nullifier, &proof_inputs.blinding_seed)?;
-        let salt = proof_inputs.external_data.salt;
-        let outflows = || Outflows {
-            sender: member,
-            ring: program,
-            inputs: &proof_inputs.input_utxos,
-            outputs: &proof_inputs.output_utxos,
-        };
-        let (velocity, plan) = match &limit {
-            Limit::Unbounded => (None, None),
-            Limit::PerTransfer(identity, rows) => {
-                let charges = charge(rows, &outflows(), None)?;
-                (
-                    Some(VelocityProofInput::per_transfer(&charges, *identity)),
-                    None,
-                )
-            }
-            Limit::PerWindow(facts) => {
-                let plan = facts.plan(RecordSpend {
-                    outflows: outflows(),
-                    tx_viewing_key: &tx_viewing_key,
-                    salt,
-                    first_nullifier,
-                    output_blinding_seed,
-                    money_shape: money_shape(&proof_inputs),
-                })?;
-                (Some(plan.proof_input), Some(plan))
+        let limits = match &limit {
+            Limit::Unbounded => None,
+            Limit::Bounded(identity, limits) => {
+                let outflows = Outflows {
+                    sender: member,
+                    ring: program,
+                    inputs: &proof_inputs.input_utxos,
+                    outputs: &proof_inputs.output_utxos,
+                };
+                Some(bound(limits, &outflows, *identity)?)
             }
         };
-        let mut messages = Vec::with_capacity(3);
-        let mut record = None;
-        if let Some(plan) = plan {
-            append_record(
-                &mut proof_inputs,
-                &plan,
-                &tx_viewing_key,
-                &sender,
-                sender_tag,
-            )?;
-            let body = plan
-                .counters_message
-                .data
-                .as_slice()
-                .try_into()
-                .map_err(|_| RingError::SpendCountersUnknown)?;
-            record = Some(CompressedDisclosure {
-                transaction_salt: salt,
-                counters_disclosure_hash: zolana_ring_policy::spend_counters_disclosure_hash(
-                    &salt, body,
-                )?,
-            });
-            messages.extend([plan.record_message, plan.counters_message]);
-        }
         frame_dummy_outputs(
             &proof_inputs.output_utxos,
             &mut proof_inputs.external_data.outputs,
         )?;
+        let salt = proof_inputs.external_data.salt;
         let EncryptedAudit { pending, message } = CustomRingProofParams {
             tx_viewing_key: tx_viewing_key.clone(),
             auditor_pk: config.auditor_pubkey,
@@ -229,48 +169,24 @@ impl Owner<'_> {
                 .collect::<Result<_, _>>()?,
         }
         .encrypt()?;
-        messages.push(message.to_message_data(&config.auditor_pubkey));
-        proof_inputs.external_data.messages = messages;
+        proof_inputs.external_data.messages = vec![message.to_message_data(&config.auditor_pubkey)];
         // The external data hash binds the instruction tag.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
-        let spend_record = record
-            .map(|_| {
-                record_input_position(&proof_inputs.input_utxos).ok_or(TransactionError::NoInputs)
-            })
-            .transpose()?;
         Ok(Box::new(Staged {
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
             proof_inputs,
             pending,
             tx_viewing_key,
             pinned,
-            velocity,
-            record,
+            limits,
             authority: TransferAuthority {
                 owner: self.nullifier_key.cloned(),
-                spend_record,
             },
             key_registry: KeyRegistry::of(ring, config),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             delegate: None,
         }))
     }
-}
-
-pub(super) fn check_record_tree_count(
-    transaction: &ConfidentialTransaction,
-    record_tree: u16,
-) -> Result<(), RingError> {
-    let trees = transaction.input_tree_ids();
-    let got = trees.len() + usize::from(!trees.contains(&record_tree));
-    if got > MAX_INPUT_TREES {
-        return Err(TransactionError::TooManyInputTrees {
-            got,
-            max: MAX_INPUT_TREES,
-        }
-        .into());
-    }
-    Ok(())
 }
 
 /// Every ring field names this ring, and only a ring note carries ring data.
@@ -295,162 +211,6 @@ pub(crate) fn check_membership(
         }
     }
     Ok(())
-}
-
-/// The real money slots, non-dummy inputs and the outputs ahead of the first dummy.
-pub(crate) fn money_shape(proof_inputs: &SppProofInputs) -> zolana_client::Shape {
-    zolana_client::Shape::new(
-        proof_inputs
-            .input_utxos
-            .iter()
-            .filter(|input| !input.is_dummy())
-            .count(),
-        proof_inputs
-            .output_utxos
-            .iter()
-            .take_while(|output| !output.is_dummy())
-            .count(),
-    )
-}
-
-pub(crate) fn record_input_position(inputs: &[SppProofInputUtxo]) -> Option<usize> {
-    inputs.iter().rposition(|input| !input.is_dummy())
-}
-
-/// The record follows the real inputs, padding sits under the last declared tree as SPP pads.
-pub(crate) fn place_record_input(
-    inputs: &mut Vec<SppProofInputUtxo>,
-    record: SppProofInputUtxo,
-    n_inputs: usize,
-) -> Result<(), RingError> {
-    inputs.retain(|input| !input.is_dummy());
-    inputs.push(record);
-    let mut padding_tree = inputs[0].tree_id;
-    for (index, input) in inputs.iter().enumerate() {
-        if inputs[..index]
-            .iter()
-            .all(|earlier| earlier.tree_id != input.tree_id)
-        {
-            padding_tree = input.tree_id;
-        }
-    }
-    while inputs.len() < n_inputs {
-        inputs.push(SppProofInputUtxo::dummy(padding_tree)?);
-    }
-    Ok(())
-}
-
-/// The record takes the slot after the money, its successor blinding derives from that index.
-pub(crate) fn append_record(
-    proof_inputs: &mut SppProofInputs,
-    plan: &VelocityPlan,
-    tx_viewing_key: &ViewingKey,
-    sender: &ShieldedAddress,
-    sender_tag: ResolvedOwnerTag,
-) -> Result<(), RingError> {
-    let money = money_shape(proof_inputs);
-    if money.n_inputs() + 1 > plan.shape.n_inputs()
-        || money.n_outputs() + 1 > plan.shape.n_outputs()
-    {
-        return Err(RingError::PolicyShapeUnsupported);
-    }
-    place_record_input(
-        &mut proof_inputs.input_utxos,
-        plan.input.clone(),
-        plan.shape.n_inputs(),
-    )?;
-    let money = money.n_outputs();
-    proof_inputs.output_utxos.truncate(money);
-    proof_inputs.external_data.outputs.truncate(money);
-    proof_inputs
-        .external_data
-        .resolved_owner_tags
-        .truncate(money);
-    let first_nullifier = proof_inputs.first_nullifier()?;
-    let seed = derive_output_blinding_seed(&first_nullifier, &proof_inputs.blinding_seed)?;
-    let blinding = |slot: usize| -> Result<[u8; 32], RingError> {
-        let slot = u32::try_from(slot).map_err(|_| RingError::PolicyShapeUnsupported)?;
-        Ok(derive_transact_output_blinding(
-            &first_nullifier,
-            &seed,
-            slot,
-        )?)
-    };
-    let (owner, asset, padding_tag) = padding_template(proof_inputs, sender, sender_tag);
-    while proof_inputs.output_utxos.len() < plan.record_slot {
-        let output = SppProofOutputUtxo {
-            blinding: blinding(proof_inputs.output_utxos.len())?,
-            ..SppProofOutputUtxo::new(asset, 0, owner)?
-        };
-        push_output(proof_inputs, output, tx_viewing_key, Some(padding_tag))?;
-    }
-    let slot = proof_inputs.output_utxos.len();
-    if plan.output.blinding != blinding(slot)? {
-        return Err(zolana_client::ClientError::OutputBlindingMismatch { index: slot }.into());
-    }
-    push_output(proof_inputs, plan.output.clone(), tx_viewing_key, None)?;
-    while proof_inputs.output_utxos.len() < plan.shape.n_outputs() {
-        proof_inputs.output_utxos.push(SppProofOutputUtxo {
-            blinding: blinding(proof_inputs.output_utxos.len())?,
-            compact: true,
-            ..Default::default()
-        });
-    }
-    Ok(())
-}
-
-/// `None` tags the slot inline with its owner's view tag.
-fn push_output(
-    proof_inputs: &mut SppProofInputs,
-    output: SppProofOutputUtxo,
-    tx_viewing_key: &ViewingKey,
-    tag: Option<ResolvedOwnerTag>,
-) -> Result<(), RingError> {
-    let slot = proof_inputs.output_utxos.len() as u32;
-    let sealed = output.seal(slot, tx_viewing_key, proof_inputs.external_data.salt)?;
-    let tag = tag.unwrap_or(ResolvedOwnerTag {
-        tag: OwnerTag::Inline(sealed.view_tag),
-        resolved: sealed.view_tag,
-    });
-    proof_inputs.external_data.outputs.push(TransactOutput {
-        utxo_hash: output.hash(proof_inputs.output_tree_id)?,
-        owner_tag: tag.tag,
-        data: Some(sealed.data),
-    });
-    proof_inputs
-        .external_data
-        .resolved_owner_tags
-        .push(tag.resolved);
-    proof_inputs.output_utxos.push(output);
-    Ok(())
-}
-
-/// Padding copies the sender's change, else the last money output, else the sender's zero SOL.
-fn padding_template(
-    proof_inputs: &SppProofInputs,
-    sender: &ShieldedAddress,
-    sender_tag: ResolvedOwnerTag,
-) -> (ShieldedAddress, Mint, ResolvedOwnerTag) {
-    let external = &proof_inputs.external_data;
-    let mut money = proof_inputs
-        .output_utxos
-        .iter()
-        .zip(&external.outputs)
-        .zip(&external.resolved_owner_tags)
-        .filter_map(|((output, encoded), resolved)| {
-            output.owner_address.map(|address| {
-                let tag = ResolvedOwnerTag {
-                    tag: encoded.owner_tag,
-                    resolved: *resolved,
-                };
-                (address, output.asset, tag)
-            })
-        });
-    money
-        .clone()
-        .find(|(address, ..)| address.signing_pubkey == sender.signing_pubkey)
-        .or_else(|| money.next_back())
-        .unwrap_or((*sender, Mint::SOL, sender_tag))
 }
 
 /// A dummy copies the length of a real slot with its ring binding, else of the first real slot.

@@ -7,7 +7,7 @@ use thiserror::Error;
 #[cfg(feature = "ring-projection")]
 use zolana_indexer_api::error_code::{
     RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
+    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED,
 };
 use zolana_indexer_api::ParseHashError;
 
@@ -45,8 +45,6 @@ pub enum RingProjectionError {
     MemberUnregistered,
     #[error("member is already registered in the key registry")]
     MemberAlreadyRegistered,
-    #[error("spend records are out of sync ({0})")]
-    SpendRecordOutOfSync(String),
 }
 
 #[cfg(feature = "ring-projection")]
@@ -59,7 +57,6 @@ impl RingProjectionError {
             Self::MemberAlreadyRegistered => {
                 const { wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED) }
             }
-            Self::SpendRecordOutOfSync(_) => const { wire_code(RING_SPEND_RECORD_OUT_OF_SYNC) },
         }
     }
 }

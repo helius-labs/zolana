@@ -55,7 +55,7 @@ impl Forward {
             )?,
             None => None,
         };
-        let rest = iter.remaining_mut()?;
+        let spp_accounts = iter.remaining_mut()?;
         let deposit = match self {
             Forward::Deposit | Forward::AuditedDeposit => Some(
                 RingDepositIxDataRef::from_bytes(data.get(1..).unwrap_or_default())
@@ -63,11 +63,6 @@ impl Forward {
             ),
             Forward::Merge => None,
         };
-        let leg_count = deposit.as_ref().map_or(0, |deposit| deposit.assets.len());
-        if rest.len() < leg_count {
-            return Err(ProgramError::NotEnoughAccountKeys);
-        }
-        let (windows, spp_accounts) = rest.split_at_mut(leg_count);
         validate_spp_program(spp_accounts)?;
 
         if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
@@ -105,9 +100,6 @@ impl Forward {
                 return Err(CustomRingError::UnauthorizedCoSigner.into());
             }
         }
-        legs.apply_windows(program_id, windows)?;
-
-        // A failed settlement rolls the window counters back.
         cpi_spp(program_id, spp_accounts, data, SppSigners::RingAuth)
     }
 }

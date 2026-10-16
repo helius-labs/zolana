@@ -11,7 +11,6 @@ use zolana_interface::{
 };
 use zolana_program::instruction::{TransactInterfaceTransferAccounts, TransactSolTransferAccounts};
 use zolana_ring_policy::ANSWER_SLOTS;
-use zolana_transaction::SOL_MINT;
 
 use super::support::ring;
 use crate::{
@@ -97,7 +96,6 @@ fn owner_transact(
         proof: CustomRingProof::zeroed(),
         transact: transact(Vec::new()),
         approval_required,
-        window_index: 0,
     }
 }
 
@@ -220,7 +218,6 @@ fn the_delegate_rail_reads_policy_then_escrow_then_revocations_in_their_trees() 
     let decoded = data(&instruction);
     assert_eq!(decoded.policy_trees, vec![context(1, 2), context(3, 4)]);
     assert_eq!(decoded.key_registry_root_index, 5);
-    assert_eq!(decoded.window_index, 0);
     assert_eq!(decoded.revocation_tree_indexes[0], 1);
     assert_eq!(decoded.revocation_targets[2], [0x23; 32]);
 }
@@ -252,8 +249,9 @@ fn an_audit_only_transfer_reads_no_policy_and_zeroes_the_statement_fields() {
     assert_eq!(decoded.revocation_targets, [[0; 32]; ANSWER_SLOTS]);
 }
 
+/// The revocation PDAs end the policy reads, the forwarded SPP list follows them.
 #[test]
-fn a_public_leg_writes_its_window_and_the_namespace_never_signs() {
+fn a_public_leg_follows_the_policy_reads() {
     let recipient = Address::new_from_array([7; 32]);
     let mut transfer = owner_transact(None, false, Some(reads(EscrowBinding::Off)));
     transfer.transact = transact(vec![InterfaceTransfer::SolWithdrawal { amount: 4 }]);
@@ -261,40 +259,19 @@ fn a_public_leg_writes_its_window_and_the_namespace_never_signs() {
         TransactSolTransferAccounts { recipient },
     )];
     let instruction = transfer.instruction().unwrap();
-    let window = ring().spend_window_pda(&SOL_MINT);
+    let last_revocation = pda::nullifier_pda(&pda::tree(0), &[0x23; 32]).0;
     let position = instruction
         .accounts
         .iter()
-        .position(|meta| meta.pubkey == window)
+        .position(|meta| meta.pubkey == last_revocation)
         .unwrap();
-    assert!(instruction.accounts[position].is_writable);
-    // The window leads the forwarded SPP list, after the policy reads.
-    let revocations = instruction.accounts[position - 2..position]
-        .iter()
-        .map(|meta| meta.pubkey)
-        .collect::<Vec<_>>();
     assert_eq!(
-        revocations,
-        vec![
-            pda::nullifier_pda(&pda::tree(9), &[0x21; 32]).0,
-            pda::nullifier_pda(&pda::tree(0), &[0x23; 32]).0,
-        ]
+        instruction.accounts[position - 1].pubkey,
+        pda::nullifier_pda(&pda::tree(9), &[0x21; 32]).0
     );
-    let namespace = ring().namespace_pda();
-    assert!(instruction
-        .accounts
-        .iter()
-        .filter(|meta| meta.pubkey == namespace)
-        .all(|meta| !meta.is_signer));
+    assert_eq!(instruction.accounts[position + 1].pubkey, payer());
     assert!(instruction
         .accounts
         .iter()
         .any(|meta| meta.pubkey == recipient));
-}
-
-#[test]
-fn a_windowed_statement_carries_the_window_it_proves() {
-    let mut transfer = owner_transact(None, false, Some(reads(EscrowBinding::Off)));
-    transfer.window_index = 7;
-    assert_eq!(data(&transfer.instruction().unwrap()).window_index, 7);
 }

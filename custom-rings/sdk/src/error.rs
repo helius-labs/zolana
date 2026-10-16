@@ -108,42 +108,26 @@ pub enum RingError {
     DelegatePublicLeg,
     #[error("the transfer needs approval but names no co-signer")]
     ApprovalWithoutCoSigner,
-    #[error("the spend window ends soon, build again at slot {resumes_at}")]
-    WindowClosing { resumes_at: u64 },
-    #[error("the sender has no spend record, register first")]
-    SpendRecordMissing,
-    #[error("the live record's counters are not recoverable from its transfer")]
-    SpendCountersUnknown,
-    #[error("the spend record is newer than the current window, refresh chain state")]
-    SpendRecordFromFutureWindow,
-    #[error("the window cap {cap} of {asset:?} would be exceeded at {spent}")]
-    VelocityCapExceeded {
+    #[error("the outflow {outflow} of {asset:?} exceeds the cap {cap}")]
+    OutflowCapExceeded {
         asset: [u8; 32],
         cap: u64,
-        spent: u64,
+        outflow: u64,
     },
-    #[error("a velocity sum overflows")]
-    VelocityOverflow,
+    #[error("an outflow sum overflows")]
+    OutflowOverflow,
     #[error("change of {asset:?} exceeds the mint's inputs")]
-    VelocityChangeExceedsInflow { asset: [u8; 32] },
-    #[error("the ring has no velocity window")]
-    VelocityDisabled,
-    #[error("a compressed policy statement needs a windowed policy")]
-    CompressedWithoutWindow,
+    ChangeExceedsInflow { asset: [u8; 32] },
     #[error("entry version overflows")]
     VersionOverflow,
     #[error("indexer returned no proof for the entry")]
     MissingProof,
-    #[error("the indexed spend record is not the requested member's record")]
-    InvalidSpendRecord,
     #[error("the spend of the {list_id:?} entry published no version {version}")]
     BrokenLineage {
         list_id: ListId,
         member: [u8; 32],
         version: u64,
     },
-    #[error("the spend of the record of {member:?} published no version {version}")]
-    BrokenSpendLineage { member: [u8; 32], version: u64 },
     #[error("a lineage walk passed its version or page bound")]
     LineageBound,
     #[error("a lineage revisits a spent version")]
@@ -205,7 +189,6 @@ impl RingError {
                 ClientError::IndexerProofDataNotReady
                     | ClientError::RingKeyRegistryOutOfSync
                     | ClientError::RingKeyRegistryRootChanged
-                    | ClientError::RingSpendRecordOutOfSync
             )
         )
     }

@@ -160,8 +160,8 @@ export const RING_INLINE_ASSET_SLOTS = 8;
 export const RING_ANSWER_SLOTS = 10;
 /** Rust `MAX_SOURCES`, the positional source map width. */
 export const RING_SOURCE_SLOTS = 8;
-/** Rust `MAX_VELOCITY_ASSETS`, one counter per mint a spend record carries. */
-export const RING_VELOCITY_SLOTS = 8;
+/** Rust `MAX_OUTFLOW_LIMITS`, one bound per mint a table limits. */
+export const RING_OUTFLOW_LIMIT_SLOTS = 8;
 export const RING_STATE_PATH_LENGTH = 32;
 export const RING_NULLIFIER_PATH_LENGTH = 40;
 
@@ -241,56 +241,30 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
-/** Sets outflow and approval bounds for one asset. */
-export interface CustomRingVelocityRow {
+/** Mirrors Rust `OutflowLimit`, a zero `cap` or `cosignAbove` leaves that bound off. */
+export interface CustomRingOutflowLimit {
   readonly asset: Bytes32;
   readonly cap: bigint;
   readonly cosignAbove: bigint;
 }
 
-/** Opens the previous counters and salts their successor commitment. */
-export interface CustomRingSpendRecordProofInput {
-  readonly version: bigint;
-  readonly window: bigint;
-  readonly commitment: Bytes32;
-  readonly salt: Bytes32;
-  readonly assets: readonly Bytes32[];
-  readonly spent: readonly bigint[];
-  readonly nextSalt: Bytes32;
-}
-
-/** Binds outflow accounting to a ring and its current window. */
-export interface CustomRingVelocityProofInput {
-  readonly windowSlots: bigint;
-  readonly rows: readonly CustomRingVelocityRow[];
+/** Mirrors Rust `OutflowLimitProofInput`, the pinned limits and the approval the transfer proves. */
+export interface CustomRingOutflowLimitProofInput {
+  readonly limits: readonly CustomRingOutflowLimit[];
   readonly ringId: Bytes32;
   readonly namespaceOwnerHash: Bytes32;
-  readonly windowIndex: bigint;
   readonly approvalRequired: boolean;
-  readonly record: CustomRingSpendRecordProofInput;
 }
 
-const zeroField = (): Bytes32 => new Uint8Array(32) as Bytes32;
-
-export function velocityProofInputOff(
+/** A ring without limits still binds its id and namespace. */
+export function outflowLimitsOff(
   identity: Readonly<{ ringId: Bytes32; namespaceOwnerHash: Bytes32 }>,
-): CustomRingVelocityProofInput {
+): CustomRingOutflowLimitProofInput {
   return Object.freeze({
-    windowSlots: 0n,
-    rows: Object.freeze([]),
+    limits: Object.freeze([]),
     ringId: identity.ringId,
     namespaceOwnerHash: identity.namespaceOwnerHash,
-    windowIndex: 0n,
     approvalRequired: false,
-    record: Object.freeze({
-      version: 0n,
-      window: 0n,
-      commitment: zeroField(),
-      salt: zeroField(),
-      assets: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, zeroField)),
-      spent: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => 0n)),
-      nextSalt: zeroField(),
-    }),
   });
 }
 
@@ -317,7 +291,7 @@ export interface CustomRingPolicyProofRequest {
   /** The populated prefix, one to `INPUT_TREES` policy trees. */
   readonly treeSlots: readonly TreeSlot[];
   readonly addressTreeId: number;
-  readonly velocity: CustomRingVelocityProofInput;
+  readonly limits: CustomRingOutflowLimitProofInput;
   /** Present exactly when the ring escrows nullifier keys, every output key opens under it. */
   readonly keyRegistryRoot?: Bytes32;
   readonly answers: readonly CustomRingRuleAnswer[];
@@ -349,11 +323,6 @@ export interface CustomRingDepositProofRequest {
   readonly auditorPublicKey: Uint8Array;
   /** Present exactly when the ring escrows nullifier keys. */
   readonly keyRegistryRoot?: Bytes32;
-}
-
-export interface CustomRingCompressedPolicyProofRequest {
-  readonly transactionSalt: Bytes16;
-  readonly policy: CustomRingPolicyProofRequest;
 }
 
 /** Mirrors Go `registryInsertion`, the append the key registration circuit proves. */

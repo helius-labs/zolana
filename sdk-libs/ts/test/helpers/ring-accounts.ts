@@ -77,14 +77,13 @@ export function ringPolicyConfigData(
   writer.bytes(new Uint8Array(32 * (8 - encoded.inlineCount)));
   for (const limit of encoded.inlineLimits) writer.bytes(bigIntBytes(limit, 8));
   writer.bytes(new Uint8Array(8 * (8 - encoded.inlineLimits.length)));
-  writer.bytes(bigIntBytes(encoded.windowSlots, 8));
-  writer.u8(encoded.velocityCount, "velocityCount");
-  for (const row of encoded.velocity) writer.bytes(row.asset);
-  writer.bytes(new Uint8Array(32 * (8 - encoded.velocityCount)));
-  for (const row of encoded.velocity) writer.bytes(bigIntBytes(row.cap, 8));
-  writer.bytes(new Uint8Array(8 * (8 - encoded.velocityCount)));
-  for (const row of encoded.velocity) writer.bytes(bigIntBytes(row.cosignAbove, 8));
-  writer.bytes(new Uint8Array(8 * (8 - encoded.velocityCount)));
+  writer.u8(encoded.limitCount, "limitCount");
+  for (const limit of encoded.limits) writer.bytes(limit.asset);
+  writer.bytes(new Uint8Array(32 * (8 - encoded.limitCount)));
+  for (const limit of encoded.limits) writer.bytes(bigIntBytes(limit.cap, 8));
+  writer.bytes(new Uint8Array(8 * (8 - encoded.limitCount)));
+  for (const limit of encoded.limits) writer.bytes(bigIntBytes(limit.cosignAbove, 8));
+  writer.bytes(new Uint8Array(8 * (8 - encoded.limitCount)));
   return writer
     .u32(input.generation ?? 1, "generation")
     .u64(0n, "generationSlot")

@@ -19,7 +19,6 @@ import type {
   RingsOutputContext,
   RingsOutputSlot,
   SignatureIndexedShieldedTransaction,
-  GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
@@ -133,23 +132,6 @@ export function decodeRingKeyRegistryEntry(value: unknown): RingKeyRegistryEntry
     ciphertext: checkedBase64(row["ciphertext"], "ciphertext"),
     proof: indexedPath(row["proof"], "proof"),
   };
-}
-
-export function decodeRingSpendRecordResponse(value: unknown): GetRingSpendRecordResponse {
-  const row = object(value, "$", ["context", "record"]);
-  const indexed = context(row["context"], "context");
-  if (row["record"] === null) return { context: indexed, record: null };
-  const record = object(row["record"], "record", ["transaction", "outputIndex"]);
-  const transaction = indexedTransaction(record["transaction"], "record.transaction");
-  const outputIndex = u16(record["outputIndex"], "record.outputIndex");
-  if (outputIndex >= transaction.outputSlots.length)
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_INTEGER",
-      "record.outputIndex",
-      "an existing output",
-      outputIndex,
-    );
-  return { context: indexed, record: { transaction, outputIndex } };
 }
 
 export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObject {

@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingAccount, RingProgramConfig, SpendWindow, KEY_REGISTRY_CAPACITY,
+    ReadAccessRecord, RingAccount, RingProgramConfig, KEY_REGISTRY_CAPACITY,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -124,11 +124,6 @@ impl CustomRing {
 
     pub fn key_registry_root_pda(self) -> Address {
         self.pda(&[KeyRegistryRoot::SEED]).0
-    }
-
-    /// SOL under the zero address.
-    pub fn spend_window_pda(self, mint: &Address) -> Address {
-        self.pda(&[SpendWindow::SEED, mint.as_array()]).0
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
@@ -277,25 +272,6 @@ impl CustomRing {
             .ok_or(RingError::InvalidAccount {
                 address: self.key_registry_root_pda(),
             })
-    }
-
-    /// `None` when the mint is uncapped.
-    pub async fn spend_window(
-        self,
-        rpc: &(impl AsyncRpc + ?Sized),
-        mint: &Address,
-    ) -> Result<Option<SpendWindow>, RingError> {
-        match self
-            .read::<SpendWindow>(rpc, &[SpendWindow::SEED, mint.as_array()], true)
-            .await?
-        {
-            Some(window) if window.window_slots() == 0 || window.mint != *mint => {
-                Err(RingError::InvalidAccount {
-                    address: self.spend_window_pda(mint),
-                })
-            }
-            window => Ok(window),
-        }
     }
 
     pub async fn policy_config(

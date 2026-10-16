@@ -34,20 +34,15 @@ export type {
   RingKeyRegistryReader,
   RingMemberProofRequest,
   RingMemberRequest,
-  RingSpendRecordLookup,
-  RingSpendRecordReader,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
   RingSubmissionTransport,
-  CustomRingCompressedPolicyProofRequest,
   CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
   CustomRingDepositProofRequest,
-  CustomRingVelocityProofInput,
-  CustomRingSpendRecordProofInput,
   WalletKeys,
 } from "@heliuslabs/zolana/client";
-export { velocityProofInputOff } from "@heliuslabs/zolana/client";
+export { outflowLimitsOff } from "@heliuslabs/zolana/client";
 export { LocalKeys, NullifierKeyProofAuthority } from "@heliuslabs/zolana/client";
 export type {
   DecryptRequest,
@@ -92,7 +87,6 @@ export {
   createRingWithdrawalSubmission,
   createRingExitSubmission,
   createKitRingSubmissionTransport,
-  readRingVelocityState,
   createRingKeyRegistryRootInstruction,
   fetchRingKeyRegistryRoot,
   ringKeyRegistryRootAddress,
@@ -110,7 +104,6 @@ export {
   buildRingDelegateRecoveredTransaction,
   createRingDelegateRecoveredSubmission,
   registerRingKeyInstruction,
-  spendRecordMessageTag,
   buildRingDepositTransaction,
   initializeRingConfigInstructions,
   setRingDepositAuditInstruction,
@@ -146,7 +139,6 @@ export type {
   RingRecoveryParams,
   RecoveredRingNotes,
   RingDelegateRecoveredParams,
-  VelocityFacts,
   KeyRegistryInsertProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {

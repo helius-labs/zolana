@@ -1,11 +1,9 @@
 //! The policy hash corpus `prover/server/custom_rings/circuits/policy/corpus_test.go` re-hashes.
 
-use std::num::NonZeroU64;
-
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use zolana_ring_policy::{
-    ListId, ListNamespace, ListSet, Member, Rule, RuleTable, SourceMap, Subject, VelocityRow,
+    ListId, ListNamespace, ListSet, Member, OutflowLimit, Rule, RuleTable, SourceMap, Subject,
     POLICY_VERSION,
 };
 
@@ -29,8 +27,7 @@ struct Case {
     rules: Vec<Row>,
     inline_assets: Vec<String>,
     inline_limits: Vec<u64>,
-    window_slots: u64,
-    velocity: Vec<VelocityCase>,
+    limits: Vec<LimitCase>,
     policy_hash: String,
 }
 
@@ -68,18 +65,18 @@ impl Row {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
-struct VelocityCase {
+struct LimitCase {
     asset: String,
     cap: u64,
     cosign_above: u64,
 }
 
-impl VelocityCase {
-    fn of(row: &VelocityRow) -> Self {
+impl LimitCase {
+    fn of(limit: &OutflowLimit) -> Self {
         Self {
-            asset: hex::encode(row.asset),
-            cap: row.cap,
-            cosign_above: row.cosign_above,
+            asset: hex::encode(limit.asset),
+            cap: limit.cap,
+            cosign_above: limit.cosign_above,
         }
     }
 }
@@ -123,7 +120,7 @@ impl Xorshift {
             .as_bytes()
     }
 
-    fn velocity(&mut self) -> Vec<VelocityRow> {
+    fn limits(&mut self) -> Vec<OutflowLimit> {
         let count = 1 + self.below(3) as usize;
         (0..count)
             .map(|_| {
@@ -133,7 +130,7 @@ impl Xorshift {
                     1 => (0, bound),
                     _ => (bound, 1 + self.below(bound)),
                 };
-                VelocityRow {
+                OutflowLimit {
                     asset: self.asset(),
                     cap,
                     cosign_above,
@@ -183,18 +180,15 @@ fn generate() -> Corpus {
                 );
             }
         }
-        let velocity = if rng.below(3) == 0 {
+        let outflow = if rng.below(3) == 0 {
             Vec::new()
         } else {
-            rng.velocity()
+            rng.limits()
         };
-        let mut builder = builder
+        let builder = builder
             .inline_assets(&assets)
             .inline_limits(&limits)
-            .velocity(&velocity);
-        if !velocity.is_empty() && rng.below(2) == 1 {
-            builder = builder.windowed(NonZeroU64::MIN.saturating_add(rng.below(1 << 20)));
-        }
+            .limits(&outflow);
         let Ok(table) = builder.try_build() else {
             continue;
         };
@@ -222,8 +216,7 @@ fn generate() -> Corpus {
             rules: table.rules().iter().map(Row::of).collect(),
             inline_assets: assets.iter().map(hex::encode).collect(),
             inline_limits: limits,
-            window_slots: table.window_slots(),
-            velocity: table.velocity().iter().map(VelocityCase::of).collect(),
+            limits: table.limits().iter().map(LimitCase::of).collect(),
             policy_hash: hex::encode(policy_hash),
         });
     }

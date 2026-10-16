@@ -57,12 +57,6 @@ pub fn process_instruction(
         }
         InstructionTag::SetCoSigner => process_set_cosigner_ix(program_id, accounts, ix_data),
         InstructionTag::ClearCoSigner => process_clear_cosigner_ix(program_id, accounts, ix_data),
-        InstructionTag::SetSpendWindow => {
-            process_set_spend_window_ix(program_id, accounts, ix_data)
-        }
-        InstructionTag::ClearSpendWindow => {
-            process_clear_spend_window_ix(program_id, accounts, ix_data)
-        }
         InstructionTag::SetDelegate => process_set_delegate_ix(program_id, accounts, ix_data),
         InstructionTag::SetDepositAudit => {
             process_set_deposit_audit_ix(program_id, accounts, ix_data)
@@ -70,7 +64,6 @@ pub fn process_instruction(
         InstructionTag::DelegateTransact => {
             process_delegate_transact_ix(program_id, accounts, ix_data)
         }
-        InstructionTag::RegisterSpend => process_register_spend_ix(program_id, accounts, ix_data),
         InstructionTag::CreateKeyRegistryRoot => {
             process_create_key_registry_root_ix(program_id, accounts, ix_data)
         }

@@ -145,15 +145,9 @@ pub enum Command {
     /// Require an auditor disclosure proof for new direct deposits.
     #[command(subcommand)]
     DepositAudit(DepositAuditCommand),
-    /// Set, clear or show a mint's spend window.
-    #[command(subcommand)]
-    Window(WindowCommand),
     /// Set or show the permanent delegate, or move a note as the delegate.
     #[command(subcommand)]
     Delegate(DelegateCommand),
-    /// Register or show the sender's spend record on a velocity ring.
-    #[command(subcommand)]
-    Spend(SpendCommand),
     /// Enroll the member's nullifier key in the ring key registry.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -271,44 +265,9 @@ pub struct CosignerArg {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum SpendCommand {
-    /// Claim the sender's record with zero counters, once per member.
-    Register,
-    Show,
-}
-
-#[derive(Debug, Subcommand)]
 pub enum KeyCommand {
     /// Seal the member's nullifier key to the ring auditor and register it, `transfer` does it on first use.
     Register,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum WindowCommand {
-    /// Create or replace the window, the counters restart.
-    Set {
-        /// A mint address, `sol` for the native token.
-        #[arg(long)]
-        mint: Mint,
-        /// Window length, windows start at multiples of it.
-        #[arg(long)]
-        slots: u64,
-        /// Public deposits per window, zero leaves them uncapped. Set at least one cap.
-        #[arg(long, default_value_t = 0)]
-        deposit_cap: u64,
-        /// Public withdrawals per window, zero leaves them uncapped. Set at least one cap.
-        #[arg(long, default_value_t = 0)]
-        withdrawal_cap: u64,
-    },
-    /// Close the window account, the rent returns to the authority.
-    Clear {
-        #[arg(long)]
-        mint: Mint,
-    },
-    Show {
-        #[arg(long)]
-        mint: Mint,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -607,7 +566,7 @@ impl Context {
             })
     }
 
-    /// Resent until the cluster settles it, a stale root or a crossed window is proved again.
+    /// Resent until the cluster settles it, a stale root is proved again.
     pub fn submit<'a>(
         &self,
         operation: impl Into<RingOperation<'a>>,
@@ -787,9 +746,7 @@ fn dispatch(ctx: &mut Context, command: Command) -> Result<()> {
         Command::Reader(command) => controls::reader(ctx, command),
         Command::Cosigner(command) => controls::cosigner(ctx, command),
         Command::DepositAudit(command) => controls::deposit_audit(ctx, command),
-        Command::Window(command) => controls::window(ctx, command),
         Command::Delegate(command) => controls::delegate(ctx, command),
-        Command::Spend(command) => member::spend(ctx, command),
         Command::Key(command) => member::key(ctx, command),
         Command::List(command) => list::run(ctx, command),
         Command::Policy(command) => policy::run(ctx, command),

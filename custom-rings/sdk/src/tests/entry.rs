@@ -105,16 +105,7 @@ fn a_tampered_payload_is_not_decoded() {
     let live = lineage.versions[0];
     let address = lineage.address();
     let genuine = slot(&live);
-    let spender = transaction(address, Vec::new());
-    let decode = |slot: &OutputSlot| {
-        lineage.lookup.decode(
-            &address,
-            SpentSlot {
-                transaction: &spender,
-                slot,
-            },
-        )
-    };
+    let decode = |slot: &OutputSlot| lineage.lookup.decode(&address, SpentSlot { slot });
     assert_eq!(decode(&genuine), Some(live));
     let mut tampered = genuine.clone();
     // Flipping the state byte breaks the commitment.

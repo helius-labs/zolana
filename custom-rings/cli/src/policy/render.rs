@@ -16,7 +16,7 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
     let tree = spec.address_tree().to_string();
-    let comment = "entry and spend record addresses are claimed in the named tree";
+    let comment = "entry addresses are claimed in the named tree";
     commented(&mut policy, "address_tree", tree, comment);
     let mut sources = Table::new();
     sources.set_implicit(true);
@@ -33,30 +33,26 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     if !sources.is_empty() {
         policy.insert("sources", Item::Table(sources));
     }
-    if let Some(velocity) = &spec.velocity {
-        let mut table = Table::new();
-        table.decor_mut().set_prefix(
-            "\n# A sender's outflow per mint, capped alone or over a window of slots.\n",
-        );
+    if !spec.limits.is_empty() {
         let too_large =
-            |row, field| move |amount| PolicyError::VelocityTooLarge { row, field, amount };
-        if velocity.window_slots != 0 {
-            let slots = toml_int(velocity.window_slots, too_large(0, "window_slots"))?;
-            table.insert("window_slots", value(slots));
-        }
-        let rows = velocity.rows.iter().enumerate().map(|(index, row)| {
-            let cap = toml_int(row.cap, too_large(index, "cap"))?;
-            let cosign = toml_int(row.cosign_above, too_large(index, "cosign_above"))?;
-            let asset = row.asset.to_string();
+            |row, field| move |amount| PolicyError::LimitTooLarge { row, field, amount };
+        let limits = spec.limits.iter().enumerate().map(|(index, limit)| {
+            let cap = toml_int(limit.cap, too_large(index, "cap"))?;
+            let cosign = toml_int(limit.cosign_above, too_large(index, "cosign_above"))?;
+            let asset = limit.asset.to_string();
             Ok(inline([
                 ("asset", asset.into()),
                 ("cap", cap.into()),
                 ("cosign_above", cosign.into()),
             ]))
         });
-        let rows: Array = rows.collect::<Result<_, PolicyError>>()?;
-        table.insert("rows", value(rows));
-        policy.insert("velocity", Item::Table(table));
+        let limits: Array = limits.collect::<Result<_, PolicyError>>()?;
+        policy.insert("limits", value(limits));
+        if let Some(mut key) = policy.key_mut("limits") {
+            key.leaf_decor_mut().set_prefix(
+                "# a sender's outflow per mint and transfer, a zero cap or cosign_above is off\n",
+            );
+        }
     }
     let mut rules = ArrayOfTables::new();
     let (mut assets, mut limits) = (Vec::new(), Vec::new());
@@ -175,7 +171,7 @@ above = 1000000
         .expect("parses");
         let text = document(&spec);
         for expected in [
-            "# entry and spend record addresses are claimed in the named tree\naddress_tree = ",
+            "# entry addresses are claimed in the named tree\naddress_tree = ",
             "[policy.sources.devnet]\n# the block list reads the entries of the named curator ring\nblock = ",
             "# each output owner must be on the approval list or must not be on the block list\n[[policy.rules]]\nsubject = \"output-owner\"\nany = [{ forbid = \"block\" }, { require = \"approval\" }]\n",
             "# each asset must be one of the listed assets\n[[policy.rules]]\nsubject = \"asset\"\nassets = [",
@@ -209,7 +205,7 @@ above = 1000000
         let text = document(&PolicySpec::default());
         assert!(
             text.contains(
-                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = "
+                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# entry addresses are claimed in the named tree\naddress_tree = "
             ),
             "{text}"
         );

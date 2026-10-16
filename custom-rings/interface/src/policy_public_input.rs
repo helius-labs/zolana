@@ -7,14 +7,13 @@ use crate::base_public_input::CustomRingBasePublicInput;
 use zolana_ring_policy::ANSWER_SLOTS;
 
 const AUDIT_LEN: usize = 11;
-const POLICY_PREFIX_LEN: usize = 21;
+const POLICY_PREFIX_LEN: usize = 20;
 const POLICY_LEN: usize = POLICY_PREFIX_LEN + ANSWER_SLOTS;
-const COMPRESSED_POLICY_LEN: usize = POLICY_LEN + 1;
 const REVOCATION_TREE_INDEX_BITS: usize = 3;
 const _: () = assert!(ANSWER_SLOTS * REVOCATION_TREE_INDEX_BITS <= u64::BITS as usize);
 
 /// Binds audited transaction openings to the pinned rules, list roots and
-/// amount controls.
+/// outflow limits.
 pub struct CustomRingPolicyPublicInput<'a> {
     pub audit: CustomRingBasePublicInput<'a>,
     pub policy_hash: &'a [u8; 32],
@@ -24,10 +23,9 @@ pub struct CustomRingPolicyPublicInput<'a> {
     pub address_tree_id: u16,
     /// `hash_bytes` of the ring program id, the ring a change output stays in.
     pub ring_id: &'a [u8; 32],
-    /// The owner of every spend record, no other slot may open to it.
+    /// The owner of every entry, no transfer slot may open to it.
     pub namespace_owner_hash: &'a [u8; 32],
-    /// Fixed-window index, zero for per-transfer limits and delegate moves.
-    pub window_index: u64,
+    /// Set when an outflow exceeds a limit's cosign threshold, false on the delegate rail.
     pub approval_required: bool,
     /// Present exactly when output nullifier keys must be enrolled under it.
     pub key_registry_root: Option<&'a [u8; 32]>,
@@ -49,7 +47,6 @@ impl CustomRingPolicyPublicInput<'_> {
             tree_id_field(self.address_tree_id),
             *self.ring_id,
             *self.namespace_owner_hash,
-            right_align(&self.window_index.to_be_bytes()),
             right_align(&[u8::from(self.approval_required)]),
             key_escrow,
             key_registry_root,
@@ -93,22 +90,6 @@ fn pack_revocation_tree_indexes(indexes: &[u8; ANSWER_SLOTS]) -> Result<[u8; 32]
             Ok(packed | u64::from(index) << (slot * REVOCATION_TREE_INDEX_BITS))
         })?;
     Ok(right_align(&packed.to_be_bytes()))
-}
-
-pub struct CompressedPolicyPublicInput<'a> {
-    pub counters_disclosure_hash: &'a [u8; 32],
-    pub policy: CustomRingPolicyPublicInput<'a>,
-}
-
-impl CompressedPolicyPublicInput<'_> {
-    /// Field order must match the compressed policy circuit.
-    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let policy = self.policy.elements()?;
-        let mut chain = [[0u8; 32]; COMPRESSED_POLICY_LEN];
-        chain[..POLICY_LEN].copy_from_slice(&policy);
-        chain[POLICY_LEN] = *self.counters_disclosure_hash;
-        create_hash_chain_from_slice(&chain)
-    }
 }
 
 #[cfg(test)]

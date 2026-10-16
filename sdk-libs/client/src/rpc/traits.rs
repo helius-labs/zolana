@@ -19,10 +19,9 @@ use super::{
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
-        RingSpendRecordRequest, ShieldedTransactionStream,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
+        RingHistoryOptions, RingMemberProofRequest, ShieldedTransactionStream,
     },
 };
 
@@ -218,13 +217,6 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
-    }
-
-    fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
     }
 
     fn get_ring_key_registry_entry(
@@ -456,13 +448,6 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
-    }
-
-    async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
     }
 
     async fn get_ring_key_registry_entry(

@@ -35,7 +35,7 @@ use super::support::{
 use crate::{
     CreateEntry, CustomRingMerge, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
     DelegateTransfer, DelegateTransferInput, DepositAsset, MergeProofInput, PoolTree, RegisterKey,
-    RegisterSpend, RingDeposit, RingError, RingOperation, RingSubmission, UpdateEntry,
+    RingDeposit, RingError, RingOperation, RingSubmission, UpdateEntry,
 };
 
 /// A blocking caller and each Tokio frame under it hold the future by value.
@@ -247,11 +247,6 @@ fn every_operation_future_stays_small() {
         member: &keys,
     };
     assert_small("RegisterKey::prove", register.prove(&client));
-    let register = RegisterSpend {
-        ring: ring(),
-        payer,
-    };
-    assert_small("RegisterSpend::prove", register.prove(&client));
     let create = CreateEntry {
         ring: ring(),
         payer,

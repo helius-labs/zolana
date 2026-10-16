@@ -1,11 +1,9 @@
 //! Instructions of the ring authority and the upgrade authority.
 
-use core::num::NonZeroU64;
-
 use custom_ring_interface::{
-    compute_unit_limit, tag, CoSignScope, CreateConfigIxData, CustomRingError, InstructionTag,
-    PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetDepositAuditIxData, SetPausedIxData,
-    SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, WithdrawalThreshold,
+    compute_unit_limit, tag, CoSignScope, CreateConfigIxData, InstructionTag, PolicyTableIxData,
+    ReaderIxData, SetCoSignerIxData, SetDepositAuditIxData, SetPausedIxData, SetPolicySourceIxData,
+    SourceSpec, WithdrawalThreshold,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -26,46 +24,6 @@ const SYSTEM: Address = Address::new_from_array([0; 32]);
 pub enum SourceOwner {
     Own,
     Shared(CustomRing),
-}
-
-#[must_use]
-pub struct SetSpendWindow {
-    pub ring: CustomRing,
-    pub payer: Address,
-    pub authority: Address,
-    /// SOL under the zero address.
-    pub mint: Address,
-    /// Nonzero, windows start at multiples of it.
-    pub window_slots: u64,
-    /// Zero leaves the direction uncapped, at least one cap is nonzero.
-    pub deposit_cap: u64,
-    pub withdrawal_cap: u64,
-}
-
-impl SetSpendWindow {
-    pub fn instruction(self) -> Result<Instruction, RingError> {
-        let pda = self.ring.spend_window_pda(&self.mint);
-        let (deposit_cap, withdrawal_cap) = (
-            NonZeroU64::new(self.deposit_cap),
-            NonZeroU64::new(self.withdrawal_cap),
-        );
-        if deposit_cap.is_none() && withdrawal_cap.is_none() {
-            return Err(CustomRingError::UncappedSpendWindow.into());
-        }
-        let data = tagged(
-            tag::SET_SPEND_WINDOW,
-            &SetSpendWindowIxData {
-                mint: self.mint.to_bytes(),
-                window_slots: self.window_slots,
-                deposit_cap,
-                withdrawal_cap,
-            },
-        )?;
-        Ok(self.ring.ix(
-            self.ring.upsert_metas(self.payer, self.authority, pda),
-            data,
-        ))
-    }
 }
 
 impl CustomRing {
@@ -210,18 +168,6 @@ impl CustomRing {
     pub fn clear_cosigner(self, authority: Address, rent_recipient: Address) -> Instruction {
         let metas = self.close_metas(authority, self.cosigner_pda(), rent_recipient);
         self.ix(metas, vec![tag::CLEAR_CO_SIGNER])
-    }
-
-    pub fn clear_spend_window(
-        self,
-        authority: Address,
-        mint: Address,
-        rent_recipient: Address,
-    ) -> Instruction {
-        let metas = self.close_metas(authority, self.spend_window_pda(&mint), rent_recipient);
-        let mut data = vec![tag::CLEAR_SPEND_WINDOW];
-        data.extend_from_slice(mint.as_array());
-        self.ix(metas, data)
     }
 
     pub fn set_deposit_audit(
@@ -374,8 +320,7 @@ impl CustomRing {
                 rules: rules.rules().iter().map(Rule::encoded).collect(),
                 inline_assets: rules.inline_assets().to_vec(),
                 inline_limits: rules.inline_limits().to_vec(),
-                window_slots: rules.window_slots(),
-                velocity: rules.velocity().to_vec(),
+                limits: rules.limits().to_vec(),
             },
         )?;
         let ix = self.ix(accounts, data);

@@ -51,12 +51,6 @@ import {
   entrySeed,
   solAssetField,
   type ListEntry,
-  type SpendRecord,
-  type Member,
-  spendSeed,
-  zeroSpendCounters,
-  spendCountersCommitment,
-  encodeSpendRecord,
 } from "./policy.js";
 
 export type RingEntryProofClient = Pick<ChainReader, "getAccount"> &
@@ -350,84 +344,6 @@ function dataTransitionInputs(
     publicInputHash: asField(publicInputHash),
   });
   return Object.freeze({ inputs, privateTxBlinding: txBlinding });
-}
-
-/** Creates a member's first compressed record with empty counters. */
-export interface RingSpendRegistrationInput {
-  readonly client: RingEntryProofClient;
-  readonly ringProgramId: Address;
-  /** The registration claims the record address from this tree. */
-  readonly addressTree: LeafTree;
-  readonly outputTree: LeafTree;
-  readonly payer: Address;
-  readonly member: Member;
-  readonly windowIndex: bigint;
-}
-
-export async function proveRingSpendRegistration(
-  input: RingSpendRegistrationInput,
-  context?: RequestContext,
-): Promise<Readonly<{ record: SpendRecord; proof: RingEntryProof }>> {
-  const namespaceAddress = await ringPolicyNamespaceAddress(input.ringProgramId);
-  const trees: RingMutationTrees = {
-    address: input.addressTree.treeId,
-    input: input.addressTree.treeId,
-    output: input.outputTree.treeId,
-  };
-  const namespace = RingListNamespace.of(namespaceAddress, trees.address);
-  const seed = spendSeed(input.member);
-  const address = namespace.spendAddress(input.member);
-  const slot: InputSlot = {
-    circuit: circuitUtxo({
-      domain: ADDRESS_DOMAIN,
-      owner: namespace.ownerHash,
-      asset: 0n,
-      blinding: bytesToBigInt(seed),
-      dataHash: 0n,
-    }),
-    inputHash: ZERO_32,
-    addressNullifier: address,
-    nullifier: address,
-  };
-  const reads = { client: input.client, tree: input.addressTree };
-  const [absence, state] = await Promise.all([
-    nonInclusionProof(reads, address, context),
-    headState(reads, context),
-  ]);
-  const seedBytes = blindingSeed();
-  try {
-    const record: SpendRecord = Object.freeze({
-      member: input.member,
-      version: 0n,
-      window: input.windowIndex,
-      countersCommitment: spendCountersCommitment(zeroSpendCounters()),
-      blinding: transactOutputBlinding(address, outputBlindingSeed(address, seedBytes), 0),
-    });
-    const hashes = namespace.spendRecordHashes(record, trees.output);
-    const transition = dataTransitionInputs({
-      slot,
-      namespace,
-      payer: input.payer,
-      trees,
-      state,
-      absence,
-      blindingSeed: seedBytes,
-      output: { blinding: record.blinding, hashes, encoded: encodeSpendRecord(record) },
-    });
-    const proof = await input.client.proveTransferInputs(transition.inputs, context);
-    return Object.freeze({
-      record,
-      proof: Object.freeze({
-        proof,
-        utxoTreeRootIndex: state.rootIndex,
-        nullifierTreeRootIndex: absence.rootIndex,
-        nullifier: address,
-        privateTxBlinding: transition.privateTxBlinding,
-      }),
-    });
-  } finally {
-    seedBytes.fill(0);
-  }
 }
 
 /** A random field element, the top byte stays zero. */

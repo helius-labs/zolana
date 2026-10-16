@@ -23,13 +23,6 @@ import {
 } from "../src/keypair/audit.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
-import {
-  encodeSpendRecord,
-  encodeSpendCounters,
-  spendCountersCommitment,
-  memberOfIdentity,
-  spendRecordMessageTag,
-} from "../src/ring/policy.js";
 import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
 import { commitmentPoseidon, rightAlign, ZERO_32 } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
@@ -137,7 +130,6 @@ describe("ring audit encryption", () => {
         treeIdField(9),
         filled(8),
         filled(10),
-        field(3n),
         field(1n),
         field(1n),
         filled(0x0b),
@@ -145,7 +137,7 @@ describe("ring audit encryption", () => {
         ...revocationTargets,
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c",
+      "2a466546ba7c07253eb4871cde6fd696cdb886269320b19ee6b076c6a6f12139",
     );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
@@ -168,7 +160,6 @@ describe("ring audit encryption", () => {
       addressTreeId: 9,
       ringId: filled(8),
       namespaceOwnerHash: filled(10),
-      windowIndex: 3n,
       approvalRequired: true,
       keyRegistryRoot: filled(0x0b),
       revocationTargets,
@@ -192,33 +183,17 @@ describe("ring audit encryption", () => {
 
 await initializePoseidon();
 
-describe("ring audit spend records", () => {
+describe("ring audit outputs", () => {
   const auditor = X25519Secret.generate();
   const tx = ViewingKey.generate();
   const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
-  const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
-  const counters = {
-    salt: new Uint8Array(32) as Bytes32,
-    assets: Array.from({ length: 8 }, () => new Uint8Array(32) as Bytes32),
-    spent: Array<bigint>(8).fill(0n),
-  };
-  const record = {
-    member,
-    version: 3n,
-    window: 4n,
-    countersCommitment: spendCountersCommitment(counters),
-    blinding: new Uint8Array(32).fill(6) as Bytes32,
-  };
+  const blinding = new Uint8Array(32).fill(6) as Bytes32;
 
   function transaction(
-    input: Readonly<{
-      amount: bigint;
-      committedAmount?: bigint;
-      recordMessage: Uint8Array | undefined;
-    }>,
+    input: Readonly<{ amount: bigint; committedAmount?: bigint }>,
   ): IndexedShieldedTransaction {
     const salt = new Uint8Array(16) as Bytes16;
-    const opening = auditOpening(input.committedAmount ?? input.amount, record.blinding);
+    const opening = auditOpening(input.committedAmount ?? input.amount, blinding);
     const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
       salt,
       outputs: [opening],
@@ -242,12 +217,7 @@ describe("ring audit spend records", () => {
             encryptConfidential(
               tx,
               tx.publicKey(),
-              {
-                assetId: SOL_ASSET_ID,
-                amount: input.amount,
-                blinding: record.blinding,
-                data: new Data(),
-              },
+              { assetId: SOL_ASSET_ID, amount: input.amount, blinding, data: new Data() },
               salt,
               0,
             ),
@@ -255,19 +225,7 @@ describe("ring audit spend records", () => {
           ),
         },
       ],
-      messages: [
-        ...(input.recordMessage === undefined
-          ? []
-          : [{ viewTag: spendRecordMessageTag(viewTag), data: input.recordMessage }]),
-        {
-          viewTag,
-          data: new Uint8Array([
-            ...tx.publicKey().toBytes(),
-            ...tx.encryptSlot(tx.publicKey(), encodeSpendCounters(counters), salt, 0xffff_ffff),
-          ]),
-        },
-        message,
-      ],
+      messages: [message],
       nullifiers: [],
       proofless: false,
     };
@@ -276,62 +234,16 @@ describe("ring audit spend records", () => {
   const audit = (transaction: IndexedShieldedTransaction) =>
     auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
 
-  it("reports a record whose first member byte is not a scheme byte", () => {
-    const audited = audit(transaction({ amount: 0n, recordMessage: encodeSpendRecord(record) }));
-    expect(audited.spendRecords).toHaveLength(1);
-    expect(audited.spendRecords[0]?.record.member).toEqual(member);
+  it("opens the slot the transaction key seals", () => {
+    const audited = audit(transaction({ amount: 5n }));
+    expect(audited.outputs.map((output) => output.amount)).toEqual([5n]);
     expect(audited.undecryptableSlots).toHaveLength(0);
-    expect(audited.invalidSpendRecordSlots).toHaveLength(0);
-  });
-
-  it("rejects missing, duplicate, truncated, foreign recipient and corrupted counters", () => {
-    const valid = transaction({ amount: 0n, recordMessage: encodeSpendRecord(record) });
-    const countersMessage = valid.messages[1];
-    if (countersMessage === undefined) throw new Error("missing counter fixture");
-    for (const messages of [
-      valid.messages.filter((_, index) => index !== 1),
-      [countersMessage, ...valid.messages],
-      valid.messages.map((message, index) =>
-        index === 1 ? { ...message, data: message.data.slice(1) } : message,
-      ),
-      valid.messages.map((message, index) =>
-        index === 1
-          ? {
-              ...message,
-              data: new Uint8Array([
-                ...auditor.publicKey().toBytes(),
-                ...message.data.subarray(33),
-              ]),
-            }
-          : message,
-      ),
-      valid.messages.map((message, index) => {
-        if (index !== 1) return message;
-        const data = message.data.slice();
-        data[data.length - 1] = (data[data.length - 1] ?? 0) ^ 1;
-        return { ...message, data };
-      }),
-    ])
-      expect(() => audit({ ...valid, messages })).toThrow("RING_SPEND_COUNTERS_UNKNOWN");
-  });
-
-  it("reports a crafted record message and still counts the slot's money", () => {
-    const malformed = audit(transaction({ amount: 5n, recordMessage: new Uint8Array(3) }));
-    expect(malformed.invalidSpendRecordSlots).toEqual([0]);
-    expect(malformed.spendRecords).toHaveLength(0);
-    expect(malformed.outputs.map((output) => output.amount)).toEqual([5n]);
-    const wrongCarrier = audit(
-      transaction({ amount: 5n, recordMessage: encodeSpendRecord(record) }),
-    );
-    expect(wrongCarrier.invalidSpendRecordSlots).toEqual([0]);
-    expect(wrongCarrier.spendRecords).toHaveLength(0);
-    expect(wrongCarrier.outputs.map((output) => output.amount)).toEqual([5n]);
   });
 
   it("rejects recipient plaintext that disagrees with the proof-bound output", () => {
-    expect(() =>
-      audit(transaction({ amount: 5n, committedAmount: 0n, recordMessage: undefined })),
-    ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+    expect(() => audit(transaction({ amount: 5n, committedAmount: 0n }))).toThrow(
+      "RING_AUDIT_OUTPUT_MISMATCH",
+    );
   });
 });
 

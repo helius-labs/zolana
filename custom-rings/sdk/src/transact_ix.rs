@@ -9,7 +9,6 @@ use zolana_program::instruction::{
     RingAuthorityTransact, RingTransact, TransactInterfaceTransferAccounts,
 };
 use zolana_ring_policy::ANSWER_SLOTS;
-use zolana_transaction::SOL_MINT;
 
 use crate::{CurrentKeyRegistryRoot, CustomRing, RingError};
 
@@ -105,18 +104,8 @@ pub(crate) fn ring_prefix(ring: CustomRing, cosigner: Option<Address>) -> [Accou
     ]
 }
 
-/// One writable window slot per public leg, in leg order.
-pub(crate) fn window_metas(
-    ring: CustomRing,
-    mints: impl IntoIterator<Item = Address>,
-) -> impl Iterator<Item = AccountMeta> {
-    mints
-        .into_iter()
-        .map(move |mint| AccountMeta::new(ring.spend_window_pda(&mint), false))
-}
-
-/// `[config, cosigner_pda, cosigner]`, the policy reads, one window per public
-/// leg, then SPP's `RING_TRANSACT` list. The program signs `ring_config`.
+/// `[config, cosigner_pda, cosigner]`, the policy reads, then SPP's
+/// `RING_TRANSACT` list. The program signs `ring_config`.
 #[must_use]
 pub struct CustomRingTransact {
     pub ring: CustomRing,
@@ -135,10 +124,8 @@ pub struct CustomRingTransact {
     pub proof: CustomRingProof,
     /// Its `messages` carry the auditor message the proof commits to.
     pub transact: TransactIxData,
-    /// The dual control bit the velocity statement proves, the co-signer then signs.
+    /// The dual control bit the outflow limits prove, the co-signer then signs.
     pub approval_required: bool,
-    /// The window a windowed statement proves, zero otherwise.
-    pub window_index: u64,
 }
 
 /// The delegate rail runs on policy rings with key escrow on only.
@@ -158,11 +145,6 @@ pub struct CustomRingDelegateTransact {
 
 impl CustomRingTransact {
     pub fn instruction(self) -> Result<Instruction, RingError> {
-        let windows = window_metas(
-            self.ring,
-            self.interface_transfer_accounts.iter().map(settled_mint),
-        )
-        .collect::<Vec<_>>();
         let spp = RingTransact {
             payer: self.payer,
             input_trees: self.input_trees,
@@ -172,22 +154,19 @@ impl CustomRingTransact {
             interface_transfer_accounts: self.interface_transfer_accounts,
             data: self.transact,
         };
-        let namespace = self.ring.namespace_pda();
-        let mut accounts = spp.instruction().accounts;
-        // The program raises the namespace PDA as a signer inside its CPI.
-        for meta in accounts.iter_mut().filter(|meta| meta.pubkey == namespace) {
-            meta.is_signer = false;
-        }
-        accounts.splice(0..0, windows);
         RingStatement {
             ring: self.ring,
             cosigner: self.cosigner,
             policy: self.policy.as_ref(),
             approval_required: self.approval_required,
-            window_index: self.window_index,
             proof: self.proof,
         }
-        .instruction(tag::TRANSACT, Vec::new(), accounts, spp.data)
+        .instruction(
+            tag::TRANSACT,
+            Vec::new(),
+            spp.instruction().accounts,
+            spp.data,
+        )
     }
 }
 
@@ -213,7 +192,6 @@ impl CustomRingDelegateTransact {
             cosigner: self.cosigner,
             policy: Some(&self.policy),
             approval_required: self.approval_required,
-            window_index: 0,
             proof: self.proof,
         }
         .instruction(
@@ -230,7 +208,6 @@ struct RingStatement<'a> {
     cosigner: Option<Address>,
     policy: Option<&'a PolicyReads>,
     approval_required: bool,
-    window_index: u64,
     proof: CustomRingProof,
 }
 
@@ -259,7 +236,6 @@ impl RingStatement<'_> {
             policy_trees: policy
                 .map(|policy| policy.trees.iter().map(|tree| tree.context).collect())
                 .unwrap_or_default(),
-            window_index: self.window_index,
             key_registry_root_index: policy.map_or(0, |policy| policy.escrow.root_index()),
             approval_required: self.approval_required,
             revocation_targets: policy
@@ -273,13 +249,5 @@ impl RingStatement<'_> {
             accounts,
             data,
         })
-    }
-}
-
-fn settled_mint(accounts: &TransactInterfaceTransferAccounts) -> Address {
-    match accounts {
-        TransactInterfaceTransferAccounts::Sol(_) => SOL_MINT,
-        TransactInterfaceTransferAccounts::SplDeposit(spl) => spl.mint,
-        TransactInterfaceTransferAccounts::SplWithdrawal(spl) => spl.mint,
     }
 }

@@ -8,7 +8,6 @@ import {
   encodeRingsByTagsRequest,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
-  decodeRingSpendRecordResponse,
   decodeUserRecordsResponse,
   encodeRingMemberProofRequest,
   encodeUserRecordsRequest,
@@ -24,66 +23,7 @@ import type { Bytes32 } from "../src/interface/types.js";
 const TAG = hash("11111111111111111111111111111111");
 const RING = address("8hcir6LNDXjqKSof1KV41SBZxGaEQFB3WTtcoYn3Atpg");
 
-describe("ring spend record wire", () => {
-  const output = {
-    viewTag: TAG,
-    outputContext: { hash: TAG, tree: treeAddress(7), treeId: 7, leafIndex: 3 },
-    payload: "",
-  };
-  const transaction = {
-    slot: 1,
-    txSignature: "1".repeat(64),
-    outputSlots: [output],
-    messages: [],
-    nullifiers: [],
-    proofless: false,
-  };
-  const found = {
-    context: { slot: 1, blockTime: 2 },
-    record: { transaction, outputIndex: 0 },
-  };
-
-  it("accepts an unregistered member and requires the record output to exist", () => {
-    expect(decodeRingSpendRecordResponse({ ...found, record: null })).toEqual({
-      context: { slot: 1n, blockTime: 2n },
-      record: null,
-    });
-    expect(decodeRingSpendRecordResponse(found).record?.outputIndex).toBe(0);
-    for (const changed of [
-      { record: { transaction, outputIndex: 1 } },
-      { record: { transaction } },
-      { record: undefined },
-      { extra: true },
-    ])
-      expect(() => decodeRingSpendRecordResponse({ ...found, ...changed })).toThrow();
-  });
-
-  it("sends only the ring and member and converts the record transaction", async () => {
-    const zero = new Uint8Array(32) as Bytes32;
-    const requests: unknown[] = [];
-    const indexerFor = (result: unknown) =>
-      new ZolanaIndexer(
-        new ZolanaApi({
-          url: "https://indexer.example",
-          fetch: async (_url, init) => {
-            requests.push(JSON.parse(String(init?.body)).params);
-            return Response.json({ jsonrpc: "2.0", id: "test-account", result });
-          },
-        }),
-      );
-    const request = { ringProgramId: RING, member: zero };
-    await expect(
-      indexerFor({ ...found, record: null }).getRingSpendRecord(request),
-    ).resolves.toMatchObject({ record: null });
-    const lookup = await indexerFor(found).getRingSpendRecord(request);
-    expect(lookup.record?.outputIndex).toBe(0);
-    expect(lookup.record?.transaction.outputSlots[0]?.outputContext.tree).toBe(treeAddress(7));
-    expect(requests).toEqual([
-      { ringProgramId: RING, member: TAG },
-      { ringProgramId: RING, member: TAG },
-    ]);
-  });
-
+describe("ring key registry wire", () => {
   it("bounds the key registry cursor at forty bits", () => {
     expect(
       encodeRingMemberProofRequest({
@@ -160,7 +100,6 @@ describe("key registry wire", () => {
       [-32071, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
       [-32072, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
       [-32073, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
-      [-32074, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
     ] as const) {
       const indexer = indexerFor({ error: { code: rpcCode, message: "private diagnostics" } });
       await expect(indexer.getRingKeyRegistryEntry(request)).rejects.toMatchObject({ code });

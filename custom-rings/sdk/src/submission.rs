@@ -17,12 +17,11 @@ use zolana_client::{
 
 use crate::{
     heap::boxed, CustomRing, CustomRingTransfer, DelegateTransfer, EscrowBinding, MergeProofInput,
-    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RegisterSpend, RingError,
+    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RingError,
 };
 
 const MAX_ATTEMPTS: u8 = 3;
 const PENDING_POLL: Duration = Duration::from_millis(500);
-const SLOT_POLL: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubmissionStatus {
@@ -55,7 +54,6 @@ pub enum SettledSubmission {
 pub enum RingOperation<'a> {
     Transfer(Box<CustomRingTransfer<'a>>),
     Delegate(Box<DelegateTransfer<'a>>),
-    RegisterSpend(RegisterSpend),
     RegisterKey(RegisterKey<'a>),
     Merge(Box<RingMergeOperation>),
     Deposit(Box<PreparedRingDeposit>),
@@ -98,7 +96,6 @@ macro_rules! operations {
 operations! {
     Transfer(CustomRingTransfer<'a>) => Box::new,
     Delegate(DelegateTransfer<'a>) => Box::new,
-    RegisterSpend(RegisterSpend) => core::convert::identity,
     RegisterKey(RegisterKey<'a>) => core::convert::identity,
     Merge(RingMergeOperation) => Box::new,
     Deposit(PreparedRingDeposit) => Box::new,
@@ -180,8 +177,7 @@ impl<'a> RingSubmission<'a> {
         self.attempts
     }
 
-    /// Inputs stay reserved while the sent signature is unresolved. A closing window
-    /// is waited out and proved again without counting an attempt.
+    /// Inputs stay reserved while the sent signature is unresolved.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &mut self,
         client: &AsyncZolanaClient<R, I>,
@@ -195,14 +191,7 @@ impl<'a> RingSubmission<'a> {
             let failure = match &self.pending {
                 Some(_) => None,
                 None => {
-                    let proving = boxed(|| self.operation.prove(client, payer.pubkey()));
-                    let proved = match proving.await {
-                        Err(RingError::WindowClosing { resumes_at }) => {
-                            wait_for_slot(client, resumes_at).await?;
-                            continue;
-                        }
-                        proved => proved?,
-                    };
+                    let proved = boxed(|| self.operation.prove(client, payer.pubkey())).await?;
                     let (blockhash, last_valid_block_height) =
                         client.get_latest_blockhash().await?;
                     let message = compile_message(
@@ -326,10 +315,6 @@ impl RingOperation<'_> {
                     bound,
                 )
             }
-            Self::RegisterSpend(registration) => {
-                let proven = boxed(|| registration.prove(client)).await?;
-                proved(proven.instruction()?, InstructionTag::RegisterSpend, None)
-            }
             Self::RegisterKey(registration) => {
                 let proven = boxed(|| registration.prove(client)).await?;
                 proved(proven.instruction()?, InstructionTag::RegisterKey, None)
@@ -365,13 +350,6 @@ impl RingOperation<'_> {
             }
         })
     }
-}
-
-async fn wait_for_slot(client: &(impl AsyncRpc + ?Sized), slot: u64) -> Result<(), RingError> {
-    while client.get_slot().await? < slot {
-        tokio::time::sleep(SLOT_POLL).await;
-    }
-    Ok(())
 }
 
 /// A failed lookup cannot release the attempt, an expiry needs a fresh absent lookup.
@@ -432,7 +410,6 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
 fn retryable(error: &TransactionError, root_replaced: bool) -> bool {
     let stale = |code| {
         code == CustomRingError::StaleKeyRegistryRoot as u32
-            || code == CustomRingError::WindowElapsed as u32
             || (root_replaced && code == CustomRingError::ProofVerificationFailed as u32)
     };
     matches!(error, TransactionError::BlockhashNotFound) || ring_error(error).is_some_and(stale)

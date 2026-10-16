@@ -60,8 +60,7 @@ fn decode_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, CustomRin
         rows: &table.rules,
         inline_assets: &table.inline_assets,
         inline_limits: &table.inline_limits,
-        window_slots: table.window_slots,
-        velocity: &table.velocity,
+        limits: &table.limits,
     }
     .encode()?;
     rules.decode()?;
@@ -191,7 +190,6 @@ pub(crate) struct MutationAccounts {
     pub authority: Address,
     pub trees: MutationTrees,
     sources: [SourceSlot; N_SOURCE_SLOTS],
-    pub window_slots: u64,
 }
 
 impl MutationAccounts {
@@ -249,7 +247,6 @@ impl MutationAccounts {
             authority,
             trees,
             sources: policy.sources,
-            window_slots: policy.rules.window_slots(),
         })
     }
 

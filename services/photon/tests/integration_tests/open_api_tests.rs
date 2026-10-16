@@ -11,8 +11,6 @@ const METHODS: &[&str] = &[
     "getRingKeyRegistryEntry",
     #[cfg(feature = "ring-projection")]
     "getRingKeyRegistryRegisterProof",
-    #[cfg(feature = "ring-projection")]
-    "getRingSpendRecord",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",

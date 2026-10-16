@@ -22,10 +22,9 @@ use super::{
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
-        ShieldedTransactionStream,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
+        RingMemberProofRequest, ShieldedTransactionStream,
     },
     IndexerRpcConfig,
 };
@@ -249,14 +248,6 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         self.run(move |rpc| rpc.get_non_inclusion_proofs(tree_account, leaves, config))
-            .await
-    }
-
-    async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_spend_record(request))
             .await
     }
 

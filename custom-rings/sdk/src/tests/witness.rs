@@ -20,7 +20,7 @@ use crate::{
         input, lookup, member, namespace, pinned, ring, tree, tree_account, Accounts, Lineage,
         NullifierRpc,
     },
-    RingIdentity,
+    OutflowLimitProofInput, RingIdentity,
 };
 
 const SECOND_TREE_ID: u16 = 9;
@@ -40,8 +40,8 @@ fn policy(table: &RuleTable) -> PinnedPolicy {
     }
 }
 
-fn velocity_off() -> VelocityProofInput {
-    VelocityProofInput::off(RingIdentity {
+fn limits_none() -> OutflowLimitProofInput {
+    OutflowLimitProofInput::none(RingIdentity {
         ring_id: [0; 32],
         namespace_owner_hash: [0; 32],
     })
@@ -58,8 +58,7 @@ fn witness<'a>(
         outputs,
         output_tree_id: 0,
         private_tx_blinding: [0; 32],
-        velocity: velocity_off(),
-        record: false,
+        limits: limits_none(),
         key_registry: None,
         indexer_config: None,
     }
@@ -154,30 +153,21 @@ fn a_dummy_input_opens_only_its_domain() {
 }
 
 #[test]
-fn only_the_namespace_owned_record_skips_its_key_opening() {
+fn every_owned_output_opens_its_key_and_unowned_slots_carry_none() {
     let pinned = policy(&EMPTY);
     let (_, member) = recipient();
-    let record = ShieldedAddress::for_pda(
-        &ring().namespace_pda(),
-        ZERO_NULLIFIER_PK,
-        member.viewing_pubkey,
-    );
     let zero_key = ShieldedAddress {
         nullifier_pubkey: ZERO_NULLIFIER_PK,
         ..member
     };
-    let outputs = [
-        output(record, 0),
-        output(zero_key, 1),
-        SppProofOutputUtxo::default(),
-    ];
-    let refused = OutputKey {
+    let outputs = [output(zero_key, 1), SppProofOutputUtxo::default()];
+    let key = OutputKey {
         owner_pk_hash: member.signing_pubkey.owner_proof_input_hash().unwrap(),
         nullifier_pk: ZERO_NULLIFIER_PK,
     };
     assert_eq!(
         witness(&pinned, &[], &outputs).output_keys().unwrap(),
-        vec![None, Some(refused), None]
+        vec![Some(key), None]
     );
 }
 
@@ -277,34 +267,7 @@ fn a_sender_guard_never_exempts() {
 }
 
 #[test]
-fn a_record_ends_the_active_inputs_and_leaves_the_rules() {
-    let owner = ShieldedKeypair::new_ed25519().unwrap();
-    let inputs = [
-        input(&owner, 1, 0, None),
-        input(&owner, 1, 9, None),
-        SppProofInputUtxo::dummy(9).unwrap(),
-        SppProofInputUtxo::dummy(9).unwrap(),
-    ];
-    let nullifiers = |inputs: &[SppProofInputUtxo]| {
-        inputs
-            .iter()
-            .map(SppProofInputUtxo::nullifier)
-            .collect::<Vec<_>>()
-    };
-    let pinned = policy(&EMPTY);
-    let windowed = WitnessInput {
-        record: true,
-        ..witness(&pinned, &inputs, &[])
-    };
-    assert_eq!(windowed.active_input_count(), 2);
-    assert_eq!(nullifiers(windowed.rule_inputs()), nullifiers(&inputs[..1]));
-    let unwindowed = witness(&pinned, &inputs, &[]);
-    assert_eq!(unwindowed.active_input_count(), inputs.len());
-    assert_eq!(nullifiers(unwindowed.rule_inputs()), nullifiers(&inputs));
-}
-
-#[test]
-fn a_record_leaves_the_rule_outputs_before_the_compact_padding() {
+fn compact_padding_leaves_the_rule_outputs() {
     let (_, address) = recipient();
     let outputs = [
         output(address, 1),
@@ -315,13 +278,9 @@ fn a_record_leaves_the_rule_outputs_before_the_compact_padding() {
         },
     ];
     let pinned = policy(&EMPTY);
-    let windowed = WitnessInput {
-        record: true,
-        ..witness(&pinned, &[], &outputs)
-    };
-    assert_eq!(windowed.active_output_count(), 2);
-    assert_eq!(windowed.rule_outputs().len(), 1);
-    assert_eq!(witness(&pinned, &[], &outputs).rule_outputs().len(), 2);
+    let input = witness(&pinned, &[], &outputs);
+    assert_eq!(input.active_output_count(), 2);
+    assert_eq!(input.rule_outputs().len(), 2);
 }
 
 #[test]

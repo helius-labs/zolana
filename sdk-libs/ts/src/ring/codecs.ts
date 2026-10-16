@@ -4,8 +4,8 @@ import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
-  RING_VELOCITY_SLOTS,
-  type CustomRingVelocityRow,
+  RING_OUTFLOW_LIMIT_SLOTS,
+  type CustomRingOutflowLimit,
 } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, addressBytes, encodeBase58 } from "../interface/internal.js";
@@ -48,9 +48,9 @@ export interface RingPolicySource {
 /** Mirrors Rust `PolicyConfig`. */
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
-  /** Every entry and spend record address is claimed in this tree. */
+  /** Every entry address is claimed in this tree. */
   readonly addressTree: Address;
-  /** Raw id of `addressTree`, every entry and spend record address hashes under it. */
+  /** Raw id of `addressTree`, every entry address hashes under it. */
   readonly addressTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
@@ -62,9 +62,8 @@ export interface RingPolicyConfig {
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
-  readonly windowSlots: bigint;
-  readonly velocityCount: number;
-  readonly velocity: readonly CustomRingVelocityRow[];
+  readonly limitCount: number;
+  readonly limits: readonly CustomRingOutflowLimit[];
   readonly generation: number;
   readonly generationSlot: bigint;
 }
@@ -183,54 +182,6 @@ export function decodeRingDelegate(data: Uint8Array): RingDelegate {
   return Object.freeze({ delegate: encodeBase58(key), bump });
 }
 
-/** Tracks each mint's public deposits and withdrawals per window. */
-export interface RingSpendWindow {
-  readonly mint: Address;
-  readonly windowSlots: bigint;
-  readonly depositCap: bigint;
-  readonly withdrawalCap: bigint;
-  readonly windowStartSlot: bigint;
-  readonly deposited: bigint;
-  readonly withdrawn: bigint;
-  readonly bump: number;
-}
-
-/** Rust `SPEND_WINDOW` and `SpendWindow::SIZE`. */
-const RING_SPEND_WINDOW_DISCRIMINATOR = 5;
-const RING_SPEND_WINDOW_SIZE = 82;
-
-export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
-  if (data.length !== RING_SPEND_WINDOW_SIZE || data[0] !== RING_SPEND_WINDOW_DISCRIMINATOR) {
-    throw new RingError("RING_SPEND_WINDOW_INVALID", {
-      details: { length: data.length, discriminator: data[0] },
-    });
-  }
-  const reader = new Reader(data);
-  reader.u8("discriminator");
-  const mint = encodeBase58(reader.bytes(32, "mint"));
-  const windowSlots = reader.u64("windowSlots");
-  const depositCap = reader.u64("depositCap");
-  const withdrawalCap = reader.u64("withdrawalCap");
-  const windowStartSlot = reader.u64("windowStartSlot");
-  const deposited = reader.u64("deposited");
-  const withdrawn = reader.u64("withdrawn");
-  const bump = reader.u8("bump");
-  reader.done();
-  if (windowSlots === 0n) {
-    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint, windowSlots } });
-  }
-  return Object.freeze({
-    mint,
-    windowSlots,
-    depositCap,
-    withdrawalCap,
-    windowStartSlot,
-    deposited,
-    withdrawn,
-    bump,
-  });
-}
-
 /** Rust `KeyRegistryRoot`. */
 export interface RingKeyRegistryRoot {
   readonly root: Bytes32;
@@ -282,7 +233,7 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-export const RING_POLICY_CONFIG_SIZE = 1604;
+export const RING_POLICY_CONFIG_SIZE = 1596;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -313,20 +264,19 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
     slots: RING_INLINE_ASSET_SLOTS,
     field: "inlineLimits",
   });
-  const windowSlots = bytesToBigInt(reader.bytes(8, "windowSlots"));
-  const velocityAssets = countedRows(reader, RING_VELOCITY_SLOTS, "velocityAssets");
-  const velocityLimits = { count: velocityAssets.length, slots: RING_VELOCITY_SLOTS };
-  const velocityCaps = countedLimits(reader, { ...velocityLimits, field: "velocityCaps" });
-  const velocityCosign = countedLimits(reader, { ...velocityLimits, field: "velocityCosign" });
+  const limitAssets = countedRows(reader, RING_OUTFLOW_LIMIT_SLOTS, "limitAssets");
+  const limitSlots = { count: limitAssets.length, slots: RING_OUTFLOW_LIMIT_SLOTS };
+  const limitCaps = countedLimits(reader, { ...limitSlots, field: "limitCaps" });
+  const limitCosign = countedLimits(reader, { ...limitSlots, field: "limitCosign" });
   const generation = reader.u32("generation");
   const generationSlot = reader.u64("generationSlot");
   reader.done();
-  const velocity = Object.freeze(
-    velocityAssets.map((asset, index) =>
+  const limits = Object.freeze(
+    limitAssets.map((asset, index) =>
       Object.freeze({
         asset,
-        cap: velocityCaps[index] ?? 0n,
-        cosignAbove: velocityCosign[index] ?? 0n,
+        cap: limitCaps[index] ?? 0n,
+        cosignAbove: limitCosign[index] ?? 0n,
       }),
     ),
   );
@@ -343,9 +293,8 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
     inlineCount: inlineAssets.length,
     inlineAssets,
     inlineLimits,
-    windowSlots,
-    velocityCount: velocity.length,
-    velocity,
+    limitCount: limits.length,
+    limits,
     generation,
     generationSlot,
   });

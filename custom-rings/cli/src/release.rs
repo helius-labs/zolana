@@ -32,10 +32,9 @@ pub struct RingProgram {
 pub struct RingKey(&'static str, &'static str);
 
 impl RingKey {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self("proving_key", "custom-ring-policy"),
         Self("audit_key", "custom-ring-base"),
-        Self("compressed_policy_key", "custom-ring-compressed-policy"),
         Self("delegate_policy_key", "custom-ring-delegate-policy"),
         Self("register_key", "custom-ring-register-key"),
         Self("deposit_key", "custom-ring-deposit"),
@@ -139,7 +138,7 @@ mod tests {
     fn the_embedded_lock_parses_and_ships_every_ring_asset() {
         assert_eq!(
             RingKey::ALL[2].file_name(),
-            "custom_ring_compressed_policy.key"
+            "custom_ring_delegate_policy.key"
         );
         let release = RingRelease::from_lock().expect("lock");
         assert!(!release.tag.is_empty());
@@ -187,7 +186,7 @@ mod tests {
             partial.program().expect("program").name,
             "custom-ring-program-v1.so"
         );
-        for missing in [RingKey::ALL[4], RingKey::ALL[5]] {
+        for missing in [RingKey::ALL[3], RingKey::ALL[4]] {
             let error = partial.key(missing).expect_err("missing").to_string();
             assert!(error.contains(missing.circuit()), "{error}");
         }

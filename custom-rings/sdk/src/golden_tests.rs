@@ -65,7 +65,7 @@ mod bodies {
     use zolana_keypair::{NullifierKey, X25519Secret};
     use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
     use zolana_ring_key_registry::{KeyRegistryTree, Registration};
-    use zolana_ring_policy::{Member, SourceOwner, VelocityRow, ANSWER_SLOTS};
+    use zolana_ring_policy::{Member, OutflowLimit, SourceOwner, ANSWER_SLOTS};
 
     use super::{assert_golden, auditor, field, key, EPH_SK, TX_SK};
     use crate::{
@@ -77,8 +77,8 @@ mod bodies {
         },
         trees::TransactRoots,
         witness::{CustomRingWitness, PolicyTree},
-        CurrentKeyRegistryRoot, CustomRing, EscrowBinding, PolicyReads, PoolTree,
-        SpendRecordProofInput, VelocityProofInput,
+        CurrentKeyRegistryRoot, CustomRing, EscrowBinding, OutflowLimitProofInput, PolicyReads,
+        PoolTree,
     };
 
     fn secrets(salt: u8) -> AuditSecrets {
@@ -186,27 +186,16 @@ mod bodies {
                     next_index: 1,
                     history_index: 0,
                 })),
-                velocity: VelocityProofInput {
-                    window_slots: 600,
-                    rows: core::array::from_fn(|index| VelocityRow {
+                limits: OutflowLimitProofInput {
+                    limits: core::array::from_fn(|index| OutflowLimit {
                         asset: field(610 + index as u64),
                         cap: if index < 2 { 50_000 } else { 0 },
                         cosign_above: if index == 1 { 7_000 } else { 0 },
                     }),
-                    row_count: 2,
+                    limit_count: 2,
                     ring_id: field(601),
                     namespace_owner_hash: field(602),
-                    window_index: 7,
                     approval_required: true,
-                    record: SpendRecordProofInput {
-                        version: 3,
-                        window: 6,
-                        commitment: field(603),
-                        salt: field(604),
-                        assets: core::array::from_fn(|index| field(620 + index as u64)),
-                        spent: core::array::from_fn(|index| [40, 60, 0, 0, 0, 0, 0, 0][index]),
-                        next_salt: field(605),
-                    },
                 },
                 answers: (0..ANSWER_SLOTS).map(answer).collect(),
                 revocation_targets: [[0; 32]; ANSWER_SLOTS],
@@ -215,7 +204,7 @@ mod bodies {
         }
     }
 
-    fn wrapped(circuit: RingCircuit, transaction_salt: Option<[u8; 16]>) -> String {
+    fn wrapped(circuit: RingCircuit) -> String {
         let request = PolicyRequest {
             body: policy(),
             indexed: None,
@@ -227,7 +216,6 @@ mod bodies {
             },
             approval_required: true,
             circuit,
-            transaction_salt,
         };
         request.request().unwrap().body().unwrap().to_string()
     }
@@ -260,12 +248,8 @@ mod bodies {
             &RingRequest(&policy()).body().unwrap(),
         );
         assert_golden(
-            "custom-ring-compressed-policy",
-            &wrapped(RingCircuit::CompressedPolicy, Some([9; 16])),
-        );
-        assert_golden(
             "custom-ring-delegate-policy",
-            &wrapped(RingCircuit::DelegatePolicy, None),
+            &wrapped(RingCircuit::DelegatePolicy),
         );
     }
 

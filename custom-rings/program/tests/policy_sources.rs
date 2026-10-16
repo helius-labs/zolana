@@ -17,10 +17,9 @@ use crate::common::{
     curator_policy_config_account_with, curator_slot, curator_source_slots,
     initialized_curator_policy_config_account, initialized_other_tree_account,
     initialized_policy_config_account, mixed_sources, namespace_pda, other_tree, own_source_slots,
-    own_specs, payer, policy_config_account_with, policy_hash_for, register_spend_fixture,
-    set_policy_source_fixture, setup_mollusk, specs_with_block_source, stored_policy_config,
-    table_ix_data, velocity_policy_config_account, EntryFixture, Fixture, ADDRESS_TREE_ID,
-    RELEASED_RULES, WARPED_SLOT,
+    own_specs, policy_config_account_with, policy_hash_for, set_policy_source_fixture,
+    setup_mollusk, specs_with_block_source, stored_policy_config, table_ix_data, EntryFixture,
+    Fixture, ADDRESS_TREE_ID, RELEASED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -338,9 +337,6 @@ fn a_claim_outside_the_address_tree_is_rejected_exactly() {
         EntryFixture::new(ListId::Allow, authority()).create(initialized_policy_config_account());
     in_other_tree(create, "input_tree")
         .expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
-    let register = register_spend_fixture(velocity_policy_config_account(), payer());
-    in_other_tree(register, "input_tree")
-        .expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
 }
 
 #[test]
@@ -349,8 +345,6 @@ fn a_claim_writes_its_leaf_into_any_output_tree() {
     let create =
         EntryFixture::new(ListId::Allow, authority()).create(initialized_policy_config_account());
     in_other_tree(create, "output_tree").expect_spp_cpi(&mollusk);
-    let register = register_spend_fixture(velocity_policy_config_account(), payer());
-    in_other_tree(register, "output_tree").expect_spp_cpi(&mollusk);
 }
 
 /// A replace spends the live leaf wherever it lives.

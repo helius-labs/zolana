@@ -1,21 +1,15 @@
-//! `key` and `spend`, the sender's nullifier key in the ring key registry and its spend record.
+//! `key`, the sender's nullifier key in the ring key registry.
 
 use anyhow::{Context as _, Result};
-use custom_ring_sdk::{
-    CustomRing, LiveSpendRecord, PolicyConfig, ReadSealedKey, ReadSpendRecord, RegisterKey,
-    RegisterSpend, RingError, RingOperation,
-};
+use custom_ring_sdk::{CustomRing, ReadSealedKey, RegisterKey, RingError, RingOperation};
 use solana_signer::Signer;
 use zolana_client::{BlockingIndexer, BlockingRpc, ClientError, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_ring_policy::Member;
 
 use crate::{
-    controls::NO_KEY_REGISTRY,
-    line,
-    transact::SENDER_FEE_BUDGET,
-    ui::{self, icon},
-    wait_for, Context, KeyCommand, Probe, SpendCommand,
+    controls::NO_KEY_REGISTRY, line, transact::SENDER_FEE_BUDGET, wait_for, Context, KeyCommand,
+    Probe,
 };
 
 const SEAL_PROMPT: &str = "seal the member key to the ring auditor and register it?";
@@ -95,81 +89,6 @@ fn registered<R: BlockingRpc, I: BlockingIndexer>(
             }
         },
     )
-}
-
-pub fn spend(ctx: &Context, command: SpendCommand) -> Result<()> {
-    let sender = ctx.sender()?;
-    let pinned = ctx
-        .block(ctx.ring.pinned_policy(ctx.chain()))?
-        .context("the ring has no policy config, run `zolana-ring init` first")?;
-    anyhow::ensure!(
-        pinned.table.window_slots() != 0,
-        "the ring has no velocity window, nothing to register"
-    );
-    match command {
-        SpendCommand::Register => {
-            ctx.fund(sender.pubkey(), SENDER_FEE_BUDGET)?;
-            let outcome = ensure_spend(ctx, &sender, &pinned.config)?;
-            line("member", sender.pubkey());
-            line("record", outcome);
-        }
-        SpendCommand::Show => {
-            let member = Member::owner_tag(sender.pubkey().as_array())?;
-            let live = spend_record(ctx, &pinned.config, member)?;
-            let title = format!("spend record of {}", sender.pubkey());
-            ui::heading(icon::POLICY, &title);
-            match live {
-                None => line("record", "not registered"),
-                Some(live) => {
-                    line("version", live.record.version);
-                    line("window", live.record.window);
-                    line("commitment", hex::encode(live.record.counters_commitment));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-/// The record is claimed once with zero counters, an existing record is kept.
-pub(crate) fn ensure_spend(
-    ctx: &Context,
-    sender: &(dyn Signer + Sync),
-    config: &PolicyConfig,
-) -> Result<String> {
-    let member = Member::owner_tag(sender.pubkey().as_array())?;
-    if let Some(live) = spend_record(ctx, config, member)? {
-        return Ok(format!(
-            "already registered at version {}",
-            live.record.version
-        ));
-    }
-    ctx.submit(spend_registration(ctx.ring, sender), sender, &[])?;
-    wait_for(format_args!("spend record of {}", sender.pubkey()), || {
-        Ok(match spend_record(ctx, config, member)? {
-            Some(_) => Probe::Ready(()),
-            None => Probe::NotYet,
-        })
-    })?;
-    Ok("registered".to_owned())
-}
-
-/// A submission, so a window that closes before the proof lands is proved again.
-fn spend_registration(ring: CustomRing, sender: &(dyn Signer + Sync)) -> RingOperation<'static> {
-    RegisterSpend {
-        ring,
-        payer: sender.pubkey(),
-    }
-    .into()
-}
-
-fn spend_record(
-    ctx: &Context,
-    config: &PolicyConfig,
-    member: Member,
-) -> Result<Option<LiveSpendRecord>> {
-    let read = ReadSpendRecord::new(ctx.ring, config.address_tree_id(), member);
-    Ok(ctx.block(read.read_current(ctx.chain()))?)
 }
 
 #[cfg(test)]
@@ -360,10 +279,6 @@ mod tests {
         assert!(matches!(
             registration(ring(), &member),
             RingOperation::RegisterKey(_)
-        ));
-        assert!(matches!(
-            spend_registration(ring(), &member),
-            RingOperation::RegisterSpend(_)
         ));
     }
 

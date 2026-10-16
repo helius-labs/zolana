@@ -48,18 +48,12 @@ fn error_codes_are_stable() {
         (InvalidCoSignerScope as u32, 8145),
         (InvalidCoSigner as u32, 8146),
         (InvalidCoSignerThresholds as u32, 8147),
-        (SpendWindowExceeded as u32, 8148),
-        (InvalidSpendWindow as u32, 8149),
         (DelegateDisabled as u32, 8150),
         (UnauthorizedDelegate as u32, 8151),
         (DelegatePublicLeg as u32, 8152),
         (DelegateAlreadySet as u32, 8153),
         (InvalidDelegate as u32, 8154),
-        (VelocityDepositLeg as u32, 8155),
-        (InvalidSpendRecord as u32, 8156),
         (ApprovalWithoutCoSigner as u32, 8157),
-        (VelocityDisabled as u32, 8158),
-        (VelocityWindowImmutable as u32, 8159),
         (InvalidKeyRegistryRoot as u32, 8160),
         (StaleKeyRegistryRoot as u32, 8161),
         (InvalidKeyRegistryCursor as u32, 8162),
@@ -67,14 +61,11 @@ fn error_codes_are_stable() {
         (InvalidDepositAudit as u32, 8164),
         (DepositAuditRequired as u32, 8165),
         (InvalidDepositDisclosure as u32, 8166),
-        (InvalidSpendCountersDisclosure as u32, 8167),
         (InvalidRevocationTarget as u32, 8168),
         (PolicyFactRevoked as u32, 8169),
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
-        (WindowElapsed as u32, 8173),
-        (InvalidWindowIndex as u32, 8174),
         (UnexpectedKeyRegistryRoot as u32, 8175),
         (UnexpectedApproval as u32, 8176),
         (InvalidSettlementAccounts as u32, 8177),
@@ -82,7 +73,6 @@ fn error_codes_are_stable() {
         (InvalidAuditedDeposit as u32, 8179),
         (InvalidDepositData as u32, 8180),
         (UnexpectedRevocationTarget as u32, 8181),
-        (UncappedSpendWindow as u32, 8182),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -138,18 +128,12 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | InvalidCoSignerScope
         | InvalidCoSigner
         | InvalidCoSignerThresholds
-        | SpendWindowExceeded
-        | InvalidSpendWindow
         | DelegateDisabled
         | UnauthorizedDelegate
         | DelegatePublicLeg
         | DelegateAlreadySet
         | InvalidDelegate
-        | VelocityDepositLeg
-        | InvalidSpendRecord
         | ApprovalWithoutCoSigner
-        | VelocityDisabled
-        | VelocityWindowImmutable
         | InvalidKeyRegistryRoot
         | StaleKeyRegistryRoot
         | InvalidKeyRegistryCursor
@@ -157,21 +141,17 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | InvalidDepositAudit
         | DepositAuditRequired
         | InvalidDepositDisclosure
-        | InvalidSpendCountersDisclosure
         | InvalidRevocationTarget
         | PolicyFactRevoked
         | DelegateRequiresPolicy
         | InvalidRevocationTreeIndex
         | InvalidPolicyTrees
-        | WindowElapsed
-        | InvalidWindowIndex
         | UnexpectedKeyRegistryRoot
         | UnexpectedApproval
         | InvalidSettlementAccounts
         | TooManyPublicLegs
         | InvalidAuditedDeposit
         | InvalidDepositData
-        | UnexpectedRevocationTarget
-        | UncappedSpendWindow => {}
+        | UnexpectedRevocationTarget => {}
     }
 }
