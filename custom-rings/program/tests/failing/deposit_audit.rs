@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     tag, AuditedDepositPrefix, CustomRingError, CustomRingProof, DepositAudit,
-    RingDepositAuditCapsule, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT_HISTORY,
+    RingDepositAuditCapsule, DEPOSIT_AUDIT, MEMBER_REGISTRY_ROOT_HISTORY,
 };
 use mollusk_svm::result::ProgramResult;
 use solana_account::Account;
@@ -13,7 +13,7 @@ use zolana_interface::{
 
 use crate::common::{
     account, audit_only_config_account, auditor_pubkey, authority, config_pda, deposit_fixture,
-    escrowed_config_account, key_registry_root_slot, payer, program_id, setup_mollusk,
+    escrowed_config_account, member_registry_root_slot, payer, program_id, setup_mollusk,
     system_program_slot, Fixture, Slot,
 };
 
@@ -350,7 +350,7 @@ fn escrowed_fixture(registry_index: u8) -> Fixture {
     fixture.set_account("config", escrowed_config_account());
     fixture.data_mut()[REGISTRY_INDEX] = registry_index;
     let at = fixture.position("deposit_audit") + 1;
-    fixture.insert(at, key_registry_root_slot());
+    fixture.insert(at, member_registry_root_slot());
     fixture
 }
 
@@ -358,12 +358,13 @@ fn escrowed_fixture(registry_index: u8) -> Fixture {
 fn an_escrowed_audited_deposit_binds_the_registry_root() {
     let (mollusk, _) = setup_mollusk();
     escrowed_fixture(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-    for stale in [1, KEY_REGISTRY_ROOT_HISTORY as u8] {
-        escrowed_fixture(stale).expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
+    for stale in [1, MEMBER_REGISTRY_ROOT_HISTORY as u8] {
+        escrowed_fixture(stale)
+            .expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
     }
     let mut missing = escrowed_fixture(0);
-    missing.remove("key_registry_root");
-    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    missing.remove("member_registry_root");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
 }
 
 #[test]
@@ -371,7 +372,10 @@ fn a_registry_index_without_escrow_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = audited_fixture(1);
     fixture.data_mut()[REGISTRY_INDEX] = 1;
-    fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::UnexpectedMemberRegistryRoot),
+    );
 }
 
 fn deposit_audit_pda() -> (Pubkey, u8) {

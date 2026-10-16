@@ -1,11 +1,12 @@
 use mollusk_svm::result::ProgramResult;
 
 use crate::common::{
-    auditor_pubkey, authority, cosigner, create_config_fixture, create_key_registry_root_fixture,
-    create_policy_fixture, delegate, ed25519_reader, grant_read_access_fixture,
-    init_spp_ring_config_fixture, initialized_config_account, p256_reader,
-    revoke_read_access_fixture, set_authority_fixture, set_cosigner_data, set_cosigner_fixture,
-    set_delegate_data, set_delegate_fixture, set_paused_fixture, setup_mollusk, Fixture, USDC,
+    auditor_pubkey, authority, cosigner, create_config_fixture,
+    create_member_registry_root_fixture, create_policy_fixture, delegate, ed25519_reader,
+    grant_read_access_fixture, init_spp_ring_config_fixture, initialized_config_account,
+    p256_reader, revoke_read_access_fixture, set_authority_fixture, set_cosigner_data,
+    set_cosigner_fixture, set_delegate_data, set_delegate_fixture, set_paused_fixture,
+    setup_mollusk, Fixture, USDC,
 };
 use custom_ring_interface::{compute_unit_limit, CoSignScope, InstructionTag};
 
@@ -57,8 +58,8 @@ fn operator_instructions_fit_their_published_budgets() {
         )) <= u64::from(compute_unit_limit(InstructionTag::SetCoSigner))
     );
     assert!(
-        consumed(create_key_registry_root_fixture(None))
-            <= u64::from(compute_unit_limit(InstructionTag::CreateKeyRegistryRoot))
+        consumed(create_member_registry_root_fixture(None))
+            <= u64::from(compute_unit_limit(InstructionTag::CreateMemberRegistryRoot))
     );
     for reader in [ed25519_reader(7), p256_reader()] {
         assert!(

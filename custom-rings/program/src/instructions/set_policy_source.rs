@@ -4,9 +4,9 @@ use zolana_account_checks::AccountIterator;
 use zolana_ring_policy::ListId;
 
 use crate::instructions::{
-    loader::{load_authorized_config, load_curator_policy_config, load_mut},
+    loader::{load_authorized_config, load_curator_registry, load_mut},
     policy_shared::repin,
-    shared::{namespace_address, parse},
+    shared::parse,
 };
 
 /// Only a list the stored table references has a slot to re-point.
@@ -31,16 +31,15 @@ pub fn process_set_policy_source_ix(
     if sources[list_id.slot()].list_id == 0 {
         return Err(CustomRingError::InvalidSource.into());
     }
-    let namespace = match (ix.source, curators) {
-        (0, []) => namespace_address(program_id, live.namespace_bump),
-        (1, [curator]) => load_curator_policy_config(curator, &live.address_tree)?
-            .source_for(list_id)
-            .ok_or(CustomRingError::CuratorSourceMissing)?,
+    let registry = match (ix.source, curators) {
+        (0, []) => Address::default(),
+        (1, [curator]) => load_curator_registry(curator)?,
         _ => return Err(CustomRingError::InvalidSource.into()),
     };
     sources[list_id.slot()] = SourceSlot {
         list_id: list_id as u8,
-        namespace,
+        registry,
     };
+    // The repin rebuilds the source map, which refuses a second distinct curator.
     repin(&mut live, &sources)
 }

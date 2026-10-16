@@ -8,7 +8,6 @@ use pinocchio::{
 };
 use wincode::{config::DefaultConfig, SchemaRead};
 use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
-use zolana_ring_policy::NAMESPACE_PDA_SEED;
 
 use crate::{instructions::loader::load_mut, state::Init};
 
@@ -38,11 +37,6 @@ pub(crate) fn verify_pda<const N: usize>(
         Some((derived, bump)) if address_eq(address, &derived) => Ok(bump),
         _ => Err(mismatch),
     }
-}
-
-/// The ring's namespace PDA at the bump `create_policy` stored, which needs no curve check.
-pub(crate) fn namespace_address(program_id: &Address, bump: u8) -> Address {
-    Address::derive_address(&[NAMESPACE_PDA_SEED], Some(bump), program_id)
 }
 
 /// Creates `T`'s account at its canonical address, refusing an occupied one.
@@ -129,41 +123,21 @@ pub(crate) fn close_into(
     account.close()
 }
 
-/// PDAs the ring raises to signers on the forwarded SPP instruction.
-#[derive(Clone, Copy)]
-pub(crate) enum SppSigners {
-    RingAuth,
-    Namespace { bump: u8 },
-}
-
 /// Forwards `data`, tag byte included, over `accounts` in SPP's order with the
-/// selected ring PDAs raised to signers.
+/// ring authority PDA raised to a signer.
 #[inline(never)]
 pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     program_id: &Address,
     accounts: &[A],
     data: &[u8],
-    signers: SppSigners,
 ) -> ProgramResult {
-    let (ring_auth, ring_auth_bump) = match signers {
-        SppSigners::Namespace { .. } => (None, 0),
-        SppSigners::RingAuth => {
-            let (address, bump) =
-                Address::derive_program_address(&[RING_AUTH_PDA_SEED], program_id)
-                    .ok_or(CustomRingError::MissingRingAuth)?;
-            (Some(address), bump)
-        }
-    };
-    let (namespace, namespace_bump) = match signers {
-        SppSigners::RingAuth => (None, 0),
-        SppSigners::Namespace { bump } => (Some(namespace_address(program_id, bump)), bump),
-    };
-    let raised = |address: &Address| [ring_auth, namespace].contains(&Some(*address));
-    if ring_auth.is_some_and(|ring_auth| {
-        !accounts
-            .iter()
-            .any(|account| account.as_ref().address() == &ring_auth)
-    }) {
+    let (ring_auth, ring_auth_bump) =
+        Address::derive_program_address(&[RING_AUTH_PDA_SEED], program_id)
+            .ok_or(CustomRingError::MissingRingAuth)?;
+    if !accounts
+        .iter()
+        .any(|account| account.as_ref().address() == &ring_auth)
+    {
         return Err(CustomRingError::MissingRingAuth.into());
     }
     if accounts.len() > MAX_CPI_ACCOUNTS {
@@ -173,26 +147,20 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
         .iter()
         .map(|account| {
             let account = account.as_ref();
-            let is_signer = account.is_signer() || raised(account.address());
+            let is_signer = account.is_signer() || address_eq(account.address(), &ring_auth);
             InstructionAccount::new(account.address(), account.is_writable(), is_signer)
         })
         .collect();
     let ring_auth_bump = [ring_auth_bump];
-    let namespace_bump = [namespace_bump];
     let ring_auth_seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(&ring_auth_bump)];
-    let namespace_seeds = [Seed::from(NAMESPACE_PDA_SEED), Seed::from(&namespace_bump)];
-    let all = [
-        Signer::from(ring_auth_seeds.as_slice()),
-        Signer::from(namespace_seeds.as_slice()),
-    ];
-    let signers = match signers {
-        SppSigners::RingAuth => &all[..1],
-        SppSigners::Namespace { .. } => &all[1..],
-    };
     let instruction = InstructionView {
         program_id: &Address::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: &metas,
         data,
     };
-    invoke_signed_with_slice(&instruction, accounts, signers)
+    invoke_signed_with_slice(
+        &instruction,
+        accounts,
+        &[Signer::from(ring_auth_seeds.as_slice())],
+    )
 }

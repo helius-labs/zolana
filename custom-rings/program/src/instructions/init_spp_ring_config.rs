@@ -5,7 +5,7 @@ use zolana_interface::instruction::{encode_instruction, tag, CreateRingConfigDat
 
 use crate::instructions::{
     loader::{load, load_authorized_config, validate_spp_program},
-    shared::{cpi_spp, SppSigners},
+    shared::cpi_spp,
 };
 
 /// Creates SPP's `RingConfig` at the ring's own `ring_auth` PDA, the one point
@@ -46,10 +46,5 @@ pub fn process_init_spp_ring_config_ix(
     );
     // SPP's create layout is `[payer, protocol_config, ring_config(w, s), system_program]`.
     let cpi_accounts = [&*payer, &*protocol_config, &*ring_auth, &*system_program];
-    cpi_spp(
-        program_id,
-        cpi_accounts.as_slice(),
-        &data,
-        SppSigners::RingAuth,
-    )
+    cpi_spp(program_id, cpi_accounts.as_slice(), &data)
 }

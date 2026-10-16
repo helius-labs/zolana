@@ -1,6 +1,5 @@
 use custom_ring_interface::{
-    CustomRingError, DepositAudit, KeyEscrow, KeyRegistryRoot, PolicyConfig, RingAccount,
-    RingProgramConfig,
+    CustomRingError, DepositAudit, KeyEscrow, MemberRegistryRoot, RingAccount, RingProgramConfig,
 };
 use pinocchio::{
     account::{Ref, RefMut},
@@ -85,7 +84,7 @@ pub fn load_deposit_audit<'a>(
     load_optional(program_id, account, &[DepositAudit::SEED])
 }
 
-/// The registry root at `index` a statement binds, `None` with escrow off.
+/// The registry root at `index` a deposit binds, `None` with escrow off.
 pub fn load_escrow_root(
     program_id: &Address,
     escrow: KeyEscrow,
@@ -93,36 +92,61 @@ pub fn load_escrow_root(
     accounts: &mut AccountIterator<'_>,
 ) -> Result<Option<[u8; 32]>, ProgramError> {
     match escrow {
-        KeyEscrow::Off if index != 0 => Err(CustomRingError::UnexpectedKeyRegistryRoot.into()),
+        KeyEscrow::Off if index != 0 => Err(CustomRingError::UnexpectedMemberRegistryRoot.into()),
         KeyEscrow::Off => Ok(None),
-        KeyEscrow::Registry => {
-            let account = accounts.next_account("key_registry_root")?;
-            load::<KeyRegistryRoot>(program_id, account)?
-                .root_at(index)
-                .map(Some)
-                .ok_or_else(|| CustomRingError::StaleKeyRegistryRoot.into())
-        }
+        KeyEscrow::Registry => load_registry_root(
+            program_id,
+            accounts.next_account("member_registry_root")?,
+            index,
+        )
+        .map(Some),
     }
 }
 
-/// A curator's policy config, the `b"policy"` PDA of its owning program on the same address tree.
-pub fn load_curator_policy_config<'a>(
-    account: &'a AccountView,
-    address_tree: &Address,
-) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
-    let invalid = CustomRingError::InvalidCuratorPolicyConfig;
+/// The ring's registry root at history slot `index`.
+pub fn load_registry_root(
+    program_id: &Address,
+    account: &AccountView,
+    index: u8,
+) -> Result<[u8; 32], ProgramError> {
+    load::<MemberRegistryRoot>(program_id, account)?
+        .root_at(index)
+        .ok_or_else(|| CustomRingError::StaleMemberRegistryRoot.into())
+}
+
+/// A curator's registry root account, the `b"members"` PDA of its owning program.
+pub fn load_curator_registry(account: &AccountView) -> Result<Address, ProgramError> {
+    let invalid = CustomRingError::InvalidCuratorRegistry;
     let curator_program = account.owner();
     let data = account.try_borrow().map_err(|_| invalid)?;
-    let config = Ref::filter_map(data, PolicyConfig::from_data).map_err(|_| invalid)?;
-    let address =
-        Address::derive_address(&[PolicyConfig::SEED], Some(config.bump), curator_program);
+    let root = MemberRegistryRoot::from_data(&data).ok_or(invalid)?;
+    let address = Address::derive_address(
+        &[MemberRegistryRoot::SEED],
+        Some(root.bump),
+        curator_program,
+    );
     if !address_eq(account.address(), &address) {
         return Err(invalid.into());
     }
-    if !address_eq(&config.address_tree, address_tree) {
-        return Err(CustomRingError::CuratorTreeMismatch.into());
+    Ok(*account.address())
+}
+
+/// The root at `index` of the curator registry the policy sources pin by address.
+pub fn load_curator_root(
+    account: &AccountView,
+    curator: &Address,
+    index: u8,
+) -> Result<[u8; 32], ProgramError> {
+    if !address_eq(account.address(), curator) {
+        return Err(CustomRingError::InvalidCuratorRegistry.into());
     }
-    Ok(config)
+    let data = account
+        .try_borrow()
+        .map_err(|_| CustomRingError::InvalidCuratorRegistry)?;
+    MemberRegistryRoot::from_data(&data)
+        .ok_or(CustomRingError::InvalidCuratorRegistry)?
+        .root_at(index)
+        .ok_or_else(|| CustomRingError::StaleMemberRegistryRoot.into())
 }
 
 /// The raw id of an SPP tree account, `invalid` for any other account.

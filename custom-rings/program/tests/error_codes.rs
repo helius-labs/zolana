@@ -27,19 +27,13 @@ fn error_codes_are_stable() {
         (PolicyConfigNotInitialized as u32, 8121),
         (InvalidPolicyConfigPda as u32, 8122),
         (InvalidPolicyMember as u32, 8124),
-        (UnauthorizedNamespaceSigner as u32, 8125),
+        (UnauthorizedListWrite as u32, 8125),
         (InvalidListId as u32, 8126),
-        (InvalidEntryState as u32, 8127),
-        (EntryVersionOverflow as u32, 8130),
         (InvalidNamespacePda as u32, 8131),
         (InvalidAddressTree as u32, 8132),
         (StalePolicyRoot as u32, 8133),
         (InvalidSource as u32, 8134),
-        (InvalidCuratorPolicyConfig as u32, 8135),
-        (CuratorTreeMismatch as u32, 8136),
-        (CuratorSourceMissing as u32, 8137),
-        (ForeignSource as u32, 8138),
-        (InvalidEntryContent as u32, 8139),
+        (InvalidCuratorRegistry as u32, 8135),
         (InvalidPolicyRules as u32, 8140),
         (PolicyGenerationOverflow as u32, 8141),
         (PolicyOnAuditOnlyRing as u32, 8142),
@@ -54,25 +48,24 @@ fn error_codes_are_stable() {
         (DelegateAlreadySet as u32, 8153),
         (InvalidDelegate as u32, 8154),
         (ApprovalWithoutCoSigner as u32, 8157),
-        (InvalidKeyRegistryRoot as u32, 8160),
-        (StaleKeyRegistryRoot as u32, 8161),
-        (InvalidKeyRegistryCursor as u32, 8162),
-        (KeyRegistryRootAlreadyExists as u32, 8163),
+        (InvalidMemberRegistryRoot as u32, 8160),
+        (StaleMemberRegistryRoot as u32, 8161),
+        (InvalidMemberRegistryCursor as u32, 8162),
+        (MemberRegistryRootAlreadyExists as u32, 8163),
         (InvalidDepositAudit as u32, 8164),
         (DepositAuditRequired as u32, 8165),
         (InvalidDepositDisclosure as u32, 8166),
-        (InvalidRevocationTarget as u32, 8168),
-        (PolicyFactRevoked as u32, 8169),
         (DelegateRequiresPolicy as u32, 8170),
-        (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
-        (UnexpectedKeyRegistryRoot as u32, 8175),
+        (UnexpectedMemberRegistryRoot as u32, 8175),
         (UnexpectedApproval as u32, 8176),
         (InvalidSettlementAccounts as u32, 8177),
         (TooManyPublicLegs as u32, 8178),
         (InvalidAuditedDeposit as u32, 8179),
         (InvalidDepositData as u32, 8180),
-        (UnexpectedRevocationTarget as u32, 8181),
+        (MemberBatchOrder as u32, 8183),
+        (MemberBatchTooLarge as u32, 8184),
+        (MemberRecordMismatch as u32, 8185),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -107,19 +100,13 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | PolicyConfigNotInitialized
         | InvalidPolicyConfigPda
         | InvalidPolicyMember
-        | UnauthorizedNamespaceSigner
+        | UnauthorizedListWrite
         | InvalidListId
-        | InvalidEntryState
-        | EntryVersionOverflow
         | InvalidNamespacePda
         | InvalidAddressTree
         | StalePolicyRoot
         | InvalidSource
-        | InvalidCuratorPolicyConfig
-        | CuratorTreeMismatch
-        | CuratorSourceMissing
-        | ForeignSource
-        | InvalidEntryContent
+        | InvalidCuratorRegistry
         | InvalidPolicyRules
         | PolicyGenerationOverflow
         | PolicyOnAuditOnlyRing
@@ -134,24 +121,23 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | DelegateAlreadySet
         | InvalidDelegate
         | ApprovalWithoutCoSigner
-        | InvalidKeyRegistryRoot
-        | StaleKeyRegistryRoot
-        | InvalidKeyRegistryCursor
-        | KeyRegistryRootAlreadyExists
+        | InvalidMemberRegistryRoot
+        | StaleMemberRegistryRoot
+        | InvalidMemberRegistryCursor
+        | MemberRegistryRootAlreadyExists
         | InvalidDepositAudit
         | DepositAuditRequired
         | InvalidDepositDisclosure
-        | InvalidRevocationTarget
-        | PolicyFactRevoked
         | DelegateRequiresPolicy
-        | InvalidRevocationTreeIndex
         | InvalidPolicyTrees
-        | UnexpectedKeyRegistryRoot
+        | UnexpectedMemberRegistryRoot
         | UnexpectedApproval
         | InvalidSettlementAccounts
         | TooManyPublicLegs
         | InvalidAuditedDeposit
         | InvalidDepositData
-        | UnexpectedRevocationTarget => {}
+        | MemberBatchOrder
+        | MemberBatchTooLarge
+        | MemberRecordMismatch => {}
     }
 }

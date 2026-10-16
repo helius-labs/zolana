@@ -5,7 +5,7 @@ use zolana_account_checks::AccountIterator;
 use crate::instructions::{
     loader::{check_upgrade_authority, load_mut},
     policy_shared::{bind_table, repin},
-    shared::{namespace_address, parse},
+    shared::parse,
 };
 
 /// Takes effect at once, a proof over the old hash fails at verification.
@@ -26,8 +26,7 @@ pub fn process_set_policy_rules_ix(
 
     check_upgrade_authority(program_id, authority, program, program_data)?;
     let mut live = load_mut::<PolicyConfig>(program_id, policy_config)?;
-    let namespace = namespace_address(program_id, live.namespace_bump);
-    let bound = bind_table(&ix, curators, &namespace, &live.address_tree)?;
+    let bound = bind_table(&ix, curators)?;
     live.rules = bound.rules;
     repin(&mut live, &bound.sources)
 }

@@ -5,7 +5,7 @@ use zolana_interface::instruction::{encode_instruction, tag, UpdateRingConfigDat
 
 use crate::instructions::{
     loader::{load_authorized_config, validate_spp_program},
-    shared::{cpi_spp, parse, SppSigners},
+    shared::{cpi_spp, parse},
 };
 
 #[inline(never)]
@@ -26,10 +26,5 @@ pub fn process_set_paused_ix(
     validate_spp_program(core::slice::from_ref(spp_program))?;
     let data = encode_instruction(tag::UPDATE_RING_CONFIG, &UpdateRingConfigData { paused });
     // The ring auth PDA is also SPP's ring authority.
-    cpi_spp(
-        program_id,
-        &[&*ring_auth, &*ring_auth],
-        &data,
-        SppSigners::RingAuth,
-    )
+    cpi_spp(program_id, &[&*ring_auth, &*ring_auth], &data)
 }

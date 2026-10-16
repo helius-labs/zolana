@@ -1,7 +1,7 @@
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
     tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
-    AUDITOR_MESSAGE_LEN, KEY_REGISTRY_ROOT_HISTORY,
+    AUDITOR_MESSAGE_LEN, MEMBER_REGISTRY_ROOT_HISTORY,
 };
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
@@ -15,20 +15,21 @@ use zolana_interface::{
         MessageData,
     },
 };
-use zolana_interface::{pda, INPUT_TREES, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{INPUT_TREES, N_PUBLIC_SLOTS};
 
 use solana_pubkey::Pubkey;
 use zolana_interface::state::NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
 
 use crate::common::{
     account, address_tree, address_tree_account, audit_ix_data, audit_only_config_account,
-    audit_transact_fixture, auditor_pubkey, authority, encode_transact, escrowed_config_account,
-    initialized_address_tree_account, initialized_address_tree_account_with_roots,
-    initialized_address_tree_account_with_state_roots, initialized_config_account,
+    audit_transact_fixture, auditor_pubkey, authority, curator_slot, encode_transact,
+    escrowed_config_account, initialized_address_tree_account,
+    initialized_address_tree_account_with_roots, initialized_address_tree_account_with_state_roots,
+    initialized_config_account, initialized_curator_registry_account,
     initialized_policy_config_account, initialized_tree_account, insert_after_policy_trees,
-    key_registry_root_slot, nullifier_root_cursor, other_tree, other_tree_slot,
-    paused_address_tree_account, policy_delegate_transact_fixture, policy_ix_data, setup_mollusk,
-    transact_fixture, utxo_root_cursor, Fixture, Slot,
+    mixed_sources, nullifier_root_cursor, other_tree_slot, paused_address_tree_account,
+    policy_config_account_with, policy_ix_data, setup_mollusk, transact_fixture, utxo_root_cursor,
+    Fixture, Slot, RELEASED_RULES,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -132,123 +133,6 @@ pub(crate) fn body(
             transact,
         ),
     )
-}
-
-struct RevocationTarget {
-    address: Pubkey,
-    state: solana_account::Account,
-}
-
-fn revocation_target_bytes() -> [u8; 32] {
-    let mut target = [0u8; 32];
-    target[31] = 7;
-    target
-}
-
-fn canonical_target(state: solana_account::Account) -> RevocationTarget {
-    target_under(address_tree(), state)
-}
-
-fn target_under(tree: Pubkey, state: solana_account::Account) -> RevocationTarget {
-    RevocationTarget {
-        address: pda::nullifier_pda(&tree, &revocation_target_bytes()).0,
-        state,
-    }
-}
-
-fn queued_target() -> RevocationTarget {
-    let mut queued = account(1_000_000);
-    queued.owner = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    queued.data = vec![1];
-    canonical_target(queued)
-}
-
-fn revocation_fixture(nullifier_root_index: u16, target: RevocationTarget) -> Fixture {
-    revocation_fixture_with(
-        ix_data(0, nullifier_root_index, false, transact_data()),
-        target,
-    )
-}
-
-fn revocation_fixture_with(ix: CustomRingTransactIxData, target: RevocationTarget) -> Fixture {
-    let fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(4)),
-        encode_transact(tag::TRANSACT, &revoking(ix)),
-    );
-    with_target(fixture, target)
-}
-
-fn delegate_revocation_fixture(target: RevocationTarget) -> Fixture {
-    let mut content = transact_data();
-    content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
-    let ix = revoking(ix_data(0, 0, false, content));
-    let fixture = policy_delegate_transact_fixture(encode_transact(tag::DELEGATE_TRANSACT, &ix));
-    with_target(fixture, target)
-}
-
-fn revoking(mut ix: CustomRingTransactIxData) -> CustomRingTransactIxData {
-    ix.revocation_targets[0] = revocation_target_bytes();
-    ix
-}
-
-fn with_target(mut fixture: Fixture, target: RevocationTarget) -> Fixture {
-    fixture.insert_before_spp(vec![Slot {
-        label: "revocation_target",
-        meta: AccountMeta::new_readonly(target.address, false),
-        account: target.state,
-    }]);
-    fixture
-}
-
-#[test]
-fn an_unused_canonical_revocation_target_reaches_the_proof() {
-    let (mollusk, _) = setup_mollusk();
-    revocation_fixture(0, canonical_target(account(0)))
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn a_substituted_revocation_target_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let target = RevocationTarget {
-        address: Pubkey::new_from_array([91; 32]),
-        state: account(0),
-    };
-    revocation_fixture(0, target)
-        .expect_err(&mollusk, custom(CustomRingError::InvalidRevocationTarget));
-}
-
-#[test]
-fn a_queued_revocation_target_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    revocation_fixture(0, queued_target())
-        .expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
-}
-
-#[test]
-fn a_prefunded_system_revocation_target_reaches_the_proof() {
-    let (mollusk, _) = setup_mollusk();
-    revocation_fixture(0, canonical_target(account(1_000_000)))
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn the_delegate_rail_refuses_a_queued_revocation_target() {
-    let (mollusk, _) = setup_mollusk();
-    delegate_revocation_fixture(queued_target())
-        .expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
-    delegate_revocation_fixture(canonical_target(account(0)))
-        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn a_revocation_behind_an_older_admitted_root_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let tree = initialized_address_tree_account_with_roots(NULLIFIER_ROTATIONS);
-    let oldest = nullifier_root_cursor(&tree) - NULLIFIER_ROTATIONS;
-    let mut fixture = revocation_fixture(oldest, queued_target());
-    fixture.set_account("policy_tree", tree);
-    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
 }
 
 /// Roots written after the init root in slot 0. The cursor starts at 1, so this
@@ -398,73 +282,6 @@ fn a_stale_index_into_a_second_policy_tree_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
 }
 
-/// Each fact's revocation nullifier derives under the tree its slot names.
-#[test]
-fn a_revocation_target_derives_under_its_slot_tree() {
-    let (mollusk, _) = setup_mollusk();
-    let two_trees = || {
-        let mut ix = ix_data(0, 0, false, transact_data());
-        ix.policy_trees.push(ix.policy_trees[0]);
-        ix.revocation_tree_indexes[0] = 1;
-        ix
-    };
-    let mut under_slot =
-        revocation_fixture_with(two_trees(), target_under(other_tree(), account(0)));
-    insert_after_policy_trees(&mut under_slot, other_tree_slot());
-    under_slot.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-
-    let mut under_address = revocation_fixture_with(two_trees(), canonical_target(account(0)));
-    insert_after_policy_trees(&mut under_address, other_tree_slot());
-    under_address.expect_err(&mollusk, custom(CustomRingError::InvalidRevocationTarget));
-}
-
-#[test]
-fn a_revocation_tree_index_past_the_policy_trees_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut ix = ix_data(0, 0, false, transact_data());
-    ix.revocation_tree_indexes[0] = 1;
-    revocation_fixture_with(ix, canonical_target(account(0))).expect_err(
-        &mollusk,
-        custom(CustomRingError::InvalidRevocationTreeIndex),
-    );
-}
-
-#[test]
-fn an_audit_only_statement_takes_no_revocation_target() {
-    let (mollusk, _) = setup_mollusk();
-    let mut audit = audit_ix_data(bogus_proof(), transact_data());
-    audit.revocation_targets[0] = revocation_target_bytes();
-    audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(4)),
-        encode_transact(tag::TRANSACT, &audit),
-    )
-    .expect_err(
-        &mollusk,
-        custom(CustomRingError::UnexpectedRevocationTarget),
-    );
-}
-
-#[test]
-fn an_index_on_an_empty_revocation_slot_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut ix = ix_data(0, 0, false, transact_data());
-    ix.revocation_tree_indexes[1] = 1;
-    policy_fixture_with(ix).expect_err(
-        &mollusk,
-        custom(CustomRingError::InvalidRevocationTreeIndex),
-    );
-    let mut audit = audit_ix_data(bogus_proof(), transact_data());
-    audit.revocation_tree_indexes[0] = 1;
-    audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(4)),
-        encode_transact(tag::TRANSACT, &audit),
-    )
-    .expect_err(
-        &mollusk,
-        custom(CustomRingError::InvalidRevocationTreeIndex),
-    );
-}
-
 #[test]
 fn an_audit_only_ring_takes_no_policy_trees() {
     let (mollusk, _) = setup_mollusk();
@@ -476,44 +293,77 @@ fn an_audit_only_ring_takes_no_policy_trees() {
 }
 
 #[test]
-fn an_escrowed_ring_reads_the_registry_root_at_its_index() {
+fn a_policy_ring_reads_the_registry_root_at_its_index() {
     let (mollusk, _) = setup_mollusk();
-    let escrowed = |index: u8| {
+    let bound = |index: u8| {
         let mut ix = ix_data(0, 0, false, transact_data());
-        ix.key_registry_root_index = index;
-        let mut fixture = transact_fixture(
+        ix.registry_root_index = index;
+        transact_fixture(
             escrowed_config_account(),
             encode_transact(tag::TRANSACT, &ix),
+        )
+    };
+    bound(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    bound(1).expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
+    bound(MEMBER_REGISTRY_ROOT_HISTORY as u8)
+        .expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
+
+    let mut missing = bound(0);
+    missing.remove("member_registry_root");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
+    let mut other = bound(0);
+    other.substitute("member_registry_root", Pubkey::new_from_array([79; 32]));
+    other.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
+}
+
+/// The curator's registry root follows the ring's own.
+#[test]
+fn a_curated_policy_reads_the_curator_root_at_its_index() {
+    let (mollusk, _) = setup_mollusk();
+    let curated = |index: u8| {
+        let mut ix = ix_data(0, 0, false, transact_data());
+        ix.foreign_root_indexes = [index];
+        let mut fixture = transact_fixture(
+            initialized_config_account(authority(), auditor_pubkey(4)),
+            encode_transact(tag::TRANSACT, &ix),
         );
-        insert_after_policy_trees(&mut fixture, key_registry_root_slot());
+        fixture.set_account(
+            "policy_config",
+            policy_config_account_with(&RELEASED_RULES, mixed_sources()),
+        );
+        let at = fixture.position("member_registry_root") + 1;
+        fixture.insert(at, curator_slot(initialized_curator_registry_account()));
         fixture
     };
-    escrowed(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-    escrowed(1).expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
-    escrowed(KEY_REGISTRY_ROOT_HISTORY as u8)
-        .expect_err(&mollusk, custom(CustomRingError::StaleKeyRegistryRoot));
-
-    let mut missing = transact_fixture(escrowed_config_account(), transact_body(0, 0));
-    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
-    missing = escrowed(0);
-    missing.substitute("key_registry_root", Pubkey::new_from_array([79; 32]));
-    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    curated(0).expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    curated(1).expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
+    let mut missing = curated(0);
+    missing.remove("curator");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidCuratorRegistry));
+    let mut other = curated(0);
+    other.substitute("curator", Pubkey::new_from_array([79; 32]));
+    other.expect_err(&mollusk, custom(CustomRingError::InvalidCuratorRegistry));
 }
 
 #[test]
-fn a_registry_index_without_escrow_is_rejected_exactly() {
+fn a_registry_index_without_a_binding_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut ix = ix_data(0, 0, false, transact_data());
-    ix.key_registry_root_index = 1;
-    policy_fixture_with(ix)
-        .expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
+    ix.foreign_root_indexes = [1];
+    policy_fixture_with(ix).expect_err(
+        &mollusk,
+        custom(CustomRingError::UnexpectedMemberRegistryRoot),
+    );
     let mut audit = audit_ix_data(bogus_proof(), transact_data());
-    audit.key_registry_root_index = 1;
+    audit.registry_root_index = 1;
     audit_transact_fixture(
         audit_only_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &audit),
     )
-    .expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
+    .expect_err(
+        &mollusk,
+        custom(CustomRingError::UnexpectedMemberRegistryRoot),
+    );
 }
 
 /// The transact path loads the policy config unconditionally, an uninitialized
@@ -665,7 +515,6 @@ fn five_policy_trees_and_the_registry_fit_the_transaction_budget() {
         escrowed_config_account(),
         encode_transact(tag::TRANSACT, &ix),
     );
-    insert_after_policy_trees(&mut fixture, key_registry_root_slot());
     for byte in 1..INPUT_TREES as u8 {
         let address = Pubkey::new_from_array([43 + byte; 32]);
         insert_after_policy_trees(

@@ -58,14 +58,14 @@ fn set_delegate_on_an_audit_only_ring_is_rejected_exactly() {
 }
 
 #[test]
-fn set_delegate_without_a_key_registry_is_rejected_exactly() {
+fn set_delegate_without_a_member_registry_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut missing = set_delegate_fixture(set_delegate_data(delegate()), None);
-    missing.set_account("key_registry_root", account(0));
-    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    missing.set_account("member_registry_root", account(0));
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
     let mut foreign = set_delegate_fixture(set_delegate_data(delegate()), None);
-    foreign.substitute("key_registry_root", Pubkey::new_from_array([70; 32]));
-    foreign.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    foreign.substitute("member_registry_root", Pubkey::new_from_array([70; 32]));
+    foreign.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
 }
 
 #[test]
@@ -153,19 +153,19 @@ fn an_audit_only_ring_refuses_the_delegate_rail_exactly() {
     .expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
 }
 
-/// The delegate recovers nullifier secrets only through the escrow registry.
+/// The delegate recovers nullifier secrets only through the escrowed records.
 #[test]
-fn the_delegate_rail_requires_the_key_registry() {
+fn the_delegate_rail_requires_key_escrow() {
     let (mollusk, _) = setup_mollusk();
     let mut unescrowed = delegate_move(Vec::new());
     unescrowed.set_account(
         "config",
         initialized_config_account(authority(), auditor_pubkey(4)),
     );
-    unescrowed.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    unescrowed.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
     let mut missing = delegate_move(Vec::new());
-    missing.remove("key_registry_root");
-    missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+    missing.remove("member_registry_root");
+    missing.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
 }
 
 #[test]

@@ -16,8 +16,8 @@ mod deposit_audit;
 mod dispatch;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
-#[path = "failing/key_registry.rs"]
-mod key_registry;
+#[path = "failing/member_registry.rs"]
+mod member_registry;
 #[path = "failing/merge.rs"]
 mod merge;
 #[path = "failing/read_access.rs"]
