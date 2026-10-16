@@ -334,6 +334,7 @@ impl AuditorEncryption {
 }
 
 impl AnonymousDisclosure {
+    /// Selects the published input and output prefixes for this opening.
     pub fn shape(&self) -> DisclosureShape {
         DisclosureShape {
             anonymous: true,
@@ -342,6 +343,7 @@ impl AnonymousDisclosure {
         }
     }
 
+    // Slot padding keeps the circuit's 31-byte chunk boundaries unambiguous.
     fn encode(&self) -> Result<Vec<u8>> {
         let len = self
             .shape()
@@ -375,6 +377,7 @@ impl AnonymousDisclosure {
         Ok(bytes)
     }
 
+    // Reject nonzero padding so each accepted disclosure has one byte layout.
     fn decode(bytes: &[u8], shape: DisclosureShape) -> Result<Self> {
         let (header, mut rest) = bytes
             .split_at_checked(DISCLOSURE_SENDER_LEN)

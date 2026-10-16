@@ -56,6 +56,7 @@ impl TransactionAudit<'_> {
     /// Uses the config mode to disambiguate disclosure sizes that coincide
     /// across normal and anonymous rings.
     pub fn run_with_mode(self, mode: RingMode) -> Result<AuditedTransaction, AuditError> {
+        // The on-chain mode selects the parser even when both layouts have 36 fields.
         let anonymous = mode == RingMode::Anonymous;
         let shape = DisclosureShape {
             anonymous,
@@ -86,6 +87,8 @@ impl TransactionAudit<'_> {
                 self.transaction.output_slots.len(),
             ));
         }
+        // Reconstruct each real commitment from the anonymous opening before
+        // interpreting its encrypted output body.
         let (disclosed, anonymous_disclosure) = if anonymous {
             let disclosure = message.open_anonymous(&tx_key, salt, shape)?;
             let openings = self
@@ -108,6 +111,7 @@ impl TransactionAudit<'_> {
         let mut output_openings = Vec::with_capacity(self.transaction.output_slots.len());
         let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
+        // Keep the legacy output and spend-record checks after disclosure opens.
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
