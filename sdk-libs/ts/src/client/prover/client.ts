@@ -188,8 +188,8 @@ function teeSession(
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
-  /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
-  readonly #keyless: boolean;
+  /** Whether the prover is the Helius gateway. */
+  readonly #gateway: boolean;
   readonly #indexed: boolean;
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
@@ -215,8 +215,8 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
-    this.#keyless = isZolanaGateway(url);
-    this.#indexed = !this.#keyless && !isDefaultTeeProver(url);
+    this.#gateway = isZolanaGateway(url);
+    this.#indexed = !this.#gateway && !isDefaultTeeProver(url);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
       this.#fetch = checkedFetch(input.fetch);
@@ -226,7 +226,7 @@ export class ProverClient {
     }
     this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = teeSession(input.tee, url, this.#keyless);
+    this.#tee = teeSession(input.tee, url, this.#gateway);
   }
 
   /**
@@ -559,11 +559,9 @@ export class ProverClient {
   /**
    * `/prove/<key>`: every proof and its status poll go to its proving key's
    * path, so a gateway sends both to the prover pool that serves the key.
-   * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
   #keyUrl(key: ExpectedProvingKey): URL {
     const url = new URL(this.#url);
-    if (this.#keyless) return url;
     url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
     return url;
   }

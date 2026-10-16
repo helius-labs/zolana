@@ -433,20 +433,19 @@ enum ProofRoute {
 }
 
 impl ProofRoute {
-    /// On the Helius gateway, the key-less `/prove`, where the prover reads
-    /// the key from the body; the gateway has no indexed route.
+    /// The key's path, `/prove/<key>`, or `/prove/<key>/indexed`, which the
+    /// Helius gateway does not route.
     fn url(&self, endpoint: &ProverEndpoint, key: &ExpectedProvingKey) -> Result<Url, ClientError> {
-        let gateway = endpoint.is_gateway();
-        let path =
-            match (self, gateway) {
-                (Self::Complete, true) => "/prove".to_owned(),
-                (Self::Indexed, true) => return Err(ClientError::Prover(
+        let path = match self {
+            Self::Complete => key.prove_path(),
+            Self::Indexed if endpoint.is_gateway() => {
+                return Err(ClientError::Prover(
                     "the Helius gateway has no indexed prove route; use ProofDataSource::Client"
                         .into(),
-                )),
-                (Self::Complete, false) => key.prove_path(),
-                (Self::Indexed, false) => key.prove_path() + "/indexed",
-            };
+                ));
+            }
+            Self::Indexed => key.prove_path() + "/indexed",
+        };
         endpoint.url(&path)
     }
 
@@ -2663,10 +2662,10 @@ mod tests {
         assert!(requests.get(1).expect("queued retry").async_requested);
     }
 
-    /// The Helius gateway routes proofs only to the key-less `/prove` and
-    /// `/prove/status`, and has no indexed route.
+    /// The Helius gateway takes each proof and its poll on the key's path, and
+    /// has no indexed route.
     #[test]
-    fn the_helius_gateway_gets_key_less_paths_and_client_proof_data() {
+    fn the_helius_gateway_gets_key_paths_and_client_proof_data() {
         let server = MockServer::respond_with(vec![
             MockResponse::json(429, json!({ "code": "prover_busy" })),
             MockResponse::json(202, json!({ "jobId": "gateway-job" })),
@@ -2698,13 +2697,13 @@ mod tests {
         assert_eq!(gateway.proof_data_source(), ProofDataSource::Client);
         gateway
             .send("{}", Delivery::InResponse, &test_key())
-            .expect("the gateway proves on its key-less path");
+            .expect("the gateway proves on the key's path");
         assert_paths(
             &server.requests(),
             [
-                "/v1/zolana/prove?api-key=secret",
-                "/v1/zolana/prove?api-key=secret",
-                "/v1/zolana/prove/status?api-key=secret&jobId=gateway-job",
+                "/v1/zolana/prove/test?api-key=secret",
+                "/v1/zolana/prove/test?api-key=secret",
+                "/v1/zolana/prove/test/status?api-key=secret&jobId=gateway-job",
             ],
         );
 
