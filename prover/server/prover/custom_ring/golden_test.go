@@ -20,11 +20,8 @@ import (
 
 const goldenDigests = "testdata/witness.sha256"
 
-// Every fixture but these is a statement its circuit accepts.
-var goldenUnsolved = map[string]bool{"custom-ring-policy-sample.json": true}
-
-// The fixtures are frozen request bytes; a decoder change must assign the
-// recorded witness, and UPDATE_RING_GOLDENS=1 rewrites only the digests.
+// The fixtures are frozen request bytes every circuit accepts; a decoder change
+// must assign the recorded witness, and UPDATE_RING_GOLDENS=1 rewrites only the digests.
 func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 	files, err := filepath.Glob("testdata/*.json")
 	if err != nil || len(files) == 0 {
@@ -53,9 +50,6 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 		}
 		digest := sha256.Sum256(encoded)
 		digests[name] = hex.EncodeToString(digest[:])
-		if goldenUnsolved[name] {
-			continue
-		}
 		cs := systems[meta.CircuitType]
 		if cs == nil {
 			cs = compileRing(t, meta.CircuitType)
