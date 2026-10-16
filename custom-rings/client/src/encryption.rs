@@ -4,8 +4,8 @@
 use custom_ring_interface::{
     pack_2fe, FieldPair, RingDepositAuditCapsule, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
     AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
-    COMPRESSED_P256_KEY_LEN, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
-    RING_DEPOSIT_AUDIT_INFO,
+    MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO,
+    TAGGED_X25519_KEY_LEN,
 };
 use num_bigint::BigUint;
 use zeroize::Zeroizing;
@@ -144,7 +144,7 @@ impl AuditorMessage {
         let Ok(data) = <&[u8; AUDITOR_MESSAGE_LEN]>::try_from(message.data.as_slice()) else {
             return Err(AuditError::MessageLength(message.data.len()));
         };
-        let (eph_pk, body) = data.split_at(COMPRESSED_P256_KEY_LEN);
+        let (eph_pk, body) = data.split_at(TAGGED_X25519_KEY_LEN);
         let (ciphertext, disclosure) = body.split_at(AUDIT_CIPHERTEXT_LEN);
         let mut fields = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
         for (field, bytes) in fields.iter_mut().zip(disclosure.as_chunks::<32>().0) {
@@ -153,7 +153,7 @@ impl AuditorMessage {
             }
             *field = *bytes;
         }
-        let mut key = [0u8; COMPRESSED_P256_KEY_LEN];
+        let mut key = [0u8; TAGGED_X25519_KEY_LEN];
         key.copy_from_slice(eph_pk);
         let mut message = Self::new(X25519Pubkey::from_bytes(key)?, [0; AUDIT_CIPHERTEXT_LEN]);
         message.ciphertext.copy_from_slice(ciphertext);
@@ -165,7 +165,7 @@ impl AuditorMessage {
         self.eph_pk
     }
 
-    pub fn ephemeral_pubkey_bytes(&self) -> &[u8; COMPRESSED_P256_KEY_LEN] {
+    pub fn ephemeral_pubkey_bytes(&self) -> &[u8; TAGGED_X25519_KEY_LEN] {
         self.eph_pk.as_bytes()
     }
 

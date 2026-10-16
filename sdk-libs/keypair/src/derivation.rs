@@ -9,10 +9,7 @@
 //! no-thin-wrapper directive.
 
 use hkdf::Hkdf;
-use p256::{
-    ecdh::diffie_hellman, elliptic_curve::hash2curve::FromOkm, AffinePoint,
-    PublicKey as P256PublicKey, Scalar, SecretKey,
-};
+use p256::{ecdh::diffie_hellman, AffinePoint, SecretKey};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
@@ -22,9 +19,14 @@ use crate::{
     nullifier_key::NullifierKey,
     pubkey::{Curve, P256Pubkey},
     viewing_key::{ViewTag, ViewingKey},
+    x25519::{X25519Pubkey, X25519Secret},
 };
 
 pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
+
+pub(crate) const DST_X25519_VIEW_ROOT: &[u8] = b"TSPP/view_root/x25519/v1";
+
+pub(crate) const DST_X25519_PDA_ROOT: &[u8] = b"TSPP/pda_root/x25519/v1";
 
 pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC1;
 
@@ -43,6 +45,10 @@ pub const INFO_NF_KEY_ECDH: &[u8] = b"TSPP/nf_key/ecdh/v1";
 pub const INFO_VIEW_KEY_ED25519: &[u8] = b"TSPP/view_key/ed25519/v1";
 
 pub const INFO_VIEW_KEY_ECDH: &[u8] = b"TSPP/view_key/ecdh/v1";
+
+pub const INFO_VIEW_KEY_ED25519_X25519: &[u8] = b"TSPP/view_key/ed25519/x25519/v1";
+
+pub const INFO_VIEW_KEY_ECDH_X25519: &[u8] = b"TSPP/view_key/ecdh/x25519/v1";
 
 pub const INFO_PDA_NF_KEY: &[u8] = b"TSPP/pda_nf/v1";
 
@@ -89,7 +95,6 @@ pub fn ed25519_derivation_message(signer_pubkey: &[u8; 32]) -> Vec<u8> {
     message.extend_from_slice(payload);
     message
 }
-
 /// True when signing `message` would produce a derivation seed: the payload,
 /// bare or off-chain encoded, begins with [`DERIVATION_PAYLOAD_PREFIX`].
 pub fn is_derivation_input(message: &[u8]) -> bool {
@@ -118,6 +123,8 @@ pub const INFO_SENDER_VIEW_TAG_SECRET: &[u8] = b"TSPP/sender_view_tag";
 pub const INFO_RECIPIENT_VIEW_TAG_SECRET: &[u8] = b"TSPP/recipient_view_tag";
 
 pub const INFO_TX_VIEWING: &[u8] = b"TSPP/tx_viewing";
+
+pub const INFO_TX_VIEWING_X25519: &[u8] = b"TSPP/tx_viewing/x25519/v1";
 
 pub const INFO_SENDER_VIEW_TAG_PREFIX: &[u8] = b"TSPP/sender_view_tag/";
 
@@ -199,7 +206,7 @@ pub(crate) fn recipient_request_view_tag(
 
 pub(crate) fn shared_view_tag(
     ecdh_shared: &[u8; 32],
-    r_pubkey: &P256Pubkey,
+    r_pubkey: &X25519Pubkey,
     i: u64,
 ) -> Result<ViewTag, KeypairError> {
     let mut domain = [0u8; 32];
@@ -231,27 +238,17 @@ pub(crate) fn p_derive() -> P256Pubkey {
     P256Pubkey::from_bytes(P_DERIVE_SEC1).expect("committed P_derive is valid SEC1")
 }
 
-pub(crate) fn p_pda() -> P256Pubkey {
-    P256Pubkey::from_bytes(P_PDA_SEC1).expect("committed P_pda is valid SEC1")
-}
-
-/// Committed points whose shared secret is a derivation root; the generic ecdh
-/// entry points refuse all three. `ECDH(viewing_sk, P_const)` is the IKM
-/// `view_root` extracts from, so handing it to a caller hands over every view
-/// tag and the transaction-viewing secret. The roots themselves are reached
-/// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
-/// check.
+/// Reserved legacy P-256 peers for signing-key derivation.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
     zolana_hasher::p256::is_reserved_derivation_point(pubkey.as_bytes())
 }
 
-/// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK
-/// all per-purpose secrets expand from.
-pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
-    let p_const =
-        P256PublicKey::from_sec1_bytes(&P_CONST_SEC1).expect("committed P_const is valid SEC1");
-    let ikm = Zeroizing::new(ecdh_x_point(secret, p_const.as_affine()));
-    let (prk, _) = Hkdf::<Sha256>::extract(None, ikm.as_slice());
+/// Derives viewing roles from the canonical secret with a dedicated salt.
+/// Raw ECDH cannot reveal this input. Fixed-peer ECDH roots are unsafe because
+/// a caller can query a multiple of the peer and invert that multiplication.
+pub(crate) fn view_root(secret: &X25519Secret) -> Zeroizing<[u8; 32]> {
+    let ikm = secret.secret_bytes();
+    let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_VIEW_ROOT), ikm.as_slice());
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&prk);
     out
@@ -304,8 +301,8 @@ impl Rail {
 
     fn viewing_info(self) -> &'static [u8] {
         match self {
-            Self::Ed25519 => INFO_VIEW_KEY_ED25519,
-            Self::Ecdh => INFO_VIEW_KEY_ECDH,
+            Self::Ed25519 => INFO_VIEW_KEY_ED25519_X25519,
+            Self::Ecdh => INFO_VIEW_KEY_ECDH_X25519,
         }
     }
 }
@@ -336,27 +333,27 @@ impl RoleExpansion {
     }
 
     pub(crate) fn viewing_key(&self) -> Result<ViewingKey, KeypairError> {
-        let mut okm = Zeroizing::new([0u8; 48]);
+        let mut okm = Zeroizing::new([0u8; 32]);
         hkdf_expand_prk(
             self.prk.as_slice(),
             &[self.rail.viewing_info()],
             okm.as_mut_slice(),
         )?;
-        ViewingKey::from_okm48(&okm)
+        ViewingKey::from_bytes(&okm)
     }
 }
 
-/// One HKDF-Extract over the viewing-key ECDH shared secret, then one Expand
-/// per role with the PDA bound into the info, so parties who transact
-/// repeatedly do not reuse one identity across their PDAs.
+/// Expands a holder secret or shared ECDH seed into PDA-bound roles.
+/// The dedicated salt separates viewing roots and the PDA in each Expand
+/// prevents reusing one identity across different program addresses.
 pub(crate) struct PdaRoleExpansion {
     prk: Zeroizing<[u8; 32]>,
     pda: [u8; 32],
 }
 
 impl PdaRoleExpansion {
-    pub(crate) fn new(shared: &[u8; 32], pda: [u8; 32]) -> Self {
-        let (prk, _) = Hkdf::<Sha256>::extract(None, shared);
+    pub(crate) fn new(seed: &[u8; 32], pda: [u8; 32]) -> Self {
+        let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_PDA_ROOT), seed);
         let mut bytes = Zeroizing::new([0u8; 32]);
         bytes.copy_from_slice(&prk);
         Self { prk: bytes, pda }
@@ -373,22 +370,12 @@ impl PdaRoleExpansion {
     }
 
     pub(crate) fn viewing_key(&self) -> Result<ViewingKey, KeypairError> {
-        let mut okm = Zeroizing::new([0u8; 48]);
+        let mut okm = Zeroizing::new([0u8; 32]);
         hkdf_expand_prk(
             self.prk.as_slice(),
             &[INFO_PDA_VIEW_KEY, &self.pda],
             okm.as_mut_slice(),
         )?;
-        ViewingKey::from_okm48(&okm)
+        ViewingKey::from_bytes(&okm)
     }
-}
-
-// p256 0.13's `FromOkm` API still exposes generic-array 0.14. Newer
-// generic-array releases deprecate that type, so keep the compatibility use
-// isolated until p256's public hash-to-field API moves to hybrid-array.
-#[allow(deprecated)]
-pub(crate) fn scalar_from_okm(okm: &[u8; 48]) -> Scalar {
-    use p256::elliptic_curve::generic_array::GenericArray;
-
-    Scalar::from_okm(GenericArray::from_slice(okm))
 }

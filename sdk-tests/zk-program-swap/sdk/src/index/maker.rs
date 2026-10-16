@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use zolana_client::Rpc;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, ShieldedTransaction,
@@ -22,7 +22,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MakerOrder {
     pub order_utxo: OrderUtxo,
-    pub taker_viewing_pubkey: P256Pubkey,
+    pub taker_viewing_pubkey: X25519Pubkey,
 }
 
 /// Maker-side order rediscovery: the per-transaction viewing key re-derives
@@ -81,7 +81,7 @@ fn maker_order_candidate(
     registry: &AssetRegistry,
     maker_address: ShieldedAddress,
     plaintext: ConfidentialOutputPlaintext,
-    taker_viewing_pubkey: P256Pubkey,
+    taker_viewing_pubkey: X25519Pubkey,
 ) -> Option<MakerOrder> {
     let order_data = parse_order_data(&plaintext.data.records).ok()?;
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;

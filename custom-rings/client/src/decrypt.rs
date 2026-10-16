@@ -86,12 +86,12 @@ fn auditor_message(
     AuditorMessage::parse(message, auditor_pk)
 }
 
-/// The circuit pins the secret below the P-256 order, so a representative above it is refused.
+/// The circuit pins the clamped encoding, so an alias with the same public key is refused.
 pub fn recover_tx_viewing_key(
     auditor: &X25519Secret,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
-    ViewingKey::from_bytes(&*message.decrypt(auditor)?)
+    ViewingKey::from_canonical_bytes(&*message.decrypt(auditor)?)
         .map_err(|_| AuditError::NonCanonicalViewingKey)
 }
 
@@ -152,19 +152,7 @@ mod tests {
     use super::*;
     use crate::encryption::{seal_stream, AUDIT_ENC_INFO};
 
-    /// The P-256 group order.
-    const N: [u8; 32] = [
-        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63,
-        0x25, 0x51,
-    ];
-
-    fn with_last_byte(mut value: [u8; 32], last: u8) -> [u8; 32] {
-        value[31] = last;
-        value
-    }
-
-    /// Seals raw bytes as the transaction secret, no scalar check runs on the way in.
+    /// Seals raw bytes as the transaction secret, no clamping runs on the way in.
     fn recover(secret: [u8; 32]) -> Result<ViewingKey, AuditError> {
         let auditor = X25519Secret::new();
         let ephemeral = X25519Secret::new();
@@ -183,17 +171,35 @@ mod tests {
     }
 
     #[test]
-    fn the_largest_canonical_secret_opens() {
-        let below = with_last_byte(N, 0x50);
-        assert_eq!(*recover(below).unwrap().secret_bytes(), below);
+    fn the_canonical_secret_opens_byte_for_byte() {
+        let canonical = *ViewingKey::from_bytes(&[0x48; 32]).unwrap().secret_bytes();
+        assert_eq!(*recover(canonical).unwrap().secret_bytes(), canonical);
     }
 
-    /// A representative at or above the order would key another disclosure stream.
+    /// Clamping maps every alias onto the published key, so only the clamped bytes may open.
     #[test]
-    fn a_secret_at_or_above_the_order_or_zero_is_refused() {
-        for secret in [N, with_last_byte(N, 0x52), [0xff; 32], [0; 32]] {
+    fn an_unclamped_alias_of_the_published_key_is_refused() {
+        let key = ViewingKey::from_bytes(&[0x48; 32]).unwrap();
+        let mut low_bit = *key.secret_bytes();
+        low_bit[0] |= 1;
+        let mut high_bit = *key.secret_bytes();
+        high_bit[31] |= 0x80;
+        let mut cleared = *key.secret_bytes();
+        cleared[31] &= !0x40;
+        for alias in [low_bit, high_bit, cleared] {
+            assert_eq!(
+                ViewingKey::from_bytes(&alias).unwrap().pubkey(),
+                key.pubkey(),
+                "alias must clamp onto the published key"
+            );
             assert!(matches!(
-                recover(secret),
+                recover(alias),
+                Err(AuditError::NonCanonicalViewingKey)
+            ));
+        }
+        for unclamped in [[0xff; 32], [0; 32]] {
+            assert!(matches!(
+                recover(unclamped),
                 Err(AuditError::NonCanonicalViewingKey)
             ));
         }

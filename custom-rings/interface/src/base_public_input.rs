@@ -5,15 +5,15 @@ use zolana_hasher::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, COMPRESSED_P256_KEY_LEN};
+use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, TAGGED_X25519_KEY_LEN};
 
 /// The audit statement, each value from the forwarded SPP content, the ring
 /// config or the published message, so a proof binds only this transaction.
 pub struct CustomRingBasePublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
-    pub tx_viewing_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    pub tx_viewing_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
     pub output_hashes: &'a [[u8; 32]],
     pub salt: &'a [u8; 16],

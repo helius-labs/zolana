@@ -106,7 +106,7 @@ func policyFixture(t *testing.T, registry hostRegistry) Request {
 	}
 	prepared := map[string]any{
 		"circuitType":   common.CustomRingPolicyCircuitType,
-		"privateTxHash": "0x" + strings.Repeat("00", 31) + "01", "txViewingSk": "0x" + strings.Repeat("00", 31) + "01", "ephSk": "0x" + strings.Repeat("00", 31) + "02",
+		"privateTxHash": "0x" + strings.Repeat("00", 31) + "01", "txViewingSk": "0x" + strings.Repeat("00", 31) + "41", "ephSk": "0x" + strings.Repeat("00", 31) + "02",
 		"auditorPk": "0x09" + strings.Repeat("00", 31),
 		"salt":      "0x" + strings.Repeat("00", 16), "nIn": 1, "nOut": 1, "inputs": openings(5), "outputs": openings(4),
 		"addressChain": zeroHex(), "privateTxBlinding": zeroHex(), "sources": sources, "policyLen": 0, "ruleEnc": zeroFields(16),

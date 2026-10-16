@@ -11,7 +11,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -141,21 +140,31 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "forged infinity for zero ephemeral secret",
-			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithForgedInfinityEphScalar(big.NewInt(0)) },
+			name: "legacy viewing key tag",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithLegacyTxTag() },
 		},
 		{
-			name: "forged infinity for P256-order ephemeral secret",
-			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithForgedInfinityEphScalar(p256.GroupOrder()) },
+			name: "legacy envelope key tag",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithLegacyEphTag() },
 		},
 	}
-	for name, value := range map[string]*big.Int{
-		"zero":                       big.NewInt(0),
-		"at the group order":         p256.GroupOrder(),
-		"one above the order":        new(big.Int).Add(p256.GroupOrder(), big.NewInt(1)),
-		"a valid key plus the order": new(big.Int).Add(p256.GroupOrder(), big.NewInt(0xbeef)),
+	// Every alias clamps onto the published key, only the clamped bytes may be the plaintext.
+	canonical := ringaudit.DefaultKeys(t).TxSk()
+	for name, alias := range map[string]func([32]byte) [32]byte{
+		"zero":          func([32]byte) [32]byte { return [32]byte{} },
+		"low bit set":   func(s [32]byte) [32]byte { s[0] |= 1; return s },
+		"high bit set":  func(s [32]byte) [32]byte { s[31] |= 0x80; return s },
+		"bit 254 clear": func(s [32]byte) [32]byte { s[31] &^= 0x40; return s },
+		"every bit set": func([32]byte) [32]byte {
+			var s [32]byte
+			for i := range s {
+				s[i] = 0xff
+			}
+			return s
+		},
 	} {
-		tests = append(tests, tamperCase{name: "tx scalar " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithTxScalar(t, value) }})
+		secret := alias(canonical)
+		tests = append(tests, tamperCase{name: "unclamped tx secret " + name, keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithRawTxScalar(t, secret) }})
 	}
 
 	for _, test := range tests {
@@ -180,9 +189,16 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	}
 }
 
-func TestCircuitSolvesTheLargestTxScalar(t *testing.T) {
-	largest := new(big.Int).Sub(p256.GroupOrder(), big.NewInt(1))
-	solve(t, testConstraintSystem(t), buildAssignment(t, ringaudit.DefaultKeys(t).WithTxScalar(t, largest)))
+// X25519 secrets are byte strings, every one clamps onto a valid viewing key.
+func TestCircuitSolvesEveryClampedTxSecret(t *testing.T) {
+	cs := testConstraintSystem(t)
+	var max [32]byte
+	for i := range max {
+		max[i] = 0xff
+	}
+	for _, secret := range [][32]byte{{}, max, ringaudit.Scalar(0x44)} {
+		solve(t, cs, buildAssignment(t, ringaudit.DefaultKeys(t).WithTxScalar(t, secret)))
+	}
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *base.CustomRingBaseCircuit) {
@@ -215,13 +231,15 @@ func buildAssignment(t *testing.T, keys ringaudit.Keys) *base.CustomRingBaseCirc
 // Clamping aliases of the ephemeral secret seal the same envelope, so no alias reaches another stream.
 func TestCircuitAcceptsClampedEphemeralSecrets(t *testing.T) {
 	cs := testConstraintSystem(t)
-	var order [32]byte
-	p256.GroupOrder().FillBytes(order[:])
+	var max [32]byte
+	for i := range max {
+		max[i] = 0xff
+	}
 	keys := ringaudit.DefaultKeys(t)
 	alias := keys.EphSk()
 	alias[0] ^= 0x07
 	alias[31] ^= 0xc0
-	for _, secret := range [][32]byte{{}, order, alias} {
+	for _, secret := range [][32]byte{{}, max, alias} {
 		solve(t, cs, buildAssignment(t, keys.WithEphScalar(t, secret)))
 	}
 	statement := keys.Statement(big.NewInt(0xabcdef))

@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{error::CustomRingError, ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
+use crate::{error::CustomRingError, ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
 
 pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
 pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
@@ -153,7 +153,7 @@ pub struct RingProgramConfig {
     pub discriminator: u8,
     pub authority: Address,
     /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
-    pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.
     pub has_policy: u8,

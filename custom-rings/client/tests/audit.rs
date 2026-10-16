@@ -28,7 +28,7 @@ use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
 };
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption, RingOrigin,
     RingScan, TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
@@ -108,7 +108,7 @@ fn output_context(output: &ProofInputUtxo, slot_index: u32) -> OutputContext {
 /// bound to `slot_index`.
 fn confidential_slot(
     tx: &ViewingKey,
-    recipient: &P256Pubkey,
+    recipient: &X25519Pubkey,
     plaintext: &ConfidentialOutputPlaintext,
     slot_index: u32,
 ) -> OutputSlot {
@@ -460,7 +460,8 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
 
     let encryption =
         AuditorEncryption::new(&tx_key, &other_auditor.pubkey()).expect("auditor encryption");
-    // Tagged for `auditor`, decryptable only by `other_auditor`.
+    // Tagged for `auditor`, decryptable only by `other_auditor`. The wrong key
+    // yields bytes that fail the clamping check or name another viewing key.
     let mislabeled = encryption.message.to_message_data(&auditor.pubkey());
     let tx = transaction(&tx_key, vec![], vec![mislabeled]);
 
@@ -471,7 +472,7 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
             assets: &registry()
         }
         .run(),
-        Err(AuditError::TxViewingKeyMismatch)
+        Err(AuditError::TxViewingKeyMismatch | AuditError::NonCanonicalViewingKey)
     ));
 }
 
@@ -491,7 +492,7 @@ fn tampered_ciphertext_fails_the_integrity_check() {
             assets: &registry()
         }
         .run(),
-        Err(AuditError::TxViewingKeyMismatch)
+        Err(AuditError::TxViewingKeyMismatch | AuditError::NonCanonicalViewingKey)
     ));
 }
 

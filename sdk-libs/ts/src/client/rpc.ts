@@ -1,7 +1,7 @@
 import type { Address, Signature } from "@solana/kit";
 
 import type { Bytes16, Bytes32 } from "../interface/types.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 export {
@@ -33,7 +33,7 @@ export interface EncryptedUtxoMatch {
   readonly slot: bigint;
   readonly txSignature: Signature;
   readonly outputSlot: IndexedShieldedTransaction["outputSlots"][number];
-  readonly txViewingPk?: P256PublicKey;
+  readonly txViewingPk?: X25519PublicKey;
   readonly salt?: Bytes16;
 }
 

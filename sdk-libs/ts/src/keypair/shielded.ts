@@ -28,6 +28,7 @@ import {
 } from "./public-key.js";
 import { SigningKey } from "./signing-key.js";
 import { type Salt, ViewingKey } from "./viewing-key.js";
+import { X25519PublicKey } from "./x25519.js";
 
 const addressDecoder = getAddressDecoder();
 
@@ -39,14 +40,14 @@ export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + VIEWI
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
 
   readonly #nullifierPublicKey: Bytes32;
 
   private constructor(
     signingPublicKey: ShieldedPublicKey,
     nullifierPublicKey: Bytes32,
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
   ) {
     this.signingPublicKey = signingPublicKey;
     this.#nullifierPublicKey = nullifierPublicKey;
@@ -57,18 +58,22 @@ export class ShieldedAddress {
   static fromPublicKeys(
     signingPublicKey: ShieldedPublicKey,
     nullifierPublicKey: Bytes32,
-    viewingPublicKey: P256PublicKey,
+    viewingPublicKey: X25519PublicKey,
   ): ShieldedAddress {
     return new ShieldedAddress(
       ShieldedPublicKey.fromBytes(signingPublicKey.toBytes()),
       checkedBytes<Bytes32>(nullifierPublicKey, 32, "nullifier public key"),
-      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+      X25519PublicKey.fromBytes(viewingPublicKey.toBytes()),
     );
   }
 
   /** Mirrors Rust `ShieldedAddress::for_pda`. */
   static forPda(
-    keys: Readonly<{ pda: Bytes32; nullifierPublicKey: Bytes32; viewingPublicKey: P256PublicKey }>,
+    keys: Readonly<{
+      pda: Bytes32;
+      nullifierPublicKey: Bytes32;
+      viewingPublicKey: X25519PublicKey;
+    }>,
   ): ShieldedAddress {
     return ShieldedAddress.fromPublicKeys(
       ShieldedPublicKey.fromPda(keys.pda),
@@ -112,7 +117,7 @@ export class ShieldedAddress {
     return ShieldedAddress.fromPublicKeys(
       ShieldedPublicKey.fromBytes(checked.slice(0, SIGNING_LENGTH) as Bytes34),
       checked.slice(SIGNING_LENGTH, SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes32,
-      P256PublicKey.fromBytes(checked.slice(SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes33),
+      X25519PublicKey.fromBytes(checked.slice(SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes33),
     );
   }
 }
@@ -124,18 +129,21 @@ export class ShieldedAddress {
  */
 export class CompressedShieldedAddress {
   readonly ownerHash: Bytes32;
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
 
-  private constructor(ownerHash: Bytes32, viewingPublicKey: P256PublicKey) {
+  private constructor(ownerHash: Bytes32, viewingPublicKey: X25519PublicKey) {
     this.ownerHash = ownerHash;
     this.viewingPublicKey = viewingPublicKey;
     Object.freeze(this);
   }
 
-  static fromParts(ownerHash: Bytes32, viewingPublicKey: P256PublicKey): CompressedShieldedAddress {
+  static fromParts(
+    ownerHash: Bytes32,
+    viewingPublicKey: X25519PublicKey,
+  ): CompressedShieldedAddress {
     return new CompressedShieldedAddress(
       checkedBytes<Bytes32>(ownerHash, 32, "owner hash"),
-      P256PublicKey.fromBytes(viewingPublicKey.toBytes()),
+      X25519PublicKey.fromBytes(viewingPublicKey.toBytes()),
     );
   }
 
@@ -169,7 +177,7 @@ export interface P256Signature {
  */
 export interface ShieldedKeypairLike {
   signingPublicKey(): ShieldedPublicKey | Promise<ShieldedPublicKey>;
-  viewingPublicKey(): P256PublicKey | Promise<P256PublicKey>;
+  viewingPublicKey(): X25519PublicKey | Promise<X25519PublicKey>;
   /** The rail this keypair signs on, which selects the transfer circuit. */
   curve(): SignatureType | Promise<SignatureType>;
   shieldedAddress(): ShieldedAddress | Promise<ShieldedAddress>;
@@ -190,31 +198,31 @@ export interface ShieldedKeypairLike {
  * viewing-key operations over a wire is not a supported deployment.
  */
 export interface ViewingKeyLike {
-  publicKey(): P256PublicKey;
-  ecdh(counterparty: P256PublicKey): Bytes32;
+  publicKey(): X25519PublicKey;
+  ecdh(counterparty: X25519PublicKey): Bytes32;
   recipientBootstrapViewTag(): ViewTag;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptUtxo(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptSlotEphemeral(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
   decryptRingDeposit(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
   ): Uint8Array;
 }
@@ -276,7 +284,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     return this.#signing.publicKey();
   }
 
-  viewingPublicKey(): P256PublicKey {
+  viewingPublicKey(): X25519PublicKey {
     return this.#viewing.publicKey();
   }
 
@@ -358,11 +366,11 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * `ShieldedKeypair`. Prefer {@link ShieldedKeypair.viewingPublicKey} when the
    * call site is not going through {@link ViewingKeyLike}.
    */
-  publicKey(): P256PublicKey {
+  publicKey(): X25519PublicKey {
     return this.viewingPublicKey();
   }
 
-  ecdh(counterparty: P256PublicKey): Bytes32 {
+  ecdh(counterparty: X25519PublicKey): Bytes32 {
     return this.#viewing.ecdh(counterparty);
   }
 
@@ -375,7 +383,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   encryptSlot(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
@@ -385,7 +393,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   decryptUtxo(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
     slotIndex: number,
   ): Uint8Array {
@@ -393,7 +401,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   decryptSlotEphemeral(
-    recipientPublicKey: P256PublicKey,
+    recipientPublicKey: X25519PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
@@ -403,7 +411,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   decryptRingDeposit(
     ciphertext: Uint8Array,
-    txViewingPublicKey: P256PublicKey,
+    txViewingPublicKey: X25519PublicKey,
     salt: Salt,
   ): Uint8Array {
     return this.#viewing.decryptRingDeposit(ciphertext, txViewingPublicKey, salt);

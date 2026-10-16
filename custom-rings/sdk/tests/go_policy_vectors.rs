@@ -368,7 +368,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
 #[test]
 fn nonzero_revocation_tail_matches_go_and_typescript() {
     let mut elements = vec![hex32(
-        "2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779",
+        "1c26456bcdeb4de535d7e8ccf1db5ff70f6f2b527565dc004291f705b5e5b72e",
     )];
     elements.extend_from_slice(&[
         [0x2a; 32],
@@ -386,7 +386,7 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("2a466546ba7c07253eb4871cde6fd696cdb886269320b19ee6b076c6a6f12139")
+        hex32("1ef22522e0d6233331b953baa067b2f821aaaf670c2313b5b27c5126956185d1")
     );
 }
 

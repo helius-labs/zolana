@@ -4,7 +4,7 @@
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use solana_address::Address;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::SigningKey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 fn ed25519_address() -> Address {
@@ -14,7 +14,13 @@ fn ed25519_address() -> Address {
 #[test]
 fn tagged_reader_keys_round_trip_through_their_bytes() {
     let ed25519 = ReaderKey::ed25519(ed25519_address()).expect("Ed25519 reader");
-    let p256 = ReaderKey::p256(ViewingKey::new().pubkey()).expect("P256 reader");
+    let p256 = ReaderKey::p256(
+        SigningKey::new_p256()
+            .pubkey()
+            .as_p256()
+            .expect("P256 signing key"),
+    )
+    .expect("P256 reader");
 
     for reader in [ed25519, p256] {
         let bytes = reader.to_bytes();

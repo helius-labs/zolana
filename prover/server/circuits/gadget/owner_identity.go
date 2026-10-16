@@ -13,9 +13,9 @@ import (
 // The tag lands in the top byte of chunk 0, so the two derivations feed
 // different first Poseidon inputs for every key pair and still cost one
 // permutation, exactly like the untagged hash_bytes_32. The tags avoid the SEC1
-// prefixes 0x02, 0x03 and 0x04 so an owner identity can never equal the
-// hash_bytes_33 viewing-key commitment over a compressed P256 key. Only the
-// P256 tag is defined here: circuits compute the P256 identity themselves,
+// prefixes 0x02, 0x03 and 0x04, separating owner identities from legacy
+// hash_bytes_33 P256 key commitments. Only the P256 tag is defined here.
+// Circuits compute the P256 identity themselves,
 // while every Solana identity arrives as a finished value hashed by SPP.
 const P256OwnerTag = 0x50
 

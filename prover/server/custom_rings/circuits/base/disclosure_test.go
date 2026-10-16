@@ -98,7 +98,7 @@ func TestDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 	}
 
 	// The circuit solves only when its disclosure hash is the pinned one.
-	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, new(big.Int).SetBytes(key[:]))
+	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, key)
 	statement := keys.Statement(big.NewInt(0xabcdef))
 	statement.Count = base.AuditOutputSlots
 	for i, b := range salt {

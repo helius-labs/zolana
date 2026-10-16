@@ -42,6 +42,12 @@ func testScalar(seed byte) Bytes {
 	return out
 }
 
+// viewingSecret is the clamped testScalar, the only plaintext the audit block accepts.
+func viewingSecret(seed byte) Bytes {
+	clamped := ringaudit.Clamped([32]byte(testScalar(seed)))
+	return Bytes(clamped[:])
+}
+
 func auditorKey(t *testing.T, seed byte) Bytes {
 	t.Helper()
 	key, err := ecdh.X25519().NewPrivateKey(testScalar(seed))
@@ -87,7 +93,7 @@ func baseParams(t *testing.T) *BaseParams {
 	p := &BaseParams{
 		CircuitType: string(common.CustomRingBaseCircuitType),
 		AuditParams: AuditParams{
-			PrivateTxHash: fi(0xabcdef), TxViewingSk: testScalar(0x11), EphSk: testScalar(0x22),
+			PrivateTxHash: fi(0xabcdef), TxViewingSk: viewingSecret(0x11), EphSk: testScalar(0x22),
 			AuditorPk: auditorKey(t, 0x33), Salt: make(Bytes, 16),
 		},
 		NOut:    1,
@@ -109,7 +115,7 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) (*PolicyParams, *spptest
 	p := &PolicyParams{
 		CircuitType: string(common.CustomRingPolicyCircuitType),
 		AuditParams: AuditParams{
-			TxViewingSk: testScalar(0x11), EphSk: testScalar(0x22), AuditorPk: auditorKey(t, 0x33), Salt: make(Bytes, 16),
+			TxViewingSk: viewingSecret(0x11), EphSk: testScalar(0x22), AuditorPk: auditorKey(t, 0x33), Salt: make(Bytes, 16),
 		},
 		NIn: 1, NOut: 1,
 		AddressChain: fi(0x77), PrivateTxBlinding: fi(0x5b1d),

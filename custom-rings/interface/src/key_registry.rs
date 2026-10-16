@@ -6,7 +6,7 @@ use zolana_hasher::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{pack_2fe, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{pack_2fe, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
 
 /// Matches the circuit height and the on-chain tree.
 pub const KEY_REGISTRY_HEIGHT: usize = 40;
@@ -25,8 +25,8 @@ pub struct RegisterKeyPublicInput<'a> {
     pub registry_new_root: &'a [u8; 32],
     pub member: &'a [u8; 32],
     pub nullifier_pk: &'a [u8; 32],
-    pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
     pub new_index: u64,
 }

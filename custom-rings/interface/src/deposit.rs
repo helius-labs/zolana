@@ -8,7 +8,7 @@ use crate::{
     deposit_audit::{MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN},
     pack_2fe,
     policy_public_input::key_escrow_elements,
-    COMPRESSED_P256_KEY_LEN,
+    TAGGED_X25519_KEY_LEN,
 };
 
 /// Binds a disclosure proof to one ring, destination tree and exact SPP deposit instruction.
@@ -44,8 +44,8 @@ pub struct DepositPublicInput<'a> {
     pub context_hash: &'a [u8; 32],
     pub owner_utxo_hashes: &'a [[u8; 32]],
     pub ciphertexts: &'a [[u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]],
-    pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     /// Present exactly when deposited nullifier keys must be enrolled under it.
     pub key_registry_root: Option<&'a [u8; 32]>,
 }

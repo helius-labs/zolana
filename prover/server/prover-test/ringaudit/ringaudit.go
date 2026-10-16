@@ -11,7 +11,6 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/p256"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -35,9 +34,9 @@ type Keys struct {
 
 func DefaultKeys(t testing.TB) Keys {
 	t.Helper()
-	txSk := Scalar(0x11)
+	txSk := Clamped(Scalar(0x11))
 	ephSk := Scalar(0x22)
-	txPriv := PrivateKey(t, txSk)
+	txPriv := XPrivateKey(t, txSk)
 	ephPriv := XPrivateKey(t, ephSk)
 	auditorPriv := XPrivateKey(t, Scalar(0x33))
 
@@ -48,30 +47,37 @@ func DefaultKeys(t testing.TB) Keys {
 	return Keys{
 		txSk:      txSk,
 		ephSk:     ephSk,
-		txPk:      compress(t, txPriv.PublicKey().Bytes()),
+		txPk:      Tagged(txPriv.PublicKey().Bytes()),
 		ephPk:     Tagged(ephPriv.PublicKey().Bytes()),
 		auditorPk: [32]byte(auditorPriv.PublicKey().Bytes()),
 		dh:        [32]byte(dh),
 	}
 }
 
-// The gadget compresses its (0,0) infinity to 0x02||0^32.
-var infinityPk = [33]byte{0x02}
-
-// WithTxScalar witnesses raw scalar bytes, the keys follow value mod n as the gadgets compute them.
-func (k Keys) WithTxScalar(t testing.TB, value *big.Int) Keys {
-	value.FillBytes(k.txSk[:])
-	k.txPk = infinityPk
-	if reduced := reduce(value); reduced != nil {
-		k.txPk = compress(t, PrivateKey(t, *reduced).PublicKey().Bytes())
-	}
+// WithTxScalar witnesses the clamped encoding of secret and publishes its key.
+func (k Keys) WithTxScalar(t testing.TB, secret [32]byte) Keys {
+	t.Helper()
+	k.txSk = Clamped(secret)
+	k.txPk = Tagged(XPrivateKey(t, k.txSk).PublicKey().Bytes())
 	return k
 }
 
-// WithForgedInfinityEphScalar witnesses the P-256 infinity a forged prover would publish.
-func (k Keys) WithForgedInfinityEphScalar(value *big.Int) Keys {
-	value.FillBytes(k.ephSk[:])
-	k.ephPk, k.dh = infinityPk, [32]byte{}
+// WithRawTxScalar witnesses secret unclamped under the key its clamping publishes.
+func (k Keys) WithRawTxScalar(t testing.TB, secret [32]byte) Keys {
+	k = k.WithTxScalar(t, secret)
+	k.txSk = secret
+	return k
+}
+
+// WithLegacyTxTag publishes the viewing key under a SEC1 P-256 tag.
+func (k Keys) WithLegacyTxTag() Keys {
+	k.txPk[0] = 2
+	return k
+}
+
+// WithLegacyEphTag seals the envelope under a SEC1 P-256 tag.
+func (k Keys) WithLegacyEphTag() Keys {
+	k.ephPk[0] = 2
 	return k
 }
 
@@ -91,15 +97,8 @@ func (k Keys) WithEphScalar(t testing.TB, scalar [32]byte) Keys {
 	return k
 }
 
-// reduce is value mod n as 32 bytes, nil for zero.
-func reduce(value *big.Int) *[32]byte {
-	reduced := new(big.Int).Mod(value, p256.GroupOrder())
-	if reduced.Sign() == 0 {
-		return nil
-	}
-	var out [32]byte
-	reduced.FillBytes(out[:])
-	return &out
+func (k Keys) TxSk() [32]byte {
+	return k.txSk
 }
 
 func (k Keys) EphSk() [32]byte {
@@ -232,7 +231,7 @@ func Disclose(t testing.TB, key [32]byte, salt [16]byte, fields []*big.Int) (cip
 	return ciphertext, spptest.MustHashChain4(t, ciphertext)
 }
 
-// The leading 0x01 keeps every seed below the group order.
+// Scalar is byte i = seed ^ i with a 0x01 lead byte, the fixture every cross-language vector derives from.
 func Scalar(seed byte) [32]byte {
 	var out [32]byte
 	for i := range out {
@@ -242,36 +241,11 @@ func Scalar(seed byte) [32]byte {
 	return out
 }
 
-func PrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
-	t.Helper()
-	key, err := ecdh.P256().NewPrivateKey(scalar[:])
-	if err != nil {
-		t.Fatalf("private key: %v", err)
-	}
-	return key
-}
-
-func Uncompressed(t testing.TB, publicKey []byte) [65]byte {
-	t.Helper()
-	if len(publicKey) != 65 {
-		t.Fatalf("expected a 65-byte uncompressed key, got %d bytes", len(publicKey))
-	}
-	var out [65]byte
-	copy(out[:], publicKey)
-	if out[0] != 4 {
-		t.Fatalf("expected the 0x04 prefix, got %#x", out[0])
-	}
-	return out
-}
-
-// Mirrors p256.CompressPubkey, (0x02 + parity(y)) || x.
-func compress(t testing.TB, publicKey []byte) [33]byte {
-	t.Helper()
-	key := Uncompressed(t, publicKey)
-	var out [33]byte
-	out[0] = 2 + (key[64] & 1)
-	copy(out[1:], key[1:33])
-	return out
+// Clamped is the RFC 7748 clamping of secret, the one encoding the circuit accepts as plaintext.
+func Clamped(secret [32]byte) [32]byte {
+	secret[0] &= 248
+	secret[31] = (secret[31] & 127) | 64
+	return secret
 }
 
 // Mirrors gadget.PackBytesBE over 32 bytes.

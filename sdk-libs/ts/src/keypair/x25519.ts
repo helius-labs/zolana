@@ -3,7 +3,7 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import { type Bytes32, type Bytes33, checkedBytes, concatBytes, randomBytes } from "./bytes.js";
 import { KeypairError } from "./error.js";
 
-/** Custom-ring envelope key: tag 4 followed by a canonical little-endian u. */
+/** Tagged X25519 public key with one canonical little-endian u encoding. */
 export class X25519PublicKey {
   readonly #bytes: Bytes33;
 
@@ -30,9 +30,14 @@ export class X25519PublicKey {
   u(): Bytes32 {
     return checkedBytes<Bytes32>(this.#bytes.subarray(1), 32, "X25519 coordinate");
   }
+
+  /** The u-coordinate used as the public bootstrap view tag. */
+  x(): Bytes32 {
+    return this.u();
+  }
 }
 
-/** RFC 7748 secret used only for custom-ring envelopes, not wallet viewing keys. */
+/** RFC 7748 secret for X25519 agreement. ViewingKey clamps its own byte form. */
 export class X25519Secret {
   #secret: Bytes32 | undefined;
   private constructor(secret: Bytes32) {

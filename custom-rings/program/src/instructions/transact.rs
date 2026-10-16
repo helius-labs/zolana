@@ -1,7 +1,7 @@
 use custom_ring_interface::{
     base_verifying_key, delegate_policy_verifying_key, policy_verifying_key, AuditorMessage,
     CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
-    CustomRingTransactIxData, KeyEscrow, PolicyConfig, RingProgramConfig, COMPRESSED_P256_KEY_LEN,
+    CustomRingTransactIxData, KeyEscrow, PolicyConfig, RingProgramConfig, TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -23,7 +23,7 @@ use crate::{
         shared::{cpi_spp, parse, SppSigners},
         verifier::verify_groth16,
     },
-    state::is_p256_key,
+    state::is_x25519_viewing_key,
 };
 
 #[inline(never)]
@@ -273,7 +273,7 @@ impl PolicyBinding {
 /// second ciphertext can claim the tag beside the one the proof covers.
 fn select_auditor_message<'a>(
     messages: &'a [MessageData],
-    auditor_pubkey: &[u8; COMPRESSED_P256_KEY_LEN],
+    auditor_pubkey: &[u8; TAGGED_X25519_KEY_LEN],
 ) -> Result<&'a AuditorMessage, CustomRingError> {
     let view_tag = &auditor_pubkey[1..];
     let (last, earlier) = messages
@@ -292,8 +292,8 @@ fn select_auditor_message<'a>(
 fn is_valid_confidential_output(data: &[u8]) -> bool {
     confidential_encrypted_output_body(data)
         .or_else(|| ring_confidential_encrypted_output_body(data))
-        .and_then(|body| body.split_first_chunk::<COMPRESSED_P256_KEY_LEN>())
-        .is_some_and(|(key, ciphertext)| is_p256_key(key) && !ciphertext.is_empty())
+        .and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
+        .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty())
 }
 
 #[cfg(test)]
@@ -312,20 +312,20 @@ mod tests {
     /// from, over that fixture. Because `PRIVATE_TX_HASH` is that test's
     /// `PrivateTxHash` too, `PUBLIC_INPUT_HASH` is exactly the public input the
     /// Go test solves the compiled circuit against.
-    const TX_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
+    const TX_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
     const EPH_PK: &str = "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966";
     const AUDITOR_PK: &str = "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a";
-    const CIPHERTEXT: &str = "02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314";
+    const CIPHERTEXT: &str = "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354";
     /// `big.NewInt(0xabcdef)` as a 32-byte big-endian field element, the Go
     /// fixture's `PrivateTxHash`.
     const PRIVATE_TX_HASH: &str =
         "0000000000000000000000000000000000000000000000000000000000abcdef";
 
-    const TX_PK_LO: &str = "000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955";
-    const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000c5d5";
-    const CT_HASH: &str = "24d5092cd705b878e0c98d8d3dfb79dc71158dfd32358f532e944423716b9671";
+    const TX_PK_LO: &str = "00043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0";
+    const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000eb63";
+    const CT_HASH: &str = "1ceeed7a0df2acee11de3ba05f2c9e205cabd3adb067a1eaa9b6bc67149409f8";
     const PUBLIC_INPUT_HASH: &str =
-        "2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779";
+        "1c26456bcdeb4de535d7e8ccf1db5ff70f6f2b527565dc004291f705b5e5b72e";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");

@@ -39,7 +39,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -80,7 +80,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -134,7 +134,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -201,7 +201,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -281,7 +281,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -374,7 +374,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         },
@@ -480,7 +480,7 @@
           ],
           "viewingKeyHistory": [
             {
-              "viewingPkBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewingPkBytes": "0428c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ]
         }
@@ -548,7 +548,7 @@
               "leafIndex": "0",
               "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa915875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df00000000000000000000000000000000000000000000000000000000000000006400000000000000000000000000",
               "treeBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
-              "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+              "viewTagBytes": "28c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
             }
           ],
           "proofless": true,
@@ -717,7 +717,7 @@
             "leafIndex": "1",
             "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa915875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df00000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000",
             "treeBytes": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
-            "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+            "viewTagBytes": "28c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
           }
         ],
         "proofless": true,
@@ -734,7 +734,7 @@
             "leafIndex": "2",
             "payloadBytes": "006e000000002b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa94c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d1200000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000",
             "treeBytes": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
-            "viewTagBytes": "28207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
+            "viewTagBytes": "28c2453eaaf85b1983cccb3379173c52441d547f39f4f7cadd9873c16d841137"
           }
         ],
         "proofless": true,

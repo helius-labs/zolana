@@ -257,7 +257,7 @@ fn missing_forwarded_accounts_are_rejected_exactly() {
 
 fn encrypted_output(scheme: u8) -> TransactOutput {
     let mut body = vec![scheme];
-    body.extend_from_slice(&auditor_pubkey(3));
+    body.extend_from_slice(&auditor_pubkey(4));
     body.push(9);
     let mut data = vec![1];
     data.extend_from_slice(&(body.len() as u32).to_le_bytes());
@@ -317,14 +317,13 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
 }
 
+/// A SEC1 P-256 tag or a u-coordinate at or above the field prime is not a viewing key.
 #[test]
-fn confidential_output_to_a_reserved_derivation_key_is_rejected() {
+fn confidential_output_with_a_non_x25519_key_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    for key in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
+    let mut noncanonical = auditor_pubkey(4);
+    noncanonical[32] |= 0x80;
+    for key in [auditor_pubkey(2), auditor_pubkey(3), noncanonical] {
         let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
         data.outputs = vec![confidential_output(
             RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,

@@ -75,6 +75,13 @@ pub(crate) fn is_x25519_key(key: &[u8; 33]) -> bool {
         })
 }
 
+/// Decryptability is the SDK's job, a low-order recipient key only loses its own output.
+pub(crate) fn is_x25519_viewing_key(key: &[u8; 33]) -> bool {
+    key[0] == 4
+        && <&[u8; 32]>::try_from(&key[1..])
+            .is_ok_and(zolana_hasher::primitives::is_canonical_x25519_public_key)
+}
+
 /// Curve membership is the SDK's job, an off-curve key only fails its own ring closed.
 pub(crate) fn is_p256_key(key: &[u8; 33]) -> bool {
     matches!(key[0], 0x02 | 0x03) && !zolana_interface::is_reserved_p256_derivation_point(key)

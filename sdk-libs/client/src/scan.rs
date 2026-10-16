@@ -22,7 +22,7 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_transaction::{
     verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
     ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
@@ -110,7 +110,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
-        tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
+        tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
 
         let mut seen = HashSet::new();
         let mut batch = self.unseen(

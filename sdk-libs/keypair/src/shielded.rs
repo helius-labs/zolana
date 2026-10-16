@@ -3,19 +3,20 @@ use std::{fmt, str::FromStr};
 use solana_signer::{Signer, SignerError};
 
 use crate::{
-    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN, SALT_LEN},
+    constants::{PUBLIC_KEY_LEN, SALT_LEN},
     derivation::{Rail, RoleExpansion},
     error::KeypairError,
     hash::{owner_hash, poseidon},
     nullifier_key::NullifierKey,
-    pubkey::{Curve, P256Pubkey, PublicKey},
+    pubkey::{Curve, PublicKey},
     signing_key::SigningKey,
     viewing_key::ViewingKey,
+    x25519::{X25519Pubkey, X25519_PUBKEY_LEN},
 };
 
 /// `signing_pk || nullifier_pk || viewing_pk`, the byte form the base58 text
 /// address carries.
-pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + NULLIFIER_PUBKEY_LEN + P256_PUBKEY_LEN;
+pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + NULLIFIER_PUBKEY_LEN + X25519_PUBKEY_LEN;
 
 const NULLIFIER_PUBKEY_LEN: usize = 32;
 
@@ -23,14 +24,14 @@ const NULLIFIER_PUBKEY_LEN: usize = 32;
 pub struct ShieldedAddress {
     pub signing_pubkey: PublicKey,
     pub nullifier_pubkey: [u8; 32],
-    pub viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
 }
 
 impl ShieldedAddress {
     pub fn for_pda(
         pda: &solana_address::Address,
         nullifier_pubkey: [u8; 32],
-        viewing_pubkey: P256Pubkey,
+        viewing_pubkey: X25519Pubkey,
     ) -> Self {
         Self {
             signing_pubkey: PublicKey::from_pda(pda),
@@ -73,12 +74,12 @@ impl ShieldedAddress {
         signing_bytes.copy_from_slice(signing);
         let mut nullifier_pubkey = [0u8; NULLIFIER_PUBKEY_LEN];
         nullifier_pubkey.copy_from_slice(nullifier);
-        let mut viewing_bytes = [0u8; P256_PUBKEY_LEN];
+        let mut viewing_bytes = [0u8; X25519_PUBKEY_LEN];
         viewing_bytes.copy_from_slice(viewing);
         Ok(Self {
             signing_pubkey: PublicKey::from_bytes(signing_bytes)?,
             nullifier_pubkey,
-            viewing_pubkey: P256Pubkey::from_bytes(viewing_bytes)?,
+            viewing_pubkey: X25519Pubkey::from_bytes(viewing_bytes)?,
         })
     }
 }
@@ -107,7 +108,7 @@ impl FromStr for ShieldedAddress {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CompressedShieldedAddress {
     pub owner_hash: [u8; 32],
-    pub viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
 }
 
 impl CompressedShieldedAddress {
@@ -213,7 +214,7 @@ impl ShieldedKeypair {
         self.signing_key.curve()
     }
 
-    pub fn viewing_pubkey(&self) -> P256Pubkey {
+    pub fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 
@@ -255,7 +256,7 @@ impl ShieldedKeypair {
     pub fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
+        tx_viewing_pubkey: &X25519Pubkey,
         salt: [u8; SALT_LEN],
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
@@ -277,7 +278,7 @@ impl ShieldedKeypair {
 
     pub fn get_send_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key.get_send_shared_view_tag(counterparty, i)
@@ -285,7 +286,7 @@ impl ShieldedKeypair {
 
     pub fn get_recipient_shared_view_tag(
         &self,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key

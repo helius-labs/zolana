@@ -12,7 +12,7 @@ fn tx_viewing_sk() -> [u8; 32] {
     for (index, byte) in sk.iter_mut().enumerate() {
         *byte = 0x40 ^ (index as u8);
     }
-    sk[0] = 0x01;
+    sk[0] = 0x00;
     sk
 }
 

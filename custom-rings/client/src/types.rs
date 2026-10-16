@@ -5,7 +5,7 @@ use solana_signature::Signature;
 use std::fmt;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_transaction::Data;
 
 /// One opened output slot, its asset id resolved to the mint.
@@ -13,7 +13,7 @@ use zolana_transaction::Data;
 pub struct AuditedOutput {
     /// The slot index the ciphertext is bound to.
     pub slot_index: u32,
-    pub recipient_viewing_pk: P256Pubkey,
+    pub recipient_viewing_pk: X25519Pubkey,
     /// Bound by the circuit to the owner, an x-coordinate for a P256 owner.
     pub owner_tag: [u8; 32],
     pub asset: Address,
@@ -44,7 +44,7 @@ pub struct AuditedTransaction {
     pub tx_signature: Signature,
     pub slot: u64,
     /// Checked against the key the auditor message carries.
-    pub tx_viewing_pk: P256Pubkey,
+    pub tx_viewing_pk: X25519Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<ProofInputUtxo>,
     /// Dummies, foreign schemes and slots sealed to another key, every transfer pads with dummies.

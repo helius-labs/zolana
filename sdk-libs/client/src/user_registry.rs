@@ -8,6 +8,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_keypair::{
     viewing_key::ViewTag, Curve, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair,
+    X25519Pubkey,
 };
 use zolana_user_registry_interface::{
     instruction::{
@@ -641,7 +642,7 @@ pub fn resolved_address_from_record(
     record: &UserRecord,
 ) -> Result<ResolvedAddress, ClientError> {
     let signing_pubkey = signing_pubkey_from_record(owner, record)?;
-    let viewing_pubkey = P256Pubkey::from_bytes(record.viewing_pubkey)?;
+    let viewing_pubkey = X25519Pubkey::from_bytes(record.viewing_pubkey)?;
     Ok(ResolvedAddress {
         owner,
         address: ShieldedAddress {
@@ -649,7 +650,7 @@ pub fn resolved_address_from_record(
             nullifier_pubkey: record.nullifier_pubkey,
             viewing_pubkey,
         },
-        view_tag: viewing_pubkey.x(),
+        view_tag: viewing_pubkey.u(),
     })
 }
 

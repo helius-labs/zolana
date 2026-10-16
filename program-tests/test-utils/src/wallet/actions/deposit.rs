@@ -44,7 +44,7 @@ impl Deposit {
         // The recipient `owner` commitment is public address material, so a
         // third-party depositor shares no secret with the recipient.
         let owner = request.recipient.owner_hash()?;
-        let view_tag = request.recipient.viewing_pubkey.x();
+        let view_tag = request.recipient.viewing_pubkey.u();
         Ok(Self {
             deposit: AssetDeposit {
                 asset: deposit_asset(
@@ -292,7 +292,7 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().x());
+        assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().u());
         assert_eq!(prepared.deposit.amount, 1_000);
         assert_ne!(prepared.deposit.owner, [0u8; 32]);
     }
