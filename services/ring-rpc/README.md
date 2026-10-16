@@ -69,6 +69,8 @@ A call posted to any path but `/` runs only when its JSON-RPC body is one call n
 
 Disable automatic proxy retries of signed POST requests because an accepted nonce cannot be reused.
 
+A successful `ringDeposits` answers `x-helius-metering-units` with one unit for every 50 signatures it asked to examine, rounded up, so a 200-signature page bills four times a default one. Other methods answer a bounded page or one lookup and report none, which a gateway bills as one unit.
+
 `GET /health` reports the service identity. `GET /ready` checks Photon and Solana RPC. In local mode it also checks that the ring config still names the auditor key held here. In derived mode it re-reads the cluster genesis hash and fails when it differs from the one captured at boot, because that hash binds every derived key. A failed probe names the check in the response body.
 
 One request rate window gates every JSON RPC method and `GET /ready` before any upstream read. `health`, `ringStatus` and `ringDeposits` are unauthenticated and take that gate alone. `createAuditorKey` takes the authentication gate and its concurrency slot, since it verifies a signature and reads the chain. In local mode `ringDeposits` answers for the served ring only, like `ringStatus`. `getDecryptedTransactions` adds a global concurrency slot, one page at a time for each reader, and the read authorization. Key files must have owner access only unless the operator selects the shared file option.
