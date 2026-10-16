@@ -24,8 +24,7 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{
-    is_reserved_p256_derivation_point, state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID,
-    SHIELDED_POOL_PROGRAM_ID,
+    state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
@@ -363,7 +362,7 @@ impl ConfigAccount<'_> {
             account_type: PhantomData,
         }
         .decode()?;
-        if config.bump != self.bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
+        if config.bump != self.bump {
             return Err(ClientError::Rpc(
                 "custom ring config account is invalid".to_owned(),
             ));
