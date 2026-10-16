@@ -14,7 +14,9 @@ type DepositParameters struct {
 	PublicInputHash *big.Int
 	ContextHash     *big.Int
 	Count           uint32
+	Anonymous       bool
 	OwnerPkHashes   [deposit.MaxDeposits]*big.Int
+	OwnerKeys       [deposit.MaxDeposits][32]byte
 	NullifierPks    [deposit.MaxDeposits]*big.Int
 	Blindings       [deposit.MaxDeposits]*big.Int
 	// Absent for the zero key, with escrow off or in padding.
@@ -30,7 +32,9 @@ type depositParametersJSON struct {
 	PublicInputHash string             `json:"publicInputHash"`
 	ContextHash     string             `json:"contextHash"`
 	Count           uint32             `json:"count"`
+	Anonymous       bool               `json:"anonymous,omitempty"`
 	OwnerPkHashes   []string           `json:"ownerPkHashes"`
+	OwnerKeys       []string           `json:"ownerKeys,omitempty"`
 	NullifierPks    []string           `json:"nullifierPks"`
 	Blindings       []string           `json:"blindings"`
 	Keys            []*registryKeyJSON `json:"keys"`
@@ -48,6 +52,7 @@ func (p *DepositParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(depositParametersJSON{
 		CircuitType: string(common.CustomRingDepositCircuitType), PublicInputHash: common.ToHex(p.PublicInputHash),
 		ContextHash: common.ToHex(p.ContextHash), Count: p.Count,
+		Anonymous: p.Anonymous, OwnerKeys: writeDepositOwnerKeys(p.OwnerKeys[:], p.Anonymous),
 		OwnerPkHashes: writePath(p.OwnerPkHashes[:]), NullifierPks: writePath(p.NullifierPks[:]),
 		Blindings: writePath(p.Blindings[:]), Keys: keys,
 		EphSk: bytesHex(p.EphSk[:]), AuditorPk: bytesHex(p.AuditorPk[:]),
@@ -67,6 +72,7 @@ func (p *DepositParameters) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("custom-ring-deposit: invalid count or opening array length")
 	}
 	p.Count = raw.Count
+	p.Anonymous = raw.Anonymous
 	var err error
 	if p.PublicInputHash, err = fieldFromHex(raw.PublicInputHash, "publicInputHash"); err != nil {
 		return err
@@ -104,6 +110,9 @@ func (p *DepositParameters) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
+	if err = readDepositOwnerKeys(p.OwnerKeys[:], raw.OwnerKeys, p.Anonymous, p.Count); err != nil {
+		return err
+	}
 	if err := bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
 		return err
 	}
@@ -121,6 +130,7 @@ func (p *DepositParameters) CreateWitness() (*deposit.CustomRingDepositCircuit, 
 		PublicInputHash: p.PublicInputHash,
 		ContextHash:     p.ContextHash,
 		Count:           p.Count,
+		Anonymous:       boolVar(p.Anonymous),
 		KeyEscrow:       boolVar(p.KeyEscrow.Enabled),
 		KeyRegistryRoot: p.KeyEscrow.Root,
 	}
@@ -129,9 +139,39 @@ func (p *DepositParameters) CreateWitness() (*deposit.CustomRingDepositCircuit, 
 			return nil, fmt.Errorf("custom-ring-deposit: missing opening at slot %d", i)
 		}
 		circuit.OwnerPkHashes[i], circuit.NullifierPks[i], circuit.Blindings[i] = p.OwnerPkHashes[i], p.NullifierPks[i], p.Blindings[i]
+		assignBytes(circuit.OwnerKeys[i][:], p.OwnerKeys[i][:])
 		assignRegistryKey(&circuit.Keys[i], p.Keys[i])
 	}
 	assignBytes(circuit.EphSk[:], p.EphSk[:])
 	assignBytes(circuit.AuditorPk[:], p.AuditorPk[:])
 	return circuit, nil
+}
+
+func writeDepositOwnerKeys(keys [][32]byte, anonymous bool) []string {
+	if !anonymous {
+		return nil
+	}
+	out := make([]string, len(keys))
+	for i := range keys {
+		out[i] = bytesHex(keys[i][:])
+	}
+	return out
+}
+
+func readDepositOwnerKeys(dst [][32]byte, raw []string, anonymous bool, count uint32) error {
+	if !anonymous && len(raw) == 0 {
+		return nil
+	}
+	if len(raw) != len(dst) {
+		return fmt.Errorf("custom-ring-deposit: ownerKeys holds %d slots, expected %d", len(raw), len(dst))
+	}
+	for i := range dst {
+		if err := bytesFromHex(dst[i][:], raw[i], "ownerKeys"); err != nil {
+			return err
+		}
+		if (!anonymous || i >= int(count)) && dst[i] != [32]byte{} {
+			return fmt.Errorf("custom-ring-deposit: ownerKeys has a nonzero unused slot %d", i)
+		}
+	}
+	return nil
 }

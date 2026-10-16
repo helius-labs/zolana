@@ -22,15 +22,16 @@ import (
 //	  2    amount u64                8
 //	  10   asset                     32
 //	  42   blinding                  32
-//	output slot                      202 B, 7 chunks
+//	output slot                      235 B, 8 chunks
 //	  0    recipient identity        33
-//	  33   nullifier pk              32
-//	  65   amount u64                8
-//	  73   asset                     32
-//	  105  blinding                  32
-//	  137  data hash                 32
-//	  169  ring data hash            32
-//	  201  ring note flag            1
+//	  33   recipient viewing pk      33
+//	  66   nullifier pk              32
+//	  98   amount u64                8
+//	  106  asset                     32
+//	  138  blinding                  32
+//	  170  data hash                 32
+//	  202  ring data hash            32
+//	  234  ring note flag            1
 //
 // The published slots are the header, the first n_in input slots and the first
 // n_out output slots, in that order. A dummy slot is all zero. Published chunk j
@@ -41,13 +42,14 @@ const (
 	AuditInputSlots   = 4
 	auditHeaderChunks = 2
 	auditInputChunks  = 3
-	auditOutputChunks = 7
+	auditOutputChunks = 8
 )
 
 // AuditIdentityWires opens an owner pk hash as HashBytes(Tag || Key).
 type AuditIdentityWires struct {
-	Tag frontend.Variable
-	Key [32]frontend.Variable
+	Tag       frontend.Variable
+	Key       [32]frontend.Variable
+	ViewingPk [33]frontend.Variable
 }
 
 // ZeroAuditIdentity fills an unused identity slot with a valid zero witness.
@@ -55,6 +57,9 @@ func ZeroAuditIdentity() AuditIdentityWires {
 	w := AuditIdentityWires{Tag: 0}
 	for i := range w.Key {
 		w.Key[i] = 0
+	}
+	for i := range w.ViewingPk {
+		w.ViewingPk[i] = 0
 	}
 	return w
 }
@@ -104,8 +109,9 @@ func (w AuditUtxoWires) inputBytes(api frontend.API) []frontend.Variable {
 	return append(out, fieldBytes(api, w.Blinding)...)
 }
 
-func (w AuditUtxoWires) outputBytes(api frontend.API, recipient []frontend.Variable) []frontend.Variable {
+func (w AuditUtxoWires) outputBytes(api frontend.API, recipient []frontend.Variable, viewingPk [33]frontend.Variable) []frontend.Variable {
 	out := append([]frontend.Variable{}, recipient...)
+	out = append(out, viewingPk[:]...)
 	out = append(out, fieldBytes(api, w.NullifierPk)...)
 	out = append(out, uintBytes(api, w.Amount, 8)...)
 	out = append(out, fieldBytes(api, w.Asset)...)
@@ -127,8 +133,14 @@ func anonymousDisclosureElements(api frontend.API, w AuditBlockWires) (frontend.
 	// 2. The header names the owner of every real input and is zero otherwise.
 	sender := identityBytes(w.Sender)
 	senderPkHash := checked.HashBytes(api, sender)
+	// The auditor parser accepts the Ed25519 sender tag only. A different tag
+	// would yield an on-chain-valid proof with an unreadable trace.
+	api.AssertIsEqual(api.Mul(anonymous, api.Sub(w.Sender.Tag, 0x53)), 0)
 	for _, b := range sender {
 		api.AssertIsEqual(api.Mul(api.Sub(1, anonymous), b), 0)
+	}
+	for _, b := range w.Sender.ViewingPk {
+		api.AssertIsEqual(b, 0)
 	}
 	slots := [][]frontend.Variable{chunks(api, sender, auditHeaderChunks, 1)}
 
@@ -149,14 +161,23 @@ func anonymousDisclosureElements(api frontend.API, w AuditBlockWires) (frontend.
 	// 4. Every real output discloses the preimage of its owner pk hash.
 	outputHashes := make([]frontend.Variable, AuditOutputSlots)
 	realOutputHashes := make([]frontend.Variable, AuditOutputSlots)
+	byteRange := rangecheck.New(api)
 	for i, output := range w.AnonymousOutputs {
 		isUtxo := output.isDomain(api, shared.UtxoDomain)
 		disclosed := api.Mul(anonymous, activeOut[i], isUtxo)
 		recipient := identityBytes(w.Recipients[i])
+		for _, b := range w.Recipients[i].ViewingPk {
+			byteRange.Check(b, 8)
+		}
+		// Every ring-bound real note must be spendable by the Ed25519 rail.
+		ringOutput := api.Mul(disclosed, api.Sub(1, api.IsZero(output.RingProgramID)))
+		api.AssertIsEqual(api.Mul(ringOutput, api.Sub(w.Recipients[i].Tag, 0x53)), 0)
+		prefix := w.Recipients[i].ViewingPk[0]
+		api.AssertIsEqual(api.Mul(disclosed, api.Mul(api.Sub(prefix, 2), api.Sub(prefix, 3))), 0)
 		api.AssertIsEqual(api.Mul(disclosed, api.Sub(output.OwnerPkHash, checked.HashBytes(api, recipient))), 0)
 		outputHashes[i] = output.hash(api, isUtxo)
 		realOutputHashes[i] = api.Mul(disclosed, outputHashes[i])
-		slots = append(slots, chunks(api, output.outputBytes(api, recipient), auditOutputChunks, disclosed))
+		slots = append(slots, chunks(api, output.outputBytes(api, recipient, w.Recipients[i].ViewingPk), auditOutputChunks, disclosed))
 	}
 
 	// 5. Anonymous mode opens private_tx_hash with an empty address chain.

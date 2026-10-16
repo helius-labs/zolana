@@ -154,6 +154,8 @@ export function ringDepositPublicInputHash(
     bigIntBytes(0x43524450n) as Bytes32,
     input.contextHash,
     bigIntBytes(BigInt(count)) as Bytes32,
+    // The TypeScript builder admits only non-anonymous ring deposits.
+    ZERO,
   ];
   for (let index = 0; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
     const capsule = input.capsules[index];

@@ -1,13 +1,9 @@
 //! Recovering the transaction viewing key from an auditor message and opening
 //! the transaction's confidential output slots with it.
 //!
-//! Why one key is enough: every confidential slot of an SPP transact is HPKE'd
-//! under the per-transaction viewing key and carries the recipient's viewing
-//! pubkey in its own body
-//! (`sdk-libs/transaction/src/serialization/confidential.rs`), so
-//! [`Confidential::decrypt_with_tx_key`] needs the transaction key and nothing
-//! else. Recovering that one scalar therefore opens everything the recipients
-//! see.
+//! Why one key is enough: every confidential slot uses the per-transaction
+//! viewing key. Regular slots carry the recipient viewing key in their body.
+//! Anonymous-ring slots keep that key in the proved auditor disclosure.
 
 use crate::encryption::{auditor_view_tag, AnonymousOutputOpening, AuditorMessage};
 use custom_ring_interface::{DisclosureShape, RingMode};
@@ -21,12 +17,12 @@ use zolana_hasher::{
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::tree_slot::tree_id_field;
-use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_keypair::{X25519Pubkey, X25519Secret};
 use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
-    ShieldedTransaction, SOL_MINT,
+    ShieldedTransaction, UtxoSerialization, SOL_MINT,
 };
 
 use zolana_event::MessageData;
@@ -140,6 +136,9 @@ impl TransactionAudit<'_> {
                 slot_index,
                 assets: self.assets,
                 opening: &opening,
+                anonymous: anonymous_disclosure
+                    .as_ref()
+                    .and_then(|disclosure| disclosure.outputs.get(position)),
             }
             .run()?;
             let record = match RecordCarrier::decode(slot, &self.transaction.messages)? {
@@ -279,6 +278,7 @@ struct OutputAudit<'a> {
     slot_index: u32,
     assets: &'a AssetRegistry,
     opening: &'a crate::AuditOutputOpening,
+    anonymous: Option<&'a AnonymousOutputOpening>,
 }
 
 impl OutputAudit<'_> {
@@ -289,20 +289,44 @@ impl OutputAudit<'_> {
         let Some((&scheme_byte, body)) = blob.split_first() else {
             return Ok(None);
         };
-        if !matches!(
-            EncryptedScheme::from_byte(scheme_byte),
-            Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
-        ) {
-            return Ok(None);
-        }
-        let Ok(recipient_viewing_pk) = Confidential::embedded_viewing_pk(body) else {
-            return Ok(None);
-        };
-        let Ok(plaintext) =
-            Confidential::decrypt_with_tx_key(self.tx_key, body, self.salt, self.slot_index)
-        else {
-            return Ok(None);
-        };
+        let (recipient_viewing_pk, plaintext, owner_tag) =
+            match EncryptedScheme::from_byte(scheme_byte) {
+                Ok(EncryptedScheme::RingAnonymous) => {
+                    let Some(disclosed) = self.anonymous else {
+                        return Ok(None);
+                    };
+                    let Ok(viewing_pk) = P256Pubkey::from_bytes(disclosed.viewing_pk) else {
+                        return Ok(None);
+                    };
+                    let Ok(bytes) = self.tx_key.decrypt_slot_ephemeral(
+                        &viewing_pk,
+                        body,
+                        self.salt,
+                        self.slot_index,
+                    ) else {
+                        return Ok(None);
+                    };
+                    let Ok(plaintext) = Confidential::deserialize(&bytes) else {
+                        return Ok(None);
+                    };
+                    (viewing_pk, plaintext, disclosed.identity_key)
+                }
+                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential) => {
+                    let Ok(viewing_pk) = Confidential::embedded_viewing_pk(body) else {
+                        return Ok(None);
+                    };
+                    let Ok(plaintext) = Confidential::decrypt_with_tx_key(
+                        self.tx_key,
+                        body,
+                        self.salt,
+                        self.slot_index,
+                    ) else {
+                        return Ok(None);
+                    };
+                    (viewing_pk, plaintext, self.slot.view_tag)
+                }
+                _ => return Ok(None),
+            };
         let asset =
             self.assets
                 .resolve(plaintext.asset_id)
@@ -324,7 +348,7 @@ impl OutputAudit<'_> {
         Ok(Some(AuditedOutput {
             slot_index: self.slot_index,
             recipient_viewing_pk,
-            owner_tag: self.slot.view_tag,
+            owner_tag,
             asset: asset.asset,
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),

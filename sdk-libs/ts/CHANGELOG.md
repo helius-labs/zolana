@@ -23,6 +23,9 @@ Breaking
 
 Added
 
+- `syncWallet` discovers anonymous ring deposits and transfers under the zero
+  view tag and verifies decrypted outputs against their committed UTXO hashes,
+  while transaction builders reject anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other

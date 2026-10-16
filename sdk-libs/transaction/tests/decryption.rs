@@ -942,6 +942,37 @@ fn shuffled_multi_asset_publications_recover_unique_balances_and_data_notes() {
 }
 
 #[test]
+fn anonymous_ring_output_decrypts_without_a_public_recipient_key() {
+    let owner = keypair(91);
+    let other = keypair(92);
+    let tx_key = keypair(93).viewing_key;
+    let mut note = wallet_utxo(&owner, Mint::SOL, 17, 2, 1);
+    note.utxo.ring_program_id = Some(Address::new_from_array([94; 32]));
+    refresh_commitment(&owner, &mut note);
+    let output = confidential_slot(&note, owner.viewing_pubkey(), &tx_key, 0);
+    let OutputDataEncoding::Encrypted(mut blob) = output.output_data().unwrap() else {
+        panic!("encrypted output")
+    };
+    blob.drain(1..34);
+    blob[0] = EncryptedScheme::RingAnonymous.as_byte();
+    let mut tx = publication(
+        &note,
+        vec![slot(
+            &note,
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
+        )],
+    );
+    tx.tx_viewing_pk = Some(tx_key.pubkey());
+    tx.salt = Some([7; 16]);
+    let assets = AssetRegistry::default();
+    assert_eq!(
+        decrypt(&owner, &[tx.clone()], &assets).unwrap().utxos.len(),
+        1
+    );
+    assert!(decrypt(&other, &[tx], &assets).unwrap().utxos.is_empty());
+}
+
+#[test]
 fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
     let owner = keypair(39);
     let tx_key = keypair(40).viewing_key;

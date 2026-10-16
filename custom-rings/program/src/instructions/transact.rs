@@ -13,7 +13,8 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
+        confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
+        ring_confidential_encrypted_output_body, OwnerTag,
     },
     tag, CircuitId, MessageData, TransactIxData,
 };
@@ -256,7 +257,7 @@ impl TransactRail {
             !output
                 .data
                 .as_deref()
-                .is_some_and(is_valid_confidential_output)
+                .is_some_and(|data| is_valid_confidential_output(data, anonymous))
         }) {
             return Err(CustomRingError::UnsupportedOutputScheme.into());
         }
@@ -519,7 +520,10 @@ fn select_auditor_message<'a>(
     })
 }
 
-fn is_valid_confidential_output(data: &[u8]) -> bool {
+fn is_valid_confidential_output(data: &[u8], anonymous: bool) -> bool {
+    if anonymous {
+        return ring_anonymous_encrypted_output_body(data).is_some_and(|body| !body.is_empty());
+    }
     let Some(body) = confidential_encrypted_output_body(data)
         .or_else(|| ring_confidential_encrypted_output_body(data))
     else {

@@ -29,10 +29,13 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_transaction::instructions::transact::SppProofInputs;
 
 use super::request::CustomRingPrivateTxHash;
 
-use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
+use zolana_ring_client::{
+    AnonymousDisclosure, AuditEncryptionError, AuditorEncryption, AuditorMessage,
+};
 
 #[derive(Debug, Error)]
 pub enum CustomRingProofInputError {
@@ -46,6 +49,8 @@ pub enum CustomRingProofInputError {
     Hashing,
     #[error("hash is not below the BN254 scalar modulus")]
     GreaterThanB254FieldSize,
+    #[error("anonymous disclosure does not match the transaction shape")]
+    AnonymousDisclosureShape,
 }
 
 #[derive(Debug, Error)]
@@ -90,6 +95,14 @@ pub struct PendingCustomRingProof {
     message: AuditorMessage,
     salt: [u8; 16],
     outputs: Vec<ProofInputUtxo>,
+    anonymous: Option<AnonymousDisclosure>,
+}
+
+struct AnonymousBaseOpenings {
+    n_in: u8,
+    inputs: [super::CustomRingOpening; 4],
+    outputs: [super::CustomRingOpening; 4],
+    private_tx_blinding: [u8; 32],
 }
 
 impl CustomRingProofParams {
@@ -109,6 +122,22 @@ impl CustomRingProofParams {
     /// call generated; re-deriving from the same params would encrypt under a new
     /// one and publish a different ciphertext.
     pub fn encrypt(self) -> Result<EncryptedAudit, CustomRingProofInputError> {
+        self.encrypt_with(None)
+    }
+
+    /// Encrypts the hidden sender and note openings under the same capsule as
+    /// the transaction viewing key. The proof later binds each opening to SPP.
+    pub fn encrypt_anonymous(
+        self,
+        disclosure: AnonymousDisclosure,
+    ) -> Result<EncryptedAudit, CustomRingProofInputError> {
+        self.encrypt_with(Some(disclosure))
+    }
+
+    fn encrypt_with(
+        self,
+        anonymous: Option<AnonymousDisclosure>,
+    ) -> Result<EncryptedAudit, CustomRingProofInputError> {
         let Self {
             tx_viewing_key,
             auditor_pk,
@@ -124,7 +153,17 @@ impl CustomRingProofParams {
         let AuditorEncryption {
             ephemeral_sk,
             message,
-        } = AuditorEncryption::new_with_outputs(&tx_viewing_key, &auditor_pk, salt, &outputs)?;
+        } = match &anonymous {
+            Some(disclosure) => AuditorEncryption::new_with_anonymous(
+                &tx_viewing_key,
+                &auditor_pk,
+                salt,
+                disclosure,
+            )?,
+            None => {
+                AuditorEncryption::new_with_outputs(&tx_viewing_key, &auditor_pk, salt, &outputs)?
+            }
+        };
 
         Ok(EncryptedAudit {
             pending: PendingCustomRingProof {
@@ -135,6 +174,7 @@ impl CustomRingProofParams {
                 message: message.clone(),
                 salt,
                 outputs,
+                anonymous,
             },
             message,
         })
@@ -167,7 +207,15 @@ impl PendingCustomRingProof {
             message,
             salt,
             outputs: audit_outputs,
+            anonymous,
         } = self;
+        if anonymous.as_ref().is_some_and(|disclosure| {
+            disclosure.inputs.len() != usize::from(witness.n_in)
+                || disclosure.outputs.len() != usize::from(witness.n_out)
+        }) {
+            return Err(CustomRingProofInputError::AnonymousDisclosureShape);
+        }
+        let (sender, recipients, recipient_viewing_keys) = anonymous_identities(anonymous.as_ref());
         let output_hashes = audit_outputs
             .iter()
             .map(ProofInputUtxo::hash)
@@ -185,7 +233,7 @@ impl PendingCustomRingProof {
                 output_hashes: &output_hashes,
                 salt: &salt,
                 disclosure: message.disclosure(),
-                anonymous: false,
+                anonymous: anonymous.is_some(),
             },
             policy_hash,
             tree_slots: &tree_slots,
@@ -231,6 +279,10 @@ impl PendingCustomRingProof {
         Ok(
             crate::instructions::transact::CustomRingPolicyProofRequest {
                 indexed,
+                anonymous: anonymous.is_some(),
+                sender,
+                recipients,
+                recipient_viewing_keys,
                 public_input_hash,
                 private_tx_hash: *private_tx_hash.as_ref(),
                 tx_viewing_key,
@@ -264,6 +316,49 @@ impl PendingCustomRingProof {
         private_tx_hash: CustomRingPrivateTxHash,
     ) -> Result<crate::instructions::transact::CustomRingBaseProofRequest, CustomRingProofInputError>
     {
+        self.finish_base_with(private_tx_hash, None)
+    }
+
+    /// Binds the anonymous disclosure to the opened SPP input and output slots.
+    pub fn finish_anonymous_base(
+        self,
+        private_tx_hash: CustomRingPrivateTxHash,
+        proof_inputs: &SppProofInputs,
+        private_tx_blinding: &[u8; 32],
+    ) -> Result<crate::instructions::transact::CustomRingBaseProofRequest, CustomRingProofInputError>
+    {
+        let mut inputs = [Default::default(); 4];
+        let mut outputs = [Default::default(); 4];
+        if proof_inputs.input_utxos.len() > inputs.len()
+            || proof_inputs.output_utxos.len() > outputs.len()
+        {
+            return Err(CustomRingProofInputError::AnonymousDisclosureShape);
+        }
+        for (slot, input) in inputs.iter_mut().zip(&proof_inputs.input_utxos) {
+            *slot = crate::witness::input_opening(input)
+                .map_err(|_| CustomRingProofInputError::Hashing)?;
+        }
+        for (slot, output) in outputs.iter_mut().zip(&proof_inputs.output_utxos) {
+            *slot = crate::witness::output_opening(output, proof_inputs.output_tree_id)
+                .map_err(|_| CustomRingProofInputError::Hashing)?;
+        }
+        self.finish_base_with(
+            private_tx_hash,
+            Some(AnonymousBaseOpenings {
+                n_in: proof_inputs.input_utxos.len() as u8,
+                inputs,
+                outputs,
+                private_tx_blinding: *private_tx_blinding,
+            }),
+        )
+    }
+
+    fn finish_base_with(
+        self,
+        private_tx_hash: CustomRingPrivateTxHash,
+        openings: Option<AnonymousBaseOpenings>,
+    ) -> Result<crate::instructions::transact::CustomRingBaseProofRequest, CustomRingProofInputError>
+    {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -272,7 +367,30 @@ impl PendingCustomRingProof {
             message,
             salt,
             outputs,
+            anonymous,
         } = self;
+        if anonymous.is_some() != openings.is_some() {
+            return Err(CustomRingProofInputError::AnonymousDisclosureShape);
+        }
+        if anonymous
+            .as_ref()
+            .zip(openings.as_ref())
+            .is_some_and(|(disclosure, openings)| {
+                disclosure.inputs.len() != usize::from(openings.n_in)
+                    || disclosure.outputs.len() != outputs.len()
+            })
+        {
+            return Err(CustomRingProofInputError::AnonymousDisclosureShape);
+        }
+        let (sender, recipients, recipient_viewing_keys) = anonymous_identities(anonymous.as_ref());
+        let n_in = openings.as_ref().map_or(0, |openings| openings.n_in);
+        let inputs = openings
+            .as_ref()
+            .map_or([Default::default(); 4], |openings| openings.inputs);
+        let anonymous_outputs = openings
+            .as_ref()
+            .map_or([Default::default(); 4], |openings| openings.outputs);
+        let private_tx_blinding = openings.map_or([0; 32], |openings| openings.private_tx_blinding);
         let output_hashes = outputs
             .iter()
             .map(ProofInputUtxo::hash)
@@ -287,7 +405,7 @@ impl PendingCustomRingProof {
             output_hashes: &output_hashes,
             salt: &salt,
             disclosure: message.disclosure(),
-            anonymous: false,
+            anonymous: anonymous.is_some(),
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -300,8 +418,38 @@ impl PendingCustomRingProof {
             auditor_key: auditor_pk,
             salt,
             outputs,
+            anonymous: anonymous.is_some(),
+            sender,
+            recipients,
+            recipient_viewing_keys,
+            n_in,
+            inputs,
+            anonymous_outputs,
+            private_tx_blinding,
         })
     }
+}
+
+fn anonymous_identities(
+    disclosure: Option<&AnonymousDisclosure>,
+) -> ([u8; 33], [[u8; 33]; 4], [[u8; 33]; 4]) {
+    let mut sender = [0; 33];
+    let mut recipients = [[0; 33]; 4];
+    let mut viewing_keys = [[0; 33]; 4];
+    if let Some(disclosure) = disclosure {
+        sender[0] = zolana_hasher::primitives::SOLANA_OWNER_TAG;
+        sender[1..].copy_from_slice(&disclosure.sender);
+        for ((identity, viewing_key), output) in recipients
+            .iter_mut()
+            .zip(&mut viewing_keys)
+            .zip(&disclosure.outputs)
+        {
+            identity[0] = output.identity_tag;
+            identity[1..].copy_from_slice(&output.identity_key);
+            *viewing_key = output.viewing_pk;
+        }
+    }
+    (sender, recipients, viewing_keys)
 }
 
 /// Re-encodes a prover result as the proof the instruction carries.

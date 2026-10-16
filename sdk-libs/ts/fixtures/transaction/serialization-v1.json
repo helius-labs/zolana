@@ -114,6 +114,11 @@
         "byte": "8",
         "name": "RingDeposit",
         "roundTripByte": "8"
+      },
+      {
+        "byte": "9",
+        "name": "RingAnonymous",
+        "roundTripByte": "9"
       }
     ]
   },

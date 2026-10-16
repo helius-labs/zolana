@@ -380,7 +380,9 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                EncryptedScheme::AnonymousRecipient => (body, shielded_keys.viewing_public_keys()),
+                EncryptedScheme::AnonymousRecipient | EncryptedScheme::RingAnonymous => {
+                    (body, shielded_keys.viewing_public_keys())
+                }
                 _ => return Ok(None),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
@@ -409,7 +411,9 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             }
             for bytes in plaintexts {
                 let utxos = match scheme {
-                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
+                    EncryptedScheme::Confidential
+                    | EncryptedScheme::RingConfidential
+                    | EncryptedScheme::RingAnonymous => {
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };

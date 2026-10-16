@@ -6,6 +6,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
@@ -22,7 +23,9 @@ type CustomRingDepositCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	ContextHash     frontend.Variable
 	Count           frontend.Variable
+	Anonymous       frontend.Variable
 	OwnerPkHashes   [MaxDeposits]frontend.Variable
+	OwnerKeys       [MaxDeposits][32]frontend.Variable
 	NullifierPks    [MaxDeposits]frontend.Variable
 	Blindings       [MaxDeposits]frontend.Variable
 	EphSk           [32]frontend.Variable
@@ -34,6 +37,7 @@ type CustomRingDepositCircuit struct {
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 	// 1. Prove exactly the occupied prefix with canonical zero padding.
+	api.AssertIsBoolean(c.Anonymous)
 	var countMatches [MaxDeposits]frontend.Variable
 	validCount := frontend.Variable(0)
 	for i := range countMatches {
@@ -54,6 +58,13 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(disabled, c.OwnerPkHashes[i]), 0)
 		api.AssertIsEqual(api.Mul(disabled, c.NullifierPks[i]), 0)
 		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
+		// An anonymous ring can admit only Ed25519-owned notes. The opening
+		// binds the hidden owner key to the deposited owner commitment.
+		identity := checked.SolanaOwnerIdentity(api, c.OwnerKeys[i])
+		api.AssertIsEqual(api.Mul(c.Anonymous, enabled[i], api.Sub(c.OwnerPkHashes[i], identity)), 0)
+		for _, b := range c.OwnerKeys[i] {
+			api.AssertIsEqual(api.Mul(api.Sub(1, api.Mul(c.Anonymous, enabled[i])), b), 0)
+		}
 		c.Keys[i].AssertEscrowed(api, api.Mul(enabled[i], c.KeyEscrow), c.KeyRegistryRoot, c.OwnerPkHashes[i], c.NullifierPks[i])
 		ownerHashes[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
 		owner, blinding := canonicalBytes(api, ownerHashes[i]), canonicalBytes(api, c.Blindings[i])
@@ -72,7 +83,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 
 	// 3. Assign distinct CTR blocks to every deposit opening.
 	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
-	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
+	chain := []frontend.Variable{Domain, c.ContextHash, c.Count, c.Anonymous}
 	for i := range ownerHashes {
 		ownerCommitment := gadget.PoseidonHash(api, []frontend.Variable{ownerHashes[i], c.Blindings[i]})
 		ciphertextHash := gadget.HashBytes(api, ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])

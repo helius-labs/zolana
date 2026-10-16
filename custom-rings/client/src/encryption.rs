@@ -84,10 +84,12 @@ pub struct AuditInputOpening {
 }
 
 /// The owner identity and note data disclosed for one anonymous output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnonymousOutputOpening {
     pub identity_tag: u8,
     pub identity_key: [u8; 32],
+    /// Kept in the auditor capsule so the public output hides the recipient.
+    pub viewing_pk: [u8; 33],
     pub nullifier_pk: [u8; 32],
     pub amount: u64,
     pub asset: [u8; 32],
@@ -95,6 +97,23 @@ pub struct AnonymousOutputOpening {
     pub data_hash: [u8; 32],
     pub ring_data_hash: [u8; 32],
     pub ring_note: u8,
+}
+
+impl Default for AnonymousOutputOpening {
+    fn default() -> Self {
+        Self {
+            identity_tag: 0,
+            identity_key: [0; 32],
+            viewing_pk: [0; 33],
+            nullifier_pk: [0; 32],
+            amount: 0,
+            asset: [0; 32],
+            blinding: [0; 32],
+            data_hash: [0; 32],
+            ring_data_hash: [0; 32],
+            ring_note: 0,
+        }
+    }
 }
 
 /// The hidden sender, spent notes and recipients bound by an anonymous proof.
@@ -365,6 +384,7 @@ impl AnonymousDisclosure {
             let end = bytes.len() + DISCLOSURE_OUTPUT_LEN;
             bytes.push(output.identity_tag);
             bytes.extend_from_slice(&output.identity_key);
+            bytes.extend_from_slice(&output.viewing_pk);
             bytes.extend_from_slice(&output.nullifier_pk);
             bytes.extend_from_slice(&output.amount.to_be_bytes());
             bytes.extend_from_slice(&output.asset);
@@ -411,19 +431,20 @@ impl AnonymousDisclosure {
                 .split_at_checked(DISCLOSURE_OUTPUT_LEN)
                 .ok_or(AuditEncryptionError::DisclosureShape)?;
             rest = tail;
-            if slot[202..].iter().any(|b| *b != 0) || slot[201] > 1 {
+            if slot[235..].iter().any(|b| *b != 0) || slot[234] > 1 {
                 return Err(AuditEncryptionError::DisclosurePadding);
             }
             outputs.push(AnonymousOutputOpening {
                 identity_tag: slot[0],
                 identity_key: slot[1..33].try_into().expect("fixed output slot"),
-                nullifier_pk: slot[33..65].try_into().expect("fixed output slot"),
-                amount: u64::from_be_bytes(slot[65..73].try_into().expect("fixed output slot")),
-                asset: slot[73..105].try_into().expect("fixed output slot"),
-                blinding: slot[105..137].try_into().expect("fixed output slot"),
-                data_hash: slot[137..169].try_into().expect("fixed output slot"),
-                ring_data_hash: slot[169..201].try_into().expect("fixed output slot"),
-                ring_note: slot[201],
+                viewing_pk: slot[33..66].try_into().expect("fixed output slot"),
+                nullifier_pk: slot[66..98].try_into().expect("fixed output slot"),
+                amount: u64::from_be_bytes(slot[98..106].try_into().expect("fixed output slot")),
+                asset: slot[106..138].try_into().expect("fixed output slot"),
+                blinding: slot[138..170].try_into().expect("fixed output slot"),
+                data_hash: slot[170..202].try_into().expect("fixed output slot"),
+                ring_data_hash: slot[202..234].try_into().expect("fixed output slot"),
+                ring_note: slot[234],
             });
         }
         if !rest.is_empty() {
@@ -679,7 +700,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn anonymous_disclosure_round_trips_even_when_its_count_equals_legacy() {
+    fn anonymous_disclosure_round_trips_with_hidden_recipient_key() {
         let auditor = X25519Secret::new();
         let tx = ViewingKey::new();
         let disclosure = AnonymousDisclosure {
@@ -697,6 +718,7 @@ mod tests {
                 AnonymousOutputOpening {
                     identity_tag: zolana_hasher::primitives::SOLANA_OWNER_TAG,
                     identity_key: [8; 32],
+                    viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
                     nullifier_pk: [9; 32],
                     amount: 12,
                     asset: [3; 32],
@@ -708,7 +730,7 @@ mod tests {
             ],
         };
         let shape = disclosure.shape();
-        assert_eq!(shape.field_count(), Some(AUDIT_DISCLOSURE_FIELD_COUNT));
+        assert_eq!(shape.field_count(), Some(40));
         let sealed =
             AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &disclosure)
                 .expect("seal");

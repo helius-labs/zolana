@@ -96,15 +96,16 @@ type SpendRecord struct {
 }
 
 type PolicyParameters struct {
-	PublicInputHash *big.Int
-	PrivateTxHash   *big.Int
-	Anonymous       bool
-	TxViewingSk     [scalarLen]byte
-	EphSk           [scalarLen]byte
-	AuditorPk       [32]byte
-	Salt            [16]byte
-	Sender          [identityLen]byte
-	Recipients      [policy.NOutputs][identityLen]byte
+	PublicInputHash      *big.Int
+	PrivateTxHash        *big.Int
+	Anonymous            bool
+	TxViewingSk          [scalarLen]byte
+	EphSk                [scalarLen]byte
+	AuditorPk            [32]byte
+	Salt                 [16]byte
+	Sender               [identityLen]byte
+	Recipients           [policy.NOutputs][identityLen]byte
+	RecipientViewingKeys [policy.NOutputs][33]byte
 
 	NIn     uint8
 	NOut    uint8
@@ -197,41 +198,42 @@ type listFactJSON struct {
 }
 
 type policyParametersJSON struct {
-	CircuitType        string            `json:"circuitType"`
-	PublicInputHash    string            `json:"publicInputHash"`
-	PrivateTxHash      string            `json:"privateTxHash"`
-	Anonymous          bool              `json:"anonymous,omitempty"`
-	TxViewingSk        string            `json:"txViewingSk"`
-	EphSk              string            `json:"ephSk"`
-	AuditorPk          string            `json:"auditorPk"`
-	Salt               string            `json:"salt"`
-	Sender             string            `json:"sender,omitempty"`
-	Recipients         []string          `json:"recipients,omitempty"`
-	NIn                uint8             `json:"nIn"`
-	NOut               uint8             `json:"nOut"`
-	Inputs             []openingJSON     `json:"inputs"`
-	Outputs            []openingJSON     `json:"outputs"`
-	AddressChain       string            `json:"addressChain"`
-	PrivateTxBlinding  string            `json:"privateTxBlinding"`
-	Sources            []sourceOwnerJSON `json:"sources"`
-	PolicyLen          uint8             `json:"policyLen"`
-	RuleEnc            []string          `json:"ruleEnc"`
-	InlineAssets       []string          `json:"inlineAssets"`
-	InlineLimits       []string          `json:"inlineLimits"`
-	InlineCount        uint8             `json:"inlineCount"`
-	WindowSlots        uint64            `json:"windowSlots"`
-	Velocity           []velocityRowJSON `json:"velocity"`
-	VelocityCount      uint8             `json:"velocityCount"`
-	TreeSlots          []treeSlotJSON    `json:"treeSlots"`
-	AddressTreeID      string            `json:"addressTreeId"`
-	RingID             string            `json:"ringId"`
-	NamespaceOwnerHash string            `json:"namespaceOwnerHash"`
-	WindowIndex        uint64            `json:"windowIndex"`
-	ApprovalRequired   bool              `json:"approvalRequired"`
-	KeyEscrow          bool              `json:"keyEscrow"`
-	KeyRegistryRoot    string            `json:"keyRegistryRoot"`
-	Record             spendRecordJSON   `json:"record"`
-	ListFacts          []listFactJSON    `json:"answers"`
+	CircuitType          string            `json:"circuitType"`
+	PublicInputHash      string            `json:"publicInputHash"`
+	PrivateTxHash        string            `json:"privateTxHash"`
+	Anonymous            bool              `json:"anonymous,omitempty"`
+	TxViewingSk          string            `json:"txViewingSk"`
+	EphSk                string            `json:"ephSk"`
+	AuditorPk            string            `json:"auditorPk"`
+	Salt                 string            `json:"salt"`
+	Sender               string            `json:"sender,omitempty"`
+	Recipients           []string          `json:"recipients,omitempty"`
+	RecipientViewingKeys []string          `json:"recipientViewingKeys,omitempty"`
+	NIn                  uint8             `json:"nIn"`
+	NOut                 uint8             `json:"nOut"`
+	Inputs               []openingJSON     `json:"inputs"`
+	Outputs              []openingJSON     `json:"outputs"`
+	AddressChain         string            `json:"addressChain"`
+	PrivateTxBlinding    string            `json:"privateTxBlinding"`
+	Sources              []sourceOwnerJSON `json:"sources"`
+	PolicyLen            uint8             `json:"policyLen"`
+	RuleEnc              []string          `json:"ruleEnc"`
+	InlineAssets         []string          `json:"inlineAssets"`
+	InlineLimits         []string          `json:"inlineLimits"`
+	InlineCount          uint8             `json:"inlineCount"`
+	WindowSlots          uint64            `json:"windowSlots"`
+	Velocity             []velocityRowJSON `json:"velocity"`
+	VelocityCount        uint8             `json:"velocityCount"`
+	TreeSlots            []treeSlotJSON    `json:"treeSlots"`
+	AddressTreeID        string            `json:"addressTreeId"`
+	RingID               string            `json:"ringId"`
+	NamespaceOwnerHash   string            `json:"namespaceOwnerHash"`
+	WindowIndex          uint64            `json:"windowIndex"`
+	ApprovalRequired     bool              `json:"approvalRequired"`
+	KeyEscrow            bool              `json:"keyEscrow"`
+	KeyRegistryRoot      string            `json:"keyRegistryRoot"`
+	Record               spendRecordJSON   `json:"record"`
+	ListFacts            []listFactJSON    `json:"answers"`
 }
 
 func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
@@ -240,39 +242,40 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	raw := policyParametersJSON{
-		CircuitType:        string(common.CustomRingPolicyCircuitType),
-		PublicInputHash:    common.ToHex(p.PublicInputHash),
-		PrivateTxHash:      common.ToHex(p.PrivateTxHash),
-		Anonymous:          p.Anonymous,
-		TxViewingSk:        bytesHex(p.TxViewingSk[:]),
-		EphSk:              bytesHex(p.EphSk[:]),
-		AuditorPk:          bytesHex(p.AuditorPk[:]),
-		Salt:               bytesHex(p.Salt[:]),
-		Sender:             identityHex(p.Sender, p.Anonymous),
-		Recipients:         writeIdentities(p.Recipients[:], p.Anonymous),
-		NIn:                p.NIn,
-		NOut:               p.NOut,
-		Inputs:             writeOpenings(p.Inputs[:]),
-		Outputs:            writeOpenings(p.Outputs[:]),
-		AddressChain:       common.ToHex(p.AddressChain),
-		PrivateTxBlinding:  common.ToHex(p.PrivateTxBlinding),
-		Sources:            make([]sourceOwnerJSON, 0, len(p.Sources)),
-		PolicyLen:          p.PolicyLen,
-		RuleEnc:            make([]string, 0, len(p.RuleEnc)),
-		InlineAssets:       make([]string, 0, len(p.InlineAssets)),
-		InlineLimits:       make([]string, 0, len(p.InlineLimits)),
-		InlineCount:        p.InlineCount,
-		WindowSlots:        p.WindowSlots,
-		Velocity:           make([]velocityRowJSON, 0, len(p.Velocity)),
-		VelocityCount:      p.VelocityCount,
-		TreeSlots:          treeSlots,
-		AddressTreeID:      common.ToHex(p.AddressTreeID),
-		RingID:             common.ToHex(p.RingID),
-		NamespaceOwnerHash: common.ToHex(p.NamespaceOwnerHash),
-		WindowIndex:        p.WindowIndex,
-		ApprovalRequired:   p.ApprovalRequired,
-		KeyEscrow:          p.KeyEscrow.Enabled,
-		KeyRegistryRoot:    common.ToHex(p.KeyEscrow.Root),
+		CircuitType:          string(common.CustomRingPolicyCircuitType),
+		PublicInputHash:      common.ToHex(p.PublicInputHash),
+		PrivateTxHash:        common.ToHex(p.PrivateTxHash),
+		Anonymous:            p.Anonymous,
+		TxViewingSk:          bytesHex(p.TxViewingSk[:]),
+		EphSk:                bytesHex(p.EphSk[:]),
+		AuditorPk:            bytesHex(p.AuditorPk[:]),
+		Salt:                 bytesHex(p.Salt[:]),
+		Sender:               identityHex(p.Sender, p.Anonymous),
+		Recipients:           writeIdentities(p.Recipients[:], p.Anonymous),
+		RecipientViewingKeys: writeViewingKeys(p.RecipientViewingKeys[:], p.Anonymous),
+		NIn:                  p.NIn,
+		NOut:                 p.NOut,
+		Inputs:               writeOpenings(p.Inputs[:]),
+		Outputs:              writeOpenings(p.Outputs[:]),
+		AddressChain:         common.ToHex(p.AddressChain),
+		PrivateTxBlinding:    common.ToHex(p.PrivateTxBlinding),
+		Sources:              make([]sourceOwnerJSON, 0, len(p.Sources)),
+		PolicyLen:            p.PolicyLen,
+		RuleEnc:              make([]string, 0, len(p.RuleEnc)),
+		InlineAssets:         make([]string, 0, len(p.InlineAssets)),
+		InlineLimits:         make([]string, 0, len(p.InlineLimits)),
+		InlineCount:          p.InlineCount,
+		WindowSlots:          p.WindowSlots,
+		Velocity:             make([]velocityRowJSON, 0, len(p.Velocity)),
+		VelocityCount:        p.VelocityCount,
+		TreeSlots:            treeSlots,
+		AddressTreeID:        common.ToHex(p.AddressTreeID),
+		RingID:               common.ToHex(p.RingID),
+		NamespaceOwnerHash:   common.ToHex(p.NamespaceOwnerHash),
+		WindowIndex:          p.WindowIndex,
+		ApprovalRequired:     p.ApprovalRequired,
+		KeyEscrow:            p.KeyEscrow.Enabled,
+		KeyRegistryRoot:      common.ToHex(p.KeyEscrow.Root),
 		Record: spendRecordJSON{
 			Version:    p.Record.Version,
 			Window:     p.Record.Window,
@@ -372,6 +375,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if err = readIdentities(p.Recipients[:], raw.Recipients, raw.Anonymous); err != nil {
+		return err
+	}
+	if err = readViewingKeys(p.RecipientViewingKeys[:], raw.RecipientViewingKeys, raw.Anonymous); err != nil {
 		return err
 	}
 	if p.AddressChain, err = fieldFromHex(raw.AddressChain, "addressChain"); err != nil {
@@ -797,6 +803,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	for i := range circuit.Outputs {
 		assignOpening(&circuit.Outputs[i], &p.Outputs[i])
 		circuit.Recipients[i] = identityWires(p.Recipients[i])
+		assignBytes(circuit.Recipients[i].ViewingPk[:], p.RecipientViewingKeys[i][:])
 		assignRegistryKey(&circuit.OutputKeys[i], p.Outputs[i].Key)
 	}
 	for i, slot := range p.TreeSlots {
@@ -834,7 +841,8 @@ func assignOpening(dst *policy.UtxoWires, src *Opening) {
 }
 
 func identityWires(src [identityLen]byte) base.AuditIdentityWires {
-	w := base.AuditIdentityWires{Tag: src[0]}
+	w := base.ZeroAuditIdentity()
+	w.Tag = src[0]
 	assignBytes(w.Key[:], src[1:])
 	return w
 }
@@ -855,6 +863,32 @@ func writeIdentities(src [][identityLen]byte, enabled bool) []string {
 		out[i] = bytesHex(src[i][:])
 	}
 	return out
+}
+
+func writeViewingKeys(src [][33]byte, enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	out := make([]string, len(src))
+	for i := range src {
+		out[i] = bytesHex(src[i][:])
+	}
+	return out
+}
+
+func readViewingKeys(dst [][33]byte, raw []string, anonymous bool) error {
+	if !anonymous && len(raw) == 0 {
+		return nil
+	}
+	if len(raw) != len(dst) {
+		return fmt.Errorf("custom-ring: recipientViewingKeys holds %d slots, expected %d", len(raw), len(dst))
+	}
+	for i := range dst {
+		if err := bytesFromHex(dst[i][:], raw[i], "recipientViewingKeys"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readSender(dst []byte, raw string, anonymous bool) error {

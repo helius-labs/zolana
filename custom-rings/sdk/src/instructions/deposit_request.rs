@@ -16,7 +16,10 @@ pub struct RingDepositProofRequest<'a> {
     pub public_input_hash: &'a [u8; 32],
     pub context_hash: &'a [u8; 32],
     pub count: u8,
+    /// Proves the occupied owners use the Ed25519 identity in anonymous rings.
+    pub anonymous: bool,
     pub owner_pk_hashes: &'a [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    pub owner_keys: &'a [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     pub nullifier_pks: &'a [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     pub blindings: &'a [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     /// `None` with escrow off and in padding.
@@ -32,12 +35,14 @@ impl Serialize for RingDepositProofRequest<'_> {
         let fields = |values: &[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]| {
             values.each_ref().map(|value| SecretHex::new(value))
         };
-        let mut state = serializer.serialize_struct("RingDepositProofRequest", 12)?;
+        let mut state = serializer.serialize_struct("RingDepositProofRequest", 14)?;
         state.serialize_field("circuitType", "custom-ring-deposit")?;
         state.serialize_field("publicInputHash", &SecretHex::new(self.public_input_hash))?;
         state.serialize_field("contextHash", &SecretHex::new(self.context_hash))?;
         state.serialize_field("count", &self.count)?;
+        state.serialize_field("anonymous", &self.anonymous)?;
         state.serialize_field("ownerPkHashes", &fields(self.owner_pk_hashes))?;
+        state.serialize_field("ownerKeys", &fields(self.owner_keys))?;
         state.serialize_field("nullifierPks", &fields(self.nullifier_pks))?;
         state.serialize_field("blindings", &fields(self.blindings))?;
         state.serialize_field(
@@ -72,6 +77,8 @@ impl ProveRequest for RingDepositProofRequest<'_> {
             .chain(&self.blindings[count..])
             .any(|value| *value != [0; 32])
             || self.keys[count..].iter().any(Option::is_some)
+            || self.owner_keys[count..].iter().any(|key| *key != [0; 32])
+            || (!self.anonymous && self.owner_keys[..count].iter().any(|key| *key != [0; 32]))
         {
             return Err(ClientError::Prover(
                 "unused deposit openings must be zero".into(),
@@ -113,7 +120,9 @@ mod tests {
             public_input_hash: &[0; 32],
             context_hash: &[1; 32],
             count: 1,
+            anonymous: false,
             owner_pk_hashes: &owners,
+            owner_keys: &[[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
             nullifier_pks: &nullifier_pks,
             blindings: &blindings,
             keys: &keys,
@@ -125,6 +134,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(json["circuitType"], "custom-ring-deposit");
         assert_eq!(json["count"], 1);
+        assert_eq!(json["anonymous"], false);
         assert_eq!(json["ownerPkHashes"].as_array().unwrap().len(), 8);
         assert_eq!(json["ownerPkHashes"][0], format!("0x{:064x}", 2));
         assert_eq!(json["nullifierPks"][0], format!("0x{:064x}", 2));
@@ -191,7 +201,9 @@ mod tests {
             public_input_hash: &[0; 32],
             context_hash: &[1; 32],
             count: 1,
+            anonymous: false,
             owner_pk_hashes: &slots,
+            owner_keys: &slots,
             nullifier_pks: &slots,
             blindings: &slots,
             keys: &[None; MAX_RING_DEPOSIT_AUDIT_SLOTS],

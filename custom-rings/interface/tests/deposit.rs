@@ -42,6 +42,7 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
     let ciphertexts = [[3; CT], [4; CT]];
     let input = DepositPublicInput {
         context_hash: &[5; 32],
+        anonymous: false,
         owner_utxo_hashes: &owners,
         ciphertexts: &ciphertexts,
         auditor_pk: &[6; 33],
@@ -52,6 +53,10 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
     for changed in [
         DepositPublicInput {
             context_hash: &[6; 32],
+            ..input
+        },
+        DepositPublicInput {
+            anonymous: true,
             ..input
         },
         DepositPublicInput {
@@ -92,6 +97,7 @@ fn public_statement_binds_each_opening_ciphertext_key_and_context() {
 fn statement_rejects_empty_oversized_and_mismatched_batches() {
     let input = DepositPublicInput {
         context_hash: &[0; 32],
+        anonymous: false,
         owner_utxo_hashes: &[],
         ciphertexts: &[],
         auditor_pk: &[0; 33],

@@ -392,6 +392,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
     let audit = CustomRingBasePublicInput {
+        anonymous: false,
         private_tx_hash: &[1u8; 32],
         tx_viewing_pk: &[2u8; 33],
         auditor_pk: &[3u8; 33],

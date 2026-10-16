@@ -1,5 +1,5 @@
 //! Anonymous custom-ring transfer proof builder. The hidden Ed25519 owner signs
-//! the RingP256 message digest, and the proof verifies that signature.
+//! the transaction message digest, and the proof verifies that signature.
 
 use num_bigint::BigUint;
 use serde_json::{Map, Value};

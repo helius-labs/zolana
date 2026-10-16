@@ -1,5 +1,6 @@
 use solana_address::Address;
 use wincode::{SchemaRead, SchemaWrite};
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_keypair::{
     constants::{P256_PUBKEY_LEN, SALT_LEN},
     P256Pubkey, PublicKey, ViewingKey,
@@ -75,6 +76,27 @@ fn split_embedded_pk(body: &[u8]) -> Result<(P256Pubkey, &[u8]), TransactionErro
 }
 
 impl Confidential {
+    /// Encrypts a ring output without publishing the recipient viewing key.
+    /// The ring auditor receives that key through its proved disclosure.
+    pub fn encode_ring_anonymous_plaintext(
+        plaintext: &ConfidentialOutputPlaintext,
+        cx: &ConfidentialEncode,
+    ) -> Result<MessageData, TransactionError> {
+        let bytes = plaintext.serialize()?;
+        let ciphertext =
+            cx.tx
+                .encrypt_slot(&cx.recipient_pubkey, &bytes, cx.salt, cx.slot_index)?;
+        let mut body = Vec::with_capacity(1 + ciphertext.len());
+        body.push(EncryptedScheme::RingAnonymous.as_byte());
+        body.extend_from_slice(&ciphertext);
+        let data = borsh::to_vec(&OutputDataEncoding::Encrypted(body))
+            .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+        Ok(MessageData {
+            view_tag: [0; 32],
+            data,
+        })
+    }
+
     pub fn embedded_viewing_pk(body: &[u8]) -> Result<P256Pubkey, TransactionError> {
         Ok(split_embedded_pk(body)?.0)
     }

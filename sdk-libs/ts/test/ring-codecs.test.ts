@@ -413,11 +413,13 @@ describe("ring config", () => {
     expect(config.bump).toBe(254);
     expect(config.hasPolicy).toBe(true);
     expect(config.keyEscrow).toBe(false);
-    // Rust `RingProgramConfig::key_escrow`, any nonzero byte reads as on.
-    for (const flag of [1, 2, 0xff]) {
-      expect(
-        decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), flag])).keyEscrow,
-      ).toBe(true);
+    expect(
+      decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 1])).keyEscrow,
+    ).toBe(true);
+    for (const mode of [2, 0xff]) {
+      expect(() =>
+        decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), mode])),
+      ).toThrow("RING_CONFIG_INVALID");
     }
     expect(() => decodeRingProgramConfig(data.subarray(0, 68))).toThrow("RING_CONFIG_INVALID");
     expect(() => decodeRingProgramConfig(data.subarray(1))).toThrow("RING_CONFIG_INVALID");

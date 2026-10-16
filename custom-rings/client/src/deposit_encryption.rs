@@ -185,6 +185,7 @@ mod tests {
         });
         let public_hash = custom_ring_interface::DepositPublicInput {
             context_hash: &context_hash,
+            anonymous: false,
             owner_utxo_hashes: &owners,
             ciphertexts: &sealed.ciphertexts,
             auditor_pk: auditor.pubkey().as_bytes(),
@@ -195,7 +196,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             hex::encode(public_hash),
-            "0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef"
+            "082572ed72398c62f6306725b8142c43daa0b5b9f83eb9d12663cdd59057a39a"
         );
     }
 

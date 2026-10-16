@@ -45,7 +45,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
         auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 0,
-        key_escrow: 0,
+        mode: 0,
     };
     let setting = DepositAudit {
         discriminator: DEPOSIT_AUDIT,
@@ -111,6 +111,40 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
     }
 }
 
+#[test]
+fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
+    let ring = CustomRing::new(Address::new_from_array([42; 32]));
+    let payer = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_p256().unwrap();
+    let config = RingProgramConfig {
+        discriminator: RING_PROGRAM_CONFIG,
+        authority: payer.pubkey(),
+        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
+        has_policy: 0,
+        mode: custom_ring_interface::RingMode::Anonymous as u8,
+    };
+    let rpc = DepositRpc {
+        ring,
+        config: Account {
+            data: bytemuck::bytes_of(&config).to_vec(),
+            owner: ring.program_id(),
+            ..Account::default()
+        },
+        setting: None,
+    };
+    let result = RingDeposit {
+        ring,
+        payer: &payer,
+        recipient: &recipient,
+        tree: Address::new_from_array([8; 32]),
+        asset: DepositAsset::Sol,
+        amount: 11,
+        cosigner: None,
+    }.prepare(&rpc);
+    assert!(matches!(result, Err(DepositError::AnonymousRecipient)));
+}
+
 /// Answers config and registry reads, every member is unregistered.
 struct EscrowRpc {
     ring: CustomRing,
@@ -150,7 +184,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
         auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 1,
-        key_escrow: 1,
+        mode: 1,
     };
     let mut history = [[0; 32]; KEY_REGISTRY_ROOT_HISTORY];
     history[0] = [5; 32];

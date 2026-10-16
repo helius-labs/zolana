@@ -110,6 +110,7 @@ impl Forward {
                 program_id,
                 tree: tree.address(),
                 auditor_pk: &config.auditor_pubkey,
+                anonymous,
                 key_registry_root: key_registry_root.as_ref(),
                 audited,
                 deposit,

@@ -7,10 +7,10 @@ use zolana_hasher::primitives::{pack_be_chunks, PACK_BE_CHUNK_BYTES};
 pub const DISCLOSURE_SENDER_LEN: usize = 62;
 /// `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded.
 pub const DISCLOSURE_INPUT_LEN: usize = 93;
-/// `identity_tag(1) || identity_key(32) || nullifier_pk(32) || amount(8) ||
-/// asset(32) || blinding(32) || data_hash(32) || ring_data_hash(32) ||
-/// ring_note(1)`, zero padded.
-pub const DISCLOSURE_OUTPUT_LEN: usize = 217;
+/// `identity_tag(1) || identity_key(32) || viewing_pk(33) ||
+/// nullifier_pk(32) || amount(8) || asset(32) || blinding(32) ||
+/// data_hash(32) || ring_data_hash(32) || ring_note(1)`, zero padded.
+pub const DISCLOSURE_OUTPUT_LEN: usize = 248;
 pub const AUDIT_INPUT_SLOTS: usize = 4;
 pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 
@@ -101,9 +101,9 @@ mod tests {
         };
         assert_eq!(shape(false, 4, 2).field_count(), Some(36));
         assert_eq!(shape(false, 0, 1).field_count(), Some(36));
-        assert_eq!(shape(true, 2, 2).field_count(), Some(22));
-        assert_eq!(shape(true, 3, 4).field_count(), Some(39));
-        assert_eq!(shape(true, 4, 2).field_count(), Some(28));
+        assert_eq!(shape(true, 2, 2).field_count(), Some(24));
+        assert_eq!(shape(true, 3, 4).field_count(), Some(43));
+        assert_eq!(shape(true, 4, 2).field_count(), Some(30));
         assert_eq!(shape(true, 0, 2).field_count(), None);
         assert_eq!(shape(true, 5, 2).field_count(), None);
         assert_eq!(shape(false, 2, 0).field_count(), None);

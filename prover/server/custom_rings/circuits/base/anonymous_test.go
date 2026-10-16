@@ -23,6 +23,10 @@ func TestAnonymousDisclosure(t *testing.T) {
 	w.PrivateTxBlinding = big.NewInt(0x5b1d)
 	w.Sender, w.Inputs[0].OwnerPkHash = anonymousIdentity(t, 0xa1)
 	w.Recipients[0], w.AnonymousOutputs[0].OwnerPkHash = anonymousIdentity(t, 0xb2)
+	w.Recipients[0].ViewingPk[0] = 3
+	for i := 1; i < len(w.Recipients[0].ViewingPk); i++ {
+		w.Recipients[0].ViewingPk[i] = int(byte(i))
+	}
 	w.Inputs[0] = base.AuditUtxoWires{
 		Domain: big.NewInt(protocol.UtxoDomain), TreeID: big.NewInt(3),
 		OwnerPkHash: w.Inputs[0].OwnerPkHash, NullifierPk: spptest.MustNullifierPk(t, big.NewInt(7)),
@@ -51,8 +55,11 @@ func TestAnonymousDisclosure(t *testing.T) {
 		edit func(*base.CustomRingBaseCircuit)
 	}{
 		{"sender changed", func(c *base.CustomRingBaseCircuit) { c.Sender.Key[0] = 3 }},
+		{"sender tag changed", func(c *base.CustomRingBaseCircuit) { c.Sender.Tag = 0x50 }},
 		{"input amount changed", func(c *base.CustomRingBaseCircuit) { c.Inputs[0].Amount = 101 }},
 		{"recipient changed", func(c *base.CustomRingBaseCircuit) { c.Recipients[0].Key[0] = 3 }},
+		{"recipient tag changed", func(c *base.CustomRingBaseCircuit) { c.Recipients[0].Tag = 0x50 }},
+		{"recipient viewing key changed", func(c *base.CustomRingBaseCircuit) { c.Recipients[0].ViewingPk[1] = 9 }},
 		{"address input", func(c *base.CustomRingBaseCircuit) { c.Inputs[0].Domain = protocol.AddressDomain }},
 		{"output count changed", func(c *base.CustomRingBaseCircuit) { c.OutputCountSelected[0], c.OutputCountSelected[1] = 0, 1 }},
 	} {
@@ -72,7 +79,8 @@ func TestAnonymousDisclosure(t *testing.T) {
 
 func anonymousIdentity(t *testing.T, seed byte) (base.AuditIdentityWires, *big.Int) {
 	t.Helper()
-	w := base.AuditIdentityWires{Tag: int(protocol.SolanaOwnerTag)}
+	w := base.ZeroAuditIdentity()
+	w.Tag = int(protocol.SolanaOwnerTag)
 	bytes := make([]byte, 33)
 	bytes[0] = protocol.SolanaOwnerTag
 	for i := range w.Key {
@@ -96,7 +104,7 @@ func anonymousUtxoHash(t *testing.T, w base.AuditUtxoWires) *big.Int {
 func anonymousDisclosureHash(t *testing.T, w base.AuditBlockWires) *big.Int {
 	t.Helper()
 	v := spptest.AsBigInt
-	plaintext := make([]byte, 62+93+217)
+	plaintext := make([]byte, 62+93+248)
 	plaintext[0] = byte(v(w.Sender.Tag).Uint64())
 	for i, b := range w.Sender.Key {
 		plaintext[1+i] = byte(v(b).Uint64())
@@ -111,13 +119,16 @@ func anonymousDisclosureHash(t *testing.T, w base.AuditBlockWires) *big.Int {
 	for i, b := range w.Recipients[0].Key {
 		output[1+i] = byte(v(b).Uint64())
 	}
-	v(w.AnonymousOutputs[0].NullifierPk).FillBytes(output[33:65])
-	binary.BigEndian.PutUint64(output[65:], v(w.AnonymousOutputs[0].Amount).Uint64())
-	v(w.AnonymousOutputs[0].Asset).FillBytes(output[73:105])
-	v(w.AnonymousOutputs[0].Blinding).FillBytes(output[105:137])
-	v(w.AnonymousOutputs[0].DataHash).FillBytes(output[137:169])
-	v(w.AnonymousOutputs[0].RingDataHash).FillBytes(output[169:201])
-	output[201] = 1
+	for i, b := range w.Recipients[0].ViewingPk {
+		output[33+i] = byte(v(b).Uint64())
+	}
+	v(w.AnonymousOutputs[0].NullifierPk).FillBytes(output[66:98])
+	binary.BigEndian.PutUint64(output[98:], v(w.AnonymousOutputs[0].Amount).Uint64())
+	v(w.AnonymousOutputs[0].Asset).FillBytes(output[106:138])
+	v(w.AnonymousOutputs[0].Blinding).FillBytes(output[138:170])
+	v(w.AnonymousOutputs[0].DataHash).FillBytes(output[170:202])
+	v(w.AnonymousOutputs[0].RingDataHash).FillBytes(output[202:234])
+	output[234] = 1
 
 	viewing := make([]byte, 32)
 	for i, b := range w.TxViewingSk {

@@ -46,6 +46,7 @@ pub(crate) struct DepositVerification<'a, 'data> {
     pub program_id: &'a Address,
     pub tree: &'a Address,
     pub auditor_pk: &'a [u8; VIEWING_PUBKEY_LEN],
+    pub anonymous: bool,
     pub key_registry_root: Option<&'a [u8; 32]>,
     pub audited: &'a AuditedDeposit<'data>,
     pub deposit: &'a RingDepositIxDataRef<'data>,
@@ -90,6 +91,7 @@ impl DepositVerification<'_, '_> {
         .map_err(|_| CustomRingError::HashingFailed)?;
         let public_input = DepositPublicInput {
             context_hash: &context_hash,
+            anonymous: self.anonymous,
             owner_utxo_hashes: &owners[..count],
             ciphertexts: &ciphertexts[..count],
             auditor_pk: self.auditor_pk,

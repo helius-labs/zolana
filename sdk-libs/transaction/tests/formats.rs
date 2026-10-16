@@ -91,6 +91,7 @@ fn scheme_discriminators_cover_the_entire_byte_space() {
         (6, EncryptedScheme::Merge),
         (7, EncryptedScheme::PlaintextTransfer),
         (8, EncryptedScheme::RingDeposit),
+        (9, EncryptedScheme::RingAnonymous),
     ];
     for byte in 0..=u8::MAX {
         match known.iter().find(|(tag, _)| *tag == byte) {
