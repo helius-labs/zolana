@@ -182,7 +182,8 @@ impl AuditorMessage {
         tx_viewing_key: &ViewingKey,
         salt: [u8; 16],
     ) -> Result<[ProofInputUtxo; AUDIT_OUTPUT_SLOTS]> {
-        let fields = disclosure_stream(tx_viewing_key, salt, self.disclosure, false)?;
+        let fields =
+            disclosure_stream(&tx_viewing_key.secret_bytes(), salt, self.disclosure, false)?;
         Ok(core::array::from_fn(|slot| {
             let field = |index: usize| fields[slot * AUDIT_OUTPUT_FIELD_COUNT + index];
             ProofInputUtxo {
@@ -236,30 +237,45 @@ impl AuditorEncryption {
                 output.ring_program_id,
             ];
         }
-        sealed.message.disclosure = disclosure_stream(tx_viewing_key, salt, plaintext, true)?;
+        sealed.message.disclosure =
+            disclosure_stream(&tx_viewing_key.secret_bytes(), salt, plaintext, true)?;
         Ok(sealed)
     }
 }
 
-/// Adds or removes the Poseidon mask of each disclosure field modulo the BN254 order.
+/// The circuit's disclosure keystream, one chained two-input Poseidon per field.
+fn disclosure_pad(
+    secret: &[u8; 32],
+    salt: [u8; 16],
+) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
+    let FieldPair { lo, hi } = pack_2fe(secret);
+    let mut state = poseidon(&[
+        &right_align(&DISCLOSURE_DOMAIN.to_be_bytes()),
+        &lo,
+        &hi,
+        &right_align(&salt),
+    ])?;
+    let mut pad = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+    for (index, mask) in pad.iter_mut().enumerate() {
+        state = poseidon(&[&state, &right_align(&(index as u64).to_be_bytes())])?;
+        *mask = state;
+    }
+    Ok(pad)
+}
+
+/// Adds or removes the keystream of each disclosure field modulo the BN254 order.
 fn disclosure_stream(
-    tx_viewing_key: &ViewingKey,
+    secret: &[u8; 32],
     salt: [u8; 16],
     fields: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
     encrypt: bool,
 ) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
-    let FieldPair { lo, hi } = pack_2fe(&tx_viewing_key.secret_bytes());
+    let pad = disclosure_pad(secret, salt)?;
     let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
     let mut out = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
-    for (index, (field, result)) in fields.into_iter().zip(out.iter_mut()).enumerate() {
-        let mask = BigUint::from_bytes_be(&poseidon(&[
-            &right_align(&DISCLOSURE_DOMAIN.to_be_bytes()),
-            &lo,
-            &hi,
-            &right_align(&salt),
-            &right_align(&(index as u64).to_be_bytes()),
-        ])?);
-        let value = BigUint::from_bytes_be(&field);
+    for ((field, mask), result) in fields.iter().zip(&pad).zip(out.iter_mut()) {
+        let mask = BigUint::from_bytes_be(mask);
+        let value = BigUint::from_bytes_be(field);
         let masked = match encrypt {
             true => (value + mask) % &modulus,
             false => (value + &modulus - mask) % &modulus,
@@ -408,7 +424,10 @@ pub fn open_deposit(
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{RegisterKeyPublicInput, RegisteredKey, KEY_REGISTRY_EMPTY_ROOT};
+    use custom_ring_interface::{
+        CustomRingBasePublicInput, RegisterKeyPublicInput, RegisteredKey, KEY_REGISTRY_EMPTY_ROOT,
+    };
+    use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
     use zolana_ring_key_registry::{KeyRegistryTree, Registration};
     use zolana_ring_policy::Member;
 
@@ -668,5 +687,100 @@ mod tests {
             seal_deposits(&openings, &auditor),
             Err(AuditError::DepositCount(9))
         ));
+    }
+
+    /// Written by the Go circuit tests from the circuit's own gadgets.
+    const SHARED_DISCLOSURE_VECTOR: &str =
+        include_str!("../../../test-vectors/audit-disclosure.json");
+
+    struct DisclosureVector {
+        key: [u8; 32],
+        salt: [u8; 16],
+        fields: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+        pad: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+        ciphertext: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+        disclosure_hash: [u8; 32],
+    }
+
+    fn shared_vector() -> DisclosureVector {
+        let vector: serde_json::Value =
+            serde_json::from_str(SHARED_DISCLOSURE_VECTOR).expect("vector json");
+        let hex = |name: &str| vector[name].as_str().expect(name);
+        let fields = |name: &str| -> [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT] {
+            let fields: Vec<[u8; 32]> = vector[name]
+                .as_array()
+                .expect(name)
+                .iter()
+                .map(|field| bytes(field.as_str().expect("hex field")))
+                .collect();
+            fields.try_into().expect("36 fields")
+        };
+        DisclosureVector {
+            key: bytes(hex("key")),
+            salt: bytes(hex("salt")),
+            fields: fields("fields"),
+            pad: fields("pad"),
+            ciphertext: fields("ciphertext"),
+            disclosure_hash: bytes(hex("disclosure_hash")),
+        }
+    }
+
+    /// Chain element 10 of the audit statement.
+    fn disclosure_hash_element(disclosure: &[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]) -> [u8; 32] {
+        CustomRingBasePublicInput {
+            private_tx_hash: &[0; 32],
+            tx_viewing_pk: &[0; 33],
+            auditor_pk: &[0; 33],
+            eph_pk: &[0; 33],
+            ciphertext: &[0; 32],
+            output_hashes: &[[0; 32]],
+            salt: &[0; 16],
+            disclosure,
+        }
+        .elements()
+        .expect("audit elements")[10]
+    }
+
+    #[test]
+    fn the_disclosure_pad_is_a_chained_two_input_poseidon() {
+        let vector = shared_vector();
+        let zero = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+        let pad = disclosure_stream(&vector.key, vector.salt, zero, true).expect("pad");
+        assert_eq!(pad, vector.pad);
+        for (index, window) in pad.windows(2).enumerate() {
+            let next = poseidon(&[&window[0], &right_align(&(index as u64 + 1).to_be_bytes())])
+                .expect("chain step");
+            assert_eq!(window[1], next);
+        }
+        assert_eq!(
+            disclosure_stream(&vector.key, vector.salt, pad, false).expect("open"),
+            zero
+        );
+    }
+
+    #[test]
+    fn the_disclosure_stream_matches_the_shared_vector() {
+        let vector = shared_vector();
+        assert_eq!(
+            disclosure_stream(&vector.key, vector.salt, vector.fields, true).expect("seal"),
+            vector.ciphertext
+        );
+        assert_eq!(
+            disclosure_stream(&vector.key, vector.salt, vector.ciphertext, false).expect("open"),
+            vector.fields
+        );
+    }
+
+    #[test]
+    fn the_disclosure_hash_is_the_4_ary_chain_of_the_ciphertext() {
+        let vector = shared_vector();
+        assert_eq!(
+            create_hash_chain_4_from_slice(&vector.ciphertext).expect("hash chain 4"),
+            vector.disclosure_hash
+        );
+        assert_eq!(
+            disclosure_hash_element(&vector.ciphertext),
+            vector.disclosure_hash
+        );
     }
 }
