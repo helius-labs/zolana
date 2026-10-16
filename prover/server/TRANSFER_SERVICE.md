@@ -17,8 +17,7 @@ rounded up, since proving time and a Groth16 proving key both grow with the
 circuit's constraints. A gateway bills the proof at its per-unit price times
 that weight, so `transfer_confidential_1_2` bills 1 and `merge_54_1` 24. The
 header rides the plaintext outer answer of an encrypted proof, and a status
-poll reports none. The key-less legacy paths are served bare only, never under
-`/v1/zolana`, and report none either.
+poll reports none.
 
 `--serve` (or `PROVER_SERVE_KEYS`) limits the keys a deployment proves, as
 patterns over key names such as `transfer_*` or `*_54_*`; the default is

@@ -35,7 +35,7 @@ func TestKeyWeightIsTheKeySizeOverTheBaseTransfer(t *testing.T) {
 }
 
 func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
-	mux := legacyProofMux(t, nil)
+	mux := proofMux(t, nil)
 	weight, _ := keyWeight("merge_24_1.key")
 	for _, prefix := range []string{"", gatewayPrefix} {
 		for _, path := range []string{"/prove/merge_24_1", "/prove/merge_24_1/indexed"} {
@@ -45,13 +45,8 @@ func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
 			}
 		}
 	}
-	// A key-less path learns its key from the body and reports no units.
-	response := post(mux, "/prove", transferRequest(t))
-	if got := response.Header().Get(MeteringUnitsHeader); got != "" {
-		t.Fatalf("key-less path reported %q", got)
-	}
 	// Status polls bill at their own price, not the key's weight.
-	response = serve(mux, http.MethodGet, "/prove/merge_24_1/status?jobId=x", nil)
+	response := serve(mux, http.MethodGet, "/prove/merge_24_1/status?jobId=x", nil)
 	if got := response.Header().Get(MeteringUnitsHeader); got != "" {
 		t.Fatalf("status poll reported %q", got)
 	}
