@@ -403,6 +403,9 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	if handler.provingKey != "" {
+		setMeteringUnits(w, handler.provingKey)
+	}
 
 	if handler.indexed {
 		if handler.indexer == nil {
