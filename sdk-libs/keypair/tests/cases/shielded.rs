@@ -72,7 +72,7 @@ pub(crate) fn from_keypair_roots_both_keys_in_one_seed(world: &mut KeypairWorld,
     );
     assert_eq!(
         kp.viewing_key.pubkey(),
-        expand_viewing_pubkey(&seed, b"TSPP/view_key/ecdh/v1")
+        expand_viewing_pubkey(&seed, b"TSPP/view_key/ecdh/x25519/v1")
     );
 }
 

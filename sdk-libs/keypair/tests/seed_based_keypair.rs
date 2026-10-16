@@ -9,8 +9,8 @@ use solana_seed_phrase::generate_seed_from_seed_phrase_and_passphrase;
 use zolana_keypair::{
     constants::BLINDING_LEN,
     derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
-    hash, CompressedShieldedAddress, Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey,
-    ShieldedAddress, ShieldedKeypair, ShieldedKeypairTrait, SigningKey, ViewingKey,
+    hash, CompressedShieldedAddress, Curve, KeypairError, NullifierKey, PublicKey, ShieldedAddress,
+    ShieldedKeypair, ShieldedKeypairTrait, SigningKey, ViewingKey, X25519Pubkey,
 };
 
 const TEST_MNEMONIC: &str =
@@ -87,16 +87,6 @@ fn nist256p1_hardened_child(key: &Scalar, chain: &[u8; 32], index: u32) -> (Scal
     }
 }
 
-fn derive_node_p256_bytes(seed: &[u8], path: &[u32]) -> [u8; 32] {
-    let (mut key, mut chain) = nist256p1_master(seed);
-    for &index in path {
-        let (child_key, child_chain) = nist256p1_hardened_child(&key, &chain, index);
-        key = child_key;
-        chain = child_chain;
-    }
-    key.to_bytes().into()
-}
-
 fn nullifier_secret(node: &[u8; 32]) -> [u8; BLINDING_LEN] {
     let (_, tail) = node.split_first().expect("node key is nonempty");
     tail.try_into().expect("31-byte nullifier secret")
@@ -113,12 +103,12 @@ impl SeedBasedShieldedKeypair {
         let seed = generate_seed_from_seed_phrase_and_passphrase(phrase, "");
         let signing_bytes = derive_node_bytes(&seed, &solana_path(account));
         let nullifier_node = derive_node_bytes(&seed, &tspp_path(account, 1));
-        let viewing_node = derive_node_p256_bytes(&seed, &[44, TSPP_COIN_TYPE, account, 2, 0]);
+        let viewing_node = derive_node_bytes(&seed, &tspp_path(account, 2));
         Self {
             signing_key: SigningKey::from_ed25519_bytes(&signing_bytes),
             nullifier_key: NullifierKey::from_secret(nullifier_secret(&nullifier_node)),
             viewing_key: ViewingKey::from_bytes(&viewing_node)
-                .expect("node_p256 keys are valid P-256 scalars by construction"),
+                .expect("X25519 viewing key accepts hardened node bytes"),
         }
     }
 }
@@ -128,7 +118,7 @@ impl ShieldedKeypairTrait for SeedBasedShieldedKeypair {
         self.signing_key.pubkey()
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 
@@ -204,11 +194,8 @@ fn seed_based_keypair_matches_reference_parts() {
         &seed,
         &tspp_path(0, 1),
     )));
-    let viewing_reference = ViewingKey::from_bytes(&derive_node_p256_bytes(
-        &seed,
-        &[44, TSPP_COIN_TYPE, 0, 2, 0],
-    ))
-    .expect("node_p256 keys are valid P-256 scalars by construction");
+    let viewing_reference = ViewingKey::from_bytes(&derive_node_bytes(&seed, &tspp_path(0, 2)))
+        .expect("X25519 viewing key accepts hardened node bytes");
 
     assert_eq!(keypair.signing_pubkey(), signing_reference.pubkey());
     assert_eq!(keypair.viewing_pubkey(), viewing_reference.pubkey());
@@ -370,20 +357,30 @@ fn seed_based_viewing_key_matches_pinned_vectors() {
     let cases = [
         (
             0u32,
-            "1694bc1c8a456511d0364e26c71409b4912c5b2ff56bed3fc9c706e066496a54",
-            "03170ee9cf7a6f1ad811bd2019d386f67ce337458e0bf585c3cad7ddac85373e32",
+            "900a295a5d309fbb7af1c86b8baf24423b2fc63c359842731a2dcef3935b6f4f",
+            "0411e50fb712145d4327be7764b4e1fafe45abff32cbf2d0e150bb853510699350",
+            "1e5122ba5ad0b21b1bc28861ec1f85982696fdb0414f17f8d28c60740dc3a6de",
         ),
         (
             1u32,
-            "60a8c80b23007c79c1dcf1821446dc77e6fcd2bb3e747ddca629784adaf8fa18",
-            "03bb3b5ea4e0a873297d1f80e2ee1ebfabf472129debca75fced4753a95769fe27",
+            "5849d47866cc64837aae098d73f5f102eed8f84f413eadbc68f151fbbdf0d15a",
+            "04bf56646c84b5a325b98e840d094fa1017368d118a9f655f1f5e8eff96387cf1b",
+            "0b0843d78a9047f4a0a2a6602a43c8ec20849869351f9e4ce6c766fbb81bbd80",
         ),
     ];
-    for (account, viewing_secret, viewing_pubkey) in cases {
-        let node = derive_node_p256_bytes(&seed, &[44, TSPP_COIN_TYPE, account, 2, 0]);
-        assert_eq!(hex::encode(node), viewing_secret);
-        let viewing = ViewingKey::from_bytes(&node)
-            .expect("node_p256 keys are valid P-256 scalars by construction");
+    for (account, viewing_secret, viewing_pubkey, address_hash) in cases {
+        let keypair = SeedBasedShieldedKeypair::from_seed_phrase(TEST_MNEMONIC, account);
+        assert_eq!(
+            hex::encode(keypair.compressed_address().unwrap().hash().unwrap()),
+            address_hash
+        );
+        let node = derive_node_bytes(&seed, &tspp_path(account, 2));
+        let viewing =
+            ViewingKey::from_bytes(&node).expect("X25519 viewing key accepts hardened node bytes");
+        assert_eq!(
+            hex::encode(viewing.secret_bytes().as_slice()),
+            viewing_secret
+        );
         assert_eq!(hex::encode(viewing.pubkey().as_bytes()), viewing_pubkey);
     }
 }

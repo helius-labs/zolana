@@ -1,4 +1,4 @@
-//! X25519 auditor envelope keys. A public key travels as the 33-byte `0x04 || u`.
+//! X25519 viewing and auditor envelope keys. Public keys use `0x04 || u`.
 
 use rand::{rngs::OsRng, RngCore};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -8,6 +8,7 @@ use zolana_hasher::primitives::is_canonical_x25519_public_key;
 use crate::KeypairError;
 
 pub const X25519_KEY_TAG: u8 = 4;
+pub const X25519_PUBKEY_LEN: usize = 33;
 
 /// `0x04 || u` with a canonical little-endian u.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -88,7 +89,6 @@ impl Default for X25519Secret {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn canonical_tagged_keys_reject_p256_and_coordinate_aliases() {
         let key = X25519Secret::from_bytes(&[7; 32]).unwrap().pubkey();

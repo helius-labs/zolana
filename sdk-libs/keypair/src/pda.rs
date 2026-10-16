@@ -1,22 +1,22 @@
 //! Shielded identities owned by a program-derived address
 //! (`docs/shielded_pda_design.md`). A PDA is off the Ed25519 curve and holds
-//! no private state, so the identity is rooted in an ECDH exchange between
-//! viewing keys: both roles expand from that one shared secret, bound to the
-//! PDA. Spending needs both the owning program's `invoke_signed` and the
-//! nullifier secret; neither alone suffices.
+//! no private state. Its roles expand from a holder's viewing secret or an
+//! ECDH agreement between holders, bound to the PDA. Spending requires both
+//! the owning program's `invoke_signed` and the nullifier secret.
 
 use solana_address::Address;
 use zeroize::Zeroizing;
 
 use crate::{
-    derivation::{p_pda, PdaRoleExpansion},
+    derivation::PdaRoleExpansion,
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
-    pubkey::{Curve, P256Pubkey, PublicKey},
+    pubkey::{Curve, PublicKey},
     shielded::{CompressedShieldedAddress, ShieldedAddress},
     traits::ShieldedKeypairTrait,
     viewing_key::ViewingKey,
+    x25519::X25519Pubkey,
 };
 
 /// Not a `ShieldedKeypair`: it holds no signing secret, so that state is
@@ -42,7 +42,7 @@ impl ShieldedPda {
     pub fn from_key_exchange(
         pda: Address,
         own: &ViewingKey,
-        counterparty: &P256Pubkey,
+        counterparty: &X25519Pubkey,
     ) -> Result<Self, KeypairError> {
         let shared = Zeroizing::new(own.ecdh(counterparty)?);
         let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
@@ -53,14 +53,12 @@ impl ShieldedPda {
         })
     }
 
-    /// Derives both roles from the holder's viewing key alone via
-    /// `ECDH(own, P_pda)`, a committed point with unknown discrete log, so the
-    /// identity exists before any counterparty does and its `nullifier_pk` can
-    /// be published at account-creation time. The holder set is the same as
-    /// the sole-holder exchange; only the holder of `own` derives it.
+    /// Derives both roles from the holder's canonical viewing secret and PDA.
+    /// A separate HKDF salt isolates this root from viewing tags and public
+    /// ECDH exchanges, including queries at related fixed points.
     pub fn from_viewing_key(pda: Address, own: &ViewingKey) -> Result<Self, KeypairError> {
-        let shared = Zeroizing::new(own.ecdh_raw(&p_pda())?);
-        let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
+        let secret = own.secret_bytes();
+        let expansion = PdaRoleExpansion::new(&secret, pda.to_bytes());
         Ok(Self {
             pda,
             nullifier_key: expansion.nullifier_key()?,
@@ -96,7 +94,7 @@ impl ShieldedPda {
         &self.viewing_key
     }
 
-    pub fn viewing_pubkey(&self) -> P256Pubkey {
+    pub fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 
@@ -140,7 +138,7 @@ impl ShieldedKeypairTrait for ShieldedPda {
         self.signing_pubkey()
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_pubkey()
     }
 
