@@ -343,17 +343,17 @@ impl RoleExpansion {
     }
 }
 
-/// One HKDF-Extract over the viewing-key ECDH shared secret, then one Expand
-/// per role with the PDA bound into the info, so parties who transact
-/// repeatedly do not reuse one identity across their PDAs.
+/// Expands a holder secret or shared ECDH seed into PDA-bound roles.
+/// The dedicated salt separates viewing roots and the PDA in each Expand
+/// prevents reusing one identity across different program addresses.
 pub(crate) struct PdaRoleExpansion {
     prk: Zeroizing<[u8; 32]>,
     pda: [u8; 32],
 }
 
 impl PdaRoleExpansion {
-    pub(crate) fn new(shared: &[u8; 32], pda: [u8; 32]) -> Self {
-        let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_PDA_ROOT), shared);
+    pub(crate) fn new(seed: &[u8; 32], pda: [u8; 32]) -> Self {
+        let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_PDA_ROOT), seed);
         let mut bytes = Zeroizing::new([0u8; 32]);
         bytes.copy_from_slice(&prk);
         Self { prk: bytes, pda }

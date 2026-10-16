@@ -5,7 +5,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_client::{user_registry::resolve_registered_address, Rpc};
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
 use zolana_transaction::{
     serialization::confidential::Confidential, utxo::Blinding, AssetRegistry, DecodeCx,
     ShieldedTransaction, UtxoSerialization,
@@ -79,7 +79,7 @@ impl TakerOrderCandidate {
     pub fn into_order(
         self,
         destination: ShieldedAddress,
-        taker_viewing_pubkey: P256Pubkey,
+        taker_viewing_pubkey: X25519Pubkey,
     ) -> Result<TakerOrder> {
         let terms = OrderTerms {
             destination_mint: self.destination_mint,

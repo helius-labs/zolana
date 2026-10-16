@@ -257,6 +257,6 @@ fn viewing_keys_and_tags_match_protocol_vectors() {
         &mut world,
         "k".into(),
         0,
-        "0054b6670b9806d4bda4815a5796f3055c3bc33d312c76c24dc80cb5b50db2fa".into(),
+        "00b903c62e50ee1466ff409fd4eede8da88006757c5865ef9e38975cd2a980ce".into(),
     );
 }

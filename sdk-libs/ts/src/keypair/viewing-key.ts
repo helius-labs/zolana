@@ -203,8 +203,7 @@ export class ViewingKey implements ViewingKeyLike {
     this.#destroyed = true;
   }
 
-  // Resolved on first use like Rust's `OnceLock`: the single-use keys
-  // `transactionViewingKey` returns never pay for the view-root ECDH.
+  // Cache the role root on first use. Encryption does not need this root.
   #viewSecret(info: string): Uint8Array {
     this.#assertUsable();
     this.#viewRoot ??= viewRoot(this.#secret);
