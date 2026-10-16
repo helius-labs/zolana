@@ -31,9 +31,9 @@ func (signers Signers) ContainsEach(api frontend.API, identities []frontend.Vari
 	return signed
 }
 
-// EddsaOnlySigners returns the private owner identities of content-bearing
+// ConfidentialEd25519Signers returns the private owner identities of content-bearing
 // inputs. Dummy inputs contribute zero.
-func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable) Signers {
+func ConfidentialEd25519Signers(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable) Signers {
 	signers := make(Signers, len(inputs))
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
@@ -44,16 +44,16 @@ func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend
 	return signers
 }
 
-// AuthorizedEddsaInputOwners resolves the private per-input owner identities and
+// AuthorizedEd25519InputOwners resolves the private per-input owner identities and
 // requires every content-bearing input to be authorized by the unified signer
 // vector. The vector contains the payer first, then appended Solana signers.
-func AuthorizedEddsaInputOwners(
+func AuthorizedEd25519InputOwners(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	authorized Signers,
 ) Signers {
-	owners := EddsaOnlySigners(api, inputs, ownerPkHashes)
+	owners := ConfidentialEd25519Signers(api, inputs, ownerPkHashes)
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
@@ -90,7 +90,7 @@ func HiddenOwnerSigners(
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
 	// This rail needs at least one hidden-owner input. Ordinary all-Ed25519
-	// transactions use RingEddsa.
+	// transactions use ConfidentialRingEd25519.
 	api.AssertIsDifferent(hasHiddenInput, 0)
 	return signers
 }

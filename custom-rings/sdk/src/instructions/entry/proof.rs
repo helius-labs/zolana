@@ -1,4 +1,4 @@
-//! Both entry transitions are a 1-in 2-out `ConfidentialEddsa` transfer signed by
+//! Both entry transitions are a 1-in 2-out `ConfidentialEd25519` transfer signed by
 //! the namespace PDA whose second output is compact padding. Create fills the address slot, update fills the input slot with
 //! the live version.
 

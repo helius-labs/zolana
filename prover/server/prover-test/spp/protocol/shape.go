@@ -78,9 +78,9 @@ var SupportedShapes = []Shape{
 	{NInputs: 49, NOutputs: 2},
 }
 
-// RingEd25519Shapes are the shapes the anonymous ring rail has keys for,
-// mirroring RING_ED25519_SHAPES in program-libs/interface/src/shape.rs.
-var RingEd25519Shapes = []Shape{
+// AnonymousRingEd25519Shapes are the shapes the anonymous ring rail has keys for,
+// mirroring ANONYMOUS_RING_ED25519_SHAPES in program-libs/interface/src/shape.rs.
+var AnonymousRingEd25519Shapes = []Shape{
 	{NInputs: 2, NOutputs: 2},
 	{NInputs: 2, NOutputs: 4},
 	{NInputs: 3, NOutputs: 4},

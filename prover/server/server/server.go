@@ -1311,7 +1311,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "1-5 minutes"
-	case common.TransferEd25519RingCircuitType:
+	case common.TransferAnonymousRingEd25519CircuitType:
 		return "30-180 seconds"
 	default:
 		return "1-3 seconds"

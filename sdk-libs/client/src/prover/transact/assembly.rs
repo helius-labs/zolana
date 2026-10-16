@@ -136,13 +136,16 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
     Ok(hashes)
 }
 
-/// Selects the public or hidden owner binding of an input.
+/// Selects how input ownership is authorized. Ring membership is separate from
+/// privacy: confidential owners use public signers; anonymous owners sign in ZK.
 pub(crate) enum OwnerMode {
+    /// Public signer identities, used by both default and confidential custom rings.
     ConfidentialEd25519,
     Merge,
     RingAuthority,
-    /// Inputs of the hidden owner contribute the private-ownership sentinel.
-    RingEd25519(PublicKey),
+    /// Hidden senders and recipients. Inputs of this owner use the zero sentinel;
+    /// the anonymous circuit also hides output owners.
+    AnonymousEd25519(PublicKey),
 }
 
 /// One tree a set of padded inputs is spent from: the raw id its UTXOs are
@@ -314,7 +317,7 @@ pub(crate) fn assemble_inputs(
         if input.utxo.cache_slot.is_some()
             && matches!(
                 owner_mode,
-                OwnerMode::Merge | OwnerMode::RingAuthority | OwnerMode::RingEd25519(_)
+                OwnerMode::Merge | OwnerMode::RingAuthority | OwnerMode::AnonymousEd25519(_)
             )
         {
             return Err(ClientError::CachedInputUnsupported { index });
@@ -392,7 +395,7 @@ pub(crate) fn assemble_inputs(
         let nullifier = input_utxo.utxo.nullifier;
 
         let owner_pk_hash = match owner_mode {
-            OwnerMode::RingEd25519(hidden) if input_utxo.utxo.utxo.owner == *hidden => [0; 32],
+            OwnerMode::AnonymousEd25519(hidden) if input_utxo.utxo.utxo.owner == *hidden => [0; 32],
             _ => input_utxo.utxo.utxo.owner.owner_proof_input_hash()?,
         };
 

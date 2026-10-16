@@ -163,12 +163,17 @@ impl ExpectedProvingKey {
             "transfer_confidential",
             n_inputs,
             n_outputs,
-            CircuitId::ConfidentialEddsa,
+            CircuitId::ConfidentialEd25519,
         )
     }
 
     pub(crate) fn transfer_ring(n_inputs: usize, n_outputs: usize) -> Result<Self, ClientError> {
-        Self::transfer("transfer_ring", n_inputs, n_outputs, CircuitId::RingEddsa)
+        Self::transfer(
+            "transfer_ring",
+            n_inputs,
+            n_outputs,
+            CircuitId::ConfidentialRingEd25519,
+        )
     }
 
     pub(crate) fn transfer_ring_authority(
@@ -183,7 +188,7 @@ impl ExpectedProvingKey {
         )
     }
 
-    pub(crate) fn transfer_ed25519_ring(
+    pub(crate) fn transfer_anonymous_ring_ed25519(
         n_inputs: usize,
         n_outputs: usize,
     ) -> Result<Self, ClientError> {
@@ -196,7 +201,7 @@ impl ExpectedProvingKey {
             "transfer_ed25519_ring",
             n_inputs,
             n_outputs,
-            |n_in, n_out, slots| CircuitId::RingEd25519(n_in, n_out, slots, commitment),
+            |n_in, n_out, slots| CircuitId::AnonymousRingEd25519(n_in, n_out, slots, commitment),
         )
     }
 

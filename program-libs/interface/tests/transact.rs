@@ -19,8 +19,8 @@ use zolana_interface::{
 #[test]
 fn circuit_id_wire_layout_and_unknown_rejection() {
     let vanilla_ids = [
-        CircuitId::ConfidentialEddsa(1, 2, 3),
-        CircuitId::RingEddsa(2, 3, 3),
+        CircuitId::ConfidentialEd25519(1, 2, 3),
+        CircuitId::ConfidentialRingEd25519(2, 3, 3),
         CircuitId::RingAuthority(4, 4, 3),
     ];
     for (value, id) in vanilla_ids.into_iter().enumerate() {
@@ -39,7 +39,7 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
         commitment: [4u8; 32],
         commitment_pok: [5u8; 32],
     };
-    let ed25519 = CircuitId::RingEd25519(2, 3, 3, commitment);
+    let ed25519 = CircuitId::AnonymousRingEd25519(2, 3, 3, commitment);
     let bytes = wincode::serialize(&ed25519).unwrap();
     let mut expected = 7u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[2, 3, 3]);
@@ -73,7 +73,7 @@ fn cached_circuit_id_carries_one_write_pair_per_output() {
         read_bitmap: 0b101,
         write_slots,
     };
-    let cached = CircuitId::ConfidentialEddsaCached(8, 16, 3, cache);
+    let cached = CircuitId::ConfidentialEd25519Cached(8, 16, 3, cache);
     let bytes = wincode::serialize(&cached).unwrap();
     let mut expected = 4u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[8, 16, 3]);
@@ -138,7 +138,7 @@ fn ix_data(proof: TransactProof) -> TransactIxData {
         proof,
         expiry_unix_ts: 7,
         private_tx_hash: [9u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
+        circuit: CircuitId::ConfidentialEd25519(1, 3, 3),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
             tree_index: 0,

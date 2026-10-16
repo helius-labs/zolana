@@ -3,6 +3,17 @@
 A client owns the three services a private transaction needs: the Solana
 RPC (`R`), the indexer (`I`) and the prover.
 
+## Privacy modes
+
+Confidential transfers hide amounts and assets. Anonymous transfers additionally
+hide sender and recipient identities. Ring membership is a separate property.
+The circuit selectors are `ConfidentialEd25519` for the default ring,
+`ConfidentialRingEd25519` for confidential custom rings, and
+`AnonymousRingEd25519` for anonymous custom rings. The anonymous Rust prover is
+`AnonymousRingEd25519Prover` in `prover::transact::anonymous_ring_ed25519`.
+The existing wire tags, prover request identifiers, and proving-key filenames
+are unchanged.
+
 ## Blocking and async
 
 `AsyncZolanaClient<R, I>` is the client; `ZolanaClient<R, I>` is the same

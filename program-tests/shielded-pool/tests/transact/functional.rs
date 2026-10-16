@@ -221,7 +221,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         inline_outputs(&output_hashes, &vec![input_owner_bytes; sent_outputs]),
     );
     transact_ix_data.circuit =
-        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
+        CircuitId::ConfidentialEd25519(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
@@ -497,7 +497,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     transact_ix_data.circuit = if IS_AUTHORITY {
         CircuitId::RingAuthority(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     } else {
-        CircuitId::RingEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialRingEd25519(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     };
 
     let owner_pk_hashes =
@@ -533,7 +533,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
 
     // Public-input layout: the 6-element base chain, the interleaved public
     // transfer slots (all idle here), then ring/signer/dummy-policy, then the
-    // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
+    // variant appendix (ConfidentialRingEd25519: the output-owner chain; RingAuthority:
     // nothing — its signer element is the bare payer hash).
     let mut signer_hashes =
         vec![zero; Shape::new(usize::from(n_inputs), usize::from(n_outputs)).signer_width()];
@@ -556,7 +556,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     if IS_AUTHORITY {
         chain.extend_from_slice(&[ring_field, payer_hash, fe(1)]);
     } else {
-        // RingEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
+        // ConfidentialRingEd25519 binds only CONFIDENTIAL-MARKED output owners; these outputs
         // carry `data: None` (unmarked), so every published owner slot is 0.
         let published_owners = vec![zero; usize::from(n_outputs)];
         chain.push(ring_field);
@@ -592,7 +592,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         prover_inputs.signer_pk_hashes = vec![be(&payer_hash)];
         prover_inputs.published_output_owner_pk_hashes = Vec::new();
     } else {
-        // RingEddsa publishes only confidential-marked owner tags; these
+        // ConfidentialRingEd25519 publishes only confidential-marked owner tags; these
         // outputs are unmarked, so every published slot is 0.
         prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); usize::from(n_outputs)];
     }
@@ -1455,7 +1455,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::ConfidentialRingEd25519(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1505,7 +1505,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         4,
         false,
     );
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::ConfidentialRingEd25519(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1715,7 +1715,7 @@ fn transact_accepts_the_widest_input_shape() {
     );
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::ConfidentialEddsa(49, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialEd25519(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1780,7 +1780,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
         build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::RingEddsa(49, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialRingEd25519(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs

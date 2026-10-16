@@ -15,7 +15,7 @@ import (
 // owners, and a default-ring output would have to publish its owner, so the
 // only one provable under zero would be the unspendable zero identity.
 
-type CustomRingEd25519Public struct {
+type CustomRingAnonymousEd25519Public struct {
 	Nullifiers       []frontend.Variable
 	OutputHashes     []frontend.Variable
 	TreeSlots        []shared.TreeSlot
@@ -32,7 +32,7 @@ type CustomRingEd25519Public struct {
 	PublicInputHash  frontend.Variable `gnark:",public"`
 }
 
-type CustomRingEd25519Private struct {
+type CustomRingAnonymousEd25519Private struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
@@ -43,29 +43,29 @@ type CustomRingEd25519Private struct {
 	OwnerSignature      [64]frontend.Variable
 }
 
-type CustomRingEd25519Circuit struct {
+type CustomRingAnonymousEd25519Circuit struct {
 	CachedInputs shared.CachedInputs
 
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomRingEd25519Public
-	Private CustomRingEd25519Private
+	Public  CustomRingAnonymousEd25519Public
+	Private CustomRingAnonymousEd25519Private
 }
 
-// NewCustomRingEd25519Circuit allocates only a supported transaction shape.
-func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit, error) {
+// NewCustomRingAnonymousEd25519Circuit allocates only a supported transaction shape.
+func NewCustomRingAnonymousEd25519Circuit(shape shared.Shape) (*CustomRingAnonymousEd25519Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomRingEd25519Circuit{
+	return &CustomRingAnonymousEd25519Circuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
-		Public: CustomRingEd25519Public{
+		Public: CustomRingAnonymousEd25519Public{
 			Nullifiers:     make([]frontend.Variable, shape.NInputs),
 			OutputHashes:   make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:      shared.NewTreeSlots(),
 			SignerPkHashes: make([]frontend.Variable, shape.SignerWidth()),
 		},
-		Private: CustomRingEd25519Private{
+		Private: CustomRingAnonymousEd25519Private{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -77,7 +77,7 @@ func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit,
 
 // transaction commits the signed ring preimage with a zero default owner and
 // zero published output owners to preserve the anonymous statement.
-func (c *CustomRingEd25519Circuit) transaction(
+func (c *CustomRingAnonymousEd25519Circuit) transaction(
 	api frontend.API,
 	messageHash frontend.Variable,
 	publishedOutputOwners []frontend.Variable,
@@ -113,7 +113,7 @@ func (c *CustomRingEd25519Circuit) transaction(
 
 // Define authenticates a private Ed25519 owner and binds its spends to the
 // existing ring transaction statement without publishing that owner.
-func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
+func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 	// 1. Verify the exact public spend digest under the hidden owner key.
 	messageBits := append(
 		api.ToBinary(c.Public.MessageHashLow, messageLimbBits),

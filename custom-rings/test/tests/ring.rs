@@ -1158,7 +1158,8 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         assert_ne!(payer.pubkey(), env.sender.keypair.pubkey());
         assert!(proven.owner_signers.is_empty());
         let valid_circuit = proven.data.circuit;
-        let CircuitId::RingEd25519(inputs, outputs, slots, commitment) = valid_circuit else {
+        let CircuitId::AnonymousRingEd25519(inputs, outputs, slots, commitment) = valid_circuit
+        else {
             panic!("anonymous transfer must prove its hidden Ed25519 owner");
         };
         let mut malformed_commitment = commitment;
@@ -1172,19 +1173,19 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         let tree_before = fetch_account(rpc, &env.tree)?;
         for (circuit, error) in [
             (
-                CircuitId::RingEd25519(inputs, outputs, slots, malformed_commitment),
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, malformed_commitment),
                 ShieldedPoolError::InvalidTransactProofEncoding as u32,
             ),
             (
-                CircuitId::RingEd25519(inputs, outputs, slots, malformed_pok),
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, malformed_pok),
                 ShieldedPoolError::InvalidTransactProofEncoding as u32,
             ),
             (
-                CircuitId::RingEd25519(inputs, outputs, slots, invalid_pok),
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, invalid_pok),
                 ShieldedPoolError::TransactProofVerificationFailed as u32,
             ),
             (
-                CircuitId::RingEddsa(inputs, outputs, slots),
+                CircuitId::ConfidentialRingEd25519(inputs, outputs, slots),
                 CustomRingError::UnsupportedCircuit as u32,
             ),
         ] {

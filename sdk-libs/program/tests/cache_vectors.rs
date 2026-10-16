@@ -271,10 +271,10 @@ fn transact_data(circuit: CircuitId) -> TransactIxData {
 fn circuit_json(circuit: CircuitId) -> Value {
     let (inputs, outputs, public_asset_slots) = circuit.shape();
     let kind = match circuit {
-        CircuitId::ConfidentialEddsa(..) => "confidentialEddsa",
-        CircuitId::RingEddsa(..) => "ringEddsa",
-        CircuitId::ConfidentialEddsaCached(..) => "confidentialEddsaCached",
-        CircuitId::RingEddsaCached(..) => "ringEddsaCached",
+        CircuitId::ConfidentialEd25519(..) => "confidentialEddsa",
+        CircuitId::ConfidentialRingEd25519(..) => "ringEddsa",
+        CircuitId::ConfidentialEd25519Cached(..) => "confidentialEddsaCached",
+        CircuitId::ConfidentialRingEd25519Cached(..) => "ringEddsaCached",
         _ => panic!("the shared vectors cover the EdDSA rails"),
     };
     let mut value = json!({
@@ -293,8 +293,8 @@ fn circuit_json(circuit: CircuitId) -> Value {
 fn transact_circuit_vectors() -> Value {
     Value::Array(
         [
-            CircuitId::ConfidentialEddsa(2, 4, 3),
-            CircuitId::ConfidentialEddsaCached(
+            CircuitId::ConfidentialEd25519(2, 4, 3),
+            CircuitId::ConfidentialEd25519Cached(
                 2,
                 4,
                 3,
@@ -303,7 +303,7 @@ fn transact_circuit_vectors() -> Value {
                     write_slots: CacheAccess::NO_WRITES,
                 },
             ),
-            CircuitId::ConfidentialEddsaCached(
+            CircuitId::ConfidentialEd25519Cached(
                 1,
                 2,
                 3,
@@ -312,7 +312,7 @@ fn transact_circuit_vectors() -> Value {
                     write_slots: writes(&[(1, 35), (0, 34)]),
                 },
             ),
-            CircuitId::RingEddsaCached(
+            CircuitId::ConfidentialRingEd25519Cached(
                 2,
                 2,
                 3,

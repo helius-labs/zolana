@@ -234,9 +234,9 @@ pub fn assemble_with_dummy_policy(
     let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
     let circuit_id = match result.cache_access {
         Some(access) => {
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
+            CircuitId::ConfidentialEd25519Cached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
         }
-        None => CircuitId::ConfidentialEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
+        None => CircuitId::ConfidentialEd25519(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
     };
     let prover_inputs = result.inputs;
     let public_input_hash = result.public_input_hash;

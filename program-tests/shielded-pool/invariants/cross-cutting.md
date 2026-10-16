@@ -127,7 +127,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
   - Statement: the selector chooses the verifying key and commitment handling. A wrong selector family is rejected before account parsing. Retired P-256 selector tags 3 and 6 fail decoding.
   - Covered by: `program-libs/interface/tests/circuit.rs` and `program-tests/shielded-pool/tests/transact/validate_circuit.rs`.
-  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects a valid hidden-owner proof relabeled as RingEddsa and verifies the tree is unchanged.
+  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects a valid hidden-owner proof relabeled as ConfidentialRingEd25519 and verifies the tree is unchanged.
   - Severity: Critical (cross-rail grafting)
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**
@@ -329,5 +329,5 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 
 - [x] **INV-XC-33: anonymous commitment payload has a fixed wire layout**
   - Covered by: `program-libs/interface/tests/circuit.rs` `circuit_id_tags_are_stable`.
-  - Statement: `CircuitId::RingEd25519` retains tag 7 and carries exactly one BSB22 commitment and its proof of knowledge. It has no optional owner-tag payload.
+  - Statement: `CircuitId::AnonymousRingEd25519` retains tag 7 and carries exactly one BSB22 commitment and its proof of knowledge. It has no optional owner-tag payload.
   - Severity: High

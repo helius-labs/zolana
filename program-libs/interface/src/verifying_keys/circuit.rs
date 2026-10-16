@@ -55,7 +55,7 @@ macro_rules! circuit_key_item {
                 (2, 2) => transfer_ring_authority_2_2;
                 (4, 4) => transfer_ring_authority_4_4;
             }
-            ring_ed25519 {
+            anonymous_ring_ed25519 {
                 (2, 2) => transfer_ed25519_ring_2_2;
                 (2, 4) => transfer_ed25519_ring_2_4;
                 (3, 4) => transfer_ed25519_ring_3_4;
@@ -66,22 +66,22 @@ macro_rules! circuit_key_item {
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident;)* }
         authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
-        ring_ed25519 { $(($ei:literal, $eo:literal) => $ed25519:ident;)* }
+        anonymous_ring_ed25519 { $(($ei:literal, $eo:literal) => $ed25519:ident;)* }
     ) => {{
         use super::*;
 
         match $circuit {
             $(
-                CircuitId::ConfidentialEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                CircuitId::ConfidentialEd25519($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => {
                     &$confidential::$item
                 }
-                CircuitId::RingEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
+                CircuitId::ConfidentialRingEd25519($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
             )*
             $(
-                CircuitId::RingEd25519($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$ed25519::$item,
+                CircuitId::AnonymousRingEd25519($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$ed25519::$item,
             )*
             _ => return None,
         }
@@ -90,7 +90,7 @@ macro_rules! circuit_key_item {
 
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
 ///
-/// This lives in [`CircuitId::RingEd25519`] so the existing `TransactProof` and
+/// This lives in [`CircuitId::AnonymousRingEd25519`] so the existing `TransactProof` and
 /// `TransactIxData` layouts need no additional proof-specific fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct Bsb22Commitment {
@@ -191,27 +191,31 @@ pub enum OutputOwnerMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
-    /// NumInputs, NumOutputs, NumPublicAssets
+    /// Confidential default-ring transfers: private amounts and assets,
+    /// with ownership authorized by public Solana signers.
     #[wincode(tag = 0)]
-    ConfidentialEddsa(u8, u8, u8),
+    ConfidentialEd25519(u8, u8, u8),
+    /// Confidential custom-ring transfers, authorized by public Solana signers.
     #[wincode(tag = 1)]
-    RingEddsa(u8, u8, u8),
+    ConfidentialRingEd25519(u8, u8, u8),
     #[wincode(tag = 2)]
     RingAuthority(u8, u8, u8),
     #[wincode(tag = 4)]
-    ConfidentialEddsaCached(u8, u8, u8, CacheAccess),
+    ConfidentialEd25519Cached(u8, u8, u8, CacheAccess),
     #[wincode(tag = 5)]
-    RingEddsaCached(u8, u8, u8, CacheAccess),
-    /// The anonymous ring rail. Its circuit forbids cache reads, so it has no cached twin.
+    ConfidentialRingEd25519Cached(u8, u8, u8, CacheAccess),
+    /// Anonymous custom-ring transfers additionally hide sender and recipient
+    /// identities. The circuit verifies the private owner's Ed25519 signature
+    /// and forbids cache reads, so this variant has no cached twin.
     #[wincode(tag = 7)]
-    RingEd25519(u8, u8, u8, Bsb22Commitment),
+    AnonymousRingEd25519(u8, u8, u8, Bsb22Commitment),
 }
 
 impl CircuitId {
     pub const fn cache_access(self) -> Option<CacheAccess> {
         match self {
-            Self::ConfidentialEddsaCached(_, _, _, selection)
-            | Self::RingEddsaCached(_, _, _, selection) => Some(selection),
+            Self::ConfidentialEd25519Cached(_, _, _, selection)
+            | Self::ConfidentialRingEd25519Cached(_, _, _, selection) => Some(selection),
             _ => None,
         }
     }
@@ -221,44 +225,46 @@ impl CircuitId {
     /// shape, rail and key accessor answers through this.
     pub const fn uncached(self) -> Self {
         match self {
-            Self::ConfidentialEddsaCached(n_in, n_out, slots, _) => {
-                Self::ConfidentialEddsa(n_in, n_out, slots)
+            Self::ConfidentialEd25519Cached(n_in, n_out, slots, _) => {
+                Self::ConfidentialEd25519(n_in, n_out, slots)
             }
-            Self::RingEddsaCached(n_in, n_out, slots, _) => Self::RingEddsa(n_in, n_out, slots),
+            Self::ConfidentialRingEd25519Cached(n_in, n_out, slots, _) => {
+                Self::ConfidentialRingEd25519(n_in, n_out, slots)
+            }
             other => other,
         }
     }
 
     pub const fn num_inputs(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(n, _, _)
-            | Self::RingEddsa(n, _, _)
+            Self::ConfidentialEd25519(n, _, _)
+            | Self::ConfidentialRingEd25519(n, _, _)
             | Self::RingAuthority(n, _, _)
-            | Self::ConfidentialEddsaCached(n, _, _, _)
-            | Self::RingEddsaCached(n, _, _, _)
-            | Self::RingEd25519(n, _, _, _) => n,
+            | Self::ConfidentialEd25519Cached(n, _, _, _)
+            | Self::ConfidentialRingEd25519Cached(n, _, _, _)
+            | Self::AnonymousRingEd25519(n, _, _, _) => n,
         }
     }
 
     pub const fn num_outputs(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(_, n, _)
-            | Self::RingEddsa(_, n, _)
+            Self::ConfidentialEd25519(_, n, _)
+            | Self::ConfidentialRingEd25519(_, n, _)
             | Self::RingAuthority(_, n, _)
-            | Self::ConfidentialEddsaCached(_, n, _, _)
-            | Self::RingEddsaCached(_, n, _, _)
-            | Self::RingEd25519(_, n, _, _) => n,
+            | Self::ConfidentialEd25519Cached(_, n, _, _)
+            | Self::ConfidentialRingEd25519Cached(_, n, _, _)
+            | Self::AnonymousRingEd25519(_, n, _, _) => n,
         }
     }
 
     pub const fn num_public_asset_slots(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(_, _, n)
-            | Self::RingEddsa(_, _, n)
+            Self::ConfidentialEd25519(_, _, n)
+            | Self::ConfidentialRingEd25519(_, _, n)
             | Self::RingAuthority(_, _, n)
-            | Self::ConfidentialEddsaCached(_, _, n, _)
-            | Self::RingEddsaCached(_, _, n, _)
-            | Self::RingEd25519(_, _, n, _) => n,
+            | Self::ConfidentialEd25519Cached(_, _, n, _)
+            | Self::ConfidentialRingEd25519Cached(_, _, n, _)
+            | Self::AnonymousRingEd25519(_, _, n, _) => n,
         }
     }
 
@@ -273,14 +279,18 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self.uncached(),
-            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingEd25519(..)
+            Self::ConfidentialEd25519(..)
+                | Self::ConfidentialRingEd25519(..)
+                | Self::AnonymousRingEd25519(..)
         )
     }
 
     pub const fn is_ring(self) -> bool {
         matches!(
             self.uncached(),
-            Self::RingEddsa(..) | Self::RingAuthority(..) | Self::RingEd25519(..)
+            Self::ConfidentialRingEd25519(..)
+                | Self::RingAuthority(..)
+                | Self::AnonymousRingEd25519(..)
         )
     }
 
@@ -291,12 +301,12 @@ impl CircuitId {
     /// Whether the circuit verifies an owner signature over
     /// `sha256(private_tx_hash || external_data_hash)`.
     pub const fn signs_message_digest(self) -> bool {
-        matches!(self.uncached(), Self::RingEd25519(..))
+        matches!(self.uncached(), Self::AnonymousRingEd25519(..))
     }
 
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
-            Self::RingEd25519(_, _, _, commitment) => Some(commitment),
+            Self::AnonymousRingEd25519(_, _, _, commitment) => Some(commitment),
             _ => None,
         }
     }
@@ -307,10 +317,12 @@ impl CircuitId {
 
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
-            Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
-            Self::RingEddsa(..) | Self::RingEddsaCached(..) | Self::RingEd25519(..) => {
-                OutputOwnerMode::ConfidentialMarked
+            Self::ConfidentialEd25519(..) | Self::ConfidentialEd25519Cached(..) => {
+                OutputOwnerMode::All
             }
+            Self::ConfidentialRingEd25519(..)
+            | Self::ConfidentialRingEd25519Cached(..)
+            | Self::AnonymousRingEd25519(..) => OutputOwnerMode::ConfidentialMarked,
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
@@ -323,12 +335,12 @@ impl CircuitId {
         }
         let shape = Shape::new(n_inputs as usize, n_outputs as usize);
         match self {
-            Self::ConfidentialEddsa(..)
-            | Self::RingEddsa(..)
-            | Self::ConfidentialEddsaCached(..)
-            | Self::RingEddsaCached(..) => shape.is_supported(),
+            Self::ConfidentialEd25519(..)
+            | Self::ConfidentialRingEd25519(..)
+            | Self::ConfidentialEd25519Cached(..)
+            | Self::ConfidentialRingEd25519Cached(..) => shape.is_supported(),
             Self::RingAuthority(..) => shape.is_ring_authority(),
-            Self::RingEd25519(..) => shape.is_ring_ed25519(),
+            Self::AnonymousRingEd25519(..) => shape.is_anonymous_ring_ed25519(),
         }
     }
 

@@ -60,7 +60,7 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	anonymousRing, err := eddsaprover.R1CSEd25519Transfer(2, 2)
+	anonymousRing, err := eddsaprover.R1CSAnonymousEd25519Transfer(2, 2)
 	add("transfer_ed25519_ring_2_2", anonymousRing, err)
 
 	customRing, err := customring.R1CSPolicy()

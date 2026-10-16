@@ -28,7 +28,7 @@ const SPENT_RECORD_NULLIFIER: [u8; 32] = [0x5eu8; 32];
 /// Synthetic openings exercise program validation without a valid policy proof.
 fn velocity_transact() -> TransactIxData {
     let mut content = transact_data();
-    content.circuit = CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
+    content.circuit = CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8);
     content.inputs = vec![InputUtxo {
         nullifier_hash: SPENT_RECORD_NULLIFIER,
         tree_index: 0,

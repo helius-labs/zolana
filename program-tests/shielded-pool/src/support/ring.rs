@@ -251,7 +251,7 @@ impl RealRingTransact {
                 .unwrap_or_else(|error| {
                     panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
                 });
-            let circuit = CircuitId::RingEddsa(n_in, n_out, n_slots);
+            let circuit = CircuitId::ConfidentialRingEd25519(n_in, n_out, n_slots);
             let public_inputs = [public_input_hash];
             let verifying_key = circuit
                 .verifying_key()

@@ -167,10 +167,10 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		for i, out := range p.Outputs {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
-		return &defaultring.DefaultRingEddsaOnlyCircuit{
+		return &defaultring.DefaultRingConfidentialEd25519Circuit{
 			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
 			Shape:        shape,
-			Public: defaultring.DefaultRingEddsaOnlyPublic{
+			Public: defaultring.DefaultRingConfidentialEd25519Public{
 				Nullifiers:          core.nullifiers,
 				OutputHashes:        core.outputHashes,
 				TreeSlots:           core.treeSlots,
@@ -184,7 +184,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				OutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:     p.PublicInputHash,
 			},
-			Private: defaultring.DefaultRingEddsaOnlyPrivate{
+			Private: defaultring.DefaultRingConfidentialEd25519Private{
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
@@ -223,10 +223,10 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
-		return &customring.CustomRingEddsaOnlyCircuit{
+		return &customring.CustomRingConfidentialEd25519Circuit{
 			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
 			Shape:        shape,
-			Public: customring.CustomRingEddsaOnlyPublic{
+			Public: customring.CustomRingConfidentialEd25519Public{
 				Nullifiers:                   core.nullifiers,
 				OutputHashes:                 core.outputHashes,
 				TreeSlots:                    core.treeSlots,
@@ -241,7 +241,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:              p.PublicInputHash,
 			},
-			Private: customring.CustomRingEddsaOnlyPrivate{
+			Private: customring.CustomRingConfidentialEd25519Private{
 				Inputs:              core.inputs,
 				InputOwnerPkHashes:  core.inputOwnerPkHashes,
 				Outputs:             core.outputs,

@@ -1,5 +1,5 @@
 use zolana_interface::{
-    shape::{Shape, RING_AUTHORITY_WIDTHS, RING_ED25519_SHAPES, SPP_SUPPORTED_SHAPES},
+    shape::{Shape, ANONYMOUS_RING_ED25519_SHAPES, RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
     verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode},
     N_PUBLIC_SLOTS,
 };
@@ -17,7 +17,7 @@ const COMMITMENT: Bsb22Commitment = Bsb22Commitment {
 
 #[test]
 fn accessors_and_behavior_match_variants() {
-    let cached = CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE);
+    let cached = CircuitId::ConfidentialEd25519Cached(2, 3, 3, CACHE);
     assert_eq!(cached.shape(), (2, 3, 3));
     assert!(cached.is_confidential());
     assert!(!cached.is_ring());
@@ -25,7 +25,7 @@ fn accessors_and_behavior_match_variants() {
     assert_eq!(cached.output_owner_mode(), OutputOwnerMode::All);
     assert_eq!(cached.cache_access(), Some(CACHE));
 
-    let ring_cached = CircuitId::RingEddsaCached(2, 3, 3, CACHE);
+    let ring_cached = CircuitId::ConfidentialRingEd25519Cached(2, 3, 3, CACHE);
     assert!(ring_cached.is_ring());
     assert_eq!(ring_cached.cache_access(), Some(CACHE));
     assert_eq!(
@@ -36,12 +36,12 @@ fn accessors_and_behavior_match_variants() {
     // A cached selector is its rail plus a selection, and nothing else.
     for (rail, twin) in [
         (
-            CircuitId::ConfidentialEddsa(2, 3, 3),
-            CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE),
+            CircuitId::ConfidentialEd25519(2, 3, 3),
+            CircuitId::ConfidentialEd25519Cached(2, 3, 3, CACHE),
         ),
         (
-            CircuitId::RingEddsa(2, 3, 3),
-            CircuitId::RingEddsaCached(2, 3, 3, CACHE),
+            CircuitId::ConfidentialRingEd25519(2, 3, 3),
+            CircuitId::ConfidentialRingEd25519Cached(2, 3, 3, CACHE),
         ),
     ] {
         assert_eq!(twin.uncached(), rail);
@@ -53,14 +53,14 @@ fn accessors_and_behavior_match_variants() {
         assert!(rail.cache_access().is_none());
     }
     assert!(CircuitId::RingAuthority(2, 2, 3).cache_access().is_none());
-    let confidential = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let confidential = CircuitId::ConfidentialEd25519(2, 3, 3);
     assert_eq!(confidential.shape(), (2, 3, 3));
     assert!(confidential.is_confidential());
     assert!(!confidential.is_ring());
     assert!(confidential.requires_input_signatures());
     assert_eq!(confidential.output_owner_mode(), OutputOwnerMode::All);
 
-    let ring = CircuitId::RingEddsa(1, 8, 3);
+    let ring = CircuitId::ConfidentialRingEd25519(1, 8, 3);
     assert!(ring.is_ring());
     assert!(ring.is_confidential());
     assert!(!ring.is_authority());
@@ -76,7 +76,7 @@ fn accessors_and_behavior_match_variants() {
     assert!(!authority.requires_input_signatures());
     assert_eq!(authority.output_owner_mode(), OutputOwnerMode::None);
 
-    let ed25519 = CircuitId::RingEd25519(2, 4, 3, COMMITMENT);
+    let ed25519 = CircuitId::AnonymousRingEd25519(2, 4, 3, COMMITMENT);
     assert_eq!(ed25519.shape(), (2, 4, 3));
     assert!(ed25519.is_ring());
     assert!(ed25519.is_confidential());
@@ -93,22 +93,22 @@ fn accessors_and_behavior_match_variants() {
 }
 
 /// Explicit tags preserve supported selectors and reject retired selectors.
-/// RingEd25519 carries only its BSB22 commitment.
+/// AnonymousRingEd25519 carries only its BSB22 commitment.
 #[test]
 fn circuit_id_tags_are_stable() {
     let selectors = [
-        CircuitId::ConfidentialEddsa(2, 2, 3),
-        CircuitId::RingEddsa(2, 2, 3),
+        CircuitId::ConfidentialEd25519(2, 2, 3),
+        CircuitId::ConfidentialRingEd25519(2, 2, 3),
         CircuitId::RingAuthority(2, 2, 3),
-        CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
-        CircuitId::RingEddsaCached(2, 2, 3, CACHE),
-        CircuitId::RingEd25519(2, 2, 3, COMMITMENT),
+        CircuitId::ConfidentialEd25519Cached(2, 2, 3, CACHE),
+        CircuitId::ConfidentialRingEd25519Cached(2, 2, 3, CACHE),
+        CircuitId::AnonymousRingEd25519(2, 2, 3, COMMITMENT),
     ];
     for (tag, circuit) in [0u16, 1, 2, 4, 5, 7].into_iter().zip(selectors) {
         let bytes = wincode::serialize(&circuit).unwrap();
         assert_eq!(bytes[..2], tag.to_le_bytes(), "{circuit:?}");
     }
-    let bytes = wincode::serialize(&CircuitId::RingEd25519(2, 4, 3, COMMITMENT)).unwrap();
+    let bytes = wincode::serialize(&CircuitId::AnonymousRingEd25519(2, 4, 3, COMMITMENT)).unwrap();
     let mut expected = 7u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[2, 4, 3]);
     expected.extend_from_slice(&COMMITMENT.commitment);
@@ -123,21 +123,21 @@ fn circuit_id_tags_are_stable() {
 
 #[test]
 fn supported_shapes_are_fail_closed() {
-    assert!(CircuitId::ConfidentialEddsa(2, 4, 3).is_supported());
-    assert!(CircuitId::RingEddsa(1, 8, 3).is_supported());
+    assert!(CircuitId::ConfidentialEd25519(2, 4, 3).is_supported());
+    assert!(CircuitId::ConfidentialRingEd25519(1, 8, 3).is_supported());
     assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(49, 2, 3).is_supported());
-    assert!(CircuitId::RingEddsa(49, 2, 3).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
+    assert!(CircuitId::ConfidentialEd25519(49, 2, 3).is_supported());
+    assert!(CircuitId::ConfidentialRingEd25519(49, 2, 3).is_supported());
+    assert!(CircuitId::ConfidentialEd25519(8, 16, 3).is_supported());
     assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
-    assert!(!CircuitId::RingEddsa(2, 4, 2).is_supported());
+    assert!(!CircuitId::ConfidentialEd25519(49, 4, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEd25519(51, 2, 3).is_supported());
+    assert!(!CircuitId::ConfidentialEd25519(6, 6, 3).is_supported());
+    assert!(!CircuitId::ConfidentialRingEd25519(2, 4, 2).is_supported());
     assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
     for (n_inputs, n_outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
         assert!(
-            !CircuitId::ConfidentialEddsa(n_inputs, n_outputs, 3).is_supported(),
+            !CircuitId::ConfidentialEd25519(n_inputs, n_outputs, 3).is_supported(),
             "{n_inputs}x{n_outputs} was removed"
         );
     }
@@ -152,22 +152,22 @@ fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
         let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
         let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
         for circuit in [
-            CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
-            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialEd25519Cached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::ConfidentialRingEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
         ] {
             assert!(circuit.is_supported(), "{circuit:?}");
         }
     }
 }
 
-/// RingEd25519 is supported only on its own shapes, and only once their keys
+/// AnonymousRingEd25519 is supported only on its own shapes, and only once their keys
 /// are generated into this crate.
 #[cfg(feature = "verifying-keys")]
 #[test]
-fn ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
+fn anonymous_ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
     assert_eq!(
-        RING_ED25519_SHAPES,
+        ANONYMOUS_RING_ED25519_SHAPES,
         [
             Shape::IN2_OUT2,
             Shape::IN2_OUT4,
@@ -178,9 +178,10 @@ fn ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
     for shape in SPP_SUPPORTED_SHAPES {
         let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
         let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
-        let circuit = CircuitId::RingEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, COMMITMENT);
-        let listed = RING_ED25519_SHAPES.contains(&shape);
-        assert_eq!(shape.is_ring_ed25519(), listed, "{circuit:?}");
+        let circuit =
+            CircuitId::AnonymousRingEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, COMMITMENT);
+        let listed = ANONYMOUS_RING_ED25519_SHAPES.contains(&shape);
+        assert_eq!(shape.is_anonymous_ring_ed25519(), listed, "{circuit:?}");
         assert_eq!(
             circuit.is_supported(),
             listed && circuit.verifying_key().is_some(),
@@ -188,7 +189,9 @@ fn ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
         );
         assert!(listed || circuit.verifying_key().is_none(), "{circuit:?}");
     }
-    assert!(!CircuitId::RingEd25519(2, 2, PUBLIC_ASSET_SLOTS - 1, COMMITMENT).is_supported());
+    assert!(
+        !CircuitId::AnonymousRingEd25519(2, 2, PUBLIC_ASSET_SLOTS - 1, COMMITMENT).is_supported()
+    );
 }
 
 #[cfg(feature = "verifying-keys")]
@@ -198,10 +201,15 @@ fn every_supported_shape_resolves_exactly_one_key() {
         let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
         let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
         for circuit in [
-            CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
-            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::RingEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::ConfidentialEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialEd25519Cached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::ConfidentialRingEd25519(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialRingEd25519Cached(
+                n_inputs,
+                n_outputs,
+                PUBLIC_ASSET_SLOTS,
+                CACHE,
+            ),
         ] {
             assert!(circuit.is_supported());
             assert!(circuit.verifying_key().is_some());
@@ -220,7 +228,7 @@ fn every_supported_shape_resolves_exactly_one_key() {
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
     }
-    assert!(CircuitId::ConfidentialEddsa(2, 3, PUBLIC_ASSET_SLOTS - 1)
+    assert!(CircuitId::ConfidentialEd25519(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()
         .is_none());
     assert!(CircuitId::RingAuthority(49, 2, PUBLIC_ASSET_SLOTS)

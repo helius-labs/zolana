@@ -94,7 +94,7 @@ impl ProofCompressed {
     }
 
     /// Split a committed custom-ring proof into the unchanged transact proof
-    /// triple and the BSB22 payload embedded in `CircuitId::RingEd25519`.
+    /// triple and the BSB22 payload embedded in `CircuitId::AnonymousRingEd25519`.
     pub fn into_committed_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {

@@ -51,22 +51,22 @@ func padWithCompactInputs(t testing.TB, assignment *testAssignment) {
 func TestCompactInputPaddingSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	for _, shape := range []protocol.Shape{{NInputs: 2, NOutputs: 2}, {NInputs: 3, NOutputs: 3}} {
-		circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+		circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 		assignment := buildCircuitAssignment(t, shape)
 		padWithCompactInputs(t, assignment)
-		assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 	}
 }
 
 func TestCompactInputPaddingSolvesOnDefaultRing(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
 	padWithCompactInputs(t, assignment)
 	refreshDefaultRingPublicInputHash(t, assignment)
 	assert.SolvingSucceeded(
-		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),
-		asDefaultRingEddsaOnly(assignment),
+		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
+		asDefaultRingConfidentialEd25519(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 }
@@ -76,12 +76,12 @@ func TestCompactInputPaddingSolvesOnDefaultRing(t *testing.T) {
 func TestCompactInputPaddingSolvesWhenDummyInputsDisallowed(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	padWithCompactInputs(t, assignment)
 	setAllowDummyInputs(t, assignment, false)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A spent UTXO that publishes nullifier 0 would skip its nullifier insertion,
@@ -89,13 +89,13 @@ func TestCompactInputPaddingSolvesWhenDummyInputsDisallowed(t *testing.T) {
 func TestCompactNullifierRejectedOnSpentInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 
 	assignment.Inputs[1].Nullifier = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An address slot's nullifier is the address SPP inserts, so it cannot be 0.
@@ -103,18 +103,18 @@ func TestCompactNullifierRejectedOnSpentInput(t *testing.T) {
 func TestCompactNullifierRejectedOnAddressSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	makeAddressSlot(t, assignment, 1, addressOwnerPkHash(t), spptest.Fe(0xABCDEF))
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].Utxo.Amount = spptest.Fe(50)
 	}
 	finalizeAddressAssignment(t, assignment, false)
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 
 	assignment.Inputs[1].Nullifier = spptest.Fe(0)
 	finalizeAddressAssignment(t, assignment, false)
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // compactOutputAssignment pads a {1,2} transfer with a compact output: its
@@ -134,16 +134,16 @@ func TestCompactOutputSolves(t *testing.T) {
 	assignment := compactOutputAssignment(t)
 	refreshDefaultRingPublicInputHash(t, assignment)
 	assert.SolvingSucceeded(
-		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),
-		asDefaultRingEddsaOnly(assignment),
+		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
+		asDefaultRingConfidentialEd25519(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 
 	assignment = compactOutputAssignment(t)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingSucceeded(
-		MustNewCustomRingEddsaOnlyCircuit(Shape(shape)),
-		asCustomRingEddsaOnly(assignment),
+		MustNewCustomRingConfidentialEd25519Circuit(Shape(shape)),
+		asCustomRingConfidentialEd25519(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 
@@ -163,16 +163,16 @@ func TestCompactOutputRejectsNonzeroTag(t *testing.T) {
 	assignment := withSignerTag()
 	refreshDefaultRingPublicInputHash(t, assignment)
 	assert.SolvingFailed(
-		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),
-		asDefaultRingEddsaOnly(assignment),
+		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
+		asDefaultRingConfidentialEd25519(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 
 	assignment = withSignerTag()
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingFailed(
-		MustNewCustomRingEddsaOnlyCircuit(Shape(shape)),
-		asCustomRingEddsaOnly(assignment),
+		MustNewCustomRingConfidentialEd25519Circuit(Shape(shape)),
+		asCustomRingConfidentialEd25519(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 

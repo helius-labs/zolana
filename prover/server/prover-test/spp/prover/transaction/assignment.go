@@ -185,9 +185,9 @@ func customRingWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
-	return &customring.CustomRingEddsaOnlyCircuit{
+	return &customring.CustomRingConfidentialEd25519Circuit{
 		CachedInputs: uncachedInputs(publicInputs.PreimageTail, len(publicInputs.Nullifiers)),
-		Public: customring.CustomRingEddsaOnlyPublic{
+		Public: customring.CustomRingConfidentialEd25519Public{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
 			TreeSlots:                    treeSlotVariables(publicInputs.TreeSlots),
@@ -202,7 +202,7 @@ func customRingWitness(
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
 		},
-		Private: customring.CustomRingEddsaOnlyPrivate{
+		Private: customring.CustomRingConfidentialEd25519Private{
 			Inputs:              inputs.inputs,
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,

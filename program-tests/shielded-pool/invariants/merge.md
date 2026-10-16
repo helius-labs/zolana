@@ -318,7 +318,7 @@ is supplied, so a cached spend verifies against its rail's ordinary verifying ke
 and no standalone cached circuit exists
 (`program-libs/interface/src/verifying_keys/circuit.rs`, `fn CircuitId::uncached`).
 `CircuitId` carries one cached twin per owner-signed rail --
-`ConfidentialEddsaCached`, `RingEddsaCached` -- and
+`ConfidentialEd25519Cached`, `ConfidentialRingEd25519Cached` -- and
 `RingAuthority` has none, because its circuit binds no selection. INV-MERGE-23
 records why the spend needs no identity check; its `CacheSlotEmpty`,
 `InvalidCacheBitmap` and `InvalidCacheRootIndex` legs are pinned there rather

@@ -72,7 +72,7 @@ covers the whole group) and referenced from the coverage matrix.
 
 - [x] **INV-TRANSACT-06: anonymous ownership is authorized in-circuit**
   - Covered by: `prover/server/circuits/spp_transaction/shared/custom_ed25519_test.go` wrong-digest, wrong-signer, public-owner and subgroup tests.
-  - Statement: RingEd25519 verifies a private owner signature over `Sha256(private_tx_hash || external_data_hash)`. The hidden owner cannot appear in the public signer run. The default ring accepts only runtime-authorized ownership.
+  - Statement: AnonymousRingEd25519 verifies a private owner signature over `Sha256(private_tx_hash || external_data_hash)`. The hidden owner cannot appear in the public signer run. The default ring accepts only runtime-authorized ownership.
   - Severity: Critical (spend authorization)
 
 - [ ] **INV-TRANSACT-40: input/output tree split**
@@ -132,7 +132,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-11: anonymous proofs require a valid BSB22 commitment**
-  - Statement: RingEd25519 carries its lookup commitment in the selector. Invalid encodings return 7007 and failed verification returns 7008.
+  - Statement: AnonymousRingEd25519 carries its lookup commitment in the selector. Invalid encodings return 7007 and failed verification returns 7008.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs`
   - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects malformed commitments and PoKs, a well-formed invalid PoK, then spends the unchanged valid proof.
   - Severity: Critical (spend authorization)
@@ -143,7 +143,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-34: circuit selector family must match the dispatched tag**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `RingTransact` only `RingEddsa`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
+  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEd25519`, `RingTransact` only `ConfidentialRingEd25519`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
@@ -467,7 +467,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-RING-TRANSACT-05: ring variant folds no output-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `ring_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the RingEd25519 selector additionally appends the signed message hash and a zero default-owner element after `private_tx_hash` (RingEddsa/RingEd25519 bind output owners; RingAuthority omits the owner chain and folds a bare payer element).
+  - Statement: the `ring_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the AnonymousRingEd25519 selector additionally appends the signed message hash and a zero default-owner element after `private_tx_hash` (ConfidentialRingEd25519/AnonymousRingEd25519 bind output owners; RingAuthority omits the owner chain and folds a bare payer element).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
@@ -530,7 +530,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted encoding**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `RingEd25519` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
+  - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `AnonymousRingEd25519` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: High

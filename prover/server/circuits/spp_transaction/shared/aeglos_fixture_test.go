@@ -34,7 +34,7 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 				var assignment *testAssignment
 				switch family {
 				case "transfer_confidential":
-					assignment = buildDefaultRingEddsaOnlyAssignment(t, shape)
+					assignment = buildDefaultRingConfidentialEd25519Assignment(t, shape)
 				case "transfer_ring_authority":
 					assignment = buildRingAuthorityAssignment(t, shape)
 				default:
@@ -45,12 +45,12 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 				var circuit frontend.Circuit
 				switch family {
 				case "transfer_ring":
-					circuit = asCustomRingEddsaOnly(assignment)
-					circuit.(*customring.CustomRingEddsaOnlyCircuit).Shape = assignment.Shape
+					circuit = asCustomRingConfidentialEd25519(assignment)
+					circuit.(*customring.CustomRingConfidentialEd25519Circuit).Shape = assignment.Shape
 				case "transfer_confidential":
 					refreshDefaultRingPublicInputHash(t, assignment)
-					circuit = asDefaultRingEddsaOnly(assignment)
-					circuit.(*defaultring.DefaultRingEddsaOnlyCircuit).Shape = assignment.Shape
+					circuit = asDefaultRingConfidentialEd25519(assignment)
+					circuit.(*defaultring.DefaultRingConfidentialEd25519Circuit).Shape = assignment.Shape
 				case "transfer_ring_authority":
 					refreshRingAuthorityPublicInputHash(t, assignment)
 					circuit = asCustomRingAuthority(assignment)

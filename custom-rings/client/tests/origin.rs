@@ -267,11 +267,11 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         read_bitmap: 1,
         write_slots: CacheAccess::NO_WRITES,
     };
-    let circuits = [CircuitId::RingEddsaCached(1, 2, 1, selection)];
+    let circuits = [CircuitId::ConfidentialRingEd25519Cached(1, 2, 1, selection)];
     let mut writing = circuits;
     for circuit in &mut writing {
         match circuit {
-            CircuitId::RingEddsaCached(_, _, _, access) => {
+            CircuitId::ConfidentialRingEd25519Cached(_, _, _, access) => {
                 access.write_slots = CacheAccess::NO_WRITES;
                 for (entry, (output, slot)) in access.write_slots.iter_mut().zip([(0, 0), (1, 1)]) {
                     *entry = CacheWrite { output, slot };
@@ -399,7 +399,7 @@ fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
     let data = TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::RingEddsa(0, 0, 3),
+        circuit: CircuitId::ConfidentialRingEd25519(0, 0, 3),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),

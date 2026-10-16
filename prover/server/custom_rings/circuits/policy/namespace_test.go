@@ -67,7 +67,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	}
 
 	shape := shared.Shape{NInputs: len(s.inputs), NOutputs: len(s.outputs)}
-	assignment, err := spp.NewCustomRingEddsaOnlyCircuit(shape)
+	assignment, err := spp.NewCustomRingConfidentialEd25519Circuit(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	circuit, err := spp.NewCustomRingEddsaOnlyCircuit(shape)
+	circuit, err := spp.NewCustomRingConfidentialEd25519Circuit(shape)
 	if err != nil {
 		t.Fatal(err)
 	}

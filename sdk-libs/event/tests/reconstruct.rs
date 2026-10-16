@@ -273,7 +273,7 @@ fn spl_legs_take_their_mint_from_the_settlement_group() {
         let mut ix = ix.clone();
         let mut accounts = accounts.clone();
         if cached {
-            ix.circuit = CircuitId::ConfidentialEddsaCached(
+            ix.circuit = CircuitId::ConfidentialEd25519Cached(
                 1,
                 0,
                 3,

@@ -836,7 +836,7 @@ fn assemble_ix_data(
     let external = &proof_inputs.external_data;
     let n_outputs = u8::try_from(shape.n_outputs())?;
     let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-    let circuit = CircuitId::RingEddsa(n_inputs as u8, n_outputs, n_slots);
+    let circuit = CircuitId::ConfidentialRingEd25519(n_inputs as u8, n_outputs, n_slots);
     Ok(TransactIxData {
         proof,
         expiry_unix_ts: external.expiry_unix_ts,

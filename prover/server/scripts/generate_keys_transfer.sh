@@ -79,14 +79,14 @@ for entry in "${rails[@]}"; do
 done
 
 # The anonymous ring rail has keys only for the shapes whose audit disclosure
-# fits a transaction. Keep in sync with RING_ED25519_SHAPES.
-ring_ed25519_shapes=(
+# fits a transaction. Keep in sync with ANONYMOUS_RING_ED25519_SHAPES.
+anonymous_ring_ed25519_shapes=(
     "2 2"
     "2 4"
     "3 4"
     "4 2"
 )
-for shape in "${ring_ed25519_shapes[@]}"; do
+for shape in "${anonymous_ring_ed25519_shapes[@]}"; do
     read -r n_inputs n_outputs <<<"$shape"
     output="${keys_dir}/transfer_ed25519_ring_${n_inputs}_${n_outputs}.key"
     echo "Generating transfer-ed25519-ring ${n_inputs}x${n_outputs} -> ${output}"

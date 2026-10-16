@@ -17,7 +17,9 @@ use zeroize::Zeroizing;
 use zolana_client::prover::indexed::{
     IndexedTransferPreparation, IndexedTransferRail, PreparedIndexedTransfer, ProofDataSource,
 };
-use zolana_client::prover::transact::{RingTransferEd25519ProofResult, RingTransferEd25519Prover};
+use zolana_client::prover::transact::{
+    AnonymousRingEd25519ProofResult, AnonymousRingEd25519Prover,
+};
 use zolana_client::{
     input_utxos_from_nullifiers,
     prover::{Delivery, ExpectedProvingKey, ProveRequest},
@@ -1510,7 +1512,7 @@ impl StagedTransfer {
         let spp = if let Some(inputs) = inputs {
             let tx_shape = self.proof_inputs.check_shape()?;
             let mut ring_result = if let Some(owner) = self.anonymous_signer.as_ref() {
-                let mut result = RingTransferEd25519Prover {
+                let mut result = AnonymousRingEd25519Prover {
                     inputs,
                     outputs: self.proof_inputs.output_utxos.clone(),
                     blinding_seed: self.proof_inputs.blinding_seed,
@@ -1550,7 +1552,7 @@ impl StagedTransfer {
                 IndexedTransferPreparation {
                     transaction: self.proof_inputs.clone(),
                     rail: match self.anonymous_signer.as_ref() {
-                        Some(owner) => IndexedTransferRail::RingEd25519 {
+                        Some(owner) => IndexedTransferRail::AnonymousRingEd25519 {
                             ring: self.program_id,
                             owner,
                         },
@@ -1946,7 +1948,7 @@ impl ProofAuthority for TransferAuthority<'_> {
 pub(crate) enum SppWitness {
     Authority(Box<zolana_client::RingAuthorityProofResult>),
     Complete(Box<RingTransferProofResult>),
-    Anonymous(Box<RingTransferEd25519ProofResult>),
+    Anonymous(Box<AnonymousRingEd25519ProofResult>),
     Indexed(Box<PreparedIndexedTransfer>),
 }
 
@@ -1994,13 +1996,13 @@ impl SppWitness {
                 &result.nullifiers,
                 &result.input_tree_indexes,
                 &result.tree_contexts,
-                CircuitId::RingEddsa(width.0, width.1, width.2),
+                CircuitId::ConfidentialRingEd25519(width.0, width.1, width.2),
             ),
             Self::Anonymous(result) => (
                 &result.nullifiers,
                 &result.input_tree_indexes,
                 &result.tree_contexts,
-                CircuitId::RingEd25519(
+                CircuitId::AnonymousRingEd25519(
                     width.0,
                     width.1,
                     width.2,
@@ -2111,7 +2113,7 @@ fn settlement_owner_signers(
     circuit: &CircuitId,
     inputs: &SppProofInputs,
 ) -> Result<Vec<Address>, TransferError> {
-    if matches!(circuit, CircuitId::RingEd25519(..)) {
+    if matches!(circuit, CircuitId::AnonymousRingEd25519(..)) {
         Ok(Vec::new())
     } else {
         Ok(inputs.owner_signer_pubkeys()?)
@@ -3517,10 +3519,11 @@ mod tests {
     fn settled_anonymous_proof_never_publishes_owner_signers() {
         let mut inputs = framed_fixture(&[Some(ring().program_id())]);
         inputs.payer = Address::new_from_array([7; 32]);
-        let public = settlement_owner_signers(&CircuitId::RingEddsa(1, 1, 1), &inputs)
-            .expect("public signers");
+        let public =
+            settlement_owner_signers(&CircuitId::ConfidentialRingEd25519(1, 1, 1), &inputs)
+                .expect("public signers");
         assert!(!public.is_empty());
-        let anonymous = CircuitId::RingEd25519(
+        let anonymous = CircuitId::AnonymousRingEd25519(
             1,
             1,
             1,

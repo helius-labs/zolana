@@ -176,7 +176,7 @@ pub fn hash_external_data<'a>(
 }
 
 /// Checks:
-/// 1. Circuit is allowed for the instruction type, and every RingEd25519 output
+/// 1. Circuit is allowed for the instruction type, and every AnonymousRingEd25519 output
 ///    carries the inline zero owner tag
 /// 2. Instruction data carries at least one input and at most the circuit's
 ///    (in, out) slots; the missing suffix is compact padding.
@@ -193,10 +193,10 @@ pub fn validate_circuit_type(
     // 1. Circuit is allowed for the instruction type.
     let circuit = ix.circuit.uncached();
     let circuit_matches = match instruction_tag {
-        InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEddsa(..)),
+        InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEd25519(..)),
         InstructionTag::RingTransact => matches!(
             circuit,
-            CircuitId::RingEddsa(..) | CircuitId::RingEd25519(..)
+            CircuitId::ConfidentialRingEd25519(..) | CircuitId::AnonymousRingEd25519(..)
         ),
         InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,
@@ -204,13 +204,13 @@ pub fn validate_circuit_type(
     if !circuit_matches {
         return Err(ShieldedPoolError::MismatchedCircuitType.into());
     }
-    if matches!(circuit, CircuitId::RingEd25519(..))
+    if matches!(circuit, CircuitId::AnonymousRingEd25519(..))
         && ix
             .outputs
             .iter()
             .any(|output| output.owner_tag != OwnerTag::Inline([0u8; 32]))
     {
-        return Err(ShieldedPoolError::RingEd25519OutputOwnerTag.into());
+        return Err(ShieldedPoolError::AnonymousRingEd25519OutputOwnerTag.into());
     }
     if ix.inputs.is_empty() // 2.
         || usize::from(ix.circuit.num_inputs()) < ix.inputs.len() // 2.

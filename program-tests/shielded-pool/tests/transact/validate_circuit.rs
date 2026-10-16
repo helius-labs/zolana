@@ -75,10 +75,13 @@ fn validate_with(
 fn selector_family_must_match_instruction() {
     for (circuit, instruction) in [
         (
-            CircuitId::ConfidentialEddsa(2, 4, 3),
+            CircuitId::ConfidentialEd25519(2, 4, 3),
             InstructionTag::Transact,
         ),
-        (CircuitId::RingEddsa(2, 4, 3), InstructionTag::RingTransact),
+        (
+            CircuitId::ConfidentialRingEd25519(2, 4, 3),
+            InstructionTag::RingTransact,
+        ),
         (
             CircuitId::RingAuthority(2, 2, 3),
             InstructionTag::RingAuthorityTransact,
@@ -92,7 +95,7 @@ fn selector_family_must_match_instruction() {
 
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(2, 4, 3),
+            CircuitId::ConfidentialRingEd25519(2, 4, 3),
             InstructionTag::Transact,
             2,
             4,
@@ -103,7 +106,7 @@ fn selector_family_must_match_instruction() {
 
 #[test]
 fn selector_dimensions_are_fail_closed() {
-    let valid = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let valid = CircuitId::ConfidentialEd25519(2, 4, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
     for (inputs, outputs) in [(0, 4), (3, 4), (2, 5)] {
@@ -115,7 +118,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(2, 4, 2),
+            CircuitId::ConfidentialEd25519(2, 4, 2),
             InstructionTag::Transact,
             2,
             4,
@@ -124,7 +127,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(6, 6, 3),
+            CircuitId::ConfidentialEd25519(6, 6, 3),
             InstructionTag::Transact,
             6,
             6,
@@ -134,7 +137,7 @@ fn selector_dimensions_are_fail_closed() {
     for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2), (51, 2)] {
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsa(inputs, outputs, 3),
+                CircuitId::ConfidentialEd25519(inputs, outputs, 3),
                 InstructionTag::Transact,
                 inputs as usize,
                 outputs as usize,
@@ -145,7 +148,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 2, 3),
+            CircuitId::ConfidentialEd25519(49, 2, 3),
             InstructionTag::Transact,
             49,
             2,
@@ -154,7 +157,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(49, 2, 3),
+            CircuitId::ConfidentialRingEd25519(49, 2, 3),
             InstructionTag::RingTransact,
             49,
             2,
@@ -163,7 +166,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 4, 3),
+            CircuitId::ConfidentialEd25519(49, 4, 3),
             InstructionTag::Transact,
             49,
             4,
@@ -193,7 +196,7 @@ fn selector_dimensions_are_fail_closed() {
     }
 }
 
-const RING_ED25519: CircuitId = CircuitId::RingEd25519(
+const RING_ED25519: CircuitId = CircuitId::AnonymousRingEd25519(
     2,
     4,
     3,
@@ -203,7 +206,10 @@ const RING_ED25519: CircuitId = CircuitId::RingEd25519(
     },
 );
 
-fn validate_ring_ed25519(instruction: InstructionTag, owner_tags: &[OwnerTag]) -> ProgramResult {
+fn validate_anonymous_ring_ed25519(
+    instruction: InstructionTag,
+    owner_tags: &[OwnerTag],
+) -> ProgramResult {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0u8; 32],
@@ -239,17 +245,17 @@ fn validate_ring_ed25519(instruction: InstructionTag, owner_tags: &[OwnerTag]) -
     validate_circuit_type(&TransactIxDataRef::from_bytes(&bytes).unwrap(), instruction)
 }
 
-/// RingEd25519 rides `ring_transact` only, and stays unsupported until its
+/// AnonymousRingEd25519 rides `ring_transact` only, and stays unsupported until its
 /// verifying keys exist.
 #[test]
-fn ring_ed25519_rides_ring_transact_only() {
+fn anonymous_ring_ed25519_rides_ring_transact_only() {
     let anonymous = [OwnerTag::Inline([0u8; 32]); 4];
     for instruction in [
         InstructionTag::Transact,
         InstructionTag::RingAuthorityTransact,
     ] {
         assert_eq!(
-            validate_ring_ed25519(instruction, &anonymous),
+            validate_anonymous_ring_ed25519(instruction, &anonymous),
             Err(ShieldedPoolError::MismatchedCircuitType.into())
         );
     }
@@ -259,23 +265,23 @@ fn ring_ed25519_rides_ring_transact_only() {
         Err(ShieldedPoolError::InvalidTransactShape.into())
     };
     assert_eq!(
-        validate_ring_ed25519(InstructionTag::RingTransact, &anonymous),
+        validate_anonymous_ring_ed25519(InstructionTag::RingTransact, &anonymous),
         expected
     );
 }
 
 /// An owner tag names an account or a key in public instruction data, so a
-/// RingEd25519 output must carry the inline zero tag.
+/// AnonymousRingEd25519 output must carry the inline zero tag.
 #[test]
-fn ring_ed25519_outputs_carry_the_inline_zero_tag() {
+fn anonymous_ring_ed25519_outputs_carry_the_inline_zero_tag() {
     let zero = OwnerTag::Inline([0u8; 32]);
     for named in [OwnerTag::Inline([7u8; 32]), OwnerTag::Account(0)] {
         for index in 0..4 {
             let mut tags = [zero; 4];
             tags[index] = named;
             assert_eq!(
-                validate_ring_ed25519(InstructionTag::RingTransact, &tags),
-                Err(ShieldedPoolError::RingEd25519OutputOwnerTag.into()),
+                validate_anonymous_ring_ed25519(InstructionTag::RingTransact, &tags),
+                Err(ShieldedPoolError::AnonymousRingEd25519OutputOwnerTag.into()),
                 "{named:?} at output {index}"
             );
         }
@@ -287,7 +293,7 @@ fn ring_ed25519_outputs_carry_the_inline_zero_tag() {
 /// from that padding, so it is rejected.
 #[test]
 fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let circuit = CircuitId::ConfidentialEd25519(2, 4, 3);
     for (inputs, outputs) in [(1, 4), (2, 1), (1, 0)] {
         assert_eq!(
             validate(circuit, InstructionTag::Transact, inputs, outputs),
@@ -331,11 +337,11 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
     };
     let cases = [
         (
-            CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
+            CircuitId::ConfidentialEd25519Cached(2, 2, 3, CACHE),
             InstructionTag::Transact,
         ),
         (
-            CircuitId::RingEddsaCached(2, 2, 3, CACHE),
+            CircuitId::ConfidentialRingEd25519Cached(2, 2, 3, CACHE),
             InstructionTag::RingTransact,
         ),
     ];
@@ -398,7 +404,7 @@ fn a_cached_selector_counts_only_the_sent_slots() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 4, 3, access),
+                CircuitId::ConfidentialEd25519Cached(2, 4, 3, access),
                 InstructionTag::Transact,
                 1,
                 1
@@ -441,7 +447,7 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 2, 3, access),
+                CircuitId::ConfidentialEd25519Cached(2, 2, 3, access),
                 InstructionTag::Transact,
                 2,
                 2
@@ -451,7 +457,7 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
         );
         assert_eq!(
             validate(
-                CircuitId::RingEddsaCached(2, 2, 3, access),
+                CircuitId::ConfidentialRingEd25519Cached(2, 2, 3, access),
                 InstructionTag::RingTransact,
                 2,
                 2

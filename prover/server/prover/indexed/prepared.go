@@ -80,8 +80,8 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, err
 		}
 		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
-	case common.TransferEd25519RingCircuitType:
-		var value transfer.Ed25519TransferParameters
+	case common.TransferAnonymousRingEd25519CircuitType:
+		var value transfer.AnonymousEd25519TransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
 			return nil, fmt.Errorf("invalid prepared Ed25519 transfer")
 		}

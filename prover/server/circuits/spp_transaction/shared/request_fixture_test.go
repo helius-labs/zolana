@@ -26,11 +26,11 @@ const requestFixture = "../../../prover/request/testdata/transfer-2x2.json"
 //	UPDATE_REQUEST_FIXTURE=1 go test ./circuits/spp_transaction/shared -run TestRequestFixture
 func TestRequestFixture(t *testing.T) {
 	cryptotest.SetGlobalRandom(t, 0)
-	assignment := buildDefaultRingEddsaOnlyAssignment(t, protocol.Shape{NInputs: 2, NOutputs: 2})
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, protocol.Shape{NInputs: 2, NOutputs: 2})
 	assignment.BlindingSeed = big.NewInt(800)
 	rebuildAfterOwnerChange(t, assignment)
 	refreshDefaultRingPublicInputHash(t, assignment)
-	circuit := asDefaultRingEddsaOnly(assignment).(*defaultring.DefaultRingEddsaOnlyCircuit)
+	circuit := asDefaultRingConfidentialEd25519(assignment).(*defaultring.DefaultRingConfidentialEd25519Circuit)
 	circuit.Shape = assignment.Shape
 
 	data, err := json.Marshal(requestParameters(circuit))
@@ -68,7 +68,7 @@ func TestRequestFixture(t *testing.T) {
 }
 
 // requestParameters inverts TransferParameters.CreateWitness for the default ring.
-func requestParameters(c *defaultring.DefaultRingEddsaOnlyCircuit) *transfer.TransferParameters {
+func requestParameters(c *defaultring.DefaultRingConfidentialEd25519Circuit) *transfer.TransferParameters {
 	value := spptest.AsBigInt
 	values := spptest.ToBigInts
 	p := &transfer.TransferParameters{

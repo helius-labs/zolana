@@ -365,7 +365,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
 		case ed25519Ring:
-			ps.CircuitType = TransferEd25519RingCircuitType
+			ps.CircuitType = TransferAnonymousRingEd25519CircuitType
 		case ring:
 			ps.CircuitType = TransferRingCircuitType
 		default:

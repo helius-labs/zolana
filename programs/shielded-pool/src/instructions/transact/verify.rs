@@ -155,7 +155,7 @@ impl TransactProofInputs {
         {
             assignments |= ASSIGNED_CACHED_INPUTS;
         }
-        if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
+        if matches!(circuit.uncached(), CircuitId::ConfidentialEd25519(..)) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {

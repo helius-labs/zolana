@@ -9,6 +9,7 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
+- `ShieldedPoolError.RingEd25519OutputOwnerTag` is renamed → use `ShieldedPoolError.AnonymousRingEd25519OutputOwnerTag`, which retains error code 7085.
 - `buildDepositTransaction` and `buildRingDepositTransaction` require `depositor` → pass the asset source explicitly and omit `feePayer` when it also pays fees.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.

@@ -208,10 +208,10 @@ impl Shape {
         false
     }
 
-    /// Whether the anonymous RingEd25519 rail has keys for this shape, see
-    /// [`RING_ED25519_SHAPES`].
-    pub const fn is_ring_ed25519(self) -> bool {
-        let mut shapes: &[Shape] = &RING_ED25519_SHAPES;
+    /// Whether the anonymous AnonymousRingEd25519 rail has keys for this shape, see
+    /// [`ANONYMOUS_RING_ED25519_SHAPES`].
+    pub const fn is_anonymous_ring_ed25519(self) -> bool {
+        let mut shapes: &[Shape] = &ANONYMOUS_RING_ED25519_SHAPES;
         while let Some((shape, rest)) = shapes.split_first() {
             if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
                 return true;
@@ -222,9 +222,9 @@ impl Shape {
     }
 }
 
-/// Shapes the RingEd25519 rail has keys for. Its audit disclosure fits a
+/// Shapes the AnonymousRingEd25519 rail has keys for. Its audit disclosure fits a
 /// transaction only at these.
-pub const RING_ED25519_SHAPES: [Shape; 4] = [
+pub const ANONYMOUS_RING_ED25519_SHAPES: [Shape; 4] = [
     Shape::IN2_OUT2,
     Shape::IN2_OUT4,
     Shape::IN3_OUT4,

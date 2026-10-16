@@ -81,9 +81,9 @@ impl TransactRail {
     fn accepts(self, circuit: CircuitId, mode: RingMode) -> bool {
         match (self, mode) {
             (Self::Member, RingMode::Anonymous) => {
-                matches!(circuit, CircuitId::RingEd25519(..)) && circuit.is_supported()
+                matches!(circuit, CircuitId::AnonymousRingEd25519(..)) && circuit.is_supported()
             }
-            (Self::Member, _) => matches!(circuit, CircuitId::RingEddsa(..)),
+            (Self::Member, _) => matches!(circuit, CircuitId::ConfidentialRingEd25519(..)),
             (Self::Delegate, RingMode::Anonymous) => false,
             (Self::Delegate, _) => matches!(circuit, CircuitId::RingAuthority(..)),
         }
@@ -701,10 +701,10 @@ mod tests {
     #[test]
     fn the_rails_follow_the_ring_mode() {
         let slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-        let eddsa = CircuitId::RingEddsa(2, 2, slots);
+        let eddsa = CircuitId::ConfidentialRingEd25519(2, 2, slots);
         let authority = CircuitId::RingAuthority(2, 2, slots);
         let hidden = |n_in, n_out| {
-            CircuitId::RingEd25519(
+            CircuitId::AnonymousRingEd25519(
                 n_in,
                 n_out,
                 zolana_interface::N_PUBLIC_SLOTS as u8,

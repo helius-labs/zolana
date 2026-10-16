@@ -61,15 +61,15 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
             for (rail, circuit) in [
                 (
                     "transfer_confidential",
-                    CircuitId::ConfidentialEddsa(n_inputs, n_outputs, slots),
+                    CircuitId::ConfidentialEd25519(n_inputs, n_outputs, slots),
                 ),
                 (
                     "transfer_ring",
-                    CircuitId::RingEddsa(n_inputs, n_outputs, slots),
+                    CircuitId::ConfidentialRingEd25519(n_inputs, n_outputs, slots),
                 ),
                 (
                     "transfer_ed25519_ring",
-                    CircuitId::RingEd25519(n_inputs, n_outputs, slots, commitment),
+                    CircuitId::AnonymousRingEd25519(n_inputs, n_outputs, slots, commitment),
                 ),
                 (
                     "transfer_ring_authority",

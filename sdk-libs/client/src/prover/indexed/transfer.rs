@@ -32,7 +32,7 @@ pub enum IndexedTransferRail<'a> {
     Ring(solana_address::Address),
     RingAuthority(solana_address::Address),
     /// Keeps the owner off chain while signing the exact root-independent statement.
-    RingEd25519 {
+    AnonymousRingEd25519 {
         ring: solana_address::Address,
         owner: &'a zolana_keypair::SigningKey,
     },
@@ -97,14 +97,14 @@ impl IndexedTransferPreparation<'_> {
         )?;
         let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
         let hidden_owner = match &rail {
-            IndexedTransferRail::RingEd25519 { owner, .. } => Some(owner.pubkey()),
+            IndexedTransferRail::AnonymousRingEd25519 { owner, .. } => Some(owner.pubkey()),
             _ => None,
         };
         let ring = match &rail {
             IndexedTransferRail::Confidential => None,
             IndexedTransferRail::Ring(ring)
             | IndexedTransferRail::RingAuthority(ring)
-            | IndexedTransferRail::RingEd25519 { ring, .. } => Some(*ring),
+            | IndexedTransferRail::AnonymousRingEd25519 { ring, .. } => Some(*ring),
         };
         if authority_rail
             && (shape.n_inputs() != shape.n_outputs()
@@ -238,12 +238,14 @@ impl IndexedTransferPreparation<'_> {
         let ring_program_id = zolana_transaction::utxo::program_id_proof_input_hash(&ring)?;
         let owners = match rail {
             IndexedTransferRail::Confidential => Some(outputs.output_owner_pk_hashes.clone()),
-            IndexedTransferRail::Ring(_) | IndexedTransferRail::RingEd25519 { .. } => Some(
-                crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
-                    &transaction.external_data,
-                    transaction.output_utxos.len(),
-                )?,
-            ),
+            IndexedTransferRail::Ring(_) | IndexedTransferRail::AnonymousRingEd25519 { .. } => {
+                Some(
+                    crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
+                        &transaction.external_data,
+                        transaction.output_utxos.len(),
+                    )?,
+                )
+            }
             IndexedTransferRail::RingAuthority(_) => None,
         };
         // Sign after outputs and external data are fixed. Resolved roots cannot change this digest.
@@ -252,13 +254,13 @@ impl IndexedTransferPreparation<'_> {
             &external_hash,
         );
         let authorization = match &rail {
-            IndexedTransferRail::RingEd25519 { owner, .. } => {
-                Some(crate::prover::transact::ring_ed25519::owner_fields(
+            IndexedTransferRail::AnonymousRingEd25519 { owner, .. } => Some(
+                crate::prover::transact::anonymous_ring_ed25519::owner_fields(
                     &owner.pubkey().as_ed25519()?,
                     &owner.sign_message(&digest)?,
                     &digest,
-                ))
-            }
+                ),
+            ),
             _ => None,
         };
         let appendix = hidden_owner
@@ -286,7 +288,9 @@ impl IndexedTransferPreparation<'_> {
                 IndexedTransferRail::Confidential => IndexedCircuit::TransferConfidential,
                 IndexedTransferRail::Ring(_) => IndexedCircuit::TransferRing,
                 IndexedTransferRail::RingAuthority(_) => IndexedCircuit::TransferRingAuthority,
-                IndexedTransferRail::RingEd25519 { .. } => IndexedCircuit::TransferEd25519Ring,
+                IndexedTransferRail::AnonymousRingEd25519 { .. } => {
+                    IndexedCircuit::TransferAnonymousRingEd25519
+                }
             },
             n_inputs: shape.n_inputs(),
             n_outputs: shape.n_outputs(),
@@ -333,15 +337,15 @@ impl IndexedTransferPreparation<'_> {
                 let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?;
                 match rail {
                     IndexedTransferRail::Confidential => match cache.access {
-                        Some(access) => CircuitId::ConfidentialEddsaCached(n_in, n_out, slots, access),
-                        None => CircuitId::ConfidentialEddsa(n_in, n_out, slots),
+                        Some(access) => CircuitId::ConfidentialEd25519Cached(n_in, n_out, slots, access),
+                        None => CircuitId::ConfidentialEd25519(n_in, n_out, slots),
                     },
                     IndexedTransferRail::Ring(_) => match cache.access {
-                        Some(access) => CircuitId::RingEddsaCached(n_in, n_out, slots, access),
-                        None => CircuitId::RingEddsa(n_in, n_out, slots),
+                        Some(access) => CircuitId::ConfidentialRingEd25519Cached(n_in, n_out, slots, access),
+                        None => CircuitId::ConfidentialRingEd25519(n_in, n_out, slots),
                     },
                     IndexedTransferRail::RingAuthority(_) => CircuitId::RingAuthority(n_in, n_out, slots),
-                    IndexedTransferRail::RingEd25519 { .. } => CircuitId::RingEd25519(n_in, n_out, slots, zolana_interface::verifying_keys::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] }),
+                    IndexedTransferRail::AnonymousRingEd25519 { .. } => CircuitId::AnonymousRingEd25519(n_in, n_out, slots, zolana_interface::verifying_keys::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] }),
 
                 }
             },
@@ -395,7 +399,7 @@ impl Request for PreparedIndexedTransfer {
     }
 
     fn delivery(&self) -> Option<crate::prover::client::Delivery> {
-        matches!(self.data.circuit, CircuitId::RingEd25519(..))
+        matches!(self.data.circuit, CircuitId::AnonymousRingEd25519(..))
             .then_some(crate::prover::client::Delivery::InResponse)
     }
 
@@ -416,7 +420,7 @@ impl Request for PreparedIndexedTransfer {
         data.tree_contexts = resolution.trees.iter().map(|tree| tree.context).collect();
         let input_tree_ids = resolution.trees.iter().map(|tree| tree.id).collect();
         let proof = ProofCompressed::try_from(proof)?;
-        if let CircuitId::RingEd25519(_, _, _, commitment) = &mut data.circuit {
+        if let CircuitId::AnonymousRingEd25519(_, _, _, commitment) = &mut data.circuit {
             let (transact, carried) = proof.into_committed_transact_parts()?;
             data.proof = transact;
             *commitment = carried;
@@ -693,7 +697,7 @@ mod tests {
                         transaction.payer.as_array(),
                     )
                     .unwrap();
-                    let result = crate::prover::transact::RingTransferEd25519Prover {
+                    let result = crate::prover::transact::AnonymousRingEd25519Prover {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -709,7 +713,7 @@ mod tests {
                     .build()
                     .unwrap();
                     (
-                        IndexedTransferRail::RingEd25519 {
+                        IndexedTransferRail::AnonymousRingEd25519 {
                             ring: ring.unwrap(),
                             owner: &owner.signing_key,
                         },
@@ -754,7 +758,7 @@ mod tests {
         let prepare = |transaction| {
             IndexedTransferPreparation {
                 transaction,
-                rail: IndexedTransferRail::RingEd25519 {
+                rail: IndexedTransferRail::AnonymousRingEd25519 {
                     ring,
                     owner: &owner.signing_key,
                 },

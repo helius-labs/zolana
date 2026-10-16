@@ -147,8 +147,8 @@ manage a cache account holding up to 36 UTXO hashes, set by verified merges and
 transacts that its immutable write authority signs. Every owner-signed transact
 circuit includes a cache selection in its public input hash whether or not a
 cache is supplied, so a cached spend verifies against its rail's ordinary key
-through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
-`RingEddsaCached`); `RingAuthority` binds no selection.
+through one cached `CircuitId` twin per rail (`ConfidentialEd25519Cached`,
+`ConfidentialRingEd25519Cached`); `RingAuthority` binds no selection.
 INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):

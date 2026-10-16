@@ -1,5 +1,8 @@
 export { P256ReaderKey } from "@heliuslabs/zolana/ring";
 export { X25519PublicKey, X25519Secret } from "@heliuslabs/zolana/keypair";
+import { ShieldedPoolError as ErrorCodes } from "@heliuslabs/zolana/interface";
+
+export const anonymousOutputOwnerTag: 7085 = ErrorCodes.AnonymousRingEd25519OutputOwnerTag;
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,

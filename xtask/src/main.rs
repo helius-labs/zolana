@@ -576,7 +576,7 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(
+            circuit: CircuitId::ConfidentialEd25519(
                 n as u8,
                 outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
@@ -851,7 +851,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit =
-            CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
+            CircuitId::ConfidentialEd25519(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
         zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
@@ -884,7 +884,8 @@ fn tx_size(args: Vec<String>) {
         .instruction()
     };
     let slots = N_PUBLIC_SLOTS as u8;
-    let ring_eddsa = |n: usize, m: usize| CircuitId::RingEddsa(n as u8, m as u8, slots);
+    let ring_eddsa =
+        |n: usize, m: usize| CircuitId::ConfidentialRingEd25519(n as u8, m as u8, slots);
     // The widest shape of every output count: 49x2, 24x4, 16x8 and 8x16.
     for (n, m) in [
         (2usize, 4usize),
