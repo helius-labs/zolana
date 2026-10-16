@@ -2,11 +2,11 @@
   "circuitType": "custom-ring-compressed-policy",
   "policy": {
     "circuitType": "custom-ring-policy",
-    "publicInputHash": "0x0119cdfbf93d91ed4d7a8c0484978bbe631d63a2f32d479742da387b0e18bde3",
+    "publicInputHash": "0x196e1a50a7a9691ab49ce0ab8885b400afddef40afedccd6793d011cf83446c5",
     "privateTxHash": "0x0f2c95d386648077e8d723794f13c899aa54a75586cb4417d0ba81d138b42742",
     "txViewingSk": "0x011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e",
     "ephSk": "0x01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d",
-    "auditorPk": "0x049dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec2055494611915e7dbca56ab02df9f3b70510e923e2925244e438bc8cebf0e635",
+    "auditorPk": "0x708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a",
     "salt": "0x00000000000000000000000000000000",
     "nIn": 2,
     "nOut": 2,
