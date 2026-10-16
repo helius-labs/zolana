@@ -16,7 +16,7 @@
 //! ```
 //!
 //! `pack.go` is the source of truth for the packing of `dh` and of the 33-byte
-//! compressed keys into pairs of field elements; [`pack32_to_2fe`] and
+//! compressed keys into pairs of field elements. [`pack32_to_2fe`] and
 //! [`pack33_to_2fe`] mirror it. The key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
@@ -601,11 +601,11 @@ pub fn auditor_view_tag(pk: &X25519Pubkey) -> [u8; 32] {
 
 type Result<T> = core::result::Result<T, AuditEncryptionError>;
 
-/// Key-schedule info string; equals the Go `auditEncInfo`.
+/// Key-schedule info string matching the Go `auditEncInfo`.
 pub(crate) const AUDIT_ENC_INFO: &[u8; 10] = b"CRING/adt1";
 
-/// Shared-secret domain separator, ASCII "CR_S" read as a big-endian u32; equals
-/// the Go `DomSepCRShared`.
+/// Shared-secret domain separator, ASCII "CR_S" read as a big-endian u32.
+/// It matches the Go `DomSepCRShared`.
 const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
 
 /// Mirrors `DeriveAuditSharedSecret`: binds the raw ECDH x-coordinate to both
