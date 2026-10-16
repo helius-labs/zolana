@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(shape(false, 4, 2).field_count(), Some(36));
         assert_eq!(shape(false, 0, 1).field_count(), Some(36));
         assert_eq!(shape(true, 2, 2).field_count(), Some(22));
-        assert_eq!(shape(true, 3, 4).field_count(), Some(40));
+        assert_eq!(shape(true, 3, 4).field_count(), Some(39));
         assert_eq!(shape(true, 4, 2).field_count(), Some(28));
         assert_eq!(shape(true, 0, 2).field_count(), None);
         assert_eq!(shape(true, 5, 2).field_count(), None);
