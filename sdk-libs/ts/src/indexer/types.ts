@@ -28,15 +28,6 @@ export interface RingMemberProofContext {
   readonly member: Hash;
 }
 
-/** `record` is `null` until the member registers. */
-export interface GetRingSpendRecordResponse {
-  readonly context: IndexerContext;
-  readonly record: Readonly<{
-    transaction: IndexedShieldedTransaction;
-    outputIndex: number;
-  }> | null;
-}
-
 export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
   readonly lowMember: Hash;
   readonly lowNext: Hash;

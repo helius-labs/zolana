@@ -15,7 +15,6 @@ import {
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
-import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../src/ring/counters.js";
 import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
 function filled(value: number): Bytes32 {
@@ -197,8 +196,6 @@ describe("custom ring transfer seals each slot once", () => {
   const encrypt = (
     extra: Readonly<{
       sealedMessages?: readonly ReturnType<typeof message>[];
-      counterMessage?: Omit<ReturnType<typeof message>, "slotIndex">;
-      recordOutputIndex?: number;
     }>,
   ) =>
     withTransactionKey(keypairKeys(), filled(1), (tx) =>
@@ -242,56 +239,5 @@ describe("custom ring transfer seals each slot once", () => {
     } finally {
       encryptSlot.mockRestore();
     }
-  });
-
-  it("rejects a caller message on the protocol counter slot", async () => {
-    await expect(
-      encrypt({
-        sealedMessages: [message(RING_SPEND_COUNTERS_SLOT_INDEX)],
-        counterMessage: message(RING_SPEND_COUNTERS_SLOT_INDEX),
-      }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_DUPLICATE_SLOT_INDEX" });
-  });
-
-  it("reserves the counter slot without a counter message", async () => {
-    const minted = trackMintedTxViewingKeys();
-    await expect(
-      encrypt({ sealedMessages: [message(RING_SPEND_COUNTERS_SLOT_INDEX)] }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_DUPLICATE_SLOT_INDEX" });
-    expectWiped(minted);
-  });
-
-  it("assigns the protocol counter slot before encryption", async () => {
-    const encryptSlot = vi.spyOn(ViewingKey.prototype, "encryptSlot");
-    try {
-      const encrypted = await encrypt({ counterMessage: message(7) });
-      expect(encrypted.sealedMessages).toHaveLength(1);
-      expect(encryptSlot.mock.calls[0]?.[3]).toBe(RING_SPEND_COUNTERS_SLOT_INDEX);
-      encrypted.audit.txViewingSecret.fill(0);
-      encrypted.audit.ephemeralSecret.fill(0);
-    } finally {
-      encryptSlot.mockRestore();
-    }
-  });
-
-  it("seals the protocol counter on its own slot", async () => {
-    const encrypted = await encrypt({ counterMessage: message(RING_SPEND_COUNTERS_SLOT_INDEX) });
-    expect(encrypted.sealedMessages).toHaveLength(1);
-  });
-
-  it("refuses an invalid protocol output position and wipes the transaction key", async () => {
-    const minted = trackMintedTxViewingKeys();
-    await expect(encrypt({ recordOutputIndex: 1 })).rejects.toMatchObject({
-      code: "TRANSACTION_INVALID_OUTPUT_POSITION",
-    });
-    expectWiped(minted);
-  });
-
-  it("does not turn an ordinary payment into a protocol carrier", async () => {
-    const minted = trackMintedTxViewingKeys();
-    await expect(encrypt({ recordOutputIndex: 0 })).rejects.toMatchObject({
-      code: "TRANSACTION_OUTPUT_DATA_MISMATCH",
-    });
-    expectWiped(minted);
   });
 });

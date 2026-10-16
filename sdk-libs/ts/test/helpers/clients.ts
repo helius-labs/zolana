@@ -125,9 +125,7 @@ export function ringTransferClient(
     getMerkleProofs: notImplemented("getMerkleProofs"),
     getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     getSlot: notImplemented("getSlot"),
-    getRingSpendRecord: notImplemented("getRingSpendRecord"),
     getRingKeyRegistryEntry: notImplemented("getRingKeyRegistryEntry"),
-    proveCustomRingCompressedPolicy: notImplemented("proveCustomRingCompressedPolicy"),
     ...overrides,
   };
 }

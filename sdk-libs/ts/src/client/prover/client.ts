@@ -68,7 +68,7 @@ import {
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
-  RING_VELOCITY_SLOTS,
+  RING_OUTFLOW_LIMIT_SLOTS,
 } from "./types.js";
 import type {
   CustomRingBaseProofRequest,
@@ -77,12 +77,10 @@ import type {
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
-  CustomRingCompressedPolicyProofRequest,
   CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
   CustomRingRegistryKey,
-  CustomRingSpendRecordProofInput,
-  CustomRingVelocityRow,
+  CustomRingOutflowLimit,
   Field,
   MergeInputs,
   Proof,
@@ -351,15 +349,6 @@ export class ProverClient {
     return result.proof;
   }
 
-  async proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingCompressedPolicyProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-compressed-policy" });
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
   async proveCustomRingRegisterKey(
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
@@ -382,8 +371,7 @@ export class ProverClient {
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    if (inputs.limits.approvalRequired) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     const body = JSON.stringify({
       circuitType: "custom-ring-delegate-policy",
       policy: customRingPolicyProofRequest(inputs),
@@ -884,15 +872,12 @@ export function customRingPolicyProofRequest(
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
     treeSlots: policyTreeSlots(inputs.treeSlots).map(policyTreeSlotJson),
     addressTreeId: hex32(treeIdField(inputs.addressTreeId), "addressTreeId"),
-    windowSlots: u64Json(inputs.velocity.windowSlots, "windowSlots"),
-    velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
-    velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
-    ringId: hex32(inputs.velocity.ringId, "ringId"),
-    namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
-    windowIndex: u64Json(inputs.velocity.windowIndex, "windowIndex"),
-    approvalRequired: inputs.velocity.approvalRequired,
+    limits: paddedOutflowLimits(inputs.limits.limits).map(outflowLimitJson),
+    limitCount: u8(inputs.limits.limits.length, "limitCount"),
+    ringId: hex32(inputs.limits.ringId, "ringId"),
+    namespaceOwnerHash: hex32(inputs.limits.namespaceOwnerHash, "namespaceOwnerHash"),
+    approvalRequired: inputs.limits.approvalRequired,
     ...keyEscrowJson(inputs.keyRegistryRoot),
-    record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
   });
 }
@@ -946,16 +931,6 @@ function registryIndexHex(index: bigint, field: string): string {
   if (typeof index !== "bigint" || index < 0n || index >= KEY_REGISTRY_CAPACITY)
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
   return `0x${index.toString(16).padStart(64, "0")}`;
-}
-
-export function customRingCompressedPolicyProofRequest(
-  input: CustomRingCompressedPolicyProofRequest,
-): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    circuitType: "custom-ring-compressed-policy",
-    transactionSalt: bytesHex(checkedBytes(input.transactionSalt, 16, "transactionSalt")),
-    policy: customRingPolicyProofRequest(input.policy),
-  });
 }
 
 function registryInsertionJson(
@@ -1039,47 +1014,29 @@ export function customRingDepositProofRequest(
   });
 }
 
-/** Rows past the count are zero, the server refuses other padding. */
-function paddedVelocityRows(
-  rows: readonly CustomRingVelocityRow[],
-): readonly CustomRingVelocityRow[] {
-  if (rows.length > RING_VELOCITY_SLOTS) {
+/** Limits past the count are zero, the server refuses other padding. */
+function paddedOutflowLimits(
+  limits: readonly CustomRingOutflowLimit[],
+): readonly CustomRingOutflowLimit[] {
+  if (limits.length > RING_OUTFLOW_LIMIT_SLOTS) {
     throw new ClientError("CLIENT_INVALID_LENGTH", {
-      details: { field: "velocity", expected: RING_VELOCITY_SLOTS, actual: rows.length },
+      details: { field: "limits", expected: RING_OUTFLOW_LIMIT_SLOTS, actual: limits.length },
     });
   }
   return Object.freeze(
     Array.from(
-      { length: RING_VELOCITY_SLOTS },
+      { length: RING_OUTFLOW_LIMIT_SLOTS },
       (_, index) =>
-        rows[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
+        limits[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
     ),
   );
 }
 
-function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, unknown>> {
+function outflowLimitJson(limit: CustomRingOutflowLimit): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    asset: hex32(row.asset, "velocity asset"),
-    cap: u64FieldHex(row.cap, "velocity cap"),
-    cosignAbove: u64FieldHex(row.cosignAbove, "velocity cosignAbove"),
-  });
-}
-
-function spendRecordJson(
-  record: CustomRingSpendRecordProofInput,
-): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    version: u64Json(record.version, "record version"),
-    window: u64Json(record.window, "record window"),
-    commitment: hex32(record.commitment, "record commitment"),
-    salt: hex32(record.salt, "record salt"),
-    assets: sized(record.assets, RING_VELOCITY_SLOTS, "record assets").map((asset) =>
-      hex32(asset, "record assets"),
-    ),
-    spent: sized(record.spent, RING_VELOCITY_SLOTS, "record spent").map((spent) =>
-      u64FieldHex(spent, "record spent"),
-    ),
-    nextSalt: hex32(record.nextSalt, "record nextSalt"),
+    asset: hex32(limit.asset, "limits asset"),
+    cap: u64FieldHex(limit.cap, "limits cap"),
+    cosignAbove: u64FieldHex(limit.cosignAbove, "limits cosignAbove"),
   });
 }
 

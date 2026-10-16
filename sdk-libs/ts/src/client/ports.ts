@@ -14,7 +14,6 @@ import type {
 import type { P256PublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
 import { intentHash } from "../transaction/wallet/intent.js";
@@ -27,7 +26,6 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
-  CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
   MergeInputs,
   Proof,
@@ -90,22 +88,6 @@ export interface RingMemberProofContext {
   readonly root: Bytes32;
   readonly nextIndex: bigint;
   readonly member: Bytes32;
-}
-
-/** `record` is `null` until the member registers. */
-export interface RingSpendRecordLookup {
-  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
-  readonly record: Readonly<{
-    transaction: IndexedShieldedTransaction;
-    outputIndex: number;
-  }> | null;
-}
-
-export interface RingSpendRecordReader {
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup>;
 }
 
 /** A user registry record, the shielded address a Solana pubkey publishes. */
@@ -332,12 +314,8 @@ export interface IndexedDepositClient extends ProofDataSourceContext {
 
 export interface IndexedPolicyInputs {
   readonly minContextSlot?: bigint;
-  readonly circuit:
-    | "custom-ring-policy"
-    | "custom-ring-compressed-policy"
-    | "custom-ring-delegate-policy";
+  readonly circuit: "custom-ring-policy" | "custom-ring-delegate-policy";
   readonly policy: CustomRingPolicyProofRequest;
-  readonly transactionSalt?: Uint8Array;
   readonly trees: readonly ResolvedProofTree[];
   readonly lookups: readonly IndexedPolicyLookup[];
   readonly publicInputs: readonly Bytes32[];
@@ -412,10 +390,6 @@ export interface Prover {
   ): Promise<ProvenRingTransact>;
   proveCustomRingDelegatePolicy(
     inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
   proveCustomRingRegisterKey(

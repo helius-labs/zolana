@@ -15,8 +15,6 @@ import {
   ringDepositAuditPda,
   ringKeyRegistryRootPda,
   ringPolicyConfigPda,
-  ringSpendWindowAddress,
-  ringSpendWindowPda,
 } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
@@ -27,13 +25,11 @@ import {
   type RingDelegate,
   type RingPolicyConfig,
   type RingProgramConfig,
-  type RingSpendWindow,
   decodeRingCoSigner,
   decodeRingDelegate,
   decodeRingDepositAudit,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
-  decodeRingSpendWindow,
   decodeRingKeyRegistryRoot,
   type RingKeyRegistryRoot,
 } from "./codecs.js";
@@ -45,8 +41,6 @@ const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
 const SET_CO_SIGNER_TAG = 27;
 const CLEAR_CO_SIGNER_TAG = 21;
-const SET_SPEND_WINDOW_TAG = 22;
-const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
 const CREATE_KEY_REGISTRY_ROOT_TAG = 28;
 const SET_DEPOSIT_AUDIT_TAG = 30;
@@ -206,15 +200,6 @@ export async function fetchRingConfigs(
   return Object.freeze({ hasPolicy: true, config, policy });
 }
 
-/** The policy of a ring that keeps per-member spend records, else `undefined`. */
-export function windowedPolicy(configs: RingConfigs): RingPolicyConfig | undefined {
-  return configs.hasPolicy &&
-    configs.policy.windowSlots !== 0n &&
-    configs.policy.velocityCount !== 0
-    ? configs.policy
-    : undefined;
-}
-
 export async function fetchRingCoSigner(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
@@ -347,97 +332,6 @@ export async function setRingDelegateInstruction(
     data: new Writer()
       .u8(SET_DELEGATE_TAG, "tag")
       .bytes(addressBytes(input.delegate, "delegate"), 32, "delegate")
-      .finish(),
-  };
-}
-
-export async function fetchRingSpendWindow(
-  client: Pick<ChainReader, "getAccount">,
-  ringProgramId: Address,
-  mint: Address,
-  context?: RequestContext,
-): Promise<RingSpendWindow | undefined> {
-  const [address, bump] = await ringSpendWindowPda(ringProgramId, mint);
-  const account = await client.getAccount(address, context);
-  if (account === undefined || account.data.length === 0) return undefined;
-  if (account.owner !== ringProgramId) {
-    throw new RingError("RING_SPEND_WINDOW_INVALID", {
-      details: { ringProgramId, owner: account.owner },
-    });
-  }
-  const window = decodeRingSpendWindow(account.data);
-  if (window.mint !== mint || window.bump !== bump) {
-    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { ringProgramId, address } });
-  }
-  return window;
-}
-
-/** Replacing a window resets its counters. */
-export async function setRingSpendWindowInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    payer: SignerAccount;
-    authority: SignerAccount;
-    mint: Address;
-    /** Nonzero, windows start at multiples of it. */
-    windowSlots: bigint;
-    /** Zero or absent leaves the direction uncapped, at least one cap is nonzero. */
-    depositCap?: bigint;
-    withdrawalCap?: bigint;
-  }>,
-): Promise<Instruction> {
-  const depositCap = input.depositCap === 0n ? undefined : input.depositCap;
-  const withdrawalCap = input.withdrawalCap === 0n ? undefined : input.withdrawalCap;
-  if (input.windowSlots === 0n || (depositCap === undefined && withdrawalCap === undefined)) {
-    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint: input.mint } });
-  }
-  const [config, window] = await Promise.all([
-    ringConfigAddress(input.ringProgramId),
-    ringSpendWindowAddress(input.ringProgramId, input.mint),
-  ]);
-  const data = new Writer()
-    .u8(SET_SPEND_WINDOW_TAG, "tag")
-    .bytes(addressBytes(input.mint, "mint"), 32, "mint")
-    .u64(input.windowSlots, "windowSlots")
-    .option(depositCap, (writer, cap) => writer.u64(cap, "depositCap"))
-    .option(withdrawalCap, (writer, cap) => writer.u64(cap, "withdrawalCap"))
-    .finish();
-  return {
-    programAddress: input.ringProgramId,
-    accounts: [
-      meta(input.payer, true, true),
-      meta(input.authority, true, false),
-      meta(config, false, false),
-      meta(window, false, true),
-      meta(SYSTEM_PROGRAM, false, false),
-    ],
-    data,
-  };
-}
-
-export async function clearRingSpendWindowInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    authority: SignerAccount;
-    mint: Address;
-    rentRecipient: Address;
-  }>,
-): Promise<Instruction> {
-  const [config, window] = await Promise.all([
-    ringConfigAddress(input.ringProgramId),
-    ringSpendWindowAddress(input.ringProgramId, input.mint),
-  ]);
-  return {
-    programAddress: input.ringProgramId,
-    accounts: [
-      meta(input.authority, true, false),
-      meta(config, false, false),
-      meta(window, false, true),
-      meta(input.rentRecipient, false, true),
-    ],
-    data: new Writer()
-      .u8(CLEAR_SPEND_WINDOW_TAG, "tag")
-      .bytes(addressBytes(input.mint, "mint"), 32, "mint")
       .finish(),
   };
 }

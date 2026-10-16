@@ -277,8 +277,7 @@ export class RingTransactionSubmission {
         const retry =
           status.kind === "expired" ||
           rootReplaced ||
-          ringCode === RingProgramError.staleKeyRegistryRoot ||
-          ringCode === RingProgramError.windowElapsed;
+          ringCode === RingProgramError.staleKeyRegistryRoot;
         if (!retry || this.#attempts >= MAX_ATTEMPTS) {
           this.#terminal = true;
           this.#reservation.release();

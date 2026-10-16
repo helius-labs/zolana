@@ -1,5 +1,4 @@
 import { X25519PublicKey } from "../../keypair/x25519.js";
-import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../../interface/constants.js";
 import { addressBytes } from "../../interface/internal.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { treeIdField } from "../../interface/tree-slot.js";
@@ -13,7 +12,6 @@ import {
 import { bigIntToBytes, randomSalt } from "../../keypair/bytes.js";
 import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
-import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { rightAlign, ZERO_32 } from "../internal.js";
@@ -31,8 +29,8 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { createProofOutput, type ProofOutputUtxo, type TreeId } from "../utxo.js";
-import { SOL_MINT, type AssetRegistry } from "../asset.js";
+import type { ProofOutputUtxo, TreeId } from "../utxo.js";
+import type { AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
 
@@ -103,12 +101,7 @@ export function encryptConfidentialTransfer(
   };
 }
 
-/**
- * The caller wipes the returned audit secrets after proving. `recordOutputIndex`
- * names the last output as the spend record carrier, encrypted to the
- * transaction viewing key itself. `counterMessage` is the protocol counter seal,
- * never a caller message channel.
- */
+/** The caller wipes the returned audit secrets after proving. */
 export function encryptCustomRingTransfer(
   tx: ViewingKey,
   input: Readonly<{
@@ -116,9 +109,7 @@ export function encryptCustomRingTransfer(
     assets: AssetRegistry;
     auditorPublicKey: X25519PublicKey;
     outputTreeId: TreeId;
-    recordOutputIndex?: number;
     sealedMessages?: readonly SealedMessageInput[];
-    counterMessage?: Omit<SealedMessageInput, "slotIndex">;
   }>,
 ): EncryptedCustomRingTransfer {
   let txViewingSecret: Bytes32 | undefined;
@@ -127,12 +118,7 @@ export function encryptCustomRingTransfer(
     const salt = randomSalt();
     txViewingSecret = tx.secretBytes();
     const recipient = tx.publicKey();
-    const outputs = recordCarrierOutputs(
-      input.outputs,
-      input.recordOutputIndex === undefined
-        ? undefined
-        : { index: input.recordOutputIndex, recipient },
-    );
+    const outputs = input.outputs;
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey, {
       salt,
       outputs: outputs.map((output) => auditOutputOpening(output, input.outputTreeId)),
@@ -144,13 +130,7 @@ export function encryptCustomRingTransfer(
       viewTag: message.viewTag,
     }));
     checkDistinctSlots(outputs.length, callerMessages);
-    const outbound = [
-      ...callerMessages,
-      ...(input.counterMessage === undefined
-        ? []
-        : [{ ...input.counterMessage, slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX }]),
-    ];
-    const sealedMessages: readonly MessageData[] = outbound.map((message) => {
+    const sealedMessages: readonly MessageData[] = callerMessages.map((message) => {
       const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
       const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
       body.set(recipient.toBytes(), 0);
@@ -193,58 +173,12 @@ function auditOutputOpening(output: ProofOutputUtxo, outputTreeId: TreeId): Audi
   });
 }
 
-/** The recipient viewing key does not affect the UTXO commitment. */
-function recordCarrierOutputs(
-  outputs: readonly ProofOutputUtxo[],
-  carrier: Readonly<{ index: number; recipient: P256PublicKey }> | undefined,
-): readonly ProofOutputUtxo[] {
-  if (carrier === undefined) return outputs;
-  const { index, recipient } = carrier;
-  const output = outputs[index];
-  const owner = output?.ownerAddress;
-  if (
-    !Number.isInteger(index) ||
-    index < 0 ||
-    index !== outputs.length - 1 ||
-    output === undefined ||
-    owner === undefined
-  ) {
-    throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
-      index,
-    });
-  }
-  if (
-    owner.signingPublicKey.signatureType() !== "pda" ||
-    output.asset !== SOL_MINT ||
-    output.amount !== 0n ||
-    output.ringProgramId !== undefined ||
-    output.dataHash === undefined ||
-    output.data.records().length !== 0
-  )
-    throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH");
-  return outputs.map((candidate, position) =>
-    position !== index
-      ? candidate
-      : createProofOutput({
-          ...output,
-          ownerAddress: ShieldedAddress.fromPublicKeys(
-            owner.signingPublicKey,
-            owner.nullifierPublicKey,
-            recipient,
-          ),
-        }),
-  );
-}
-
 /** One keystream per slot under a fixed key and salt. */
 function checkDistinctSlots(
   outputCount: number,
   messages: readonly Readonly<{ slotIndex: number }>[],
 ): void {
-  const slots = new Set<number>([
-    RING_SPEND_COUNTERS_SLOT_INDEX,
-    ...Array.from({ length: outputCount }, (_, index) => index),
-  ]);
+  const slots = new Set<number>(Array.from({ length: outputCount }, (_, index) => index));
   for (const message of messages) {
     if (slots.has(message.slotIndex)) {
       throw new TransactionError("TRANSACTION_DUPLICATE_SLOT_INDEX", {

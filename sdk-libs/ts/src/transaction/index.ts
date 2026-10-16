@@ -46,7 +46,6 @@ export type {
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,
-  RecordSlotExtension,
   Shape,
 } from "./instructions/index.js";
 export {

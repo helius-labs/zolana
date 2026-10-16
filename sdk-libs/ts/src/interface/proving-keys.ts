@@ -15,8 +15,6 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
   "custom_ring_base.key": "58ea292fb55fe1efa1fe1e596e251a7b7dbcb720da72e4af7dc585af0e5ca513",
-  "custom_ring_compressed_policy.key":
-    "420135689337e7ea26eac620de2e703e32b3912b90ed789d5793649529fd0654",
   "custom_ring_delegate_policy.key":
     "a731f737af2872a06922682458bc427f75e3f97a38b4be2c92ee6e518319433e",
   "custom_ring_deposit.key": "00369d9cd2ccc8e818071e1957cc4cd4cbcbaeb968f929afd2543b8cc995350d",
@@ -208,7 +206,6 @@ export type ProvingKeyCircuit =
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
   | { readonly circuit: "custom-ring-base" }
   | { readonly circuit: "custom-ring-policy" }
-  | { readonly circuit: "custom-ring-compressed-policy" }
   | { readonly circuit: "custom-ring-delegate-policy" }
   | { readonly circuit: "custom-ring-deposit" }
   | { readonly circuit: "custom-ring-register-key" };
@@ -247,7 +244,6 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_ring_${request.nInputs}_1.key`;
     case "custom-ring-base":
     case "custom-ring-policy":
-    case "custom-ring-compressed-policy":
     case "custom-ring-delegate-policy":
     case "custom-ring-deposit":
     case "custom-ring-register-key":

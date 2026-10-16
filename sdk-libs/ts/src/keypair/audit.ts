@@ -335,16 +335,13 @@ export function policyPublicInputHash(
       /** `hashBytes` of the ring program id. */
       ringId: Bytes32;
       namespaceOwnerHash: Bytes32;
-      /** Zero for per-transfer caps and delegate moves. */
-      windowIndex: bigint;
+      /** Set when an outflow passes a limit's cosign threshold, false on the delegate rail. */
       approvalRequired: boolean;
       /** Present exactly when output nullifier keys must be enrolled under it. */
       keyRegistryRoot?: Bytes32;
       revocationTargets?: readonly Bytes32[];
       /** Per fact slot, the index into `treeSlots` its revocation target lives in. */
       revocationTreeIndexes?: readonly number[];
-      /** Set exactly for a windowed transfer. */
-      countersDisclosureHash?: Bytes32;
     }>,
 ): Bytes32 {
   const indexed = policyIndexedInputs(input);
@@ -363,15 +360,11 @@ export function policyIndexedInputs(
     treeIdField(input.addressTreeId),
     checkedBytes(input.ringId, 32, "ring id"),
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
-    u64Field(input.windowIndex),
     u64Field(input.approvalRequired ? 1n : 0n),
     u64Field(input.keyRegistryRoot === undefined ? 0n : 1n),
     checkedBytes(input.keyRegistryRoot ?? new Uint8Array(32), 32, "key registry root"),
     packRevocationTreeIndexes(input.revocationTreeIndexes),
     ...checkedRevocationTargets(input.revocationTargets),
-    ...(input.countersDisclosureHash === undefined
-      ? []
-      : [checkedBytes(input.countersDisclosureHash, 32, "counters disclosure hash")]),
   ];
 }
 

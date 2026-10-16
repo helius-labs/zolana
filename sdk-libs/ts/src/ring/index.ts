@@ -63,18 +63,6 @@ export type {
   KeyRegistryPath,
 } from "./key-registry-tree.js";
 export {
-  buildRingSpendRegistrationTransaction,
-  prepareRingSpendRegistration,
-  createRingSpendRegistrationSubmission,
-  readRingVelocityState,
-} from "./register-spend.js";
-export type {
-  RingSpendRegistrationClient,
-  RingSpendRegistrationParams,
-  RingSpendRegistrationPreparation,
-} from "./register-spend.js";
-export type { VelocityFacts } from "./velocity.js";
-export {
   buildRingDelegateRecoveredTransaction,
   buildRingDelegateTransferTransaction,
   createRingDelegateRecoveredSubmission,
@@ -109,7 +97,6 @@ export type {
   RingDelegateProofClient,
   RingDelegateSpender,
 } from "./transfer.js";
-export { currentRingSpendRecord } from "./policy.js";
 export { ringTransactAccounts } from "../interface/instructions/index.js";
 export { ringDepositInstruction } from "./deposit-instruction.js";
 export { customRingDepositPayload, decryptRingDepositUtxo } from "./deposit-payload.js";
@@ -142,7 +129,6 @@ export type {
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,
-  RingSpendWindow,
 } from "./codecs.js";
 export {
   RING_COSIGN_DEPOSITS,
@@ -153,13 +139,11 @@ export {
   decodeRingCoSigner,
   decodeRingDelegate,
   decodeRingDepositAudit,
-  decodeRingSpendWindow,
 } from "./codecs.js";
 export {
   ringCoSignerAddress,
   ringDelegateAddress,
   ringDepositAuditAddress,
-  ringSpendWindowAddress,
 } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
 export {
@@ -190,17 +174,6 @@ export {
   ringPolicyHash,
   ruleAlternatives,
   verifiedRuleTable,
-  SPEND_COUNTERS_LENGTH,
-  decodeSpendCounters,
-  decodeSpendRecord,
-  encodeSpendCounters,
-  encodeSpendRecord,
-  spendRecordMessageTag,
-  readRingSpendRecord,
-  spendCountersCommitment,
-  spendCountersSpent,
-  spendSeed,
-  zeroSpendCounters,
 } from "./policy.js";
 export type {
   EncodedRuleTable,
@@ -225,11 +198,6 @@ export type {
   RuleSubject,
   RuleTable,
   RuleTableInput,
-  LiveSpendRecord,
-  ReadRingSpendRecordInput,
-  SpendCounters,
-  SpendRecord,
-  SpendRecordHashes,
 } from "./policy.js";
 export { ringConfigAddress, ringPolicyConfigAddress } from "../interface/pda/index.js";
 export {
@@ -239,17 +207,14 @@ export {
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   clearRingCoSignerInstruction,
-  clearRingSpendWindowInstruction,
   fetchRingCoSigner,
   fetchRingDelegate,
   fetchRingDepositAudit,
-  fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
   setRingDepositAuditInstruction,
   setRingPausedInstruction,
-  setRingSpendWindowInstruction,
 } from "./config.js";
 export { buildRingDepositTransaction, RING_DEPOSIT_COMPUTE_UNIT_LIMIT } from "./deposit.js";
 export type { RingDepositClient, RingDepositTransactionParams } from "./deposit.js";
@@ -268,9 +233,7 @@ export {
   RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
-  RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
   registerRingKeyInstruction,
-  registerRingSpendInstruction,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
@@ -326,8 +289,6 @@ export {
 } from "./rpc.js";
 export type {
   DecryptedRingOutput,
-  DecryptedRingSpendCounter,
-  DecryptedRingSpendRecord,
   DecryptedRingTransaction,
   DecryptedRingTransactionsPage,
   DecryptedRingWithdrawal,
@@ -354,7 +315,6 @@ export {
 } from "./audit.js";
 export type {
   AuditedRingOutput,
-  AuditedRingSpendRecord,
   AuditedRingTransaction,
   RingAuditPage,
   RingAuditReader,

@@ -892,8 +892,6 @@ export interface PreparedTransfer {
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and at `recordSlot` among the outputs. */
-  withAppendedSlot(extension: RecordSlotExtension): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -905,14 +903,6 @@ export interface PreparedTransfer {
     }>,
   ): SppProofInputs;
 }
-
-export type RecordSlotExtension = Readonly<{
-  shape: Shape;
-  /** The output slot the record takes; slots between the transfer's outputs and it are padding. */
-  recordSlot: number;
-  input: ProofInputUtxo;
-  output: ProofOutputUtxo;
-}>;
 
 type RecipientRing = "transfer" | "default" | Readonly<{ programId: Address }>;
 
@@ -1198,7 +1188,7 @@ type RecordPadding = Readonly<{ start: number; end: number; template?: number }>
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
+  "finalize" | "outputBlindingSeed" | "proofOutputs"
 > &
   Readonly<{ recordPadding?: RecordPadding; ringProgramId?: Address }>;
 
@@ -1308,86 +1298,6 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    withAppendedSlot: (extension: RecordSlotExtension): PreparedTransfer =>
-      appendRecordSlot(fields, extension),
-  });
-}
-
-/** Mirrors Rust `RecordSlots::append`. */
-function appendRecordSlot(
-  fields: PreparedTransferFields,
-  extension: RecordSlotExtension,
-): PreparedTransfer {
-  const { shape, recordSlot } = extension;
-  const supported = SPP_SUPPORTED_SHAPES.some(
-    (candidate) => candidate.inputs === shape.inputs && candidate.outputs === shape.outputs,
-  );
-  const realInputs = fields.inputs.filter((input) => !input.isDummy()).length;
-  if (
-    !supported ||
-    realInputs + 1 > shape.inputs ||
-    recordSlot < fields.outputs.length ||
-    recordSlot >= shape.outputs
-  ) {
-    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...shape, recordSlot });
-  }
-  const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
-  const inputs = [...fields.inputs.filter((input) => !input.isDummy()), extension.input];
-  while (inputs.length < shape.inputs) {
-    inputs.push(ProofInputUtxo.dummy(undefined, extension.input.treeId));
-  }
-  const sender = fields.owner.signingPublicKey.toBytes();
-  const senderOutput = fields.outputs.findIndex(
-    (output) =>
-      output.ownerAddress !== undefined &&
-      equal(output.ownerAddress.signingPublicKey.toBytes(), sender),
-  );
-  const templateIndex =
-    senderOutput >= 0
-      ? senderOutput
-      : fields.outputs.findLastIndex((output) => output.ownerAddress !== undefined);
-  const template = fields.outputs[templateIndex];
-  const outputs = [...fields.outputs];
-  while (outputs.length < recordSlot) {
-    outputs.push(
-      createProofOutput({
-        ownerAddress: template?.ownerAddress ?? fields.owner,
-        asset: template?.asset ?? ZERO_ADDRESS,
-        amount: 0n,
-        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
-      }),
-    );
-  }
-  const expected = transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length);
-  if (!equal(extension.output.blinding, expected)) {
-    throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
-      reason: "recordBlinding",
-    });
-  }
-  const recordPadding: RecordPadding = {
-    start: fields.outputs.length,
-    end: outputs.length,
-    ...(template === undefined ? {} : { template: templateIndex }),
-  };
-  outputs.push(extension.output);
-  // Compact padding trails the record, so the record stays the last output SPP carries.
-  while (outputs.length < shape.outputs) {
-    outputs.push(
-      createProofOutput({
-        asset: ZERO_ADDRESS,
-        amount: 0n,
-        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
-        compact: true,
-      }),
-    );
-  }
-  return preparedTransfer({
-    ...fields,
-    inputs,
-    outputs,
-    inputTreeIds: inputTreeIds(inputs),
-    shape,
-    recordPadding,
   });
 }
 

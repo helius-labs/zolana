@@ -64,8 +64,6 @@ import {
   type TreeContext,
   type RingProvingConfig,
   type RingMemberProofRequest,
-  type RingMemberRequest,
-  type RingSpendRecordLookup,
   type UserRecordReader,
   type UserRecordsLookup,
   type RingKeyRegistryEntry,
@@ -93,7 +91,6 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
-  CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterKeyProofRequest,
   Proof,
   TransferCircuit,
@@ -576,13 +573,6 @@ export class ZolanaClient
     );
   }
 
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup> {
-    return this.#indexer.getRingSpendRecord(request, context);
-  }
-
   getRingKeyRegistryEntry(
     request: RingMemberProofRequest,
     context?: RequestContext,
@@ -878,13 +868,6 @@ export class ZolanaClient
     return this.#provingRing(() =>
       this.#prover.proveIndexedDeposit(this.#withMinContextSlot(inputs, undefined), context),
     );
-  }
-
-  proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingCompressedPolicy(inputs, context));
   }
 
   proveCustomRingRegisterKey(

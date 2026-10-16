@@ -14,6 +14,8 @@ import { contextSlotJson } from "./indexed.js";
 import type { Bytes32 } from "../../interface/types.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+/** The policy statement chain less the folded audit prefix and the tree commitment. */
+const POLICY_PUBLIC_INPUTS = 18;
 const decoder = wireDecoder(invalid);
 const hex = (value: Uint8Array): string => {
   const bytes = checkedBytes(value, 32, "field");
@@ -33,25 +35,16 @@ export function indexedPolicyEnvelope(
   inputs: IndexedPolicyInputs,
   serialized: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  const compressed = inputs.circuit === "custom-ring-compressed-policy";
   if (
-    ![
-      "custom-ring-policy",
-      "custom-ring-compressed-policy",
-      "custom-ring-delegate-policy",
-    ].includes(inputs.circuit) ||
+    !["custom-ring-policy", "custom-ring-delegate-policy"].includes(inputs.circuit) ||
     inputs.trees.length < 1 ||
     inputs.trees.length > 5 ||
     inputs.lookups.length !== 10 ||
-    inputs.publicInputs.length !== (compressed ? 20 : 19)
+    inputs.publicInputs.length !== POLICY_PUBLIC_INPUTS
   )
     throw invalid();
-  if (
-    inputs.circuit === "custom-ring-delegate-policy" &&
-    (inputs.policy.velocity.windowIndex !== 0n || inputs.policy.velocity.approvalRequired)
-  )
+  if (inputs.circuit === "custom-ring-delegate-policy" && inputs.policy.limits.approvalRequired)
     throw invalid();
-  if (compressed !== (inputs.transactionSalt !== undefined)) throw invalid();
   const prepared = omit(serialized, ["treeSlots", "publicInputHash"]);
   prepared["answers"] = decoder.list(prepared["answers"], "answers").map((answer, index) => {
     const fact = decoder.record(answer, "answer");
@@ -105,15 +98,7 @@ export function indexedPolicyEnvelope(
   const wrapped =
     inputs.circuit === "custom-ring-policy"
       ? prepared
-      : {
-          circuitType: inputs.circuit,
-          policy: prepared,
-          ...(inputs.transactionSalt === undefined
-            ? {}
-            : {
-                transactionSalt: `0x${bytesToHex(checkedBytes(inputs.transactionSalt, 16, "transaction salt"))}`,
-              }),
-        };
+      : { circuitType: inputs.circuit, policy: prepared };
   return {
     ...contextSlotJson(inputs.minContextSlot),
     circuitType: inputs.circuit,

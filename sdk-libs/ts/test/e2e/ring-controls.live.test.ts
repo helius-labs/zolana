@@ -1,5 +1,5 @@
 import { X25519Secret } from "../../src/keypair/x25519.js";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createKeyPairSignerFromBytes,
@@ -8,13 +8,7 @@ import {
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 import { ClientError } from "../../src/client/error.js";
-import type {
-  RingSubmissionStatus,
-  RingSubmissionTransport,
-  SlotReader,
-} from "../../src/client/ports.js";
-import { wireDecoder } from "../../src/interface/decode.js";
-import { postJsonRpc } from "../../src/services/jsonrpc.js";
+import type { RingSubmissionTransport } from "../../src/client/ports.js";
 import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID } from "../../src/interface/program.js";
@@ -24,7 +18,6 @@ import { ZERO_NULLIFIER_PK } from "../../src/ring/policy.js";
 import {
   RingProgramBinary,
   RingError,
-  RingProgramError,
   deployRingProgram,
   initializeRingConfigInstructions,
   buildRingCreatePolicyTransaction,
@@ -36,25 +29,19 @@ import {
   prepareRingKeyRegistration,
   recoverRingMemberNotes,
   createRingDelegateRecoveredSubmission,
-  memberOfIdentity,
   memberOfTag,
   setRingCoSignerInstruction,
-  setRingSpendWindowInstruction,
   setRingDelegateInstruction,
-  fetchRingSpendWindow,
   fetchRingCoSigner,
   fetchRingDepositAudit,
   fetchRingProgramConfig,
   clearRingCoSignerInstruction,
-  clearRingSpendWindowInstruction,
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   ListId,
   memberOfAsset,
-  spendCountersSpent,
   ringAuthAddress,
   buildRuleTable,
-  prepareRingSpendRegistration,
   createKitRingSubmissionTransport,
   createRingTransferSubmission,
   createRingMergeSubmission,
@@ -63,11 +50,9 @@ import {
   buildRingTransferTransaction,
   buildRingDelegateTransferTransaction,
   buildRingDepositTransaction,
-  readRingVelocityState,
-  auditRingTransaction,
   type RingTransactionSubmission,
 } from "../../src/ring/index.js";
-import { liveHarness, signSendAndConfirm, type Actor } from "./live-helpers.js";
+import { liveHarness, signSendAndConfirm } from "./live-helpers.js";
 import {
   airdrop,
   enrolInAllow,
@@ -102,49 +87,6 @@ async function settleWithTransport(
   }
 }
 
-async function advanceScopedClock(
-  input: Readonly<{
-    client: SlotReader;
-    rpcUrl: string;
-    slot: bigint;
-  }>,
-): Promise<void> {
-  const scope = requiredEnv("ZOLANA_PROCESS_SCOPE_DIR");
-  if (!(await stat(scope)).isDirectory()) throw new Error("process scope is absent");
-  const port = process.env["ZOLANA_LOCALNET_RPC_PORT"] ?? "8899";
-  if (
-    !/^[1-9]\d{0,4}$/u.test(port) ||
-    Number(port) > 65_535 ||
-    input.rpcUrl !== `http://127.0.0.1:${port}`
-  )
-    throw new Error("RPC must match the scoped runtime port");
-  if (input.slot > BigInt(Number.MAX_SAFE_INTEGER) || input.slot <= (await input.client.getSlot()))
-    throw new Error("target slot must be a safe integer after the current slot");
-  const decoder = wireDecoder((path) => new Error(`invalid local clock response at ${path}`));
-  const result = decoder.record(
-    await postJsonRpc(
-      {
-        fetch: globalThis.fetch,
-        url: new URL(input.rpcUrl),
-        rpcMethod: "surfnet_timeTravel",
-        params: [{ absoluteSlot: Number(input.slot) }],
-        id: "ring-controls-window",
-        maxRequestBytes: 1024,
-        maxResponseBytes: 4096,
-      },
-      { timeoutMs: 10_000 },
-    ),
-    "result",
-  );
-  if (decoder.integer(result["absoluteSlot"], "absoluteSlot") !== input.slot)
-    throw new Error("local clock returned a different slot");
-  const deadline = Date.now() + 10_000;
-  while ((await input.client.getSlot({ timeoutMs: 1000 })) < input.slot) {
-    if (Date.now() > deadline) throw new Error("local clock did not advance");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-
 async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + 120_000;
   for (;;) {
@@ -169,13 +111,11 @@ async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
 }
 
 describe("fresh ring controls", () => {
-  it("escrows member keys, registers compressed state, co-signs and audits outflow, and delegates existing and recovered notes without charging velocity", async () => {
+  it("escrows member keys, bounds and co-signs outflow, and delegates existing and recovered notes", async () => {
     const harness = await liveHarness();
     if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(harness.rpcUrl).hostname))
       throw new Error("controls fixture runs on a local validator only");
     const { client } = harness;
-    // Photon replays every surfpool slot after a clock jump, so the window stays short.
-    const windowSlots = 1_000n;
     await airdrop(client, harness.testAuthority.address);
     const authority = (await freshActor(client)).signer;
     const delegate = (await freshActor(client)).signer;
@@ -231,11 +171,10 @@ describe("fresh ring controls", () => {
                 guard: { kind: "always" },
               },
             ],
-            windowSlots,
-            velocity: [
-              { asset: memberOfAsset(SOL_MINT), cap: 1_000_000_000n, cosignAbove: 300_000_000n },
-              { asset: memberOfAsset(harness.mint), cap: 500n, cosignAbove: 90n },
-              { asset: memberOfAsset(harness.token2022Mint), cap: 800n, cosignAbove: 190n },
+            limits: [
+              { asset: memberOfAsset(SOL_MINT), cap: 500_000_000n, cosignAbove: 300_000_000n },
+              { asset: memberOfAsset(harness.mint), cap: 300n, cosignAbove: 90n },
+              { asset: memberOfAsset(harness.token2022Mint), cap: 500n, cosignAbove: 190n },
             ],
           }),
         }),
@@ -295,19 +234,6 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
-      await sendInstruction(
-        client,
-        await setRingSpendWindowInstruction({
-          ringProgramId,
-          payer: authority,
-          authority,
-          mint: SOL_MINT,
-          windowSlots,
-          depositCap: 3_000_000_000n,
-          withdrawalCap: 100_000_000n,
-        }),
-        authority,
-      );
       const sender = await freshActor(client),
         recipient = await freshActor(client),
         unregistered = await freshActor(client);
@@ -332,33 +258,6 @@ describe("fresh ring controls", () => {
         }
       }
       expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(3n);
-      // A fresh window from here, so the counters below never straddle a natural rollover.
-      await advanceScopedClock({
-        client,
-        rpcUrl: harness.rpcUrl,
-        slot: ((await client.getSlot()) / windowSlots + 1n) * windowSlots,
-      });
-      const registration = await indexedKeys(() =>
-        prepareRingSpendRegistration({ client, ringProgramId, payer: sender.signer }),
-      );
-      if (registration.kind !== "pending") throw new Error("fresh sender already registered");
-      await settle(registration.submission, client, [sender.signer]);
-      const senderMember = memberOfIdentity(
-        sender.keypair.shieldedAddress().signingPublicKey.ownerProofInputHash(),
-      );
-      const senderRecord = async () => {
-        const { record } = await client.getRingSpendRecord({ ringProgramId, member: senderMember });
-        if (record === null) throw new Error("spend record missing");
-        return record;
-      };
-      await expect.poll(senderRecord, { timeout: 120_000, interval: 250 }).toBeDefined();
-      expect(
-        (
-          await indexedKeys(() =>
-            prepareRingSpendRegistration({ client, ringProgramId, payer: sender.signer }),
-          )
-        ).kind,
-      ).toBe("registered");
       const registered = recipient.keypair.shieldedAddress();
       const zeroKey = ShieldedAddress.fromPublicKeys(
         registered.signingPublicKey,
@@ -458,7 +357,6 @@ describe("fresh ring controls", () => {
       } finally {
         depositKey.destroy();
       }
-      const recordBeforeMerge = await senderRecord();
       await settle(
         await createRingMergeSubmission({
           client,
@@ -482,9 +380,6 @@ describe("fresh ring controls", () => {
           )
           .map((note) => note.utxo.amount),
       ).toEqual([2_000_000_000n]);
-      expect((await senderRecord()).transaction.txSignature).toBe(
-        recordBeforeMerge.transaction.txSignature,
-      );
       const transfer = {
         client,
         ringProgramId,
@@ -521,21 +416,6 @@ describe("fresh ring controls", () => {
         [sender.signer, cosigner],
       );
       await sync(client, sender);
-      const state = () =>
-        readRingVelocityState({
-          client,
-          ringProgramId,
-          member: sender.keypair.shieldedAddress(),
-          keys: sender.keys,
-        });
-      const afterTransfer = await indexedKeys(state);
-      expect(afterTransfer.counters?.spent[0]).toBe(400_000_000n);
-      const audited = auditRingTransaction({
-        auditor,
-        transaction: (await senderRecord()).transaction,
-        assets: sender.wallet.registry,
-      });
-      expect(audited.spendRecords[0]?.counters?.spent[0]).toBe(400_000_000n);
       await settle(
         await indexedKeys(() =>
           createRingWithdrawalSubmission({
@@ -552,21 +432,19 @@ describe("fresh ring controls", () => {
         client,
         [sender.signer, cosigner],
       );
-      expect((await fetchRingSpendWindow(client, ringProgramId, SOL_MINT))?.withdrawn).toBe(
-        100_000_000n,
-      );
       await sync(client, sender);
+      // A single transfer above the SOL cap is refused before any proof.
       await expect(
         indexedKeys(() =>
           buildRingTransferTransaction({ ...transfer, amount: 600_000_000n, cosigner }),
         ),
       ).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        causeCode: "RING_VELOCITY_CAP_EXCEEDED",
+        causeCode: "RING_OUTFLOW_CAP_EXCEEDED",
       });
       for (const [asset, amount, rejected] of [
-        [harness.mint, 100n, 401n],
-        [harness.token2022Mint, 200n, 601n],
+        [harness.mint, 100n, 301n],
+        [harness.token2022Mint, 200n, 501n],
       ] as const) {
         await settle(
           await indexedKeys(() =>
@@ -576,24 +454,13 @@ describe("fresh ring controls", () => {
           [sender.signer, cosigner],
         );
         await sync(client, sender);
-        const charged = await indexedKeys(state);
-        if (charged.counters === undefined) throw new Error("charged record missing");
-        expect(spendCountersSpent(charged.counters, memberOfAsset(asset))).toBe(amount);
-        expect(spendCountersSpent(charged.counters, memberOfAsset(SOL_MINT))).toBe(500_000_000n);
-        expect(spendCountersSpent(charged.counters, memberOfAsset(harness.mint))).toBe(100n);
-        const audit = auditRingTransaction({
-          auditor,
-          transaction: (await senderRecord()).transaction,
-          assets: sender.wallet.registry,
-        });
-        expect(audit.spendRecords[0]?.counters).toEqual(charged.counters);
         await expect(
           indexedKeys(() =>
             buildRingTransferTransaction({ ...transfer, asset, amount: rejected, cosigner }),
           ),
         ).rejects.toMatchObject({
           code: "RING_BUILD_TRANSFER",
-          causeCode: "RING_VELOCITY_CAP_EXCEEDED",
+          causeCode: "RING_OUTFLOW_CAP_EXCEEDED",
         });
       }
       await sendInstruction(
@@ -607,7 +474,7 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
-      const beforeDelegate = await indexedKeys(state);
+      // Delegation is exempt from the limits, the move passes the SOL cap.
       const move = {
         client,
         ringProgramId,
@@ -644,9 +511,6 @@ describe("fresh ring controls", () => {
         client,
         [delegate, cosigner],
       );
-      const afterDelegate = await indexedKeys(state);
-      expect(afterDelegate.live.nullifier).toEqual(beforeDelegate.live.nullifier);
-      expect(afterDelegate.counters).toEqual(beforeDelegate.counters);
       await sync(client, sender);
       await sync(client, recipient);
       for (const [asset, sourceAmount, recipientAmount] of [
@@ -752,84 +616,12 @@ describe("fresh ring controls", () => {
         [sender.signer, authority, cosigner],
       );
       await sync(client, sender);
-      const drained = await indexedKeys(state);
-      if (drained.counters === undefined) throw new Error("drained counters missing");
-      expect(spendCountersSpent(drained.counters, memberOfAsset(harness.token2022Mint))).toBe(400n);
       expect(
         sender.wallet
           .ringBalances()
           .find((ring) => ring.ringProgramId === ringProgramId)
           ?.assets.find((balance) => balance.mint === harness.token2022Mint)?.amount ?? 0n,
       ).toBe(0n);
-      const solBalance = (actor: Actor) =>
-        actor.wallet
-          .ringBalances()
-          .find((ring) => ring.ringProgramId === ringProgramId)
-          ?.assets.find((balance) => balance.mint === SOL_MINT)?.amount ?? 0n;
-      const beforeBalances = { sender: solBalance(sender), recipient: solBalance(recipient) };
-      const oldWindow = (await client.getSlot()) / windowSlots;
-      expect(drained.live.record.window).toBe(oldWindow);
-      const rolloverAmount = 50_000_000n;
-      const rollover = await indexedKeys(() =>
-        createRingTransferSubmission({ ...transfer, amount: rolloverAmount, cosigner }),
-      );
-      expect((await client.getSlot()) / windowSlots).toBe(oldWindow);
-      const reservedNotes = () =>
-        sender.wallet
-          ._reservationEntries()
-          .map((entry) => entry.utxoHashes.map((hash) => new Uint8Array(hash)));
-      const retainedNotes = reservedNotes();
-      expect(retainedNotes).toHaveLength(1);
-      expect(retainedNotes[0]?.length).toBeGreaterThan(0);
-      const signedNotes: Uint8Array[][][] = [];
-      const sendResults: (RingSubmissionStatus | undefined)[] = [];
-      const transport = createKitRingSubmissionTransport(client, [sender.signer, cosigner]);
-      const observedTransport: RingSubmissionTransport = {
-        ...transport,
-        sign: async (transaction, context) => {
-          signedNotes.push(reservedNotes());
-          return transport.sign(transaction, context);
-        },
-        send: async (transaction, context) => {
-          const result = await transport.send(transaction, context);
-          sendResults.push(result);
-          return result;
-        },
-      };
-      await advanceScopedClock({
-        client,
-        rpcUrl: harness.rpcUrl,
-        slot: (oldWindow + 1n) * windowSlots,
-      });
-      const settled = await settleWithTransport(rollover, observedTransport);
-      expect(settled.attempts).toBe(2);
-      expect(sendResults).toEqual([
-        {
-          kind: "failed",
-          instructionIndex: 0,
-          customCode: RingProgramError.windowElapsed,
-        },
-        undefined,
-      ]);
-      expect(signedNotes).toEqual([retainedNotes, retainedNotes]);
-      const reset = await indexedKeys(state);
-      if (reset.counters === undefined) throw new Error("rollover record missing");
-      expect(reset.live.record.version).toBe(drained.live.record.version + 1n);
-      expect(reset.live.record.window).toBe(oldWindow + 1n);
-      expect(reset.live.txSignature).toBe(settled.signature);
-      expect(reset.live.nullifier).not.toEqual(drained.live.nullifier);
-      expect(spendCountersSpent(reset.counters, memberOfAsset(SOL_MINT))).toBe(rolloverAmount);
-      expect(spendCountersSpent(reset.counters, memberOfAsset(harness.mint))).toBe(0n);
-      expect(spendCountersSpent(reset.counters, memberOfAsset(harness.token2022Mint))).toBe(0n);
-      expect((await senderRecord()).transaction.txSignature).toBe(settled.signature);
-      await sync(client, sender);
-      await sync(client, recipient);
-      expect(solBalance(sender)).toBe(beforeBalances.sender - rolloverAmount);
-      expect(solBalance(recipient)).toBe(beforeBalances.recipient + rolloverAmount);
-      await expect(rollover.send(observedTransport)).rejects.toMatchObject({
-        code: "RING_SUBMISSION_PENDING",
-      });
-      expect(sendResults).toHaveLength(2);
       await writeList(client, ringProgramId, authority, {
         listId: ListId.block,
         tag: recipient.keypair.shieldedAddress().confidentialViewTag(),
@@ -854,18 +646,7 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
-      await sendInstruction(
-        client,
-        await clearRingSpendWindowInstruction({
-          ringProgramId,
-          authority,
-          mint: SOL_MINT,
-          rentRecipient: authority.address,
-        }),
-        authority,
-      );
       expect(await fetchRingCoSigner(client, ringProgramId)).toBeUndefined();
-      expect(await fetchRingSpendWindow(client, ringProgramId, SOL_MINT)).toBeUndefined();
     } finally {
       auditor.destroy();
     }

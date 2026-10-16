@@ -149,19 +149,7 @@ describe("ring submission ownership", () => {
     expect(f.build).toHaveBeenCalledTimes(1);
   });
 
-  it("rebuilds an elapsed window and never a rejected policy proof", async () => {
-    const elapsed = await fixture();
-    const result = await elapsed.submission.send({
-      sign: elapsed.sign,
-      send: elapsed.send,
-      status: async () => ({
-        kind: "failed",
-        instructionIndex: 0,
-        customCode: RingProgramError.windowElapsed,
-      }),
-    });
-    expect(result).toMatchObject({ kind: "failed", attempts: 3 });
-    expect(elapsed.build).toHaveBeenCalledTimes(3);
+  it("never rebuilds a rejected policy proof", async () => {
     const rejected = await fixture();
     const proof = await rejected.submission.send({
       sign: rejected.sign,

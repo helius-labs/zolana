@@ -2,7 +2,7 @@
 
 Run from `sdk-libs/ts` after `npm ci` and local builds. Use a dedicated local stack
 with current SPP and user-registry programs, the generated localnet snapshots
-(protocol config, tree and SPL asset counter), Photon with spend-record indexing,
+(protocol config, tree and SPL asset counter), Photon with key-registry indexing,
 and the prover with the SPP and custom-ring keys `proving-keys.lock` pins,
 including the deposit disclosure circuit. V1
 transactions are required. Surfpool needs the explicitly opt-in local fixture
@@ -30,9 +30,8 @@ below-threshold private transfer lands without the co-signer, and an
 above-threshold transfer requires it. Transfer-scoped approval is enabled later
 for the delegate checks.
 
-The rollover case advances the dedicated stack's clock after proof creation.
-It checks one proof rebuild, reset counters and one settled balance change.
-The process scope must exist and the RPC URL must match its configured port.
+A transfer above an outflow cap is refused before proving, and the delegate
+move passes the cap untouched.
 
 The runner uses `target/debug/zolana` and `target/deploy/custom_ring_program.so`.
 Override with `ZOLANA_CLI_BIN` and `RING_PROGRAM_SO` when needed. It creates a

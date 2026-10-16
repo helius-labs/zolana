@@ -40,15 +40,12 @@ import {
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
 import {
   clearRingCoSignerInstruction,
-  clearRingSpendWindowInstruction,
   fetchRingCoSigner,
   fetchRingDelegate,
-  fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
   setRingPausedInstruction,
-  setRingSpendWindowInstruction,
 } from "../src/ring/config.js";
 import { ownedAccount } from "./helpers/ring-accounts.js";
 import {
@@ -60,8 +57,6 @@ import {
   ringDepositAuditAddress,
   ringKeyRegistryRootAddress,
   nullifierPdaAddress,
-  ringSpendWindowAddress,
-  ringSpendWindowPda,
 } from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import {
@@ -69,7 +64,6 @@ import {
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
   decodeRingDelegate,
-  decodeRingSpendWindow,
 } from "../src/ring/codecs.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
@@ -89,7 +83,6 @@ import {
 import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
-import { RING_VELOCITY_SLOTS } from "../src/client/prover/types.js";
 import {
   RingReadRequest,
   RingRpc,
@@ -158,7 +151,6 @@ function policyConfigBytes(
     parts.inlineCount ?? parts.inlineAssets?.length ?? 0,
     ...table(parts.inlineAssets ?? [], 8),
     ...limits,
-    ...new Uint8Array(8),
     0,
     ...new Uint8Array(32 * 8),
     ...new Uint8Array(8 * 8),
@@ -242,7 +234,6 @@ describe("ring deposit", () => {
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringDepositAuditAddress(RING), AccountRole.READONLY],
-      [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
       [TREE, AccountRole.WRITABLE],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_AUTH, AccountRole.READONLY],
@@ -428,7 +419,7 @@ describe("ring config", () => {
 
   it("decodes the policy config account and rejects another layout", () => {
     const data = policyConfigBytes();
-    expect(data).toHaveLength(1604);
+    expect(data).toHaveLength(1596);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.addressTree).toBe(addressOf(43));
@@ -443,8 +434,8 @@ describe("ring config", () => {
     expect(config.inlineAssets).toEqual([]);
     expect(config.inlineLimits).toEqual([]);
     expect(config.namespaceOwnerHash).toEqual(filled(46, 32));
-    expect(config.windowSlots).toBe(0n);
-    expect(config.velocity).toEqual([]);
+    expect(config.limitCount).toBe(0);
+    expect(config.limits).toEqual([]);
     expect(config.generation).toBe(0);
     expect(config.generationSlot).toBe(0n);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
@@ -482,8 +473,8 @@ describe("ring config", () => {
     expect(data[878]).toBe(1);
     expect(data.subarray(879, 911)).toEqual(member);
     expect(data.subarray(1135, 1143)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
-    expect(data.subarray(1592, 1596)).toEqual(Uint8Array.from([4, 3, 2, 1]));
-    expect(data.subarray(1596)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
+    expect(data.subarray(1584, 1588)).toEqual(Uint8Array.from([4, 3, 2, 1]));
+    expect(data.subarray(1588)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
     const config = decodeRingPolicyConfig(data);
     expect(config.ruleCount).toBe(1);
     expect(config.rules).toEqual([rule]);
@@ -507,7 +498,7 @@ describe("ring config", () => {
     expect(config.namespaceOwnerHash).toEqual(
       hex("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196"),
     );
-    expect(config.windowSlots).toBe(0n);
+    expect(config.limitCount).toBe(0);
   });
 
   it("decodes every byte of an unsigned per-asset limit", () => {
@@ -620,69 +611,6 @@ describe("ring config", () => {
     ).rejects.toThrow("RING_CO_SIGNER_INVALID");
   });
 
-  it("builds the spend window set and clear like Rust", async () => {
-    const mint = addressOf(60);
-    const set = await setRingSpendWindowInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      authority: AUTHORITY,
-      mint,
-      windowSlots: 100n,
-      withdrawalCap: 9n,
-    });
-    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
-      [PAYER, AccountRole.WRITABLE_SIGNER],
-      [AUTHORITY, AccountRole.READONLY_SIGNER],
-      [RING_CONFIG, AccountRole.READONLY],
-      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
-      [SYSTEM, AccountRole.READONLY],
-    ]);
-    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
-      "16" +
-        Buffer.from(addressBytes(mint, "mint")).toString("hex") +
-        "6400000000000000" +
-        "00" +
-        "01" +
-        "0900000000000000",
-    );
-    const clear = await clearRingSpendWindowInstruction({
-      ringProgramId: RING,
-      authority: AUTHORITY,
-      mint,
-      rentRecipient: PAYER,
-    });
-    expect(clear.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
-      [AUTHORITY, AccountRole.READONLY_SIGNER],
-      [RING_CONFIG, AccountRole.READONLY],
-      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
-      [PAYER, AccountRole.WRITABLE],
-    ]);
-    expect(Buffer.from(clear.data ?? []).toString("hex")).toBe(
-      "17" + Buffer.from(addressBytes(mint, "mint")).toString("hex"),
-    );
-    await expect(
-      setRingSpendWindowInstruction({
-        ringProgramId: RING,
-        payer: PAYER,
-        authority: AUTHORITY,
-        mint,
-        windowSlots: 0n,
-        depositCap: 1n,
-      }),
-    ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
-    // The program refuses a window without a cap.
-    await expect(
-      setRingSpendWindowInstruction({
-        ringProgramId: RING,
-        payer: PAYER,
-        authority: AUTHORITY,
-        mint,
-        windowSlots: 100n,
-        depositCap: 0n,
-      }),
-    ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
-  });
-
   it("builds the delegate set like Rust and decodes the account", async () => {
     const delegate = addressOf(47);
     const [programData] = await getProgramDerivedAddress({
@@ -714,77 +642,6 @@ describe("ring config", () => {
     const zeroKey = Uint8Array.from(data);
     zeroKey.fill(0, 1, 33);
     expect(() => decodeRingDelegate(zeroKey)).toThrow("RING_DELEGATE_INVALID");
-  });
-
-  it("decodes the spend window account and rejects another layout", () => {
-    const mint = addressOf(60);
-    const data = Uint8Array.from([
-      5,
-      ...addressBytes(mint, "mint"),
-      100,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      7,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      9,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      176,
-      4,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      251,
-    ]);
-    expect(decodeRingSpendWindow(data)).toEqual({
-      mint,
-      windowSlots: 100n,
-      depositCap: 7n,
-      withdrawalCap: 9n,
-      windowStartSlot: 1200n,
-      deposited: 1n,
-      withdrawn: 2n,
-      bump: 251,
-    });
-    expect(() => decodeRingSpendWindow(data.subarray(1))).toThrow("RING_SPEND_WINDOW_INVALID");
-    const zeroWindow = Uint8Array.from(data);
-    zeroWindow[33] = 0;
-    expect(() => decodeRingSpendWindow(zeroWindow)).toThrow("RING_SPEND_WINDOW_INVALID");
   });
 
   it("decodes the co-signer account and rejects another layout", () => {
@@ -947,13 +804,6 @@ describe("ring config", () => {
         code: "RING_DELEGATE_INVALID",
         data: (bump: number) => Uint8Array.of(6, ...addressBytes(AUTHORITY), bump),
       },
-      {
-        pda: () => ringSpendWindowPda(RING, SOL_MINT),
-        read: (client: ReturnType<typeof reader>) => fetchRingSpendWindow(client, RING, SOL_MINT),
-        code: "RING_SPEND_WINDOW_INVALID",
-        data: (bump: number) =>
-          Uint8Array.of(5, ...addressBytes(SOL_MINT), 100, ...new Uint8Array(47), bump),
-      },
     ];
     for (const control of controls) {
       const [pda, bump] = await control.pda();
@@ -980,7 +830,6 @@ describe("ring config", () => {
     const missing = { getAccount: async () => undefined };
     await expect(fetchRingCoSigner(missing, RING)).resolves.toBeUndefined();
     await expect(fetchRingDelegate(missing, RING)).resolves.toBeUndefined();
-    await expect(fetchRingSpendWindow(missing, RING, SOL_MINT)).resolves.toBeUndefined();
   });
 
   it("builds the pause switch like Rust `SetPaused` for both states", async () => {
@@ -1443,7 +1292,7 @@ describe("ring transact", () => {
     });
   });
 
-  it("places one spend window slot per public leg before the spp payer", async () => {
+  it("places the spp payer right after the controls of an audit-only transact", async () => {
     const recipient = addressOf(31);
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
@@ -1460,26 +1309,9 @@ describe("ring transact", () => {
         ],
       },
     });
-    const window = await ringSpendWindowAddress(RING, SOL_MINT);
-    expect(instruction.accounts?.slice(3, 6).map((meta) => [meta.address, meta.role])).toEqual([
-      [window, AccountRole.WRITABLE],
-      [window, AccountRole.WRITABLE],
+    expect(instruction.accounts?.slice(3, 4).map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
     ]);
-    await expect(
-      ringTransactInstruction({
-        ringProgramId: RING,
-        payer: PAYER,
-        inputTrees: [TREE],
-        outputTree: OUTPUT_TREE,
-        proof: customRingProof(),
-        withdrawal: { kind: "sol", recipient },
-        data: {
-          ...transactData(),
-          interfaceTransfers: [{ kind: "splWithdrawal", amount: 1n, splInterfaceBump: 250 }],
-        },
-      }),
-    ).rejects.toThrow("RING_BUILD_WITHDRAWAL");
   });
 
   it("appends the owner signers as readonly signers after the payer", async () => {
@@ -1539,7 +1371,6 @@ describe("ring transact", () => {
         "333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737" +
         "01" +
         "00000000" +
-        "00".repeat(8) +
         "00" +
         "00" +
         "01" +
@@ -1570,7 +1401,6 @@ describe("ring transact", () => {
         revocationTargets: targets,
         revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       }),
-      windowIndex: 0x0102n,
       proof: customRingProof(),
       data: transactData(),
     });
@@ -1582,11 +1412,9 @@ describe("ring transact", () => {
       await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
     ]);
     const data = instruction.data ?? new Uint8Array();
-    // Policy trees, window index, key registry root index, then the approval bit.
-    expect(Array.from(data.slice(193, 212))).toEqual([
-      2, 2, 1, 4, 3, 6, 5, 8, 7, 2, 1, 0, 0, 0, 0, 0, 0, 9, 0,
-    ]);
-    const indexes = 212 + 1 + 2 * 32;
+    // Policy trees, key registry root index, then the approval bit.
+    expect(Array.from(data.slice(193, 204))).toEqual([2, 2, 1, 4, 3, 6, 5, 8, 7, 9, 0]);
+    const indexes = 204 + 1 + 2 * 32;
     expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
       [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     );
@@ -1860,26 +1688,6 @@ describe("ring read request", () => {
                   nullifiers: [addressOf(3)],
                   signers: [addressOf(11)],
                   withdrawals: [],
-                  spendRecords: [
-                    {
-                      slotIndex: 2,
-                      member: addressOf(12),
-                      version: "18446744073709551615",
-                      window: "18446744073709551615",
-                      countersCommitment: addressOf(13),
-                      counters: [
-                        { slot: 0, asset: addressOf(16), spent: "__U64_MAX__" },
-                        { slot: 3, asset: addressOf(19), spent: 0 },
-                      ],
-                    },
-                    {
-                      slotIndex: 3,
-                      member: addressOf(24),
-                      version: 1,
-                      window: 5,
-                      countersCommitment: addressOf(25),
-                    },
-                  ],
                 },
               ],
               skipped: [{ slot: 7, txSignature: signatureOf(2), reason: "invalidAuditData" }],
@@ -1920,24 +1728,6 @@ describe("ring read request", () => {
     expect(item?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
     expect(item?.signers).toEqual([addressOf(11)]);
     expect(item?.withdrawals).toEqual([]);
-    expect(item?.spendRecords).toHaveLength(2);
-    const spend = item?.spendRecords[0];
-    expect(spend).toMatchObject({
-      slotIndex: 2,
-      version: 18446744073709551615n,
-      window: 18446744073709551615n,
-    });
-    expect(spend?.member).toEqual(filled(12, 32));
-    expect(spend?.countersCommitment).toEqual(filled(13, 32));
-    // The velocity counter is a full-range u64, decoded past `Number` precision.
-    expect(spend?.counters).toEqual([
-      { slot: 0, asset: filled(16, 32), spent: 18446744073709551615n },
-      { slot: 3, asset: filled(19, 32), spent: 0n },
-    ]);
-    const absent = item?.spendRecords[1];
-    expect(absent?.slotIndex).toBe(3);
-    expect(absent?.member).toEqual(filled(24, 32));
-    expect(absent?.counters).toBeUndefined();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;
@@ -1991,7 +1781,6 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [addressOf(11), addressOf(12)],
                   withdrawals: [],
-                  spendRecords: [],
                 },
               ],
               skipped: [],
@@ -2032,7 +1821,6 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [],
                   withdrawals,
-                  spendRecords: [],
                 },
               ],
               skipped: [],
@@ -2063,66 +1851,6 @@ describe("ring read request", () => {
       { recipient: addressOf(31), asset: addressOf(13), amount: 5n },
       { recipient: addressOf(32), asset: solMint, amount: 6n },
     ]);
-  });
-
-  it("rejects a spend record off the protocol shape", async () => {
-    const spendRecordPage = (record: Record<string, unknown>) =>
-      (async () =>
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            result: {
-              context: { blockTime: 1_700_000_000, slot: 9 },
-              value: {
-                items: [
-                  {
-                    slot: 8,
-                    txSignature: signatureOf(1),
-                    txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
-                    outputs: [],
-                    undecryptableSlots: [],
-                    nullifiers: [],
-                    signers: [],
-                    withdrawals: [],
-                    spendRecords: [record],
-                  },
-                ],
-                skipped: [],
-              },
-            },
-          }),
-          JSON_HEADERS,
-        )) as typeof globalThis.fetch;
-    const counter = (slot: number) => ({ slot, asset: addressOf(16 + slot), spent: 1 });
-    const base = {
-      slotIndex: 2,
-      member: addressOf(12),
-      version: 3,
-      window: 5,
-      countersCommitment: addressOf(13),
-    };
-    const malformed: readonly Record<string, unknown>[] = [
-      { ...base, counters: [counter(RING_VELOCITY_SLOTS)] },
-      { ...base, counters: [counter(1), counter(1)] },
-      { ...base, counters: [counter(2), counter(1)] },
-      { ...base, counters: [{ ...counter(0), spent: -1 }] },
-      ...["18446744073709551616", "-1", "1.5"].flatMap((value) => [
-        { ...base, version: value },
-        { ...base, window: value },
-        { ...base, counters: [{ ...counter(0), spent: value }] },
-      ]),
-      { ...base, counters: [{ ...counter(0), asset: signatureOf(16) }] },
-      { ...base, slotIndex: 0x1_0000_0000, counters: [counter(0)] },
-    ];
-    for (const record of malformed) {
-      await expect(
-        new RingRpc("http://ring.example", {
-          fetch: spendRecordPage(record),
-          allowInsecureHttp: true,
-        }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() }),
-      ).rejects.toMatchObject({ code: "RING_RPC" });
-    }
   });
 
   it("sends a passkey assertion under camelCase keys", async () => {

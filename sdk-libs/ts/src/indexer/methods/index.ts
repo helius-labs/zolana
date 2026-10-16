@@ -10,8 +10,6 @@ import {
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
   encodeRingMemberProofRequest,
-  encodeRingMemberRequest,
-  decodeRingSpendRecordResponse,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
   decodeUserRecordsResponse,
@@ -21,7 +19,6 @@ import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
-  GET_RING_SPEND_RECORD,
   GET_RING_KEY_REGISTRY_ENTRY,
   GET_RING_KEY_REGISTRY_REGISTER_PROOF,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
@@ -41,11 +38,9 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
-  GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
 } from "../types.js";
@@ -56,14 +51,6 @@ export interface MethodDescriptor<Request, Response> {
   decodeResponse(value: unknown): Response;
 }
 
-export const getRingSpendRecordMethod: MethodDescriptor<
-  RingMemberRequest,
-  GetRingSpendRecordResponse
-> = {
-  name: GET_RING_SPEND_RECORD,
-  encodeRequest: encodeRingMemberRequest,
-  decodeResponse: decodeRingSpendRecordResponse,
-};
 export const getRingKeyRegistryEntryMethod: MethodDescriptor<
   RingMemberProofRequest,
   RingKeyRegistryEntry
