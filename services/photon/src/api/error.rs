@@ -6,8 +6,7 @@ use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
 #[cfg(feature = "ring-projection")]
 use zolana_indexer_api::error_code::{
-    RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED,
+    RING_MEMBER_UNREGISTERED, RING_REGISTRY_OUT_OF_SYNC, RING_REGISTRY_ROOT_CHANGED,
 };
 use zolana_indexer_api::ParseHashError;
 
@@ -37,26 +36,21 @@ pub enum PhotonApiError {
 #[cfg(feature = "ring-projection")]
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum RingProjectionError {
-    #[error("key registry is out of sync ({0})")]
+    #[error("member registry is out of sync ({0})")]
     OutOfSync(String),
-    #[error("key registry root changed")]
+    #[error("member registry root changed")]
     RootChanged,
-    #[error("member is not registered in the key registry")]
+    #[error("member has no record in the member registry")]
     MemberUnregistered,
-    #[error("member is already registered in the key registry")]
-    MemberAlreadyRegistered,
 }
 
 #[cfg(feature = "ring-projection")]
 impl RingProjectionError {
     pub fn code(&self) -> i32 {
         match self {
-            Self::OutOfSync(_) => const { wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC) },
-            Self::RootChanged => const { wire_code(RING_KEY_REGISTRY_ROOT_CHANGED) },
-            Self::MemberUnregistered => const { wire_code(RING_KEY_REGISTRY_MEMBER_UNREGISTERED) },
-            Self::MemberAlreadyRegistered => {
-                const { wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED) }
-            }
+            Self::OutOfSync(_) => const { wire_code(RING_REGISTRY_OUT_OF_SYNC) },
+            Self::RootChanged => const { wire_code(RING_REGISTRY_ROOT_CHANGED) },
+            Self::MemberUnregistered => const { wire_code(RING_MEMBER_UNREGISTERED) },
         }
     }
 }

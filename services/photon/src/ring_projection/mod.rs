@@ -1,7 +1,7 @@
 //! A rollback never changes SPP state.
 
 pub(crate) mod api;
-pub(crate) mod key_registry;
+pub(crate) mod member_registry;
 mod proof;
 mod storage;
 
@@ -10,7 +10,7 @@ use std::{ops::RangeInclusive, sync::Arc, time::Duration};
 use anyhow::{bail, ensure, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    KeyRegistryRoot, RingAccount,
+    MemberRegistryRoot, RingAccount,
 };
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
@@ -27,7 +27,7 @@ use crate::{
     },
     rpc::{RpcClient, RpcError},
 };
-use key_registry::MemberKey;
+use member_registry::MemberRecordRow;
 use storage::{
     BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
     Store, Undo,
@@ -42,7 +42,7 @@ const ACCOUNTS_PER_REQUEST: usize = 100;
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
 /// A ring activated after its pending root expired needs a reindex.
 const PENDING_TTL_SLOTS: u64 = 43_200;
-const EMPTY_ROOT: [u8; 32] = custom_ring_interface::KEY_REGISTRY_EMPTY_ROOT;
+const EMPTY_ROOT: [u8; 32] = custom_ring_interface::MEMBER_REGISTRY_EMPTY_ROOT;
 
 #[derive(Clone, Copy, Debug)]
 pub enum StartSlot {
@@ -354,7 +354,7 @@ impl Projector {
                     let undo = Store::new(&tx, root.program)
                         .quarantine_root(root, reason)
                         .await?;
-                    journal.undo.key_registry.push(undo);
+                    journal.undo.member_registry.push(undo);
                     storage::save_journal(&tx, &journal).await?;
                     tx.commit().await?;
                 }
@@ -373,13 +373,15 @@ enum Scope {
 /// The projected families, each with its own undo journal.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Family {
-    Key,
+    Registry,
 }
 
 impl Family {
     fn of(instruction: &Instruction) -> Option<Self> {
         match *instruction.data.first()? {
-            tag::CREATE_KEY_REGISTRY_ROOT | tag::REGISTER_KEY => Some(Self::Key),
+            tag::CREATE_MEMBER_REGISTRY_ROOT | tag::REGISTER_KEY | tag::UPDATE_MEMBERS => {
+                Some(Self::Registry)
+            }
             _ => None,
         }
     }
@@ -444,28 +446,30 @@ fn ring_account(result: Result<Account, RpcError>) -> Result<Account, ProjectErr
 pub(crate) struct ChainRoot {
     pub root: [u8; 32],
     pub next_index: u64,
+    pub history_cursor: u8,
 }
 
-/// The canonical key registry root of `program`.
-pub(crate) fn key_registry_root_pda(program: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[KeyRegistryRoot::SEED], program)
+/// The canonical member registry root of `program`.
+pub(crate) fn member_registry_root_pda(program: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[MemberRegistryRoot::SEED], program)
 }
 
 pub(crate) async fn load_root(
     rpc: &RpcClient,
     program: &Pubkey,
 ) -> Result<ChainRoot, ProjectError> {
-    let (address, bump) = key_registry_root_pda(program);
+    let (address, bump) = member_registry_root_pda(program);
     let account = ring_account(rpc.get_account(&address).await)?;
-    let root = KeyRegistryRoot::decode(&account.owner, program, &account.data)
+    let root = MemberRegistryRoot::decode(&account.owner, program, &account.data)
         .filter(|root| root.bump == bump)
-        .ok_or_else(|| fault("key registry root is not the ring's initialized account"))?;
+        .ok_or_else(|| fault("member registry root is not the ring's initialized account"))?;
     let current = root
         .root()
-        .ok_or_else(|| fault("key registry root has no current root"))?;
+        .ok_or_else(|| fault("member registry root has no current root"))?;
     Ok(ChainRoot {
         root: current,
         next_index: root.next_index(),
+        history_cursor: root.history_cursor,
     })
 }
 
@@ -550,21 +554,21 @@ impl BlockWork<'_> {
         let store = Store::new(self.tx, program);
         match family {
             _ if skip => Ok(()),
-            Family::Key => {
-                self.key(&store, invocations, position, &mut undo.key_registry)
+            Family::Registry => {
+                self.registry(&store, invocations, position, &mut undo.member_registry)
                     .await
             }
         }
     }
 
-    async fn key(
+    async fn registry(
         &mut self,
         store: &Store<'_, DatabaseTransaction>,
         invocations: &Invocations<'_>,
         position: usize,
         undo: &mut Vec<Undo>,
     ) -> Result<()> {
-        if invocations.tag(position) == Some(tag::CREATE_KEY_REGISTRY_ROOT) {
+        if invocations.tag(position) == Some(tag::CREATE_MEMBER_REGISTRY_ROOT) {
             if let Some(address) = initialization(invocations.instructions[position]) {
                 undo.extend(self.initialize(store, address).await?);
             }
@@ -623,6 +627,7 @@ impl BlockWork<'_> {
             address,
             root: EMPTY_ROOT,
             next_index: 1,
+            history_cursor: 0,
             fault: None,
         };
         match load_root(self.env.rpc, &program).await {
@@ -634,11 +639,11 @@ impl BlockWork<'_> {
             }
             Err(ProjectError::Retry(error)) => return Err(error),
         }
-        let sentinel = MemberKey::sentinel();
+        let sentinel = MemberRecordRow::sentinel();
         let leaves = [LeafWrite::of(&sentinel)?];
         let revision = self.cursor.advance_revision()?;
         if store.write_leaves(&address, &leaves, revision).await? != EMPTY_ROOT {
-            bail!("key registry sentinel root mismatch");
+            bail!("member registry sentinel root mismatch");
         }
         store.save_root(&root).await?;
         store.save_member(&sentinel).await?;
@@ -650,13 +655,13 @@ impl BlockWork<'_> {
         root: &RingRoot,
         invocation: Invocation<'_>,
     ) -> Result<Option<Undo>, ProjectError> {
-        let Some(transition) = key_registry::transition(&invocation)? else {
+        let Some(batch) = member_registry::transition(&invocation)? else {
             return Ok(None);
         };
         let revision = self.cursor.advance_revision()?;
         let savepoint = self.tx.begin().await?;
         let store = Store::new(&savepoint, root.program);
-        let applied = key_registry::apply(&store, root, transition, revision).await;
+        let applied = member_registry::apply(&store, root, batch, revision).await;
         match applied {
             Ok(_) => savepoint.commit().await?,
             Err(_) => savepoint.rollback().await?,
@@ -666,10 +671,10 @@ impl BlockWork<'_> {
 }
 
 fn initialization(instruction: &Instruction) -> Option<[u8; 32]> {
-    let root = key_registry_root_pda(&instruction.program_id).0;
+    let root = member_registry_root_pda(&instruction.program_id).0;
     let named = instruction
         .accounts
-        .get(accounts::CREATE_KEY_REGISTRY_ROOT_ROOT);
+        .get(accounts::CREATE_MEMBER_REGISTRY_ROOT_ROOT);
     (named == Some(&root)).then_some(root.to_bytes())
 }
 

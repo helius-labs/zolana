@@ -1,14 +1,14 @@
 use std::sync::Arc;
 #[cfg(feature = "ring-projection")]
 use zolana_indexer_api::{
-    method::{GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof},
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    RingMemberProofRequest,
+    method::{GetRingMemberRecord, GetRingMemberRegistryRoot},
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse,
 };
 
 use crate::api::root_index_cache::RootIndexCache;
 #[cfg(feature = "ring-projection")]
-use crate::ring_projection::key_registry;
+use crate::ring_projection::member_registry;
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -189,19 +189,19 @@ impl PhotonApi {
     }
 
     #[cfg(feature = "ring-projection")]
-    pub async fn get_ring_key_registry_entry(
+    pub async fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
-        key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, PhotonApiError> {
+        member_registry::member_record(&self.db_conn, &self.rpc_client, request).await
     }
 
     #[cfg(feature = "ring-projection")]
-    pub async fn get_ring_key_registry_register_proof(
+    pub async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
-        key_registry::register(&self.db_conn, &self.rpc_client, request).await
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
+        member_registry::registry_root(&self.db_conn, &self.rpc_client, request).await
     }
 
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
@@ -215,9 +215,9 @@ impl PhotonApi {
             method_api_spec::<GetNullifierQueueElements>(),
             method_api_spec::<GetUserRecords>(),
             #[cfg(feature = "ring-projection")]
-            method_api_spec::<GetRingKeyRegistryEntry>(),
+            method_api_spec::<GetRingMemberRecord>(),
             #[cfg(feature = "ring-projection")]
-            method_api_spec::<GetRingKeyRegistryRegisterProof>(),
+            method_api_spec::<GetRingMemberRegistryRoot>(),
         ]
     }
 }
