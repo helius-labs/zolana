@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, CreateConfigIxData};
+use custom_ring_interface::{tag, CreateConfigIxData, RingMode};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
@@ -32,6 +32,16 @@ pub enum CreateConfigError {
 
 impl CreateConfig {
     pub fn instruction(self) -> Result<Instruction, CreateConfigError> {
+        self.instruction_with_mode(RingMode::Off)
+    }
+
+    /// Creates a ring whose spends prove a hidden owner and disclose each
+    /// selected note opening to the auditor.
+    pub fn anonymous_instruction(self) -> Result<Instruction, CreateConfigError> {
+        self.instruction_with_mode(RingMode::Anonymous)
+    }
+
+    fn instruction_with_mode(self, mode: RingMode) -> Result<Instruction, CreateConfigError> {
         let Self {
             ring,
             payer,
@@ -44,7 +54,7 @@ impl CreateConfig {
         data.extend_from_slice(&wincode::serialize(&CreateConfigIxData {
             auditor_pubkey: *auditor_pubkey.as_bytes(),
             has_policy: u8::from(has_policy),
-            anonymous: 0,
+            anonymous: u8::from(mode == RingMode::Anonymous),
         })?);
 
         Ok(Instruction {

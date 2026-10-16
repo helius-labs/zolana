@@ -3,7 +3,7 @@
 use bytemuck::Pod;
 use custom_ring_interface::{
     pda as ring_pda, CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot,
-    PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
+    PolicyConfig, ReadAccessRecord, RingMode, RingProgramConfig, SpendWindow, CO_SIGNER, DELEGATE,
     DEPOSIT_AUDIT, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
     RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
@@ -34,6 +34,8 @@ pub struct CustomRingConfig {
     pub has_policy: bool,
     /// Once on, every output key but a namespace-owned record's must be enrolled in the registry.
     pub key_escrow: KeyEscrow,
+    /// Selects the proof and disclosure rail accepted by the program.
+    pub mode: RingMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -319,11 +321,15 @@ impl CustomRing {
         }
         let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
             .map_err(|_| AccountReadError::InvalidAccount { address })?;
+        let mode = config
+            .mode()
+            .ok_or(AccountReadError::InvalidAccount { address })?;
         Ok(Some(CustomRingConfig {
             authority: config.authority,
             auditor_pubkey,
             has_policy: config.has_policy != 0,
             key_escrow: config.key_escrow(),
+            mode,
         }))
     }
 
@@ -818,7 +824,7 @@ mod tests {
             auditor_pubkey: *zolana_keypair::X25519Secret::new().pubkey().as_bytes(),
             bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         }
     }
 

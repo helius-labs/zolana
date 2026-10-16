@@ -10,8 +10,7 @@ use zolana_test_utils::mollusk::expect_err_exact;
 use crate::common::{
     account, auditor_pubkey, authority, config_pda, create_config_data, create_config_data_with,
     create_config_data_with_tier, create_config_fixture, create_config_fixture_deployed_by,
-    initialized_config_account, legacy_auditor_pubkey, program_data_account, program_id,
-    setup_mollusk,
+    initialized_config_account, program_data_account, program_id, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -326,6 +325,9 @@ fn noncanonical_x25519_auditor_keys_are_rejected_exactly() {
         create_config_fixture(key)
             .expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
     }
+}
+
+#[test]
 fn create_config_stores_an_anonymous_ring() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_config_fixture(auditor_pubkey(4));

@@ -54,9 +54,7 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     ),
 ];
 
-pub use base_public_input::{
-    pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair,
-};
+pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
 pub use disclosure::{
     pack_disclosure, unpack_disclosure, DisclosureShape, AUDIT_INPUT_SLOTS, AUDIT_OUTPUT_SLOTS,
@@ -85,13 +83,13 @@ pub use key_registry::{
 };
 pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
-    RingMode, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED,
-    CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, KEY_REGISTRY_EMPTY_ROOT,
-    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
-    SPEND_WINDOW_PDA_SEED,
+    CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingMode, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
+    KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    KEY_REGISTRY_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 pub use state::{DepositAudit, DEPOSIT_AUDIT};
 

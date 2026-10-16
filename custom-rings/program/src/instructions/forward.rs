@@ -1,4 +1,4 @@
-use custom_ring_interface::{RingMode, VIEWING_PUBKEY_LEN};
+use custom_ring_interface::RingMode;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use wincode::{config::DefaultConfig, SchemaRead};
 use zolana_account_checks::AccountIterator;
@@ -47,7 +47,12 @@ impl Forward {
             return Err(CustomRingError::DepositAuditRequired.into());
         }
         if matches!(self, Forward::Merge) {
-            check_merge_disclosure(data, anonymous.then_some(&config.auditor_pubkey))?;
+            // Merge has no auditor proof, so admitting it would hide a balance
+            // change from the reader of an anonymous ring.
+            if anonymous {
+                return Err(CustomRingError::InvalidMergeDisclosure.into());
+            }
+            check_merge_layout(data)?;
         }
         let audited = match self {
             Forward::AuditedDeposit => Some(AuditedDeposit::parse(data)?),
@@ -131,21 +136,16 @@ impl Forward {
     }
 }
 
-/// An anonymous ring merge carries the audited layout, the plain layout plus
-/// the auditor key and its envelope. Any other ring forwards the plain layout.
-fn check_merge_disclosure(
-    data: &[u8],
-    auditor_pk: Option<&[u8; VIEWING_PUBKEY_LEN]>,
-) -> ProgramResult {
+/// The forwarded merge must have no unverified trailing payload.
+fn check_merge_layout(data: &[u8]) -> ProgramResult {
     let mut appended = data
         .get(1..)
         .ok_or(CustomRingError::InvalidInstructionData)?;
     <MergeRingIxDataRef<'_> as SchemaRead<'_, DefaultConfig>>::get(&mut appended)
         .map_err(|_| CustomRingError::InvalidInstructionData)?;
-    let recipient = appended.get(..VIEWING_PUBKEY_LEN);
-    match auditor_pk {
-        Some(auditor_pk) if recipient == Some(auditor_pk.as_slice()) => Ok(()),
-        None if appended.is_empty() => Ok(()),
-        _ => Err(CustomRingError::InvalidMergeDisclosure.into()),
+    if appended.is_empty() {
+        Ok(())
+    } else {
+        Err(CustomRingError::InvalidMergeDisclosure.into())
     }
 }

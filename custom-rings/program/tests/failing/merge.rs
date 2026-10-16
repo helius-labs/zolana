@@ -46,13 +46,13 @@ fn a_policy_merge_keeps_its_tree_choice() {
     merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
 }
 
-/// An anonymous ring merge stays visible to the auditor through its envelope.
+/// A merge has no auditor proof and must not enter an anonymous ring.
 #[test]
-fn an_anonymous_merge_carries_the_envelope_to_the_auditor() {
+fn an_anonymous_merge_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut audited = merge_fixture_with(anonymous_config_account());
     *audited.data_mut() = merge_ring_data(Some(auditor_pubkey(4)));
-    audited.expect_spp_cpi(&mollusk);
+    audited.expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
     merge_fixture_with(anonymous_config_account())
         .expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
     let mut other = merge_fixture_with(anonymous_config_account());
@@ -63,7 +63,7 @@ fn an_anonymous_merge_carries_the_envelope_to_the_auditor() {
 }
 
 #[test]
-fn only_an_anonymous_ring_takes_the_audited_merge_exactly() {
+fn audited_merge_tail_is_rejected_in_every_non_anonymous_mode() {
     let (mollusk, _) = setup_mollusk();
     for config in [
         initialized_config_account(authority(), auditor_pubkey(4)),

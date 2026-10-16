@@ -9,7 +9,6 @@ use crate::{shape::Shape, state::cache::CACHE_CAPACITY};
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
-
 /// Selects `$item` from the verifying key module a [`CircuitId`] names, or
 /// returns `None` from the enclosing function. One table serves both the
 /// verifying key and the proving-key sha256 generated next to it.

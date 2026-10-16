@@ -97,6 +97,14 @@ pub mod transfer_confidential_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_8_8;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_2_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_2_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_3_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_4_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_12_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_12_4;
@@ -249,14 +257,6 @@ pub mod transfer_ring_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_8_8;
 #[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_2_2;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_2_4;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_3_4;
-#[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_4_2;
-#[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_authority_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_authority_4_4;
@@ -265,10 +265,22 @@ pub mod transfer_ring_authority_4_4;
 /// `/proving-keys`, and the sha256 its committed verifying key pins.
 #[cfg(feature = "verifying-keys")]
 pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
-    ("transfer_ed25519_ring_2_2.key", transfer_ed25519_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256),
-    ("transfer_ed25519_ring_2_4.key", transfer_ed25519_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256),
-    ("transfer_ed25519_ring_3_4.key", transfer_ed25519_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256),
-    ("transfer_ed25519_ring_4_2.key", transfer_ed25519_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256),
+    (
+        "transfer_ed25519_ring_2_2.key",
+        transfer_ed25519_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_2_4.key",
+        transfer_ed25519_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_3_4.key",
+        transfer_ed25519_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_4_2.key",
+        transfer_ed25519_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
     (
         "merge_24_1.key",
         merge_24_1::VERIFYINGKEY_PROVING_KEY_SHA256,
