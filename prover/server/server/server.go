@@ -280,7 +280,7 @@ type EnhancedConfig struct {
 	// TEE, when set, serves attestation and decrypts encrypted requests.
 	TEE *tee.Server
 	// LegacyProvePaths also serves the key-less /prove, /prove/indexed and
-	// /prove/status.
+	// /prove/status, bare only.
 	LegacyProvePaths bool
 }
 
@@ -895,7 +895,7 @@ type Config struct {
 	Served *ServedKeys
 	TEE    *tee.Server
 	// LegacyProvePaths also serves the key-less /prove, /prove/indexed and
-	// /prove/status.
+	// /prove/status, bare only.
 	LegacyProvePaths bool
 }
 

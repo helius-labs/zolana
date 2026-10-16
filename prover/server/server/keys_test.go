@@ -202,44 +202,49 @@ func TestKeyPathsReachTheirHandlers(t *testing.T) {
 	}
 }
 
-// The key paths take no key-less path; those are registerLegacyProofPaths.
+// The key paths take no key-less path; those are registerLegacyProofPaths, and
+// the gateway prefix carries none even with them on.
 func TestThereIsNoPathWithoutAKey(t *testing.T) {
-	mux := proofMux(t, nil)
-	for _, prefix := range []string{"", gatewayPrefix} {
-		if response := post(mux, prefix+"/prove", transferRequest(t)); response.Code != http.StatusNotFound {
-			t.Errorf("%s/prove: got %d", prefix, response.Code)
+	for _, test := range []struct {
+		name   string
+		mux    *http.ServeMux
+		prefix string
+	}{
+		{"key paths", proofMux(t, nil), ""},
+		{"key paths", proofMux(t, nil), gatewayPrefix},
+		{"legacy paths", legacyProofMux(t, nil), gatewayPrefix},
+	} {
+		if response := post(test.mux, test.prefix+"/prove", transferRequest(t)); response.Code != http.StatusNotFound {
+			t.Errorf("%s %s/prove: got %d", test.name, test.prefix, response.Code)
 		}
-		for _, test := range []struct{ method, path string }{
+		for _, request := range []struct{ method, path string }{
 			{http.MethodPost, "/prove/indexed"},
 			{http.MethodGet, "/prove/status?jobId=x"},
 		} {
-			response := serve(mux, test.method, prefix+test.path, transferRequest(t))
+			response := serve(test.mux, request.method, test.prefix+request.path, transferRequest(t))
 			if response.Code != http.StatusNotFound || errorCode(t, response) != "unknown_proving_key" {
-				t.Errorf("%s %s%s: got %d %q", test.method, prefix, test.path, response.Code, response.Body.String())
+				t.Errorf("%s %s %s%s: got %d %q", test.name, request.method, test.prefix, request.path, response.Code, response.Body.String())
 			}
 		}
 	}
 }
 
 // The key-less paths resolve each proof's key from its body and admit it as a
-// key path would, bare and under the gateway prefix.
+// key path would.
 func TestLegacyPathsResolveTheKeyFromTheBody(t *testing.T) {
 	mux := legacyProofMux(t, nil)
-	for _, prefix := range []string{"", gatewayPrefix} {
-		response := post(mux, prefix+"/prove", transferRequest(t))
-		if errorCode(t, response) != "proving_error" || !strings.Contains(response.Body.String(), "transfer_confidential_2_2.key") {
-			t.Fatalf("%s/prove: got %d %q", prefix, response.Code, response.Body.String())
-		}
-		response = post(mux, prefix+"/prove/indexed", indexedTransferRequest(t))
-		if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
-			t.Fatalf("%s/prove/indexed: got %d %q", prefix, response.Code, response.Body.String())
-		}
-		response = serve(mux, http.MethodGet, prefix+"/prove/status?jobId=x", nil)
-		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
-			t.Fatalf("%s/prove/status: got %d %q", prefix, response.Code, response.Body.String())
-		}
+	response := post(mux, "/prove", transferRequest(t))
+	if errorCode(t, response) != "proving_error" || !strings.Contains(response.Body.String(), "transfer_confidential_2_2.key") {
+		t.Fatalf("/prove: got %d %q", response.Code, response.Body.String())
 	}
-	var response *httptest.ResponseRecorder
+	response = post(mux, "/prove/indexed", indexedTransferRequest(t))
+	if response.Code != http.StatusNotFound || errorCode(t, response) != "indexer_unconfigured" {
+		t.Fatalf("/prove/indexed: got %d %q", response.Code, response.Body.String())
+	}
+	response = serve(mux, http.MethodGet, "/prove/status?jobId=x", nil)
+	if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_job_id" {
+		t.Fatalf("/prove/status: got %d %q", response.Code, response.Body.String())
+	}
 	// Key paths still hold the body to their key.
 	response = post(mux, "/prove/transfer_confidential_1_2", transferRequest(t))
 	if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {
