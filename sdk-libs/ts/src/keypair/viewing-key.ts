@@ -7,7 +7,6 @@ import {
   INFO_TX_VIEWING_X25519,
   clampViewingSecret,
   hkdfExpand,
-  isViewingDerivationPoint,
   roleExpansion,
   viewRoot,
   x25519Ecdh,
@@ -90,9 +89,6 @@ export class ViewingKey implements ViewingKeyLike {
 
   ecdh(counterparty: X25519PublicKey): Bytes32 {
     this.#assertUsable();
-    if (isViewingDerivationPoint(counterparty)) {
-      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
-    }
     const shared = x25519Ecdh(this.#secret, counterparty);
     try {
       return copyBytes(shared) as Bytes32;

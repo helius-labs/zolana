@@ -26,22 +26,7 @@ pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
 
 pub(crate) const DST_X25519_VIEW_ROOT: &[u8] = b"TSPP/view_root/x25519/v1";
 
-// The first canonical main-curve u from SHA-256(domain || BE32(counter)) is
-// counter 1 after clearing bit 255. Three Montgomery doublings remove the
-// cofactor. A scalar relative to the standard basepoint is not known.
-pub(crate) const X25519_VIEW_ROOT_U: [u8; 32] = [
-    0x52, 0x9c, 0xdf, 0x9a, 0x13, 0xff, 0x09, 0x72, 0x2b, 0xed, 0xbe, 0x07, 0x7b, 0x4c, 0xeb, 0x42,
-    0x0a, 0x42, 0x11, 0xc1, 0x76, 0x5d, 0x45, 0x83, 0xa5, 0xc3, 0xfb, 0xc0, 0x8d, 0xe6, 0x7d, 0x77,
-];
-
 pub(crate) const DST_X25519_PDA_ROOT: &[u8] = b"TSPP/pda_root/x25519/v1";
-
-// The same hash-to-u procedure selects counter 3 for the independent PDA
-// derivation peer. Its cofactor projection has unknown discrete log.
-pub(crate) const X25519_PDA_ROOT_U: [u8; 32] = [
-    0xa2, 0x9d, 0xcf, 0xc7, 0x54, 0x27, 0xfb, 0xad, 0xb7, 0x4d, 0x35, 0x38, 0x5a, 0x04, 0xe7, 0xe2,
-    0xae, 0xcf, 0x78, 0xf9, 0xff, 0x3e, 0x89, 0xb1, 0x60, 0x7b, 0x0a, 0x58, 0x91, 0x73, 0x0b, 0x47,
-];
 
 pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC1;
 
@@ -253,35 +238,16 @@ pub(crate) fn p_derive() -> P256Pubkey {
     P256Pubkey::from_bytes(P_DERIVE_SEC1).expect("committed P_derive is valid SEC1")
 }
 
-pub(crate) fn x25519_p_pda() -> X25519Pubkey {
-    X25519Pubkey::from_u(X25519_PDA_ROOT_U).expect("committed PDA peer is canonical")
-}
-
-// The generic viewing ECDH API must not reveal either role root. Both peers
-// have unknown discrete logs relative to the public X25519 basepoint.
-pub(crate) fn is_viewing_derivation_point(pubkey: &X25519Pubkey) -> bool {
-    let u = pubkey.u();
-    u == X25519_VIEW_ROOT_U || u == X25519_PDA_ROOT_U
-}
-
-/// Committed points whose shared secret is a derivation root; the generic ecdh
-/// entry points refuse all three. `ECDH(viewing_sk, P_const)` is the IKM
-/// `view_root` extracts from, so handing it to a caller hands over every view
-/// tag and the transaction-viewing secret. The roots themselves are reached
-/// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
-/// check.
+/// Reserved legacy P-256 peers for signing-key derivation.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
     zolana_hasher::p256::is_reserved_derivation_point(pubkey.as_bytes())
 }
 
-/// `view_root` extracts the secret agreement with a hash-derived fixed peer.
-/// The peer has unknown discrete log, so the public viewing key cannot derive
-/// this root. The versioned salt separates it from earlier P-256 roots.
+/// Derives viewing roles from the canonical secret with a dedicated salt.
+/// Raw ECDH cannot reveal this input. Fixed-peer ECDH roots are unsafe because
+/// a caller can query a multiple of the peer and invert that multiplication.
 pub(crate) fn view_root(secret: &X25519Secret) -> Zeroizing<[u8; 32]> {
-    let peer = X25519Pubkey::from_u(X25519_VIEW_ROOT_U).expect("committed view peer is canonical");
-    let ikm = secret
-        .ecdh(&peer)
-        .expect("committed view peer is contributory");
+    let ikm = secret.secret_bytes();
     let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_VIEW_ROOT), ikm.as_slice());
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&prk);

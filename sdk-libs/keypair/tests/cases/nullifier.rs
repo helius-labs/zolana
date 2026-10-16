@@ -49,11 +49,9 @@ fn p256_ecdh_x(secret: &[u8; 32], point_sec1: &[u8]) -> [u8; 32] {
     x
 }
 
-/// Every committed point is regenerated from its own DST, so a substituted
-/// point with a known discrete log fails here rather than silently rooting a
-/// forged identity: `P_derive` roots both role keys on the P-256 rail, `P_pda`
-/// roots every single-holder PDA identity, and `P_const` roots `view_root` and
-/// with it every view tag and the transaction-viewing secret.
+/// Regenerates the legacy P-256 points from their domain strings. P_derive
+/// still roots signing-key roles. P_const and P_pda remain reserved on the
+/// signing ECDH API but no longer derive X25519 viewing roles.
 pub(crate) fn committed_points_match_dsts() {
     use p256::{
         elliptic_curve::{

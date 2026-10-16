@@ -3,7 +3,7 @@
 //!
 //! Per-purpose secrets expand via labelled HKDF (`info` = `"TSPP/..."`) from
 //! `view_root = HKDF-Extract(DST_X25519_VIEW_ROOT,
-//! X25519(viewing_sk, fixed_view_root_peer))`.
+//! canonical_viewing_secret)`.
 //! View tags let a wallet locate its ciphertexts at an indexer without trial
 //! decryption.
 
@@ -27,9 +27,8 @@ pub type Salt = [u8; SALT_LEN];
 
 /// An X25519 viewing keypair.
 ///
-/// `view_root` costs a scalar multiplication and only the view-tag and
-/// transaction-viewing secrets need it, so it resolves on first use. A fresh
-/// one-time transaction viewing key can be generated without deriving it.
+/// The domain-separated role root resolves only when view tags or
+/// transaction viewing keys are requested. Encryption uses the key directly.
 #[derive(Clone)]
 pub struct ViewingKey {
     secret: X25519Secret,
@@ -92,20 +91,8 @@ impl ViewingKey {
         self.secret.pubkey()
     }
 
-    /// ECDH with `counterparty`, rejecting reserved derivation peers.
+    /// ECDH with `counterparty`, rejecting noncontributory peers.
     pub fn ecdh(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError> {
-        Self::check_peer(counterparty)?;
-        self.ecdh_raw(counterparty)
-    }
-
-    fn check_peer(peer: &X25519Pubkey) -> Result<(), KeypairError> {
-        if derivation::is_viewing_derivation_point(peer) {
-            return Err(KeypairError::DerivationInput);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn ecdh_raw(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError> {
         Ok(*self.secret.ecdh(counterparty)?)
     }
 
@@ -213,7 +200,6 @@ impl ViewingKey {
         salt: &Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
-        Self::check_peer(recipient_pubkey)?;
         encryption::encrypt_utxo(&self.secret, recipient_pubkey, plaintext, salt, slot_index)
     }
 
@@ -226,7 +212,6 @@ impl ViewingKey {
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
-        Self::check_peer(tx_viewing_pubkey)?;
         encryption::decrypt_utxo(
             &self.secret,
             tx_viewing_pubkey,
@@ -253,7 +238,6 @@ impl ViewingKey {
         plaintext: &[u8],
         salt: Salt,
     ) -> Result<Vec<u8>, KeypairError> {
-        Self::check_peer(recipient_pubkey)?;
         encryption::encrypt_ring_deposit(&self.secret, recipient_pubkey, plaintext, &salt)
     }
 
@@ -264,7 +248,6 @@ impl ViewingKey {
         tx_viewing_pubkey: &X25519Pubkey,
         salt: Salt,
     ) -> Result<Vec<u8>, KeypairError> {
-        Self::check_peer(tx_viewing_pubkey)?;
         encryption::decrypt_ring_deposit(&self.secret, tx_viewing_pubkey, ciphertext, &salt)
     }
 
@@ -275,7 +258,6 @@ impl ViewingKey {
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
-        Self::check_peer(recipient_pubkey)?;
         encryption::decrypt_utxo_ephemeral(
             &self.secret,
             recipient_pubkey,
@@ -297,7 +279,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn viewing_secrets_are_canonical_and_reserved_roots_are_private() {
+    fn viewing_secrets_are_canonical() {
         let key = ViewingKey::from_bytes(&[0; 32]).unwrap();
         let secret = key.secret_bytes();
         assert_eq!(secret[0], 0);
@@ -306,16 +288,38 @@ mod tests {
             key.pubkey(),
             ViewingKey::from_bytes(&secret).unwrap().pubkey()
         );
+    }
 
-        for u in [
-            derivation::X25519_VIEW_ROOT_U,
-            derivation::X25519_PDA_ROOT_U,
+    #[test]
+    fn related_peer_ecdh_cannot_recover_role_roots() {
+        use crate::{derivation::PdaRoleExpansion, ShieldedPda};
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+        use solana_address::Address;
+
+        let key = ViewingKey::from_bytes(&[7; 32]).unwrap();
+        assert_eq!(
+            hex::encode(**key.view_root()),
+            "f8f47fe6e0dee526f6e95d87ba0d52687c8729581443c14d0c928c69769cff2a"
+        );
+        let pda = Address::new_from_array([3; 32]);
+        let owned = ShieldedPda::from_viewing_key(pda, &key).unwrap();
+        // These are order-two translates of the former fixed derivation peers.
+        // Clamping kills the torsion, bypassing an exact-coordinate blacklist.
+        for alias in [
+            "178bfe424f295736d60f0b9c30ec17044f7fba8cf9e30dcd6bb0e5ecafa7f71a",
+            "99160eca742ac5b450c0c841133666ae9803b8c99cb6b69a88c5cc407e376a17",
         ] {
-            let peer = X25519Pubkey::from_u(u).unwrap();
-            assert_eq!(key.ecdh(&peer), Err(KeypairError::DerivationInput));
-            assert_eq!(
-                key.encrypt_slot(&peer, &[0; 1], [0; SALT_LEN], 0),
-                Err(KeypairError::DerivationInput)
+            let peer =
+                X25519Pubkey::from_u(hex::decode(alias).unwrap().try_into().unwrap()).unwrap();
+            let leaked = Zeroizing::new(key.ecdh(&peer).unwrap());
+            let (candidate, _) =
+                Hkdf::<Sha256>::extract(Some(derivation::DST_X25519_VIEW_ROOT), leaked.as_slice());
+            assert_ne!(candidate.as_slice(), key.view_root().as_slice());
+            let forged = PdaRoleExpansion::new(&leaked, pda.to_bytes());
+            assert_ne!(
+                forged.nullifier_key().unwrap().pubkey().unwrap(),
+                owned.nullifier_pubkey().unwrap()
             );
         }
     }

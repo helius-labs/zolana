@@ -20,21 +20,6 @@ export const DST_VIEW_ROOT_P_CONST = "TSPP/view_root/P_const/v1";
 
 export const DST_X25519_VIEW_ROOT = "TSPP/view_root/x25519/v1";
 
-// SHA-256(domain || BE32(1)), masked to 255 bits, is the first canonical
-// main-curve u. Three Montgomery doublings project away the cofactor.
-export const X25519_VIEW_ROOT_U = Uint8Array.from([
-  0x52, 0x9c, 0xdf, 0x9a, 0x13, 0xff, 0x09, 0x72, 0x2b, 0xed, 0xbe, 0x07, 0x7b, 0x4c, 0xeb, 0x42,
-  0x0a, 0x42, 0x11, 0xc1, 0x76, 0x5d, 0x45, 0x83, 0xa5, 0xc3, 0xfb, 0xc0, 0x8d, 0xe6, 0x7d, 0x77,
-]);
-
-export const DST_X25519_PDA_ROOT = "TSPP/pda_root/x25519/v1";
-
-// The same hash-to-u procedure selects counter 3 for the independent PDA peer.
-export const X25519_PDA_ROOT_U = Uint8Array.from([
-  0xa2, 0x9d, 0xcf, 0xc7, 0x54, 0x27, 0xfb, 0xad, 0xb7, 0x4d, 0x35, 0x38, 0x5a, 0x04, 0xe7, 0xe2,
-  0xae, 0xcf, 0x78, 0xf9, 0xff, 0x3e, 0x89, 0xb1, 0x60, 0x7b, 0x0a, 0x58, 0x91, 0x73, 0x0b, 0x47,
-]);
-
 export const P_CONST_SEC1 = Uint8Array.from([
   0x03, 0x0e, 0x4d, 0xf9, 0x46, 0xbc, 0xe1, 0x4b, 0x95, 0x29, 0x2f, 0x13, 0xe1, 0x33, 0xd2, 0xb0,
   0xc6, 0x4e, 0x89, 0x8b, 0x56, 0x44, 0xf6, 0x20, 0xa5, 0xbe, 0xd2, 0x5a, 0x06, 0x1a, 0x42, 0xfc,
@@ -191,12 +176,6 @@ export function isDerivationPoint(publicKey: P256PublicKey): boolean {
   );
 }
 
-/** Blocks public ECDH calls that would disclose agreements used as role roots. */
-export function isViewingDerivationPoint(publicKey: X25519PublicKey): boolean {
-  const u = publicKey.u();
-  return startsWith(u, X25519_VIEW_ROOT_U) || startsWith(u, X25519_PDA_ROOT_U);
-}
-
 /** Normalizes a viewing secret to the one byte string encrypted by the circuit. */
 export function clampViewingSecret(secret: Uint8Array): Bytes32 {
   const normalized = checkedViewingSecret(secret);
@@ -260,16 +239,16 @@ export function hkdfExpand(
 }
 
 /**
- * Derives the PRK for per-purpose viewing secrets from the fixed X25519 peer.
- * The peer and domain salt separate viewing keys from transaction ECDH keys.
+ * Derives viewing roles directly from the canonical secret with a domain salt.
+ * Raw ECDH cannot expose this input. A fixed-peer agreement would be recoverable
+ * by querying a multiple of that peer and inverting the multiplication.
  */
 export function viewRoot(secret: Uint8Array): Uint8Array {
-  const peer = X25519PublicKey.fromBytes(Uint8Array.of(4, ...X25519_VIEW_ROOT_U));
-  const shared = x25519Ecdh(secret, peer);
+  const canonical = clampViewingSecret(secret);
   try {
-    return extract(sha256, shared, encoder.encode(DST_X25519_VIEW_ROOT));
+    return extract(sha256, canonical, encoder.encode(DST_X25519_VIEW_ROOT));
   } finally {
-    shared.fill(0);
+    canonical.fill(0);
   }
 }
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { extract } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
 import {
@@ -22,9 +24,9 @@ import {
   type Bytes32,
 } from "../src/keypair/index.js";
 import {
-  X25519_PDA_ROOT_U,
-  X25519_VIEW_ROOT_U,
+  DST_X25519_VIEW_ROOT,
   roleExpansion,
+  viewRoot,
   type RoleSecrets,
 } from "../src/keypair/derivation.js";
 import { MERGE_INFO } from "../src/keypair/merge/index.js";
@@ -140,14 +142,32 @@ describe("shielded key material", () => {
     expect(() => ed25519Key.sign(message)).toThrow(KeypairError);
   });
 
-  it("refuses ECDH against the committed derivation points", () => {
-    const viewing = ViewingKey.generate();
-    expect(() =>
-      viewing.ecdh(X25519PublicKey.fromBytes(Uint8Array.of(4, ...X25519_VIEW_ROOT_U))),
-    ).toThrow(KeypairError);
-    expect(() =>
-      viewing.ecdh(X25519PublicKey.fromBytes(Uint8Array.of(4, ...X25519_PDA_ROOT_U))),
-    ).toThrow(KeypairError);
+  it("keeps role roots private when ECDH is queried at a related fixed peer", () => {
+    const secret = new Uint8Array(32).fill(7) as Bytes32;
+    const viewing = ViewingKey.fromBytes(secret);
+    const root = viewRoot(secret);
+    try {
+      expect(hex(root)).toBe("f8f47fe6e0dee526f6e95d87ba0d52687c8729581443c14d0c928c69769cff2a");
+      // Translating the former fixed peer by order-two torsion preserves DH.
+      const peer = X25519PublicKey.fromBytes(
+        Uint8Array.of(
+          4,
+          ...bytes("178bfe424f295736d60f0b9c30ec17044f7fba8cf9e30dcd6bb0e5ecafa7f71a"),
+        ),
+      );
+      const leaked = viewing.ecdh(peer);
+      const candidate = extract(sha256, leaked, new TextEncoder().encode(DST_X25519_VIEW_ROOT));
+      try {
+        expect(candidate).not.toEqual(root);
+      } finally {
+        leaked.fill(0);
+        candidate.fill(0);
+      }
+    } finally {
+      root.fill(0);
+      secret.fill(0);
+      viewing.destroy();
+    }
   });
 
   it("encrypts transfer slots for the intended viewing key", () => {

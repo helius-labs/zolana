@@ -89,69 +89,6 @@ impl Default for X25519Secret {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derivation::{
-        DST_X25519_PDA_ROOT, DST_X25519_VIEW_ROOT, X25519_PDA_ROOT_U, X25519_VIEW_ROOT_U,
-    };
-    use num_bigint::BigUint;
-    use sha2::{Digest, Sha256};
-
-    #[test]
-    fn fixed_peers_are_hash_derived_main_curve_prime_order_points() {
-        let p = (BigUint::from(1u8) << 255) - 19u8;
-        let candidate = |domain: &[u8], counter: u32| {
-            let mut preimage = Vec::from(domain);
-            preimage.extend_from_slice(&counter.to_be_bytes());
-            let mut digest = Sha256::digest(preimage);
-            digest[31] &= 127;
-            BigUint::from_bytes_le(&digest)
-        };
-        let rhs = |x: &BigUint| (x * x * x + BigUint::from(486662u32) * x * x + x) % &p;
-        for (domain, counter, fixed_u, expected_root) in [
-            (
-                DST_X25519_VIEW_ROOT,
-                1,
-                X25519_VIEW_ROOT_U,
-                "4bc4c7d8ad80138320dcfc5134053357f1e323d04ae8a3f33114cb37c672c847",
-            ),
-            (
-                DST_X25519_PDA_ROOT,
-                3,
-                X25519_PDA_ROOT_U,
-                "de2db4a0ec3196280ab850100eeb1a17b98ecbae467d9a92c693aaf1be971b69",
-            ),
-        ] {
-            for skipped_counter in 0..counter {
-                let skipped = candidate(domain, skipped_counter);
-                assert!(skipped < p);
-                assert_eq!(rhs(&skipped).modpow(&((&p - 1u8) >> 1), &p), &p - 1u8);
-            }
-            let mut x = candidate(domain, counter);
-            assert!(x < p);
-            assert_eq!(rhs(&x).modpow(&((&p - 1u8) >> 1), &p), BigUint::from(1u8));
-
-            // The clamp supplies a multiple of eight. Pin the projected peer,
-            // whose discrete log relative to the public basepoint is unknown.
-            let mut z = BigUint::from(1u8);
-            for _ in 0..3 {
-                let a = (&x + &z).modpow(&BigUint::from(2u8), &p);
-                let b = ((&x + &p - &z) % &p).modpow(&BigUint::from(2u8), &p);
-                let e = (&a + &p - &b) % &p;
-                x = &a * &b % &p;
-                z = &e * (&a + BigUint::from(121665u32) * &e) % &p;
-            }
-            assert_ne!(z, BigUint::from(0u8));
-            let mut expected = (&x * z.modpow(&(&p - 2u8), &p) % &p).to_bytes_le();
-            expected.resize(32, 0);
-            assert_eq!(expected.as_slice(), fixed_u);
-            let peer = X25519Pubkey::from_u(fixed_u).unwrap();
-            let root = X25519Secret::from_bytes(&[7; 32])
-                .unwrap()
-                .ecdh(&peer)
-                .unwrap();
-            assert_eq!(hex::encode(*root), expected_root);
-        }
-    }
-
     #[test]
     fn canonical_tagged_keys_reject_p256_and_coordinate_aliases() {
         let key = X25519Secret::from_bytes(&[7; 32]).unwrap().pubkey();
