@@ -1,4 +1,4 @@
-pub mod key_registry;
+pub mod member_registry;
 pub mod proof;
 
 use solana_address::Address;

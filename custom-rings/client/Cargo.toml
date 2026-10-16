@@ -56,7 +56,7 @@ zolana-transaction = { workspace = true }
 [dev-dependencies]
 async-trait = { workspace = true }
 bs58 = { workspace = true }
-zolana-ring-key-registry = { workspace = true }
+zolana-ring-member-registry = { workspace = true }
 serde_json = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true, features = ["verify"] }

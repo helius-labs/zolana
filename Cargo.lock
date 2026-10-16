@@ -2215,7 +2215,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-ring-client",
- "zolana-ring-key-registry",
+ "zolana-ring-member-registry",
  "zolana-ring-policy",
  "zolana-transaction",
  "zolana-tree",
@@ -5270,7 +5270,7 @@ dependencies = [
  "zolana-indexer-api",
  "zolana-interface",
  "zolana-ring-indexer",
- "zolana-ring-key-registry",
+ "zolana-ring-member-registry",
  "zolana-ring-policy",
  "zolana-tree",
  "zolana-user-registry-interface",
@@ -11981,7 +11981,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
- "zolana-ring-key-registry",
+ "zolana-ring-member-registry",
  "zolana-ring-policy",
  "zolana-secret-file",
  "zolana-transaction",
@@ -12004,7 +12004,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-ring-key-registry"
+name = "zolana-ring-member-registry"
 version = "0.1.0"
 dependencies = [
  "custom-ring-interface",
@@ -12025,11 +12025,8 @@ dependencies = [
  "solana-address 2.6.1",
  "thiserror 2.0.20",
  "wincode",
- "zolana-client",
  "zolana-hasher",
  "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
 ]
 
 [[package]]

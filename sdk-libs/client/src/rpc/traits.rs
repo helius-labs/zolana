@@ -18,10 +18,10 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
-        RingHistoryOptions, RingMemberProofRequest, ShieldedTransactionStream,
+        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+        GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        GetUserRecordsResponse, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
@@ -219,18 +219,18 @@ pub trait Rpc {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    fn get_ring_key_registry_entry(
+    fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        Err(unsupported("get_ring_member_record"))
     }
 
-    fn get_ring_key_registry_register_proof(
+    fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        Err(unsupported("get_ring_member_registry_root"))
     }
 
     /// Registry records for up to `MAX_USER_RECORD_OWNERS` owners, read at one
@@ -450,18 +450,18 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        Err(unsupported("get_ring_member_record"))
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        Err(unsupported("get_ring_member_registry_root"))
     }
 
     /// See [`Rpc::get_user_records`].
