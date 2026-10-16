@@ -183,7 +183,7 @@ impl ViewingKey {
         self.shared_view_tag(counterparty, &r_pubkey, i)
     }
 
-    /// Bootstrap view tag = this key's `viewing_pk` u-coordinate; anyone can
+    /// Bootstrap view tag = this key's `viewing_pk` u-coordinate. Anyone can
     /// derive it, so a first-time sender needs no coordination.
     pub fn recipient_bootstrap_view_tag(&self) -> ViewTag {
         self.pubkey().u()

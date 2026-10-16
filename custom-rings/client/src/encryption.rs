@@ -16,7 +16,7 @@
 //! ```
 //!
 //! `pack.go` is the source of truth for the packing of `dh` and of the 33-byte
-//! tagged X25519 keys into pairs of field elements; [`pack32_to_2fe`] and
+//! tagged X25519 keys into pairs of field elements. [`pack32_to_2fe`] and
 //! [`pack33_to_2fe`] mirror it. The key schedule and the CTR keystream come from
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
