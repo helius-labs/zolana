@@ -3,15 +3,14 @@
 pub(crate) mod api;
 pub(crate) mod key_registry;
 mod proof;
-pub(crate) mod spend_record;
 mod storage;
 
-use std::{collections::HashMap, ops::RangeInclusive, sync::Arc, time::Duration};
+use std::{ops::RangeInclusive, sync::Arc, time::Duration};
 
 use anyhow::{bail, ensure, Context, Result};
 use custom_ring_interface::{
     instruction::{accounts, tag},
-    KeyRegistryRoot, PolicyConfig, RingAccount,
+    KeyRegistryRoot, RingAccount,
 };
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
@@ -24,13 +23,11 @@ use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
 
 use crate::{
     ingester::typedefs::block_info::{
-        parse_ui_confirmed_blocked, BlockInfo, BlockMetadata, Instruction, InstructionGroup,
-        TransactionInfo,
+        parse_ui_confirmed_blocked, BlockInfo, BlockMetadata, Instruction, TransactionInfo,
     },
     rpc::{RpcClient, RpcError},
 };
 use key_registry::MemberKey;
-use spend_record::SpendUndo;
 use storage::{
     BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
     Store, Undo,
@@ -326,11 +323,7 @@ impl Projector {
             cursor,
             block,
             scope,
-            env: BlockEnv {
-                rpc: &self.rpc,
-                policies: HashMap::new(),
-                tree_ids: HashMap::new(),
-            },
+            env: BlockEnv { rpc: &self.rpc },
         }
         .run()
         .await
@@ -380,14 +373,12 @@ enum Scope {
 /// The projected families, each with its own undo journal.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Family {
-    Spend,
     Key,
 }
 
 impl Family {
     fn of(instruction: &Instruction) -> Option<Self> {
         match *instruction.data.first()? {
-            tag::REGISTER_SPEND | tag::TRANSACT => Some(Self::Spend),
             tag::CREATE_KEY_REGISTRY_ROOT | tag::REGISTER_KEY => Some(Self::Key),
             _ => None,
         }
@@ -480,52 +471,18 @@ pub(crate) async fn load_root(
 
 pub(crate) struct BlockEnv<'a> {
     rpc: &'a RpcClient,
-    policies: HashMap<[u8; 32], PolicyConfig>,
-    tree_ids: HashMap<[u8; 32], u16>,
-}
-
-impl BlockEnv<'_> {
-    /// One read per ring and block, a ring without a policy is at fault.
-    pub(crate) async fn policy(&mut self, program: &Pubkey) -> Result<PolicyConfig, ProjectError> {
-        if let Some(policy) = self.policies.get(&program.to_bytes()) {
-            return Ok(*policy);
-        }
-        let address = Pubkey::find_program_address(&[PolicyConfig::SEED], program).0;
-        let account = ring_account(self.rpc.get_account(&address).await)?;
-        let policy = PolicyConfig::decode(&account.owner, program, &account.data)
-            .ok_or_else(|| fault("policy config is not the ring's initialized account"))?;
-        self.policies.insert(program.to_bytes(), policy);
-        Ok(policy)
-    }
-
-    /// A leaf hashes under the id of the tree it lands in.
-    pub(crate) async fn tree_id(&mut self, tree: &Pubkey) -> Result<u16, ProjectError> {
-        if let Some(id) = self.tree_ids.get(&tree.to_bytes()) {
-            return Ok(*id);
-        }
-        let account = ring_account(self.rpc.get_account(tree).await)?;
-        let id = crate::monitor::tree_metadata_sync::rings_tree_id(*tree, &account)
-            .filter(|id| zolana_interface::pda::tree(*id).to_bytes() == tree.to_bytes())
-            .ok_or_else(|| fault("output tree is not the SPP tree of its id"))?;
-        self.tree_ids.insert(tree.to_bytes(), id);
-        Ok(id)
-    }
 }
 
 pub(crate) struct Invocation<'a> {
     pub instruction: &'a Instruction,
-    pub subtree: TransactionInfo,
-    pub slot: u64,
 }
 
 struct Invocations<'a> {
-    transaction: &'a TransactionInfo,
     instructions: Vec<&'a Instruction>,
-    slot: u64,
 }
 
 impl<'a> Invocations<'a> {
-    fn new(transaction: &'a TransactionInfo, slot: u64) -> Self {
+    fn new(transaction: &'a TransactionInfo) -> Self {
         let instructions = transaction
             .instruction_groups
             .iter()
@@ -533,11 +490,7 @@ impl<'a> Invocations<'a> {
                 std::iter::once(&group.outer_instruction).chain(group.inner_instructions.iter())
             })
             .collect();
-        Self {
-            transaction,
-            instructions,
-            slot,
-        }
+        Self { instructions }
     }
 
     fn instructions(&self) -> impl Iterator<Item = (usize, &'a Instruction)> + '_ {
@@ -548,38 +501,12 @@ impl<'a> Invocations<'a> {
         self.instructions.get(position)?.data.first().copied()
     }
 
-    /// Sibling invocations cannot supply a transition's SPP event.
     fn invocation(&self, position: usize) -> Result<Invocation<'a>, ProjectError> {
-        let (instruction, rest) = self
+        let instruction = self
             .instructions
-            .get(position..)
-            .and_then(<[&Instruction]>::split_first)
+            .get(position)
             .context("invocation position out of range")?;
-        let depth = instruction
-            .stack_height
-            .ok_or_else(|| fault("invocation has no stack height"))?;
-        let mut children = Vec::new();
-        for child in rest {
-            let child_depth = child
-                .stack_height
-                .ok_or_else(|| fault("descendant has no stack height"))?;
-            if child_depth <= depth {
-                break;
-            }
-            children.push((*child).clone());
-        }
-        Ok(Invocation {
-            instruction,
-            subtree: TransactionInfo {
-                instruction_groups: vec![InstructionGroup {
-                    outer_instruction: (*instruction).clone(),
-                    inner_instructions: children,
-                }],
-                signature: self.transaction.signature,
-                error: None,
-            },
-            slot: self.slot,
-        })
+        Ok(Invocation { instruction })
     }
 }
 
@@ -594,16 +521,13 @@ struct BlockWork<'a> {
 impl BlockWork<'_> {
     async fn run(mut self) -> Result<BlockUndo> {
         let mut undo = BlockUndo::default();
-        let (block, slot) = (self.block, self.block.metadata.slot);
+        let block = self.block;
         for transaction in block.transactions.iter().filter(|tx| tx.error.is_none()) {
-            let invocations = Invocations::new(transaction, slot);
-            // A transaction's spend records project before its key registrations.
-            for family in [Family::Spend, Family::Key] {
-                for (position, instruction) in invocations.instructions() {
-                    if Family::of(instruction) == Some(family) {
-                        self.project(family, &invocations, position, &mut undo)
-                            .await?;
-                    }
+            let invocations = Invocations::new(transaction);
+            for (position, instruction) in invocations.instructions() {
+                if let Some(family) = Family::of(instruction) {
+                    self.project(family, &invocations, position, &mut undo)
+                        .await?;
                 }
             }
         }
@@ -626,46 +550,11 @@ impl BlockWork<'_> {
         let store = Store::new(self.tx, program);
         match family {
             _ if skip => Ok(()),
-            Family::Spend => {
-                self.spend(&store, invocations, position, &mut undo.spend_records)
-                    .await
-            }
             Family::Key => {
                 self.key(&store, invocations, position, &mut undo.key_registry)
                     .await
             }
         }
-    }
-
-    async fn spend(
-        &mut self,
-        store: &Store<'_, DatabaseTransaction>,
-        invocations: &Invocations<'_>,
-        position: usize,
-        undo: &mut Vec<SpendUndo>,
-    ) -> Result<()> {
-        match store.records_fault().await? {
-            Some(None) => {}
-            // A ring's first registration opens its records.
-            None if invocations.tag(position) == Some(tag::REGISTER_SPEND) => {
-                if !self.admit(store.program).await? {
-                    return Ok(());
-                }
-                undo.push(store.open_records().await?);
-            }
-            None | Some(Some(_)) => return Ok(()),
-        }
-        let outcome = async {
-            let invocation = invocations.invocation(position)?;
-            store.advance(&invocation, &mut self.env).await
-        }
-        .await;
-        match outcome {
-            Ok(entry) => undo.extend(entry),
-            Err(ProjectError::Fault(reason)) => undo.push(store.quarantine_records(reason).await?),
-            Err(ProjectError::Retry(error)) => return Err(error),
-        }
-        Ok(())
     }
 
     async fn key(

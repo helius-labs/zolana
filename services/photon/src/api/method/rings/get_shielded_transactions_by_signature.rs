@@ -35,24 +35,8 @@ pub async fn get_shielded_transactions_by_signature(
     })
 }
 
-#[cfg(feature = "ring-projection")]
-pub(crate) async fn shielded_transaction_at(
-    tx: &DatabaseTransaction,
-    signature: [u8; SIGNATURE_BYTES],
-    event_index: u16,
-) -> Result<Option<zolana_indexer_api::ShieldedTransaction>, PhotonApiError> {
-    let matched =
-        fetch_rings_transactions_by_signature(tx, signature, EventFilter::At(event_index)).await?;
-    Ok(hydrate_shielded_transactions(tx, matched)
-        .await?
-        .pop()
-        .map(|indexed| indexed.transaction))
-}
-
 enum EventFilter {
     All,
-    #[cfg(feature = "ring-projection")]
-    At(u16),
 }
 
 async fn fetch_rings_transactions_by_signature(
@@ -64,16 +48,6 @@ async fn fetch_rings_transactions_by_signature(
     let mut params = Vec::new();
     let signature = bind_sql_value(&mut params, backend, signature.to_vec());
     let event_filter = match events {
-        #[cfg(feature = "ring-projection")]
-        EventFilter::At(index) => {
-            let index = i16::try_from(index).map_err(|_| {
-                PhotonApiError::ValidationError(format!("Event index {index} does not fit in i16"))
-            })?;
-            format!(
-                "AND pt.event_index = {}",
-                bind_sql_value(&mut params, backend, index)
-            )
-        }
         EventFilter::All => String::new(),
     };
     let limit = bind_u64_as_i64(&mut params, backend, PAGE_LIMIT)?;

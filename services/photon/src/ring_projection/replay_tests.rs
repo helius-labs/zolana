@@ -1,4 +1,6 @@
 use super::tests::{field, initialize_root, member};
+use std::collections::HashMap;
+
 use super::*;
 use crate::migration::{MigratorTrait, RingsMigrator};
 use base64::{engine::general_purpose::STANDARD, Engine};

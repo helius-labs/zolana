@@ -198,15 +198,6 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
                     .map_err(ErrorObjectOwned::from)
             },
         )?;
-        module.register_async_method(
-            zolana_indexer_api::GET_RING_SPEND_RECORD,
-            |params, context, _| async move {
-                context
-                    .get_ring_spend_record(params.parse()?)
-                    .await
-                    .map_err(ErrorObjectOwned::from)
-            },
-        )?;
     }
     Ok(module)
 }
@@ -236,7 +227,6 @@ mod tests {
         assert!(methods.contains(&"getUserRecords"));
         assert!(!methods.contains(&"getRingKeyRegistryEntry"));
         assert!(!methods.contains(&"getRingKeyRegistryRegisterProof"));
-        assert!(!methods.contains(&"getRingSpendRecord"));
     }
 
     #[cfg(feature = "ring-projection")]
@@ -244,11 +234,7 @@ mod tests {
     async fn registers_custom_ring_methods_only_after_opt_in() {
         let module = build_rpc_module(test_api().await.with_ring_projection()).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
-        for method in [
-            "getRingKeyRegistryEntry",
-            "getRingKeyRegistryRegisterProof",
-            "getRingSpendRecord",
-        ] {
+        for method in ["getRingKeyRegistryEntry", "getRingKeyRegistryRegisterProof"] {
             assert!(methods.contains(&method));
         }
     }

@@ -10,13 +10,12 @@ use zolana_indexer_api::{
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse, GetRingsByTagsRequest,
+    GetRingKeyRegistryRegisterProofResponse, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse, GetUserRecordsRequest, GetUserRecordsResponse, Hash,
     IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
-    ShieldedTransaction, UserRecord,
+    NullifierQueueElement, RingMemberProofRequest, RingsMessage, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
 };
 
 use crate::common::relative_project_path;
@@ -78,9 +77,6 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     RingMemberProofRequest,
     GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse,
-    RingSpendRecordRequest,
-    RingSpendRecord,
-    GetRingSpendRecordResponse,
 )))]
 struct ApiDoc;
 
