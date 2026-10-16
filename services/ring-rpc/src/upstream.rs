@@ -2,7 +2,8 @@ use std::{future::Future, marker::PhantomData, time::Duration};
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    ReadAccessRecord, RingMode, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD,
+    RING_PROGRAM_CONFIG,
 };
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
@@ -116,6 +117,7 @@ pub struct ReaderGrant {
 pub struct RingConfiguration {
     pub auditor_pubkey: X25519Pubkey,
     pub authority: Address,
+    pub mode: RingMode,
 }
 
 #[must_use]
@@ -371,6 +373,9 @@ impl ConfigAccount<'_> {
         Ok(RingConfiguration {
             auditor_pubkey,
             authority: config.authority,
+            mode: config
+                .mode()
+                .ok_or_else(|| ClientError::Rpc("custom ring config mode is invalid".to_owned()))?,
         })
     }
 }

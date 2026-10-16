@@ -10,7 +10,7 @@ use zolana_keypair::P256Pubkey;
 use zolana_ring_policy::{SpendCounters, SpendRecord};
 use zolana_transaction::Data;
 
-use crate::AuditOutputOpening;
+use crate::{AnonymousDisclosure, AuditOutputOpening};
 
 #[derive(PartialEq, Eq)]
 /// One output slot the auditor opened with the recovered transaction viewing
@@ -58,6 +58,8 @@ pub struct AuditedTransaction {
     pub tx_viewing_pk: P256Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<AuditOutputOpening>,
+    /// Proven hidden sender, spent notes and recipients of an anonymous ring.
+    pub anonymous: Option<AnonymousDisclosure>,
     pub spend_records: Vec<AuditedSpendRecord>,
     /// Positions of output slots this audit could not open as a confidential
     /// plaintext: dummy slots (random bytes by construction), slots published

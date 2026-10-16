@@ -369,6 +369,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 AuditOutputOpening::from(&proof_output(&sol_output, 0)),
                 AuditOutputOpening::from(&proof_output(&token_output, 1)),
             ],
+            anonymous: None,
             spend_records: vec![],
             undecryptable_slots: vec![],
         }

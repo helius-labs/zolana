@@ -22,9 +22,10 @@
 //! are the ones `ve.KeySchedule` uses.
 
 use custom_ring_interface::{
-    pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN,
-    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS,
-    COMPRESSED_P256_KEY_LEN,
+    pack32_to_2fe, pack33_to_2fe, pack_disclosure, unpack_disclosure, DisclosureShape, FieldPair,
+    AUDITOR_MESSAGE_LEN, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT,
+    AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS, COMPRESSED_P256_KEY_LEN, DISCLOSURE_INPUT_LEN,
+    DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
 };
 use num_bigint::BigUint;
 use thiserror::Error;
@@ -55,17 +56,53 @@ pub enum AuditEncryptionError {
     DisclosureField,
     #[error("output count must be between one and four, got {0}")]
     OutputCount(usize),
+    #[error("disclosure shape does not match the transaction")]
+    DisclosureShape,
+    #[error("disclosure padding is not zero")]
+    DisclosurePadding,
     #[error(transparent)]
     Keypair(#[from] KeypairError),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditorMessage {
     /// Tagged X25519 ephemeral public key.
     eph_pk: X25519Pubkey,
     /// AES-256-CTR ciphertext of the transaction viewing secret key.
     ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
-    disclosure: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+    disclosure: Vec<[u8; 32]>,
+}
+
+/// One spent note opening in an anonymous ring. The leaf index is not in the
+/// circuit disclosure, so the indexer must resolve it separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AuditInputOpening {
+    pub tree_id: u16,
+    pub amount: u64,
+    pub asset: [u8; 32],
+    pub blinding: [u8; 32],
+}
+
+/// The owner identity and note data disclosed for one anonymous output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AnonymousOutputOpening {
+    pub identity_tag: u8,
+    pub identity_key: [u8; 32],
+    pub nullifier_pk: [u8; 32],
+    pub amount: u64,
+    pub asset: [u8; 32],
+    pub blinding: [u8; 32],
+    pub data_hash: [u8; 32],
+    pub ring_data_hash: [u8; 32],
+    pub ring_note: u8,
+}
+
+/// The hidden sender, spent notes and recipients bound by an anonymous proof.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AnonymousDisclosure {
+    pub sender: [u8; 32],
+    pub inputs: Vec<AuditInputOpening>,
+    pub outputs: Vec<AnonymousOutputOpening>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -96,7 +133,7 @@ impl AuditorMessage {
         Self {
             eph_pk,
             ciphertext,
-            disclosure: [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+            disclosure: vec![[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
         }
     }
 
@@ -113,11 +150,13 @@ impl AuditorMessage {
     }
 
     pub fn to_message_data(&self, auditor_pk: &X25519Pubkey) -> MessageData {
-        let mut data = Vec::with_capacity(AUDITOR_MESSAGE_LEN);
+        let mut data = Vec::with_capacity(
+            COMPRESSED_P256_KEY_LEN + AUDIT_CIPHERTEXT_LEN + 32 * self.disclosure.len(),
+        );
         data.extend_from_slice(self.eph_pk.as_bytes());
         data.extend_from_slice(&self.ciphertext);
-        for field in self.disclosure {
-            data.extend_from_slice(&field);
+        for field in &self.disclosure {
+            data.extend_from_slice(field);
         }
         MessageData {
             view_tag: auditor_view_tag(auditor_pk),
@@ -126,15 +165,33 @@ impl AuditorMessage {
     }
 
     pub fn parse(message: &MessageData, auditor_pk: &X25519Pubkey) -> Result<Self> {
+        Self::parse_with_fields(message, auditor_pk, AUDIT_DISCLOSURE_FIELD_COUNT)
+    }
+
+    /// The ring mode and published slot count fix the accepted disclosure size.
+    pub fn parse_with_shape(
+        message: &MessageData,
+        auditor_pk: &X25519Pubkey,
+        shape: DisclosureShape,
+    ) -> Result<Self> {
+        let fields = shape
+            .field_count()
+            .ok_or(AuditEncryptionError::DisclosureShape)?;
+        Self::parse_with_fields(message, auditor_pk, fields)
+    }
+
+    fn parse_with_fields(
+        message: &MessageData,
+        auditor_pk: &X25519Pubkey,
+        count: usize,
+    ) -> Result<Self> {
         if message.view_tag != auditor_view_tag(auditor_pk) {
             return Err(AuditEncryptionError::ViewTagMismatch);
         }
         let (eph_pk, body) = message
             .data
             .split_at_checked(COMPRESSED_P256_KEY_LEN)
-            .filter(|(_, body)| {
-                body.len() == AUDIT_CIPHERTEXT_LEN + 32 * AUDIT_DISCLOSURE_FIELD_COUNT
-            })
+            .filter(|(_, body)| body.len() == AUDIT_CIPHERTEXT_LEN + 32 * count)
             .ok_or(AuditEncryptionError::MessageLength(message.data.len()))?;
         let (ciphertext, disclosure_bytes) = body.split_at(AUDIT_CIPHERTEXT_LEN);
         let eph_pk: [u8; COMPRESSED_P256_KEY_LEN] = eph_pk
@@ -143,7 +200,7 @@ impl AuditorMessage {
         let ciphertext: [u8; AUDIT_CIPHERTEXT_LEN] = ciphertext
             .try_into()
             .map_err(|_| AuditEncryptionError::MessageLength(message.data.len()))?;
-        let mut disclosure = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+        let mut disclosure = vec![[0u8; 32]; count];
         let (fields, remainder) = disclosure_bytes.as_chunks::<32>();
         debug_assert!(remainder.is_empty());
         for (field, bytes) in disclosure.iter_mut().zip(fields) {
@@ -171,7 +228,7 @@ impl AuditorMessage {
         &self.ciphertext
     }
 
-    pub fn disclosure(&self) -> &[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT] {
+    pub fn disclosure(&self) -> &[[u8; 32]] {
         &self.disclosure
     }
 
@@ -180,7 +237,10 @@ impl AuditorMessage {
         tx_viewing_key: &ViewingKey,
         salt: [u8; 16],
     ) -> Result<[AuditOutputOpening; AUDIT_OUTPUT_SLOTS]> {
-        let fields = apply_disclosure_stream(tx_viewing_key, salt, self.disclosure, false)?;
+        if self.disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
+            return Err(AuditEncryptionError::DisclosureShape);
+        }
+        let fields = apply_disclosure_stream(tx_viewing_key, salt, &self.disclosure, false)?;
         Ok(core::array::from_fn(|slot| {
             let start = slot * AUDIT_OUTPUT_FIELD_COUNT;
             AuditOutputOpening::from_fields(
@@ -189,6 +249,30 @@ impl AuditorMessage {
                     .expect("fixed disclosure field count"),
             )
         }))
+    }
+
+    /// Unmasks the slot-padded chunks that the anonymous circuit binds to its
+    /// hidden sender, inputs and outputs.
+    pub fn open_anonymous(
+        &self,
+        tx_viewing_key: &ViewingKey,
+        salt: [u8; 16],
+        shape: DisclosureShape,
+    ) -> Result<AnonymousDisclosure> {
+        if !shape.anonymous || Some(self.disclosure.len()) != shape.field_count() {
+            return Err(AuditEncryptionError::DisclosureShape);
+        }
+        let fields = apply_disclosure_stream(tx_viewing_key, salt, &self.disclosure, false)?;
+        let plaintext = Zeroizing::new(
+            unpack_disclosure(
+                &fields,
+                shape
+                    .plaintext_len()
+                    .ok_or(AuditEncryptionError::DisclosureShape)?,
+            )
+            .ok_or(AuditEncryptionError::DisclosurePadding)?,
+        );
+        AnonymousDisclosure::decode(&plaintext, shape)
     }
 }
 
@@ -228,8 +312,125 @@ impl AuditorEncryption {
             plaintext[start..start + AUDIT_OUTPUT_FIELD_COUNT]
                 .copy_from_slice(&AuditOutputOpening::from(output).fields());
         }
-        sealed.message.disclosure = apply_disclosure_stream(tx_viewing_key, salt, plaintext, true)?;
+        sealed.message.disclosure =
+            apply_disclosure_stream(tx_viewing_key, salt, &plaintext, true)?;
         Ok(sealed)
+    }
+
+    /// Seals the anonymous opening using the same fresh capsule and disclosure
+    /// stream as the circuit.
+    pub fn new_with_anonymous(
+        tx_viewing_key: &ViewingKey,
+        auditor_pk: &X25519Pubkey,
+        salt: [u8; 16],
+        disclosure: &AnonymousDisclosure,
+    ) -> Result<Self> {
+        let plaintext = Zeroizing::new(disclosure.encode()?);
+        let mut sealed = Self::new(tx_viewing_key, auditor_pk)?;
+        sealed.message.disclosure =
+            apply_disclosure_stream(tx_viewing_key, salt, &pack_disclosure(&plaintext), true)?;
+        Ok(sealed)
+    }
+}
+
+impl AnonymousDisclosure {
+    pub fn shape(&self) -> DisclosureShape {
+        DisclosureShape {
+            anonymous: true,
+            inputs: self.inputs.len(),
+            outputs: self.outputs.len(),
+        }
+    }
+
+    fn encode(&self) -> Result<Vec<u8>> {
+        let len = self
+            .shape()
+            .plaintext_len()
+            .ok_or(AuditEncryptionError::DisclosureShape)?;
+        let mut bytes = Vec::with_capacity(len);
+        bytes.push(zolana_hasher::primitives::SOLANA_OWNER_TAG);
+        bytes.extend_from_slice(&self.sender);
+        bytes.resize(DISCLOSURE_SENDER_LEN, 0);
+        for input in &self.inputs {
+            let end = bytes.len() + DISCLOSURE_INPUT_LEN;
+            bytes.extend_from_slice(&input.tree_id.to_be_bytes());
+            bytes.extend_from_slice(&input.amount.to_be_bytes());
+            bytes.extend_from_slice(&input.asset);
+            bytes.extend_from_slice(&input.blinding);
+            bytes.resize(end, 0);
+        }
+        for output in &self.outputs {
+            let end = bytes.len() + DISCLOSURE_OUTPUT_LEN;
+            bytes.push(output.identity_tag);
+            bytes.extend_from_slice(&output.identity_key);
+            bytes.extend_from_slice(&output.nullifier_pk);
+            bytes.extend_from_slice(&output.amount.to_be_bytes());
+            bytes.extend_from_slice(&output.asset);
+            bytes.extend_from_slice(&output.blinding);
+            bytes.extend_from_slice(&output.data_hash);
+            bytes.extend_from_slice(&output.ring_data_hash);
+            bytes.push(output.ring_note);
+            bytes.resize(end, 0);
+        }
+        Ok(bytes)
+    }
+
+    fn decode(bytes: &[u8], shape: DisclosureShape) -> Result<Self> {
+        let (header, mut rest) = bytes
+            .split_at_checked(DISCLOSURE_SENDER_LEN)
+            .ok_or(AuditEncryptionError::DisclosureShape)?;
+        if header[0] != zolana_hasher::primitives::SOLANA_OWNER_TAG
+            || header[33..].iter().any(|b| *b != 0)
+        {
+            return Err(AuditEncryptionError::DisclosurePadding);
+        }
+        let mut sender = [0u8; 32];
+        sender.copy_from_slice(&header[1..33]);
+        let mut inputs = Vec::with_capacity(shape.inputs);
+        for _ in 0..shape.inputs {
+            let (slot, tail) = rest
+                .split_at_checked(DISCLOSURE_INPUT_LEN)
+                .ok_or(AuditEncryptionError::DisclosureShape)?;
+            rest = tail;
+            if slot[74..].iter().any(|b| *b != 0) {
+                return Err(AuditEncryptionError::DisclosurePadding);
+            }
+            inputs.push(AuditInputOpening {
+                tree_id: u16::from_be_bytes(slot[0..2].try_into().expect("fixed input slot")),
+                amount: u64::from_be_bytes(slot[2..10].try_into().expect("fixed input slot")),
+                asset: slot[10..42].try_into().expect("fixed input slot"),
+                blinding: slot[42..74].try_into().expect("fixed input slot"),
+            });
+        }
+        let mut outputs = Vec::with_capacity(shape.outputs);
+        for _ in 0..shape.outputs {
+            let (slot, tail) = rest
+                .split_at_checked(DISCLOSURE_OUTPUT_LEN)
+                .ok_or(AuditEncryptionError::DisclosureShape)?;
+            rest = tail;
+            if slot[202..].iter().any(|b| *b != 0) || slot[201] > 1 {
+                return Err(AuditEncryptionError::DisclosurePadding);
+            }
+            outputs.push(AnonymousOutputOpening {
+                identity_tag: slot[0],
+                identity_key: slot[1..33].try_into().expect("fixed output slot"),
+                nullifier_pk: slot[33..65].try_into().expect("fixed output slot"),
+                amount: u64::from_be_bytes(slot[65..73].try_into().expect("fixed output slot")),
+                asset: slot[73..105].try_into().expect("fixed output slot"),
+                blinding: slot[105..137].try_into().expect("fixed output slot"),
+                data_hash: slot[137..169].try_into().expect("fixed output slot"),
+                ring_data_hash: slot[169..201].try_into().expect("fixed output slot"),
+                ring_note: slot[201],
+            });
+        }
+        if !rest.is_empty() {
+            return Err(AuditEncryptionError::DisclosureShape);
+        }
+        Ok(Self {
+            sender,
+            inputs,
+            outputs,
+        })
     }
 }
 
@@ -282,14 +483,14 @@ impl From<&ProofInputUtxo> for AuditOutputOpening {
 fn apply_disclosure_stream(
     tx_viewing_key: &ViewingKey,
     salt: [u8; 16],
-    fields: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+    fields: &[[u8; 32]],
     encrypt: bool,
-) -> Result<[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]> {
+) -> Result<Vec<[u8; 32]>> {
     const DOMAIN: u64 = 0x4352_5f4f44;
     let FieldPair { lo, hi } = pack32_to_2fe(&tx_viewing_key.secret_bytes());
     let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
-    let mut out = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
-    for (index, (field, result)) in fields.into_iter().zip(out.iter_mut()).enumerate() {
+    let mut out = vec![[0u8; 32]; fields.len()];
+    for (index, (field, result)) in fields.iter().zip(out.iter_mut()).enumerate() {
         let stream = poseidon(&[
             &right_align(&DOMAIN.to_be_bytes()),
             &lo,
@@ -297,7 +498,7 @@ fn apply_disclosure_stream(
             &right_align(&salt),
             &right_align(&(index as u64).to_be_bytes()),
         ])?;
-        let value = BigUint::from_bytes_be(&field);
+        let value = BigUint::from_bytes_be(field);
         let mask = BigUint::from_bytes_be(&stream);
         let transformed = if encrypt {
             (value + mask) % &modulus
@@ -473,6 +674,58 @@ mod tests {
     use zolana_ring_policy::Member;
 
     use super::*;
+
+    #[test]
+    fn anonymous_disclosure_round_trips_even_when_its_count_equals_legacy() {
+        let auditor = X25519Secret::new();
+        let tx = ViewingKey::new();
+        let disclosure = AnonymousDisclosure {
+            sender: [7; 32],
+            inputs: vec![
+                AuditInputOpening {
+                    tree_id: 4,
+                    amount: 9,
+                    asset: [3; 32],
+                    blinding: [5; 32],
+                },
+                AuditInputOpening::default(),
+            ],
+            outputs: vec![
+                AnonymousOutputOpening {
+                    identity_tag: zolana_hasher::primitives::SOLANA_OWNER_TAG,
+                    identity_key: [8; 32],
+                    nullifier_pk: [9; 32],
+                    amount: 12,
+                    asset: [3; 32],
+                    blinding: [4; 32],
+                    ring_note: 1,
+                    ..Default::default()
+                };
+                4
+            ],
+        };
+        let shape = disclosure.shape();
+        assert_eq!(shape.field_count(), Some(AUDIT_DISCLOSURE_FIELD_COUNT));
+        let sealed =
+            AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &disclosure)
+                .expect("seal");
+        let parsed = AuditorMessage::parse_with_shape(
+            &sealed.message.to_message_data(&auditor.pubkey()),
+            &auditor.pubkey(),
+            shape,
+        )
+        .expect("parse");
+        assert_eq!(
+            parsed.open_anonymous(&tx, [2; 16], shape).unwrap(),
+            disclosure
+        );
+        let mut plaintext = disclosure.encode().unwrap();
+        plaintext[33] = 1;
+        assert_eq!(
+            AnonymousDisclosure::decode(&plaintext, shape),
+            Err(AuditEncryptionError::DisclosurePadding)
+        );
+    }
 
     fn bytes<const N: usize>(value: &str) -> [u8; N] {
         let decoded = hex::decode(value).expect("hex");

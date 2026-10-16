@@ -423,6 +423,7 @@ mod tests {
         source.config = Some(RingConfiguration {
             auditor_pubkey: auditor.pubkey(),
             authority: Address::new_from_array([2; 32]),
+            mode: custom_ring_interface::RingMode::Off,
         });
         Arc::new(
             Hub::builder(source, TEST_GENESIS)

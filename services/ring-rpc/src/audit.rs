@@ -1,5 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
@@ -12,10 +13,11 @@ use zolana_transaction::instructions::transact::canonical_shape;
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedSpendCounter,
-        DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
-        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
-        SkippedTransaction, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedAnonymousInput,
+        DecryptedAnonymousRecipient, DecryptedAnonymousTrace, DecryptedOutput,
+        DecryptedSpendCounter, DecryptedSpendRecord, DecryptedTransaction,
+        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
+        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -52,6 +54,7 @@ pub(crate) struct AuthorizedRead<'a, S> {
     service: &'a AuditService<S>,
     page: &'a Page,
     replay: ReplayCheck,
+    mode: RingMode,
     _reader: ReaderPermit<'a>,
 }
 
@@ -214,6 +217,7 @@ impl<S: TransactionSource> AuditService<S> {
                 timestamp: request.auth.timestamp,
                 now,
             },
+            mode: config.mode,
             _reader: permit,
         })
     }
@@ -221,6 +225,7 @@ impl<S: TransactionSource> AuditService<S> {
     async fn decrypted_transactions(
         &self,
         page: &Page,
+        mode: RingMode,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         let response = self
             .shared
@@ -263,7 +268,7 @@ impl<S: TransactionSource> AuditService<S> {
                 transaction: &tx,
                 assets: &assets,
             })
-            .run();
+            .run_with_mode(mode);
             if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed_assets {
                 assets = self.shared.refresh_assets().await?;
                 refreshed_assets = true;
@@ -272,7 +277,7 @@ impl<S: TransactionSource> AuditService<S> {
                     transaction: &tx,
                     assets: &assets,
                 })
-                .run();
+                .run_with_mode(mode);
             }
             match result {
                 Ok(opened) => {
@@ -309,7 +314,9 @@ impl<S: TransactionSource> AuditService<S> {
 impl<S: TransactionSource> AuthorizedRead<'_, S> {
     pub(crate) async fn execute(self) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         self.service.shared.replay.accept(self.replay)?;
-        self.service.decrypted_transactions(self.page).await
+        self.service
+            .decrypted_transactions(self.page, self.mode)
+            .await
     }
 }
 
@@ -360,6 +367,31 @@ fn decrypted_transaction(
         slot: audited.slot,
         tx_signature: audited.tx_signature.into(),
         tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
+        anonymous: audited.anonymous.map(|disclosure| DecryptedAnonymousTrace {
+            sender: Address::new_from_array(disclosure.sender).into(),
+            inputs: disclosure
+                .inputs
+                .into_iter()
+                .filter(|input| *input != Default::default())
+                .map(|input| DecryptedAnonymousInput {
+                    tree_id: input.tree_id,
+                    amount: input.amount,
+                    asset: input.asset.into(),
+                })
+                .collect(),
+            recipients: (0u32..)
+                .zip(disclosure.outputs)
+                .filter(|(_, output)| output.identity_tag != 0)
+                .map(|(slot_index, output)| DecryptedAnonymousRecipient {
+                    slot_index,
+                    identity_tag: output.identity_tag,
+                    identity_key: output.identity_key.into(),
+                    nullifier_pk: output.nullifier_pk.into(),
+                    amount: output.amount,
+                    asset: output.asset.into(),
+                })
+                .collect(),
+        }),
         outputs: audited
             .outputs
             .into_iter()
