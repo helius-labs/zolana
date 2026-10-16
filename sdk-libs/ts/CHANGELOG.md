@@ -5,9 +5,9 @@
 Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
-opts out. One private transfer can pay several recipients. Ring instructions
-follow the ring program's new layout, which binds the proven spend window, and
-ring submissions prove again over a replaced key registry root.
+opts out. One private transfer can pay several recipients. A ring policy
+bounds each transfer's outflow per mint, the windowed velocity records are
+gone, and ring submissions prove again over a replaced key registry root.
 
 Breaking
 
@@ -22,25 +22,42 @@ Breaking
 - `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
   through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
   refuses `"prover"` → set `proverUrl` to keep another prover.
-- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys, so
-  `ProverClient` rejects a ring proof from a prover on the previous keys with
-  `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
-- `RingErrorCode` now includes `RING_AUDIT_NONCANONICAL_KEY` → handle it in
-  exhaustive switches.
-- `ringTransactInstruction`, `ringDelegateTransactInstruction`,
-  `registerRingSpendInstruction` and `setRingSpendWindowInstruction` encode the
-  new ring program layout, which a ring program built for an earlier release
-  rejects → deploy the ring program of this release.
-- `registerRingSpendInstruction` requires `windowIndex`, the window the
-  registration proof opens the record in → pass the window index the proof
-  was built for.
+- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys and drops
+  `custom_ring_compressed_policy.key`, so `ProverClient` rejects a ring proof
+  from a prover on the previous keys with `CLIENT_PROVING_KEY_MISMATCH` →
+  prove against the prover of this release.
+- `RingErrorCode` adds `RING_AUDIT_NONCANONICAL_KEY`, `RING_OUTFLOW_CAP_EXCEEDED`
+  and `RING_OUTFLOW_OVERFLOW`, and loses `RING_VELOCITY_CAP_EXCEEDED`,
+  `RING_VELOCITY_OVERFLOW`, `RING_VELOCITY_DISABLED`, `RING_SPEND_COUNTERS_UNKNOWN`,
+  `RING_SPEND_RECORD_INVALID`, `RING_SPEND_RECORD_LINEAGE_BROKEN`,
+  `RING_SPEND_RECORD_MISSING`, `RING_SPEND_WINDOW_INVALID` and the never raised
+  `RING_RESERVED_AUDITOR_KEY`, while `ClientErrorCode` loses
+  `CLIENT_SPEND_RECORD_OUT_OF_SYNC` → update exhaustive switches.
+- `ringTransactInstruction` and `ringDelegateTransactInstruction` encode the
+  new ring program layout, which carries no window index and no spend window
+  accounts and which a ring program built for an earlier release rejects →
+  deploy the ring program of this release.
+- `RuleTable`, `RuleTableInput`, `EncodedRuleTable`, `RingPolicyConfig` and
+  `CustomRingPolicyProofRequest` replace `windowSlots` and `velocity` with
+  `limits`, one `CustomRingOutflowLimit` of `asset`, `cap` and `cosignAbove`
+  per mint, `RING_POLICY_VERSION` is 8, `RING_POLICY_CONFIG_SIZE` shrinks by
+  eight bytes and `outflowLimitsOff` replaces `velocityProofInputOff` → rename
+  the fields, a table pinned under the previous release hashes differently and
+  needs a re-pin.
+- Spend records, spend counters and spend windows are gone:
+  `prepareRingSpendRegistration`, `buildRingSpendRegistrationTransaction`,
+  `createRingSpendRegistrationSubmission`, `readRingVelocityState`,
+  `readRingSpendRecord`, `currentRingSpendRecord`, `registerRingSpendInstruction`,
+  `setRingSpendWindowInstruction`, `clearRingSpendWindowInstruction`,
+  `fetchRingSpendWindow`, `decodeRingSpendWindow`, `ringSpendWindowAddress`,
+  `ZolanaClient.getRingSpendRecord`, `proveCustomRingCompressedPolicy`, the
+  `SpendRecord` and `SpendCounters` codecs and the `spendRecords` field of
+  `AuditedRingTransaction` and `DecryptedRingTransaction` no longer exist → a
+  table's `limits` bound each transfer on its own, and the co-signer signs a
+  transfer above `cosignAbove`.
 - `RingTransactionSubmission` no longer takes `windowChanged`,
   `RingSubmissionAttempt` no longer has `window`, and
-  `RingSubmissionWindowChanged` is gone → drop them, a submission rebuilds on
-  `RingProgramError.windowElapsed` by itself.
-- `setRingSpendWindowInstruction` refuses a window with neither a deposit nor a
-  withdrawal cap with `RING_SPEND_WINDOW_INVALID` → set at least one nonzero
-  cap, or clear the window.
+  `RingSubmissionWindowChanged` is gone → drop them.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
 
@@ -57,26 +74,21 @@ Added
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
   its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
-- `ringTransactInstruction` takes `windowIndex`, the spend window a windowed
-  policy proof was built for.
 - `RingTransactPolicy.keyRegistryRoot`, `RingSubmissionAttempt.keyRegistryRoot`
   and the `registry` reader of `RingTransactionSubmission` let a submission
   check the registry slot its escrowed proof names.
-- `RingProgramError` names `windowElapsed`, `invalidWindowIndex`,
-  `unexpectedKeyRegistryRoot`, `unexpectedApproval`,
+- `RingProgramError` names `unexpectedKeyRegistryRoot`, `unexpectedApproval`,
   `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
-  `invalidDepositData`, `unexpectedRevocationTarget` and
-  `uncappedSpendWindow`, the ring program's refusals of this release.
+  `invalidDepositData` and `unexpectedRevocationTarget`, the ring program's
+  refusals of this release.
 
 Changed
 
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
-- Ring transfer, exit, withdrawal, delegate and spend registration
-  submissions rebuild their proof when the program reports
-  `RingProgramError.windowElapsed`, and a rejected proof is final unless later
-  registrations replaced the key registry root at the slot an escrowed proof
-  names, which rebuilds it too.
+- Ring transfer, exit, withdrawal and delegate submissions treat a rejected
+  proof as final unless later registrations replaced the key registry root at
+  the slot an escrowed proof names, which rebuilds it.
 
 Fixed
 
@@ -84,10 +96,6 @@ Fixed
   accepted a recovered transaction viewing key at or above the P-256 group
   order and read the output disclosures under another key, they now refuse a
   key of zero or at or above the order with `RING_AUDIT_NONCANONICAL_KEY`.
-- `proveCustomRingTransfer` and `buildRingTransferTransaction` charged a
-  velocity row without a cap, so a co-sign-only row could overflow and block
-  its member, such a row now keeps a zero counter and still asks the co-signer
-  above its threshold.
 
 ## 0.4.1-alpha — 2026-10-08
 

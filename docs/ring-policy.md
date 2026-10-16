@@ -2,8 +2,7 @@
 
 The ring pins a rule table and proves compliance over the same private
 transaction that SPP settles. List answers stay private. The auditor can
-decrypt the transfer. Windowed spend records expose the sender's identity
-and record history without exposing its counters.
+decrypt the transfer.
 
 ## The model
 
@@ -104,38 +103,27 @@ stored rows are exactly what `encoded` emits. The circuit range-checks the
 components and re-derives the row by weighted sum (`ruleWeights` in
 `prover/server/custom_rings/circuits/policy/constants.go`).
 
-A velocity table bounds a sender's outflow per mint and puts a single
-transfer above a threshold under dual control. It is `window_slots` and up
-to `MAX_VELOCITY_ASSETS` rows of `VelocityRow { asset, cap, cosign_above }`,
+The outflow limits bound a sender's outflow per mint in one transfer and put
+a transfer above a threshold under dual control. The table holds up to
+`MAX_OUTFLOW_LIMITS` entries of `OutflowLimit { asset, cap, cosign_above }`,
 a zero cap leaves the mint uncapped and a zero threshold disables the co-sign
-demand. A zero window caps each transfer alone with no record, a nonzero
-window carries the counters across it. A window without rows is refused, a
-row names a nonzero mint once and carries at least one bound. The rows pin
-with the rules and move only under the upgrade authority.
+demand. A limit names a nonzero mint once and carries at least one bound.
+Each transfer stands alone against its cap, the ring keeps no counter. The
+limits pin with the rules and move only under the upgrade authority.
 
 ```toml
-[policy.velocity]
-window_slots = 216000
-rows = [
-  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
-]
-```
-
-Dropping `window_slots` caps each transfer on its own with no record.
-
-```toml
-[policy.velocity]
-rows = [
+[policy]
+limits = [
   { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
 ]
 ```
 
 `EncodedRuleTable::hash` chains `POLICY_TABLE_DOMAIN`, `POLICY_VERSION`, the
-eight source slots, the rule, inline and velocity counts, every row, the
-inline asset-limit pairs, the window length and every velocity row as mint,
-cap and threshold. The counts close the variable-length preimage. The source
-map ties the table to the entries serving each list. `POLICY_VERSION` moves
-with any change of the row encoding.
+eight source slots, the rule, inline and limit counts, every row, the inline
+asset-limit pairs and every limit as mint, cap and threshold. The counts close
+the variable-length preimage. The source map ties the table to the entries
+serving each list. `POLICY_VERSION` moves with any change of the row
+encoding.
 
 ## The answer budget
 
@@ -152,8 +140,7 @@ outputs, within `ANSWER_SLOTS`. A spend from several keys can need more,
 
 `ring.toml` carries the table in its `[policy]` table
 (`custom-rings/cli/src/policy/grammar.rs`). `address_tree` names the tree
-that holds every entry and spend record address, the SPP default tree when
-absent.
+that holds every entry address, the SPP default tree when absent.
 `[policy.sources.<cluster>]` names a curator ring per list and per cluster,
 a list left out reads the ring's own entries. Each `[[policy.rules]]` row has
 a `subject` (`output-owner`, `sender` or `asset`), exactly one of `require`,
@@ -193,21 +180,18 @@ The **upgrade authority** deploys the binary, pins the table at
 once. The **auditor** decrypts transfers and registered nullifier keys but
 cannot authorize an ownership transfer or withdrawal. The **permanent
 delegate** signs moves between members over the authority rail and cannot
-withdraw. Its dedicated policy key keeps ordinary rules and
-exempts velocity. Scoped co-signing still applies. It spends a member's notes
+withdraw. Its dedicated policy key keeps ordinary rules and exempts the
+outflow limits. Scoped co-signing still applies. It spends a member's notes
 with the member's nullifier key, escrowed to the ring auditor in the key
 registry. Setting the delegate turns on key escrow for the ring, after which
-every UTXO output needs a nullifier key registered for its owner and only the
-spend record the namespace owns keeps the zero key. The current
+every UTXO output needs a nullifier key registered for its owner. The current
 delegate workflow needs both the auditor secret for
 recovery and the configured delegate's Solana signature for authorization,
 see the custom-rings [README](../custom-rings/README.md#controls). The **config
 authority** writes the authority-written lists, re-points sources, grants
-readers, sets or clears the co-signer and the spend windows, and pauses the
-ring. The **co-signer**
+readers, sets or clears the co-signer, and pauses the ring. The **co-signer**
 signs beside the sender on the operations its scope names and on every
-transfer the velocity statement marks for approval. A **member** of a windowed velocity ring registers its own spend record
-once and spends it with every transfer. A **curator** is a ring whose lists other rings
+transfer the outflow limits mark for approval. A **curator** is a ring whose lists other rings
 read, it writes its own entries and nothing on its subscribers. The
 **operator** answers `zolana-ring new` and holds the ring directory, one key
 serves both authorities unless `ring.toml` splits them.
@@ -263,66 +247,20 @@ owner tag hashes to the member. The ring admits the eddsa rail only, a P-256
 identity can be listed by the authority but cannot transact in the ring or
 self-manage a member-written list.
 
-## Spend records
+## Outflow limits
 
-A windowed velocity ring keeps a spend record per member, a per-transfer cap
-ring keeps none. A spend record is the second record kind under the namespace PDA, a
-zero-amount SOL data note keyed by the member's identity through
-`SPEND_ADDRESS_DOMAIN`, so no list instruction reaches it. Its address
-hashes under the address tree. The note itself lands in the output tree of
-the instruction that writes it. Its
-public opening is `member || version || window || counters_commitment ||
-blinding`, `SpendRecord::data_hash` binds it to its derived address and the
-program checks every published record against the leaf it names. The
-counters, `SpendCounters { salt, assets, spent }`, stay behind
-`HashChain(salt, (asset, spent) x 8)`, each counter bound to its mint
-independent of its table position.
-
-`register_spend` claims the member's address at version zero under the
-current window with the zero counters, the payer's Solana key is the member
-and the program derives every field except the blinding. From then on only the member's
-own transfer writes the record. The transfer carries the record as the last
-input and the last output of its SPP transact, the namespace PDA raised as
-one more owner signer inside the program's CPI, and the policy circuit pins
-the two slots at the sender's address, the input at the latest version, the
-output at version plus one, every other opening a different owner. Money
-inputs open to one identity, that identity is the record's member.
-
-For each row the circuit charges `outflow = inputs of the mint - change the
+A limited transfer has one sender, every money input opens to one identity.
+For each limit the circuit sums `outflow = inputs of the mint - change the
 sender keeps inside the ring`, payments, exits and withdrawals alike, and
-writes `spent' = (record.window == window ? spent : 0) + outflow` into the
-successor under a fresh salt, `spent' <= cap` where the cap is nonzero. A row
-with a zero cap records zero, its threshold checks each transfer alone. The
-instruction carries the proven `window`, and the program checks it against
-`slot / window_slots` before it verifies the proof. An earlier window fails
-as `WindowElapsed`, a later one as `InvalidWindowIndex`. The program binds
-the window into the public input beside the ring id, the namespace owner and
-the approval bit, the bit
-the circuit sets when any `outflow > cosign_above`. The program then demands
-the configured co-signer, `ApprovalWithoutCoSigner` when the ring has none.
-A record from a future window is refused, an expired one is consumed from
-its published commitment alone.
-
-Registration publishes the opening as plaintext output data. A transfer
-uses SPP's standard confidential output format for the record, publishing
-the opening in one message tagged
-`SHA256("zolana:spend-record:v1" || namespace)`. The program reconstructs the
-last output's commitment from that message. Missing or duplicate messages
-are refused. The carrier is a zero-amount note the namespace PDA owns.
-
-The successor's counters follow in a message under the
-transaction viewing key, tagged with the namespace, before the auditor
-message. The sender derives that key from the transfer's first nullifier and
-recovers the counters for its next transfer, the auditor recovers it from
-the audit ciphertext and reports the record with its counters, or without
-them when no message opens to the commitment. `ReadSpendRecord::read_current`
-reads the member's latest record from Photon's `getRingSpendRecord`, checks
-it hashes under the member's spend address, and reports a record whose
-nullifier PDA exists as `RingSpendRecordOutOfSync`. `RegisterSpend` creates
-the genesis record and claims that address, once per member. Then
-`CustomRingTransfer::prove` reads the record, the slot and the counters
-before it stages the slots, refusing `SpendRecordMissing`,
-`SpendCountersUnknown` and `VelocityCapExceeded` before any prover round.
+asserts `outflow <= cap` where the cap is nonzero. It sets the approval bit
+when any `outflow > cosign_above` with a nonzero threshold. The program binds
+the bit into the public input beside the ring id and the namespace owner,
+and demands the configured co-signer for it, `ApprovalWithoutCoSigner` when
+the ring has none and `UnexpectedApproval` when a statement without limits
+claims it. `CustomRingTransfer::prove` sums the same outflow before any
+prover round and refuses `OutflowCapExceeded`, and it refuses
+`ApprovalWithoutCoSigner` when the transfer needs approval and names no
+co-signer.
 
 ## Sources
 
@@ -364,10 +302,9 @@ address in the address tree, or the same two proofs over the cleared entry.
 The public input chains the eleven audit elements with `policy_hash`, the
 tree slots chain, `address_tree_id`, `ring_id` and `namespace_owner_hash`
 (`custom-rings/interface/src/policy_public_input.rs`). Then follow
-`window_index`, `approval_required`, `key_escrow`, `key_registry_root`, the
-packed revocation tree indexes and one revocation target per answer slot. Windowed member
-transfers append the counters disclosure hash and use the compressed policy
-key. The transact carries one policy tree account and one pair of root
+`approval_required`, `key_escrow`, `key_registry_root`, the packed revocation
+tree indexes and one revocation target per answer slot. The transact carries
+one policy tree account and one pair of root
 history indices per tree slot. The program resolves each slot from its
 account. Each fact selects a slot, and the packed indexes publish it as
 the tree of the fact's revocation target.
@@ -377,8 +314,7 @@ dispatches on. A policy ring proves the combined audit-and-policy statement abov
 An audit-only ring proves the eleven-element audit statement alone against a
 lighter circuit and verifying key, with no policy accounts. Within the policy
 circuit an empty table creates no list obligations. The client disables unused
-answer slots. The account list and key distinguish windowed velocity from
-ordinary policy. Individual list answers stay private.
+answer slots. Individual list answers stay private.
 
 ## Adding a list
 
@@ -397,7 +333,7 @@ are reused unchanged.
 clusters and the target. It then offers common policy options and an advanced
 rule builder. Finishing without an option creates an audit-only ring, any
 option creates a policy ring, and `configure policy later` creates one with an
-empty table. The options build list rules. A velocity table comes from
+empty table. The options build list rules. Outflow limits come from
 `--policy-from` or a hand-written `ring.toml`. Co-signing is configured
 separately in `ring.toml`'s `[cosigner]` table. A policy uses the SPP default tree as its address tree without asking and
 writes that address explicitly to `ring.toml`. Each option compiles as one
@@ -430,10 +366,8 @@ hash, then the tree, then every source, and exits non-zero on a difference.
 the upgrade authority, `--yes` skips the confirmation. A changed
 `address_tree` is refused, the tree is fixed at `init`.
 
-`spend register` claims the sender's spend record on a windowed velocity ring and
-`spend show` prints its live version, window and commitment. `transact` and
-`transfer` register the sender before its first transfer and refuse a
-transfer the proof marks for approval unless `--cosigner-keypair` is given.
+`transact` and `transfer` refuse a transfer the proof marks for approval
+unless `--cosigner-keypair` is given.
 
 `list add|clear|show <list>` names the member with `--owner <tag>` or
 `--asset <mint>`, exactly one, and `sol` is the native token. `add` and
@@ -467,11 +401,8 @@ the cli loads and re-renders.
 - [`asset-allowlist-owner-threshold`](../custom-rings/examples/asset-allowlist-owner-threshold/ring.toml)
   admits one mint inline and demands `Allow` from an owner receiving more
   than the threshold.
-- [`velocity-window`](../custom-rings/examples/velocity-window/ring.toml)
-  caps each sender's SOL outflow per window and demands the co-signer above
-  a threshold.
-- [`transfer-cap`](../custom-rings/examples/transfer-cap/ring.toml) caps each
-  transfer's SOL outflow on its own with no window and no record.
+- [`outflow-limit`](../custom-rings/examples/outflow-limit/ring.toml) caps
+  each transfer's SOL outflow and demands the co-signer above a threshold.
 
 ## Pitfalls
 
@@ -535,24 +466,17 @@ the cli loads and re-renders.
   like the tier. The grammar accepts a missing `address_tree` as the SPP
   default, the cli writes the effective address explicitly.
   `set_policy_rules` keeps the stored tree. A full address tree ends new
-  entries and spend record registrations. Another address tree means a new
-  ring.
+  entries. Another address tree means a new ring.
 - The table moves only under the upgrade authority. `generation` is a `u32`
   counter, a write at its ceiling fails with `PolicyGenerationOverflow`.
 - The tier is fixed at `create_config` and immutable. A ring cannot move
   between audit-only and policy after init, `init` refuses a `ring.toml`
   whose tier differs from the chain (`TierDrift`).
 - The program and SDK reject a config account with an incompatible layout.
-- A velocity ring, per transfer or windowed, takes no deposit leg on a
-  member transfer. Delegation is exempt from velocity caps and counters.
-  Ordinary rules and transfer-scoped co-signing apply to it. A windowed ring
-  needs a registered record before a member's first transfer. A per-transfer
-  cap ring keeps none, each transfer stands alone against its cap. Windows are fixed, a boundary
-  admits up to twice the cap. A member spends only its own notes in one
-  transfer. The record publishes the member's identity and lineage.
-- One input and one output carry the record, leaving four money inputs and
-  three outputs. See
-  [compressed history](ring-policy-design.md#compressed-history).
+- An outflow limit bounds one transfer, a sender may move up to the cap in
+  every transfer. Delegation is exempt from the limits. Ordinary rules and
+  transfer-scoped co-signing apply to it. A limited transfer spends one
+  member's notes.
 
 ## The cycle
 
