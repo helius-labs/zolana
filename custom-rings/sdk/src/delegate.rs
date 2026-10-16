@@ -586,7 +586,7 @@ mod tests {
                 panic!("a padded slot must publish as encrypted");
             };
             let body = ring_confidential_encrypted_output_body(data).expect("ring scheme");
-            assert!(matches!(body.first(), Some(2 | 3)));
+            assert_eq!(body.first(), Some(&zolana_keypair::x25519::X25519_KEY_TAG));
         }
     }
 

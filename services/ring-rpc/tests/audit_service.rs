@@ -468,7 +468,7 @@ impl TransactionSource for StaticSource {
 
 fn confidential_slot(
     tx: &ViewingKey,
-    recipient: &P256Pubkey,
+    recipient: &X25519Pubkey,
     amount: u64,
     slot_index: u32,
 ) -> OutputSlot {
@@ -477,7 +477,7 @@ fn confidential_slot(
 
 fn confidential_asset_slot(
     tx: &ViewingKey,
-    recipient: &P256Pubkey,
+    recipient: &X25519Pubkey,
     asset_id: u64,
     amount: u64,
     slot_index: u32,
@@ -559,7 +559,7 @@ fn transaction(
 
 struct Fixture {
     auditor: X25519Secret,
-    recipient: P256Pubkey,
+    recipient: X25519Pubkey,
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
     missing_message: ShieldedTransaction,

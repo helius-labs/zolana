@@ -10,9 +10,8 @@ use zolana_client::{Proof, ProofInputUtxo};
 use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
-/// circuit test's own: byte `i` is `seed ^ i` with byte 0 forced to 0x01 so the
-/// scalar stays below the P-256 group order.
-const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
+/// circuit test's own X25519 viewing secret after canonical clamping.
+const TX_SK: &str = "001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e";
 const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
 
 /// Right-aligned `0xabcdef`, the Go fixture's `PrivateTxHash`.
@@ -26,7 +25,7 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 fn encrypt(auditor_pk: X25519Pubkey) -> EncryptedAudit {
     CustomRingProofParams {
         tx_viewing_key: ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
-            .expect("valid P-256 scalar"),
+            .expect("valid X25519 viewing secret"),
         auditor_pk,
         salt: [0; 16],
         outputs: vec![ProofInputUtxo::default()],
@@ -36,7 +35,7 @@ fn encrypt(auditor_pk: X25519Pubkey) -> EncryptedAudit {
 }
 
 fn auditor() -> X25519Secret {
-    X25519Secret::from_bytes(&hex_bytes::<32>(AUDITOR_SK)).expect("valid P-256 scalar")
+    X25519Secret::from_bytes(&hex_bytes::<32>(AUDITOR_SK)).expect("valid X25519 secret")
 }
 
 /// `(ephemeral, auditor_pk)` fixes the AES-256-CTR keystream, so two encryptions

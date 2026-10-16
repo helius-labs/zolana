@@ -1,4 +1,4 @@
-//! X25519 auditor envelope keys. A public key travels as the 33-byte `0x04 || u`.
+//! X25519 viewing and auditor envelope keys. Public keys use `0x04 || u`.
 
 use rand::{rngs::OsRng, RngCore};
 use x25519_dalek::{PublicKey, StaticSecret};

@@ -9,9 +9,7 @@
 //! no-thin-wrapper directive.
 
 use hkdf::Hkdf;
-use p256::{
-    ecdh::diffie_hellman, AffinePoint, SecretKey,
-};
+use p256::{ecdh::diffie_hellman, AffinePoint, SecretKey};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
@@ -281,7 +279,9 @@ pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
 /// this root. The versioned salt separates it from earlier P-256 roots.
 pub(crate) fn view_root(secret: &X25519Secret) -> Zeroizing<[u8; 32]> {
     let peer = X25519Pubkey::from_u(X25519_VIEW_ROOT_U).expect("committed view peer is canonical");
-    let ikm = secret.ecdh(&peer).expect("committed view peer is contributory");
+    let ikm = secret
+        .ecdh(&peer)
+        .expect("committed view peer is contributory");
     let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_VIEW_ROOT), ikm.as_slice());
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&prk);

@@ -6,11 +6,10 @@
 //! pubkey in its own body
 //! (`sdk-libs/transaction/src/serialization/confidential.rs`), so
 //! [`Confidential::decrypt_with_tx_key`] needs the transaction key and nothing
-//! else. Recovering that one scalar therefore opens everything the recipients
+//! else. Recovering that one secret therefore opens everything the recipients
 //! see.
 
 use crate::encryption::{auditor_view_tag, AuditorMessage};
-use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{hash_bytes, right_align};
@@ -184,8 +183,7 @@ pub fn recover_tx_viewing_key(
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
     let recovered = message.decrypt(auditor)?;
-    let canonical = reduce_mod_group_order(&recovered);
-    ViewingKey::from_bytes(&canonical).map_err(AuditError::RecoveredKeyInvalid)
+    ViewingKey::from_canonical_bytes(&recovered).map_err(AuditError::RecoveredKeyInvalid)
 }
 
 #[must_use]
@@ -281,49 +279,23 @@ fn opened_counters(
     Ok(Some(counters))
 }
 
-/// Reduces the recovered 32 bytes modulo the P-256 group order `n`.
-///
-/// The circuit witnesses the secret key as 32 big-endian bytes and only ever
-/// uses them through the emulated-field gadgets, i.e. it binds `bytes mod n`.
-/// A prover can therefore encrypt any representative of the scalar class -
-/// `sk`, `sk + n`, ... - and still satisfy
-/// `ScalarMulGenerator(bytes) == tx_viewing_pk`. Reducing here maps every such
-/// representative back to the canonical one that `ViewingKey::from_bytes`
-/// accepts. Any 256-bit integer is below `2n`, so p256's single conditional
-/// subtraction is a complete reduction.
-fn reduce_mod_group_order(bytes: &[u8; 32]) -> Zeroizing<[u8; 32]> {
-    let scalar = <Scalar as Reduce<U256>>::reduce_bytes(&FieldBytes::from(*bytes));
-    let mut reduced = Zeroizing::new([0u8; 32]);
-    reduced.copy_from_slice(scalar.to_bytes().as_slice());
-    reduced
-}
-
 #[cfg(test)]
 mod tests {
-    use p256::{
-        elliptic_curve::{bigint::ArrayEncoding, Curve},
-        NistP256,
-    };
-    use zolana_keypair::symmetric_apply;
+    use zolana_keypair::{symmetric_apply, KeypairError};
 
     use crate::encryption::{AuditSharedSecret, AUDIT_ENC_INFO};
 
     use super::*;
 
-    /// The circuit binds `bytes mod n`, so a prover may encrypt another
-    /// representative of the scalar class. Client-side reduction must recover the
-    /// canonical transaction viewing key.
+    /// Audit recovery rejects a noncanonical byte string even when its
+    /// clamping would produce the published viewing key.
     #[test]
-    fn recovery_reduces_a_noncanonical_scalar() {
+    fn recovery_rejects_a_noncanonical_secret() {
         let auditor = X25519Secret::new();
-        let mut scalar = [0u8; 32];
-        scalar[24..].copy_from_slice(&0x0123_4567_89ab_cdefu64.to_be_bytes());
+        let scalar = [0x48u8; 32];
         let viewing_key = ViewingKey::from_bytes(&scalar).expect("viewing key");
-        let shifted = p256::U256::from_be_slice(&scalar)
-            .wrapping_add(&NistP256::ORDER)
-            .to_be_byte_array();
-        let mut plaintext = [0u8; 32];
-        plaintext.copy_from_slice(shifted.as_slice());
+        let mut plaintext = *viewing_key.secret_bytes();
+        plaintext[0] |= 1;
 
         let ephemeral = X25519Secret::new();
         let ephemeral_key = ephemeral.pubkey();
@@ -339,11 +311,11 @@ mod tests {
         symmetric_apply(&shared, AUDIT_ENC_INFO, &mut plaintext).expect("ciphertext");
         let message = AuditorMessage::new(ephemeral_key, plaintext);
 
-        assert_eq!(
-            recover_tx_viewing_key(&auditor, &message)
-                .expect("recovered key")
-                .pubkey(),
-            viewing_key.pubkey()
-        );
+        assert!(matches!(
+            recover_tx_viewing_key(&auditor, &message),
+            Err(AuditError::RecoveredKeyInvalid(
+                KeypairError::InvalidSecretKey
+            ))
+        ));
     }
 }

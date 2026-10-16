@@ -771,7 +771,7 @@ mod tests {
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use zolana_interface::P_DERIVE_SEC1;
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::SigningKey;
     use zolana_ring_policy::{ListSet, Rule, Subject, MAX_RULES};
 
     use super::*;
@@ -935,7 +935,13 @@ mod tests {
 
     #[test]
     fn reader_read_rejects_substituted_state() {
-        let reader = ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader");
+        let reader = ReaderKey::p256(
+            SigningKey::new_p256()
+                .pubkey()
+                .as_p256()
+                .expect("P256 signing key"),
+        )
+        .expect("reader");
         let address = ring().read_access_record_pda(&reader);
         let reader_bytes = reader.to_bytes();
         let seed_hash = ReadAccessRecord::seed_hash(&reader_bytes).expect("seed hash");

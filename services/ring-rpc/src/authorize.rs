@@ -297,7 +297,7 @@ mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::SigningKey;
 
     use crate::api::{unix_now, GetDecryptedTransactionsRequest};
 
@@ -367,11 +367,16 @@ mod tests {
     #[test]
     fn the_signature_scheme_must_match_the_declared_reader_key() {
         let mut passkey_tag = signed_auth();
-        passkey_tag.reader = ReaderKey::p256(ViewingKey::new().pubkey())
-            .expect("passkey reader")
-            .to_bytes()
-            .to_vec()
-            .into();
+        passkey_tag.reader = ReaderKey::p256(
+            SigningKey::new_p256()
+                .pubkey()
+                .as_p256()
+                .expect("P256 signing key"),
+        )
+        .expect("passkey reader")
+        .to_bytes()
+        .to_vec()
+        .into();
         assert_eq!(
             decide(&passkey_tag),
             Err(Unauthorized::PasskeyNeedsAssertion)

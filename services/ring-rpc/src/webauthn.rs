@@ -79,7 +79,7 @@ struct ClientData<'a> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::SigningKey;
 
     use crate::origins::OriginPolicy;
 
@@ -120,7 +120,10 @@ mod tests {
         Verification {
             assertion: &assertion,
             signature_der: &[0; 8],
-            pubkey: &ViewingKey::new().pubkey(),
+            pubkey: &SigningKey::new_p256()
+                .pubkey()
+                .as_p256()
+                .expect("P256 signing key"),
             attestation: ATTESTATION,
             origins: &origins(),
         }

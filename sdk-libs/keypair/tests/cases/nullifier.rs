@@ -4,7 +4,7 @@ use zolana_keypair::{
         ed25519_derivation_message, DST_DERIVE_P_DERIVE, DST_PDA_ROOT_P_PDA, DST_VIEW_ROOT_P_CONST,
         ED25519_DERIVATION_MSG, P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1,
     },
-    KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, SigningKey,
+    KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::KeypairWorld;
@@ -32,20 +32,12 @@ pub(crate) fn expand_nullifier_secret(seed: &[u8], info: &[u8]) -> [u8; BLINDING
     secret
 }
 
-pub(crate) fn expand_viewing_pubkey(seed: &[u8], info: &[u8]) -> P256Pubkey {
-    use p256::elliptic_curve::hash2curve::FromOkm;
-
-    let mut okm = [0u8; 48];
+pub(crate) fn expand_viewing_pubkey(seed: &[u8], info: &[u8]) -> X25519Pubkey {
+    let mut okm = [0u8; 32];
     hkdf::Hkdf::<sha2::Sha256>::new(None, seed)
         .expand(info, &mut okm)
         .unwrap();
-    #[allow(deprecated)]
-    let scalar = p256::Scalar::from_okm(p256::elliptic_curve::generic_array::GenericArray::<
-        u8,
-        p256::elliptic_curve::generic_array::typenum::U48,
-    >::from_slice(&okm));
-    let nonzero = p256::NonZeroScalar::new(scalar).unwrap();
-    P256Pubkey::from_p256(&p256::SecretKey::from(nonzero).public_key())
+    ViewingKey::from_bytes(&okm).unwrap().pubkey()
 }
 
 fn p256_ecdh_x(secret: &[u8; 32], point_sec1: &[u8]) -> [u8; 32] {
@@ -149,7 +141,7 @@ pub(crate) fn ed25519_keypair_derives_both_keys_from_one_signature() {
     let kp = ShieldedKeypair::from_keypair(signing).unwrap();
     assert_eq!(
         kp.viewing_key.pubkey(),
-        expand_viewing_pubkey(&sig, b"TSPP/view_key/ed25519/v1")
+        expand_viewing_pubkey(&sig, b"TSPP/view_key/ed25519/x25519/v1")
     );
     assert_eq!(
         *kp.nullifier_key.secret(),
@@ -170,7 +162,7 @@ pub(crate) fn rails_differ_for_identical_root_bytes() {
 
 pub(crate) fn ed25519_ecdh_is_not_p256() {
     let ed25519 = SigningKey::from_ed25519_bytes(&[7u8; 32]);
-    let counterparty = zolana_keypair::ViewingKey::new().pubkey();
+    let counterparty = SigningKey::new_p256().pubkey().as_p256().unwrap();
     assert_eq!(ed25519.ecdh(&counterparty), Err(KeypairError::NotP256));
 }
 
@@ -203,7 +195,7 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
         sk.sign_hash(&prefixed_digest),
         Err(KeypairError::DerivationInput)
     );
-    let benign = zolana_keypair::ViewingKey::new().pubkey();
+    let benign = SigningKey::new_p256().pubkey().as_p256().unwrap();
     assert!(sk.ecdh(&benign).is_ok());
 
     let p_pda = P256Pubkey::from_bytes(P_PDA_SEC1).unwrap();
@@ -213,10 +205,7 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
     assert_eq!(sk.ecdh(&p_const), Err(KeypairError::DerivationInput));
 
     let vk = zolana_keypair::ViewingKey::new();
-    assert_eq!(vk.ecdh(&p_derive), Err(KeypairError::DerivationInput));
-    assert_eq!(vk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
-    assert_eq!(vk.ecdh(&p_const), Err(KeypairError::DerivationInput));
-    assert!(vk.ecdh(&benign).is_ok());
+    assert!(vk.ecdh(&ViewingKey::new().pubkey()).is_ok());
 }
 
 pub(crate) fn nullifier_deterministic(world: &mut KeypairWorld, key: String) {

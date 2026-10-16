@@ -2829,7 +2829,7 @@ mod tests {
             tx_signature: signature_for_slot(slot),
             event_index: Some(0),
             tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
+                zolana_keypair::X25519Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
             ),
             salt: Some(external.salt),

@@ -11,7 +11,7 @@ use hsm::{
 use zolana_keypair::{
     derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG, P_DERIVE_SEC1},
     hash, CompressedShieldedAddress, Curve, KeypairError, NullifierKey, P256Pubkey,
-    ShieldedAddress, ShieldedKeypair, ShieldedKeypairTrait, SigningKey, ViewingKey,
+    ShieldedAddress, ShieldedKeypair, ShieldedKeypairTrait, SigningKey,
 };
 
 const SECRET: [u8; 32] = [11u8; 32];
@@ -37,7 +37,7 @@ fn assert_bootstrap_counts(rules: &P256Rules) {
     assert_eq!(rules.get_public_key_viewing.num_calls(), 1);
     assert_eq!(rules.get_public_key_nullifier.num_calls(), 0);
     assert_eq!(rules.derive_nullifier.num_calls(), 1);
-    assert_eq!(rules.derive_viewing.num_calls(), 0);
+    assert_eq!(rules.derive_viewing.num_calls(), 1);
     assert_eq!(rules.sign_usage_violation.num_calls(), 0);
     assert_eq!(rules.derive_usage_violation.num_calls(), 0);
 }
@@ -116,7 +116,7 @@ fn kms_backend_signs_like_software_and_guards_derivation_inputs() {
 
 #[test]
 fn p256_spki_codec_round_trips_and_decompresses_p_derive() {
-    let pubkey = ViewingKey::new().pubkey();
+    let pubkey = SigningKey::new_p256().pubkey().as_p256().unwrap();
     let spki = codec::spki_from_p256(&pubkey);
     assert_eq!(codec::p256_from_spki(&spki), pubkey);
 
@@ -155,7 +155,10 @@ fn kms_p256_backend_matches_software_parts() {
     assert_eq!(rules.sign.num_calls(), 0);
 
     let sign_software = SigningKey::from_p256_bytes(&P256_ROOTS.sign).unwrap();
-    let viewing_software = ViewingKey::from_bytes(&P256_ROOTS.viewing).unwrap();
+    let viewing_software =
+        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&P256_ROOTS.viewing).unwrap())
+            .unwrap()
+            .viewing_key;
     let nullifier_reference = p256_reference_nullifier_key();
 
     assert_eq!(kms.signing_pubkey(), sign_software.pubkey());

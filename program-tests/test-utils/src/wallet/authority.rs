@@ -5,7 +5,8 @@ use zolana_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    Curve, NullifierKey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    X25519Pubkey,
 };
 use zolana_transaction::{
     serialization::{
@@ -28,7 +29,7 @@ pub struct ApprovalRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousRecipientSlot {
     pub view_tag: ViewTag,
-    pub recipient_pubkey: P256Pubkey,
+    pub recipient_pubkey: X25519Pubkey,
     pub plaintext: AnonymousTransferRecipientPlaintext,
 }
 
@@ -37,7 +38,7 @@ pub struct AnonymousRecipientSlot {
 /// (published in the clear), plus the sealed payload the operation produced.
 #[derive(Clone, Debug)]
 pub struct EncryptedEnvelope<P> {
-    pub tx_viewing_pk: P256Pubkey,
+    pub tx_viewing_pk: X25519Pubkey,
     pub salt: Salt,
     pub payload: P,
 }

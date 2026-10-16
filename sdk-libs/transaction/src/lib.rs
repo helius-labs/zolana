@@ -7,9 +7,7 @@ use wincode::{
     SchemaRead, SchemaWrite,
 };
 use zolana_keypair::{
-    constants::PUBLIC_KEY_LEN,
-    x25519::X25519_PUBKEY_LEN,
-    X25519Pubkey, PublicKey,
+    constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, X25519Pubkey,
 };
 
 pub mod asset;

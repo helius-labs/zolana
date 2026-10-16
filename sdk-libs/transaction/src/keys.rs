@@ -19,7 +19,7 @@
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
-    NullifierKey, X25519Pubkey, ViewingKey,
+    NullifierKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::{

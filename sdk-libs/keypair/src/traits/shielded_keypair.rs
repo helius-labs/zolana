@@ -2,8 +2,8 @@ use crate::{
     error::KeypairError,
     nullifier_key::NullifierKey,
     pubkey::{Curve, PublicKey},
-    x25519::X25519Pubkey,
     shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair},
+    x25519::X25519Pubkey,
 };
 
 /// The keypair-level operations a shielded wallet needs that are *not* covered by

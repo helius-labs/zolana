@@ -3328,7 +3328,7 @@ impl<'a> DefaultRingDeposit<'a> {
         assets: &AssetRegistry,
     ) -> Result<Note<'a>> {
         let address = self.depositor.shielded_address()?;
-        let view_tag = address.viewing_pubkey.x();
+        let view_tag = address.viewing_pubkey.u();
         let deposit = SppDeposit {
             tree: self.tree,
             depositor: self.depositor.pubkey(),

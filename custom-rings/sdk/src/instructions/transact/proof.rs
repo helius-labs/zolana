@@ -28,7 +28,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGro
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
-use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{KeypairError, ViewingKey, X25519Pubkey, X25519Secret};
 
 use super::request::CustomRingPrivateTxHash;
 
@@ -84,7 +84,7 @@ pub struct EncryptedAudit {
 #[must_use]
 pub struct PendingCustomRingProof {
     tx_viewing_key: ViewingKey,
-    tx_viewing_pk: P256Pubkey,
+    tx_viewing_pk: X25519Pubkey,
     auditor_pk: X25519Pubkey,
     ephemeral_sk: Zeroizing<[u8; 32]>,
     message: AuditorMessage,
@@ -117,7 +117,7 @@ impl CustomRingProofParams {
         } = self;
 
         let tx_viewing_pk = tx_viewing_key.pubkey();
-        // Chain elements 2/3 are the compressed key the circuit derives from the
+        // Chain elements 2/3 are the tagged key the circuit derives from the
         // witnessed scalar, so the host has to derive it the same way rather than
         // trust a caller-supplied public key.
 
@@ -346,8 +346,8 @@ mod tests {
         POLICY_OUTPUT_SLOTS,
     };
 
-    /// The `go_vectors.rs` fixture scalars, valid P-256 keys below the group order.
-    const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
+    /// The `go_vectors.rs` fixture secrets produce the same X25519 public keys.
+    const TX_SK: &str = "001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e";
     const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
     const REGISTRY_ROOT: [u8; 32] = [12u8; 32];
 
@@ -356,7 +356,7 @@ mod tests {
             .expect("hex")
             .try_into()
             .expect("scalar length");
-        ViewingKey::from_bytes(&bytes).expect("valid P-256 scalar")
+        ViewingKey::from_bytes(&bytes).expect("valid X25519 secret")
     }
 
     fn tree(id: u16, root: u8) -> PolicyTree {

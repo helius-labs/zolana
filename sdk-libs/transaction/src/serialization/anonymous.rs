@@ -1,13 +1,13 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::SALT_LEN, X25519Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
 
 use super::{change_slots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, Mint, X25519PubkeySchema, PublicKeySchema,
+    AssetRegistry, EncryptedScheme, Mint, PublicKeySchema, X25519PubkeySchema,
 };
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]

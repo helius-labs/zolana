@@ -2,9 +2,10 @@
 //! derivation of the view-tag secrets wallets scan for.
 //!
 //! Per-purpose secrets expand via labelled HKDF (`info` = `"TSPP/..."`) from
-//! `view_root = ECDH(viewing_sk, P_const)`, so the secret key only needs one
-//! ECDH and can stay in an HSM. View tags let a wallet locate its ciphertexts
-//! at an indexer without trial decryption.
+//! `view_root = HKDF-Extract(DST_X25519_VIEW_ROOT,
+//! X25519(viewing_sk, fixed_view_root_peer))`.
+//! View tags let a wallet locate its ciphertexts at an indexer without trial
+//! decryption.
 
 use std::sync::OnceLock;
 
@@ -27,8 +28,8 @@ pub type Salt = [u8; SALT_LEN];
 /// An X25519 viewing keypair.
 ///
 /// `view_root` costs a scalar multiplication and only the view-tag and
-/// transaction-viewing secrets need it, so it resolves on first use: the
-/// single-use key `get_transaction_viewing_key` returns never pays for it.
+/// transaction-viewing secrets need it, so it resolves on first use. A fresh
+/// one-time transaction viewing key can be generated without deriving it.
 #[derive(Clone)]
 pub struct ViewingKey {
     secret: X25519Secret,
@@ -71,6 +72,16 @@ impl ViewingKey {
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
         let secret = X25519Secret::from_bytes(bytes)?;
         Ok(Self::from_secret_key(secret))
+    }
+
+    /// Accepts only the unique clamped byte encoding committed by the circuit.
+    /// This prevents an audit envelope from recovering an alternate secret
+    /// string with the same X25519 public key.
+    pub fn from_canonical_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
+        if bytes[0] & 7 != 0 || bytes[31] & 0xc0 != 0x40 {
+            return Err(KeypairError::InvalidSecretKey);
+        }
+        Self::from_bytes(bytes)
     }
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
@@ -291,9 +302,15 @@ mod tests {
         let secret = key.secret_bytes();
         assert_eq!(secret[0], 0);
         assert_eq!(secret[31], 64);
-        assert_eq!(key.pubkey(), ViewingKey::from_bytes(&secret).unwrap().pubkey());
+        assert_eq!(
+            key.pubkey(),
+            ViewingKey::from_bytes(&secret).unwrap().pubkey()
+        );
 
-        for u in [derivation::X25519_VIEW_ROOT_U, derivation::X25519_PDA_ROOT_U] {
+        for u in [
+            derivation::X25519_VIEW_ROOT_U,
+            derivation::X25519_PDA_ROOT_U,
+        ] {
             let peer = X25519Pubkey::from_u(u).unwrap();
             assert_eq!(key.ecdh(&peer), Err(KeypairError::DerivationInput));
             assert_eq!(

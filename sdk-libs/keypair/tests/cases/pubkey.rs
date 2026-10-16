@@ -1,12 +1,15 @@
 use zolana_keypair::{
     constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
-    Curve, KeypairError, P256Pubkey, PublicKey, ViewingKey,
+    Curve, KeypairError, P256Pubkey, PublicKey,
 };
 
 use crate::KeypairWorld;
 
 pub(crate) fn random_p256_public_key(world: &mut KeypairWorld, name: String) {
-    world.pubkeys.insert(name, ViewingKey::new().pubkey());
+    world.pubkeys.insert(
+        name,
+        P256Pubkey::from_p256(&p256::SecretKey::random(&mut rand::rngs::OsRng).public_key()),
+    );
 }
 
 pub(crate) fn parse_p256_bytes(world: &mut KeypairWorld, name: String) {

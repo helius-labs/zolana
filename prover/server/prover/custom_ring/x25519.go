@@ -5,6 +5,15 @@ import (
 	"fmt"
 )
 
+// The base circuit binds ciphertext plaintext to one X25519 key encoding.
+// Reject aliases here before constructing an expensive witness.
+func validateX25519ViewingSecret(secret []byte, name string) error {
+	if len(secret) != 32 || secret[0]&7 != 0 || secret[31]&0xc0 != 0x40 {
+		return fmt.Errorf("custom-ring: %s is not a canonical X25519 viewing secret", name)
+	}
+	return nil
+}
+
 // Reject encoding aliases and noncontributory keys before building a witness.
 // The circuit independently enforces these requirements.
 func validateX25519Point(key []byte, name string) error {

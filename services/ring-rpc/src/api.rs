@@ -297,7 +297,7 @@ pub struct DecryptedTransactionsPage {
 pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
-    /// Canonical compressed P256 transaction key.
+    /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
     pub outputs: Vec<DecryptedOutput>,
     pub undecryptable_slots: Vec<u32>,

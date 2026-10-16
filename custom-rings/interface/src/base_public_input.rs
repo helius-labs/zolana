@@ -4,7 +4,7 @@ use zolana_hasher::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, COMPRESSED_P256_KEY_LEN};
+use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, TAGGED_X25519_KEY_LEN};
 
 /// Inputs of the auditor circuit's single public input.
 ///
@@ -19,9 +19,9 @@ use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, COMPRESSED_P256_
 /// to a different public input and fails verification.
 pub struct CustomRingBasePublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
-    pub tx_viewing_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
-    pub eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    pub tx_viewing_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
     pub output_hashes: &'a [[u8; 32]],
     pub salt: &'a [u8; 16],
@@ -90,7 +90,7 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
     }
 }
 
-/// Split a 33-byte tagged key (P256 viewing or X25519 envelope) into the two BN254 field elements
+/// Split a 33-byte tagged X25519 key into the two BN254 field elements
 /// the auditor circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit` in

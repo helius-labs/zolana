@@ -1,9 +1,7 @@
 use solana_address::Address;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::SALT_LEN,
-    x25519::X25519_PUBKEY_LEN,
-    X25519Pubkey, PublicKey, ViewingKey,
+    constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, ViewingKey, X25519Pubkey,
 };
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};

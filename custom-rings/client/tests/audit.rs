@@ -26,7 +26,7 @@ use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
 };
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditOutputOpening, AuditedOutput, AuditedTransaction,
     AuditorEncryption, OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan,
@@ -107,7 +107,7 @@ fn output_context(output: &ProofInputUtxo, slot_index: u32) -> OutputContext {
 /// bound to `slot_index`.
 fn confidential_slot(
     tx: &ViewingKey,
-    recipient: &P256Pubkey,
+    recipient: &X25519Pubkey,
     plaintext: &ConfidentialOutputPlaintext,
     slot_index: u32,
 ) -> OutputSlot {
@@ -534,8 +534,7 @@ fn another_auditor_key_finds_no_message() {
 }
 
 /// A message tagged for this auditor but encrypted to a different key: the
-/// recovered scalar is a valid key, so only the pubkey integrity check catches
-/// it.
+/// decryption must fail the canonical-secret or public-key binding check.
 #[test]
 fn message_encrypted_to_another_key_fails_the_integrity_check() {
     let auditor = X25519Secret::new();
@@ -555,7 +554,7 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
             assets: &registry()
         }
         .run(),
-        Err(AuditError::TxViewingKeyMismatch)
+        Err(AuditError::RecoveredKeyInvalid(_) | AuditError::TxViewingKeyMismatch)
     ));
 }
 
@@ -575,7 +574,7 @@ fn tampered_ciphertext_fails_the_integrity_check() {
             assets: &registry()
         }
         .run(),
-        Err(AuditError::TxViewingKeyMismatch)
+        Err(AuditError::RecoveredKeyInvalid(_) | AuditError::TxViewingKeyMismatch)
     ));
 }
 

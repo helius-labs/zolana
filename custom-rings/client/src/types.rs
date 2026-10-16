@@ -6,7 +6,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use std::fmt;
 use zeroize::Zeroizing;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_policy::{SpendCounters, SpendRecord};
 use zolana_transaction::Data;
 
@@ -20,7 +20,7 @@ pub struct AuditedOutput {
     /// Position of the slot in `ShieldedTransaction::output_slots`, which is also
     /// the slot index the ciphertext is bound to.
     pub slot_index: u32,
-    pub recipient_viewing_pk: P256Pubkey,
+    pub recipient_viewing_pk: X25519Pubkey,
     /// The slot's view tag, bound by the circuit to the output owner. The Solana
     /// address of an Ed25519 or PDA owner, an x-coordinate for P256.
     pub owner_tag: [u8; 32],
@@ -55,7 +55,7 @@ pub struct AuditedTransaction {
     pub slot: u64,
     /// The published key, already checked against the key recovered from the
     /// auditor message.
-    pub tx_viewing_pk: P256Pubkey,
+    pub tx_viewing_pk: X25519Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<AuditOutputOpening>,
     pub spend_records: Vec<AuditedSpendRecord>,

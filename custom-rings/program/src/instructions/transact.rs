@@ -3,7 +3,7 @@ use core::num::NonZeroU64;
 use custom_ring_interface::{
     CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
     CustomRingProof, CustomRingTransactIxData, FixedWindow, KeyEscrow, AUDIT_CIPHERTEXT_LEN,
-    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN, COMPRESSED_P256_KEY_LEN,
+    AUDIT_DISCLOSURE_FIELD_COUNT, AUDIT_DISCLOSURE_LEN, TAGGED_X25519_KEY_LEN,
 };
 use pinocchio::{
     error::ProgramError,
@@ -243,7 +243,7 @@ impl TransactRail {
 
         let view_tag: &[u8; 32] = config
             .auditor_pubkey
-            .get(1..COMPRESSED_P256_KEY_LEN)
+            .get(1..TAGGED_X25519_KEY_LEN)
             .and_then(|tag| tag.try_into().ok())
             .ok_or(CustomRingError::InvalidAuditorPubkey)?;
         let message = select_auditor_message(&transact.messages, view_tag)?;
@@ -435,7 +435,7 @@ struct PolicyReads {
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out
 /// of the published message data.
 struct AuditorMessageParts<'a> {
-    eph_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
+    eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
     disclosure: &'a [[u8; 32]],
 }
@@ -466,9 +466,9 @@ fn select_auditor_message<'a>(
 
     let (eph_pk, body) = last
         .data
-        .split_at_checked(COMPRESSED_P256_KEY_LEN)
+        .split_at_checked(TAGGED_X25519_KEY_LEN)
         .ok_or(CustomRingError::InvalidAuditorMessage)?;
-    let eph_pk: &[u8; COMPRESSED_P256_KEY_LEN] = eph_pk
+    let eph_pk: &[u8; TAGGED_X25519_KEY_LEN] = eph_pk
         .try_into()
         .map_err(|_| CustomRingError::InvalidAuditorMessage)?;
     let (ciphertext, disclosure) = body
@@ -496,7 +496,7 @@ fn is_valid_confidential_output(data: &[u8]) -> bool {
     else {
         return false;
     };
-    let Some((key, ciphertext)) = body.split_at_checked(COMPRESSED_P256_KEY_LEN) else {
+    let Some((key, ciphertext)) = body.split_at_checked(TAGGED_X25519_KEY_LEN) else {
         return false;
     };
     matches!(key.first(), Some(2 | 3)) && !ciphertext.is_empty()
@@ -518,20 +518,20 @@ mod tests {
     /// from, over that fixture. Because `PRIVATE_TX_HASH` is that test's
     /// `PrivateTxHash` too, `PUBLIC_INPUT_HASH` is exactly the public input the
     /// Go test solves the compiled circuit against.
-    const TX_PK: &str = "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5";
+    const TX_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
     const EPH_PK: &str = "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966";
     const AUDITOR_PK: &str = "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a";
-    const CIPHERTEXT: &str = "02417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2314";
+    const CIPHERTEXT: &str = "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354";
     /// `big.NewInt(0xabcdef)` as a 32-byte big-endian field element, the Go
     /// fixture's `PrivateTxHash`.
     const PRIVATE_TX_HASH: &str =
         "0000000000000000000000000000000000000000000000000000000000abcdef";
 
-    const TX_PK_LO: &str = "000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955";
-    const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000c5d5";
-    const CT_HASH: &str = "24d5092cd705b878e0c98d8d3dfb79dc71158dfd32358f532e944423716b9671";
+    const TX_PK_LO: &str = "00043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0";
+    const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000eb63";
+    const CT_HASH: &str = "1ceeed7a0df2acee11de3ba05f2c9e205cabd3adb067a1eaa9b6bc67149409f8";
     const PUBLIC_INPUT_HASH: &str =
-        "2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779";
+        "1569b2c4bb38c6768a2b8f8ba7ee18c0c30ab441fb6b3edddc08a15c01b130e8";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");

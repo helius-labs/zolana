@@ -1,8 +1,8 @@
 use crate::{
     error::KeypairError,
-    x25519::X25519Pubkey,
     shielded::ShieldedKeypair,
     viewing_key::{Salt, ViewTag, ViewingKey},
+    x25519::X25519Pubkey,
 };
 
 /// The viewing-key operations a shielded wallet needs — view-tag derivation,

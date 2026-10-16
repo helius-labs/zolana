@@ -29,6 +29,8 @@ func sampleBaseParams() *BaseParameters {
 		p.TxViewingSk[i] = byte(i)
 		p.EphSk[i] = byte(0x20 + i)
 	}
+	p.TxViewingSk[0] &= 248
+	p.TxViewingSk[31] = (p.TxViewingSk[31] & 127) | 64
 	p.AuditorPk[0] = 9
 	for i := range p.Outputs {
 		p.Outputs[i] = zeroedAuditOpening()

@@ -4,7 +4,7 @@ use zolana_client::{
 };
 use zolana_indexer_api::{Hash, RingSpendRecord, RingSpendRecordRequest, SerializablePubkey};
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
+use zolana_keypair::{constants::SALT_LEN, X25519Pubkey};
 use zolana_ring_client::RecordCarrier;
 use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
@@ -17,7 +17,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordOrigin {
     pub first_nullifier: [u8; 32],
-    pub tx_viewing_pk: Option<P256Pubkey>,
+    pub tx_viewing_pk: Option<X25519Pubkey>,
     pub salt: Option<[u8; SALT_LEN]>,
     pub messages: Vec<MessageData>,
 }

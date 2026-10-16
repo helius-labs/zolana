@@ -460,7 +460,7 @@ mod tests {
     use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_interface::P_CONST_SEC1;
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::SigningKey;
 
     use super::*;
 
@@ -613,7 +613,13 @@ mod tests {
         let ring = Address::new_from_array([9; 32]);
         let readers = [
             ReaderKey::ed25519(Keypair::new().pubkey()).expect("Ed25519 reader"),
-            ReaderKey::p256(ViewingKey::new().pubkey()).expect("P256 reader"),
+            ReaderKey::p256(
+                SigningKey::new_p256()
+                    .pubkey()
+                    .as_p256()
+                    .expect("P256 signing key"),
+            )
+            .expect("P256 reader"),
         ];
         for reader in readers {
             let grant = ReaderGrant { ring, reader };
