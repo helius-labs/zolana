@@ -20,9 +20,8 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.rules[0].altMask = listMask(listAllow)
 		}},
 		{"unconfigured alternative", func(s *statement) { s.rules[0].altMask = listMask(8) }},
-		{"nonpositional source", func(s *statement) { s.sources[7] = source{listId: 4, owner: big.NewInt(7)} }},
-		{"empty source with owner", func(s *statement) { s.sources[7] = source{listId: 0, owner: big.NewInt(7)} }},
-		{"configured source without owner", func(s *statement) { s.sources[7] = source{listId: 8, owner: big.NewInt(0)} }},
+		{"nonpositional source", func(s *statement) { s.sources[7] = source{listId: 4, registry: big.NewInt(0)} }},
+		{"empty source with a registry", func(s *statement) { s.sources[7] = source{listId: 0, registry: big.NewInt(7)} }},
 		{"zero scalar threshold", func(s *statement) { s.rules[0].guardTag = GuardAboveAmount }},
 		{"threshold without guard", func(s *statement) { s.rules[0].threshold = 1 }},
 		{"threshold beside per-asset guard", func(s *statement) {
@@ -53,7 +52,7 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.inlineAssets = append(s.inlineAssets, s.inlineAssets[0])
 			s.inlineLimits = []uint64{1000, 1000}
 		}},
-		{"zero limit with matching list fact", func(s *statement) {
+		{"zero limit with a listed recipient", func(s *statement) {
 			s.rules[0].guardTag = GuardAboveAmountByAsset
 			s.inlineLimits = []uint64{0}
 		}},
@@ -61,27 +60,41 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.rules = nil
 			s.inlineAssets = []*big.Int{big.NewInt(0)}
 		}},
+		{"asset list rule", func(s *statement) {
+			s.rules[2].mask = listMask(listAllow)
+		}},
+		{"absent asset rule", func(s *statement) {
+			s.rules[2].mode = ModeAbsent
+			s.rules[2].mask = listMask(listBlock)
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			s := newStatement(t, defaultFixture())
 			test.change(s)
-			rejectAssignment(t, s.assignment(t, []int{allowedActive, senderNotFrozen, blockedCleared}))
+			rejectAssignment(t, s.assignment(t))
 		})
 	}
 }
 
-func TestUnconfiguredAssetFailsDespiteMatchingListFact(t *testing.T) {
+// A configured list may stay with the ring's own registry.
+func TestOwnSourcesNeedNoRegistry(t *testing.T) {
+	s := newStatement(t, defaultFixture())
+	s.sources[7] = source{listId: 8, registry: big.NewInt(0)}
+	solve(t, testConstraintSystem(t), s.assignment(t))
+}
+
+func TestUnconfiguredAssetFailsDespiteListedRecipient(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 	s.rules = []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
 	s.inlineAssets = []*big.Int{big.NewInt(17)}
 	s.inlineLimits = []uint64{2000}
-	rejectAssignment(t, s.assignment(t, []int{allowedActive}))
+	rejectAssignment(t, s.assignment(t))
 }
 
 func TestDisabledRulesHaveNoPolicyRequirements(t *testing.T) {
 	s := newStatement(t, defaultFixture())
-	c := s.assignment(t, []int{allowedActive, senderNotFrozen})
+	c := s.assignment(t)
 	c.Rules[NRules-1] = rule{subject: SubjectExitDestination, mode: 0, mask: listMask(8), guardTag: 255, threshold: 12}.packed()
 	solve(t, testConstraintSystem(t), c)
 }

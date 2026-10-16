@@ -41,8 +41,11 @@ const (
 	CustomRingPolicyCircuitType         CircuitType = "custom-ring-policy"
 	CustomRingDelegatePolicyCircuitType CircuitType = "custom-ring-delegate-policy"
 
-	// Key registration inserts a member's auditor-encrypted nullifier key at the cursor.
+	// Key registration writes a member's auditor-encrypted nullifier key into its record.
 	CustomRingKeyRegisterCircuitType CircuitType = "custom-ring-register-key"
+
+	// A batch of member record updates against the ring's member registry.
+	CustomRingUpdateMembersCircuitType CircuitType = "custom-ring-update-members"
 
 	// Deposit openings must be encrypted for the configured auditor.
 	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
@@ -55,6 +58,7 @@ var RingCircuitTypes = []CircuitType{
 	CustomRingDelegatePolicyCircuitType,
 	CustomRingKeyRegisterCircuitType,
 	CustomRingDepositCircuitType,
+	CustomRingUpdateMembersCircuitType,
 }
 
 func (c CircuitType) IsRing() bool {

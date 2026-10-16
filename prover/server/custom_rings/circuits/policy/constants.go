@@ -10,14 +10,17 @@ const (
 	NInputs        = 5
 	NOutputs       = 4
 	NRules         = 16
-	NListFacts     = 10
 	NInlineAssets  = 8
 	NSources       = 8
 	NOutflowLimits = 8
+	// NSubjects opens one member record per transaction slot, inputs first.
+	NSubjects = NInputs + NOutputs
+	// NForeign is the number of curator registries a policy may read lists from.
+	NForeign = 1
 )
 
 // PolicyVersion is committed in policy_hash.
-const PolicyVersion = 8
+const PolicyVersion = 9
 
 // Subjects select the transaction value a rule checks, SubjectExitDestination is rejected.
 const (
@@ -32,11 +35,6 @@ const (
 	ModeAbsent  = 2
 )
 
-const (
-	EntryStateActive  = 1
-	EntryStateCleared = 2
-)
-
 // Guards waive a rule at or below a subject threshold or an owner and asset limit.
 const (
 	GuardAlways             = 0
@@ -44,20 +42,7 @@ const (
 	GuardAboveAmountByAsset = 2
 )
 
-// Absence is an unclaimed address or an unspent cleared entry.
-const (
-	AbsentBranchUnclaimedAddress = 1
-	AbsentBranchCleared          = 2
-)
-
-var (
-	policyAddressDomain = packedASCII("zolana:ring-policy:address:v1")
-	policyRecordDomain  = packedASCII("zolana:ring-policy:record:v1")
-	policyTableDomain   = packedASCII("zolana:ring-policy:policy:v1")
-)
-
-// solAssetField is Poseidon(0, 0), the asset of policy entries.
-var solAssetField, _ = new(big.Int).SetString("2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
+var policyTableDomain = packedASCII("zolana:ring-policy:policy:v1")
 
 const amountBits = 64
 

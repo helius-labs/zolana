@@ -8,10 +8,12 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
-// Properties: the audit statement holds, every enabled rule passes for each live subject on list facts
-// that open at the slot roots, and the transfer's outflow stays within each cap, with output keys escrowed.
+// Properties: the audit statement holds, every enabled rule passes for each live subject on the
+// lists its member record carries, and the transfer's outflow stays within each cap, with every
+// output owner's key escrowed in the record when the ring escrows keys.
 
 type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -24,7 +26,7 @@ type CustomRingPolicyCircuit struct {
 	AddressChain      frontend.Variable
 	PrivateTxBlinding frontend.Variable
 
-	// Slot i is empty or serves list i+1.
+	// Slot i is empty or serves list i+1, from the curator registry it names or the ring's own.
 	Sources   [NSources]SourceWires
 	PolicyLen frontend.Variable
 	// Each rule packs its fields as ring_policy::Rule::encoded does.
@@ -41,13 +43,18 @@ type CustomRingPolicyCircuit struct {
 	NamespaceOwnerHash frontend.Variable
 	ApprovalRequired   frontend.Variable
 	KeyEscrow          frontend.Variable
-	KeyRegistryRoot    frontend.Variable
-	ListFacts          [NListFacts]ListFactWires
+
+	MemberRegistryRoot frontend.Variable
+	// Subjects open each live UTXO slot's owner in the ring's registry, inputs first.
+	Subjects [NSubjects]registry.MemberOpening
+	// ForeignRoot is the curator registry the sources name, zero without one.
+	ForeignRoot     frontend.Variable
+	ForeignSubjects [NSubjects]registry.MemberOpening
 }
 
 type SourceWires struct {
-	ListId    frontend.Variable
-	OwnerHash frontend.Variable
+	ListId   frontend.Variable
+	Registry frontend.Variable
 }
 
 type policyRail uint8
@@ -68,15 +75,15 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	checked := c.checkPolicy(api, rc)
 	tx := c.constrainTransaction(api, rc)
 	c.constrainNamespace(api, tx)
-	facts, factSlots := c.checkListFacts(api, rc)
-	c.constrainRules(api, tx, facts, checked)
+	subjects := c.resolveSubjects(api, tx, checked.sources)
+	c.constrainRules(api, tx, subjects, checked)
 	if rail == delegateRail {
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
 	} else {
 		c.constrainLimits(api, checked.limits, tx)
 	}
-	c.constrainOutputKeys(api, tx)
+	c.constrainEscrow(api, tx, subjects)
 
 	var openings [NOutputs]base.AuditOutputWires
 	var hashes [NOutputs]frontend.Variable
@@ -84,10 +91,6 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 		openings[i], hashes[i] = output.opening, output.hash
 	}
 	audit := c.Audit.Define(api, rc, openings, hashes, tx.nOut)
-	chain := append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
-		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.KeyRegistryRoot, factSlots)
-	for _, fact := range facts {
-		chain = append(chain, fact.revocationTarget)
-	}
-	return chain
+	return append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
+		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.MemberRegistryRoot, c.ForeignRoot)
 }

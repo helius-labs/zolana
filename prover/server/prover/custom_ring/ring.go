@@ -12,6 +12,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -39,6 +40,7 @@ var RingCircuits = []RingCircuit{
 	ring[DelegatePolicyParams, policy.CustomRingDelegatePolicyCircuit](common.CustomRingDelegatePolicyCircuitType),
 	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
 	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
+	ring[UpdateMembersParams, registry.UpdateMembersCircuit](common.CustomRingUpdateMembersCircuitType),
 }
 
 func Ring(circuitType common.CircuitType) (RingCircuit, error) {

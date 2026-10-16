@@ -5,28 +5,37 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-// checkSources returns which slots serve their list, an empty slot carries a zero owner.
-func (c *CustomRingPolicyCircuit) checkSources(api frontend.API) [NSources]frontend.Variable {
-	var configured [NSources]frontend.Variable
-	for i, source := range c.Sources {
-		empty := api.IsZero(source.ListId)
-		configured[i] = api.IsZero(api.Sub(source.ListId, i+1))
-		api.AssertIsEqual(api.Add(empty, configured[i]), 1)
-		api.AssertIsEqual(api.IsZero(source.OwnerHash), empty)
-	}
-	return configured
+// sourcesView is the configured lists and which of them a curator registry serves.
+type sourcesView struct {
+	// configured[i] is set when slot i serves list i+1.
+	configured [NSources]frontend.Variable
+	// foreign[i] is set when list i+1 is read from the curator registry.
+	foreign [NSources]frontend.Variable
+	// anyForeign is set when a curator registry is configured at all.
+	anyForeign frontend.Variable
 }
 
-// sourceOwner is the namespace owner of an enabled fact's list, exactly one source serves it.
-func (c *CustomRingPolicyCircuit) sourceOwner(api frontend.API, fact ListFactWires) frontend.Variable {
-	matches, owner := frontend.Variable(0), frontend.Variable(0)
-	for _, source := range c.Sources {
-		selected := api.IsZero(api.Sub(fact.ListId, source.ListId))
-		matches = api.Add(matches, selected)
-		owner = api.Add(owner, api.Mul(selected, source.OwnerHash))
+// checkSources admits empty slots and positional slots, every curator slot names the one foreign registry.
+func (c *CustomRingPolicyCircuit) checkSources(api frontend.API) sourcesView {
+	var view sourcesView
+	view.anyForeign = frontend.Variable(0)
+	curator := frontend.Variable(0)
+	for i, source := range c.Sources {
+		empty := api.IsZero(source.ListId)
+		view.configured[i] = api.IsZero(api.Sub(source.ListId, i+1))
+		api.AssertIsEqual(api.Add(empty, view.configured[i]), 1)
+		api.AssertIsEqual(api.Mul(empty, source.Registry), 0)
+		view.foreign[i] = base.NonZero(api, source.Registry)
+		view.anyForeign = api.Or(view.anyForeign, view.foreign[i])
+		curator = api.Select(view.foreign[i], source.Registry, curator)
 	}
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: fact.Enabled, A: matches, B: 1})
-	return owner
+	for i, source := range c.Sources {
+		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: view.foreign[i], A: source.Registry, B: curator})
+	}
+	// Without a curator the program binds a zero foreign root.
+	api.AssertIsEqual(api.Mul(api.Sub(1, view.anyForeign), c.ForeignRoot), 0)
+	return view
 }

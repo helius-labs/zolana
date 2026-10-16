@@ -73,13 +73,6 @@ func zeroOpening() Opening {
 	return Opening{fi(0), fi(0), fi(0), fi(0), fi(0), fi(0), fi(0), fi(0), fi(0), fi(0)}
 }
 
-func zeroListFact() ListFact {
-	return ListFact{
-		Member: fi(0), ContentHash: fi(0), Blinding: fi(0), NullifierLowValue: fi(0), NullifierNextValue: fi(0),
-		NullifierLowPathElements: zeros(shared.NullifierTreeHeight), StatePathElements: zeros(shared.StateTreeHeight),
-	}
-}
-
 func zeroTreeSlots() TreeSlots {
 	slots := make(TreeSlots, shared.InputTrees)
 	for i := range slots {
@@ -106,12 +99,12 @@ func baseParams(t *testing.T) *BaseParams {
 }
 
 // rulesFreeParams opens a one input one output transfer against a length zero
-// rule table with every list fact slot disabled.
-func rulesFreeParams(t *testing.T) *PolicyParams {
+// rule table, both owners absent from an otherwise listed registry.
+func rulesFreeParams(t *testing.T) (*PolicyParams, *spptest.MemberRegistry) {
 	return rulesFreeParamsAtRoot(t, big.NewInt(0x0d))
 }
 
-func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
+func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) (*PolicyParams, *spptest.MemberRegistry) {
 	t.Helper()
 	p := &PolicyParams{
 		CircuitType: string(common.CustomRingPolicyCircuitType),
@@ -123,11 +116,12 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 		Rules:        zeros(policy.NRules),
 		InlineAssets: zeros(policy.NInlineAssets), InlineLimits: zeros(policy.NInlineAssets),
 		TreeSlots:     zeroTreeSlots(),
-		AddressTreeID: fi(0x0f), RingID: fi(0x5a), NamespaceOwnerHash: fi(0x99), KeyRegistryRoot: fi(0),
+		AddressTreeID: fi(0x0f), RingID: fi(0x5a), NamespaceOwnerHash: fi(0x99), ForeignRoot: fi(0),
+		Subjects: make([]*MemberOpening, policy.NSubjects), ForeignSubjects: make([]*MemberOpening, policy.NSubjects),
 	}
 	p.TreeSlots[0] = common.TreeSlotParams{ID: p.AddressTreeID.Int, UtxoRoot: root, NullifierRoot: big.NewInt(0x0e)}
 	for range policy.NSources {
-		p.Sources = append(p.Sources, Source{OwnerHash: fi(0)})
+		p.Sources = append(p.Sources, Source{Registry: fi(0)})
 	}
 	for range policy.NOutflowLimits {
 		p.Limits = append(p.Limits, OutflowLimit{fi(0), fi(0), fi(0)})
@@ -136,10 +130,7 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 		p.Inputs = append(p.Inputs, zeroOpening())
 	}
 	for range policy.NOutputs {
-		p.Outputs = append(p.Outputs, OutputOpening{Opening: zeroOpening()})
-	}
-	for range policy.NListFacts {
-		p.ListFacts = append(p.ListFacts, zeroListFact())
+		p.Outputs = append(p.Outputs, OutputOpening{Opening: zeroOpening(), CtHash: fi(0)})
 	}
 	p.Inputs[0] = Opening{
 		Domain: fi(protocol.UtxoDomain), TreeID: fi(0), OwnerPkHash: fi(0xb2), NullifierPk: fi(0xb3),
@@ -149,12 +140,45 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParams {
 		Domain: fi(protocol.UtxoDomain), TreeID: fi(0), OwnerPkHash: fi(0xa1), NullifierPk: fi(0xa2),
 		Asset: fi(0xa5), Amount: fi(1000), Blinding: fi(0x52), DataHash: fi(0), RingDataHash: fi(0), RingProgramID: fi(0),
 	}
+	members := spptest.NewMemberRegistry(t, registry.Height)
+	members.Update(t, big.NewInt(0x0a), big.NewInt(1), big.NewInt(0))
+	members.Update(t, big.NewInt(0xc0), big.NewInt(2), big.NewInt(0))
+	openSubjects(p, members)
 	bindRulesFreeStatement(t, p)
-	return p
+	return p, members
 }
 
-// The tail extends the chain past the program context.
-func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
+// openSubjects fills the opening of every live UTXO slot from the registry.
+func openSubjects(p *PolicyParams, members *spptest.MemberRegistry) {
+	p.MemberRegistryRoot = fb(members.Root())
+	for i, input := range p.Inputs {
+		if i < int(p.NIn) && input.Domain.Int64() == protocol.UtxoDomain {
+			p.Subjects[i] = memberOpening(members.Opening(input.OwnerPkHash.Int))
+		}
+	}
+	for o, output := range p.Outputs {
+		if o < int(p.NOut) && output.Domain.Int64() == protocol.UtxoDomain {
+			p.Subjects[policy.NInputs+o] = memberOpening(members.Opening(output.OwnerPkHash.Int))
+		}
+	}
+}
+
+func memberOpening(w spptest.MemberOpeningWitness) *MemberOpening {
+	opening := &MemberOpening{Present: w.Present, LowMember: fi(0), LowNext: fi(0), LowEscrow: fi(0)}
+	opening.RecordOpening = RecordOpening{Next: fi(0), EscrowKey: fi(0), Index: w.Index}
+	for _, node := range w.Path {
+		opening.Path = append(opening.Path, fb(new(big.Int).Set(&node)))
+	}
+	if w.Present {
+		opening.Next, opening.Lists, opening.EscrowKey = fb(w.Record.Next), w.Record.Lists.Uint64(), fb(w.Record.EscrowKey)
+		return opening
+	}
+	opening.LowMember, opening.LowNext, opening.LowLists, opening.LowEscrow = fb(w.Record.Member), fb(w.Record.Next), w.Record.Lists.Uint64(), fb(w.Record.EscrowKey)
+	return opening
+}
+
+// bindRulesFreeStatement binds the public chain of a policy without rules.
+func bindRulesFreeStatement(t *testing.T, p *PolicyParams) {
 	t.Helper()
 	inputs, outputs := []*big.Int{}, []*big.Int{}
 	for i := range int(p.NIn) {
@@ -170,8 +194,8 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
 	preimage := []*big.Int{tableDomain, big.NewInt(policy.PolicyVersion)}
-	for range p.Sources {
-		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
+	for _, source := range p.Sources {
+		preimage = append(preimage, big.NewInt(int64(source.ListId)), source.Registry.Int)
 	}
 	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.LimitCount)))
 	for _, row := range p.Limits[:p.LimitCount] {
@@ -189,9 +213,8 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams, tail ...*big.Int) {
 	}
 	elements = append(elements, policyHash, spptest.MustTreeSlotsHashChain(t, slots), p.AddressTreeID.Int,
 		p.RingID.Int, p.NamespaceOwnerHash.Int, big.NewInt(0),
-		keyEscrow, p.KeyRegistryRoot.Int, big.NewInt(0))
-	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), policy.NListFacts)...)
-	p.PublicInputHash = fb(spptest.MustHashChain(t, append(elements, tail...)))
+		keyEscrow, p.MemberRegistryRoot.Int, p.ForeignRoot.Int)
+	p.PublicInputHash = fb(spptest.MustHashChain(t, elements))
 }
 
 func policyAuditStatement(t testing.TB, p *PolicyParams) ringaudit.Statement {
@@ -221,26 +244,35 @@ func openingHash(t *testing.T, slot Opening) *big.Int {
 	}, slot.TreeID.Int)
 }
 
-func registryKey(keys *spptest.KeyRegistry, key spptest.RegisteredKey) *RegistryKey {
-	opening := &RegistryKey{Next: fb(key.Next), CtHash: fb(key.CtHash), Index: key.Index}
-	for _, node := range keys.Path(key.Index) {
-		opening.Path = append(opening.Path, fb(new(big.Int).Set(&node)))
+// escrowPolicyOutputs registers every live output owner's key and turns escrow on.
+func escrowPolicyOutputs(t *testing.T, p *PolicyParams, members *spptest.MemberRegistry) {
+	t.Helper()
+	for o := range int(p.NOut) {
+		output := &p.Outputs[o]
+		if output.Domain.Int64() != protocol.UtxoDomain {
+			continue
+		}
+		output.CtHash = fi(int64(0xc0 + o))
+		members.RegisterKey(t, output.OwnerPkHash.Int, output.NullifierPk.Int, output.CtHash.Int)
 	}
-	return opening
+	p.KeyEscrow = true
+	openSubjects(p, members)
+	bindRulesFreeStatement(t, p)
 }
 
 // escrowDeposits registers every occupied slot's key and turns escrow on.
-func escrowDeposits(t *testing.T, p *DepositParams) {
+func escrowDeposits(t *testing.T, p *DepositParams) *spptest.MemberRegistry {
 	t.Helper()
-	keys := spptest.NewKeyRegistry(t, registry.Height)
-	registered := make([]spptest.RegisteredKey, p.Count)
-	for i := range registered {
-		registered[i] = keys.Register(t, p.OwnerPkHashes[i].Int, p.NullifierPks[i].Int, big.NewInt(int64(0xc0+i)))
+	members := spptest.NewMemberRegistry(t, registry.Height)
+	for i := range int(p.Count) {
+		p.CtHashes[i] = fi(int64(0xc0 + i))
+		members.RegisterKey(t, p.OwnerPkHashes[i].Int, p.NullifierPks[i].Int, p.CtHashes[i].Int)
 	}
-	for i, key := range registered {
-		p.Keys[i] = registryKey(keys, key)
+	for i := range int(p.Count) {
+		p.Members[i] = &memberOpening(members.Opening(p.OwnerPkHashes[i].Int)).RecordOpening
 	}
-	p.KeyEscrow, p.KeyRegistryRoot = true, fb(keys.Root())
+	p.KeyEscrow, p.MemberRegistryRoot = true, fb(members.Root())
+	return members
 }
 
 // depositParams fills count openings, the last blinding close to the field modulus.
@@ -249,8 +281,8 @@ func depositParams(t *testing.T, count uint32) *DepositParams {
 	p := &DepositParams{
 		CircuitType: string(common.CustomRingDepositCircuitType), ContextHash: fi(0xabcdef), Count: count,
 		OwnerPkHashes: zeros(deposit.MaxDeposits), NullifierPks: zeros(deposit.MaxDeposits), Blindings: zeros(deposit.MaxDeposits),
-		Keys: make([]*RegistryKey, deposit.MaxDeposits), EphSk: testScalar(0x22), AuditorPk: auditorKey(t, 0x33),
-		KeyRegistryRoot: fi(0),
+		CtHashes: zeros(deposit.MaxDeposits), Members: make([]*RecordOpening, deposit.MaxDeposits),
+		EphSk: testScalar(0x22), AuditorPk: auditorKey(t, 0x33), MemberRegistryRoot: fi(0),
 	}
 	for i := range int(count) {
 		p.OwnerPkHashes[i] = fi(int64(11 + i))
@@ -258,6 +290,69 @@ func depositParams(t *testing.T, count uint32) *DepositParams {
 		p.Blindings[i] = fi(int64(91 + i))
 	}
 	p.Blindings[count-1] = fb(new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1)))
+	return p
+}
+
+// registerKeyParams seals a nullifier secret for member and writes the key into its record.
+func registerKeyParams(t *testing.T, members *spptest.MemberRegistry, member *big.Int) *KeyRegisterParams {
+	t.Helper()
+	secret := ringaudit.Scalar(0x07)
+	secret[0] = 0
+	keys := ringaudit.DefaultKeys(t)
+	sealed := keys.Seal(t, secret[:], policy.NfKeyEncInfo)
+	nullifierPk := spptest.MustNullifierPk(t, new(big.Int).SetBytes(secret[1:]))
+	update := members.RegisterKey(t, member, nullifierPk, sealed.CiphertextHash)
+	eph, auditor := keys.EphSk(), keys.AuditorPk()
+	p := &KeyRegisterParams{
+		CircuitType:     string(common.CustomRingKeyRegisterCircuitType),
+		RegistryOldRoot: fb(update.OldRoot), RegistryNewRoot: fb(update.NewRoot), Member: fb(member), Lists: update.Lists.Uint64(),
+		RecordUpdate:    recordUpdate(update),
+		NullifierSecret: secret[:], EphSk: eph[:], AuditorPk: auditor[:],
+	}
+	p.PublicInputHash = fb(spptest.MustHashChain(t, []*big.Int{
+		update.OldRoot, update.NewRoot, member, nullifierPk,
+		sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash, new(big.Int).SetUint64(update.Index),
+	}))
+	return p
+}
+
+func recordUpdate(w spptest.MemberUpdateWitness) RecordUpdate {
+	u := RecordUpdate{Exists: w.Exists, Next: fb(w.Next), Index: w.Index, LowMember: fi(0), LowNext: fi(0), LowEscrow: fi(0), LowPath: zeros(registry.Height)}
+	for _, node := range w.Path {
+		u.Path = append(u.Path, fb(new(big.Int).Set(&node)))
+	}
+	if w.Exists {
+		return u
+	}
+	u.LowMember, u.LowNext, u.LowLists, u.LowEscrow, u.LowIndex = fb(w.Low.Member), fb(w.Low.Next), w.Low.Lists.Uint64(), fb(w.Low.EscrowKey), w.LowIndex
+	u.LowPath = nil
+	for _, node := range w.LowPath {
+		u.LowPath = append(u.LowPath, fb(new(big.Int).Set(&node)))
+	}
+	return u
+}
+
+// updateMembersParams applies a batch of inserts and rewrites and binds the statement.
+func updateMembersParams(t *testing.T, members *spptest.MemberRegistry, items [][3]*big.Int) *UpdateMembersParams {
+	t.Helper()
+	p := &UpdateMembersParams{
+		CircuitType: string(common.CustomRingUpdateMembersCircuitType), OldRoot: fb(members.Root()),
+		ItemCount: uint8(len(items)), Items: make([]*MemberUpdate, registry.MaxBatch),
+	}
+	chain := []*big.Int{big.NewInt(int64(len(items)))}
+	for i, item := range items {
+		update := members.Update(t, item[0], item[1], item[2])
+		p.Items[i] = &MemberUpdate{
+			Member: fb(update.Member), OldLists: update.OldLists.Uint64(), OldEscrowKey: fb(update.OldEscrow),
+			Lists: update.Lists.Uint64(), EscrowKey: fb(update.EscrowKey), RecordUpdate: recordUpdate(update),
+		}
+		chain = append(chain, update.Member, update.OldLists, update.OldEscrow, update.Lists, update.EscrowKey, new(big.Int).SetUint64(update.Index))
+	}
+	for i := len(items); i < registry.MaxBatch; i++ {
+		chain = append(chain, spptest.RepeatBigInt(big.NewInt(0), 6)...)
+	}
+	p.NewRoot = fb(members.Root())
+	p.PublicInputHash = fb(spptest.MustHashChain(t, []*big.Int{p.OldRoot.Int, p.NewRoot.Int, spptest.MustHashChain(t, chain)}))
 	return p
 }
 

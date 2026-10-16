@@ -43,6 +43,7 @@ func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
 		CustomRingDelegatePolicyCircuitType: "custom_ring_delegate_policy.key",
 		CustomRingKeyRegisterCircuitType:    "custom_ring_register_key.key",
 		CustomRingDepositCircuitType:        "custom_ring_deposit.key",
+		CustomRingUpdateMembersCircuitType:  "custom_ring_update_members.key",
 	} {
 		got := manager.determineRingKeyPath(circuitType)
 		want := filepath.Join(keysDir, filename)

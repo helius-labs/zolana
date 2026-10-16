@@ -134,7 +134,7 @@ func (r *Resolver) rpc(ctx context.Context, method string, params any) (json.Raw
 	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != method {
 		return nil, fmt.Errorf("invalid indexer response")
 	}
-	if method == "getRingKeyRegistryEntry" && len(envelope.Error) != 0 {
+	if method == "getRingMemberRecord" && len(envelope.Error) != 0 {
 		var failure struct {
 			Code int `json:"code"`
 		}

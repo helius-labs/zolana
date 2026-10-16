@@ -12,13 +12,14 @@ import (
 )
 
 type Request struct {
-	Registry       *RegistryRequest   `json:"registry,omitempty"`
-	CircuitType    common.CircuitType `json:"circuitType"`
-	Prepared       json.RawMessage    `json:"prepared"`
-	Trees          []Tree             `json:"trees"`
-	Inputs         []Lookup           `json:"inputs"`
-	PublicInputs   []string           `json:"publicInputs"`
-	MinContextSlot uint64             `json:"minContextSlot,omitempty"`
+	Registry        *RegistryRequest   `json:"registry,omitempty"`
+	ForeignRegistry *RegistryRequest   `json:"foreignRegistry,omitempty"`
+	CircuitType     common.CircuitType `json:"circuitType"`
+	Prepared        json.RawMessage    `json:"prepared"`
+	Trees           []Tree             `json:"trees"`
+	Inputs          []Lookup           `json:"inputs"`
+	PublicInputs    []string           `json:"publicInputs"`
+	MinContextSlot  uint64             `json:"minContextSlot,omitempty"`
 }
 
 type Tree struct {

@@ -21,11 +21,10 @@ import (
 )
 
 // The host side of this test recomputes the whole statement outside the
-// circuit, the audit block with crypto/ecdh and crypto/aes, the entry and
-// policy hashing with the same iden3 Poseidon the Rust twins use, and the two
-// SPP trees with the protocol helpers. Solving the compiled R1CS against that
-// witness is the cross-check that the circuit computes what
-// custom-rings/policy will recompute.
+// circuit, the audit block with crypto/ecdh and crypto/aes, the member
+// registries and the policy hashing with the same iden3 Poseidon the Rust twins
+// use. Solving the compiled R1CS against that witness is the cross-check that
+// the circuit computes what custom-rings/policy will recompute.
 
 // The policy the fixture proves against.
 const (
@@ -77,8 +76,7 @@ func TestCircuitCommitmentShape(t *testing.T) {
 	}
 	// groth16-solana's BSB22 verifier supports exactly one commitment over
 	// private wires, a committed public wire makes the vk parser reject the
-	// key
-	// with Bsb22UnsupportedMultiCommitment.
+	// key with Bsb22UnsupportedMultiCommitment.
 	if len(commitments) != 1 {
 		t.Fatalf("expected 1 BSB22 commitment, got %d", len(commitments))
 	}
@@ -89,20 +87,11 @@ func TestCircuitCommitmentShape(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	solAsset := spptest.MustPoseidon(t, 3, []*big.Int{big.NewInt(0), big.NewInt(0)})
-	if solAsset.Cmp(solAssetField) != 0 {
-		t.Fatalf("Poseidon(0, 0) is %s, want the pinned SOL asset field %s", solAsset, solAssetField)
-	}
-	for tag, domain := range map[string]*big.Int{
-		"zolana:ring-policy:address:v1": policyAddressDomain,
-		"zolana:ring-policy:record:v1":  policyRecordDomain,
-		"zolana:ring-policy:policy:v1":  policyTableDomain,
-	} {
-		var padded [32]byte
-		copy(padded[32-len(tag):], tag)
-		if domain.Cmp(new(big.Int).SetBytes(padded[:])) != 0 {
-			t.Fatalf("domain %q packs to %s", tag, domain)
-		}
+	const tag = "zolana:ring-policy:policy:v1"
+	var padded [32]byte
+	copy(padded[32-len(tag):], tag)
+	if policyTableDomain.Cmp(new(big.Int).SetBytes(padded[:])) != 0 {
+		t.Fatalf("domain %q packs to %s", tag, policyTableDomain)
 	}
 }
 
@@ -113,8 +102,7 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 }
 
 // A require-any group is satisfied when the subject is present in any one of
-// the
-// masked lists, the recipient sits on Allow within an Allow-or-Block group.
+// the masked lists, the recipient sits on Allow within an Allow-or-Block group.
 func TestCircuitSolvesGroupRule(t *testing.T) {
 	cs := testConstraintSystem(t)
 
@@ -124,18 +112,16 @@ func TestCircuitSolvesGroupRule(t *testing.T) {
 }
 
 // An any_of rule passes through either alternative, a recipient never added
-// to Block through the absent branch, a recipient Active in both Approval and
-// Block through the present branch.
+// to Block through the absent branch, a recipient on both Approval and Block
+// through the present branch.
 func TestCircuitSolvesMixedModeRule(t *testing.T) {
 	cs := testConstraintSystem(t)
 
 	absent := mixedFixture()
-	absent.listFacts = []int{senderNotFrozen, allowedNotBlocked}
 	solve(t, cs, buildAssignment(t, absent))
 
 	present := mixedFixture()
 	present.recipient = approvedKey
-	present.listFacts = []int{senderNotFrozen, approvedActive}
 	solve(t, cs, buildAssignment(t, present))
 }
 
@@ -170,6 +156,18 @@ func TestCircuitSolvesRulesFreeWitness(t *testing.T) {
 	solve(t, cs, buildAssignment(t, f))
 }
 
+// The Frozen list is read from the curator registry, a Frozen bit in the ring's own registry is ignored.
+func TestCuratorListsComeFromTheCuratorRegistry(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	s := newStatement(t, defaultFixture())
+	s.setLists(t, s.members, s.sender, listMask(listFrozen))
+	solve(t, cs, s.assignment(t))
+
+	s.setLists(t, s.curator, s.sender, listMask(listFrozen))
+	rejectAssignment(t, s.assignment(t))
+}
+
 func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	cs := testConstraintSystem(t)
 
@@ -186,75 +184,64 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "entry mode swapped",
+			name: "recipient lists tampered",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.ListFacts[0].Mode = big.NewInt(ModeAbsent)
+				c.Subjects[NInputs].Lists = big.NewInt(listMask(listAllow, listApproval))
 				return c
 			},
 		},
 		{
-			name: "entry listId swapped",
+			name: "recipient record claimed absent",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.ListFacts[0].ListId = big.NewInt(listBlock)
+				c.Subjects[NInputs].Present = big.NewInt(0)
+				c.Subjects[NInputs].Lists = big.NewInt(0)
 				return c
 			},
 		},
 		{
-			name: "entry proves a different member",
+			name: "recipient opened at another index",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.ListFacts[0].Member = new(big.Int).Add(spptest.AsBigInt(c.ListFacts[0].Member), big.NewInt(1))
+				c.Subjects[NInputs].Index = big.NewInt(0)
 				return c
 			},
 		},
 		{
-			name: "zero member",
+			name: "recipient path does not open the registry root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.ListFacts[0].Member = big.NewInt(0)
+				c.Subjects[NInputs].Path[0] = big.NewInt(1)
 				return c
 			},
 		},
 		{
-			name: "present member claimed absent",
+			name: "stale registry root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.ListFacts[0].Mode = big.NewInt(ModeAbsent)
-				c.ListFacts[0].AbsentBranch = big.NewInt(AbsentBranchUnclaimedAddress)
+				s := newStatement(t, defaultFixture())
+				c := s.assignment(t)
+				c.MemberRegistryRoot = new(big.Int).Add(s.members.Root(), big.NewInt(1))
+				s.rebind(t, c)
 				return c
 			},
 		},
 		{
-			name: "cleared entry claimed present",
+			name: "stale curator root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.ListFacts[2].Mode = big.NewInt(ModePresent)
+				s := newStatement(t, defaultFixture())
+				c := s.assignment(t)
+				c.ForeignRoot = new(big.Int).Add(s.curator.Root(), big.NewInt(1))
+				s.rebind(t, c)
 				return c
 			},
 		},
 		{
-			name: "stale state root",
+			name: "another member's record for the recipient",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.TreeSlots[0].UtxoRoot = new(big.Int).Add(spptest.AsBigInt(c.TreeSlots[0].UtxoRoot), big.NewInt(1))
-				return c
-			},
-		},
-		{
-			name: "entry inclusion proof does not open the state root",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.ListFacts[0].StatePathElements[0] = big.NewInt(1)
-				return c
-			},
-		},
-		{
-			name: "entry absence proof does not open the nullifier root",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				c := validAssignment(t)
-				c.ListFacts[1].NullifierLowPathElements[0] = big.NewInt(1)
+				s := newStatement(t, defaultFixture())
+				c := s.assignment(t)
+				c.Subjects[NInputs] = openingWires(s.members.Opening(pkField(t, approvedKey)))
 				return c
 			},
 		},
@@ -276,19 +263,39 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "curator slot repointed at the own owner",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				f := defaultFixture()
-				f.curatorSlotOwn = true
-				return buildAssignment(t, f)
-			},
-		},
-		{
 			name: "live listId duplicated into a second slot in the witness",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Sources[4] = c.Sources[listFrozen-1]
 				return c
+			},
+		},
+		{
+			name: "curator slots naming two registries",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				s := newStatement(t, defaultFixture())
+				s.sources[listBlock-1].registry = big.NewInt(0x1234)
+				return s.assignment(t)
+			},
+		},
+		{
+			name: "foreign root without a curator",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := defaultFixture()
+				f.rulesFree = true
+				s := newStatement(t, f)
+				c := s.assignment(t)
+				c.ForeignRoot = s.curator.Root()
+				s.rebind(t, c)
+				return c
+			},
+		},
+		{
+			name: "frozen sender",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				s := newStatement(t, defaultFixture())
+				s.setLists(t, s.curator, s.sender, listMask(listFrozen))
+				return s.assignment(t)
 			},
 		},
 		{
@@ -358,6 +365,14 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "asset rule on a list",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				s := newStatement(t, defaultFixture())
+				s.rules[2].mask = listMask(listAllow)
+				return s.assignment(t)
+			},
+		},
+		{
 			name: "dummy input reclassified as a utxo",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
@@ -384,39 +399,6 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "alt mask swapped with the primary mask",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				// Under the swapped wires the Approval absence
-				// would cover, only
-				// the packed row disagrees.
-				f := mixedFixture()
-				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
-				s := newStatement(t, f)
-				c := s.assignment(t, f.facts())
-				swapped := s.rules[0]
-				swapped.mask, swapped.altMask = swapped.altMask, swapped.mask
-				c.Rules[0] = swapped.packed()
-				return c
-			},
-		},
-		{
-			name: "alt list fact in the primary mode",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				f := mixedFixture()
-				f.recipient = approvedKey
-				f.listFacts = []int{senderNotFrozen, approvedBlocked}
-				return buildAssignment(t, f)
-			},
-		},
-		{
-			name: "primary-only list fact in the alt mode",
-			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				f := mixedFixture()
-				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
-				return buildAssignment(t, f)
-			},
-		},
-		{
 			name: "inline rule carrying an alt mask",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
@@ -427,8 +409,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		{
 			name: "rule mode outside present and absent",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				// The guard exempts the recipient, only the
-				// mode assertion rejects.
+				// The guard exempts the recipient, only the mode assertion rejects.
 				f := defaultFixture()
 				f.guardedMode = 3
 				return buildAssignment(t, f)
@@ -466,33 +447,25 @@ func TestPrintPolicyVectors(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 
 	fmt.Printf("own_owner_hash       %s\n", hex32(s.ownOwnerHash))
-	fmt.Printf("curator_owner_hash   %s\n", hex32(s.curatorOwnerHash))
+	fmt.Printf("curator_registry     %s\n", hex32(s.curatorRegistry))
 	fmt.Printf("policy_hash          %s\n", hex32(s.policyHash))
-	for i, name := range []string{"r1_allow_present", "r2_frozen_absent", "r3_block_cleared"} {
-		d := s.derived[i]
-		fmt.Printf("%s.seed      %s\n", name, hex32(d.seed))
-		fmt.Printf("%s.address   %s\n", name, hex32(d.address))
-		fmt.Printf("%s.data_hash %s\n", name, hex32(d.dataHash))
-		fmt.Printf("%s.utxo_hash %s\n", name, hex32(d.utxoHash))
-		fmt.Printf("%s.nullifier %s\n", name, hex32(d.nullifier))
-	}
-	fmt.Printf("state_root           %s\n", hex32(s.trees[0].stateRoot))
-	fmt.Printf("nullifier_root       %s\n", hex32(s.trees[0].nullifierRoot))
+	fmt.Printf("member_registry_root %s\n", hex32(s.members.Root()))
+	fmt.Printf("curator_root         %s\n", hex32(s.curator.Root()))
 	fmt.Printf("private_tx_hash      %s\n", hex32(s.privateTxHash))
 	fmt.Printf("public_input_hash    %s\n", hex32(s.publicInputHash))
 
 	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicy{sources: emptySources()}.hash(t)))
 	oneMap := emptySources()
-	oneMap[listAllow-1] = source{listId: listAllow, owner: s.ownOwnerHash}
+	oneMap[listAllow-1] = source{listId: listAllow, registry: big.NewInt(0)}
 	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}}
 	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicy{rules: oneRule, sources: oneMap}.hash(t)))
 	twoMap := oneMap
-	twoMap[listFrozen-1] = source{listId: listFrozen, owner: s.curatorOwnerHash}
+	twoMap[listFrozen-1] = source{listId: listFrozen, registry: s.curatorRegistry}
 	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: listMask(listFrozen)})
 	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicy{rules: twoRules, sources: twoMap}.hash(t)))
 	mixedMap := emptySources()
-	mixedMap[listBlock-1] = source{listId: listBlock, owner: s.ownOwnerHash}
-	mixedMap[listApproval-1] = source{listId: listApproval, owner: s.ownOwnerHash}
+	mixedMap[listBlock-1] = source{listId: listBlock, registry: big.NewInt(0)}
+	mixedMap[listApproval-1] = source{listId: listApproval, registry: big.NewInt(0)}
 	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), altMask: listMask(listBlock)}}
 	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicy{rules: mixedRule, sources: mixedMap}.hash(t)))
 	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
@@ -512,28 +485,6 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("limits_public_input_hash %s\n", hex32(lv.publicInputHash))
 }
 
-func TestNonzeroRevocationTailVector(t *testing.T) {
-	baseHash, _ := new(big.Int).SetString("2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779", 16)
-	repeatedTarget, _ := new(big.Int).SetString("1111111111111111111111111111111111111111111111111111111111111111", 16)
-	filled := func(value byte) *big.Int {
-		data := make([]byte, 32)
-		for i := range data {
-			data[i] = value
-		}
-		return new(big.Int).SetBytes(data)
-	}
-	// Fact 1 reads slot 2, fact 0 slot 0.
-	elements := []*big.Int{
-		baseHash, filled(0x2a), filled(6), big.NewInt(9), filled(8), filled(10),
-		big.NewInt(3), big.NewInt(1), big.NewInt(1), filled(0x0b), big.NewInt(2 << shared.TreeIndexBits),
-		big.NewInt(0x42), repeatedTarget,
-	}
-	elements = append(elements, spptest.RepeatBigInt(big.NewInt(0), NListFacts-2)...)
-	if got := hex32(spptest.MustHashChain(t, elements)); got != "2f223abb7ba4b0e50aa4d532e1848e229e2e66e066fb9ddb51745cbc4533449c" {
-		t.Fatalf("nonzero revocation tail %s", got)
-	}
-}
-
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingPolicyCircuit) {
 	t.Helper()
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
@@ -548,6 +499,8 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingP
 func TestCircuitAcceptsAMovedDummyInput(t *testing.T) {
 	c := validAssignment(t)
 	c.Inputs[0], c.Inputs[1] = c.Inputs[1], c.Inputs[0]
+	c.Subjects[0], c.Subjects[1] = c.Subjects[1], c.Subjects[0]
+	c.ForeignSubjects[0], c.ForeignSubjects[1] = c.ForeignSubjects[1], c.ForeignSubjects[0]
 	witness, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
 	if err != nil {
 		t.Fatalf("new witness: %v", err)
@@ -576,7 +529,6 @@ type fixture struct {
 	guardedMode       int64
 	inlineAltMask     int64 // an alt mask on the inline asset rule
 	recipient         [32]byte
-	listFacts         []int // entry indices filling the list fact slots
 	transferred       [32]byte
 	inlineAsset       [32]byte
 	secondTransferred [32]byte
@@ -584,17 +536,9 @@ type fixture struct {
 	perAssetLimits    []uint64
 	rulesFree         bool
 	dropCuratorSlot   bool
-	curatorSlotOwn    bool
 	keys              func(ringaudit.Keys) ringaudit.Keys
 	// nil keeps outflow limits off
 	limits *limitFixture
-}
-
-func (f fixture) facts() []int {
-	if f.rulesFree || (f.limits != nil && f.limits.rulesFree) {
-		return nil
-	}
-	return f.listFacts
 }
 
 type limitFixture struct {
@@ -628,25 +572,14 @@ type limitRow struct {
 var (
 	allowedKey  = fill(0xa1)
 	approvedKey = fill(0xf6)
-)
-
-// Indices into statement.entries, a member never added to a list has state 0
-// and proves absence by its address alone.
-const (
-	allowedActive = iota
-	senderNotFrozen
-	blockedCleared
-	allowedNotBlocked
-	approvedActive
-	approvedBlocked
-	allowedNotApproved
+	blockedKey  = fill(0xc3)
+	senderKey   = fill(0xb2)
 )
 
 func defaultFixture() fixture {
 	return fixture{
 		amount:      transferAmount,
 		recipient:   allowedKey,
-		listFacts:   []int{allowedActive, senderNotFrozen, blockedCleared},
 		transferred: fill(0xd4),
 		inlineAsset: fill(0xd4),
 	}
@@ -664,35 +597,16 @@ func mixedFixture() fixture {
 // source is one host-side slot of the positional policy source map.
 type source struct {
 	listId int64
-	owner  *big.Int
+	// registry is the curator registry address, zero for the ring's own lists.
+	registry *big.Int
 }
 
 func emptySources() [NSources]source {
 	var out [NSources]source
 	for i := range out {
-		out[i] = source{listId: 0, owner: big.NewInt(0)}
+		out[i] = source{listId: 0, registry: big.NewInt(0)}
 	}
 	return out
-}
-
-// entry is one host-side policy entry, mirroring ring_policy::ListEntry.
-type entry struct {
-	// Index of the policy tree holding the entry, slot 0 is the address tree.
-	slot     int
-	listId   int64
-	member   *big.Int
-	state    int64
-	version  int64
-	content  *big.Int
-	blinding int64
-}
-
-type derived struct {
-	seed      *big.Int
-	address   *big.Int
-	dataHash  *big.Int
-	utxoHash  *big.Int
-	nullifier *big.Int
 }
 
 // rule mirrors ring_policy::Rule, packed by ring_policy::Rule::encoded.
@@ -723,38 +637,32 @@ func (r rule) packed() *big.Int {
 }
 
 type statement struct {
-	ownOwnerHash     *big.Int
-	curatorOwnerHash *big.Int
-	sources          [NSources]source
-	rules            []rule
-	inlineAssets     []*big.Int
-	inlineLimits     []uint64
-	limits           []limitRow
-	policyHash       *big.Int
+	ownOwnerHash    *big.Int
+	curatorRegistry *big.Int
+	sources         [NSources]source
+	rules           []rule
+	inlineAssets    []*big.Int
+	inlineLimits    []uint64
+	limits          []limitRow
+	policyHash      *big.Int
 
 	// The ring id every change output stays in.
 	ringID   *big.Int
 	approval bool
 
-	entries []entry
-	derived []derived
-	// Spent nullifiers beside the entry addresses, tamper fixtures only.
-	twinAddresses []*big.Int
+	sender *big.Int
+	// members is the ring's own registry, curator the one its curator sources read.
+	members *spptest.MemberRegistry
+	curator *spptest.MemberRegistry
 
-	trees        []hostTree
-	stateLeaf    map[int]uint64
-	nonInclusion []protocol.NonInclusionWitness
-
-	keyEscrow       bool
-	keyRegistryRoot *big.Int
-	// Aligned with outputs, nil opens nothing.
-	outputKeys []*registry.KeyOpening
+	keyEscrow bool
+	// Aligned with outputs, nil for an output without an escrowed key.
+	ctHashes []*big.Int
 
 	inputs  []UtxoWires
 	outputs []UtxoWires
 
 	addressChain      *big.Int
-	externalDataHash  *big.Int
 	privateTxBlinding *big.Int
 	privateTxHash     *big.Int
 	publicInputHash   *big.Int
@@ -762,12 +670,12 @@ type statement struct {
 	keys ringaudit.Keys
 }
 
-// newStatement builds a ring whose entries allow the recipient, hold no Frozen
-// entry for the sender, carry a cleared Block entry and list a second recipient
-// as Active in both Approval and Block, a policy demanding the first three plus
-// a guarded Approval rule, and a two-in two-out transaction that satisfies
-// them. The Frozen list is sourced from a curator's entries, every other list
-// from the ring's own.
+// newStatement builds a ring whose registry lists the recipient on Allow, a
+// cleared member off Block and a second recipient on both Approval and Block,
+// a curator registry that does not freeze the sender, a policy demanding the
+// first three plus a guarded Approval rule, and a two-in two-out transaction
+// that satisfies them. The Frozen list is sourced from the curator registry,
+// every other list from the ring's own.
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
@@ -779,46 +687,30 @@ func newStatement(t *testing.T, f fixture) *statement {
 		pkField(t, fill(0x11)),
 		spptest.MustNullifierPk(t, big.NewInt(0)),
 	)
-	s.curatorOwnerHash = spptest.MustOwnerHash(t,
-		pkField(t, fill(0x12)),
-		spptest.MustNullifierPk(t, big.NewInt(0)),
-	)
+	s.curatorRegistry = pkField(t, fill(0x12))
 	s.sources = emptySources()
 	for _, listId := range []int64{listAllow, listBlock, listApproval} {
-		s.sources[listId-1] = source{listId: listId, owner: s.ownOwnerHash}
+		s.sources[listId-1] = source{listId: listId, registry: big.NewInt(0)}
 	}
-	s.sources[listFrozen-1] = source{listId: listFrozen, owner: s.curatorOwnerHash}
+	s.sources[listFrozen-1] = source{listId: listFrozen, registry: s.curatorRegistry}
+	if f.dropCuratorSlot {
+		s.sources[listFrozen-1] = source{listId: 0, registry: big.NewInt(0)}
+	}
 
 	allowed := pkField(t, allowedKey)
-	sender := pkField(t, fill(0xb2))
-	blocked := pkField(t, fill(0xc3))
+	s.sender = pkField(t, senderKey)
+	blocked := pkField(t, blockedKey)
 	approved := pkField(t, approvedKey)
 	asset := assetField(t, f.transferred)
 
-	s.entries = []entry{
-		allowedActive:      {listId: listAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 1},
-		senderNotFrozen:    {listId: listFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0), blinding: 2},
-		blockedCleared:     {listId: listBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0), blinding: 3},
-		allowedNotBlocked:  {listId: listBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0), blinding: 4},
-		approvedActive:     {listId: listApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 5},
-		approvedBlocked:    {listId: listBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 6},
-		allowedNotApproved: {listId: listApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0), blinding: 7},
-	}
-	for _, r := range s.entries {
-		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
-	}
-	// The knobs repoint the map after derivation, leaving the entry
-	// fixtures
-	// under the curator.
-	if f.dropCuratorSlot {
-		s.sources[listFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
-	}
-	if f.curatorSlotOwn {
-		// The repointed slot derives the sender's Frozen address under the
-		// own owner, an address the tree already holds.
-		s.twinAddresses = []*big.Int{deriveRecord(t, s.ownOwnerHash, s.entries[senderNotFrozen]).address}
-		s.sources[listFrozen-1].owner = s.ownOwnerHash
-	}
+	s.members = spptest.NewMemberRegistry(t, registry.Height)
+	s.members.Update(t, allowed, big.NewInt(listMask(listAllow)), big.NewInt(0))
+	s.members.Update(t, approved, big.NewInt(listMask(listApproval, listBlock)), big.NewInt(0))
+	// A cleared member keeps its record with the Block bit removed.
+	s.members.Update(t, blocked, big.NewInt(listMask(listBlock)), big.NewInt(0))
+	s.members.Update(t, blocked, big.NewInt(0), big.NewInt(0))
+	s.curator = spptest.NewMemberRegistry(t, registry.Height)
+	s.curator.Update(t, pkField(t, fill(0xc4)), big.NewInt(listMask(listFrozen)), big.NewInt(0))
 
 	s.rules = []rule{
 		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)},
@@ -859,16 +751,36 @@ func newStatement(t *testing.T, f fixture) *statement {
 	if f.keys != nil {
 		s.keys = f.keys(s.keys)
 	}
-	s.buildTrees(t)
 	secondAsset := asset
 	if f.secondTransferred != [32]byte{} {
 		secondAsset = assetField(t, f.secondTransferred)
 	}
-	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, secondAsset, f.amount, f.secondAmount)
+	s.buildTransaction(t, pkField(t, f.recipient), s.sender, asset, secondAsset, f.amount, f.secondAmount)
 	if v := f.limits; v != nil {
-		s.shapeLimits(t, v, sender)
+		s.shapeLimits(t, v, s.sender)
 	}
 	return s
+}
+
+// setLists rewrites a member's lists in one registry, keeping its escrow key.
+func (s *statement) setLists(t *testing.T, members *spptest.MemberRegistry, member *big.Int, lists int64) {
+	t.Helper()
+	escrow := big.NewInt(0)
+	if index, present := members.Find(member); present {
+		escrow = members.Opening(member).Record.EscrowKey
+		_ = index
+	}
+	members.Update(t, member, big.NewInt(lists), escrow)
+}
+
+// anyForeign is set when a source names the curator registry.
+func (s *statement) anyForeign() bool {
+	for _, slot := range s.sources {
+		if slot.registry.Sign() != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // The sender funds the change on top of the transfer, change inside the ring is excluded from the outflow.
@@ -900,67 +812,13 @@ func (s *statement) shapeLimits(t *testing.T, v *limitFixture, sender *big.Int) 
 	s.updateHashes(t)
 }
 
-// hostTree is one policy tree, its id is addressTreeID plus its slot.
-type hostTree struct {
-	stateRoot     *big.Int
-	nullifierRoot *big.Int
-	stateProofs   map[uint64]protocol.StateTreeWitness
-}
+// addressTreeID is the raw id of the fixture's address tree, tree slot 0.
+const addressTreeID = 7
 
-// buildTrees seeds the SPP roots the entry proofs open against, the created
-// entries as leaves of their own tree and their addresses as spent nullifiers
-// of the address tree.
-func (s *statement) buildTrees(t *testing.T) {
-	t.Helper()
-	count := 1
-	for _, r := range s.entries {
-		count = max(count, r.slot+1)
-	}
-	leaves := make([]map[uint64]*big.Int, count)
-	nullifiers := make([]*protocol.NullifierTree, count)
-	for k := range leaves {
-		leaves[k] = map[uint64]*big.Int{}
-		nullifiers[k] = spptest.MustNewNullifierTree(t)
-	}
-	s.stateLeaf = map[int]uint64{}
-	s.nonInclusion = nil
-	for _, twin := range s.twinAddresses {
-		if err := nullifiers[0].Insert(twin); err != nil {
-			t.Fatalf("insert twin address: %v", err)
-		}
-	}
-	for i, r := range s.entries {
-		if r.state == 0 {
-			continue
-		}
-		s.stateLeaf[i] = uint64(len(leaves[r.slot]))
-		leaves[r.slot][s.stateLeaf[i]] = s.derived[i].utxoHash
-		if err := nullifiers[0].Insert(s.derived[i].address); err != nil {
-			t.Fatalf("insert entry address: %v", err)
-		}
-	}
-	s.trees = make([]hostTree, count)
-	for k := range s.trees {
-		root, proofs := spptest.MustBuildSparseStateTree(t, leaves[k])
-		s.trees[k] = hostTree{stateRoot: root, nullifierRoot: nullifiers[k].Root(), stateProofs: proofs}
-	}
-	// A created entry is unspent, a never created one has no address.
-	for i, r := range s.entries {
-		target := s.derived[i].nullifier
-		if r.state == 0 {
-			target = s.derived[i].address
-		}
-		s.nonInclusion = append(s.nonInclusion, spptest.MustNonInclusion(t, nullifiers[r.slot], target))
-	}
-}
-
+// The policy proof binds the transaction's trees without reading them.
 func (s *statement) treeSlots(t *testing.T) []protocol.TreeSlot {
 	t.Helper()
-	populated := make([]protocol.TreeSlot, len(s.trees))
-	for k, tree := range s.trees {
-		populated[k] = protocol.TreeSlot{ID: big.NewInt(addressTreeID + int64(k)), UtxoRoot: tree.stateRoot, NullifierRoot: tree.nullifierRoot}
-	}
-	slots, err := protocol.PadTreeSlots(populated...)
+	slots, err := protocol.PadTreeSlots(protocol.TreeSlot{ID: big.NewInt(addressTreeID), UtxoRoot: big.NewInt(0x1234), NullifierRoot: big.NewInt(0x5678)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -998,8 +856,7 @@ func (s *statement) buildTransaction(
 		RingProgramID: big.NewInt(0),
 	}
 	s.inputs = []UtxoWires{spent, dummyOpening(t, 0x53)}
-	// A second real output to the same recipient exercises the
-	// per-recipient
+	// A second real output to the same recipient exercises the per-recipient
 	// amount aggregation, else a dummy fills the slot.
 	second := dummyOpening(t, 0x54)
 	if secondAmount > 0 {
@@ -1019,17 +876,17 @@ func (s *statement) buildTransaction(
 	s.outputs = []UtxoWires{created, second}
 
 	s.addressChain = spptest.MustNonZeroHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
-	s.externalDataHash = big.NewInt(0x5eed)
 	s.privateTxBlinding = big.NewInt(0x5b1d)
 	s.updateHashes(t)
 }
 
 func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	t.Helper()
-	return newStatement(t, f).assignment(t, f.facts())
+	return newStatement(t, f).assignment(t)
 }
 
-func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyCircuit {
+// assignment opens every live slot's owner in the registries and binds the statement.
+func (s *statement) assignment(t *testing.T) *CustomRingPolicyCircuit {
 	t.Helper()
 	s.updateHashes(t)
 	c := &CustomRingPolicyCircuit{
@@ -1042,10 +899,11 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		NamespaceOwnerHash: s.ownOwnerHash,
 		ApprovalRequired:   boolVar(s.approval),
 		KeyEscrow:          boolVar(s.keyEscrow),
-		KeyRegistryRoot:    s.registryRoot(),
+		MemberRegistryRoot: s.members.Root(),
+		ForeignRoot:        s.foreignRoot(),
 	}
 	for i, slot := range s.sources {
-		c.Sources[i] = SourceWires{ListId: big.NewInt(slot.listId), OwnerHash: slot.owner}
+		c.Sources[i] = SourceWires{ListId: big.NewInt(slot.listId), Registry: slot.registry}
 	}
 	for i := range c.Limits {
 		c.Limits[i] = OutflowLimitWires{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
@@ -1071,15 +929,27 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		c.TreeSlots[k] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
 	}
 	for i := range c.Outputs {
-		c.Outputs[i] = OutputWires{UtxoWires: zeroOpening(), Key: zeroKeyOpening()}
+		c.Outputs[i] = OutputWires{UtxoWires: zeroOpening(), CtHash: big.NewInt(0)}
 	}
 	for i, opening := range s.outputs {
 		c.Outputs[i].UtxoWires = opening
-		if i < len(s.outputKeys) && s.outputKeys[i] != nil {
-			c.Outputs[i].Key = *s.outputKeys[i]
+		if i < len(s.ctHashes) && s.ctHashes[i] != nil {
+			c.Outputs[i].CtHash = s.ctHashes[i]
 		}
 	}
 	c.NOut = len(s.outputs)
+
+	slots := append(append([]UtxoWires{}, c.Inputs[:]...), s.outputWires(c)...)
+	for i, slot := range slots {
+		c.Subjects[i], c.ForeignSubjects[i] = zeroMemberOpening(), zeroMemberOpening()
+		if spptest.AsBigInt(slot.Domain).Int64() != protocol.UtxoDomain {
+			continue
+		}
+		c.Subjects[i] = openingWires(s.members.Opening(spptest.AsBigInt(slot.OwnerPkHash)))
+		if s.anyForeign() {
+			c.ForeignSubjects[i] = openingWires(s.curator.Opening(spptest.AsBigInt(slot.OwnerPkHash)))
+		}
+	}
 
 	// Padding rules repeat ring_policy::Rule::disabled.
 	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}
@@ -1102,69 +972,46 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 		}
 	}
 	c.InlineCount = len(s.inlineAssets)
-
-	for e := range c.ListFacts {
-		c.ListFacts[e] = disabledListFact()
-	}
-	for e, index := range listFacts {
-		c.ListFacts[e] = s.listFactForEntry(t, index)
-	}
-	s.publicInputHash = s.publicInputHashFor(t, listFacts)
-	c.PublicInputHash = s.publicInputHash
 	return c
 }
 
-func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
-	t.Helper()
-	entry := s.entries[index]
-	mode, branch := int64(ModePresent), int64(0)
-	switch entry.state {
-	case 0:
-		mode, branch = ModeAbsent, AbsentBranchUnclaimedAddress
-	case EntryStateCleared:
-		mode, branch = ModeAbsent, AbsentBranchCleared
+func (s *statement) outputWires(c *CustomRingPolicyCircuit) []UtxoWires {
+	out := make([]UtxoWires, NOutputs)
+	for i, output := range c.Outputs {
+		out[i] = output.UtxoWires
 	}
-	fact := ListFactWires{
-		Enabled:               big.NewInt(1),
-		TreeSlot:              big.NewInt(int64(entry.slot)),
-		Mode:                  big.NewInt(mode),
-		ListId:                big.NewInt(entry.listId),
-		Member:                entry.member,
-		ContentHash:           entry.content,
-		Version:               big.NewInt(entry.version),
-		Blinding:              big.NewInt(entry.blinding),
-		State:                 big.NewInt(entry.state),
-		AbsentBranch:          big.NewInt(branch),
-		NullifierLowPathIndex: big.NewInt(0),
-		StatePathIndex:        big.NewInt(0),
-	}
-	for i := range fact.NullifierLowPathElements {
-		fact.NullifierLowPathElements[i] = big.NewInt(0)
-	}
-	for i := range fact.StatePathElements {
-		fact.StatePathElements[i] = big.NewInt(0)
-	}
+	return out
+}
 
-	witness := s.nonInclusion[index]
-	fact.NullifierLowValue = witness.LowValue
-	fact.NullifierNextValue = witness.NextValue
-	fact.NullifierLowPathIndex = new(big.Int).SetUint64(witness.LowIndex)
-	for i, element := range witness.PathElements {
-		fact.NullifierLowPathElements[i] = element
+func (s *statement) foreignRoot() *big.Int {
+	if s.anyForeign() {
+		return s.curator.Root()
 	}
+	return big.NewInt(0)
+}
 
-	if entry.state == 0 {
-		return fact
+// openingWires assigns a host opening, zero wires fill the branch not taken.
+func openingWires(w spptest.MemberOpeningWitness) registry.MemberOpening {
+	o := zeroMemberOpening()
+	o.Index = new(big.Int).SetUint64(w.Index)
+	for i := range w.Path {
+		o.Path[i] = new(big.Int).Set(&w.Path[i])
 	}
-	proof, ok := s.trees[entry.slot].stateProofs[s.stateLeaf[index]]
-	if !ok {
-		t.Fatalf("missing state proof for entry %d", index)
+	if w.Present {
+		o.Present, o.Next, o.Lists, o.EscrowKey = big.NewInt(1), w.Record.Next, w.Record.Lists, w.Record.EscrowKey
+		return o
 	}
-	fact.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
-	for i, element := range proof.PathElements {
-		fact.StatePathElements[i] = element
+	o.LowMember, o.LowNext, o.LowLists, o.LowEscrow = w.Record.Member, w.Record.Next, w.Record.Lists, w.Record.EscrowKey
+	return o
+}
+
+func zeroMemberOpening() registry.MemberOpening {
+	o := registry.MemberOpening{Present: big.NewInt(0), LowMember: big.NewInt(0), LowNext: big.NewInt(0), LowLists: big.NewInt(0), LowEscrow: big.NewInt(0)}
+	o.Next, o.Lists, o.EscrowKey, o.Index = big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0)
+	for i := range o.Path {
+		o.Path[i] = big.NewInt(0)
 	}
-	return fact
+	return o
 }
 
 func boolVar(value bool) *big.Int {
@@ -1172,51 +1019,6 @@ func boolVar(value bool) *big.Int {
 		return big.NewInt(1)
 	}
 	return big.NewInt(0)
-}
-
-// addressTreeID is the raw id of the fixture's address tree, policy slot 0.
-const addressTreeID = 7
-
-// deriveRecord mirrors ring_policy::entry, the seed and address fixed by
-// (listId, member) while the commitment moves with the state and version.
-func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
-	t.Helper()
-	seed := spptest.MustPoseidon(t, 4, []*big.Int{policyAddressDomain, big.NewInt(r.listId), r.member})
-	addressUtxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
-		big.NewInt(protocol.AddressDomain),
-		big.NewInt(addressTreeID),
-		big.NewInt(0),
-		big.NewInt(0),
-		big.NewInt(0),
-		solAssetField,
-		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, seed}),
-	})
-	address := spptest.MustPoseidon(t, 4, []*big.Int{addressUtxoHash, seed, big.NewInt(0)})
-	dataHash := spptest.MustPoseidon(t, 8, []*big.Int{
-		policyRecordDomain,
-		address,
-		big.NewInt(r.listId),
-		r.member,
-		big.NewInt(r.state),
-		big.NewInt(r.version),
-		r.content,
-	})
-	utxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
-		big.NewInt(protocol.UtxoDomain),
-		big.NewInt(addressTreeID + int64(r.slot)),
-		solAssetField,
-		big.NewInt(0),
-		dataHash,
-		solAssetField,
-		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, big.NewInt(r.blinding)}),
-	})
-	return derived{
-		seed:      seed,
-		address:   address,
-		dataHash:  dataHash,
-		utxoHash:  utxoHash,
-		nullifier: spptest.MustPoseidon(t, 4, []*big.Int{utxoHash, big.NewInt(r.blinding), big.NewInt(0)}),
-	}
 }
 
 type hostPolicy struct {
@@ -1242,7 +1044,7 @@ func (p hostPolicy) hash(t *testing.T) *big.Int {
 	t.Helper()
 	elements := []*big.Int{policyTableDomain, big.NewInt(PolicyVersion)}
 	for _, slot := range p.sources {
-		elements = append(elements, big.NewInt(slot.listId), slot.owner)
+		elements = append(elements, big.NewInt(slot.listId), slot.registry)
 	}
 	elements = append(elements, big.NewInt(int64(len(p.rules))))
 	elements = append(elements, big.NewInt(int64(len(p.inlineAssets))))
@@ -1300,47 +1102,6 @@ func zeroOpening() UtxoWires {
 		RingDataHash:  big.NewInt(0),
 		RingProgramID: big.NewInt(0),
 	}
-}
-
-func disabledListFact() ListFactWires {
-	fact := ListFactWires{
-		Enabled:               big.NewInt(0),
-		TreeSlot:              big.NewInt(0),
-		Mode:                  big.NewInt(0),
-		ListId:                big.NewInt(0),
-		Member:                big.NewInt(0),
-		ContentHash:           big.NewInt(0),
-		Version:               big.NewInt(0),
-		Blinding:              big.NewInt(0),
-		State:                 big.NewInt(0),
-		AbsentBranch:          big.NewInt(0),
-		NullifierLowValue:     big.NewInt(0),
-		NullifierNextValue:    big.NewInt(0),
-		NullifierLowPathIndex: big.NewInt(0),
-		StatePathIndex:        big.NewInt(0),
-	}
-	for i := range fact.NullifierLowPathElements {
-		fact.NullifierLowPathElements[i] = big.NewInt(0)
-	}
-	for i := range fact.StatePathElements {
-		fact.StatePathElements[i] = big.NewInt(0)
-	}
-	return fact
-}
-
-func zeroKeyOpening() registry.KeyOpening {
-	opening := registry.KeyOpening{Next: 0, CtHash: 0, Index: 0}
-	for i := range opening.Path {
-		opening.Path[i] = 0
-	}
-	return opening
-}
-
-func (s *statement) registryRoot() *big.Int {
-	if s.keyRegistryRoot == nil {
-		return big.NewInt(0)
-	}
-	return s.keyRegistryRoot
 }
 
 func fill(b byte) [32]byte {

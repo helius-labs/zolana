@@ -21,7 +21,7 @@ func TestExportAeglosRingFixtures(t *testing.T) {
 		keys := ringaudit.DefaultKeys(t)
 		base.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElements(t, base.PrivateTxHash.Int)))
 		aeglosfixture.Write(t, "custom_ring_base.key", variant, decodeParams(t, common.CustomRingBaseCircuitType, base))
-		policy := rulesFreeParamsAtRoot(t, big.NewInt(int64(13+variant)))
+		policy, _ := rulesFreeParamsAtRoot(t, big.NewInt(int64(13+variant)))
 		aeglosfixture.Write(t, "custom_ring_policy.key", variant, decodeParams(t, common.CustomRingPolicyCircuitType, policy))
 	}
 }

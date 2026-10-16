@@ -18,6 +18,7 @@ type ruleFields struct {
 	listBits, altBits               []frontend.Variable
 	onOwner, onAsset, onSender      frontend.Variable
 	present, absent, inline         frontend.Variable
+	hasAlternative                  frontend.Variable
 	always, scalarGuard, assetGuard frontend.Variable
 }
 
@@ -25,6 +26,7 @@ type checkedPolicy struct {
 	hash        frontend.Variable
 	rules       [NRules]ruleFields
 	ruleEnabled []frontend.Variable
+	sources     sourcesView
 	inline      base.Count
 	limits      base.Count
 }
@@ -36,13 +38,14 @@ func decodeRule(api frontend.API, packed frontend.Variable) ruleFields {
 		return bits.FromBinary(api, b[from:to], bits.WithUnconstrainedInputs())
 	}
 	is := func(value frontend.Variable, want int) frontend.Variable { return api.IsZero(api.Sub(value, want)) }
-	subject, mode, guard := field(0, 8), field(8, 16), field(24, 32)
+	subject, mode, guard, altMask := field(0, 8), field(8, 16), field(24, 32), field(96, 104)
 	return ruleFields{
-		mode: mode, threshold: field(32, 96), altMask: field(96, 104),
+		mode: mode, threshold: field(32, 96), altMask: altMask,
 		listBits: b[16:24], altBits: b[96:104],
 		onOwner: is(subject, SubjectOutputOwner), onAsset: is(subject, SubjectAsset), onSender: is(subject, SubjectSender),
 		present: is(mode, ModePresent), absent: is(mode, ModeAbsent), inline: api.IsZero(field(16, 24)),
-		always: is(guard, GuardAlways), scalarGuard: is(guard, GuardAboveAmount), assetGuard: is(guard, GuardAboveAmountByAsset),
+		hasAlternative: base.NonZero(api, altMask),
+		always:         is(guard, GuardAlways), scalarGuard: is(guard, GuardAboveAmount), assetGuard: is(guard, GuardAboveAmountByAsset),
 	}
 }
 
@@ -50,10 +53,10 @@ func decodeRule(api frontend.API, packed frontend.Variable) ruleFields {
 func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rangechecker) checkedPolicy {
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
 	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
-	sources := c.checkSources(api)
+	checked.sources = c.checkSources(api)
 	for i, packed := range c.Rules {
 		checked.rules[i] = decodeRule(api, packed)
-		checked.rules[i].check(api, rules.Active[i], sources)
+		checked.rules[i].check(api, rules.Active[i], checked.sources.configured)
 	}
 	for i, asset := range c.InlineAssets {
 		rc.Check(c.InlineLimits[i], amountBits)
@@ -69,15 +72,16 @@ func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rang
 }
 
 // check rejects rule combinations the evaluator does not support.
-func (r ruleFields) check(api frontend.API, enabled frontend.Variable, sources [NSources]frontend.Variable) {
+func (r ruleFields) check(api frontend.API, enabled frontend.Variable, configured [NSources]frontend.Variable) {
 	shared.AssertWhen(api, enabled, api.Add(r.onOwner, r.onAsset, r.onSender))
 	shared.AssertWhen(api, enabled, api.Add(r.present, r.absent))
 	api.AssertIsEqual(api.Mul(enabled, r.absent, r.altMask), 0)
 	for i := range r.listBits {
 		api.AssertIsEqual(api.Mul(enabled, r.listBits[i], r.altBits[i]), 0)
-		shared.AssertWhen(api, api.Mul(enabled, api.Or(r.listBits[i], r.altBits[i])), sources[i])
+		shared.AssertWhen(api, api.Mul(enabled, api.Or(r.listBits[i], r.altBits[i])), configured[i])
 	}
-	// Inline rules check asset presence without alternatives.
+	// Assets have no member record, an asset rule checks the inline allowlist without alternatives.
+	shared.AssertWhen(api, api.Mul(enabled, r.onAsset), r.inline)
 	inline := api.Mul(enabled, r.inline)
 	shared.AssertWhen(api, inline, r.onAsset)
 	shared.AssertWhen(api, inline, r.present)
@@ -113,7 +117,7 @@ func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, checked che
 func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, rules base.Count, inlineEnabled, limitEnabled []frontend.Variable) frontend.Variable {
 	preimage := []frontend.Variable{policyTableDomain, PolicyVersion}
 	for _, source := range c.Sources {
-		preimage = append(preimage, source.ListId, source.OwnerHash)
+		preimage = append(preimage, source.ListId, source.Registry)
 	}
 	head := gadget.HashChain(api, append(preimage, c.PolicyLen, c.InlineCount, c.LimitCount))
 	hash := base.ExtendHashPrefix(api, head, c.Rules[:], rules)
@@ -124,24 +128,4 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, rules base.Count,
 		hash = api.Select(limitEnabled[i], gadget.HashChain(api, []frontend.Variable{hash, row.Asset, row.Cap, row.CosignAbove}), hash)
 	}
 	return hash
-}
-
-// matchListAndMode marks the enabled facts whose list and mode meet either alternative of the rule.
-func (r ruleFields) matchListAndMode(api frontend.API, facts [NListFacts]listFact) [NListFacts]frontend.Variable {
-	opposite := api.Sub(ModePresent+ModeAbsent, r.mode)
-	var matches [NListFacts]frontend.Variable
-	for i, fact := range facts {
-		primary := api.Mul(listMaskContains(api, r.listBits, fact.onList), api.IsZero(api.Sub(fact.mode, r.mode)))
-		alternative := api.Mul(listMaskContains(api, r.altBits, fact.onList), api.IsZero(api.Sub(fact.mode, opposite)))
-		matches[i] = api.Mul(fact.enabled, api.Or(primary, alternative))
-	}
-	return matches
-}
-
-func listMaskContains(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
-	selected := frontend.Variable(0)
-	for i, named := range onList {
-		selected = api.Add(selected, api.Mul(named, bits[i]))
-	}
-	return selected
 }

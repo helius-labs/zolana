@@ -37,5 +37,5 @@ func TestPolicyStatementBindsTheAuthorityRailPreimage(t *testing.T) {
 		t.Fatalf("the policy preimage %s differs from the rail preimage %s", s.privateTxHash, rail)
 	}
 
-	solve(t, cs, s.assignment(t, defaultFixture().listFacts))
+	solve(t, cs, s.assignment(t))
 }

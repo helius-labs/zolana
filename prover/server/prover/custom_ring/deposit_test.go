@@ -16,7 +16,6 @@ import (
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -112,13 +111,13 @@ func sealDeposits(t *testing.T, p *DepositParams, owners []*big.Int) (depositVec
 	if p.KeyEscrow {
 		keyEscrow.SetInt64(1)
 	}
-	chain = append(chain, auditorLo, auditorHi, ephLo, ephHi, keyEscrow, p.KeyRegistryRoot.Int)
+	chain = append(chain, auditorLo, auditorHi, ephLo, ephHi, keyEscrow, p.MemberRegistryRoot.Int)
 	p.PublicInputHash = fb(spptest.MustHashChain(t, chain))
 	return vector, chain
 }
 
 func TestDepositMatchesSharedHostVector(t *testing.T) {
-	p := &DepositParams{Count: 2, EphSk: make(Bytes, 32), KeyRegistryRoot: fi(0), Blindings: zeros(deposit.MaxDeposits)}
+	p := &DepositParams{Count: 2, EphSk: make(Bytes, 32), MemberRegistryRoot: fi(0), Blindings: zeros(deposit.MaxDeposits)}
 	auditorSk := make([]byte, 32)
 	for i := range auditorSk {
 		auditorSk[i], p.EphSk[i] = 0x11, 0x22
@@ -230,20 +229,30 @@ func TestDepositKeysMustBeEscrowed(t *testing.T) {
 		{"registered keys", func(p *DepositParams) { escrowDeposits(t, p) }, true},
 		{"zero key without a registration", func(p *DepositParams) {
 			escrowDeposits(t, p)
-			p.NullifierPks[1], p.Keys[1] = fb(registry.ZeroNullifierPk), nil
+			p.NullifierPks[1], p.Members[1], p.CtHashes[1] = fb(spptest.ZeroNullifierPk()), nil, fi(0)
 		}, false},
 		{"unregistered keys with escrow off", func(*DepositParams) {}, true},
 		{"unregistered key", func(p *DepositParams) {
 			escrowDeposits(t, p)
-			p.Keys[1] = nil
+			p.Members[1] = nil
 		}, false},
 		{"registry root with escrow off", func(p *DepositParams) {
 			escrowDeposits(t, p)
 			p.KeyEscrow = false
 		}, false},
-		{"another slot's leaf", func(p *DepositParams) {
+		{"another slot's record", func(p *DepositParams) {
 			escrowDeposits(t, p)
-			p.Keys[1] = p.Keys[0]
+			p.Members[1] = p.Members[0]
+		}, false},
+		{"ciphertext of another key", func(p *DepositParams) {
+			escrowDeposits(t, p)
+			p.CtHashes[1] = fi(0xdd)
+		}, false},
+		{"listed member without a key", func(p *DepositParams) {
+			members := escrowDeposits(t, p)
+			members.Update(t, p.OwnerPkHashes[1].Int, big.NewInt(1), big.NewInt(0))
+			p.Members[1] = &memberOpening(members.Opening(p.OwnerPkHashes[1].Int)).RecordOpening
+			p.MemberRegistryRoot = fb(members.Root())
 		}, false},
 	}
 	for _, tt := range tests {
