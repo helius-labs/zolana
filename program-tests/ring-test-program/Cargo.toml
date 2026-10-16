@@ -73,7 +73,7 @@ name = "max_shapes"
 path = "tests/max_shapes.rs"
 
 [lints.rust.unexpected_cfgs]
-level = "warn"
+level = "allow"
 check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',

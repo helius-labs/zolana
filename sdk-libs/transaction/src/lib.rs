@@ -39,7 +39,7 @@ pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
-    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys, ShieldedView,
+    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
     TransactionKeyRequest,
 };
 pub use selection::{select_merge, select_spend, select_spend_excluding};

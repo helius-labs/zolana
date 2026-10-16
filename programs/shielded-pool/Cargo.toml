@@ -45,7 +45,7 @@ zolana-account-checks = { workspace = true, features = ["test-only"] }
 
 
 [lints.rust.unexpected_cfgs]
-level = "warn"
+level = "allow"
 check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',

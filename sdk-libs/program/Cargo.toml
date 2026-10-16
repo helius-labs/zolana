@@ -136,7 +136,7 @@ required-features = ["test-support", "setup", "compression"]
 disallowed_types = "allow"
 
 [lints.rust.unexpected_cfgs]
-level = "warn"
+level = "allow"
 check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',

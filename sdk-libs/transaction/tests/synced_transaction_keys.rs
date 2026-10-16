@@ -8,10 +8,9 @@ use zolana_transaction::{
     decrypt_spendable,
     instructions::{merge::MergeTransaction, transact::ConfidentialTransaction},
     serialization::proofless::{Proofless, ProoflessEncode},
-    Address, AssetAmount, AssetRegistry, DecryptRequest, DeriveRequest, LocalShieldedKeys, Mint,
-    OutputContext, OutputSlot, OwnerCx, ShieldedKeys, ShieldedTransaction, ShieldedView,
-    SpendableDecryptionResult, TransactionError, TransactionKeyRequest, UtxoSerialization,
-    WalletUtxo,
+    Address, AssetRegistry, DecryptRequest, DeriveRequest, LocalShieldedKeys, Mint, OutputContext,
+    OutputSlot, OwnerCx, ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult,
+    TransactionError, TransactionKeyRequest, UtxoSerialization, WalletUtxo,
 };
 
 struct CountingKeys {
@@ -202,32 +201,6 @@ fn spendable_utxos_reject_a_key_response_missing_keys() {
         keys.spendable_utxos(&transactions, &assets()).err(),
         Some(TransactionError::IncompleteDerivation { got: 0, want: 4 })
     );
-}
-
-#[test]
-fn spendable_balance_reports_amounts_without_transaction_keys() {
-    let owner = keypair(43);
-    let transactions = synced_publications(&owner);
-    let keys = CountingKeys::new(&owner);
-
-    let amounts = keys.spendable_balance(&transactions, &assets()).unwrap();
-
-    assert_eq!(
-        amounts,
-        vec![
-            AssetAmount {
-                asset_id: Mint::SOL.asset_id,
-                mint: Mint::SOL.asset,
-                amount: 30,
-            },
-            AssetAmount {
-                asset_id: spl().asset_id,
-                mint: spl().asset,
-                amount: 7,
-            },
-        ]
-    );
-    assert!(keys.calls().is_empty());
 }
 
 #[test]

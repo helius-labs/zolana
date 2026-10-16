@@ -23,7 +23,7 @@ use zolana_keypair::{
 };
 
 use crate::{
-    asset::{AssetAmount, AssetRegistry},
+    asset::AssetRegistry,
     decrypt::{decrypt_spendable, SpendableDecryptionResult},
     error::TransactionError,
     indexer_types::ShieldedTransaction,
@@ -132,29 +132,6 @@ pub trait ShieldedKeys {
             utxo.tx_viewing_key = Some(*key.secret_bytes());
         }
         Ok(spendable)
-    }
-}
-
-pub trait ShieldedView {
-    fn spendable_balance(
-        &self,
-        transactions: &[ShieldedTransaction],
-        assets: &AssetRegistry,
-    ) -> Result<Vec<AssetAmount>, TransactionError>;
-}
-
-impl<K: ShieldedKeys + ?Sized> ShieldedView for K {
-    fn spendable_balance(
-        &self,
-        transactions: &[ShieldedTransaction],
-        assets: &AssetRegistry,
-    ) -> Result<Vec<AssetAmount>, TransactionError> {
-        Ok(decrypt_spendable(self, transactions, assets)?
-            .balances
-            .assets
-            .iter()
-            .map(AssetAmount::from)
-            .collect())
     }
 }
 
