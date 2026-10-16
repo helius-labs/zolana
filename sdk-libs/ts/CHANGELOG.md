@@ -14,6 +14,11 @@ Breaking
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor
   configuration with `X25519Secret`/`X25519PublicKey`; wallet viewing keys
   remain P-256 and old auditor envelopes are unsupported.
+- `encryptTransactionViewingSecret` and `openAuditOutputDisclosure` mask the
+  auditor output disclosure with a new keystream, and `auditPublicInputHash`
+  and `policyPublicInputHash` commit to it with a new hash, so a ring proof or
+  auditor message of the previous release does not verify or open → prove and
+  audit with the ring program and prover of this release.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`

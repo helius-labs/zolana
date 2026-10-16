@@ -211,7 +211,7 @@ function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[
     hashBytes(input.message.ciphertext) as Bytes32,
     hashChain4(input.outputHashes),
     rightAlign(input.salt),
-    hashChain(input.message.disclosure),
+    hashChain4(input.message.disclosure),
   ];
 }
 
@@ -243,22 +243,30 @@ function outputFields(output: AuditOutputOpening): readonly Bytes32[] {
   ];
 }
 
-function disclosureStream(secret: Bytes32, salt: Bytes16, index: number): bigint {
+/** The circuit's disclosure keystream, one chained two-input Poseidon per field. */
+function disclosurePad(secret: Bytes32, salt: Bytes16): readonly bigint[] {
   const [keyLow, keyHigh] = pack32(secret);
   try {
-    return bytesToBigInt(
-      poseidon([
-        bigIntToBytes(OUTPUT_DISCLOSURE_DOMAIN) as Bytes32,
-        keyLow,
-        keyHigh,
-        rightAlign(salt),
-        bigIntToBytes(BigInt(index)) as Bytes32,
-      ]),
-    );
+    let state = poseidon([
+      bigIntToBytes(OUTPUT_DISCLOSURE_DOMAIN) as Bytes32,
+      keyLow,
+      keyHigh,
+      rightAlign(salt),
+    ]) as Bytes32;
+    return Array.from({ length: AUDIT_DISCLOSURE_FIELD_COUNT }, (_, index) => {
+      state = poseidon([state, bigIntToBytes(BigInt(index)) as Bytes32]) as Bytes32;
+      return bytesToBigInt(state);
+    });
   } finally {
     keyLow.fill(0);
     keyHigh.fill(0);
   }
+}
+
+function maskAt(pad: readonly bigint[], index: number): bigint {
+  const mask = pad[index];
+  if (mask === undefined) throw new RangeError("audit disclosure index out of range");
+  return mask;
 }
 
 function sealOutputDisclosure(
@@ -274,12 +282,11 @@ function sealOutputDisclosure(
       : outputFields(outputs[index]),
   ).flat();
   const salt = input?.salt ?? (new Uint8Array(16) as Bytes16);
+  const pad = disclosurePad(secret, salt);
   return Object.freeze(
     plaintext.map(
       (field, index) =>
-        bigIntToBytes(
-          (bytesToBigInt(field) + disclosureStream(secret, salt, index)) % BN254_MODULUS,
-        ) as Bytes32,
+        bigIntToBytes((bytesToBigInt(field) + maskAt(pad, index)) % BN254_MODULUS) as Bytes32,
     ),
   );
 }
@@ -291,11 +298,11 @@ export function openAuditOutputDisclosure(
 ): readonly AuditOutputOpening[] {
   if (disclosure.length !== AUDIT_DISCLOSURE_FIELD_COUNT)
     throw new RangeError("invalid audit disclosure length");
+  const pad = disclosurePad(secret, salt);
   const fields = disclosure.map(
     (field, index) =>
       bigIntToBytes(
-        (bytesToBigInt(field) + BN254_MODULUS - disclosureStream(secret, salt, index)) %
-          BN254_MODULUS,
+        (bytesToBigInt(field) + BN254_MODULUS - maskAt(pad, index)) % BN254_MODULUS,
       ) as Bytes32,
   );
   return Object.freeze(

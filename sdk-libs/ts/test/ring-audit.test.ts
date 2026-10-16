@@ -18,6 +18,7 @@ import {
   auditorMessageData,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  openAuditOutputDisclosure,
   parseAuditorMessage,
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
@@ -60,8 +61,11 @@ const TX_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee95
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("2fa6c0b03c0d8efeefc6286b73de7144ddcb30b9ffacf180d7d2ffcbe4fb1779");
+const PUBLIC_INPUT_HASH = hex("00b0332f42b187eee22269f9110350982cbe4637fcafd65cb0c6465994efd8c6");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
+
+const PAD_KEY = Uint8Array.from({ length: 32 }, (_, index) => 0x40 ^ index) as Bytes32;
+const PAD_SALT = Uint8Array.from({ length: 16 }, (_, index) => index + 1) as Bytes16;
 
 describe("ring audit encryption", () => {
   it("matches the Go vectors", () => {
@@ -137,7 +141,7 @@ describe("ring audit encryption", () => {
         ...revocationTargets,
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "2a466546ba7c07253eb4871cde6fd696cdb886269320b19ee6b076c6a6f12139",
+      "291b8807a42057a0d42bba0cd70ab8717d589a0002ac45f71b64df66b6d5af79",
     );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
@@ -171,6 +175,33 @@ describe("ring audit encryption", () => {
     expect(() =>
       policyPublicInputHash({ ...input, revocationTreeIndexes: [8, 0, 0, 0, 0, 0, 0, 0, 0, 0] }),
     ).toThrow(RangeError);
+  });
+
+  it("masks each disclosure field with the chained two-input Poseidon pad", () => {
+    const auditor = X25519Secret.generate();
+    const zero = new Uint8Array(32) as Bytes32;
+    const blank: AuditOutputOpening = {
+      domain: zero,
+      treeId: zero,
+      ownerHash: zero,
+      asset: zero,
+      amount: zero,
+      blinding: zero,
+      dataHash: zero,
+      ringDataHash: zero,
+      ringProgramId: zero,
+    };
+    const pad = encryptTransactionViewingSecret(PAD_KEY, auditor.publicKey(), {
+      salt: PAD_SALT,
+      outputs: [blank, blank, blank, blank],
+    }).message.disclosure;
+    expect(pad).toHaveLength(36);
+    pad.slice(1).forEach((mask, index) => {
+      expect(mask).toEqual(poseidon([pad[index]!, bigIntToBytes(BigInt(index + 1), 32)]));
+    });
+    const opened = openAuditOutputDisclosure(PAD_KEY, PAD_SALT, pad);
+    expect(opened).toHaveLength(4);
+    for (const opening of opened) expect(opening).toEqual(blank);
   });
 
   it("witnesses the canonical 32-byte X25519 coordinate", () => {
