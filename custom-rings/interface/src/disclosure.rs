@@ -3,14 +3,14 @@
 
 use zolana_hasher::primitives::{pack_be_chunks, PACK_BE_CHUNK_BYTES};
 
-/// The hidden owner's Ed25519 key, zero outside an anonymous ring.
-pub const DISCLOSURE_SENDER_LEN: usize = 32;
-/// `tree_id(2) || leaf_index(8) || amount(8) || asset(32) || blinding(32)`,
-/// zero padded.
-pub const DISCLOSURE_INPUT_LEN: usize = 96;
+/// The hidden owner's tagged Ed25519 key, zero padded to two 31-byte chunks.
+pub const DISCLOSURE_SENDER_LEN: usize = 62;
+/// `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded.
+pub const DISCLOSURE_INPUT_LEN: usize = 93;
 /// `identity_tag(1) || identity_key(32) || nullifier_pk(32) || amount(8) ||
-/// asset(32) || blinding(32) || data_hash(32) || ring_data_hash(32)`, zero padded.
-pub const DISCLOSURE_OUTPUT_LEN: usize = 224;
+/// asset(32) || blinding(32) || data_hash(32) || ring_data_hash(32) ||
+/// ring_note(1)`, zero padded.
+pub const DISCLOSURE_OUTPUT_LEN: usize = 217;
 pub const AUDIT_INPUT_SLOTS: usize = 4;
 pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 
@@ -45,6 +45,13 @@ impl DisclosureShape {
     }
 
     pub const fn field_count(self) -> Option<usize> {
+        if !self.anonymous {
+            return if self.outputs > 0 && self.outputs <= AUDIT_OUTPUT_SLOTS {
+                Some(crate::AUDIT_DISCLOSURE_FIELD_COUNT)
+            } else {
+                None
+            };
+        }
         match self.plaintext_len() {
             Some(len) => Some(pack_be_chunks(len)),
             None => None,
@@ -92,8 +99,8 @@ mod tests {
             inputs,
             outputs,
         };
-        assert_eq!(shape(false, 4, 2).field_count(), Some(16));
-        assert_eq!(shape(false, 0, 1).field_count(), Some(9));
+        assert_eq!(shape(false, 4, 2).field_count(), Some(36));
+        assert_eq!(shape(false, 0, 1).field_count(), Some(36));
         assert_eq!(shape(true, 2, 2).field_count(), Some(22));
         assert_eq!(shape(true, 3, 4).field_count(), Some(40));
         assert_eq!(shape(true, 4, 2).field_count(), Some(28));

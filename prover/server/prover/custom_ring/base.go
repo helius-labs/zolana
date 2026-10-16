@@ -125,8 +125,11 @@ func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 		return nil, fmt.Errorf("custom-ring: missing hash")
 	}
 	circuit := &base.CustomRingBaseCircuit{
-		PublicInputHash: p.PublicInputHash,
-		PrivateTxHash:   p.PrivateTxHash,
+		PublicInputHash:   p.PublicInputHash,
+		PrivateTxHash:     p.PrivateTxHash,
+		Anonymous:         0,
+		Sender:            base.ZeroAuditIdentity(),
+		PrivateTxBlinding: 0,
 	}
 	assignBytes(circuit.TxViewingSk[:], p.TxViewingSk[:])
 	assignBytes(circuit.EphSk[:], p.EphSk[:])
@@ -134,7 +137,13 @@ func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 	assignBytes(circuit.Salt[:], p.Salt[:])
 	for i := range circuit.Outputs {
 		assignAuditOpening(&circuit.Outputs[i], &p.Outputs[i])
+		circuit.AnonymousOutputs[i] = base.ZeroAuditUtxo()
+		circuit.Recipients[i] = base.ZeroAuditIdentity()
 	}
+	for i := range circuit.Inputs {
+		circuit.Inputs[i] = base.ZeroAuditUtxo()
+	}
+	assignOneHot(circuit.InputCountSelected[:], 0)
 	assignOneHot(circuit.OutputCountSelected[:], int(p.NOut)-1)
 	return circuit, nil
 }

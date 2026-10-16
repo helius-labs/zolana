@@ -62,36 +62,36 @@ func AuthorizedEddsaInputOwners(
 	return owners
 }
 
-// P256Signers resolves the zero owner-tag sentinel to the shared P256 owner.
-// Non-zero tags remain Solana signer identities.
-func P256Signers(
+// HiddenOwnerSigners resolves a zero owner tag to the signature-checked hidden
+// owner. Nonzero tags must remain authorized public Solana signer identities.
+func HiddenOwnerSigners(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	authorizedEddsa Signers,
-	p256PkHash frontend.Variable,
-	p256SignatureValid frontend.Variable,
+	hiddenOwnerPkHash frontend.Variable,
+	hiddenSignatureValid frontend.Variable,
 ) Signers {
 	signers := make(Signers, len(inputs))
-	hasP256Input := frontend.Variable(0)
+	hasHiddenInput := frontend.Variable(0)
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
-		isP256 := api.IsZero(ownerPkHashes[i])
+		isHidden := api.IsZero(ownerPkHashes[i])
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
-		pkHash := api.Select(isP256, p256PkHash, ownerPkHashes[i])
+		pkHash := api.Select(isHidden, hiddenOwnerPkHash, ownerPkHashes[i])
 		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
-		AssertWhen(api, api.Mul(carriesContent, isP256), p256SignatureValid)
+		AssertWhen(api, api.Mul(carriesContent, isHidden), hiddenSignatureValid)
 		AssertWhen(
 			api,
-			api.Mul(carriesContent, api.Sub(1, isP256)),
+			api.Mul(carriesContent, api.Sub(1, isHidden)),
 			authorizedEddsa.Contains(api, ownerPkHashes[i]),
 		)
-		hasP256Input = api.Add(hasP256Input, api.Mul(carriesContent, isP256))
+		hasHiddenInput = api.Add(hasHiddenInput, api.Mul(carriesContent, isHidden))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
-	// RingP256 is the mixed P256/Ed25519 rail, not an alternative all-Ed25519
-	// selector. All-Ed25519 transactions use RingEddsa.
-	api.AssertIsDifferent(hasP256Input, 0)
+	// This rail needs at least one hidden-owner input. Ordinary all-Ed25519
+	// transactions use RingEddsa.
+	api.AssertIsDifferent(hasHiddenInput, 0)
 	return signers
 }
 

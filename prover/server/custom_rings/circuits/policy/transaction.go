@@ -67,6 +67,36 @@ func auditOutputs(api frontend.API, outputs [NOutputs]UtxoWires) [base.AuditOutp
 	return disclosed
 }
 
+// auditInputs reuses the policy openings in the anonymous disclosure proof.
+func auditInputs(inputs [NInputs]UtxoWires) [base.AuditInputSlots]base.AuditUtxoWires {
+	var out [base.AuditInputSlots]base.AuditUtxoWires
+	for i := range out {
+		out[i] = base.AuditUtxoWires(inputs[i])
+	}
+	return out
+}
+
+func auditAnonymousOutputs(outputs [NOutputs]UtxoWires) [base.AuditOutputSlots]base.AuditUtxoWires {
+	var out [base.AuditOutputSlots]base.AuditUtxoWires
+	for i := range out {
+		out[i] = base.AuditUtxoWires(outputs[i])
+	}
+	return out
+}
+
+// auditInputCount binds the anonymous disclosed prefix to the policy input count.
+func auditInputCount(api frontend.API, anonymous frontend.Variable, selected [NInputs]frontend.Variable) [base.AuditInputSlots + 1]frontend.Variable {
+	var out [base.AuditInputSlots + 1]frontend.Variable
+	out[0] = api.Sub(1, anonymous)
+	for i := range base.AuditInputSlots {
+		out[i+1] = api.Mul(anonymous, selected[i])
+	}
+	for _, flag := range selected[base.AuditInputSlots:] {
+		api.AssertIsEqual(api.Mul(anonymous, flag), 0)
+	}
+	return out
+}
+
 // constrainTransactionContext binds subjects and amounts to the transaction
 // checked by SPP.
 func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, rangeChecker frontend.Rangechecker, recordEnabled frontend.Variable) transactionContext {

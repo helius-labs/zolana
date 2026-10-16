@@ -149,7 +149,7 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	}
 
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners := shared.P256Signers(
+	inputOwners := shared.HiddenOwnerSigners(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,

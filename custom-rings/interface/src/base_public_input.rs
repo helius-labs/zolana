@@ -10,7 +10,7 @@ use crate::{AUDIT_CIPHERTEXT_LEN, VIEWING_PUBKEY_LEN};
 ///
 /// The chain order is pinned by the circuit's package comment
 /// (`prover/server/custom_rings/circuits/base/circuit.go`) and is
-/// numbered 1..12 there; [`CustomRingBasePublicInput::hash`] mirrors it element for
+/// numbered 1..12 there. [`CustomRingBasePublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
 /// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP content, the
 /// auditor key from the ring config account, the ephemeral key and ciphertext

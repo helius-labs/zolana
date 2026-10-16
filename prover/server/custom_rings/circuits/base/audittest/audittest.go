@@ -124,7 +124,7 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 }
 
 func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
-	w := base.AuditBlockWires{PrivateTxHash: privateTxHash}
+	w := base.AuditBlockWires{PrivateTxHash: privateTxHash, Anonymous: 0, Sender: base.ZeroAuditIdentity(), PrivateTxBlinding: 0}
 	setBytes(w.TxViewingSk[:], k.txSk[:])
 	setBytes(w.EphSk[:], k.ephSk[:])
 	setBytes(w.AuditorPk[:], k.auditorPk[:])
@@ -134,7 +134,16 @@ func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 	for i := range w.Outputs {
 		w.Outputs[i] = zeroOutput()
 		w.OutputCountSelected[i] = 0
+		w.AnonymousOutputs[i] = base.ZeroAuditUtxo()
+		w.Recipients[i] = base.ZeroAuditIdentity()
 	}
+	for i := range w.Inputs {
+		w.Inputs[i] = base.ZeroAuditUtxo()
+	}
+	for i := range w.InputCountSelected {
+		w.InputCountSelected[i] = 0
+	}
+	w.InputCountSelected[0] = 1
 	w.OutputCountSelected[0] = 1
 	return w
 }
@@ -189,6 +198,7 @@ func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) 
 		outputHashChain,
 		new(big.Int).SetBytes(salt),
 		spptest.MustHashChain(t, ciphertext),
+		big.NewInt(0),
 	}
 }
 

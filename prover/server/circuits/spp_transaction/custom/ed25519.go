@@ -10,7 +10,7 @@ import (
 )
 
 // The anonymous ring rail. A zero input owner tag selects the hidden Ed25519
-// owner, whose signature over the RingP256 message digest is verified in circuit.
+// owner, whose signature over the shared ring-spend digest is verified in circuit.
 
 type CustomRingEd25519Public struct {
 	Nullifiers       []frontend.Variable
@@ -147,7 +147,7 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
 	// The zero-tag resolver is algorithm independent, and ed25519.Verify already asserts the signature.
-	inputOwners := shared.P256Signers(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner, 1)
+	inputOwners := shared.HiddenOwnerSigners(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner, 1)
 	shared.AssertHiddenRingOwner(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner)
 	// A cache read publishes the commitment of the note it spends.
 	api.AssertIsEqual(c.CachedInputs.TreeID, 0)

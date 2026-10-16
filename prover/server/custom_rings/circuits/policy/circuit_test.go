@@ -14,6 +14,7 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -1222,10 +1223,12 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:    s.publicInputHash,
 		PrivateTxHash:      wires.PrivateTxHash,
+		Anonymous:          0,
 		TxViewingSk:        wires.TxViewingSk,
 		EphSk:              wires.EphSk,
 		AuditorPk:          wires.AuditorPk,
 		Salt:               wires.Salt,
+		Sender:             base.ZeroAuditIdentity(),
 		AddressChain:       s.addressChain,
 		PrivateTxBlinding:  s.privateTxBlinding,
 		AddressTreeID:      big.NewInt(addressTreeID),
@@ -1269,6 +1272,7 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	}
 	for i := range c.Outputs {
 		c.Outputs[i] = zeroOpening()
+		c.Recipients[i] = base.ZeroAuditIdentity()
 		c.OutputCountSelected[i] = big.NewInt(0)
 		c.OutputKeys[i] = zeroKeyOpening()
 	}

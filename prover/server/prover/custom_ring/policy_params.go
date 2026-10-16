@@ -13,6 +13,7 @@ import (
 	"github.com/iden3/go-iden3-crypto/poseidon"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -727,6 +728,8 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	circuit := &policy.CustomRingPolicyCircuit{
 		PublicInputHash:    p.PublicInputHash,
 		PrivateTxHash:      p.PrivateTxHash,
+		Anonymous:          0,
+		Sender:             base.ZeroAuditIdentity(),
 		AddressChain:       p.AddressChain,
 		PrivateTxBlinding:  p.PrivateTxBlinding,
 		WindowSlots:        p.WindowSlots,
@@ -773,6 +776,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	}
 	for i := range circuit.Outputs {
 		assignOpening(&circuit.Outputs[i], &p.Outputs[i])
+		circuit.Recipients[i] = base.ZeroAuditIdentity()
 		assignRegistryKey(&circuit.OutputKeys[i], p.Outputs[i].Key)
 	}
 	for i, slot := range p.TreeSlots {

@@ -27,10 +27,13 @@ type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
 	PrivateTxHash frontend.Variable
+	Anonymous     frontend.Variable
 	TxViewingSk   [32]frontend.Variable
 	EphSk         [32]frontend.Variable
 	AuditorPk     [32]frontend.Variable
 	Salt          [16]frontend.Variable
+	Sender        base.AuditIdentityWires
+	Recipients    [NOutputs]base.AuditIdentityWires
 
 	Inputs  [NInputs]UtxoWires
 	Outputs [NOutputs]UtxoWires
@@ -102,12 +105,19 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash:       c.PrivateTxHash,
+		Anonymous:           c.Anonymous,
 		TxViewingSk:         c.TxViewingSk,
 		EphSk:               c.EphSk,
 		AuditorPk:           c.AuditorPk,
 		Salt:                c.Salt,
 		Outputs:             auditOutputs(api, c.Outputs),
 		OutputCountSelected: c.OutputCountSelected,
+		Sender:              c.Sender,
+		Inputs:              auditInputs(c.Inputs),
+		InputCountSelected:  auditInputCount(api, c.Anonymous, c.InputCountSelected),
+		AnonymousOutputs:    auditAnonymousOutputs(c.Outputs),
+		Recipients:          c.Recipients,
+		PrivateTxBlinding:   c.PrivateTxBlinding,
 	})
 	// Both blocks share one BSB22 commitment.
 	rangeChecker := rangecheck.New(api)
@@ -134,6 +144,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail pol
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
+		api.AssertIsEqual(c.Anonymous, 0)
 	} else {
 		counters = c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
 	}
