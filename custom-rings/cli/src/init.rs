@@ -1,7 +1,9 @@
 //! `init`, every step skipped when the chain already holds it, so a rerun resumes.
 
 use anyhow::{anyhow, ensure, Context as _, Result};
-use custom_ring_sdk::{CustomRing, CustomRingConfig, PolicyConfig, RingError, SourceOwner};
+use custom_ring_sdk::{
+    CustomRing, CustomRingConfig, ListRegistry, PolicyConfig, RingError, SourceOwner,
+};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -130,9 +132,9 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
         ctx.send(&[config_authority], &[instruction])
             .map(|_| CREATED)
     };
-    let key_registry = match ctx.block(ring.key_registry_root(ctx.chain()))? {
+    let member_registry = match ctx.block(ring.member_registry_root(ctx.chain()))? {
         Some(_) => PRESENT,
-        None => send(ring.create_key_registry_root(payer, payer))?,
+        None => send(ring.create_member_registry_root(payer, payer))?,
     };
     let deposit = match deposit_audit {
         Some(required) if ctx.block(ring.deposit_audit(ctx.chain()))? != required => {
@@ -164,7 +166,7 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
     line("config", config);
     line("authority", authority);
     line("policy", policy);
-    line("key registry", key_registry);
+    line("member registry", member_registry);
     line("deposit audit", deposit);
     line("spp ring", spp_ring);
     status::announce(&ctx.config);
@@ -266,7 +268,7 @@ fn pin_policy(
     policy: &CompiledPolicy,
 ) -> Result<&'static str> {
     for (list, curator) in &policy.shared_sources {
-        catalogue::check_curator(ctx, *curator, *list, policy.address_tree)?;
+        catalogue::check_curator(ctx, *curator, *list)?;
     }
     let outcome = match policy_config(ctx)? {
         Some(_) => PRESENT,
@@ -296,7 +298,9 @@ fn pin_policy(
     policy::verify_rows(policy, &config).context(POLICY_DRIFT)?;
     let mut pointed = false;
     for (list, curator) in &policy.shared_sources {
-        let outcome = if config.source_for(*list) == Some(curator.namespace_pda()) {
+        let outcome = if config.registry_for(*list)
+            == Some(ListRegistry::Curator(curator.member_registry_root_pda()))
+        {
             PRESENT
         } else {
             let point = ctx.ring.set_source_owner(

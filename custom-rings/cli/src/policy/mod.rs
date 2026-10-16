@@ -12,7 +12,7 @@ pub use grammar::{
 pub use render::render;
 
 use anyhow::{ensure, Context as _, Result};
-use custom_ring_sdk::{client_rules_match, CustomRing, PolicyConfig};
+use custom_ring_sdk::{client_rules_match, CustomRing, ListRegistry, PolicyConfig};
 use solana_signer::Signer;
 use zolana_ring_policy::RuleTable;
 
@@ -51,21 +51,30 @@ pub fn verify_rows(compiled: &CompiledPolicy, config: &PolicyConfig) -> Result<(
     verify_tree(compiled, config)
 }
 
-/// Every referenced list reads the namespace ring.toml names.
+/// Every referenced list reads the registry ring.toml names.
 pub fn verify_sources(
     ring: CustomRing,
     compiled: &CompiledPolicy,
     config: &PolicyConfig,
 ) -> Result<()> {
+    let registry = |source: Option<ListRegistry>| match source {
+        Some(ListRegistry::Own) => ring.member_registry_root_pda(),
+        Some(ListRegistry::Curator(registry)) => registry,
+        None => Default::default(),
+    };
     for list_id in compiled.rules.referenced().iter() {
         let expected = compiled
             .curator(list_id)
-            .map_or_else(|| ring.namespace_pda(), CustomRing::namespace_pda);
-        let chain = config.source_for(list_id).unwrap_or_default();
+            .map_or(ListRegistry::Own, |curator| {
+                ListRegistry::Curator(curator.member_registry_root_pda())
+            });
+        let chain = config.registry_for(list_id);
         ensure!(
-            chain == expected,
-            "the {} list reads {chain} on chain, ring.toml expects {expected}",
-            list_id.name()
+            chain == Some(expected),
+            "the {} list reads registry {} on chain, ring.toml expects {}",
+            list_id.name(),
+            registry(chain),
+            registry(Some(expected))
         );
     }
     Ok(())
@@ -105,9 +114,9 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
         ui::heading(icon::LISTS, "sources");
     }
     for list_id in referenced.iter() {
-        let source = match config.source_for(list_id) {
-            Some(namespace) if namespace == ring.namespace_pda() => "own entries".to_owned(),
-            Some(namespace) => format!("curator namespace {namespace}"),
+        let source = match config.registry_for(list_id) {
+            Some(ListRegistry::Own) => format!("own registry {}", ring.member_registry_root_pda()),
+            Some(ListRegistry::Curator(registry)) => format!("curator registry {registry}"),
             None => "no source".to_owned(),
         };
         line(list_id.name(), source);
@@ -136,7 +145,7 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
         return Ok(());
     }
     for (list_id, curator) in &compiled.shared_sources {
-        check_curator(ctx, *curator, *list_id, compiled.address_tree)?;
+        check_curator(ctx, *curator, *list_id)?;
     }
     ui::heading(icon::PIN, &format!("re-pin the table of {program}"));
     match config.rule_table() {

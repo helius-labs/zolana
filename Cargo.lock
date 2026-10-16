@@ -2121,6 +2121,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-member-registry",
  "zolana-ring-policy",
  "zolana-secret-file",
  "zolana-transaction",

@@ -51,3 +51,4 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 solana-rpc-client-api = { workspace = true }
+zolana-ring-member-registry = { workspace = true }

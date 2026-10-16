@@ -22,7 +22,7 @@ use crate::{
 pub struct PolicySpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address_tree: Option<Base58Address>,
-    /// Curator program ids by list name, an absent list reads the ring's own entries.
+    /// Curator program ids by list name, an absent list reads the ring's own registry.
     #[serde(default, skip_serializing_if = "PerCluster::is_empty")]
     pub sources: PerCluster<Sources>,
     /// Every rule must hold, in row order.
@@ -513,7 +513,7 @@ impl CompiledPolicy {
         self.shared_sources.clone()
     }
 
-    /// The curator a referenced list reads, `None` for the ring's own entries.
+    /// The curator a referenced list reads, `None` for the ring's own registry.
     pub fn curator(&self, list_id: ListId) -> Option<CustomRing> {
         self.shared_sources
             .iter()

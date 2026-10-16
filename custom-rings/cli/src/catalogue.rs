@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{ensure, Context as _, Result};
 use custom_ring_interface::RingAccount;
-use custom_ring_sdk::{CustomRing, PolicyConfig};
+use custom_ring_sdk::{CustomRing, ListRegistry, PolicyConfig};
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use zolana_client::{ProgramAccountsFilter, Rpc, SolanaRpc};
@@ -136,41 +136,32 @@ pub fn registered_rings<'a>(
         .collect()
 }
 
-/// The lists a ring serves from its own entries.
+/// The lists a ring serves from its own registry.
 pub fn curator_of(ring: CustomRing, config: &PolicyConfig) -> Curator {
-    let own = ring.namespace_pda();
     Curator {
         program: Base58Address(ring.program_id()),
         lists: ListName::ALL
             .into_iter()
-            .filter(|list| config.source_for(list.id()) == Some(own))
+            .filter(|list| config.registry_for(list.id()) == Some(ListRegistry::Own))
             .collect(),
         address_tree: Base58Address(config.address_tree),
     }
 }
 
-/// The curator must serve `list` from its own entries in the ring's tree.
-pub fn check_curator(
-    ctx: &Context,
-    curator: CustomRing,
-    list: ListId,
-    tree: Address,
-) -> Result<()> {
+/// The curator must hold a member registry and serve `list` from it.
+pub fn check_curator(ctx: &Context, curator: CustomRing, list: ListId) -> Result<()> {
     let program = curator.program_id();
     let deployed = ctx.rpc().get_account(program)?.is_some();
     ensure!(deployed, "curator {program} is not deployed");
+    ctx.block(curator.member_registry_root(ctx.chain()))?
+        .with_context(|| format!("curator {program} has no member registry"))?;
     let config = ctx
         .block(curator.policy_config(ctx.chain()))?
         .with_context(|| format!("curator {program} has no policy config"))?;
     ensure!(
-        config.source_for(list) == Some(curator.namespace_pda()),
-        "curator {program} does not serve the {} list from its own entries",
+        config.registry_for(list) == Some(ListRegistry::Own),
+        "curator {program} does not serve the {} list from its own registry",
         list.name()
-    );
-    ensure!(
-        config.address_tree == tree,
-        "curator {program} claims its addresses in tree {}, the ring uses {tree}",
-        config.address_tree
     );
     Ok(())
 }
@@ -307,15 +298,15 @@ mod tests {
 
         let mut sources = [SourceSlot {
             list_id: 0,
-            namespace: Address::default(),
+            registry: Address::default(),
         }; N_SOURCE_SLOTS];
         sources[ListId::Block.slot()] = SourceSlot {
             list_id: ListId::Block as u8,
-            namespace: ring.namespace_pda(),
+            registry: Address::default(),
         };
         sources[ListId::Frozen.slot()] = SourceSlot {
             list_id: ListId::Frozen as u8,
-            namespace: Address::new_from_array([9u8; 32]),
+            registry: Address::new_from_array([9u8; 32]),
         };
         let config = PolicyConfig {
             discriminator: POLICY_CONFIG,

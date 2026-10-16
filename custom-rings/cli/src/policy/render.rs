@@ -16,14 +16,15 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
     let tree = spec.address_tree().to_string();
-    let comment = "entry addresses are claimed in the named tree";
+    let comment = "every policy transfer binds the named address tree";
     commented(&mut policy, "address_tree", tree, comment);
     let mut sources = Table::new();
     sources.set_implicit(true);
     for target in Target::ALL {
         let mut cluster = Table::new();
         for (list, curator) in spec.sources.get(target) {
-            let comment = format!("the {list} list reads the entries of the named curator ring");
+            let comment =
+                format!("the {list} list reads the member registry of the named curator ring");
             commented(&mut cluster, list.as_str(), curator.to_string(), &comment);
         }
         if !cluster.is_empty() {
@@ -171,8 +172,8 @@ above = 1000000
         .expect("parses");
         let text = document(&spec);
         for expected in [
-            "# entry addresses are claimed in the named tree\naddress_tree = ",
-            "[policy.sources.devnet]\n# the block list reads the entries of the named curator ring\nblock = ",
+            "# every policy transfer binds the named address tree\naddress_tree = ",
+            "[policy.sources.devnet]\n# the block list reads the member registry of the named curator ring\nblock = ",
             "# each output owner must be on the approval list or must not be on the block list\n[[policy.rules]]\nsubject = \"output-owner\"\nany = [{ forbid = \"block\" }, { require = \"approval\" }]\n",
             "# each asset must be one of the listed assets\n[[policy.rules]]\nsubject = \"asset\"\nassets = [",
             "when the amount is above 1000000\n[[policy.rules]]\nsubject = \"output-owner\"\nrequire = \"allow\"\nabove = 1000000\n",
@@ -205,7 +206,7 @@ above = 1000000
         let text = document(&PolicySpec::default());
         assert!(
             text.contains(
-                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# entry addresses are claimed in the named tree\naddress_tree = "
+                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# every policy transfer binds the named address tree\naddress_tree = "
             ),
             "{text}"
         );

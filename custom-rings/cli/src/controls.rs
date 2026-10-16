@@ -17,8 +17,8 @@ use crate::{
     AUDITOR_KEY_FILE,
 };
 
-pub const NO_KEY_REGISTRY: &str =
-    "the ring has no key registry, its authority must run `zolana-ring init` first";
+pub const NO_MEMBER_REGISTRY: &str =
+    "the ring has no member registry, its authority must run `zolana-ring init` first";
 
 pub fn cosigner(ctx: &Context, command: CoSignerCommand) -> Result<()> {
     match command {
@@ -160,8 +160,8 @@ pub fn delegate(ctx: &Context, command: DelegateCommand) -> Result<()> {
                 "the ring has no policy, a delegate escrows keys only on a policy ring"
             );
             ring_auditor_key(ctx, Path::new(AUDITOR_KEY_FILE))?;
-            ctx.block(ctx.ring.key_registry_root(ctx.chain()))?
-                .context(NO_KEY_REGISTRY)?;
+            ctx.block(ctx.ring.member_registry_root(ctx.chain()))?
+                .context(NO_MEMBER_REGISTRY)?;
             let authority = ctx.config.upgrade_authority()?;
             let a = authority.pubkey();
             ctx.fund(a, MIN_AUTHORITY_BALANCE)?;

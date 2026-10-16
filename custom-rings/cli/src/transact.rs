@@ -1,6 +1,7 @@
 //! `transact` and `transfer`, two ring deposits spent in one transfer the auditor reads back.
 
 use anyhow::{bail, ensure, Context as _, Result};
+use custom_ring_sdk::ListRegistry;
 use custom_ring_sdk::{
     CoSignScope, CustomRingCoSigner, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
     PinnedPolicy, RingDeposit, RingDepositReceipt,
@@ -13,7 +14,7 @@ use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, ShieldedKeypair};
 use zolana_ring_client::ReaderKey;
-use zolana_ring_policy::{EntryState, ListId, Member, RuleTable};
+use zolana_ring_policy::{ListId, Member, RuleTable};
 use zolana_transaction::{
     instructions::transact::{canonical_shape, ConfidentialTransaction},
     WalletUtxo, SOL_MINT,
@@ -39,7 +40,7 @@ struct Transfer<'a> {
     asset: DepositAsset,
     cosigner: Option<&'a Keypair>,
     policy: Option<&'a PinnedPolicy>,
-    /// The demo claims `Allow` entries for both parties, a transfer leaves them to the operator.
+    /// The demo lists both parties in `Allow`, a transfer leaves them to the operator.
     enrol: bool,
 }
 
@@ -265,8 +266,7 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
         sender: t.sender,
         nullifier_key: Some(&t.sender.nullifier_key),
         transaction,
-    })
-    .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
+    });
     if let Some(cosigner) = t.cosigner {
         transfer = transfer.with_cosigner(cosigner.pubkey());
     }
@@ -306,20 +306,15 @@ fn deposited_notes(
     Ok(notes)
 }
 
-/// The table refuses both parties until they are `Active` in `Allow`.
+/// The table refuses both parties until their records carry `Allow`.
 fn enrol_in_allow(
     ctx: &Context,
     authority: &Keypair,
     policy: &PinnedPolicy,
     t: &Transfer<'_>,
 ) -> Result<()> {
-    let own = ctx.ring.namespace_pda();
-    if let Some(namespace) = policy
-        .config
-        .source_for(ListId::Allow)
-        .filter(|ns| *ns != own)
-    {
-        line("allow", format_args!("curated by {namespace}"));
+    if let Some(ListRegistry::Curator(registry)) = policy.config.registry_for(ListId::Allow) {
+        line("allow", format_args!("curated by {registry}"));
         return Ok(());
     }
     for (party, address) in [
@@ -327,8 +322,8 @@ fn enrol_in_allow(
         ("recipient", &t.recipient),
     ] {
         let member = Member::owner_tag(owner_tag(address)?.as_array())?;
-        let outcome = list::set_entry(ctx, authority, ListId::Allow, member, EntryState::Active)?;
-        line("allow", format_args!("{party} {}", outcome.change));
+        let change = list::set_list(ctx, authority, ListId::Allow, member, true)?;
+        line("allow", format_args!("{party} {change}"));
     }
     Ok(())
 }
@@ -475,6 +470,6 @@ mod tests {
     #[test]
     fn the_program_code_the_submission_retries_on_is_pinned() {
         use custom_ring_interface::CustomRingError;
-        assert_eq!(CustomRingError::StaleKeyRegistryRoot as u32, 8161);
+        assert_eq!(CustomRingError::StaleMemberRegistryRoot as u32, 8161);
     }
 }
