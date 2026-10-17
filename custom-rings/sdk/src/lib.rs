@@ -25,8 +25,8 @@ mod trees;
 mod witness;
 
 pub use custom_ring_interface::{
-    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, KeyEscrow,
-    ListRegistry, PolicyConfig,
+    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, KeyEscrow, ListRegistry,
+    PolicyConfig,
 };
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 

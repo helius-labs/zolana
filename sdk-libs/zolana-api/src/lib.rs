@@ -30,9 +30,8 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingMemberRecord, GetRingMemberRegistryRoot,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags, GetUserRecords,
+        GetRingMemberRecord, GetRingMemberRegistryRoot, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags, GetUserRecords,
     },
     RpcMethod,
 };
@@ -47,9 +46,9 @@ pub use zolana_indexer_api::{
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
-    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement,
-    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
-    ShieldedTransaction, UserRecord, MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
+    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
+    MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";

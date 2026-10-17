@@ -242,7 +242,10 @@ impl MemberRegistryTree {
         items.iter().map(|item| self.apply_item(item)).collect()
     }
 
-    fn apply_item(&mut self, item: &MemberUpdate) -> Result<RecordUpdateInputs, MemberRegistryError> {
+    fn apply_item(
+        &mut self,
+        item: &MemberUpdate,
+    ) -> Result<RecordUpdateInputs, MemberRegistryError> {
         if let Some((index, record)) = self.find(&item.member) {
             let after = MemberRecord {
                 lists: item.lists,
@@ -315,7 +318,9 @@ fn check_member(member: &[u8; 32]) -> Result<(), MemberRegistryError> {
 /// The batch shape the program admits.
 pub fn check_batch(items: &[MemberUpdate]) -> Result<(), MemberRegistryError> {
     if !(1..=MAX_MEMBER_BATCH).contains(&items.len())
-        || items.windows(2).any(|pair| pair[0].member >= pair[1].member)
+        || items
+            .windows(2)
+            .any(|pair| pair[0].member >= pair[1].member)
     {
         return Err(MemberRegistryError::Batch);
     }
@@ -420,7 +425,11 @@ impl RegistryOverlay {
 }
 
 /// The root `path` reaches from `leaf` at `index`.
-pub fn root_of(index: u64, leaf: [u8; 32], path: &[[u8; 32]]) -> Result<[u8; 32], MemberRegistryError> {
+pub fn root_of(
+    index: u64,
+    leaf: [u8; 32],
+    path: &[[u8; 32]],
+) -> Result<[u8; 32], MemberRegistryError> {
     MerklePath {
         index,
         siblings: path,
@@ -455,9 +464,7 @@ mod tests {
     #[test]
     fn a_batch_inserts_in_member_order_and_rewrites_in_place() {
         let mut tree = MemberRegistryTree::new().unwrap();
-        let items = tree
-            .list_items(&[(member(9), 1), (member(4), 2)])
-            .unwrap();
+        let items = tree.list_items(&[(member(9), 1), (member(4), 2)]).unwrap();
         assert_eq!(items[0].member, member(4));
         assert_eq!(items[0].index, 1);
         assert_eq!(items[1].index, 2);
@@ -562,15 +569,24 @@ mod tests {
     #[test]
     fn the_overlay_tracks_the_reference_tree_through_a_batch() {
         let mut tree = MemberRegistryTree::new().unwrap();
-        tree.apply(&tree.list_items(&[(member(10), 1), (member(40), 1)]).unwrap())
-            .unwrap();
+        tree.apply(
+            &tree
+                .list_items(&[(member(10), 1), (member(40), 1)])
+                .unwrap(),
+        )
+        .unwrap();
         let base = tree.clone();
         let items = tree
-            .list_items(&[(member(10), 3), (member(20), 1), (member(50), 2), (member(60), 4)])
+            .list_items(&[
+                (member(10), 3),
+                (member(20), 1),
+                (member(50), 2),
+                (member(60), 4),
+            ])
             .unwrap();
         let inputs = tree.apply(&items).unwrap();
-        let mut overlay = RegistryOverlay::new(base.next_index(), base.append_path().unwrap())
-            .unwrap();
+        let mut overlay =
+            RegistryOverlay::new(base.next_index(), base.append_path().unwrap()).unwrap();
         let mut root = base.root();
         for (item, input) in items.iter().zip(&inputs) {
             if let Some(low) = &input.low {

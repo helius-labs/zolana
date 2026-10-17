@@ -210,7 +210,10 @@ mod tests {
         assert_eq!(batch.new_root, [9; 32]);
         assert!(batch.seal.is_none());
 
-        let other = [Address::new_from_array([3; 32]), Address::new_from_array([4; 32])];
+        let other = [
+            Address::new_from_array([3; 32]),
+            Address::new_from_array([4; 32]),
+        ];
         assert!(batch_of(&other, &data).is_err());
         let unordered = update_members(vec![item([2; 32], 1), item([1; 32], 2)]);
         assert!(batch_of(&accounts, &unordered).is_err());
