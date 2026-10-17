@@ -1,25 +1,21 @@
-//! Pins the entry and policy hashing to the Go circuit. The values are the
-//! fixture `prover/server/custom_rings/circuits/policy/circuit_test.go` prints
-//! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
+//! Pins the policy statement layout the Go circuit hashes and the account bytes the
+//! TypeScript SDK decodes. The policy hash itself is cross-checked by the corpus in
+//! `custom-rings/policy/tests/fixtures/policy-hash-corpus.json`.
 
 use custom_ring_interface::{
     CustomRingBasePublicInput, CustomRingPolicyPublicInput, PolicyConfig, SourceSlot,
     N_SOURCE_SLOTS, POLICY_CONFIG,
 };
-
+use custom_ring_sdk::{CustomRing, PolicyReads, PolicyTreeContext, RegistryBinding};
 use solana_address::Address;
 use zolana_ring_policy::{
-    entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
-    Member, Mode, OutflowLimit, Rule, RuleTable, SourceMap, Subject,
+    registry_field, ListId, ListNamespace, Member, Rule, RuleTable, SourceMap, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
-const CURATOR_PDA: [u8; 32] = [0x12; 32];
-const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
-const SENDER_TAG: [u8; 32] = [0xb2; 32];
-const BLOCKED_TAG: [u8; 32] = [0xc3; 32];
+const CURATOR_REGISTRY: [u8; 32] = [0x12; 32];
 const ASSET_MINT: [u8; 32] = [0xd4; 32];
-/// The address tree id the Go fixture hashes under.
+/// The address tree id the statement hashes under.
 const TREE_ID: u16 = 7;
 /// The mint's `hash_bytes`, the value a UTXO carries as its asset field.
 const ASSET_MEMBERS: &[[u8; 32]] = &[[
@@ -27,256 +23,78 @@ const ASSET_MEMBERS: &[[u8; 32]] = &[[
     0x51, 0x5b, 0x45, 0x7e, 0x02, 0x7e, 0x0c, 0xf5, 0xe4, 0x86, 0x7c, 0x08, 0x58, 0x85, 0x5e, 0xc1,
 ]];
 
-const RECORDS_OWNER_HASH: &str = "2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196";
-const CURATOR_OWNER_HASH: &str = "13463a1c543bbe328fea6b0990a4014a613371d7390be03f7bc35cb4540753bb";
-const POLICY_HASH: &str = "0a478385e1bd09fe08107efd6ef0c639c42136e8c469f4430fafbfec4a26fab0";
-const EMPTY_POLICY_HASH: &str = "21e13c8adf02a23a214b2c986696071fe52944dd903ea99d945ed6094f303848";
-const ONE_RULE_POLICY_HASH: &str =
-    "18b62773777263f2f9a627ada2144e4c73e9c0ee259bd98ecb771cd05d0492ac";
-const TWO_RULE_POLICY_HASH: &str =
-    "058a629418a4a8c99f64a76865855436b2155aa593e2496bad6f6a9d8cbbb61c";
-const MIXED_RULE_POLICY_HASH: &str =
-    "0dd06e8e135f9898b02b75c070f6b9ad9b6723059214e2b0f0730996d0a48ae1";
-const PER_ASSET_POLICY_HASH: &str =
-    "2b233ab98d8eeca8857b4f26ce9c90bca8e0c2b63053f600823c404aa77c020f";
-const LIMIT_POLICY_HASH: &str = "01b1e3ec5e25ca05541c8e3ca0d0dff6e4a3481b912cc6dcd0e492567b783669";
 const PER_ASSET_RULES: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
     .inline_assets(ASSET_MEMBERS)
     .inline_limits(&[123])
     .build();
 
-struct Vector {
-    seed: &'static str,
-    blinding: &'static str,
-    address: &'static str,
-    data_hash: &'static str,
-    utxo_hash: &'static str,
-    nullifier: &'static str,
-}
-
-const ALLOW_PRESENT: Vector = Vector {
-    seed: "148b5ac42f444aa51bec37ae98ee6a26c6af968bf968e0eb50e749f3ef0eab04",
-    blinding: "0000000000000000000000000000000000000000000000000000000000000001",
-    address: "004fe1ffd9574dfaf0d8ab04f3db3602cc1fb8db8d10c8ebba62cf3923998abf",
-    data_hash: "09c053bd16ca781e84e64bb353549e6dd9fbcc6e072e0a34e50c59fc3b6c9d2d",
-    utxo_hash: "03409e610c10c6e82bead86f12d0f79872c66e8ca3a51d796de1726aeed137ab",
-    nullifier: "0a4a91cd454e7f8acb5bc0df7bc826570caa1d22914a0cc8aa62db94a978af6d",
-};
-
-/// The frozen entry was never created and its list reads a curator's
-/// entries, so only its curator owned address is pinned.
-const FROZEN_SEED: &str = "1d07a2770e53955dd99bbf1a36348d8699fba111587451e3052d4fae3c23d5e6";
-const FROZEN_ADDRESS: &str = "30036588ff59652a8d248e3c5927aaf96e08d59f40b3291c1eec8af8f7fd1687";
-
-const BLOCK_CLEARED: Vector = Vector {
-    seed: "071bb37c9c8db477e9c559891989aa7b774b7da82c0341bdd826d1f2d35430ba",
-    blinding: "0000000000000000000000000000000000000000000000000000000000000003",
-    address: "110828bc9145be37cd119865f66113d3858a8df6436fa6427eba07d152d7e654",
-    data_hash: "145f4e2f25f4b57eefc76e760c8adfb06b48e7ea17f022c62c692d6530d9d9f3",
-    utxo_hash: "0e5cc81efe63454ebd769c706d697141626499d60889f5207cd823a0dc23a461",
-    nullifier: "03440de6febefc54740d90e51412d74ee76abd757d713ac3636d33e8b34068f2",
-};
-
-fn hex32(value: &str) -> [u8; 32] {
-    let mut bytes = [0u8; 32];
-    hex::decode_to_slice(value, &mut bytes).expect("32-byte hex");
-    bytes
-}
-
 fn owner() -> ListNamespace {
     ListNamespace::new(&RECORDS_PDA).expect("namespace owner")
-}
-
-fn curator() -> ListNamespace {
-    ListNamespace::new(&CURATOR_PDA).expect("curator owner")
-}
-
-/// The fixture map, the frozen list reads the curator's entries.
-fn fixture_sources() -> SourceMap {
-    SourceMap::new(&[
-        (ListId::Allow, owner().owner_hash),
-        (ListId::Block, owner().owner_hash),
-        (ListId::Frozen, curator().owner_hash),
-        (ListId::Approval, owner().owner_hash),
-    ])
-    .expect("sources")
-}
-
-fn check(vector: &Vector, list_id: ListId, tag: [u8; 32], state: EntryState, version: u64) {
-    let owner = owner();
-    let member = Member::owner_tag(&tag).expect("member");
-    assert_eq!(
-        entry_seed(list_id, &member).expect("seed"),
-        hex32(vector.seed),
-        "seed"
-    );
-    let address = owner.address(list_id, &member, TREE_ID).expect("address");
-    assert_eq!(address, hex32(vector.address), "address");
-
-    let entry = ListEntry {
-        list_id,
-        member,
-        state,
-        version,
-        content_hash: [0u8; 32],
-        blinding: hex32(vector.blinding),
-    };
-    assert_eq!(
-        entry.data_hash(&address).expect("data hash"),
-        hex32(vector.data_hash),
-        "data hash"
-    );
-    let utxo_hash = entry
-        .utxo_hash(&owner, &address, TREE_ID)
-        .expect("utxo hash");
-    assert_eq!(utxo_hash, hex32(vector.utxo_hash), "utxo hash");
-    assert_eq!(
-        entry_nullifier(&utxo_hash, &entry.blinding()).expect("nullifier"),
-        hex32(vector.nullifier),
-        "nullifier"
-    );
-}
-
-#[test]
-fn record_hashing_matches_the_go_fixture() {
-    assert_eq!(owner().owner_hash, hex32(RECORDS_OWNER_HASH));
-    assert_eq!(curator().owner_hash, hex32(CURATOR_OWNER_HASH));
-    check(
-        &ALLOW_PRESENT,
-        ListId::Allow,
-        RECIPIENT_TAG,
-        EntryState::Active,
-        0,
-    );
-    let sender = Member::owner_tag(&SENDER_TAG).expect("member");
-    assert_eq!(
-        entry_seed(ListId::Frozen, &sender).expect("seed"),
-        hex32(FROZEN_SEED)
-    );
-    assert_eq!(
-        curator()
-            .address(ListId::Frozen, &sender, TREE_ID)
-            .expect("address"),
-        hex32(FROZEN_ADDRESS)
-    );
-    check(
-        &BLOCK_CLEARED,
-        ListId::Block,
-        BLOCKED_TAG,
-        EntryState::Cleared,
-        1,
-    );
-}
-
-#[test]
-fn policy_hashing_matches_the_go_fixture() {
-    let table = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .rule(Rule::allow_only_assets())
-        .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(2000))
-        .inline_assets(ASSET_MEMBERS)
-        .build();
-    assert_eq!(
-        table.hash(&fixture_sources()).expect("policy hash"),
-        hex32(POLICY_HASH)
-    );
-    assert!(matches!(table.rules()[3].guard, Guard::AboveAmount(2000)));
-    assert!(matches!(table.rules()[1].primary_mode(), Mode::Absent));
-}
-
-/// The alt mask at byte 19 enters the packed row the hash chain folds.
-#[test]
-fn a_mixed_rule_hashes_to_the_go_fixture() {
-    const MIXED: RuleTable = RuleTable::builder()
-        .rule(Rule::any_of(
-            Subject::OutputOwner,
-            ListSet::single(ListId::Approval),
-            ListSet::single(ListId::Block),
-        ))
-        .build();
-    let map = SourceMap::new(&[
-        (ListId::Block, owner().owner_hash),
-        (ListId::Approval, owner().owner_hash),
-    ])
-    .expect("mixed sources");
-    assert_eq!(
-        MIXED.hash(&map).expect("mixed rule hash"),
-        hex32(MIXED_RULE_POLICY_HASH)
-    );
-}
-
-#[test]
-fn source_map_hashing_matches_the_go_fixture() {
-    const EMPTY: RuleTable = RuleTable::builder().build();
-    assert_eq!(
-        EMPTY.hash(&SourceMap::default()).expect("empty hash"),
-        hex32(EMPTY_POLICY_HASH)
-    );
-    const ONE_RULE: RuleTable = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .build();
-    let one_map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
-    assert_eq!(
-        ONE_RULE.hash(&one_map).expect("one rule hash"),
-        hex32(ONE_RULE_POLICY_HASH)
-    );
-    const TWO_RULES: RuleTable = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .build();
-    let two_map = SourceMap::new(&[
-        (ListId::Allow, owner().owner_hash),
-        (ListId::Frozen, curator().owner_hash),
-    ])
-    .expect("two sources");
-    assert_eq!(
-        TWO_RULES.hash(&two_map).expect("two rule hash"),
-        hex32(TWO_RULE_POLICY_HASH)
-    );
-}
-
-#[test]
-fn per_asset_limit_hashing_matches_the_go_fixture() {
-    let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
-    assert_eq!(
-        PER_ASSET_RULES.hash(&map).expect("per-asset hash"),
-        hex32(PER_ASSET_POLICY_HASH)
-    );
-}
-
-#[test]
-fn outflow_limits_hash_to_the_go_fixture() {
-    let table = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .limits(&[OutflowLimit {
-            asset: ASSET_MEMBERS[0],
-            cap: 5000,
-            cosign_above: 600,
-        }])
-        .build();
-    let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
-    assert_eq!(
-        table.hash(&map).expect("limit hash"),
-        hex32(LIMIT_POLICY_HASH)
-    );
 }
 
 fn field(value: u64) -> [u8; 32] {
     zolana_hasher::primitives::right_align(&value.to_be_bytes())
 }
 
+/// The stored slot carries the curator's registry address, the hash its field.
 #[test]
-fn policy_account_bytes_match_the_typescript_vector() {
-    let sources = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("sources");
+fn a_curator_slot_hashes_the_registry_address_as_a_field() {
     let mut slots = [SourceSlot {
         list_id: 0,
-        namespace: Address::default(),
+        registry: Address::default(),
     }; N_SOURCE_SLOTS];
     slots[ListId::Allow.slot()] = SourceSlot {
         list_id: ListId::Allow as u8,
-        namespace: Address::new_from_array(RECORDS_PDA),
+        registry: Address::new_from_array(CURATOR_REGISTRY),
+    };
+    let field = slots[ListId::Allow.slot()].policy_source().expect("field");
+    assert_eq!(field.list_id, ListId::Allow as u8);
+    assert_eq!(field.registry, registry_field(&CURATOR_REGISTRY).unwrap());
+    assert_eq!(
+        slots[ListId::Block.slot()]
+            .policy_source()
+            .expect("field")
+            .registry,
+        [0; 32]
+    );
+    let config = PolicyConfig {
+        discriminator: POLICY_CONFIG,
+        policy_hash: [0; 32],
+        address_tree: Address::new_from_array([0x22; 32]),
+        address_tree_id: TREE_ID.to_le_bytes(),
+        namespace_bump: 254,
+        bump: 253,
+        namespace_owner_hash: owner().owner_hash,
+        sources: slots,
+        rules: RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+            .build()
+            .encode(),
+        generation: 1u32.to_le_bytes(),
+        generation_slot: 0u64.to_le_bytes(),
+    };
+    let map = config.source_map().expect("source map");
+    assert_eq!(
+        map.curator(),
+        Some(registry_field(&CURATOR_REGISTRY).unwrap())
+    );
+    assert_eq!(
+        config.curator(),
+        Some(Address::new_from_array(CURATOR_REGISTRY))
+    );
+}
+
+#[test]
+fn policy_account_bytes_match_the_typescript_vector() {
+    let sources = SourceMap::new(&[(ListId::Allow, [0; 32])]).expect("sources");
+    let mut slots = [SourceSlot {
+        list_id: 0,
+        registry: Address::default(),
+    }; N_SOURCE_SLOTS];
+    slots[ListId::Allow.slot()] = SourceSlot {
+        list_id: ListId::Allow as u8,
+        registry: Address::default(),
     };
     let config = PolicyConfig {
         discriminator: POLICY_CONFIG,
@@ -316,6 +134,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
     assert_eq!(member.as_bytes(), &ASSET_MEMBERS[0]);
 }
 
+/// Twenty-one elements, the audit prefix then the policy tail the Go circuit appends.
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
     let audit = CustomRingBasePublicInput {
@@ -330,72 +149,49 @@ fn the_public_input_chain_extends_the_audit_chain() {
         anonymous: false,
     };
     let elements = audit.elements().expect("elements");
-    let mut revocation_targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
-    revocation_targets[0] = field(0x42);
-    revocation_targets[1] = [0x11; 32];
     let slots = [zolana_interface::tree_slot::TreeSlot::new(
         TREE_ID, [6u8; 32], [7u8; 32],
     )];
     let policy = CustomRingPolicyPublicInput {
         audit,
-        policy_hash: &hex32(POLICY_HASH),
+        policy_hash: &[10u8; 32],
         tree_slots: &slots,
         address_tree_id: TREE_ID,
         ring_id: &[8u8; 32],
         namespace_owner_hash: &[9u8; 32],
         approval_required: true,
-        key_registry_root: None,
-        revocation_tree_indexes: &[0; zolana_ring_policy::ANSWER_SLOTS],
-        revocation_targets: &revocation_targets,
+        key_escrow: true,
+        member_registry_root: &[11u8; 32],
+        foreign_root: &[12u8; 32],
     };
     let mut expected = elements.to_vec();
     expected.extend_from_slice(&[
-        hex32(POLICY_HASH),
+        [10u8; 32],
         zolana_interface::tree_slot::populated_tree_slots_hash_chain(&slots).expect("slots"),
         zolana_interface::tree_slot::tree_id_field(TREE_ID),
         [8u8; 32],
         [9u8; 32],
         field(1),
-        [0u8; 32],
-        [0u8; 32],
-        [0u8; 32],
+        field(1),
+        [11u8; 32],
+        [12u8; 32],
     ]);
-    expected.extend_from_slice(&revocation_targets);
+    assert_eq!(expected.len(), 21);
     let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected).expect("chain");
     assert_eq!(policy.hash().expect("policy input"), chain);
-}
-
-/// Go `TestNonzeroRevocationTailVector` with escrow on, fact 1 reads tree slot 2.
-#[test]
-fn nonzero_revocation_tail_matches_go_and_typescript() {
-    let mut elements = vec![hex32(
-        "12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f",
-    )];
-    elements.extend_from_slice(&[
-        [0x2a; 32],
-        [6; 32],
-        zolana_interface::tree_slot::tree_id_field(9),
-        [8; 32],
-        [10; 32],
-        field(1),
-        field(1),
-        [0x0b; 32],
-        field(2 << 3),
-        field(0x42),
-        [0x11; 32],
-    ]);
-    elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
+    let indexed = policy.indexed_inputs().expect("indexed inputs");
+    assert_eq!(indexed.len(), 8);
     assert_eq!(
-        zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("287fe8b5f9ae4740720aa0c80bb628572ec71a111acfa1156c866d774f4a9257")
+        indexed[0],
+        zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected[..13]).expect("fold")
     );
+    assert_eq!(&indexed[1..], &expected[14..]);
 }
 
 /// The program reads the policy config out of the prefix, so the builder must
 /// place it there.
 #[test]
 fn the_policy_transact_carries_the_policy_config() {
-    use custom_ring_sdk::{CustomRing, PolicyReads, PolicyTreeContext};
     let ring = CustomRing::new(solana_address::Address::new_from_array([3u8; 32]));
     let instruction = custom_ring_sdk::CustomRingTransact {
         cosigner: None,
@@ -411,9 +207,8 @@ fn the_policy_transact_carries_the_policy_config() {
                     nullifier_tree_root_index: 0,
                 },
             }],
-            escrow: custom_ring_sdk::EscrowBinding::Off,
-            revocation_targets: [[0; 32]; zolana_ring_policy::ANSWER_SLOTS],
-            revocation_tree_indexes: [0; zolana_ring_policy::ANSWER_SLOTS],
+            registry: RegistryBinding::default(),
+            foreign: None,
         }),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -434,6 +229,10 @@ fn the_policy_transact_carries_the_policy_config() {
     assert_eq!(instruction.accounts[0].pubkey, ring.config_pda());
     assert_eq!(instruction.accounts[1].pubkey, ring.cosigner_pda());
     assert_eq!(instruction.accounts[3].pubkey, ring.policy_config_pda());
+    assert_eq!(
+        instruction.accounts[5].pubkey,
+        ring.member_registry_root_pda()
+    );
 }
 
 fn transact_payload() -> zolana_interface::instruction::instruction_data::transact::TransactIxData {

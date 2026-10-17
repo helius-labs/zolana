@@ -5,13 +5,13 @@ use super::*;
 use crate::migration::{MigratorTrait, RingsMigrator};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use custom_ring_interface::{
-    instruction::tag, CustomRingProof, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey,
+    instruction::tag, CustomRingProof, EscrowKey, MemberRegistryRoot, RegisterKeyIxData,
 };
 use jsonrpsee::{server::ServerHandle, types::ErrorObjectOwned};
 use sea_orm::Database;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Mutex};
-use zolana_indexer_api::{Hash, RingMemberProofRequest};
+use zolana_indexer_api::{GetRingMemberRecordRequest, Hash};
 
 /// Mutable confirmed RPC history, including failures between replay commits.
 #[derive(Default)]
@@ -88,16 +88,16 @@ fn account(owner: Pubkey, data: &[u8]) -> Value {
     json!({"lamports": 1, "owner": owner.to_string(), "data": [STANDARD.encode(data), "base64"], "executable": false, "rentEpoch": 0})
 }
 
-fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Value {
-    let mut history = [[0u8; 32]; custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY];
-    history[0] = root;
+fn root_account(program: Pubkey, root: [u8; 32], next_index: u64, cursor: u8) -> Value {
+    let mut history = [[0u8; 32]; custom_ring_interface::MEMBER_REGISTRY_ROOT_HISTORY];
+    history[usize::from(cursor)] = root;
     account(
         program,
-        bytemuck::bytes_of(&KeyRegistryRoot {
-            discriminator: custom_ring_interface::KEY_REGISTRY_ROOT,
+        bytemuck::bytes_of(&MemberRegistryRoot {
+            discriminator: custom_ring_interface::MEMBER_REGISTRY_ROOT,
             next_index: next_index.to_le_bytes(),
-            bump: key_registry_root_pda(&program).1,
-            history_cursor: 0,
+            bump: member_registry_root_pda(&program).1,
+            history_cursor: cursor,
             history,
         }),
     )
@@ -155,20 +155,17 @@ fn transaction(program: Pubkey, accounts: &[Pubkey], data: &[u8]) -> Value {
 /// Initialization and first registration precede the global tip.
 async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8; 32]) {
     let program = Pubkey::new_from_array([11; 32]);
-    let address = key_registry_root_pda(&program).0;
-    let mut tree = zolana_ring_key_registry::KeyRegistryTree::new().unwrap();
-    let key = RegisteredKey {
+    let address = member_registry_root_pda(&program).0;
+    let mut tree = zolana_ring_member_registry::MemberRegistryTree::new().unwrap();
+    let key = EscrowKey {
         nullifier_pk: &field(5),
         ciphertext: &[5; 32],
     }
     .hash()
     .unwrap();
-    let insertion = tree
-        .register(zolana_ring_key_registry::Registration {
-            member: member(5),
-            key,
-        })
-        .unwrap();
+    let item = tree.register_item(&member(5), key).unwrap();
+    tree.apply(&[item]).unwrap();
+    let new_root = tree.root();
     let mut data = vec![tag::REGISTER_KEY];
     data.extend(
         wincode::serialize(&RegisterKeyIxData {
@@ -181,9 +178,9 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },
-            registry_old_root: EMPTY_ROOT,
-            registry_new_root: insertion.new_root,
-            registry_next_index: 1,
+            old_root_index: 0,
+            new_root,
+            item,
             nullifier_pk: field(5),
             eph_pk: [5; 33],
             ciphertext: [5; 32],
@@ -205,7 +202,7 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
                             address,
                             Pubkey::default(),
                         ],
-                        &[tag::CREATE_KEY_REGISTRY_ROOT],
+                        &[tag::CREATE_MEMBER_REGISTRY_ROOT],
                     )],
                 ),
             ),
@@ -227,10 +224,7 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
             (3, block(3, vec![])),
         ]),
         accounts: HashMap::from([
-            (
-                address.to_string(),
-                root_account(program, insertion.new_root, 2),
-            ),
+            (address.to_string(), root_account(program, new_root, 2, 1)),
             (
                 zolana_interface::pda::ring_auth(&program).0.to_string(),
                 activation(program, false),
@@ -261,7 +255,7 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
         activation(program, true),
     );
     chain.lock().unwrap().failed_block = Some(2);
-    (projector, chain, handle, program, insertion.new_root)
+    (projector, chain, handle, program, new_root)
 }
 
 #[tokio::test]
@@ -352,12 +346,12 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
 async fn a_stalled_replay_does_not_starve_another_pending_ring() {
     let (projector, chain, handle, stalled, _) = late_ring().await;
     let healthy = Pubkey::new_from_array([12; 32]);
-    let address = key_registry_root_pda(&healthy).0;
+    let address = member_registry_root_pda(&healthy).0;
     {
         let mut chain = chain.lock().unwrap();
         chain
             .accounts
-            .insert(address.to_string(), root_account(healthy, EMPTY_ROOT, 1));
+            .insert(address.to_string(), root_account(healthy, EMPTY_ROOT, 1, 0));
         chain.accounts.insert(
             zolana_interface::pda::ring_auth(&healthy).0.to_string(),
             activation(healthy, false),
@@ -375,7 +369,7 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
                         address,
                         Pubkey::default(),
                     ],
-                    &[tag::CREATE_KEY_REGISTRY_ROOT],
+                    &[tag::CREATE_MEMBER_REGISTRY_ROOT],
                 )],
             ),
         );
@@ -402,18 +396,35 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
             .unwrap()
             .is_none()
     );
-    assert!(key_registry::register(
+    let record = member_registry::member_record(
         projector.db.as_ref(),
         &projector.rpc,
-        RingMemberProofRequest {
+        GetRingMemberRecordRequest {
             ring_program_id: healthy.into(),
             member: Hash(member(7)),
             expected_root: Hash(EMPTY_ROOT),
             expected_next_index: 1,
-        }
+        },
     )
     .await
-    .is_ok());
+    .unwrap();
+    assert!(!record.present);
+    assert_eq!(record.low.unwrap().member, Hash([0; 32]));
+    let tip = member_registry::registry_root(
+        projector.db.as_ref(),
+        &projector.rpc,
+        zolana_indexer_api::GetRingMemberRegistryRootRequest {
+            ring_program_id: healthy.into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(tip.next_index, 1);
+    assert_eq!(tip.root_index, 0);
+    assert_eq!(
+        tip.append_path.len(),
+        custom_ring_interface::MEMBER_REGISTRY_HEIGHT
+    );
     handle.stop().unwrap();
     handle.stopped().await;
 }
@@ -499,11 +510,11 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
         let mut accounts = HashMap::from([
             (
                 Pubkey::new_from_array(healthy.address).to_string(),
-                root_account(Pubkey::new_from_array(healthy.program), healthy.root, 1),
+                root_account(Pubkey::new_from_array(healthy.program), healthy.root, 1, 0),
             ),
             (
                 Pubkey::new_from_array(ahead.address).to_string(),
-                root_account(Pubkey::new_from_array(ahead.program), field(9), 2),
+                root_account(Pubkey::new_from_array(ahead.program), field(9), 2, 1),
             ),
         ]);
         if let Some(value) = invalid {
@@ -542,27 +553,18 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             .unwrap()
             .fault
             .is_none());
-        let request = |root: &RingRoot| RingMemberProofRequest {
+        let request = |root: &RingRoot| GetRingMemberRecordRequest {
             ring_program_id: Pubkey::new_from_array(root.program).into(),
             member: Hash(member(7)),
             expected_root: Hash(root.root),
             expected_next_index: 1,
         };
-        assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&healthy))
-                .await
-                .is_ok()
-        );
-        assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&faulty))
-                .await
-                .is_err()
-        );
-        assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&ahead))
-                .await
-                .is_err()
-        );
+        let read = |request| {
+            member_registry::member_record(projector.db.as_ref(), &projector.rpc, request)
+        };
+        assert!(read(request(&healthy)).await.is_ok());
+        assert!(read(request(&faulty)).await.is_err());
+        assert!(read(request(&ahead)).await.is_err());
         let mut cursor = projector.cursor().await.unwrap();
         projector.rewind_tip(&mut cursor).await.unwrap();
         assert!(root(faulty.program)

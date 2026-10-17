@@ -7,7 +7,7 @@ pub mod deposit_audit;
 pub mod disclosure;
 pub mod error;
 pub mod instruction;
-pub mod key_registry;
+pub mod member_registry;
 pub mod policy_public_input;
 pub mod state;
 
@@ -40,8 +40,8 @@ pub use deposit_audit::*;
 pub use disclosure::*;
 pub use error::CustomRingError;
 pub use instruction::*;
-pub use key_registry::*;
-pub use policy_public_input::CustomRingPolicyPublicInput;
+pub use member_registry::*;
+pub use policy_public_input::{CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS};
 pub use state::*;
 
 /// One-byte `0x04` scheme tag followed by a canonical X25519 u-coordinate.

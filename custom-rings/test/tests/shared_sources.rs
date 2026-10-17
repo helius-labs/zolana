@@ -1,23 +1,20 @@
-//! Two rings share one policy source on localnet + photon + prover. The
-//! subscriber's Block list reads the curator ring's entries, so one curator
-//! write refuses the subscriber's transfer, clearing the entry or re-pointing
-//! the source re-admits it, and the subscriber cannot mutate the curator-served
-//! list on its own ring.
+//! Two rings share one member registry on localnet + photon + prover. The
+//! subscriber's Block list reads the curator ring's registry, so one curator
+//! write refuses the subscriber's transfer, and clearing the bit or re-pointing
+//! the source re-admits it.
 
 use anyhow::Result;
-use custom_ring_interface::CustomRingError;
-use custom_ring_sdk::{CreateEntry, PoolTree, SourceOwner};
+use custom_ring_sdk::{ListRegistry, SourceOwner};
 use custom_ring_test_validator::{
     policy::{
-        owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
-        RingNotes, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
+        owner_member, policy_config, CuratedRings, PolicyTransfer, RegistryWrite, RingNotes,
+        BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
-    shared::{send, send_expecting_rejection, RegisterRing, Tier},
+    shared::{send, RegisterRing, Tier},
 };
 use solana_signer::Signer;
 use zolana_keypair::X25519Secret;
-use zolana_program_test::Rejection;
-use zolana_ring_policy::{EntryState, ListId};
+use zolana_ring_policy::ListId;
 use zolana_transaction::Utxo;
 
 #[test]
@@ -38,9 +35,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         env: &env,
     };
 
-    // 1. The subscriber pins behind the curator's pin, its Block slot copies
-    //    the curator's resolved namespace owner, and it registers with SPP
-    //    only behind its own pin.
+    // 1. The subscriber pins behind the curator's pin, its Block slot names
+    //    the curator's member registry, and it registers with SPP only behind
+    //    its own pin.
     RegisterRing {
         ring: subscriber,
         payer: &env.payer,
@@ -54,9 +51,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     .send(rpc)?;
     let stored = policy_config(subscriber, &env)?;
     assert_eq!(
-        stored.source_for(ListId::Block),
-        Some(curator.namespace_pda()),
-        "the Block slot names the curator entries"
+        stored.registry_for(ListId::Block),
+        Some(ListRegistry::Curator(curator.member_registry_root_pda())),
+        "the Block slot names the curator registry"
     );
     assert_eq!(stored.generation(), 1);
 
@@ -70,55 +67,26 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     }
     .deposit()?;
 
-    // 3. No Block entry exists yet, the transfer passes on the absence proof
-    //    against the curator's empty entries.
+    // 3. The curator registry holds no member yet, the transfer passes on
+    //    the absence proof against it.
     transfer(&notes[0]).land()?;
 
     // 4. One curator write refuses the next transfer at witness build.
     let member = owner_member(&env.recipient.keypair)?;
-    let active = EntryWrite {
+    let curator_block = |present| RegistryWrite {
         ring: curator,
-        target: EntryTarget::Claim {
-            list_id: ListId::Block,
-            member,
-        },
-        state: EntryState::Active,
-        fee_payer: &env.payer,
-        env: &env,
-    }
-    .send()?;
-    transfer(&notes[1]).expect_refusal()?;
-
-    // 5. The curator-served list is immutable on the subscriber ring, the
-    //    program refuses the mutation after a valid entry proof.
-    let subscriber_tree = PoolTree::address_tree(&policy_config(subscriber, &env)?);
-    let foreign = CreateEntry {
-        ring: subscriber,
-        payer: authority,
-        address_tree: subscriber_tree,
-        output_tree: subscriber_tree,
         list_id: ListId::Block,
         member,
-        state: EntryState::Active,
-        content_hash: [0u8; 32],
-    };
-    let foreign = env.run(foreign.prove(env.client.as_async()))?;
-    let rejection = send_expecting_rejection(rpc, &env.payer, foreign.instruction()?)?;
-    Rejection::custom(CustomRingError::ForeignSource as u32)
-        .at(0)
-        .assert_client(&rejection);
-
-    // 6. Clearing the entry re-admits the transfer through the cleared-entry
-    //    absence branch, the refused note is still unspent. An unrelated
-    //    deposit rotates the state root between the entry read and the proof.
-    let cleared = EntryWrite {
-        ring: curator,
-        target: EntryTarget::Successor(active),
-        state: EntryState::Cleared,
-        fee_payer: &env.payer,
+        present,
         env: &env,
-    }
-    .send()?;
+    };
+    curator_block(true).send()?;
+    transfer(&notes[1]).expect_refusal()?;
+
+    // 5. Clearing the bit re-admits the transfer, the refused note is still
+    //    unspent. An unrelated deposit rotates the state root between the
+    //    record read and the proof.
+    curator_block(false).send()?;
     RingNotes {
         ring: subscriber,
         owner: &env.sender.keypair,
@@ -129,18 +97,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     .deposit()?;
     transfer(&notes[1]).land()?;
 
-    // 7. A relayer pays the reactivation, the curator authority only co-signs.
-    //    With the entry active again, re-pointing Block to the subscriber's
-    //    own entries turns curator enforcement off.
-    let relayer = env.funded_keypair()?;
-    EntryWrite {
-        ring: curator,
-        target: EntryTarget::Successor(cleared),
-        state: EntryState::Active,
-        fee_payer: &relayer,
-        env: &env,
-    }
-    .send()?;
+    // 6. With the bit set again, re-pointing Block to the subscriber's own
+    //    registry turns curator enforcement off.
+    curator_block(true).send()?;
     send(
         rpc,
         &env.payer,
@@ -148,9 +107,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     )?;
     let repointed = policy_config(subscriber, &env)?;
     assert_eq!(
-        repointed.source_for(ListId::Block),
-        Some(subscriber.namespace_pda()),
-        "the Block slot is back on the subscriber entries"
+        repointed.registry_for(ListId::Block),
+        Some(ListRegistry::Own),
+        "the Block slot is back on the subscriber registry"
     );
     assert_eq!(repointed.generation(), 2, "a re-point counts a generation");
     assert!(repointed.generation_slot() > stored.generation_slot());

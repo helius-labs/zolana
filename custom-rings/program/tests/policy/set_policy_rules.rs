@@ -5,17 +5,15 @@ use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{compute_unit_limit, InstructionTag, PolicyConfig, SourceSlot};
 use solana_account::Account;
 use solana_program_error::ProgramError;
-use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, address_tree, anonymous_config_account, consumed, curator_policy_config_account_with,
-    curator_slot, curator_source_slots, initialized_curator_policy_config_account, largest_table,
-    mixed_sources, namespace_pda, own_source_slots, own_specs, policy_config_account_with,
-    policy_hash_for, program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
-    specs_with_block_source, stored_policy_config, table_ix_data, LIMIT_RULES, PINNED_RULES,
-    RELEASED_RULES, WARPED_SLOT,
+    account, address_tree, anonymous_config_account, consumed, curator_slot,
+    initialized_curator_registry_account, largest_table, mixed_sources, namespace_pda,
+    own_source_slots, own_specs, policy_config_account_with, policy_hash_for, program_data_account,
+    rent_recipient, set_policy_rules_fixture, setup_mollusk, specs_with_block_source,
+    stored_policy_config, table_ix_data, LIMIT_RULES, PINNED_RULES, RELEASED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -106,14 +104,14 @@ fn a_list_dropped_from_the_table_empties_its_slot() {
     assert_eq!(config.sources[ListId::Frozen.slot()], SourceSlot::zeroed());
 }
 
-/// The stored slot is the curator's resolved owner, not the curator config.
+/// The stored slot is the curator's registry root account.
 #[test]
-fn a_list_added_with_a_curator_names_it() {
+fn a_list_added_with_a_curator_names_its_registry() {
     let (mollusk, _) = setup_mollusk();
     let stored = policy_config_account_with(&ALLOW_ONLY, own_source_slots(&ALLOW_ONLY));
     let table = table_ix_data(&RELEASED_RULES, &specs_with_block_source(1));
     let mut fixture = set_policy_rules_fixture(stored, &table);
-    fixture.push(curator_slot(initialized_curator_policy_config_account()));
+    fixture.push(curator_slot(initialized_curator_registry_account()));
     let config = stored_policy_config(&mollusk, &fixture);
     assert_eq!(config.sources, mixed_sources());
     assert_eq!(
@@ -129,18 +127,6 @@ fn a_curated_list_kept_without_its_curator_account_is_rejected_exactly() {
     let table = table_ix_data(&RELEASED_RULES, &specs_with_block_source(1));
     let fixture = set_policy_rules_fixture(stored, &table);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
-}
-
-#[test]
-fn a_curator_in_a_different_address_tree_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let table = table_ix_data(&RELEASED_RULES, &specs_with_block_source(1));
-    let mut fixture = set_policy_rules_fixture(released_config(), &table);
-    fixture.push(curator_slot(curator_policy_config_account_with(
-        Pubkey::new_from_array([55; 32]),
-        curator_source_slots(&RELEASED_RULES),
-    )));
-    fixture.expect_err(&mollusk, custom(CustomRingError::CuratorTreeMismatch));
 }
 
 #[test]
@@ -166,7 +152,7 @@ fn the_largest_table_with_one_curator_fits_the_set_policy_rules_budget() {
         }
     }
     let mut fixture = set_policy_rules_fixture(released_config(), &table_ix_data(&rules, &specs));
-    fixture.push(curator_slot(initialized_curator_policy_config_account()));
+    fixture.push(curator_slot(initialized_curator_registry_account()));
     assert!(
         consumed(&mollusk, &fixture)
             <= u64::from(compute_unit_limit(InstructionTag::SetPolicyRules))

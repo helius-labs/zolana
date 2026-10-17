@@ -37,11 +37,10 @@ pub struct Answers {
     pub policy: Option<PolicySpec>,
 }
 
-const POLICY_OPTIONS: [&str; 11] = [
+const POLICY_OPTIONS: [&str; 10] = [
     "participant allowlist",
     "recipient blocklist",
     "sender freeze",
-    "token blocklist",
     "asset allowlist",
     "blocklist with approval exception",
     "per-mint recipient limits",
@@ -60,8 +59,8 @@ const ADVANCED_SOURCES: [&str; 5] = [
 const ALTERNATIVE_KINDS: [&str; 4] = ["require", "forbid", "done", "discard"];
 const OPTIONAL_GUARDS: [&str; 2] = ["always", "above an amount"];
 const OWNER_GUARDS: [&str; 3] = ["always", "above an amount", "above per-mint amounts"];
-const OWN_ENTRIES: &str = "this ring manages the entries";
-const ANOTHER_CURATOR: &str = "another curator manages the entries";
+const OWN_ENTRIES: &str = "this ring manages the members";
+const ANOTHER_CURATOR: &str = "another curator manages the members";
 const OTHER_MINT: &str = "another mint address";
 const OTHER_MINTS: &str = "other mint addresses";
 const DEVNET_USDC: Address =
@@ -242,7 +241,6 @@ impl Wizard<'_> {
                 "participant allowlist" => Some(participant_allowlist()),
                 "recipient blocklist" => Some(vec![forbid(SubjectName::OutputOwner, "block")]),
                 "sender freeze" => Some(vec![forbid(SubjectName::Sender, "frozen")]),
-                "token blocklist" => Some(vec![forbid(SubjectName::Asset, "block")]),
                 "asset allowlist" => Some(vec![self.asset_rule(target, false)?]),
                 "blocklist with approval exception" => Some(vec![simple_rule(
                     SubjectName::OutputOwner,
@@ -305,7 +303,7 @@ impl Wizard<'_> {
         if referenced.is_empty() {
             return Ok(());
         }
-        ui::heading(icon::LISTS, "list entry sources");
+        ui::heading(icon::LISTS, "list sources");
         let tree = spec.address_tree();
         line("tree", tree);
         ui::hint("a discovered curator is offered only when it serves the list and pins this tree");
@@ -319,7 +317,7 @@ impl Wizard<'_> {
                         true => name.to_owned(),
                         false => format!("{name} ({program})"),
                     };
-                    (format!("curator {named} manages the entries"), program)
+                    (format!("curator {named} manages the members"), program)
                 })
                 .collect();
             let items = labels(
@@ -328,7 +326,7 @@ impl Wizard<'_> {
                     .chain(curated.iter().map(|(label, _)| label.as_str()))
                     .chain([ANOTHER_CURATOR]),
             );
-            let prompt = format!("who manages the {list} list entries?");
+            let prompt = format!("who manages the {list} list members?");
             let curator = match self.ask.pick(&prompt, &items, 0)? {
                 0 => continue,
                 picked if picked <= curated.len() => curated[picked - 1].1,
@@ -721,7 +719,7 @@ pub(crate) mod tests {
         let answers = run(script(&[
             Answer::from("blocklist with approval exception"),
             Answer::from("finish"),
-            Answer::from(&*format!("curator {CURATOR} manages the entries")),
+            Answer::from(&*format!("curator {CURATOR} manages the members")),
             Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
@@ -900,8 +898,9 @@ pub(crate) mod tests {
         );
     }
 
+    /// An asset has no member record, its rules read the inline pool only.
     #[test]
-    fn answer_slot_exhaustion_refuses_the_whole_added_option() {
+    fn an_asset_list_rule_refuses_the_whole_added_option() {
         let mut ask = Scripted::new([]);
         let mut curators = fixed;
         let wizard = Wizard {
@@ -914,32 +913,24 @@ pub(crate) mod tests {
         wizard.add_rules(
             &mut spec,
             Target::Localnet,
+            vec![simple_rule(
+                SubjectName::OutputOwner,
+                SourceSpec::Forbid(named_list("block")),
+            )],
+        );
+        assert_eq!(spec.rules.len(), 1);
+        wizard.add_rules(
+            &mut spec,
+            Target::Localnet,
             vec![
-                simple_rule(
-                    SubjectName::OutputOwner,
-                    SourceSpec::Forbid(named_list("block")),
-                ),
-                simple_rule(SubjectName::Asset, SourceSpec::Forbid(named_list("block"))),
                 simple_rule(
                     SubjectName::Sender,
                     SourceSpec::Forbid(named_list("frozen")),
                 ),
-                simple_rule(
-                    SubjectName::Sender,
-                    SourceSpec::Require(named_list("allow")),
-                ),
+                simple_rule(SubjectName::Asset, SourceSpec::Forbid(named_list("block"))),
             ],
         );
-        assert_eq!(spec.rules.len(), 4, "the table uses all 10 answer slots");
-        wizard.add_rules(
-            &mut spec,
-            Target::Localnet,
-            vec![simple_rule(
-                SubjectName::Sender,
-                SourceSpec::Require(named_list("approval")),
-            )],
-        );
-        assert_eq!(spec.rules.len(), 4, "the eleventh answer was refused");
+        assert_eq!(spec.rules.len(), 1, "the asset list rule was refused");
     }
 
     #[test]

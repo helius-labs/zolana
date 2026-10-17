@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    DepositAudit, KeyRegistryRoot, RingProgramConfig, DEPOSIT_AUDIT, KEY_REGISTRY_ROOT,
-    KEY_REGISTRY_ROOT_HISTORY, RING_PROGRAM_CONFIG,
+    DepositAudit, MemberRegistryRoot, RingProgramConfig, DEPOSIT_AUDIT, MEMBER_REGISTRY_ROOT,
+    MEMBER_REGISTRY_ROOT_HISTORY, RING_PROGRAM_CONFIG,
 };
 use custom_ring_sdk::{CustomRing, DepositAsset, RingDeposit, RingError};
 use std::{
@@ -15,8 +15,11 @@ use zolana_client::{
     ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc, WitnessReader,
     ZolanaClient,
 };
-use zolana_indexer_api::{GetRingKeyRegistryEntryResponse, RingMemberProofRequest};
+use zolana_indexer_api::{
+    Context, GetRingMemberRecordRequest, GetRingMemberRecordResponse, Hash, RingLowRecordView,
+};
 use zolana_keypair::{ShieldedKeypair, X25519Secret};
+use zolana_ring_member_registry::{MemberRegistryTree, Opening};
 use zolana_transaction::RingDepositPlaintext;
 
 /// One mock serves both the RPC and the indexer of the client.
@@ -166,11 +169,13 @@ fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
 }
 
 /// Answers config and registry reads, every member is unregistered.
+/// An empty registry, every member reads as absent under the sentinel.
 #[derive(Clone)]
 struct EscrowRpc {
     ring: CustomRing,
     config: Account,
     registry: Option<Account>,
+    tree: MemberRegistryTree,
 }
 
 impl WitnessReader for EscrowRpc {}
@@ -180,15 +185,40 @@ impl Rpc for EscrowRpc {
         if address == self.ring.config_pda() {
             return Ok(Some(self.config.clone()));
         }
-        assert_eq!(address, self.ring.key_registry_root_pda());
+        assert_eq!(address, self.ring.member_registry_root_pda());
         Ok(self.registry.clone())
     }
 
-    fn get_ring_key_registry_entry(
+    fn get_ring_member_record(
         &self,
-        _request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(ClientError::RingKeyRegistryMemberUnregistered)
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        let Opening::Absent {
+            low,
+            low_index,
+            path,
+        } = self.tree.opening(&request.member.0).unwrap()
+        else {
+            panic!("an empty registry");
+        };
+        Ok(GetRingMemberRecordResponse {
+            context: Context::default(),
+            root: Hash(self.tree.root()),
+            root_index: 0,
+            next_index: self.tree.next_index(),
+            present: false,
+            record: None,
+            index: 0,
+            path: Vec::new(),
+            low: Some(RingLowRecordView {
+                member: Hash(low.member),
+                next: Hash(low.next),
+                lists: low.lists,
+                escrow_key: Hash(low.escrow_key),
+                index: low_index,
+                path: path.into_iter().map(Hash).collect(),
+            }),
+        })
     }
 }
 
@@ -209,12 +239,13 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
         has_policy: 1,
         mode: 1,
     };
-    let mut history = [[0; 32]; KEY_REGISTRY_ROOT_HISTORY];
-    history[0] = [5; 32];
-    let registry = KeyRegistryRoot {
-        discriminator: KEY_REGISTRY_ROOT,
+    let tree = MemberRegistryTree::new().unwrap();
+    let mut history = [[0; 32]; MEMBER_REGISTRY_ROOT_HISTORY];
+    history[0] = tree.root();
+    let registry = MemberRegistryRoot {
+        discriminator: MEMBER_REGISTRY_ROOT,
         next_index: 1u64.to_le_bytes(),
-        bump: Address::find_program_address(&[KeyRegistryRoot::SEED], &ring.program_id()).1,
+        bump: Address::find_program_address(&[MemberRegistryRoot::SEED], &ring.program_id()).1,
         history_cursor: 0,
         history,
     };
@@ -223,6 +254,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
             ring,
             config: account(bytemuck::bytes_of(&config).to_vec()),
             registry,
+            tree: tree.clone(),
         };
         let client = client(rpc, prover);
         let deposit = RingDeposit {
@@ -253,7 +285,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
     };
     assert!(matches!(
         send(None, unreachable()),
-        Err(RingError::MissingKeyRegistry)
+        Err(RingError::MissingMemberRegistry)
     ));
     assert!(refused(send(registry_account(), unreachable())));
 

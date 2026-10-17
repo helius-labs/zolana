@@ -10,32 +10,36 @@ use std::{
 };
 
 use async_trait::async_trait;
-use custom_ring_interface::{RingProgramConfig, RING_PROGRAM_CONFIG};
+use custom_ring_interface::{
+    MemberRegistryRoot, RingProgramConfig, MEMBER_REGISTRY_EMPTY_ROOT, MEMBER_REGISTRY_ROOT,
+    MEMBER_REGISTRY_ROOT_HISTORY, RING_PROGRAM_CONFIG,
+};
 use solana_account::Account;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{HttpClient, HttpFuture, HttpRequest, HttpResponse};
 use zolana_client::{
     AsyncProverClient, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError,
-    IndexerRpcConfig, InputWitnesses, Shape,
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, IndexerRpcConfig, InputWitnesses,
+    Shape,
 };
 use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_client::{
     AuditError, RingOrigin, RingRecovery, RingScan, SourceMember, TransactionOrigin,
 };
-use zolana_ring_policy::{EntryState, ListId, RuleTable};
+use zolana_ring_member_registry::MemberRegistryTree;
+use zolana_ring_policy::Member;
+use zolana_ring_policy::{ListId, RuleTable};
 use zolana_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, AssetRegistry,
     SOL_MINT,
 };
 
-use super::support::{
-    account, lookup, member, note, pinned, ring, tree_account, Accounts, Lineage,
-};
+use super::support::{account, member, note, pinned, ring, tree_account, Accounts};
 use crate::{
-    CreateEntry, CustomRingMerge, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
-    DelegateTransfer, DelegateTransferInput, DepositAsset, MergeProofInput, PoolTree, RegisterKey,
-    RingDeposit, RingError, RingOperation, RingSubmission, UpdateEntry,
+    CustomRingMerge, CustomRingTransfer, CustomRingTransferInput, DelegateOutput, DelegateTransfer,
+    DelegateTransferInput, DepositAsset, MemberWrite, MergeProofInput, PoolTree, RegisterKey,
+    RingDeposit, RingError, RingOperation, RingSubmission, UpdateMembers,
 };
 
 /// A blocking caller and each Tokio frame under it hold the future by value.
@@ -89,6 +93,19 @@ impl AsyncRpc for Probe {
     async fn get_latest_blockhash(&self) -> Result<(solana_message::Hash, u64), ClientError> {
         self.depth.record();
         Err(ClientError::NoInputs)
+    }
+
+    /// Every member is absent from the empty registry.
+    async fn get_ring_member_record(
+        &self,
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        self.depth.record();
+        let member = Member::from_bytes(request.member.0).map_err(|_| ClientError::NoInputs)?;
+        let tree = MemberRegistryTree::new().map_err(|_| ClientError::NoInputs)?;
+        Ok(crate::member_registry::tests::response(
+            &tree, &member, 0, None,
+        ))
     }
 }
 
@@ -160,14 +177,24 @@ fn policy_ring() -> Accounts {
         mode: 0,
     };
     let table = RuleTable::builder().build();
+    let mut history = [[0; 32]; MEMBER_REGISTRY_ROOT_HISTORY];
+    history[0] = MEMBER_REGISTRY_EMPTY_ROOT;
+    let registry = MemberRegistryRoot {
+        discriminator: MEMBER_REGISTRY_ROOT,
+        next_index: 1u64.to_le_bytes(),
+        bump: Address::find_program_address(&[MemberRegistryRoot::SEED], &program).1,
+        history_cursor: 0,
+        history,
+    };
     Accounts::default()
         .with(ring().config_pda(), account(program, &config))
         .with(
+            ring().member_registry_root_pda(),
+            account(program, &registry),
+        )
+        .with(
             ring().policy_config_pda(),
-            account(
-                program,
-                &pinned(ring(), &table, ring().namespace_pda(), tree),
-            ),
+            account(program, &pinned(ring(), &table, tree)),
         )
         .with(tree.address, tree_account(tree))
 }
@@ -247,29 +274,12 @@ fn every_operation_future_stays_small() {
         member: &keys,
     };
     assert_small("RegisterKey::prove", register.prove(&client));
-    let create = CreateEntry {
+    let update = UpdateMembers {
         ring: ring(),
-        payer,
-        address_tree: tree,
-        output_tree: tree,
-        list_id: ListId::Allow,
-        member: member(3),
-        state: EntryState::Active,
-        content_hash: [0; 32],
+        writes: vec![MemberWrite::add(member(3), ListId::Allow)],
+        signers: vec![payer],
     };
-    assert_small("CreateEntry::prove", create.prove(&client));
-    let update = UpdateEntry {
-        ring: ring(),
-        payer,
-        address_tree: tree,
-        output_tree: tree,
-        spent: Lineage::new(lookup(ListId::Allow, member(3)), &[EntryState::Active])
-            .live()
-            .unwrap(),
-        state: EntryState::Cleared,
-        content_hash: [0; 32],
-    };
-    assert_small("UpdateEntry::prove", update.prove(&client));
+    assert_small("UpdateMembers::prove", update.prove(&client));
     let notes = [3, 5].map(|amount| note(&keys, amount, 0, Some(ring().program_id())));
     let merge = CustomRingMerge::new(ring(), notes.into(), None)
         .unwrap()

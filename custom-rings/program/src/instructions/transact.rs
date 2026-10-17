@@ -1,7 +1,8 @@
 use custom_ring_interface::{
     base_verifying_key, delegate_policy_verifying_key, policy_verifying_key, AuditorMessage,
     CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
-    CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode, TAGGED_X25519_KEY_LEN,
+    CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode, N_FOREIGN,
+    TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -18,10 +19,12 @@ use zolana_ring_policy::ring_id_field;
 use crate::{
     instructions::{
         cosign::{approval_cosigner, demanded_cosigner},
-        loader::{load, load_audited_config, load_escrow_root, validate_spp_program},
-        policy_trees::{PolicyTrees, RevocationTargets},
+        loader::{
+            load, load_audited_config, load_curator_root, load_registry_root, validate_spp_program,
+        },
+        policy_trees::PolicyTrees,
         public_legs::PublicLegs,
-        shared::{cpi_spp, parse, SppSigners},
+        shared::{cpi_spp, parse},
         verifier::verify_groth16,
     },
     state::is_x25519_viewing_key,
@@ -76,20 +79,15 @@ impl Rail {
         let CustomRingTransactIxData {
             proof,
             policy_trees,
-            key_registry_root_index,
+            registry_root_index,
+            foreign_root_indexes,
             approval_required,
-            revocation_targets,
-            revocation_tree_indexes,
             transact,
         } = &*decoded;
         let approval_required = *approval_required;
         if self == Rail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
-        let revocations = RevocationTargets {
-            targets: revocation_targets,
-            tree_indexes: revocation_tree_indexes,
-        };
 
         let config = load_audited_config(program_id, controls.config)?;
         let anonymous = config.mode == RingMode::Anonymous;
@@ -100,13 +98,18 @@ impl Rail {
                 return Err(if anonymous {
                     CustomRingError::AnonymousRingRefused
                 } else {
-                    CustomRingError::InvalidKeyRegistryRoot
+                    CustomRingError::InvalidMemberRegistryRoot
                 }
                 .into());
             }
-            let key_registry_root =
-                load_escrow_root(program_id, config.mode, *key_registry_root_index, &mut rest)?;
-            Some((binding, trees, key_registry_root))
+            let roots = RegistryRoots::load(
+                program_id,
+                &mut rest,
+                binding.curator.as_ref(),
+                *registry_root_index,
+                foreign_root_indexes,
+            )?;
+            Some((binding, trees, roots))
         } else {
             if self == Rail::Delegate {
                 return Err(CustomRingError::DelegateRequiresPolicy.into());
@@ -114,8 +117,8 @@ impl Rail {
             if !policy_trees.is_empty() {
                 return Err(CustomRingError::InvalidPolicyTrees.into());
             }
-            if *key_registry_root_index != 0 {
-                return Err(CustomRingError::UnexpectedKeyRegistryRoot.into());
+            if *registry_root_index != 0 || *foreign_root_indexes != [0; N_FOREIGN] {
+                return Err(CustomRingError::UnexpectedMemberRegistryRoot.into());
             }
             None
         };
@@ -126,10 +129,6 @@ impl Rail {
                 .is_some_and(|(binding, ..)| binding.has_limits);
         if approval_required && !limited {
             return Err(CustomRingError::UnexpectedApproval.into());
-        }
-        match &policy {
-            Some((_, trees, _)) => revocations.verify(trees, &mut rest)?,
-            None => revocations.require_empty()?,
         }
 
         let spp_accounts = rest.remaining_mut()?;
@@ -197,7 +196,7 @@ impl Rail {
         };
 
         let (public_input, verifying_key) = match policy {
-            Some((binding, trees, key_registry_root)) => {
+            Some((binding, trees, roots)) => {
                 let ring_id =
                     ring_id_field(program_id.as_array()).map_err(CustomRingError::from)?;
                 let input = CustomRingPolicyPublicInput {
@@ -208,9 +207,9 @@ impl Rail {
                     ring_id: &ring_id,
                     namespace_owner_hash: &binding.namespace_owner_hash,
                     approval_required,
-                    key_registry_root: key_registry_root.as_ref(),
-                    revocation_tree_indexes,
-                    revocation_targets,
+                    key_escrow: config.mode == RingMode::Registry,
+                    member_registry_root: &roots.own,
+                    foreign_root: &roots.foreign,
                 };
                 self.policy_statement(input)?
             }
@@ -227,12 +226,7 @@ impl Rail {
                 .serialize()
                 .map_err(|_| CustomRingError::InvalidInstructionData)?,
         );
-        cpi_spp(
-            program_id,
-            spp_accounts,
-            &instruction_data,
-            SppSigners::RingAuth,
-        )
+        cpi_spp(program_id, spp_accounts, &instruction_data)
     }
 
     /// An anonymous ring admits only the hidden-owner rail.
@@ -274,6 +268,8 @@ struct PolicyBinding {
     address_tree_id: u16,
     namespace_owner_hash: [u8; 32],
     has_limits: bool,
+    /// The curator registry root account the sources pin, `None` for own lists only.
+    curator: Option<Address>,
 }
 
 impl PolicyBinding {
@@ -285,7 +281,44 @@ impl PolicyBinding {
             address_tree_id: policy.address_tree_id(),
             namespace_owner_hash: policy.namespace_owner_hash,
             has_limits: policy.rules.has_limits(),
+            curator: policy.curator(),
         })
+    }
+}
+
+/// The registry roots a policy statement binds, `[member_registry_root, foreign_root?]`.
+struct RegistryRoots {
+    own: [u8; 32],
+    /// Zero without a curator.
+    foreign: [u8; 32],
+}
+
+impl RegistryRoots {
+    #[inline(never)]
+    fn load(
+        program_id: &Address,
+        accounts: &mut AccountIterator<'_>,
+        curator: Option<&Address>,
+        own_index: u8,
+        foreign_indexes: &[u8; N_FOREIGN],
+    ) -> Result<Self, ProgramError> {
+        let own = load_registry_root(
+            program_id,
+            accounts.next_account("member_registry_root")?,
+            own_index,
+        )?;
+        let foreign = match curator {
+            Some(curator) => load_curator_root(
+                accounts.next_account("foreign_root")?,
+                curator,
+                foreign_indexes[0],
+            )?,
+            None if *foreign_indexes != [0; N_FOREIGN] => {
+                return Err(CustomRingError::UnexpectedMemberRegistryRoot.into())
+            }
+            None => [0; 32],
+        };
+        Ok(Self { own, foreign })
     }
 }
 

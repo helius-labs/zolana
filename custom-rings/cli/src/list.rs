@@ -1,19 +1,19 @@
-//! `list`, the entries of the ring's policy lists and where each list reads them.
+//! `list`, the member records of the ring's registry and where each list reads them.
 
 use anyhow::{bail, Context as _, Result};
 use clap::Args;
 use custom_ring_sdk::{
-    CreateEntry, LiveEntry, PolicyConfig, PoolTree, ReadEntry, SourceOwner, UpdateEntry,
+    CustomRing, ListRegistry, MemberWrite, PolicyConfig, ReadMemberRecord, SourceOwner,
+    UpdateMembers,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc};
-use zolana_ring_policy::{EntryState, ListId, Member};
+use zolana_ring_policy::{ListId, Member, Writer};
 
 use crate::{
     catalogue::{check_curator, Catalogue},
-    config::Mint,
+    controls::NO_MEMBER_REGISTRY,
     line,
     ui::{self, icon},
     Context, EntryArgs, ListCommand,
@@ -22,37 +22,23 @@ use crate::{
 const NO_POLICY: &str = "the ring has no policy config, run `zolana-ring init` first";
 
 #[derive(Debug, Clone, Copy, Args)]
-#[group(required = true, multiple = false)]
 pub struct MemberArg {
     /// The member's owner tag, base58.
     #[arg(long, value_name = "TAG")]
-    owner: Option<Address>,
-    /// A mint, base58, or `sol` for the native token.
-    #[arg(long, value_name = "MINT")]
-    asset: Option<Mint>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EntryOutcome {
-    pub version: u64,
-    /// `already there`, `claimed` or `moved`.
-    pub change: &'static str,
+    owner: Address,
 }
 
 impl MemberArg {
     pub fn member(&self) -> Result<(Member, String)> {
-        Ok(match (self.owner, self.asset) {
-            (Some(tag), None) => (Member::owner_tag(tag.as_array())?, format!("owner {tag}")),
-            (None, Some(mint)) => (Member::asset(&mint.0)?, format!("asset {mint}")),
-            _ => bail!("pass --owner or --asset"),
-        })
+        let tag = self.owner;
+        Ok((Member::owner_tag(tag.as_array())?, format!("owner {tag}")))
     }
 }
 
 pub fn run(ctx: &Context, command: ListCommand) -> Result<()> {
     match command {
-        ListCommand::Add(entry) => set(ctx, entry, EntryState::Active),
-        ListCommand::Clear(entry) => set(ctx, entry, EntryState::Cleared),
+        ListCommand::Add(entry) => set(ctx, entry, true),
+        ListCommand::Clear(entry) => set(ctx, entry, false),
         ListCommand::Show(EntryArgs { list_id, member }) => show(ctx, list_id.id(), member),
         ListCommand::SetSource {
             list_id,
@@ -71,88 +57,85 @@ pub fn run(ctx: &Context, command: ListCommand) -> Result<()> {
     }
 }
 
-fn set(ctx: &Context, entry: EntryArgs, state: EntryState) -> Result<()> {
+fn set(ctx: &Context, entry: EntryArgs, present: bool) -> Result<()> {
     let (member, label) = entry.member.member()?;
     let authority = ctx.funded_authority()?;
-    line("entry", format_args!("{} {label}", entry.list_id));
-    let outcome = set_entry(ctx, authority, entry.list_id.id(), member, state)?;
-    line("state", format_args!("{state:?} {}", outcome.change));
-    line("version", outcome.version);
+    line("member", format_args!("{} {label}", entry.list_id));
+    let change = set_list(ctx, authority, entry.list_id.id(), member, present)?;
+    line("list", change);
     Ok(())
 }
 
-/// Writes the ring's own entries only, the program refuses a list a curator serves.
-pub(crate) fn set_entry(
+/// Writes the ring's own registry only, a curator's list is written on the curator ring.
+pub(crate) fn set_list(
     ctx: &Context,
     authority: &Keypair,
     list_id: ListId,
     member: Member,
-    state: EntryState,
-) -> Result<EntryOutcome> {
-    let (config, own) = (policy_config(ctx)?, ctx.ring.namespace_pda());
-    if let Some(curator) = config.source_for(list_id).filter(|entries| *entries != own) {
+    present: bool,
+) -> Result<&'static str> {
+    let config = policy_config(ctx)?;
+    if let Some(ListRegistry::Curator(registry)) = config.registry_for(list_id) {
         bail!(
-            "the {} list reads curator {curator} entries, mutate it on the curator ring",
+            "the {} list reads curator registry {registry}, write it on the curator ring",
             list_id.name()
         );
     }
-    let tree = PoolTree::address_tree(&config);
-    // An indexer behind the last update would read back the state before it.
-    let live = ReadEntry::new(tree.id, own, list_id, member)
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
-    let live = ctx.block(live.read(ctx.chain()))?;
-    let (proven, change) = match live {
-        Some(LiveEntry { entry, .. }) if entry.state == state => {
-            return Ok(EntryOutcome {
-                version: entry.version,
-                change: "already there",
-            })
-        }
-        None => {
-            let create = CreateEntry {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                address_tree: tree,
-                output_tree: tree,
-                list_id,
-                member,
-                state,
-                content_hash: [0; 32],
-            };
-            (ctx.block(create.prove(ctx.chain()))?, "claimed")
-        }
-        Some(spent) => {
-            let update = UpdateEntry {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                address_tree: tree,
-                output_tree: tree,
-                spent,
-                state,
-                content_hash: [0; 32],
-            };
-            (ctx.block(update.prove(ctx.chain()))?, "moved")
-        }
+    if list_id.writer() == Writer::Member {
+        bail!(
+            "the member writes the {} list, the authority cannot",
+            list_id.name()
+        );
+    }
+    let read = ReadMemberRecord {
+        ring: ctx.ring,
+        member,
     };
-    let version = proven.entry().version;
-    ctx.send(&[authority], &[proven.instruction()?])?;
-    Ok(EntryOutcome { version, change })
+    let record = ctx
+        .block(read.read(ctx.chain()))?
+        .context(NO_MEMBER_REGISTRY)?;
+    if record.opening.list_set().contains(list_id) == present {
+        return Ok("already there");
+    }
+    let write = match present {
+        true => MemberWrite::add(member, list_id),
+        false => MemberWrite::remove(member, list_id),
+    };
+    let update = UpdateMembers {
+        ring: ctx.ring,
+        writes: vec![write],
+        signers: vec![authority.pubkey()],
+    };
+    ctx.submit(update, authority, &[])?;
+    Ok(if present { "added" } else { "removed" })
 }
 
 fn show(ctx: &Context, list_id: ListId, member: MemberArg) -> Result<()> {
     let config = policy_config(ctx)?;
     let (member, label) = member.member()?;
-    let namespace = config
-        .source_for(list_id)
-        .unwrap_or_else(|| ctx.ring.namespace_pda());
-    let live = ReadEntry::new(config.address_tree_id(), namespace, list_id, member)
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
-    let live = ctx
-        .block(live.read(ctx.chain()))?
-        .with_context(|| format!("{} entry for {label} does not exist", list_id.name()))?;
-    line("entry", format_args!("{} {label}", list_id.name()));
-    line("state", format_args!("{:?}", live.entry.state));
-    line("version", live.entry.version);
+    let (ring, source) = match config.registry_for(list_id) {
+        Some(ListRegistry::Curator(registry)) => (
+            ctx.block(CustomRing::curator_registry(ctx.chain(), registry))?
+                .0,
+            format!("curator registry {registry}"),
+        ),
+        _ => (ctx.ring, "own registry".to_owned()),
+    };
+    let read = ReadMemberRecord { ring, member };
+    let record = ctx
+        .block(read.read(ctx.chain()))?
+        .context(NO_MEMBER_REGISTRY)?;
+    line("member", format_args!("{} {label}", list_id.name()));
+    line("source", source);
+    line("listed", record.opening.list_set().contains(list_id));
+    line(
+        "record",
+        if record.opening.is_present() {
+            "present"
+        } else {
+            "absent"
+        },
+    );
     Ok(())
 }
 
@@ -161,17 +144,21 @@ fn policy_config(ctx: &Context) -> Result<PolicyConfig> {
         .context(NO_POLICY)
 }
 
+/// The registry a source names, as the policy config stores it.
+pub(crate) fn expected_registry(source: SourceOwner) -> ListRegistry {
+    match source {
+        SourceOwner::Own => ListRegistry::Own,
+        SourceOwner::Shared(curator) => ListRegistry::Curator(curator.member_registry_root_pda()),
+    }
+}
+
 fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()> {
     let config = policy_config(ctx)?;
-    let expected = match source {
-        SourceOwner::Own => ctx.ring.namespace_pda(),
-        SourceOwner::Shared(curator) => {
-            check_curator(ctx, curator, list_id, config.address_tree)?;
-            curator.namespace_pda()
-        }
-    };
+    if let SourceOwner::Shared(curator) = source {
+        check_curator(ctx, curator, list_id)?;
+    }
     let authority = ctx.funded_authority()?;
-    let outcome = if config.source_for(list_id) == Some(expected) {
+    let outcome = if config.registry_for(list_id) == Some(expected_registry(source)) {
         "already present"
     } else {
         let point = ctx
@@ -180,23 +167,30 @@ fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()>
         ctx.send(&[authority], &[point])?;
         "created"
     };
-    let entries = policy_config(ctx)?.source_for(list_id).context(NO_POLICY)?;
+    let registry = policy_config(ctx)?
+        .registry_for(list_id)
+        .context(NO_POLICY)?;
     let (glyph, reads) = match source {
-        SourceOwner::Own => (icon::LISTS, "its own entries".to_owned()),
+        SourceOwner::Own => (icon::LISTS, "its own registry".to_owned()),
         SourceOwner::Shared(curator) => {
             (icon::CURATOR, format!("curator {}", curator.program_id()))
         }
     };
     ui::heading(glyph, &format!("the {} list reads {reads}", list_id.name()));
     line("source", outcome);
-    line("entries", entries);
+    line(
+        "registry",
+        match registry {
+            ListRegistry::Own => ctx.ring.member_registry_root_pda(),
+            ListRegistry::Curator(registry) => registry,
+        },
+    );
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use clap::{error::ErrorKind, Parser};
-    use zolana_transaction::SOL_MINT;
 
     use super::*;
     use crate::{Cli, Command, ListCommand};
@@ -215,45 +209,42 @@ mod tests {
             ListCommand::Add(entry) | ListCommand::Clear(entry) | ListCommand::Show(entry) => {
                 entry.member
             }
-            ListCommand::SetSource { .. } => panic!("an entry command"),
+            ListCommand::SetSource { .. } => panic!("a member command"),
         };
         Ok(member.member().expect("one flag"))
     }
 
     #[test]
-    fn every_entry_command_takes_an_owner_tag_or_a_mint() {
+    fn every_member_command_takes_an_owner_tag() {
         let tag = Member::owner_tag(Address::from_str_const(TAG).as_array()).expect("member");
-        let mint = Member::asset(&Address::from_str_const(MINT)).expect("member");
         for verb in ["add", "clear", "show"] {
             let owner = parse(verb, &["--owner", TAG]).expect(verb);
             assert_eq!(owner, (tag, format!("owner {TAG}")));
-            let asset = parse(verb, &["--asset", MINT]).expect(verb);
-            assert_eq!(asset, (mint, format!("asset {MINT}")));
         }
     }
 
+    /// Assets have no member record, an asset rule reads the inline pool.
     #[test]
-    fn sol_in_any_case_names_the_native_token() {
-        let sol = (
-            Member::asset(&SOL_MINT).expect("member"),
-            "asset sol".to_owned(),
-        );
-        for spelling in ["sol", "SOL", &SOL_MINT.to_string()] {
-            assert_eq!(parse("add", &["--asset", spelling]).expect("sol"), sol);
-        }
-    }
-
-    #[test]
-    fn exactly_one_member_flag_is_taken() {
+    fn an_asset_is_not_a_list_member() {
         assert_eq!(
             parse("add", &[]).expect_err("no flag").kind(),
             ErrorKind::MissingRequiredArgument
         );
         assert_eq!(
-            parse("add", &["--owner", TAG, "--asset", MINT])
-                .expect_err("both flags")
+            parse("add", &["--asset", MINT])
+                .expect_err("an asset")
                 .kind(),
-            ErrorKind::ArgumentConflict
+            ErrorKind::UnknownArgument
+        );
+    }
+
+    #[test]
+    fn a_source_names_the_registry_root_account() {
+        let curator = CustomRing::new(Address::new_from_array([4; 32]));
+        assert_eq!(expected_registry(SourceOwner::Own), ListRegistry::Own);
+        assert_eq!(
+            expected_registry(SourceOwner::Shared(curator)),
+            ListRegistry::Curator(curator.member_registry_root_pda())
         );
     }
 }

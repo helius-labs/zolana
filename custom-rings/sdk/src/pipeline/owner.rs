@@ -22,7 +22,6 @@ use super::{
     pinned_policy, sealed, Rail, RailKind, RingTransfer, Staged, TransferAuthority,
 };
 use crate::{
-    escrow::KeyRegistry,
     heap::boxed,
     limits::{bound, Outflows},
     CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, RingError, RingIdentity,
@@ -65,7 +64,6 @@ impl<'a> RingTransfer<Owner<'a>> {
                 interface_transfer_accounts: Vec::new(),
             },
             cosigner: None,
-            indexer_config: None,
         }
     }
 
@@ -221,7 +219,7 @@ impl Owner<'_> {
             authority: TransferAuthority {
                 owner: self.nullifier_key.cloned(),
             },
-            key_registry: KeyRegistry::of(ring, config),
+            key_escrow: config.mode == RingMode::Registry,
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             delegate: None,
         }))

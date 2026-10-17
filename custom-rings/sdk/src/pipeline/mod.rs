@@ -17,8 +17,8 @@ use zolana_client::{
         },
         requests,
     },
-    AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, IndexerRpcConfig,
-    Proof, ProofAuthority, ProofCompressed, ProveRequest, RingAuthorityProver, RingTransferProver,
+    AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, Proof,
+    ProofAuthority, ProofCompressed, ProveRequest, RingAuthorityProver, RingTransferProver,
     TransferInput, TransferInputs,
 };
 use zolana_interface::{
@@ -40,7 +40,6 @@ pub(crate) use owner::frame_dummy_outputs;
 
 use crate::{
     audit::{PendingCustomRingProof, PolicyProof},
-    escrow::KeyRegistry,
     heap::boxed,
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
@@ -76,7 +75,6 @@ pub struct RingTransfer<R: Rail> {
     ring: CustomRing,
     rail: R,
     cosigner: Option<Address>,
-    indexer_config: Option<IndexerRpcConfig>,
 }
 
 pub type CustomRingTransfer<'a> = RingTransfer<Owner<'a>>;
@@ -115,7 +113,8 @@ pub(crate) struct Staged {
     /// `None` commits the pinned limits without bounding the transfer.
     pub limits: Option<OutflowLimitProofInput>,
     pub authority: TransferAuthority,
-    pub key_registry: Option<KeyRegistry>,
+    /// Every live output owner's record must escrow the key the output uses.
+    pub key_escrow: bool,
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub delegate: Option<Address>,
@@ -139,13 +138,6 @@ impl<R: Rail> RingTransfer<R> {
     #[must_use = "use the updated transfer"]
     pub fn with_cosigner(mut self, cosigner: Address) -> Self {
         self.cosigner = Some(cosigner);
-        self
-    }
-
-    /// The policy entries wait until the indexer persisted `config.require_slot`.
-    #[must_use = "use the updated transfer"]
-    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
-        self.indexer_config = Some(config);
         self
     }
 
@@ -236,14 +228,14 @@ impl<R: Rail> RingTransfer<R> {
             None => committed(self.ring, pinned)?,
         };
         let witness = WitnessInput {
+            ring: self.ring,
             pinned,
             inputs: &inputs.input_utxos,
             outputs: &inputs.output_utxos,
             output_tree_id: inputs.output_tree_id,
             private_tx_blinding: inputs.private_tx_blinding()?,
             limits,
-            key_registry: staged.key_registry,
-            indexer_config: self.indexer_config,
+            key_escrow: staged.key_escrow,
         }
         .build(client, indexed)
         .await?;
@@ -642,7 +634,10 @@ impl Spp {
 
 impl ProvenRingTransfer {
     pub(crate) fn bound_root(&self) -> Option<BoundRoot> {
-        BoundRoot::of(self.ring, self.policy.as_ref()?.escrow)
+        Some(BoundRoot::registry(
+            self.ring,
+            self.policy.as_ref()?.registry,
+        ))
     }
 
     pub fn instruction(&self) -> Result<Instruction, RingError> {

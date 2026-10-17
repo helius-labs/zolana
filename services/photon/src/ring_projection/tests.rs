@@ -6,7 +6,7 @@ use crate::{
 };
 use sea_orm::Database;
 use solana_signature::Signature;
-use zolana_indexer_api::{Hash, RingMemberProofRequest};
+use zolana_indexer_api::{GetRingMemberRecordRequest, Hash};
 
 pub(super) fn field(value: u8) -> [u8; 32] {
     let mut field = [0; 32];
@@ -36,14 +36,15 @@ pub(super) async fn initialize_root(
 ) -> RingRoot {
     let root = RingRoot {
         program,
-        address: key_registry_root_pda(&Pubkey::new_from_array(program))
+        address: member_registry_root_pda(&Pubkey::new_from_array(program))
             .0
             .to_bytes(),
         root: EMPTY_ROOT,
         next_index: 1,
+        history_cursor: 0,
         fault: None,
     };
-    let sentinel = MemberKey::sentinel();
+    let sentinel = MemberRecordRow::sentinel();
     let tx = db.begin().await.unwrap();
     let store = Store::new(&tx, program);
     let computed = store
@@ -204,22 +205,25 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
         .fault
         .is_none());
     cursor.resume(&db).await.unwrap();
-    let request = |program: [u8; 32]| RingMemberProofRequest {
+    let request = |program: [u8; 32]| GetRingMemberRecordRequest {
         ring_program_id: Pubkey::new_from_array(program).into(),
         member: Hash(member(4)),
         expected_root: Hash(EMPTY_ROOT),
         expected_next_index: 1,
     };
     assert!(matches!(
-        key_registry::lookup(&db, &projector.rpc, request(faulty.program)).await,
+        member_registry::member_record(&db, &projector.rpc, request(faulty.program)).await,
         Err(PhotonApiError::RingProjection(
             RingProjectionError::OutOfSync(_)
         ))
     ));
-    assert_eq!(
-        key_registry::lookup(&db, &projector.rpc, request(healthy.program)).await,
-        Err(RingProjectionError::MemberUnregistered.into())
-    );
+    // The healthy ring serves the read up to the chain confirmation at the dead RPC.
+    assert!(matches!(
+        member_registry::member_record(&db, &projector.rpc, request(healthy.program)).await,
+        Err(PhotonApiError::RingProjection(
+            RingProjectionError::OutOfSync(_)
+        ))
+    ));
 
     let mut restarted = storage::cursor(&db).await.unwrap().unwrap();
     let tx = db.begin().await.unwrap();

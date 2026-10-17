@@ -7,24 +7,15 @@ use zolana_hasher::{
 use zolana_interface::{tree_slot::tree_slots_hash_chain, INPUT_TREES};
 
 use super::{
-    decode_resolution, hex_field, invalid, invalid_resolution, serialize_address,
-    serialize_commitment, IndexedProof, ProofResolution, Request, ResolvedProofTree,
+    decode_resolution, hex_field, invalid, invalid_resolution, serialize_address, IndexedProof,
+    ProofResolution, Request, ResolvedProofTree,
 };
 use crate::{
     prover::{ExpectedProvingKey, Proof},
     ClientError,
 };
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IndexedPolicyLookup {
-    pub tree_slot: u8,
-    #[serde(serialize_with = "serialize_commitment")]
-    pub commitment: Option<[u8; 32]>,
-    #[serde(serialize_with = "serialize_commitment")]
-    pub nullifier: Option<[u8; 32]>,
-}
-
+/// A member registry the indexed prover opens records in, at the root the statement binds.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexedRegistry {
@@ -35,14 +26,30 @@ pub struct IndexedRegistry {
     pub next_index: u64,
 }
 
+/// Leaves of a height 20 registry.
+pub const MAX_REGISTRY_NEXT_INDEX: u64 = 1 << 20;
+
+impl IndexedRegistry {
+    fn check(&self) -> Result<(), ClientError> {
+        if self.next_index == 0
+            || self.next_index > MAX_REGISTRY_NEXT_INDEX
+            || !is_canonical_bn254_scalar_be(&self.root)
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
+
 /// The policy statement chain less the folded audit prefix and the tree commitment.
-const POLICY_PUBLIC_INPUTS: usize = 18;
+pub const POLICY_PUBLIC_INPUTS: usize = 8;
 
 #[derive(Clone)]
 pub struct IndexedPolicyData {
-    pub registry: Option<IndexedRegistry>,
+    pub registry: IndexedRegistry,
+    /// The curator registry the policy sources name, `None` without one.
+    pub foreign_registry: Option<IndexedRegistry>,
     pub trees: Vec<ResolvedProofTree>,
-    pub inputs: Vec<IndexedPolicyLookup>,
     pub public_inputs: Vec<[u8; 32]>,
 }
 
@@ -51,6 +58,9 @@ pub struct IndexedPolicyRequest {
     data: IndexedPolicyData,
     key: ExpectedProvingKey,
 }
+
+/// Witness fields the indexed prover fills from its own registry projection.
+const REGISTRY_OPENINGS: [&str; 2] = ["subjects", "foreignSubjects"];
 
 impl IndexedPolicyRequest {
     pub fn new(
@@ -61,13 +71,17 @@ impl IndexedPolicyRequest {
         if witness.len() > 1 << 20
             || data.trees.is_empty()
             || data.trees.len() > INPUT_TREES
-            || data.inputs.len() != 10
+            || data.public_inputs.len() != POLICY_PUBLIC_INPUTS
             || data
                 .public_inputs
                 .iter()
                 .any(|value| !is_canonical_bn254_scalar_be(value))
         {
             return Err(invalid());
+        }
+        data.registry.check()?;
+        if let Some(foreign) = &data.foreign_registry {
+            foreign.check()?;
         }
         let mut prepared = SecretJson(serde_json::from_str(&witness).map_err(|_| invalid())?);
         let circuit = prepared
@@ -78,8 +92,7 @@ impl IndexedPolicyRequest {
         if !matches!(
             circuit.as_str(),
             "custom-ring-policy" | "custom-ring-delegate-policy"
-        ) || data.public_inputs.len() != POLICY_PUBLIC_INPUTS
-        {
+        ) {
             return Err(invalid());
         }
         let policy = if circuit == "custom-ring-policy" {
@@ -90,40 +103,15 @@ impl IndexedPolicyRequest {
         let policy = policy.as_object_mut().ok_or_else(invalid)?;
         policy.remove("treeSlots");
         policy.remove("publicInputHash");
-        let answers = policy
-            .get_mut("answers")
-            .and_then(serde_json::Value::as_array_mut)
-            .ok_or_else(invalid)?;
-        if answers.len() != data.inputs.len() {
-            return Err(invalid());
-        }
-        for (answer, lookup) in answers.iter_mut().zip(&data.inputs) {
-            let answer = answer.as_object_mut().ok_or_else(invalid)?;
-            if answer.get("enabled").and_then(serde_json::Value::as_bool)
-                != Some(lookup.nullifier.is_some())
-                || answer.get("treeSlot").and_then(serde_json::Value::as_u64)
-                    != Some(u64::from(lookup.tree_slot))
-                || usize::from(lookup.tree_slot) >= data.trees.len()
-            {
-                return Err(invalid());
-            }
-            for name in [
-                "statePathElements",
-                "statePathIndex",
-                "nfPathElements",
-                "nfPathIndex",
-                "low",
-                "next",
-            ] {
-                answer.remove(name);
-            }
+        for name in REGISTRY_OPENINGS {
+            policy.remove(name);
         }
         let outputs = policy
             .get_mut("outputs")
             .and_then(serde_json::Value::as_array_mut)
             .ok_or_else(invalid)?;
         for output in outputs {
-            output.as_object_mut().ok_or_else(invalid)?.remove("key");
+            output.as_object_mut().ok_or_else(invalid)?.remove("ctHash");
         }
         for (i, tree) in data.trees.iter().enumerate() {
             if tree.tree != zolana_interface::pda::tree(tree.id)
@@ -146,18 +134,18 @@ impl IndexedPolicyRequest {
             circuit_type: &'a str,
             prepared: &'a serde_json::Value,
             trees: &'a [serde_json::Value],
-            inputs: &'a [IndexedPolicyLookup],
             public_inputs: Vec<String>,
+            registry: &'a IndexedRegistry,
             #[serde(skip_serializing_if = "Option::is_none")]
-            registry: &'a Option<IndexedRegistry>,
+            foreign_registry: &'a Option<IndexedRegistry>,
         }
         let body = serde_json::to_string(&Envelope {
             circuit_type: &circuit,
             prepared: &prepared.0,
             trees: &trees,
-            inputs: &data.inputs,
             public_inputs: data.public_inputs.iter().map(hex_field).collect(),
             registry: &data.registry,
+            foreign_registry: &data.foreign_registry,
         })
         .map_err(|_| invalid())?;
         Ok(Self {
@@ -191,24 +179,13 @@ impl Request for IndexedPolicyRequest {
 }
 
 impl IndexedPolicyRequest {
+    /// The prover reads no tree for the policy, every anchor must come back as sent.
     fn check(&self, resolution: &ProofResolution) -> Result<(), ClientError> {
         resolution.check_trees(self.data.trees.iter().map(|tree| (tree.tree, tree.id)))?;
-        for (slot, (tree, expected)) in resolution.trees.iter().zip(&self.data.trees).enumerate() {
-            let has_state =
-                self.data.inputs.iter().any(|lookup| {
-                    usize::from(lookup.tree_slot) == slot && lookup.commitment.is_some()
-                });
-            let has_nullifier =
-                self.data.inputs.iter().any(|lookup| {
-                    usize::from(lookup.tree_slot) == slot && lookup.nullifier.is_some()
-                });
-            if (!has_state
-                && (tree.utxo_root != expected.utxo_root
-                    || tree.context.utxo_tree_root_index != expected.context.utxo_tree_root_index))
-                || (!has_nullifier
-                    && (tree.nullifier_root != expected.nullifier_root
-                        || tree.context.nullifier_tree_root_index
-                            != expected.context.nullifier_tree_root_index))
+        for (tree, expected) in resolution.trees.iter().zip(&self.data.trees) {
+            if tree.utxo_root != expected.utxo_root
+                || tree.nullifier_root != expected.nullifier_root
+                || tree.context != expected.context
             {
                 return Err(invalid_resolution());
             }
@@ -260,15 +237,24 @@ mod tests {
     use super::*;
     use zolana_interface::instruction::instruction_data::transact::TreeContext;
 
-    fn request(circuit: &str) -> IndexedPolicyRequest {
-        let field = |n| {
-            let mut value = [0; 32];
-            value[31] = n;
-            value
-        };
-        let mut policy = serde_json::json!({"circuitType":"custom-ring-policy","txViewingSk":"secret","treeSlots":[],"publicInputHash":"0x1","outputs":[],"answers":(0..10).map(|_|serde_json::json!({"enabled":false,"treeSlot":0,"low":"0x0","next":"0x0","statePathElements":[],"statePathIndex":0,"nfPathElements":[],"nfPathIndex":0})).collect::<Vec<_>>()});
+    fn field(n: u8) -> [u8; 32] {
+        let mut value = [0; 32];
+        value[31] = n;
+        value
+    }
+
+    fn registry(byte: u8) -> IndexedRegistry {
+        IndexedRegistry {
+            ring_program_id: Address::from([byte; 32]),
+            root: field(byte),
+            next_index: 2,
+        }
+    }
+
+    fn request(circuit: &str, foreign: bool) -> IndexedPolicyRequest {
+        let mut policy = serde_json::json!({"circuitType":"custom-ring-policy","txViewingSk":"secret","treeSlots":[],"publicInputHash":"0x1","outputs":[{"amount":"0x1","ctHash":"0x2"}],"subjects":vec![serde_json::Value::Null; 9],"foreignRoot":"0x0","foreignSubjects":vec![serde_json::Value::Null; 9]});
         if circuit != "custom-ring-policy" {
-            policy = serde_json::json!({"circuitType":circuit,"policy":policy,"transactionSalt":"0x00000000000000000000000000000000"});
+            policy = serde_json::json!({"circuitType":circuit,"policy":policy});
         }
         IndexedPolicyRequest::new(
             Zeroizing::new(policy.to_string()),
@@ -277,7 +263,8 @@ mod tests {
                 sha256: [0; 32],
             },
             IndexedPolicyData {
-                registry: None,
+                registry: registry(3),
+                foreign_registry: foreign.then(|| registry(4)),
                 trees: vec![ResolvedProofTree {
                     tree: zolana_interface::pda::tree(3),
                     id: 3,
@@ -288,14 +275,6 @@ mod tests {
                         nullifier_tree_root_index: 3,
                     },
                 }],
-                inputs: vec![
-                    IndexedPolicyLookup {
-                        tree_slot: 0,
-                        commitment: None,
-                        nullifier: None
-                    };
-                    10
-                ],
                 public_inputs: vec![field(3); POLICY_PUBLIC_INPUTS],
             },
         )
@@ -305,7 +284,7 @@ mod tests {
     #[test]
     fn policy_resolution_rejects_changed_anchors_and_transcripts() {
         for circuit in ["custom-ring-policy", "custom-ring-delegate-policy"] {
-            let request = request(circuit);
+            let request = request(circuit, false);
             let mut resolution = ProofResolution {
                 trees: request.data.trees.clone(),
                 public_input_hash: [0; 32],
@@ -336,9 +315,25 @@ mod tests {
                 &body["prepared"]["policy"]
             };
             assert!(prepared.get("treeSlots").is_none());
-            assert!(prepared["answers"][0].get("nfPathElements").is_none());
+            assert!(prepared.get("subjects").is_none());
+            assert!(prepared.get("foreignSubjects").is_none());
+            assert!(prepared["outputs"][0].get("ctHash").is_none());
+            assert_eq!(prepared["outputs"][0]["amount"], "0x1");
             assert_eq!(prepared["txViewingSk"], "secret");
+            assert!(body.get("inputs").is_none());
+            assert!(body.get("foreignRegistry").is_none());
+            assert_eq!(body["registry"]["nextIndex"], 2);
         }
+    }
+
+    #[test]
+    fn a_curator_registry_rides_along_when_the_sources_name_one() {
+        let body: serde_json::Value =
+            serde_json::from_str(&request("custom-ring-policy", true).body().unwrap()).unwrap();
+        assert_eq!(
+            body["foreignRegistry"]["ringProgramId"],
+            Address::from([4; 32]).to_string()
+        );
     }
 
     #[test]

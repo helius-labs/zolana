@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use zolana_ring_policy::{
-    ListId, ListNamespace, ListSet, Member, OutflowLimit, Rule, RuleTable, SourceMap, Subject,
+    registry_field, ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, SourceMap, Subject,
     POLICY_VERSION,
 };
 
@@ -31,11 +31,12 @@ struct Case {
     policy_hash: String,
 }
 
+/// `registry` is the field of a curator registry address, zero for an own list.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Source {
     list_id: u8,
-    owner_hash: String,
+    registry: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -192,17 +193,18 @@ fn generate() -> Corpus {
         let Ok(table) = builder.try_build() else {
             continue;
         };
-        let owners: Vec<(ListId, [u8; 32])> = table
+        // One curator registry at most, every other referenced list is the ring's own.
+        let curator = rng.below(2) == 1;
+        let curator_registry = registry_field(&rng.bytes()).expect("registry field");
+        let registries: Vec<(ListId, [u8; 32])> = table
             .referenced()
             .iter()
             .map(|list_id| {
-                let owner = ListNamespace::new(&rng.bytes())
-                    .expect("namespace")
-                    .owner_hash;
-                (list_id, owner)
+                let foreign = curator && rng.below(2) == 1;
+                (list_id, if foreign { curator_registry } else { [0u8; 32] })
             })
             .collect();
-        let sources = SourceMap::new(&owners).expect("positional map");
+        let sources = SourceMap::new(&registries).expect("positional map");
         let policy_hash = table.encode().hash(&sources).expect("policy hash");
         cases.push(Case {
             sources: sources
@@ -210,7 +212,7 @@ fn generate() -> Corpus {
                 .iter()
                 .map(|slot| Source {
                     list_id: slot.list_id,
-                    owner_hash: hex::encode(slot.owner_hash),
+                    registry: hex::encode(slot.registry),
                 })
                 .collect(),
             rules: table.rules().iter().map(Row::of).collect(),

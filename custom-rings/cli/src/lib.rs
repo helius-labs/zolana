@@ -148,10 +148,10 @@ pub enum Command {
     /// Set or show the permanent delegate, or move a note as the delegate.
     #[command(subcommand)]
     Delegate(DelegateCommand),
-    /// Enroll the member's nullifier key in the ring key registry.
+    /// Escrow the member's nullifier key in its record of the ring member registry.
     #[command(subcommand)]
     Key(KeyCommand),
-    /// Read and mutate the ring's policy entries.
+    /// Read and write the list bits of member records.
     #[command(subcommand)]
     List(ListCommand),
     /// Read, check and replace the pinned rule table.
@@ -163,20 +163,20 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum ListCommand {
-    /// Claim or reactivate the member's entry of the list.
+    /// Set the list bit of the member's record.
     Add(EntryArgs),
-    /// Clear the member's entry, leaving the address claimed.
+    /// Clear the list bit of the member's record.
     Clear(EntryArgs),
-    /// Print the member's live entry.
+    /// Print whether the member's record carries the list.
     Show(EntryArgs),
-    /// Point the list at the ring's own namespace or a curator ring's.
+    /// Point the list at the ring's own registry or a curator ring's.
     SetSource {
         #[arg(value_enum)]
         list_id: ListName,
         /// Curator ring program id or catalogue name.
         #[arg(long, conflicts_with = "own", required_unless_present = "own")]
         curator: Option<String>,
-        /// The ring's own entries.
+        /// The ring's own registry.
         #[arg(long)]
         own: bool,
     },

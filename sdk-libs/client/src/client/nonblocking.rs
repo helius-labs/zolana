@@ -20,10 +20,11 @@ use crate::{
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
-        ProveResult, RingHistoryOptions, RingMemberProofRequest, ShieldedTransactionStream,
+        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+        GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        GetUserRecordsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
+        ShieldedTransactionStream,
     },
 };
 
@@ -260,20 +261,18 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         .spend_proofs)
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.indexer.get_ring_key_registry_entry(request).await
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        self.indexer.get_ring_member_record(request).await
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.indexer
-            .get_ring_key_registry_register_proof(request)
-            .await
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        self.indexer.get_ring_member_registry_root(request).await
     }
 
     async fn get_user_records(

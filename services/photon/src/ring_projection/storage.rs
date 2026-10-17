@@ -6,7 +6,7 @@ use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_indexer_api::Hash;
 
-use super::key_registry::MemberKey;
+use super::member_registry::MemberRecordRow;
 use crate::{
     common::rings_tree::RingsTreeKind,
     ingester::{
@@ -21,6 +21,8 @@ pub(crate) struct RingRoot {
     pub address: [u8; 32],
     pub root: [u8; 32],
     pub next_index: u64,
+    /// The on-chain history slot of `root`, one step per applied batch.
+    pub history_cursor: u8,
     /// Cleared only by a rollback.
     pub fault: Option<String>,
 }
@@ -81,10 +83,10 @@ pub(crate) struct LeafWrite {
 }
 
 impl LeafWrite {
-    pub fn of(key: &MemberKey) -> Result<Self, HasherError> {
+    pub fn of(row: &MemberRecordRow) -> Result<Self, HasherError> {
         Ok(Self {
-            index: key.index,
-            hash: key.hash()?,
+            index: row.index,
+            hash: row.hash()?,
         })
     }
 }
@@ -92,7 +94,7 @@ impl LeafWrite {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct MemberRestore {
     pub member: [u8; 32],
-    pub before: Option<MemberKey>,
+    pub before: Option<MemberRecordRow>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,12 +118,12 @@ impl Undo {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct BlockUndo {
-    pub key_registry: Vec<Undo>,
+    pub member_registry: Vec<Undo>,
 }
 
 impl BlockUndo {
     pub fn extend(&mut self, other: Self) {
-        self.key_registry.extend(other.key_registry);
+        self.member_registry.extend(other.member_registry);
     }
 }
 
@@ -149,7 +151,8 @@ pub(crate) enum PredecessorError {
     Storage(#[from] anyhow::Error),
 }
 
-const DELETE_MEMBER: &str = "DELETE FROM ring_key_registry_members WHERE program=$1 AND member=$2";
+const DELETE_MEMBER: &str =
+    "DELETE FROM ring_member_registry_members WHERE program=$1 AND member=$2";
 
 pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
     let sql = "INSERT INTO ring_projection_pending(program,slot,state) VALUES($1,$2,$3) \
@@ -231,7 +234,7 @@ pub(crate) async fn prune_journal<C: ConnectionTrait>(conn: &C, below: u64) -> R
 pub(crate) async fn roots<C: ConnectionTrait>(conn: &C) -> Result<Vec<RingRoot>> {
     read_all(
         conn,
-        "SELECT state FROM ring_key_registry_roots ORDER BY program",
+        "SELECT state FROM ring_member_registry_roots ORDER BY program",
     )
     .await
 }
@@ -250,7 +253,7 @@ pub(crate) async fn rollback(
     let slot = vec![int(journal.metadata.slot)?];
     let sql = "DELETE FROM ring_projection_pending WHERE slot=$1";
     exec(tx, sql, slot.clone()).await?;
-    restore(tx, cursor, &journal.undo.key_registry).await?;
+    restore(tx, cursor, &journal.undo.member_registry).await?;
     // Partial replay must rewind with the block that advanced it.
     for mut candidate in pending(tx).await? {
         if candidate
@@ -282,11 +285,11 @@ async fn restore(
             let created = store
                 .root()
                 .await?
-                .context("created key registry missing on rollback")?;
+                .context("created member registry missing on rollback")?;
             let sql = "DELETE FROM state_trees WHERE tree=$1 AND tree_kind=$2";
-            let kind = i32::from(RingsTreeKind::KeyRegistry);
+            let kind = i32::from(RingsTreeKind::MemberRegistry);
             exec(tx, sql, vec![created.address.to_vec().into(), kind.into()]).await?;
-            let tables = ["ring_key_registry_members", "ring_key_registry_roots"];
+            let tables = ["ring_member_registry_members", "ring_member_registry_roots"];
             store.delete_rows(&tables).await?;
             continue;
         };
@@ -294,7 +297,7 @@ async fn restore(
             let revision = cursor.advance_revision()?;
             let root = store.write_leaves(&before.address, &undo.leaves, revision);
             if root.await? != before.root {
-                bail!("key registry rollback root mismatch");
+                bail!("member registry rollback root mismatch");
             }
         }
         store.save_root(before).await?;
@@ -345,19 +348,19 @@ impl<'c, C: ConnectionTrait> Store<'c, C> {
     }
 
     pub async fn root(&self) -> Result<Option<RingRoot>> {
-        let sql = "SELECT state FROM ring_key_registry_roots WHERE program=$1";
+        let sql = "SELECT state FROM ring_member_registry_roots WHERE program=$1";
         self.read(sql, vec![]).await
     }
 
     pub async fn save_root(&self, root: &RingRoot) -> Result<()> {
-        let sql = "INSERT INTO ring_key_registry_roots(program,state) VALUES($1,$2) \
+        let sql = "INSERT INTO ring_member_registry_roots(program,state) VALUES($1,$2) \
                    ON CONFLICT(program) DO UPDATE SET state=excluded.state";
         self.exec(sql, vec![json(root)?]).await
     }
 
     pub async fn quarantine_root(&self, root: RingRoot, reason: String) -> Result<Undo> {
         let program = Pubkey::new_from_array(self.program);
-        log::warn!("key registry of ring {program} quarantined ({reason})");
+        log::warn!("member registry of ring {program} quarantined ({reason})");
         let faulted = RingRoot {
             fault: Some(reason),
             ..root.clone()
@@ -366,15 +369,18 @@ impl<'c, C: ConnectionTrait> Store<'c, C> {
         Ok(Undo::root(root.program, Some(root)))
     }
 
-    pub async fn member(&self, member: &[u8; 32]) -> Result<Option<MemberKey>> {
-        let sql = "SELECT state FROM ring_key_registry_members WHERE program=$1 AND member=$2";
+    pub async fn member(&self, member: &[u8; 32]) -> Result<Option<MemberRecordRow>> {
+        let sql = "SELECT state FROM ring_member_registry_members WHERE program=$1 AND member=$2";
         self.read(sql, vec![member.to_vec().into()]).await
     }
 
-    pub async fn predecessor(&self, member: &[u8; 32]) -> Result<MemberKey, PredecessorError> {
-        let sql = "SELECT state FROM ring_key_registry_members WHERE program=$1 AND member<$2 \
+    pub async fn predecessor(
+        &self,
+        member: &[u8; 32],
+    ) -> Result<MemberRecordRow, PredecessorError> {
+        let sql = "SELECT state FROM ring_member_registry_members WHERE program=$1 AND member<$2 \
                    ORDER BY member DESC LIMIT 1";
-        let low: MemberKey = self
+        let low: MemberRecordRow = self
             .read(sql, vec![member.to_vec().into()])
             .await?
             .context("no covering predecessor")?;
@@ -384,8 +390,8 @@ impl<'c, C: ConnectionTrait> Store<'c, C> {
         Ok(low)
     }
 
-    pub async fn save_member(&self, leaf: &MemberKey) -> Result<()> {
-        let sql = "INSERT INTO ring_key_registry_members(program,member,leaf_index,state) \
+    pub async fn save_member(&self, leaf: &MemberRecordRow) -> Result<()> {
+        let sql = "INSERT INTO ring_member_registry_members(program,member,leaf_index,state) \
                    VALUES($1,$2,$3,$4) ON CONFLICT(program,member) \
                    DO UPDATE SET leaf_index=excluded.leaf_index,state=excluded.state";
         let values = vec![leaf.member.to_vec().into(), int(leaf.index)?, json(leaf)?];
@@ -400,7 +406,7 @@ impl Store<'_, DatabaseTransaction> {
         leaves: &[LeafWrite],
         revision: u64,
     ) -> Result<[u8; 32]> {
-        let kind = RingsTreeKind::KeyRegistry;
+        let kind = RingsTreeKind::MemberRegistry;
         let leaves = leaves
             .iter()
             .map(|leaf| LeafNode {
@@ -418,10 +424,10 @@ impl Store<'_, DatabaseTransaction> {
             .conn
             .query_one(statement(self.conn, sql, values))
             .await?;
-        let row = row.context("key registry root missing")?;
+        let row = row.context("member registry root missing")?;
         let hash: Vec<u8> = row.try_get("", "hash")?;
         hash.try_into()
-            .map_err(|_| anyhow::anyhow!("invalid key registry root length"))
+            .map_err(|_| anyhow::anyhow!("invalid member registry root length"))
     }
 }
 

@@ -38,7 +38,6 @@ impl<'a> RingTransfer<Owner<'a>> {
                 signer,
             },
             cosigner: self.cosigner,
-            indexer_config: self.indexer_config,
         }
     }
 }

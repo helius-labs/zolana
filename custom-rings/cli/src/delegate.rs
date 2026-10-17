@@ -5,11 +5,11 @@ use std::collections::BTreeSet;
 use anyhow::{bail, ensure, Context as _, Result};
 use custom_ring_sdk::{
     ring_authority_width, CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput,
-    ReadCurrentSealedKey, RingError,
+    ReadMemberRecord,
 };
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ClientError, IndexerRpcConfig, Rpc};
+use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_interface::pda;
 use zolana_ring_client::{RingRecovery, SourceMember};
 use zolana_ring_policy::Member;
@@ -20,7 +20,7 @@ use zolana_transaction::{
 
 use crate::{
     assets,
-    controls::{ring_auditor_key, NO_KEY_REGISTRY},
+    controls::{ring_auditor_key, NO_MEMBER_REGISTRY},
     file, line,
     transact::{self, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
     Context, DelegateMoveArgs,
@@ -49,17 +49,18 @@ pub fn run_move(ctx: &Context, args: DelegateMoveArgs) -> Result<()> {
         .and_then(|tag| Member::owner_tag(&tag).ok())
         .context("the source shielded address does not derive a member identity")?;
     let assets = assets::resolve(ctx.rpc(), mint)?.registry;
-    let sealed = ReadCurrentSealedKey {
+    let record = ReadMemberRecord {
         ring: ctx.ring,
         member,
     };
-    let nullifier_key = match ctx.block(sealed.read(ctx.chain())) {
-        Ok(Some(entry)) => entry.open(&auditor)?,
-        Ok(None) => bail!(NO_KEY_REGISTRY),
-        Err(RingError::Client(ClientError::RingKeyRegistryMemberUnregistered)) => {
+    let record = ctx
+        .block(record.read(ctx.chain()))?
+        .context(NO_MEMBER_REGISTRY)?;
+    let nullifier_key = match record.sealed_key() {
+        Some(entry) => entry.open(&auditor)?,
+        None => {
             bail!("member {source} has no registered key, it runs `zolana-ring key register` first")
         }
-        Err(error) => return Err(error.into()),
     };
     let recovery = RingRecovery::new(ctx.ring.program_id(), &auditor)
         .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?))
@@ -107,8 +108,7 @@ pub fn run_move(ctx: &Context, args: DelegateMoveArgs) -> Result<()> {
         outputs,
     })
     .with_output_tree_id(notes[0].tree_id)
-    .with_assets(&assets)
-    .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
+    .with_assets(&assets);
     let mut signers: Vec<&(dyn Signer + Sync)> = vec![&delegate];
     if let Some(cosigner) = &cosigner {
         transfer = transfer.with_cosigner(cosigner.pubkey());

@@ -1,16 +1,12 @@
-use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
+use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, N_FOREIGN};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
-    instruction::{instruction_data::transact::TreeContext, TransactIxData},
-    pda,
-};
+use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
 use zolana_program::instruction::{
     RingAuthorityTransact, RingTransact, TransactInterfaceTransferAccounts,
 };
-use zolana_ring_policy::ANSWER_SLOTS;
 
-use crate::{CurrentKeyRegistryRoot, CustomRing, RingError};
+use crate::{CurrentRegistryRoot, CustomRing, RingError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PolicyTreeContext {
@@ -18,76 +14,89 @@ pub struct PolicyTreeContext {
     pub context: TreeContext,
 }
 
-/// The key registry root an escrowed statement binds.
+/// The ring's registry root a policy statement binds, named by its history slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RegistryBinding {
+    /// A later batch may overwrite the slot, the submission then proves again.
+    pub root_index: u8,
+    pub root: [u8; 32],
+}
+
+impl RegistryBinding {
+    pub(crate) fn of(root: CurrentRegistryRoot) -> Self {
+        Self {
+            root_index: root.history_index,
+            root: root.root,
+        }
+    }
+}
+
+/// The curator registry the policy sources name and the root bound from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForeignBinding {
+    /// The curator's `MemberRegistryRoot` account, as the policy config pins it.
+    pub registry: Address,
+    pub curator: CustomRing,
+    pub root_index: u8,
+    pub root: [u8; 32],
+    pub next_index: u64,
+}
+
+/// The registry root an escrowed deposit binds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EscrowBinding {
     #[default]
     Off,
-    /// The statement names `root` by its history slot, a later registration may overwrite it.
-    Registry { root_index: u8, root: [u8; 32] },
+    Registry(RegistryBinding),
 }
 
 impl EscrowBinding {
-    pub(crate) fn of(root: Option<CurrentKeyRegistryRoot>) -> Self {
-        root.map_or(Self::Off, |root| Self::Registry {
-            root_index: root.history_index,
-            root: root.root,
-        })
+    pub(crate) fn of(root: Option<CurrentRegistryRoot>) -> Self {
+        root.map_or(Self::Off, |root| Self::Registry(RegistryBinding::of(root)))
     }
 
     pub(crate) const fn root_index(self) -> u8 {
         match self {
             Self::Off => 0,
-            Self::Registry { root_index, .. } => root_index,
+            Self::Registry(binding) => binding.root_index,
         }
     }
 
     pub(crate) fn meta(self, ring: CustomRing) -> Option<AccountMeta> {
-        (self != Self::Off).then(|| AccountMeta::new_readonly(ring.key_registry_root_pda(), false))
+        (self != Self::Off)
+            .then(|| AccountMeta::new_readonly(ring.member_registry_root_pda(), false))
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PolicyReads {
     pub trees: Vec<PolicyTreeContext>,
-    pub escrow: EscrowBinding,
-    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
-    /// Per fact slot, the index into `trees` its target is nullified in.
-    pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
+    pub registry: RegistryBinding,
+    pub foreign: Option<ForeignBinding>,
 }
 
 impl PolicyReads {
-    /// `[policy_config, trees.., key_registry_root?, revocation PDAs..]`, the program's read order.
-    fn metas(&self, ring: CustomRing) -> Result<Vec<AccountMeta>, RingError> {
+    /// `[policy_config, trees.., member_registry_root, foreign_root?]`, the program's read order.
+    fn metas(&self, ring: CustomRing) -> Vec<AccountMeta> {
         let mut metas = vec![AccountMeta::new_readonly(ring.policy_config_pda(), false)];
         metas.extend(
             self.trees
                 .iter()
                 .map(|tree| AccountMeta::new_readonly(tree.tree, false)),
         );
-        metas.extend(self.escrow.meta(ring));
-        let targets = self
-            .revocation_targets
-            .iter()
-            .zip(&self.revocation_tree_indexes);
-        for (slot, (target, &index)) in targets.enumerate() {
-            if *target == [0; 32] {
-                continue;
-            }
-            let tree = self
-                .trees
-                .get(usize::from(index))
-                .ok_or(RingError::RevocationTree {
-                    slot,
-                    index,
-                    trees: self.trees.len(),
-                })?;
-            metas.push(AccountMeta::new_readonly(
-                pda::nullifier_pda(&tree.tree, target).0,
-                false,
-            ));
-        }
-        Ok(metas)
+        metas.push(AccountMeta::new_readonly(
+            ring.member_registry_root_pda(),
+            false,
+        ));
+        metas.extend(
+            self.foreign
+                .map(|foreign| AccountMeta::new_readonly(foreign.registry, false)),
+        );
+        metas
+    }
+
+    fn foreign_root_indexes(&self) -> [u8; N_FOREIGN] {
+        [self.foreign.map_or(0, |foreign| foreign.root_index)]
     }
 }
 
@@ -226,7 +235,7 @@ impl RingStatement<'_> {
         let mut accounts = ring_prefix(self.ring, self.cosigner).to_vec();
         accounts.extend(rail);
         if let Some(policy) = self.policy {
-            accounts.extend(policy.metas(self.ring)?);
+            accounts.extend(policy.metas(self.ring));
         }
         accounts.extend(forwarded);
         let policy = self.policy;
@@ -236,12 +245,9 @@ impl RingStatement<'_> {
             policy_trees: policy
                 .map(|policy| policy.trees.iter().map(|tree| tree.context).collect())
                 .unwrap_or_default(),
-            key_registry_root_index: policy.map_or(0, |policy| policy.escrow.root_index()),
+            registry_root_index: policy.map_or(0, |policy| policy.registry.root_index),
+            foreign_root_indexes: policy.map_or([0; N_FOREIGN], PolicyReads::foreign_root_indexes),
             approval_required: self.approval_required,
-            revocation_targets: policy
-                .map_or([[0; 32]; ANSWER_SLOTS], |policy| policy.revocation_targets),
-            revocation_tree_indexes: policy
-                .map_or([0; ANSWER_SLOTS], |policy| policy.revocation_tree_indexes),
             transact,
         })?);
         Ok(Instruction {

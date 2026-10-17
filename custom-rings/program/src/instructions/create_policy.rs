@@ -52,7 +52,7 @@ pub fn process_create_policy_ix(
     let (namespace, namespace_bump) =
         Address::derive_program_address(&[NAMESPACE_PDA_SEED], program_id)
             .ok_or(CustomRingError::InvalidNamespacePda)?;
-    let bound = bind_table(&ix, curators, &namespace, address_tree.address())?;
+    let bound = bind_table(&ix, curators)?;
     // Boxed, a whole policy config exceeds the SBF stack frame.
     let mut written = bytemuck::zeroed_box::<PolicyConfig>();
     written.discriminator = POLICY_CONFIG;

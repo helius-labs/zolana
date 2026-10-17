@@ -1,22 +1,22 @@
 //! The upgrade authority re-pins the table of a live ring on localnet +
 //! photon + prover, and a curated Block list yields to the subscriber's own
-//! Approval entries.
+//! Approval list.
 
 use anyhow::{anyhow, Result};
 use custom_ring_interface::CustomRingError;
-use custom_ring_sdk::{policy_config_table, CustomRing};
+use custom_ring_sdk::{policy_config_table, CustomRing, ListRegistry};
 use custom_ring_test_validator::{
-    cli::{ListMember, ListWrite, RingProject, RingToml},
+    cli::{ListWrite, RingProject, RingToml},
     policy::{
-        owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
-        RingNotes, APPROVAL_OR_UNBLOCKED, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
+        owner_member, policy_config, CuratedRings, PolicyTransfer, RegistryWrite, RingNotes,
+        APPROVAL_OR_UNBLOCKED, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
     shared::{send_expecting_rejection, ExpectRejection, TestEnv},
 };
 use solana_signer::Signer;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::Rejection;
-use zolana_ring_policy::{EntryState, ListId};
+use zolana_ring_policy::ListId;
 use zolana_transaction::Utxo;
 
 /// A local ring rpc, `init` reads the auditor key file and contacts nothing.
@@ -66,7 +66,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     assert_eq!(policy_config_table(&pinned)?, BLOCK_ONLY);
     assert_eq!(pinned.generation(), 1);
     assert!(pinned.generation_slot() > 0);
-    assert_eq!(pinned.source_for(ListId::Block), Some(ring.namespace_pda()));
+    assert_eq!(pinned.registry_for(ListId::Block), Some(ListRegistry::Own));
     let notes = RingNotes {
         ring,
         owner: sender,
@@ -80,10 +80,9 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     //    the pinned hash.
     project.write_list(ListWrite {
         env,
-        address_tree: env.tree,
         list_id: ListId::Block,
-        member: ListMember::Owner(blocked),
-        state: EntryState::Active,
+        member: blocked,
+        present: true,
     })?;
     egress.to(blocked, &notes[0]).expect_refusal()?;
     let stale = egress
@@ -92,7 +91,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         .map_err(|error| anyhow!("proof under the pinned table failed {error}"))?;
 
     // 3. `policy check` reports the edited `ring.toml` until `policy set` lands
-    //    generation 2, both lists on the ring's own entries.
+    //    generation 2, both lists on the ring's own registry.
     let mixed = block(APPROVAL_OR_UNBLOCKED_TOML, &rings);
     project.write_config(RingToml {
         env,
@@ -114,12 +113,12 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     assert!(repinned.generation_slot() > pinned.generation_slot());
     assert_ne!(repinned.policy_hash, pinned.policy_hash);
     assert_eq!(
-        repinned.source_for(ListId::Approval),
-        Some(ring.namespace_pda())
+        repinned.registry_for(ListId::Approval),
+        Some(ListRegistry::Own)
     );
     assert_eq!(
-        repinned.source_for(ListId::Block),
-        Some(ring.namespace_pda())
+        repinned.registry_for(ListId::Block),
+        Some(ListRegistry::Own)
     );
 
     // 4. The proof over the old hash fails verification, its note stays unspent.
@@ -128,14 +127,13 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         .at(0)
         .assert_client(&rejection);
 
-    // 5. Block still refuses until the ring's own Approval entry admits.
+    // 5. Block still refuses until the ring's own Approval bit admits.
     egress.to(blocked, &notes[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
-        address_tree: env.tree,
         list_id: ListId::Approval,
-        member: ListMember::Owner(blocked),
-        state: EntryState::Active,
+        member: blocked,
+        present: true,
     })?;
     egress.to(blocked, &notes[0]).land()?;
 
@@ -171,8 +169,10 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     assert_eq!(repointed.generation(), 3);
     assert!(repointed.generation_slot() > repinned.generation_slot());
     assert_eq!(
-        repointed.source_for(ListId::Block),
-        Some(rings.curator.namespace_pda())
+        repointed.registry_for(ListId::Block),
+        Some(ListRegistry::Curator(
+            rings.curator.member_registry_root_pda()
+        ))
     );
     assert_eq!(policy_config_table(&repointed)?, APPROVAL_OR_UNBLOCKED);
     egress.to(&clean, &notes[1]).land()?;
@@ -181,18 +181,19 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
 }
 
 #[test]
-fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Result<()> {
+fn a_curated_block_list_yields_to_the_subscribers_own_approval_list() -> Result<()> {
     let rings = CuratedRings::setup()?;
     let env = &rings.env;
     let ring = rings.subscriber;
     let sender = &env.sender.keypair;
     let recipient = &env.recipient.keypair;
     let egress = Egress { ring, sender, env };
-    let curator_block = |target, state| EntryWrite {
+    let member = owner_member(recipient)?;
+    let curator_block = |present| RegistryWrite {
         ring: rings.curator,
-        target,
-        state,
-        fee_payer: &env.payer,
+        list_id: ListId::Block,
+        member,
+        present,
         env,
     };
 
@@ -203,12 +204,14 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
     assert_eq!(pinned.generation(), 1);
     assert!(pinned.generation_slot() > 0);
     assert_eq!(
-        pinned.source_for(ListId::Block),
-        Some(rings.curator.namespace_pda())
+        pinned.registry_for(ListId::Block),
+        Some(ListRegistry::Curator(
+            rings.curator.member_registry_root_pda()
+        ))
     );
     assert_eq!(
-        pinned.source_for(ListId::Approval),
-        Some(ring.namespace_pda())
+        pinned.registry_for(ListId::Approval),
+        Some(ListRegistry::Own)
     );
     let notes = RingNotes {
         ring,
@@ -220,39 +223,29 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_entries() -> Resu
     .deposit()?;
 
     // 2. One curator write refuses the recipient, the subscriber's own
-    //    Approval entry admits it.
-    let blocked = curator_block(
-        EntryTarget::Claim {
-            list_id: ListId::Block,
-            member: owner_member(recipient)?,
-        },
-        EntryState::Active,
-    )
-    .send()?;
+    //    Approval bit admits it.
+    curator_block(true).send()?;
     egress.to(recipient, &notes[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
-        address_tree: env.tree,
         list_id: ListId::Approval,
-        member: ListMember::Owner(recipient),
-        state: EntryState::Active,
+        member: recipient,
+        present: true,
     })?;
     egress.to(recipient, &notes[0]).land()?;
 
-    // 3. A cleared Approval entry admits nothing, the curator's Block entry
+    // 3. A cleared Approval bit admits nothing, the curator's Block bit
     //    refuses again.
     project.write_list(ListWrite {
         env,
-        address_tree: env.tree,
         list_id: ListId::Approval,
-        member: ListMember::Owner(recipient),
-        state: EntryState::Cleared,
+        member: recipient,
+        present: false,
     })?;
     egress.to(recipient, &notes[1]).expect_refusal()?;
 
-    // 4. The curator clearing its entry admits through the cleared-entry
-    //    absence branch.
-    curator_block(EntryTarget::Successor(blocked), EntryState::Cleared).send()?;
+    // 4. The curator clearing its bit admits the recipient again.
+    curator_block(false).send()?;
     egress.to(recipient, &notes[1]).land()?;
     project.remove()?;
     Ok(())

@@ -113,6 +113,8 @@ Added
 
 Changed
 
+- `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.
+
 - Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.

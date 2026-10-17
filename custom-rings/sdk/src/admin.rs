@@ -97,9 +97,9 @@ impl CustomRing {
         self.ix(accounts, vec![tag::INIT_SPP_RING_CONFIG])
     }
 
-    pub fn create_key_registry_root(self, payer: Address, authority: Address) -> Instruction {
-        let metas = self.upsert_metas(payer, authority, self.key_registry_root_pda());
-        self.ix(metas, vec![tag::CREATE_KEY_REGISTRY_ROOT])
+    pub fn create_member_registry_root(self, payer: Address, authority: Address) -> Instruction {
+        let metas = self.upsert_metas(payer, authority, self.member_registry_root_pda());
+        self.ix(metas, vec![tag::CREATE_MEMBER_REGISTRY_ROOT])
     }
 
     /// Authorizes `reader` to read the ring through the ring RPC.
@@ -218,7 +218,7 @@ impl CustomRing {
             AccountMeta::new_readonly(authority, true),
             AccountMeta::new(self.config_pda(), false),
             AccountMeta::new(self.delegate_pda(), false),
-            AccountMeta::new_readonly(self.key_registry_root_pda(), false),
+            AccountMeta::new_readonly(self.member_registry_root_pda(), false),
             AccountMeta::new_readonly(SYSTEM, false),
         ];
         accounts.extend(self.upgrade_metas());
@@ -240,7 +240,7 @@ impl CustomRing {
         ];
         if let SourceOwner::Shared(curator) = source {
             accounts.push(AccountMeta::new_readonly(
-                curator.policy_config_pda(),
+                curator.member_registry_root_pda(),
                 false,
             ));
         }
@@ -254,7 +254,7 @@ impl CustomRing {
         Ok(self.ix(accounts, data))
     }
 
-    /// Pins the table and its source map, a referenced list not shared reads the ring's own entries.
+    /// Pins the table and its source map, a referenced list not shared reads the ring's own registry.
     pub fn create_policy(
         self,
         payer: Address,
@@ -298,7 +298,7 @@ impl CustomRing {
         self.policy_table(instruction, authority, accounts, rules, shared_sources)
     }
 
-    /// Curator policy configs follow in first-use order, the transaction must fit v1.
+    /// Curator registry roots follow in first-use order, the transaction must fit v1.
     fn policy_table(
         self,
         instruction: InstructionTag,
@@ -333,9 +333,9 @@ impl CustomRing {
             })
             .collect();
         accounts.extend(
-            curators
-                .iter()
-                .map(|curator| AccountMeta::new_readonly(curator.policy_config_pda(), false)),
+            curators.iter().map(|curator| {
+                AccountMeta::new_readonly(curator.member_registry_root_pda(), false)
+            }),
         );
         let data = tagged(
             instruction as u8,

@@ -1,34 +1,35 @@
-//! The policy half of the ring proof, the openings of the prepared transfer and
-//! the entry facts the rules name.
+//! The policy half of the ring proof, the openings of the prepared transfer and the
+//! member records of every live slot.
 
+use custom_ring_interface::EscrowKey;
 use futures::future::try_join_all;
 use serde::Serialize;
-use zolana_client::{
-    prover::indexed::{IndexedPolicyLookup, IndexedRegistry, ResolvedProofTree},
-    AsyncRpc, IndexerRpcConfig, MerkleProof, NonInclusionProof,
-};
+use solana_address::Address;
+use zolana_client::{prover::indexed::IndexedRegistry, AsyncRpc};
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
+    merge_utils::ciphertext_hash,
     tree_slot::{tree_id_field, TreeSlot},
-    DUMMY_DOMAIN, INPUT_TREES, UTXO_DOMAIN,
+    DUMMY_DOMAIN, UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    EntryState, Guard, ListId, ListNamespace, Member, Mode, Rule, SourceOwner, Subject,
-    ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
-    POLICY_OUTPUT_SLOTS,
+    Guard, ListId, ListSet, Member, Mode, PolicySource, Rule, RuleSource, SourceMap, Subject,
+    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
 };
 use zolana_transaction::{instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo};
 
 use crate::{
     account::source_map,
-    entry::{walk, EntryLookup, LineageLookup},
-    escrow::{EscrowedKeys, KeyRegistry, OutputKey},
+    member_registry::{MemberRecordRead, ReadMemberRecord, RecordOpening},
     prover::fe,
-    request::{sources, tree_slots, CustomRingOpening, Escrow, RuleAnswer},
+    request::{sources, subjects, tree_slots, CustomRingOpening, CustomRingOutputOpening},
     trees::{read_tree, TransactRoots},
-    EscrowBinding, LiveEntry, OutflowLimitProofInput, PinnedPolicy, PolicyReads, PolicyTreeContext,
-    PoolTree, RingError,
+    CurrentRegistryRoot, CustomRing, ForeignBinding, OutflowLimitProofInput, PinnedPolicy,
+    PolicyReads, PolicyTreeContext, PoolTree, RegistryBinding, RingError,
 };
+
+/// One subject per transaction slot, inputs first.
+pub(crate) const SUBJECT_SLOTS: usize = POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PolicyTree {
@@ -41,8 +42,8 @@ impl PolicyTree {
         self.roots.slot(self.tree.id)
     }
 
-    pub fn resolved(&self) -> ResolvedProofTree {
-        ResolvedProofTree {
+    pub fn resolved(&self) -> zolana_client::prover::indexed::ResolvedProofTree {
+        zolana_client::prover::indexed::ResolvedProofTree {
             tree: self.tree.address,
             id: self.tree.id,
             utxo_root: self.roots.state,
@@ -52,24 +53,33 @@ impl PolicyTree {
     }
 }
 
+/// The registries the indexed prover opens the records in.
+#[derive(Clone)]
+pub(crate) struct IndexedRegistries {
+    pub registry: IndexedRegistry,
+    pub foreign: Option<IndexedRegistry>,
+}
+
 /// The policy witness, in the wire order of the policy body after the audit fields.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CustomRingWitness {
     #[serde(skip)]
-    pub indexed: Option<Vec<IndexedPolicyLookup>>,
+    pub indexed: Option<IndexedRegistries>,
     #[serde(skip)]
-    pub indexed_registry: Option<IndexedRegistry>,
+    pub registry: RegistryBinding,
+    #[serde(skip)]
+    pub foreign: Option<ForeignBinding>,
     pub n_in: u8,
     pub n_out: u8,
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
-    pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
+    pub outputs: [CustomRingOutputOpening; POLICY_OUTPUT_SLOTS],
     #[serde(serialize_with = "fe::zero")]
     pub address_chain: (),
     #[serde(with = "fe")]
     pub private_tx_blinding: [u8; 32],
     #[serde(serialize_with = "sources")]
-    pub sources: [SourceOwner; MAX_SOURCES],
+    pub sources: [PolicySource; MAX_SOURCES],
     pub policy_len: u8,
     /// The account rows verbatim, the pinned hash binds them.
     #[serde(rename = "ruleEnc", serialize_with = "fe::seq")]
@@ -79,20 +89,24 @@ pub(crate) struct CustomRingWitness {
     #[serde(serialize_with = "fe::ints")]
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
+    #[serde(flatten)]
+    pub limits: OutflowLimitProofInput,
     /// In slot order, at most `INPUT_TREES`.
     #[serde(rename = "treeSlots", serialize_with = "tree_slots")]
     pub trees: Vec<PolicyTree>,
     #[serde(serialize_with = "fe::short")]
     pub address_tree_id: u16,
-    #[serde(flatten)]
-    pub escrow: Escrow,
-    #[serde(flatten)]
-    pub limits: OutflowLimitProofInput,
-    pub answers: Vec<RuleAnswer>,
-    #[serde(skip)]
-    pub revocation_targets: [[u8; 32]; ANSWER_SLOTS],
-    #[serde(skip)]
-    pub revocation_tree_indexes: [u8; ANSWER_SLOTS],
+    pub key_escrow: bool,
+    #[serde(with = "fe")]
+    pub member_registry_root: [u8; 32],
+    /// Own-registry openings of the live slots, `None` where the prover fills them.
+    #[serde(serialize_with = "subjects")]
+    pub subjects: [Option<crate::request::SubjectWitness>; SUBJECT_SLOTS],
+    /// Zero without a curator.
+    #[serde(with = "fe")]
+    pub foreign_root: [u8; 32],
+    #[serde(serialize_with = "subjects")]
+    pub foreign_subjects: [Option<crate::request::SubjectWitness>; SUBJECT_SLOTS],
 }
 
 impl CustomRingWitness {
@@ -110,15 +124,15 @@ impl CustomRingWitness {
                     context: tree.roots.context(),
                 })
                 .collect(),
-            escrow: EscrowBinding::of(self.escrow.0),
-            revocation_targets: self.revocation_targets,
-            revocation_tree_indexes: self.revocation_tree_indexes,
+            registry: self.registry,
+            foreign: self.foreign,
         }
     }
 }
 
 /// What the policy witness reads at prove time.
 pub(crate) struct WitnessInput<'a> {
+    pub ring: CustomRing,
     pub pinned: &'a PinnedPolicy,
     pub inputs: &'a [SppProofInputUtxo],
     pub outputs: &'a [SppProofOutputUtxo],
@@ -126,154 +140,295 @@ pub(crate) struct WitnessInput<'a> {
     pub output_tree_id: u16,
     pub private_tx_blinding: [u8; 32],
     pub limits: OutflowLimitProofInput,
-    pub key_registry: Option<KeyRegistry>,
-    /// The entries are read once the indexer persisted `require_slot`.
-    pub indexer_config: Option<IndexerRpcConfig>,
+    /// Every live output owner's record must escrow the key the output uses.
+    pub key_escrow: bool,
 }
 
-struct Demand {
+/// A live slot's owner and where it sits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Slot {
+    position: usize,
     member: Member,
-    /// `(lookup, mode)` per alternative of the rule.
-    alternatives: Vec<(usize, Mode)>,
 }
 
-#[derive(Clone, Copy)]
-enum EntryFact {
-    /// A never claimed address proves absence by its own non-inclusion.
-    Unclaimed {
-        address: [u8; 32],
-    },
-    Live(LiveEntry),
+/// The records of one slot in both registries, as the rules read them.
+struct SubjectRecords {
+    own: RecordOpening,
+    foreign: Option<RecordOpening>,
 }
 
-impl EntryFact {
-    fn satisfies(&self, mode: Mode) -> bool {
-        let active = matches!(self, Self::Live(live) if live.entry.state == EntryState::Active);
-        active == (mode == Mode::Present)
-    }
-
-    fn state_leaf(&self) -> Option<[u8; 32]> {
-        match self {
-            Self::Unclaimed { .. } => None,
-            Self::Live(live) => Some(live.utxo_hash),
+impl SubjectRecords {
+    /// Bit `i` from the registry that serves list `i + 1`.
+    fn on_lists(&self, sources: &SourceMap) -> ListSet {
+        let own = self.own.list_set();
+        let foreign = self
+            .foreign
+            .as_ref()
+            .map_or(ListSet::EMPTY, RecordOpening::list_set);
+        let mut bits = 0u8;
+        for list_id in ListId::ALL {
+            let served = match sources.registry(list_id) {
+                Some(registry) if *registry != [0; 32] => foreign,
+                _ => own,
+            };
+            if served.contains(list_id) {
+                bits |= ListSet::single(list_id).bits();
+            }
         }
+        ListSet::from_bits(bits)
     }
-
-    fn absence_target(&self) -> [u8; 32] {
-        match self {
-            Self::Unclaimed { address } => *address,
-            Self::Live(live) => live.nullifier,
-        }
-    }
-
-    fn tree(&self, address_tree: PoolTree) -> PoolTree {
-        match self {
-            Self::Unclaimed { .. } => address_tree,
-            Self::Live(live) => address_tree.sibling(live.tree_id),
-        }
-    }
-}
-
-struct Answer {
-    list_id: ListId,
-    member: Member,
-    mode: Mode,
-    fact: EntryFact,
-    /// Index into the statement's trees.
-    slot: u8,
-}
-
-struct TreeProofs {
-    roots: TransactRoots,
-    states: Vec<MerkleProof>,
-    absences: Vec<NonInclusionProof>,
 }
 
 impl<'a> WitnessInput<'a> {
-    /// Refuses client-side with a named rule before any prover round.
+    /// Refuses client-side with a named rule before any prover round. On the indexed
+    /// route the prover opens the records, the client only binds the roots.
     pub async fn build(
         self,
         client: &(impl AsyncRpc + ?Sized),
         indexed: bool,
     ) -> Result<Box<CustomRingWitness>, RingError> {
-        let (lookups, demands) = self.plan()?;
-        let lineages = walk(client, &lookups, self.indexer_config).await?;
-        let facts = lookups
-            .iter()
-            .zip(lineages)
-            .map(|(lookup, live)| {
-                Ok(match live {
-                    None => EntryFact::Unclaimed {
-                        address: lookup.address()?,
-                    },
-                    Some(live) => EntryFact::Live(live),
-                })
-            })
-            .collect::<Result<Vec<_>, RingError>>()?;
-        let address_tree = PoolTree::address_tree(&self.pinned.config);
-        let (answers, trees) = resolve(&lookups, &demands, &facts, address_tree)?;
-        let proofs = try_join_all(trees.iter().enumerate().map(|(slot, &tree)| {
-            let answers = answers
-                .iter()
-                .filter(move |answer| usize::from(answer.slot) == slot);
-            fetch(client, tree, answers, indexed)
-        }))
-        .await?;
-        let escrow = match self.key_registry {
-            Some(registry) if indexed => Some(registry.pending(client).await?),
-            Some(registry) => Some(registry.openings(client, &self.output_keys()?).await?),
-            None => None,
-        };
-        self.assemble(answers, trees, proofs, escrow, indexed)
-    }
-
-    /// One demand per rule subject the guard does not exempt, lookups deduplicated.
-    fn plan(&self) -> Result<(Vec<EntryLookup>, Vec<Demand>), RingError> {
         if self.inputs.len() > POLICY_INPUT_SLOTS || self.outputs.len() > POLICY_OUTPUT_SLOTS {
             return Err(RingError::PolicyShapeUnsupported);
         }
-        let sources = source_map(&self.pinned.config)?;
-        let mut lookups: Vec<EntryLookup> = Vec::new();
-        let mut demands = Vec::new();
-        for rule in self.pinned.table.rules() {
-            let rule_alternatives: Vec<(ListId, Mode)> = rule.alternatives().collect();
-            if rule_alternatives.is_empty() {
+        let config = &self.pinned.config;
+        let address_tree = PoolTree::address_tree(config);
+        let view = read_tree(client, address_tree.address).await?;
+        if view.tree.id != address_tree.id {
+            return Err(RingError::TreeIdMismatch {
+                tree: address_tree.address,
+                expected: view.tree.id,
+                found: address_tree.id,
+            });
+        }
+        let tree = PolicyTree {
+            tree: address_tree,
+            roots: view.roots,
+        };
+        let root = self
+            .ring
+            .member_registry_root(client)
+            .await?
+            .ok_or(RingError::MissingMemberRegistry)?;
+        let curator = match config.curator() {
+            Some(registry) => Some(CustomRing::curator_registry(client, registry).await?),
+            None => None,
+        };
+        let slots = self.slots()?;
+        let records = match indexed {
+            true => None,
+            false => Some(self.records(client, &slots, root, curator.as_ref()).await?),
+        };
+        self.assemble(tree, root, curator, slots, records, indexed)
+    }
+
+    /// Live slots in circuit order, inputs then outputs, with their owner tags.
+    fn slots(&self) -> Result<Vec<Slot>, RingError> {
+        let mut slots = Vec::new();
+        for (position, input) in self.inputs.iter().enumerate() {
+            if input.is_dummy() {
                 continue;
             }
-            for member in self.subjects(rule)? {
-                // The circuit needs no answer for an exempt subject, demanding one would refuse the transfer.
-                if self.guard_exempts(rule, &member)? {
-                    continue;
-                }
-                let mut alternatives = Vec::with_capacity(rule_alternatives.len());
-                for &(list_id, mode) in &rule_alternatives {
-                    let owner_hash = sources
-                        .owner_hash(list_id)
-                        .ok_or(RingError::MissingSourceOwner)?;
-                    let lookup = EntryLookup {
-                        owner: ListNamespace {
-                            owner_hash: *owner_hash,
-                        },
-                        list_id,
-                        member,
-                        address_tree_id: self.pinned.config.address_tree_id(),
-                    };
-                    let index = lookups.iter().position(|known| *known == lookup);
-                    alternatives.push((
-                        index.unwrap_or_else(|| {
-                            lookups.push(lookup);
-                            lookups.len() - 1
-                        }),
-                        mode,
-                    ));
-                }
-                demands.push(Demand {
-                    member,
-                    alternatives,
-                });
+            slots.push(Slot {
+                position,
+                member: Member::from_bytes(input.utxo.owner.owner_proof_input_hash()?)?,
+            });
+        }
+        for (position, output) in self.outputs.iter().enumerate() {
+            let Some(address) = output.owner_address.as_ref() else {
+                continue;
+            };
+            slots.push(Slot {
+                position: POLICY_INPUT_SLOTS + position,
+                member: Member::from_bytes(address.signing_pubkey.owner_proof_input_hash()?)?,
+            });
+        }
+        Ok(slots)
+    }
+
+    /// One registry read per distinct member and registry.
+    async fn records(
+        &self,
+        client: &(impl AsyncRpc + ?Sized),
+        slots: &[Slot],
+        root: CurrentRegistryRoot,
+        curator: Option<&(CustomRing, CurrentRegistryRoot)>,
+    ) -> Result<Vec<(Member, SubjectRecords)>, RingError> {
+        let mut members: Vec<Member> = Vec::new();
+        for slot in slots {
+            if !members.contains(&slot.member) {
+                members.push(slot.member);
             }
         }
-        Ok((lookups, demands))
+        let reads = try_join_all(members.iter().map(|&member| async move {
+            let own = ReadMemberRecord {
+                ring: self.ring,
+                member,
+            }
+            .read_at(client, root)
+            .await?;
+            let foreign = match curator {
+                Some((ring, root)) => Some(
+                    ReadMemberRecord {
+                        ring: *ring,
+                        member,
+                    }
+                    .read_at(client, *root)
+                    .await?,
+                ),
+                None => None,
+            };
+            Ok::<_, RingError>((own, foreign))
+        }))
+        .await?;
+        Ok(members
+            .into_iter()
+            .zip(reads)
+            .map(|(member, (own, foreign))| {
+                let records = SubjectRecords {
+                    own: own.opening,
+                    foreign: foreign.map(|read: MemberRecordRead| read.opening),
+                };
+                (member, records)
+            })
+            .collect())
+    }
+
+    fn assemble(
+        self,
+        tree: PolicyTree,
+        root: CurrentRegistryRoot,
+        curator: Option<(CustomRing, CurrentRegistryRoot)>,
+        slots: Vec<Slot>,
+        records: Option<Vec<(Member, SubjectRecords)>>,
+        indexed: bool,
+    ) -> Result<Box<CustomRingWitness>, RingError> {
+        let config = &self.pinned.config;
+        let sources = source_map(config)?;
+        let mut subjects: [Option<_>; SUBJECT_SLOTS] = Default::default();
+        let mut foreign_subjects: [Option<_>; SUBJECT_SLOTS] = Default::default();
+        let mut ct_hashes = [[0; 32]; POLICY_OUTPUT_SLOTS];
+        if let Some(records) = &records {
+            self.check_rules(&sources, &slots, records)?;
+            for slot in &slots {
+                let (_, found) = records
+                    .iter()
+                    .find(|(member, _)| *member == slot.member)
+                    .ok_or(RingError::PolicyRuleUnsatisfied)?;
+                subjects[slot.position] = Some(crate::request::SubjectWitness::of(&found.own));
+                foreign_subjects[slot.position] = found
+                    .foreign
+                    .as_ref()
+                    .map(crate::request::SubjectWitness::of);
+                if self.key_escrow && slot.position >= POLICY_INPUT_SLOTS {
+                    let output = &self.outputs[slot.position - POLICY_INPUT_SLOTS];
+                    ct_hashes[slot.position - POLICY_INPUT_SLOTS] =
+                        escrowed_ct_hash(output, slot.member, &found.own)?;
+                }
+            }
+        }
+        let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
+        for (slot, input) in inputs.iter_mut().zip(self.inputs) {
+            *slot = input_opening(input)?;
+        }
+        let mut outputs = [CustomRingOutputOpening::default(); POLICY_OUTPUT_SLOTS];
+        for (index, (slot, output)) in outputs.iter_mut().zip(self.outputs).enumerate() {
+            *slot = CustomRingOutputOpening {
+                opening: output_opening(output, self.output_tree_id)?,
+                ct_hash: ct_hashes[index],
+            };
+        }
+        let table = &config.rules;
+        let foreign = curator.map(|(ring, root)| ForeignBinding {
+            registry: ring.member_registry_root_pda(),
+            curator: ring,
+            root_index: root.history_index,
+            root: root.root,
+            next_index: root.next_index,
+        });
+        let indexed = indexed.then(|| IndexedRegistries {
+            registry: IndexedRegistry {
+                ring_program_id: self.ring.program_id(),
+                root: root.root,
+                next_index: root.next_index,
+            },
+            foreign: foreign.as_ref().map(|foreign| IndexedRegistry {
+                ring_program_id: foreign.curator.program_id(),
+                root: foreign.root,
+                next_index: foreign.next_index,
+            }),
+        });
+        Ok(Box::new(CustomRingWitness {
+            indexed,
+            registry: RegistryBinding {
+                root_index: root.history_index,
+                root: root.root,
+            },
+            foreign,
+            n_in: self.inputs.len() as u8,
+            n_out: self.active_output_count() as u8,
+            inputs,
+            outputs,
+            address_chain: (),
+            private_tx_blinding: self.private_tx_blinding,
+            sources: *sources.slots(),
+            policy_len: table.rule_count,
+            rules: table.rules,
+            inline_assets: table.inline_assets,
+            inline_limits: table.inline_limits.map(u64::from_be_bytes),
+            inline_count: table.inline_count,
+            limits: self.limits,
+            trees: vec![tree],
+            address_tree_id: config.address_tree_id(),
+            key_escrow: self.key_escrow,
+            member_registry_root: root.root,
+            subjects,
+            foreign_root: foreign.map_or([0; 32], |foreign| foreign.root),
+            foreign_subjects,
+        }))
+    }
+
+    /// Every enabled rule must pass for each live subject, as the circuit evaluates it.
+    fn check_rules(
+        &self,
+        sources: &SourceMap,
+        slots: &[Slot],
+        records: &[(Member, SubjectRecords)],
+    ) -> Result<(), RingError> {
+        let on_lists = |member: Member| {
+            records
+                .iter()
+                .find(|(known, _)| *known == member)
+                .map(|(_, found)| found.on_lists(sources))
+                .ok_or(RingError::PolicyRuleUnsatisfied)
+        };
+        for rule in self.pinned.table.rules() {
+            match rule.source {
+                RuleSource::InlineAssets => {
+                    for output in self.rule_outputs() {
+                        if output.owner_address.is_none() {
+                            continue;
+                        }
+                        let asset = Member::asset(&output.asset.asset)?;
+                        let found = self.pinned.table.inline_assets().contains(asset.as_bytes());
+                        if !found && !self.guard_exempts(rule, &asset)? {
+                            return Err(RingError::PolicyRuleUnsatisfied);
+                        }
+                    }
+                }
+                RuleSource::Lists { present, absent } => {
+                    for member in self.subjects(rule, slots)? {
+                        if self.guard_exempts(rule, &member)? {
+                            continue;
+                        }
+                        let lists = on_lists(member)?;
+                        if !satisfied(rule, present, absent, lists) {
+                            return Err(RingError::PolicyRuleUnsatisfied);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The guard exempts a subject whose received total is at or below its threshold, as the circuit weighs it.
@@ -346,321 +501,71 @@ impl<'a> WitnessInput<'a> {
             .unwrap_or_default()
     }
 
-    fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, RingError> {
-        let owned = self
-            .rule_outputs()
-            .iter()
-            .filter(|output| output.owner_address.is_some());
-        match rule.subject {
-            Subject::OutputOwner => owned.map(owner_member).collect(),
-            Subject::Sender => self
-                .inputs
+    /// The owners a list rule ranges over.
+    fn subjects(&self, rule: &Rule, slots: &[Slot]) -> Result<Vec<Member>, RingError> {
+        let outputs = self.rule_outputs().len();
+        Ok(match rule.subject {
+            Subject::OutputOwner => slots
                 .iter()
-                .filter(|input| !input.is_dummy())
-                .map(|input| {
-                    Ok(Member::from_bytes(
-                        input.utxo.owner.owner_proof_input_hash()?,
-                    )?)
+                .filter(|slot| {
+                    slot.position >= POLICY_INPUT_SLOTS
+                        && slot.position - POLICY_INPUT_SLOTS < outputs
                 })
+                .map(|slot| slot.member)
                 .collect(),
-            // The circuit ranges asset rules over live outputs, hashing the mint as the opening does.
-            Subject::Asset => owned
-                .map(|output| Ok(Member::asset(&output.asset.asset)?))
+            Subject::Sender => slots
+                .iter()
+                .filter(|slot| slot.position < POLICY_INPUT_SLOTS)
+                .map(|slot| slot.member)
                 .collect(),
-            // The rule table refuses this subject until a settlement-aware circuit exists.
-            Subject::ExitDestination => Ok(Vec::new()),
-        }
-    }
-
-    /// Unowned slots carry no key.
-    fn output_keys(&self) -> Result<Vec<Option<OutputKey>>, RingError> {
-        self.outputs
-            .iter()
-            .map(|output| {
-                let Some(address) = output.owner_address.as_ref() else {
-                    return Ok(None);
-                };
-                Ok(Some(OutputKey {
-                    owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
-                    nullifier_pk: address.nullifier_pubkey,
-                }))
-            })
-            .collect()
-    }
-
-    fn assemble(
-        self,
-        answers: Vec<Answer>,
-        trees: Vec<PoolTree>,
-        proofs: Vec<TreeProofs>,
-        escrow: Option<EscrowedKeys>,
-        indexed: bool,
-    ) -> Result<Box<CustomRingWitness>, RingError> {
-        let mut lookups = Vec::with_capacity(ANSWER_SLOTS);
-        let mut rule_answers = Vec::with_capacity(ANSWER_SLOTS);
-        let mut revocation_targets = [[0; 32]; ANSWER_SLOTS];
-        let mut revocation_tree_indexes = [0; ANSWER_SLOTS];
-        let mut cursors = vec![(0, 0); proofs.len()];
-        for (index, answer) in answers.iter().enumerate() {
-            let slot = usize::from(answer.slot);
-            let target = answer.fact.absence_target();
-            lookups.push(IndexedPolicyLookup {
-                tree_slot: answer.slot,
-                commitment: answer.fact.state_leaf(),
-                nullifier: Some(target),
-            });
-            revocation_targets[index] = target;
-            revocation_tree_indexes[index] = answer.slot;
-            let mut entry = RuleAnswer {
-                enabled: true,
-                tree_slot: answer.slot,
-                mode: answer.mode as u8,
-                list_id: answer.list_id as u8,
-                member: *answer.member.as_bytes(),
-                absent_branch: 1,
-                ..RuleAnswer::default()
-            };
-            let (states, absences) = &mut cursors[slot];
-            if !indexed {
-                let absence = proofs[slot]
-                    .absences
-                    .get(*absences)
-                    .ok_or(RingError::IncompleteProofSet)?;
-                *absences += 1;
-                entry.low = absence.low_element;
-                entry.next = absence.high_element;
-                entry.nullifier_path = absence.path.clone();
-                entry.nullifier_path_index = absence.low_element_index;
-            }
-            if let EntryFact::Live(live) = answer.fact {
-                entry.absent_branch = 2;
-                entry.state = live.entry.state as u8;
-                entry.version = live.entry.version;
-                entry.blinding = live.entry.blinding;
-                entry.content_hash = live.entry.content_hash;
-                if !indexed {
-                    let state = proofs[slot]
-                        .states
-                        .get(*states)
-                        .ok_or(RingError::IncompleteProofSet)?;
-                    *states += 1;
-                    entry.state_path = state.path.clone();
-                    entry.state_path_index = state.leaf_index;
-                }
-            }
-            rule_answers.push(entry);
-        }
-        if cursors
-            .iter()
-            .zip(&proofs)
-            .any(|((states, absences), proofs)| {
-                *states != proofs.states.len() || *absences != proofs.absences.len()
-            })
-        {
-            return Err(RingError::IncompleteProofSet);
-        }
-        rule_answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
-        lookups.resize_with(ANSWER_SLOTS, || IndexedPolicyLookup {
-            tree_slot: 0,
-            commitment: None,
-            nullifier: None,
-        });
-        let keys = escrow
-            .as_ref()
-            .map_or(&[][..], |escrow| escrow.keys.as_slice());
-        let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
-        for (slot, input) in inputs.iter_mut().zip(self.inputs) {
-            *slot = input_opening(input)?;
-        }
-        let mut outputs = [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS];
-        for (index, (slot, output)) in outputs.iter_mut().zip(self.outputs).enumerate() {
-            *slot = CustomRingOpening {
-                key: keys.get(index).copied().flatten(),
-                ..output_opening(output, self.output_tree_id)?
-            };
-        }
-        let config = &self.pinned.config;
-        let table = &config.rules;
-        let indexed_registry = escrow
-            .as_ref()
-            .zip(self.key_registry)
-            .filter(|_| indexed)
-            .map(|(escrow, registry)| IndexedRegistry {
-                ring_program_id: registry.ring.program_id(),
-                root: escrow.root.root,
-                next_index: escrow.root.next_index,
-            });
-        Ok(Box::new(CustomRingWitness {
-            indexed: indexed.then_some(lookups),
-            indexed_registry,
-            n_in: self.inputs.len() as u8,
-            n_out: self.active_output_count() as u8,
-            inputs,
-            outputs,
-            address_chain: (),
-            private_tx_blinding: self.private_tx_blinding,
-            sources: *source_map(config)?.slots(),
-            policy_len: table.rule_count,
-            rules: table.rules,
-            inline_assets: table.inline_assets,
-            inline_limits: table.inline_limits.map(u64::from_be_bytes),
-            inline_count: table.inline_count,
-            trees: trees
-                .into_iter()
-                .zip(&proofs)
-                .map(|(tree, proofs)| PolicyTree {
-                    tree,
-                    roots: proofs.roots,
-                })
-                .collect(),
-            address_tree_id: config.address_tree_id(),
-            escrow: Escrow(escrow.map(|escrow| escrow.root)),
-            limits: self.limits,
-            answers: rule_answers,
-            revocation_targets,
-            revocation_tree_indexes,
-        }))
+            // Asset rules read the inline pool, the table admits no list source for them.
+            Subject::Asset | Subject::ExitDestination => Vec::new(),
+        })
     }
 }
 
-/// One answer per distinct question, the first alternative the facts satisfy.
-/// The facts span at most `INPUT_TREES` trees.
-fn resolve(
-    lookups: &[EntryLookup],
-    demands: &[Demand],
-    facts: &[EntryFact],
-    address_tree: PoolTree,
-) -> Result<(Vec<Answer>, Vec<PoolTree>), RingError> {
-    let mut answers: Vec<Answer> = Vec::new();
-    for demand in demands {
-        let &(lookup, mode) = demand
-            .alternatives
-            .iter()
-            .find(|(lookup, mode)| facts[*lookup].satisfies(*mode))
-            .ok_or(RingError::PolicyRuleUnsatisfied)?;
-        let list_id = lookups[lookup].list_id;
-        if !answers.iter().any(|known| {
-            known.list_id == list_id && known.member == demand.member && known.mode == mode
-        }) {
-            answers.push(Answer {
-                list_id,
-                member: demand.member,
-                mode,
-                fact: facts[lookup],
-                slot: 0,
-            });
-        }
-    }
-    if answers.len() > ANSWER_SLOTS {
-        return Err(RingError::PolicyShapeUnsupported);
-    }
-    // Unclaimed addresses live in the address tree, a statement without facts still binds it.
-    let mut trees = Vec::with_capacity(INPUT_TREES);
-    if answers.is_empty()
-        || answers
-            .iter()
-            .any(|answer| matches!(answer.fact, EntryFact::Unclaimed { .. }))
-    {
-        trees.push(address_tree);
-    }
-    for answer in &mut answers {
-        let tree = answer.fact.tree(address_tree);
-        let slot = trees
-            .iter()
-            .position(|known| *known == tree)
-            .unwrap_or_else(|| {
-                trees.push(tree);
-                trees.len() - 1
-            });
-        answer.slot = slot as u8;
-    }
-    if trees.len() > INPUT_TREES {
-        return Err(RingError::TooManyPolicyTrees { count: trees.len() });
-    }
-    Ok((answers, trees))
+/// On a primary list in the rule's mode, or off every alternative list.
+fn satisfied(rule: &Rule, present: ListSet, absent: ListSet, lists: ListSet) -> bool {
+    let (primary, alternative) = match rule.primary_mode() {
+        Mode::Present => (present, absent),
+        Mode::Absent => (absent, present),
+    };
+    let on_primary = lists.intersects(primary);
+    let primary_holds = match rule.primary_mode() {
+        Mode::Present => on_primary,
+        Mode::Absent => !on_primary,
+    };
+    primary_holds || (!alternative.is_empty() && !lists.intersects(alternative))
 }
 
-/// The live roots, replaced by the one root each kind of proof was served under.
-async fn fetch<'a>(
-    client: &(impl AsyncRpc + ?Sized),
-    tree: PoolTree,
-    answers: impl Iterator<Item = &'a Answer>,
-    indexed: bool,
-) -> Result<TreeProofs, RingError> {
-    let view = read_tree(client, tree.address).await?;
-    if view.tree.id != tree.id {
-        return Err(RingError::TreeIdMismatch {
-            tree: tree.address,
-            expected: view.tree.id,
-            found: tree.id,
-        });
-    }
-    let mut roots = view.roots;
-    let facts: Vec<EntryFact> = answers.map(|answer| answer.fact).collect();
-    if indexed {
-        return Ok(TreeProofs {
-            roots,
-            states: Vec::new(),
-            absences: Vec::new(),
-        });
-    }
-    let leaves: Vec<_> = facts.iter().filter_map(EntryFact::state_leaf).collect();
-    let targets: Vec<_> = facts.iter().map(EntryFact::absence_target).collect();
-    let states = match leaves.is_empty() {
-        true => Vec::new(),
-        false => {
-            client
-                .get_merkle_proofs(tree.address, leaves.clone(), None)
-                .await?
-                .proofs
-        }
+/// The output owner's record must escrow the key the output uses.
+fn escrowed_ct_hash(
+    output: &SppProofOutputUtxo,
+    owner: Member,
+    record: &RecordOpening,
+) -> Result<[u8; 32], RingError> {
+    let RecordOpening::Present {
+        record,
+        sealed: Some(sealed),
+        ..
+    } = record
+    else {
+        return Err(RingError::UnregisteredOutputKey { owner });
     };
-    let absences = match targets.is_empty() {
-        true => Vec::new(),
-        false => {
-            client
-                .get_non_inclusion_proofs(tree.address, targets.clone(), None)
-                .await?
-                .proofs
-        }
-    };
-    if states.len() != leaves.len() || absences.len() != targets.len() {
-        return Err(RingError::IncompleteProofSet);
+    let nullifier_pk = output
+        .owner_address
+        .as_ref()
+        .ok_or(RingError::InvalidDummyOutput)?
+        .nullifier_pubkey;
+    let key = EscrowKey {
+        nullifier_pk: &nullifier_pk,
+        ciphertext: &sealed.ciphertext,
     }
-    for (index, (proof, leaf)) in states.iter().zip(&leaves).enumerate() {
-        proof.check_leaf(leaf, &tree.address, index)?;
+    .hash()?;
+    if key != record.escrow_key {
+        return Err(RingError::UnregisteredOutputKey { owner });
     }
-    for (index, (proof, target)) in absences.iter().zip(&targets).enumerate() {
-        proof.check_leaf(target, &tree.address, index)?;
-    }
-    if let Some((state, index)) =
-        single_root(states.iter().map(|proof| (proof.root, proof.root_index)))?
-    {
-        (roots.state, roots.state_index) = (state, index);
-    }
-    if let Some((nullifier, index)) =
-        single_root(absences.iter().map(|proof| (proof.root, proof.root_index)))?
-    {
-        (roots.nullifier, roots.nullifier_index) = (nullifier, index);
-    }
-    Ok(TreeProofs {
-        roots,
-        states,
-        absences,
-    })
-}
-
-/// A tree slot binds one root of each kind.
-fn single_root(
-    mut roots: impl Iterator<Item = ([u8; 32], u16)>,
-) -> Result<Option<([u8; 32], u16)>, RingError> {
-    let Some(first) = roots.next() else {
-        return Ok(None);
-    };
-    if roots.any(|root| root != first) {
-        return Err(RingError::PolicyRootMismatch);
-    }
-    Ok(Some(first))
+    Ok(ciphertext_hash(&sealed.ciphertext)?)
 }
 
 /// The identity SPP hashes the owner as, one list serves every owner curve.
@@ -693,7 +598,6 @@ pub(crate) fn input_opening(input: &SppProofInputUtxo) -> Result<CustomRingOpeni
         data_hash: input.data_hash.unwrap_or_default(),
         ring_data_hash: input.ring_data_hash.unwrap_or_default(),
         ring_program_id: ring_field(utxo.ring_program_id.as_ref())?,
-        key: None,
     })
 }
 
@@ -720,12 +624,11 @@ pub(crate) fn output_opening(
         data_hash: output.data_hash.unwrap_or_default(),
         ring_data_hash: output.ring_data_hash.unwrap_or_default(),
         ring_program_id: ring_field(output.ring_program_id.as_ref())?,
-        key: None,
     })
 }
 
 /// An absent ring id is the zero field element, not the hash of a zero address.
-fn ring_field(ring: Option<&solana_address::Address>) -> Result<[u8; 32], RingError> {
+fn ring_field(ring: Option<&Address>) -> Result<[u8; 32], RingError> {
     ring.map_or(Ok([0; 32]), |address| Ok(hash_bytes(address.as_array())?))
 }
 

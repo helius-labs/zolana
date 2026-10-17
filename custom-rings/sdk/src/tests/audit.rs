@@ -1,22 +1,23 @@
 use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInput};
-use zolana_client::ProofInputUtxo;
+use zolana_client::{prover::indexed::IndexedRegistry, ProofInputUtxo};
 use zolana_interface::tree_slot::TreeSlot;
 use zolana_ring_client::AuditError;
 use zolana_ring_policy::{
-    SourceOwner, ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
+    PolicySource, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
     POLICY_OUTPUT_SLOTS,
 };
 
 use crate::{
     golden_tests::{auditor, key, TX_SK},
-    request::{CustomRingOpening, Escrow},
+    request::{CustomRingOpening, CustomRingOutputOpening},
+    tests::support::ring,
     trees::TransactRoots,
-    witness::{CustomRingWitness, PolicyTree},
-    CurrentKeyRegistryRoot, CustomRingProofParams, EncryptedAudit, OutflowLimitProofInput,
-    PoolTree, RingError, RingIdentity,
+    witness::{CustomRingWitness, IndexedRegistries, PolicyTree},
+    CustomRingProofParams, EncryptedAudit, OutflowLimitProofInput, PoolTree, RegistryBinding,
+    RingError, RingIdentity,
 };
 
-const REGISTRY_ROOT: [u8; 32] = [12; 32];
+pub(super) const REGISTRY_ROOT: [u8; 32] = [12; 32];
 
 /// The BN254 scalar modulus, the first big-endian value no field element reaches.
 const MODULUS: [u8; 32] = [
@@ -36,42 +37,38 @@ pub(super) fn tree(id: u16, root: u8) -> PolicyTree {
     }
 }
 
-/// Fact 1 reads the second tree, the registry root is the history slot 3 root.
+/// An escrowed ring at history slot 3, no curator.
 pub(super) fn witness() -> CustomRingWitness {
-    let mut revocation_targets = [[0; 32]; ANSWER_SLOTS];
-    revocation_targets[0] = [0x21; 32];
-    revocation_targets[1] = [0x22; 32];
-    let mut revocation_tree_indexes = [0; ANSWER_SLOTS];
-    revocation_tree_indexes[1] = 1;
     CustomRingWitness {
         indexed: None,
-        indexed_registry: None,
+        registry: RegistryBinding {
+            root_index: 3,
+            root: REGISTRY_ROOT,
+        },
+        foreign: None,
         n_in: 1,
         n_out: 1,
         inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
-        outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
+        outputs: [CustomRingOutputOpening::default(); POLICY_OUTPUT_SLOTS],
         address_chain: (),
         private_tx_blinding: [0; 32],
-        sources: [SourceOwner::default(); MAX_SOURCES],
+        sources: [PolicySource::default(); MAX_SOURCES],
         policy_len: 0,
         rules: [[0; 32]; MAX_RULES],
         inline_assets: [[0; 32]; MAX_INLINE_ASSETS],
         inline_limits: [0; MAX_INLINE_ASSETS],
         inline_count: 0,
-        trees: vec![tree(0, 7), tree(4, 9)],
-        address_tree_id: 0,
-        escrow: Escrow(Some(CurrentKeyRegistryRoot {
-            root: REGISTRY_ROOT,
-            next_index: 2,
-            history_index: 3,
-        })),
         limits: OutflowLimitProofInput::none(RingIdentity {
             ring_id: [10; 32],
             namespace_owner_hash: [11; 32],
         }),
-        answers: Vec::new(),
-        revocation_targets,
-        revocation_tree_indexes,
+        trees: vec![tree(0, 7)],
+        address_tree_id: 0,
+        key_escrow: true,
+        member_registry_root: REGISTRY_ROOT,
+        subjects: Default::default(),
+        foreign_root: [0; 32],
+        foreign_subjects: Default::default(),
     }
 }
 
@@ -92,24 +89,27 @@ pub(super) fn private_tx_hash() -> [u8; 32] {
     hash
 }
 
-/// The public input binds every tree slot, the per-fact tree indexes and the registry root.
+/// The public input binds the tree slot, the escrow flag and both registry roots.
 #[test]
 fn finish_binds_the_public_input_the_program_recomputes() {
     let outputs = vec![ProofInputUtxo::default()];
     let EncryptedAudit { pending, message } = encrypted(outputs.clone());
     let policy_hash = [4; 32];
     let mut witness = witness();
-    witness.indexed = Some(Vec::new());
-    let revocation_targets = witness.revocation_targets;
-    let revocation_tree_indexes = witness.revocation_tree_indexes;
+    witness.foreign_root = [13; 32];
+    witness.indexed = Some(IndexedRegistries {
+        registry: IndexedRegistry {
+            ring_program_id: ring().program_id(),
+            root: REGISTRY_ROOT,
+            next_index: 2,
+        },
+        foreign: None,
+    });
     let proof = pending
         .finish(private_tx_hash(), Box::new(witness), &policy_hash)
         .unwrap();
 
-    let slots = [
-        TreeSlot::new(0, [7; 32], [8; 32]),
-        TreeSlot::new(4, [9; 32], [10; 32]),
-    ];
+    let slots = [TreeSlot::new(0, [7; 32], [8; 32])];
     let expected = CustomRingPolicyPublicInput {
         audit: CustomRingBasePublicInput {
             private_tx_hash: &private_tx_hash(),
@@ -128,9 +128,9 @@ fn finish_binds_the_public_input_the_program_recomputes() {
         ring_id: &[10; 32],
         namespace_owner_hash: &[11; 32],
         approval_required: false,
-        key_registry_root: Some(&REGISTRY_ROOT),
-        revocation_tree_indexes: &revocation_tree_indexes,
-        revocation_targets: &revocation_targets,
+        key_escrow: true,
+        member_registry_root: &REGISTRY_ROOT,
+        foreign_root: &[13; 32],
     }
     .hash()
     .unwrap();
@@ -139,6 +139,7 @@ fn finish_binds_the_public_input_the_program_recomputes() {
     assert_eq!(proof.body.audit.private_tx_hash, private_tx_hash());
     assert_eq!(proof.body.witness.tree_slots(), slots);
     let indexed = proof.indexed.as_ref().unwrap();
+    assert_eq!(indexed.public_inputs.len(), 8);
     let mut transcript = indexed.public_inputs.clone();
     transcript.insert(
         1,
@@ -148,9 +149,10 @@ fn finish_binds_the_public_input_the_program_recomputes() {
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&transcript).unwrap(),
         expected
     );
-    assert_eq!(indexed.trees.len(), 2);
-    assert_eq!(indexed.trees[1].id, 4);
-    assert_eq!(indexed.trees[1].utxo_root, [9; 32]);
+    assert_eq!(indexed.trees.len(), 1);
+    assert_eq!(indexed.trees[0].utxo_root, [7; 32]);
+    assert_eq!(indexed.registry.next_index, 2);
+    assert!(indexed.foreign_registry.is_none());
 }
 
 #[test]

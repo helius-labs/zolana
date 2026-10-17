@@ -181,19 +181,19 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
     #[cfg(feature = "ring-projection")]
     if ring_projection {
         module.register_async_method(
-            zolana_indexer_api::GET_RING_KEY_REGISTRY_ENTRY,
+            zolana_indexer_api::GET_RING_MEMBER_RECORD,
             |params, context, _| async move {
                 context
-                    .get_ring_key_registry_entry(params.parse()?)
+                    .get_ring_member_record(params.parse()?)
                     .await
                     .map_err(ErrorObjectOwned::from)
             },
         )?;
         module.register_async_method(
-            zolana_indexer_api::GET_RING_KEY_REGISTRY_REGISTER_PROOF,
+            zolana_indexer_api::GET_RING_MEMBER_REGISTRY_ROOT,
             |params, context, _| async move {
                 context
-                    .get_ring_key_registry_register_proof(params.parse()?)
+                    .get_ring_member_registry_root(params.parse()?)
                     .await
                     .map_err(ErrorObjectOwned::from)
             },
@@ -225,8 +225,8 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getUserRecords"));
-        assert!(!methods.contains(&"getRingKeyRegistryEntry"));
-        assert!(!methods.contains(&"getRingKeyRegistryRegisterProof"));
+        assert!(!methods.contains(&"getRingMemberRecord"));
+        assert!(!methods.contains(&"getRingMemberRegistryRoot"));
     }
 
     #[cfg(feature = "ring-projection")]
@@ -234,7 +234,7 @@ mod tests {
     async fn registers_custom_ring_methods_only_after_opt_in() {
         let module = build_rpc_module(test_api().await.with_ring_projection()).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
-        for method in ["getRingKeyRegistryEntry", "getRingKeyRegistryRegisterProof"] {
+        for method in ["getRingMemberRecord", "getRingMemberRegistryRoot"] {
             assert!(methods.contains(&method));
         }
     }

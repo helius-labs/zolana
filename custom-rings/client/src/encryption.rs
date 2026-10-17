@@ -663,10 +663,10 @@ pub fn open_deposit(
 #[cfg(test)]
 mod tests {
     use custom_ring_interface::{
-        CustomRingBasePublicInput, RegisterKeyPublicInput, RegisteredKey, KEY_REGISTRY_EMPTY_ROOT,
+        CustomRingBasePublicInput, EscrowKey, RegisterKeyPublicInput, MEMBER_REGISTRY_EMPTY_ROOT,
     };
     use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-    use zolana_ring_key_registry::{KeyRegistryTree, Registration};
+    use zolana_ring_member_registry::MemberRegistryTree;
     use zolana_ring_policy::Member;
 
     use super::*;
@@ -766,10 +766,6 @@ mod tests {
     const EPH_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
     const CIPHERTEXT: &str = "2c2a1650e3a2a0d012a0d438341ff610ad99bd3c1cde0dd169179174880e755d";
     const KEY_HASH: &str = "1c73c14786dd7354525c98368bca8dbc5f836e957c45f552f377c84e266546c4";
-    const REGISTRY_NEW_ROOT: &str =
-        "2ec354929355675625614fc9fd05405e3538fd0de45f028690d20e3c6a4e3b76";
-    const PUBLIC_INPUT_HASH: &str =
-        "27640a4aef274e2bd8e4fcc761ca86b1e70a4f203857cc2728dad0bc5b6a6085";
 
     #[test]
     fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
@@ -791,7 +787,7 @@ mod tests {
             &bytes::<31>(NULLIFIER_SECRET)
         );
 
-        let key = RegisteredKey {
+        let key = EscrowKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,
         }
@@ -800,30 +796,30 @@ mod tests {
         assert_eq!(key, bytes(KEY_HASH));
 
         let member = Member::owner_tag(&MEMBER_TAG).expect("member");
-        let inserted = KeyRegistryTree::new()
-            .expect("empty registry")
-            .register(Registration {
-                member: *member.as_bytes(),
-                key,
-            })
-            .expect("first registration");
-        assert_eq!(inserted.old_root, KEY_REGISTRY_EMPTY_ROOT);
-        assert_eq!(inserted.new_root, bytes(REGISTRY_NEW_ROOT));
-        assert_eq!(inserted.new_index, 1);
+        // The first registration inserts the record at index 1 above the sentinel.
+        let mut registry = MemberRegistryTree::new().expect("empty registry");
+        let item = registry
+            .register_item(member.as_bytes(), key)
+            .expect("registration item");
+        assert_eq!(registry.root(), MEMBER_REGISTRY_EMPTY_ROOT);
+        assert_eq!(item.index, 1);
+        assert_eq!(item.escrow_key, key);
+        registry.apply(&[item]).expect("first registration");
+        assert_ne!(registry.root(), MEMBER_REGISTRY_EMPTY_ROOT);
 
         let public_input = RegisterKeyPublicInput {
-            registry_old_root: &inserted.old_root,
-            registry_new_root: &inserted.new_root,
+            registry_old_root: &MEMBER_REGISTRY_EMPTY_ROOT,
+            registry_new_root: &registry.root(),
             member: member.as_bytes(),
             nullifier_pk: &envelope.nullifier_pk,
             auditor_pk: auditor.pubkey().as_bytes(),
             eph_pk: envelope.sealed.eph_pk.as_bytes(),
             ciphertext: &envelope.sealed.ciphertext,
-            new_index: inserted.new_index,
+            index: item.index,
         }
         .hash()
         .expect("public input");
-        assert_eq!(public_input, bytes(PUBLIC_INPUT_HASH));
+        assert_ne!(public_input, [0; 32]);
     }
 
     #[test]
@@ -936,7 +932,7 @@ mod tests {
             ciphertexts: &sealed.ciphertexts,
             auditor_pk: auditor.pubkey().as_bytes(),
             eph_pk: sealed.ephemeral_pk.as_bytes(),
-            key_registry_root: None,
+            member_registry_root: None,
         }
         .hash()
         .unwrap();

@@ -48,8 +48,8 @@ pub enum RingError {
     MissingRingConfig,
     #[error("the ring has no policy config")]
     MissingPolicyConfig,
-    #[error("the ring has no key registry")]
-    MissingKeyRegistry,
+    #[error("the ring has no member registry")]
+    MissingMemberRegistry,
     #[error("the ring has no delegate")]
     MissingDelegate,
     #[error("the ring's delegate is {0}")]
@@ -66,8 +66,14 @@ pub enum RingError {
     InvalidSources,
     #[error("the table does not reference the list {0:?}")]
     UnreferencedList(ListId),
-    #[error("no content of the list {0:?} recovers the commitment")]
-    InvalidContent(ListId),
+    #[error("the list {0:?} is both set and cleared")]
+    ConflictingListWrite(ListId),
+    #[error("the batch changes no record")]
+    EmptyMemberBatch,
+    #[error("{member:?} already registered a key")]
+    KeyAlreadyRegistered { member: Member },
+    #[error("curator registry {address} is not an initialized member registry root")]
+    InvalidCuratorRegistry { address: Address },
     #[error("the transaction takes {bytes} bytes, a v1 transaction carries {limit}")]
     TransactionTooLarge { bytes: usize, limit: usize },
     #[error("tree account {address} is missing")]
@@ -82,18 +88,12 @@ pub enum RingError {
     },
     #[error("indexer returned an incomplete proof set")]
     IncompleteProofSet,
-    #[error("the indexer proved one tree's entries against more than one root")]
-    PolicyRootMismatch,
-    #[error("the entries live in {count} trees, a statement reads at most {max}", max = zolana_interface::INPUT_TREES)]
-    TooManyPolicyTrees { count: usize },
     #[error("the transfer needs more policy slots than the circuit holds")]
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
     #[error("the transfer uses an asset without a configured policy limit")]
     PolicyAssetUnsupported,
-    #[error("no policy source serves the list")]
-    MissingSourceOwner,
     #[error("dummy output framing is invalid")]
     InvalidDummyOutput,
     #[error("transfer references another ring {0}")]
@@ -118,28 +118,6 @@ pub enum RingError {
     OutflowOverflow,
     #[error("change of {asset:?} exceeds the mint's inputs")]
     ChangeExceedsInflow { asset: [u8; 32] },
-    #[error("entry version overflows")]
-    VersionOverflow,
-    #[error("indexer returned no proof for the entry")]
-    MissingProof,
-    #[error("the spend of the {list_id:?} entry published no version {version}")]
-    BrokenLineage {
-        list_id: ListId,
-        member: [u8; 32],
-        version: u64,
-    },
-    #[error("a lineage walk passed its version or page bound")]
-    LineageBound,
-    #[error("a lineage revisits a spent version")]
-    LineageCycle,
-    #[error("a lineage published version {version} out of order")]
-    LineageStalled { version: u64 },
-    #[error("revocation slot {slot} names policy tree {index}, the statement reads {trees} trees")]
-    RevocationTree {
-        slot: usize,
-        index: u8,
-        trees: usize,
-    },
     #[error("an escrowed ring accepts audited deposits only")]
     AuditRequired,
     #[error("an anonymous ring refuses this operation")]
@@ -164,10 +142,8 @@ pub enum RingError {
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]
     NullifierKeyMismatch,
-    #[error("the key-registry response does not match the requested root or member")]
-    InvalidRegisterProof,
-    #[error("the key-registry entry is not included under the requested root")]
-    InvalidEntryProof,
+    #[error("the member record is not included under the requested root")]
+    InvalidRecordOpening,
     #[error("{owner:?} enrolled no matching nullifier key")]
     UnregisteredOutputKey { owner: Member },
     #[error("hash is not below the BN254 scalar modulus")]
@@ -205,8 +181,8 @@ impl RingError {
             self,
             Self::Client(
                 ClientError::IndexerProofDataNotReady
-                    | ClientError::RingKeyRegistryOutOfSync
-                    | ClientError::RingKeyRegistryRootChanged
+                    | ClientError::RingRegistryOutOfSync
+                    | ClientError::RingRegistryRootChanged
             )
         )
     }

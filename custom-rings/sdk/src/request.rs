@@ -1,22 +1,27 @@
-//! Prover bodies. Field order is the wire order the golden files pin.
+//! Prover bodies. Field names are the wire names the Go prover decodes, the golden
+//! files pin them, and `registry` is the one place the record openings are spelled.
 
 use custom_ring_interface::{
-    AUDIT_INPUT_SLOTS, MAX_RING_DEPOSIT_AUDIT_SLOTS, TAGGED_X25519_KEY_LEN,
+    MemberUpdate, AUDIT_INPUT_SLOTS, MAX_MEMBER_BATCH, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    TAGGED_X25519_KEY_LEN,
 };
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::{ViewingKey, X25519Pubkey};
-use zolana_ring_policy::{OutflowLimit, SourceOwner, MAX_OUTFLOW_LIMITS, POLICY_OUTPUT_SLOTS};
+use zolana_ring_policy::{
+    OutflowLimit, PolicySource, MAX_OUTFLOW_LIMITS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+};
+
+pub(crate) use registry::{RecordUpdate, RecordWitness, SubjectWitness};
 
 use crate::{
-    escrow::RegistryKeyOpening,
     prover::{
         fe::{self, Hex},
         RingBody, RingCircuit,
     },
     witness::{CustomRingWitness, PolicyTree},
-    CurrentKeyRegistryRoot, CustomRing, RingError,
+    CustomRing, RingError,
 };
 
 /// One opened UTXO slot, in the order the circuit hashes it.
@@ -43,62 +48,193 @@ pub(crate) struct CustomRingOpening {
     pub ring_data_hash: [u8; 32],
     #[serde(with = "fe")]
     pub ring_program_id: [u8; 32],
-    /// `None` with escrow off or in padding.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<RegistryKeyOpening>,
 }
 
-/// One entry fact, proven against the roots of its tree slot.
-#[derive(Clone, Debug, Serialize)]
+/// An output slot with the hash of its owner's sealed key ciphertext, zero without escrow.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RuleAnswer {
-    pub enabled: bool,
-    /// Index into the statement's policy trees.
-    pub tree_slot: u8,
-    pub mode: u8,
-    pub list_id: u8,
-    pub state: u8,
-    pub absent_branch: u8,
+pub(crate) struct CustomRingOutputOpening {
+    #[serde(flatten)]
+    pub opening: CustomRingOpening,
     #[serde(with = "fe")]
-    pub member: [u8; 32],
-    #[serde(with = "fe")]
-    pub content_hash: [u8; 32],
-    pub version: u64,
-    #[serde(with = "fe")]
-    pub blinding: [u8; 32],
-    #[serde(with = "fe")]
-    pub low: [u8; 32],
-    #[serde(with = "fe")]
-    pub next: [u8; 32],
-    #[serde(rename = "nfPathElements", serialize_with = "fe::seq")]
-    pub nullifier_path: Vec<[u8; 32]>,
-    #[serde(rename = "nfPathIndex")]
-    pub nullifier_path_index: u64,
-    #[serde(rename = "statePathElements", serialize_with = "fe::seq")]
-    pub state_path: Vec<[u8; 32]>,
-    pub state_path_index: u64,
+    pub ct_hash: [u8; 32],
 }
 
-impl Default for RuleAnswer {
-    /// The circuit's disabled slot, its branch flags and list stay in range.
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            tree_slot: 0,
-            mode: 1,
-            list_id: 1,
-            state: 1,
-            absent_branch: 1,
-            member: [0; 32],
-            content_hash: [0; 32],
-            version: 0,
-            blinding: [0; 32],
-            low: [0; 32],
-            next: [0; 32],
-            nullifier_path: vec![[0; 32]; zolana_client::NULLIFIER_TREE_HEIGHT],
-            nullifier_path_index: 0,
-            state_path: vec![[0; 32]; zolana_client::STATE_TREE_HEIGHT],
-            state_path_index: 0,
+/// The member registry witnesses, one spelling for every circuit that opens a record.
+pub(crate) mod registry {
+    use custom_ring_interface::{MemberRecord, MemberUpdate, MEMBER_REGISTRY_HEIGHT};
+    use serde::Serialize;
+
+    use crate::{member_registry::RecordOpening, prover::fe};
+
+    /// A record under a root, the `RecordOpening` wires of the deposit circuit.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct RecordWitness {
+        #[serde(with = "fe")]
+        pub next: [u8; 32],
+        pub lists: u64,
+        #[serde(with = "fe")]
+        pub escrow_key: [u8; 32],
+        pub index: u64,
+        #[serde(serialize_with = "fe::seq")]
+        pub path: Vec<[u8; 32]>,
+    }
+
+    /// A member present, or absent under its low record, the `MemberOpening` wires.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct SubjectWitness {
+        pub present: bool,
+        #[serde(flatten)]
+        pub record: RecordWitness,
+        #[serde(with = "fe")]
+        pub low_member: [u8; 32],
+        #[serde(with = "fe")]
+        pub low_next: [u8; 32],
+        pub low_lists: u64,
+        #[serde(with = "fe")]
+        pub low_escrow: [u8; 32],
+    }
+
+    /// One record rewrite or insert, the `RecordUpdate` wires. An insert relinks the low
+    /// record and opens the empty leaf at `index` after the relink.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct RecordUpdate {
+        pub exists: bool,
+        #[serde(with = "fe")]
+        pub next: [u8; 32],
+        pub index: u64,
+        #[serde(serialize_with = "fe::seq")]
+        pub path: Vec<[u8; 32]>,
+        #[serde(with = "fe")]
+        pub low_member: [u8; 32],
+        #[serde(with = "fe")]
+        pub low_next: [u8; 32],
+        pub low_lists: u64,
+        #[serde(with = "fe")]
+        pub low_escrow: [u8; 32],
+        pub low_index: u64,
+        #[serde(serialize_with = "fe::seq")]
+        pub low_path: Vec<[u8; 32]>,
+    }
+
+    /// One batch item, the program's `MemberUpdate` with its tree witness.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct MemberUpdateWitness {
+        #[serde(with = "fe")]
+        pub member: [u8; 32],
+        pub old_lists: u64,
+        #[serde(with = "fe")]
+        pub old_escrow_key: [u8; 32],
+        pub lists: u64,
+        #[serde(with = "fe")]
+        pub escrow_key: [u8; 32],
+        #[serde(flatten)]
+        pub update: RecordUpdate,
+    }
+
+    impl MemberUpdateWitness {
+        pub fn new(item: &MemberUpdate, update: RecordUpdate) -> Self {
+            Self {
+                member: item.member,
+                old_lists: item.old_lists,
+                old_escrow_key: item.old_escrow_key,
+                lists: item.lists,
+                escrow_key: item.escrow_key,
+                update,
+            }
+        }
+    }
+
+    impl RecordWitness {
+        pub fn present(record: &MemberRecord, index: u64, path: Vec<[u8; 32]>) -> Self {
+            Self {
+                next: record.next,
+                lists: record.lists,
+                escrow_key: record.escrow_key,
+                index,
+                path,
+            }
+        }
+    }
+
+    impl SubjectWitness {
+        /// The circuit opens the record itself when present, the low record when absent.
+        pub fn of(opening: &RecordOpening) -> Self {
+            match opening {
+                RecordOpening::Present {
+                    record,
+                    index,
+                    path,
+                    ..
+                } => Self {
+                    present: true,
+                    record: RecordWitness::present(record, *index, path.clone()),
+                    low_member: [0; 32],
+                    low_next: [0; 32],
+                    low_lists: 0,
+                    low_escrow: [0; 32],
+                },
+                RecordOpening::Absent {
+                    low,
+                    low_index,
+                    path,
+                } => Self {
+                    present: false,
+                    record: RecordWitness {
+                        next: [0; 32],
+                        lists: 0,
+                        escrow_key: [0; 32],
+                        index: *low_index,
+                        path: path.clone(),
+                    },
+                    low_member: low.member,
+                    low_next: low.next,
+                    low_lists: low.lists,
+                    low_escrow: low.escrow_key,
+                },
+            }
+        }
+    }
+
+    impl RecordUpdate {
+        pub fn rewrite(next: [u8; 32], index: u64, path: Vec<[u8; 32]>) -> Self {
+            Self {
+                exists: true,
+                next,
+                index,
+                path,
+                low_member: [0; 32],
+                low_next: [0; 32],
+                low_lists: 0,
+                low_escrow: [0; 32],
+                low_index: 0,
+                low_path: vec![[0; 32]; MEMBER_REGISTRY_HEIGHT],
+            }
+        }
+
+        pub fn insert(
+            low: &MemberRecord,
+            low_index: u64,
+            low_path: Vec<[u8; 32]>,
+            index: u64,
+            path: Vec<[u8; 32]>,
+        ) -> Self {
+            Self {
+                exists: false,
+                next: low.next,
+                index,
+                path,
+                low_member: low.member,
+                low_next: low.next,
+                low_lists: low.lists,
+                low_escrow: low.escrow_key,
+                low_index,
+                low_path,
+            }
         }
     }
 }
@@ -248,15 +384,18 @@ pub(crate) struct DepositBody {
     pub nullifier_pks: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     #[serde(serialize_with = "fe::zeroizing_seq")]
     pub blindings: Zeroizing<[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]>,
-    /// `None` with escrow off and in padding.
-    pub keys: [Option<RegistryKeyOpening>; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    /// Zero without escrow and in padding.
+    #[serde(serialize_with = "fe::seq")]
+    pub ct_hashes: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    /// `None` without escrow and in padding.
+    pub members: [Option<RecordWitness>; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     #[serde(rename = "ephSk", serialize_with = "fe::zeroizing")]
     pub ephemeral_sk: Zeroizing<[u8; 32]>,
     #[serde(serialize_with = "fe::coordinate")]
     pub auditor_pk: X25519Pubkey,
     pub key_escrow: bool,
     #[serde(with = "fe")]
-    pub key_registry_root: [u8; 32],
+    pub member_registry_root: [u8; 32],
 }
 
 #[derive(Serialize)]
@@ -271,8 +410,10 @@ pub(crate) struct RegisterKeyBody {
     pub registry_new_root: [u8; 32],
     #[serde(with = "fe")]
     pub member: [u8; 32],
-    #[serde(serialize_with = "fe::int")]
-    pub new_index: u64,
+    /// The record's lists, kept as they are.
+    pub lists: u64,
+    #[serde(flatten)]
+    pub update: RecordUpdate,
     /// The 31-byte secret right aligned, the zero high byte keeps it below the field order.
     #[serde(serialize_with = "fe::zeroizing")]
     pub nullifier_secret: Zeroizing<[u8; 32]>,
@@ -280,18 +421,46 @@ pub(crate) struct RegisterKeyBody {
     pub eph_sk: Zeroizing<[u8; 32]>,
     #[serde(serialize_with = "fe::coordinate")]
     pub auditor_pk: X25519Pubkey,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateMembersBody {
+    pub circuit_type: RingCircuit,
     #[serde(with = "fe")]
-    pub low_member: [u8; 32],
+    pub public_input_hash: [u8; 32],
     #[serde(with = "fe")]
-    pub low_next: [u8; 32],
+    pub old_root: [u8; 32],
     #[serde(with = "fe")]
-    pub low_key: [u8; 32],
-    #[serde(serialize_with = "fe::int")]
-    pub low_index: u64,
-    #[serde(serialize_with = "fe::seq")]
-    pub low_proof: Vec<[u8; 32]>,
-    #[serde(serialize_with = "fe::seq")]
-    pub new_proof: Vec<[u8; 32]>,
+    pub new_root: [u8; 32],
+    pub item_count: u8,
+    /// `None` past the count.
+    pub items: Vec<Option<registry::MemberUpdateWitness>>,
+}
+
+impl UpdateMembersBody {
+    pub fn new(
+        public_input_hash: [u8; 32],
+        old_root: [u8; 32],
+        new_root: [u8; 32],
+        items: &[MemberUpdate],
+        updates: Vec<RecordUpdate>,
+    ) -> Self {
+        let mut witnesses: Vec<Option<registry::MemberUpdateWitness>> = items
+            .iter()
+            .zip(updates)
+            .map(|(item, update)| Some(registry::MemberUpdateWitness::new(item, update)))
+            .collect();
+        witnesses.resize_with(MAX_MEMBER_BATCH, || None);
+        Self {
+            circuit_type: RingCircuit::UpdateMembers,
+            public_input_hash,
+            old_root,
+            new_root,
+            item_count: items.len() as u8,
+            items: witnesses,
+        }
+    }
 }
 
 macro_rules! ring_bodies {
@@ -309,7 +478,8 @@ ring_bodies!(
     PolicyBody,
     PolicyEnvelope<'_>,
     DepositBody,
-    RegisterKeyBody
+    RegisterKeyBody,
+    UpdateMembersBody
 );
 
 /// Always `true`, the anonymous fields travel only with their mode.
@@ -400,19 +570,19 @@ impl Serialize for Limit<'_> {
 }
 
 pub(crate) fn sources<S: Serializer>(
-    sources: &[SourceOwner],
+    sources: &[PolicySource],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(sources.iter().map(Source))
 }
 
-struct Source<'a>(&'a SourceOwner);
+struct Source<'a>(&'a PolicySource);
 
 impl Serialize for Source<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("Source", 2)?;
         state.serialize_field("listId", &self.0.list_id)?;
-        state.serialize_field("ownerHash", &Hex(self.0.owner_hash))?;
+        state.serialize_field("registry", &Hex(self.0.registry))?;
         state.end()
     }
 }
@@ -440,20 +610,12 @@ impl Serialize for Slot<'_> {
     }
 }
 
-/// `keyEscrow` and the root it binds, a zero root with escrow off.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct Escrow(pub Option<CurrentKeyRegistryRoot>);
-
-impl Serialize for Escrow {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("Escrow", 2)?;
-        state.serialize_field("keyEscrow", &self.0.is_some())?;
-        state.serialize_field(
-            "keyRegistryRoot",
-            &Hex(self.0.map(|root| root.root).unwrap_or_default()),
-        )?;
-        state.end()
-    }
+/// Every live UTXO slot opens its owner, inputs first, a dummy slot sends `null`.
+pub(crate) fn subjects<S: Serializer>(
+    subjects: &[Option<SubjectWitness>; POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(subjects.iter())
 }
 
 fn int(value: u64) -> [u8; 32] {

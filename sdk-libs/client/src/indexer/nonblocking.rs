@@ -9,10 +9,11 @@ use crate::{
     error::ClientError,
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-        GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, RingHistoryOptions, RingMemberProofRequest,
+        GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
+        RingHistoryOptions,
     },
 };
 
@@ -310,22 +311,22 @@ impl AsyncRpc for AsyncZolanaIndexer {
         .await
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
         self.api
-            .get_ring_key_registry_entry(request)
+            .get_ring_member_record(request)
             .await
             .map_err(indexer_error)
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         self.api
-            .get_ring_key_registry_register_proof(request)
+            .get_ring_member_registry_root(request)
             .await
             .map_err(indexer_error)
     }

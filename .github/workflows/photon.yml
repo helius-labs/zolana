@@ -13,7 +13,7 @@ on:
       - "sdk-libs/merkle-tree/**"
       - "custom-rings/interface/**"
       - "custom-rings/policy/**"
-      - "custom-rings/key-registry/**"
+      - "custom-rings/member-registry/**"
       - "sdk-libs/indexer-api/**"
       - "sdk-libs/zolana-api/**"
       - ".cargo/**"
@@ -34,7 +34,7 @@ on:
       - "sdk-libs/merkle-tree/**"
       - "custom-rings/interface/**"
       - "custom-rings/policy/**"
-      - "custom-rings/key-registry/**"
+      - "custom-rings/member-registry/**"
       - "sdk-libs/indexer-api/**"
       - "sdk-libs/zolana-api/**"
       - ".cargo/**"
@@ -115,8 +115,8 @@ jobs:
                 ('ring_projection_pending'),
                 ('ring_spend_record_rings'),
                 ('ring_spend_records'),
-                ('ring_key_registry_roots'),
-                ('ring_key_registry_members')
+                ('ring_member_registry_roots'),
+                ('ring_member_registry_members')
             )
             SELECT bool_and(to_regclass('public.' || name) IS NOT NULL)
             FROM required;

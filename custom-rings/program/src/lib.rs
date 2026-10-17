@@ -46,8 +46,6 @@ pub fn process_instruction(
         }
         InstructionTag::SetAuthority => process_set_authority_ix(program_id, accounts, ix_data),
         InstructionTag::CreatePolicy => process_create_policy_ix(program_id, accounts, ix_data),
-        InstructionTag::CreateEntry => process_create_entry_ix(program_id, accounts, ix_data),
-        InstructionTag::UpdateEntry => process_update_entry_ix(program_id, accounts, ix_data),
         InstructionTag::SetPolicySource => {
             process_set_policy_source_ix(program_id, accounts, ix_data)
         }
@@ -64,9 +62,10 @@ pub fn process_instruction(
         InstructionTag::DelegateTransact => {
             process_delegate_transact_ix(program_id, accounts, ix_data)
         }
-        InstructionTag::CreateKeyRegistryRoot => {
-            process_create_key_registry_root_ix(program_id, accounts, ix_data)
+        InstructionTag::CreateMemberRegistryRoot => {
+            process_create_member_registry_root_ix(program_id, accounts, ix_data)
         }
         InstructionTag::RegisterKey => process_register_key_ix(program_id, accounts, ix_data),
+        InstructionTag::UpdateMembers => process_update_members_ix(program_id, accounts, ix_data),
     }
 }

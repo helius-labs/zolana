@@ -11,14 +11,13 @@ use crate::{
     policy::{SourceSpec, SubjectName},
 };
 
-const EXAMPLES: [&str; 8] = [
+const EXAMPLES: [&str; 7] = [
     "audit-only",
     "empty-policy",
     "own-blocklist",
     "curated-blocklist-approval-exception",
     "allowlist",
     "asset-allowlist-owner-threshold",
-    "token-blocklist",
     "outflow-limit",
 ];
 
@@ -34,7 +33,6 @@ struct Forms {
     require: bool,
     forbid: bool,
     any: bool,
-    asset_list: bool,
     assets: bool,
     above: bool,
     per_cluster_source: bool,
@@ -89,7 +87,11 @@ fn every_example_loads_and_compiles_on_both_clusters() {
                     continue;
                 }
             }
-            forms.asset_list |= rule.subject == SubjectName::Asset;
+            assert_ne!(
+                rule.subject,
+                SubjectName::Asset,
+                "{name} reads an asset list"
+            );
         }
         // The file re-renders to the same policy, comments aside.
         let rendered = config
@@ -101,7 +103,6 @@ fn every_example_loads_and_compiles_on_both_clusters() {
     assert!(forms.require, "an example requires a list");
     assert!(forms.forbid, "an example forbids a list");
     assert!(forms.any, "an example names alternatives");
-    assert!(forms.asset_list, "an example reads an asset list");
     assert!(forms.assets, "an example lists assets inline");
     assert!(forms.above, "an example guards by amount");
     assert!(

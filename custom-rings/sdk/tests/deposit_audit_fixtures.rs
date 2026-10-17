@@ -137,7 +137,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         ciphertexts: &encryption.ciphertexts,
         auditor_pk: auditor.as_bytes(),
         eph_pk: encryption.ephemeral_pk.as_bytes(),
-        key_registry_root: None,
+        member_registry_root: None,
     }
     .hash()
     .expect("public input hash");
@@ -174,7 +174,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         .split_at(core::mem::size_of::<AuditedDepositPrefix>());
     let prefix: &AuditedDepositPrefix = bytemuck::from_bytes(prefix);
     assert_eq!(prefix.tag, tag::AUDITED_DEPOSIT);
-    assert_eq!(prefix.key_registry_root_index, 0);
+    assert_eq!(prefix.registry_root_index, 0);
     assert_eq!(spp_data, spp.data.as_slice());
     instruction.data
 }

@@ -8,7 +8,7 @@ use crate::instructions::{
     deposit_audit::{verify_deposit_disclosure, AuditedDeposit},
     loader::{load_audited_config, load_deposit_audit, load_escrow_root, validate_spp_program},
     public_legs::PublicLegs,
-    shared::{cpi_spp, SppSigners},
+    shared::cpi_spp,
     transact::Controls,
 };
 
@@ -50,11 +50,11 @@ impl Forward {
                 return Err(CustomRingError::DepositAuditRequired.into());
             }
         }
-        let key_registry_root = match &audited {
+        let member_registry_root = match &audited {
             Some(audited) => load_escrow_root(
                 program_id,
                 config.mode,
-                audited.key_registry_root_index,
+                audited.registry_root_index,
                 &mut iter,
             )?,
             None => None,
@@ -88,7 +88,7 @@ impl Forward {
                 program_id,
                 tree.address(),
                 &config,
-                key_registry_root.as_ref(),
+                member_registry_root.as_ref(),
                 audited,
                 deposit,
             )?;
@@ -115,6 +115,6 @@ impl Forward {
                 return Err(CustomRingError::UnauthorizedCoSigner.into());
             }
         }
-        cpi_spp(program_id, spp_accounts, data, SppSigners::RingAuth)
+        cpi_spp(program_id, spp_accounts, data)
     }
 }

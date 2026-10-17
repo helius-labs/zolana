@@ -21,10 +21,10 @@ use super::{
     traits::{AsyncRpc, Rpc},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
-        RingMemberProofRequest, ShieldedTransactionStream,
+        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+        GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        GetUserRecordsResponse, RingHistoryOptions, ShieldedTransactionStream,
     },
     IndexerRpcConfig,
 };
@@ -251,19 +251,19 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
             .await
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_record(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_entry(request))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_record(request))
             .await
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_register_proof(request))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_registry_root(request))
             .await
     }
 

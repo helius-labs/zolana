@@ -2,19 +2,20 @@ use std::fmt::Display;
 
 use anyhow::Context as _;
 
-use custom_ring_interface::{FIELD_MAX, KEY_REGISTRY_CAPACITY};
+use custom_ring_interface::{FIELD_MAX, MEMBER_REGISTRY_CAPACITY};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
 use zolana_indexer_api::{
-    Base64String, Context as ApiContext, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, Hash, RingMemberProofRequest,
+    Base64String, Context as ApiContext, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse, Hash, RingLowRecordView,
+    RingMemberRecordView, SerializablePubkey,
 };
 
 use super::{
-    key_registry_root_pda, load_root,
-    proof::{self, PathOverlay},
+    load_root, member_registry_root_pda, proof,
     storage::{self, PredecessorError, ProjectionCursor, RingRoot, Store},
+    ChainRoot,
 };
 use crate::{
     api::{
@@ -25,92 +26,117 @@ use crate::{
     rpc::RpcClient,
 };
 
-pub(crate) async fn register(
+/// The member's record, or the record bracketing it, at the root the caller saw.
+pub(crate) async fn member_record(
     db: &DatabaseConnection,
     rpc: &RpcClient,
-    request: RingMemberProofRequest,
-) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
-    // 1. Read the requested root and both paths from one database snapshot.
-    let (tx, snapshot) = snapshot(db, &request).await?;
+    request: GetRingMemberRecordRequest,
+) -> Result<GetRingMemberRecordResponse, PhotonApiError> {
+    let member = request.member.0;
+    if member == [0; 32] || member >= FIELD_MAX {
+        return Err(validation("invalid member registry member"));
+    }
+    let expected = Expected {
+        root: request.expected_root.0,
+        next_index: request.expected_next_index,
+    };
+    let (tx, snapshot) = snapshot(db, &request.ring_program_id, Some(expected)).await?;
     let root = &snapshot.root;
-    if root.next_index >= KEY_REGISTRY_CAPACITY {
-        return Err(validation("key registry capacity exhausted"));
-    }
-    let (store, member) = (Store::new(&tx, root.program), &request.member.0);
-    if store.member(member).await.map_err(internal)?.is_some() {
-        return Err(RingProjectionError::MemberAlreadyRegistered.into());
-    }
-    let low = store
-        .predecessor(member)
-        .await
-        .map_err(|error| match error {
-            PredecessorError::NotAbsent => validation(error),
-            PredecessorError::Storage(error) => internal(error),
-        })?;
-    let low_path = proof::path(&tx, root, low.index).await.map_err(internal)?;
-    if low.hash().map_err(internal)? != low_path.leaf {
-        return Err(internal("key registry predecessor disagrees with its leaf"));
-    }
-    let mut new_path = proof::path(&tx, root, root.next_index)
-        .await
-        .map_err(internal)?;
-    if new_path.leaf != [0; 32] {
-        return Err(internal("key registry append slot is occupied"));
-    }
+    let store = Store::new(&tx, root.program);
+    let (present, record, index, path, low) = match store.member(&member).await.map_err(internal)? {
+        Some(row) => {
+            let path = proof::path(&tx, root, row.index).await.map_err(internal)?;
+            if row.hash().map_err(internal)? != path.leaf {
+                return Err(internal("member record disagrees with its leaf"));
+            }
+            let view = RingMemberRecordView {
+                member: Hash(row.member),
+                next: Hash(row.next),
+                lists: row.lists,
+                escrow_key: Hash(row.escrow_key),
+                eph_pk: row
+                    .seal
+                    .as_ref()
+                    .map(|seal| Base64String(seal.eph_pk.to_vec())),
+                ciphertext: row
+                    .seal
+                    .as_ref()
+                    .map(|seal| Base64String(seal.ciphertext.to_vec())),
+            };
+            (true, Some(view), row.index, hashes(path.siblings), None)
+        }
+        None => {
+            let low = store
+                .predecessor(&member)
+                .await
+                .map_err(|error| match error {
+                    PredecessorError::NotAbsent => {
+                        internal("member registry order is inconsistent")
+                    }
+                    PredecessorError::Storage(error) => internal(error),
+                })?;
+            let path = proof::path(&tx, root, low.index).await.map_err(internal)?;
+            if low.hash().map_err(internal)? != path.leaf {
+                return Err(internal(
+                    "member registry predecessor disagrees with its leaf",
+                ));
+            }
+            let view = RingLowRecordView {
+                member: Hash(low.member),
+                next: Hash(low.next),
+                lists: low.lists,
+                escrow_key: Hash(low.escrow_key),
+                index: low.index,
+                path: hashes(path.siblings),
+            };
+            (false, None, 0, Vec::new(), Some(view))
+        }
+    };
     tx.commit().await?;
-    // 2. Rebase the empty append path onto the predecessor's updated root.
-    let mut spliced = low.clone();
-    spliced.next = request.member.0;
-    PathOverlay {
-        updated_index: low.index,
-        updated_leaf: spliced.hash().map_err(internal)?,
-        updated_path: &low_path.siblings,
-    }
-    .apply(root.next_index, &mut new_path)
-    .map_err(internal)?;
-    // 3. Require the proof's block and root to match the chain.
-    Ok(GetRingKeyRegistryRegisterProofResponse {
-        context: confirm(rpc, &snapshot).await?,
+    let (context, chain) = confirm(rpc, &snapshot).await?;
+    Ok(GetRingMemberRecordResponse {
+        context,
         root: Hash(root.root),
+        root_index: chain.history_cursor,
         next_index: root.next_index,
-        member: request.member,
-        low_member: Hash(low.member),
-        low_next: Hash(low.next),
-        low_key_hash: Hash(low.key_hash),
-        low_index: low.index,
-        low_proof: low_path.siblings.into_iter().map(Hash).collect(),
-        new_proof: new_path.siblings.into_iter().map(Hash).collect(),
+        present,
+        record,
+        index,
+        path,
+        low,
     })
 }
 
-pub(crate) async fn lookup(
+/// The registry tip with the path a batch appends its first record along.
+pub(crate) async fn registry_root(
     db: &DatabaseConnection,
     rpc: &RpcClient,
-    request: RingMemberProofRequest,
-) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
-    let (tx, snapshot) = snapshot(db, &request).await?;
+    request: GetRingMemberRegistryRootRequest,
+) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
+    let (tx, snapshot) = snapshot(db, &request.ring_program_id, None).await?;
     let root = &snapshot.root;
-    let leaf = Store::new(&tx, root.program)
-        .member(&request.member.0)
+    if root.next_index >= MEMBER_REGISTRY_CAPACITY {
+        return Err(validation("member registry capacity exhausted"));
+    }
+    let append = proof::path(&tx, root, root.next_index)
         .await
-        .map_err(internal)?
-        .ok_or(RingProjectionError::MemberUnregistered)?;
-    let path = proof::path(&tx, root, leaf.index).await.map_err(internal)?;
-    if leaf.hash().map_err(internal)? != path.leaf {
-        return Err(internal("key registry member disagrees with its leaf"));
+        .map_err(internal)?;
+    if append.leaf != [0; 32] {
+        return Err(internal("member registry append slot is occupied"));
     }
     tx.commit().await?;
-    Ok(GetRingKeyRegistryEntryResponse {
-        context: confirm(rpc, &snapshot).await?,
+    let (context, chain) = confirm(rpc, &snapshot).await?;
+    Ok(GetRingMemberRegistryRootResponse {
+        context,
         root: Hash(root.root),
+        root_index: chain.history_cursor,
         next_index: root.next_index,
-        member: request.member,
-        next: Hash(leaf.next),
-        index: leaf.index,
-        eph_pk: Base64String(leaf.eph_pk.to_vec()),
-        ciphertext: Base64String(leaf.ciphertext.to_vec()),
-        proof: path.siblings.into_iter().map(Hash).collect(),
+        append_path: hashes(append.siblings),
     })
+}
+
+fn hashes(siblings: Vec<[u8; 32]>) -> Vec<Hash> {
+    siblings.into_iter().map(Hash).collect()
 }
 
 /// Opens a read of `program` once the projection serves it at its tip.
@@ -136,18 +162,25 @@ pub(super) async fn ready(
     Ok((tx, cursor))
 }
 
-async fn check_chain(rpc: &RpcClient, root: &RingRoot) -> anyhow::Result<()> {
+async fn check_chain(rpc: &RpcClient, root: &RingRoot) -> anyhow::Result<ChainRoot> {
     let program = Pubkey::new_from_array(root.program);
     anyhow::ensure!(
-        key_registry_root_pda(&program).0.to_bytes() == root.address,
-        "noncanonical key registry address"
+        member_registry_root_pda(&program).0.to_bytes() == root.address,
+        "noncanonical member registry address"
     );
     let chain = load_root(rpc, &program).await?;
     anyhow::ensure!(
-        chain.root == root.root && chain.next_index == root.next_index,
-        "on-chain key registry root or cursor has advanced"
+        chain.root == root.root
+            && chain.next_index == root.next_index
+            && chain.history_cursor == root.history_cursor,
+        "on-chain member registry root or cursor has advanced"
     );
-    Ok(())
+    Ok(chain)
+}
+
+struct Expected {
+    root: [u8; 32],
+    next_index: u64,
 }
 
 struct Snapshot {
@@ -157,16 +190,15 @@ struct Snapshot {
 
 async fn snapshot(
     db: &DatabaseConnection,
-    request: &RingMemberProofRequest,
+    ring_program_id: &SerializablePubkey,
+    expected: Option<Expected>,
 ) -> Result<(DatabaseTransaction, Snapshot), PhotonApiError> {
-    if request.expected_next_index == 0
-        || request.expected_next_index > KEY_REGISTRY_CAPACITY
-        || request.member.0 == [0; 32]
-        || request.member.0 >= FIELD_MAX
-    {
-        return Err(validation("invalid key registry member or cursor"));
+    if expected.as_ref().is_some_and(|expected| {
+        expected.next_index == 0 || expected.next_index > MEMBER_REGISTRY_CAPACITY
+    }) {
+        return Err(validation("invalid member registry cursor"));
     }
-    let program = request.ring_program_id.0.to_bytes();
+    let program = ring_program_id.0.to_bytes();
     let (tx, cursor) = ready(db, &program, RingProjectionError::OutOfSync).await?;
     let root = Store::new(&tx, program)
         .root()
@@ -176,22 +208,27 @@ async fn snapshot(
     if let Some(fault) = &root.fault {
         return Err(out_of_sync(format!("ring quarantined, {fault}")));
     }
-    if root.root != request.expected_root.0 || root.next_index != request.expected_next_index {
-        return Err(RingProjectionError::RootChanged.into());
+    if let Some(expected) = expected {
+        if root.root != expected.root || root.next_index != expected.next_index {
+            return Err(RingProjectionError::RootChanged.into());
+        }
     }
     let tip = cursor.tip;
     Ok((tx, Snapshot { root, tip }))
 }
 
 /// Runs after the read transaction commits.
-async fn confirm(rpc: &RpcClient, snapshot: &Snapshot) -> Result<ApiContext, PhotonApiError> {
+async fn confirm(
+    rpc: &RpcClient,
+    snapshot: &Snapshot,
+) -> Result<(ApiContext, ChainRoot), PhotonApiError> {
     let context = canonical_context(rpc, snapshot.tip.as_ref())
         .await
         .map_err(out_of_sync)?;
-    check_chain(rpc, &snapshot.root)
+    let chain = check_chain(rpc, &snapshot.root)
         .await
         .map_err(out_of_sync)?;
-    Ok(context)
+    Ok((context, chain))
 }
 
 pub(super) async fn canonical_context(

@@ -18,9 +18,10 @@ use super::{
     frame_dummy_outputs, owner::check_membership, pinned_policy, sealed, Rail, RailKind,
     RingTransfer, Staged, TransferAuthority,
 };
+use custom_ring_interface::RingMode;
+
 use crate::{
-    escrow::KeyRegistry, heap::boxed, CustomRing, CustomRingConfig, CustomRingProofParams,
-    EncryptedAudit, RingError,
+    heap::boxed, CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, RingError,
 };
 
 #[derive(Clone)]
@@ -74,7 +75,6 @@ impl<'a> RingTransfer<Delegated<'a>> {
                 assets: None,
             },
             cosigner: None,
-            indexer_config: None,
         }
     }
 
@@ -114,8 +114,9 @@ impl Delegated<'_> {
         if stored != self.delegate {
             return Err(RingError::UnauthorizedDelegate(stored));
         }
-        let key_registry =
-            KeyRegistry::of(ring, config).ok_or(RingError::DelegateRequiresEscrow)?;
+        if config.mode != RingMode::Registry {
+            return Err(RingError::DelegateRequiresEscrow);
+        }
         let pinned = boxed(|| pinned_policy(ring, client)).await?;
         let assets = self.assets.ok_or(RingError::MissingAssetRegistry)?;
         let program = ring.program_id();
@@ -201,7 +202,7 @@ impl Delegated<'_> {
             authority: TransferAuthority {
                 owner: Some(self.source.clone()),
             },
-            key_registry: Some(key_registry),
+            key_escrow: true,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             delegate: Some(self.delegate),

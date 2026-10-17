@@ -11,7 +11,7 @@ use crate::instructions::{loader::AuditedConfig, verifier::verify_groth16};
 
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
-    pub key_registry_root_index: u8,
+    pub registry_root_index: u8,
     pub spp_data: &'a [u8],
 }
 
@@ -26,7 +26,7 @@ impl<'a> AuditedDeposit<'a> {
         }
         Ok(Self {
             proof: prefix.proof,
-            key_registry_root_index: prefix.key_registry_root_index,
+            registry_root_index: prefix.registry_root_index,
             spp_data,
         })
     }
@@ -38,7 +38,7 @@ pub(crate) fn verify_deposit_disclosure(
     program_id: &Address,
     tree: &Address,
     config: &AuditedConfig,
-    key_registry_root: Option<&[u8; 32]>,
+    member_registry_root: Option<&[u8; 32]>,
     audited: &AuditedDeposit<'_>,
     deposit: &RingDepositIxDataRef<'_>,
 ) -> ProgramResult {
@@ -77,7 +77,7 @@ pub(crate) fn verify_deposit_disclosure(
         ciphertexts: &ciphertexts[..count],
         auditor_pk: &config.auditor_pubkey,
         eph_pk: &eph_pk,
-        key_registry_root,
+        member_registry_root,
     }
     .hash()
     .map_err(CustomRingError::from)?;

@@ -2,7 +2,8 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use super::{
-    decode_field, decode_resolution, invalid, invalid_resolution, policy::SecretJson,
+    decode_field, decode_resolution, invalid, invalid_resolution,
+    policy::{SecretJson, MAX_REGISTRY_NEXT_INDEX},
     IndexedRegistry, Request,
 };
 use crate::{
@@ -31,10 +32,10 @@ impl IndexedDepositRequest {
             != Some("custom-ring-deposit")
             || value.get("keyEscrow").and_then(serde_json::Value::as_bool) != Some(true)
             || registry.next_index == 0
-            || registry.next_index > 1 << 40
+            || registry.next_index > MAX_REGISTRY_NEXT_INDEX
             || decode_field(
                 value
-                    .get("keyRegistryRoot")
+                    .get("memberRegistryRoot")
                     .and_then(serde_json::Value::as_str)
                     .ok_or_else(invalid)?,
             )
@@ -43,7 +44,9 @@ impl IndexedDepositRequest {
         {
             return Err(invalid());
         }
-        value.remove("keys");
+        // The prover opens the records under its own projection of the registry.
+        value.remove("members");
+        value.remove("ctHashes");
         let public_input = value
             .get("publicInputHash")
             .and_then(serde_json::Value::as_str)
@@ -127,9 +130,10 @@ mod tests {
             &Deposit(json!({
                 "circuitType": "custom-ring-deposit",
                 "keyEscrow": true,
-                "keyRegistryRoot": "0x9",
+                "memberRegistryRoot": "0x9",
                 "publicInputHash": "0x5",
-                "keys": [{"path": []}],
+                "members": [{"path": []}],
+                "ctHashes": ["0x1"],
             })),
             IndexedRegistry {
                 ring_program_id: Address::new_from_array([3; 32]),
@@ -151,11 +155,12 @@ mod tests {
     }
 
     #[test]
-    fn the_body_leaves_key_openings_to_the_prover() {
+    fn the_body_leaves_record_openings_to_the_prover() {
         let body: Value = serde_json::from_str(&request().body().unwrap()).unwrap();
-        assert!(body["prepared"].get("keys").is_none());
+        assert!(body["prepared"].get("members").is_none());
+        assert!(body["prepared"].get("ctHashes").is_none());
         assert_eq!(body["publicInputs"], json!(["0x5"]));
-        assert_eq!(body["prepared"]["keyRegistryRoot"], "0x9");
+        assert_eq!(body["prepared"]["memberRegistryRoot"], "0x9");
     }
 
     #[test]

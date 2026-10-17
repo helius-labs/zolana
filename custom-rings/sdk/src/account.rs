@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
-    RingAccount, RingMode, RingProgramConfig, KEY_REGISTRY_CAPACITY,
+    CoSignScope, CoSigner, Delegate, DepositAudit, MemberRegistryRoot, PolicyConfig,
+    ReadAccessRecord, RingAccount, RingMode, RingProgramConfig, MEMBER_REGISTRY_CAPACITY,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -8,7 +8,7 @@ use zolana_client::AsyncRpc;
 use zolana_interface::{pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::ReaderKey;
-use zolana_ring_policy::{ListNamespace, RuleTable, SourceMap, SourceOwner, NAMESPACE_PDA_SEED};
+use zolana_ring_policy::{RuleTable, SourceMap, NAMESPACE_PDA_SEED};
 
 use crate::RingError;
 
@@ -40,11 +40,11 @@ pub struct CustomRingCoSigner {
     pub thresholds: Vec<CoSignThreshold>,
 }
 
+/// The current root of a member registry and the history slot a statement names it by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CurrentKeyRegistryRoot {
+pub struct CurrentRegistryRoot {
     pub root: [u8; 32],
     pub next_index: u64,
-    /// The history slot a statement names `root` by.
     pub history_index: u8,
 }
 
@@ -67,15 +67,6 @@ impl PoolTree {
         Self {
             address: config.address_tree,
             id: config.address_tree_id(),
-        }
-    }
-
-    /// Keeps `self` when the ids agree.
-    pub(crate) fn sibling(self, id: u16) -> Self {
-        if id == self.id {
-            self
-        } else {
-            Self::from_id(id)
         }
     }
 }
@@ -106,7 +97,7 @@ impl CustomRing {
         self.pda(&[PolicyConfig::SEED]).0
     }
 
-    /// The shielded owner of every policy entry.
+    /// The shielded owner no policy transfer slot may open to.
     pub fn namespace_pda(self) -> Address {
         self.pda(&[NAMESPACE_PDA_SEED]).0
     }
@@ -123,8 +114,8 @@ impl CustomRing {
         self.pda(&[Delegate::SEED]).0
     }
 
-    pub fn key_registry_root_pda(self) -> Address {
-        self.pda(&[KeyRegistryRoot::SEED]).0
+    pub fn member_registry_root_pda(self) -> Address {
+        self.pda(&[MemberRegistryRoot::SEED]).0
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
@@ -251,28 +242,20 @@ impl CustomRing {
     }
 
     /// `None` until the authority creates the registry root. Slot 0 holds the sentinel.
-    pub async fn key_registry_root(
+    pub async fn member_registry_root(
         self,
         rpc: &(impl AsyncRpc + ?Sized),
-    ) -> Result<Option<CurrentKeyRegistryRoot>, RingError> {
+    ) -> Result<Option<CurrentRegistryRoot>, RingError> {
         let Some(root) = self
-            .read::<KeyRegistryRoot>(rpc, &[KeyRegistryRoot::SEED], true)
+            .read::<MemberRegistryRoot>(rpc, &[MemberRegistryRoot::SEED], true)
             .await?
         else {
             return Ok(None);
         };
-        let next_index = root.next_index();
-        root.root()
-            .filter(|_| next_index != 0 && next_index <= KEY_REGISTRY_CAPACITY)
-            .map(|current| {
-                Some(CurrentKeyRegistryRoot {
-                    root: current,
-                    next_index,
-                    history_index: root.history_cursor,
-                })
-            })
+        current_root(&root)
+            .map(Some)
             .ok_or(RingError::InvalidAccount {
-                address: self.key_registry_root_pda(),
+                address: self.member_registry_root_pda(),
             })
     }
 
@@ -357,18 +340,21 @@ pub fn client_rules_match(rules: &RuleTable, config: &PolicyConfig) -> Result<()
     check_pinned_hash(config)
 }
 
-/// The map the pinned hash binds, each stored namespace hashed to its owner.
+/// The current root of a registry account, `None` for an account no creation wrote.
+pub(crate) fn current_root(root: &MemberRegistryRoot) -> Option<CurrentRegistryRoot> {
+    let next_index = root.next_index();
+    root.root()
+        .filter(|_| next_index != 0 && next_index <= MEMBER_REGISTRY_CAPACITY)
+        .map(|current| CurrentRegistryRoot {
+            root: current,
+            next_index,
+            history_index: root.history_cursor,
+        })
+}
+
+/// The map the pinned hash binds, each curator registry address as its field.
 pub(crate) fn source_map(config: &PolicyConfig) -> Result<SourceMap, RingError> {
-    let mut slots = [SourceOwner::default(); zolana_ring_policy::MAX_SOURCES];
-    for (slot, stored) in slots.iter_mut().zip(&config.sources) {
-        if stored.list_id != 0 {
-            *slot = SourceOwner {
-                list_id: stored.list_id,
-                owner_hash: ListNamespace::new(stored.namespace.as_array())?.owner_hash,
-            };
-        }
-    }
-    SourceMap::from_slots(slots).map_err(|_| RingError::InvalidSources)
+    config.source_map().map_err(|_| RingError::InvalidSources)
 }
 
 fn check_pinned_hash(config: &PolicyConfig) -> Result<(), RingError> {

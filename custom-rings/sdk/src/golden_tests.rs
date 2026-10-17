@@ -57,29 +57,30 @@ pub(crate) fn assert_golden(name: &str, body: &str) {
 }
 
 mod bodies {
-    use custom_ring_interface::{RegisteredKey, MAX_RING_DEPOSIT_AUDIT_SLOTS};
+    use custom_ring_interface::{EscrowKey, MAX_RING_DEPOSIT_AUDIT_SLOTS, MEMBER_REGISTRY_HEIGHT};
     use solana_address::Address;
     use zeroize::Zeroizing;
     use zolana_client::{prover::ProveRequest, ProofInputUtxo};
-    use zolana_indexer_api::{Context, GetRingKeyRegistryRegisterProofResponse, Hash};
     use zolana_keypair::{NullifierKey, X25519Secret};
     use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
-    use zolana_ring_key_registry::{KeyRegistryTree, Registration};
-    use zolana_ring_policy::{Member, OutflowLimit, SourceOwner, ANSWER_SLOTS};
+    use zolana_ring_member_registry::MemberRegistryTree;
+    use zolana_ring_policy::{ListId, Member, OutflowLimit, PolicySource};
 
     use super::{assert_golden, auditor, field, key, EPH_SK, TX_SK};
     use crate::{
-        escrow::RegistryKeyOpening,
+        member_registry::tests::{current, response, tip},
+        member_registry::{BatchPlan, ReadMemberRecord, RegistryTip},
         pipeline::PolicyRequest,
         prover::{RingCircuit, RingRequest},
         request::{
             AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody,
-            CustomRingOpening, DepositBody, Escrow, PolicyBody, RuleAnswer, IDENTITY_LEN,
+            CustomRingOpening, CustomRingOutputOpening, DepositBody, PolicyBody, RecordWitness,
+            SubjectWitness, IDENTITY_LEN,
         },
         trees::TransactRoots,
         witness::{CustomRingWitness, PolicyTree},
-        CurrentKeyRegistryRoot, CustomRing, EscrowBinding, OutflowLimitProofInput, PolicyReads,
-        PoolTree,
+        CurrentRegistryRoot, CustomRing, MemberWrite, OutflowLimitProofInput, PolicyReads,
+        PoolTree, RegistryBinding,
     };
 
     fn secrets(salt: u8) -> AuditSecrets {
@@ -92,7 +93,7 @@ mod bodies {
         }
     }
 
-    fn opening(seed: u64, key: Option<RegistryKeyOpening>) -> CustomRingOpening {
+    fn opening(seed: u64) -> CustomRingOpening {
         CustomRingOpening {
             domain: field(seed),
             tree_id: field(seed + 1),
@@ -104,7 +105,6 @@ mod bodies {
             data_hash: field(seed + 7),
             ring_data_hash: field(seed + 8),
             ring_program_id: field(seed + 9),
-            key,
         }
     }
 
@@ -147,28 +147,22 @@ mod bodies {
         }
     }
 
-    fn answer(index: usize) -> RuleAnswer {
-        if index >= 2 {
-            return RuleAnswer::default();
-        }
-        let seed = 800 + 100 * index as u64;
-        RuleAnswer {
-            enabled: true,
-            tree_slot: index as u8,
-            mode: index as u8,
-            list_id: 2 - index as u8,
-            state: 1,
-            absent_branch: 1 + index as u8,
-            member: field(seed),
-            content_hash: field(seed + 1),
-            version: 4,
-            blinding: field(seed + 2),
-            low: field(seed + 3),
-            next: field(seed + 4),
-            nullifier_path: (0..40).map(|level| field(seed + 10 + level)).collect(),
-            nullifier_path_index: 11,
-            state_path: (0..32).map(|level| field(seed + 60 + level)).collect(),
-            state_path_index: 12,
+    fn subject(seed: u64, present: bool) -> SubjectWitness {
+        SubjectWitness {
+            present,
+            record: RecordWitness {
+                next: field(seed),
+                lists: seed,
+                escrow_key: field(seed + 1),
+                index: seed + 2,
+                path: (0..MEMBER_REGISTRY_HEIGHT as u64)
+                    .map(|level| field(seed + 10 + level))
+                    .collect(),
+            },
+            low_member: field(seed + 3),
+            low_next: field(seed + 4),
+            low_lists: seed + 5,
+            low_escrow: field(seed + 6),
         }
     }
 
@@ -177,13 +171,13 @@ mod bodies {
     }
 
     fn policy_with(anonymous: Option<AnonymousIdentities>) -> PolicyBody {
-        let registry_key = RegistryKeyOpening {
-            next: field(700),
-            ct_hash: field(701),
-            index: 3,
-            path: core::array::from_fn(|index| field(710 + index as u64)),
-        };
         let two = |index: usize, value: [u8; 32]| if index < 2 { value } else { [0; 32] };
+        let mut subjects: [Option<SubjectWitness>; 9] = Default::default();
+        subjects[0] = Some(subject(800, true));
+        subjects[1] = Some(subject(900, false));
+        subjects[5] = Some(subject(1000, true));
+        let mut foreign_subjects: [Option<SubjectWitness>; 9] = Default::default();
+        foreign_subjects[5] = Some(subject(1100, false));
         PolicyBody {
             circuit_type: RingCircuit::Policy,
             public_input_hash: field(1),
@@ -191,34 +185,26 @@ mod bodies {
             anonymous,
             witness: Box::new(CustomRingWitness {
                 indexed: None,
-                indexed_registry: None,
+                registry: RegistryBinding::default(),
+                foreign: None,
                 n_in: 2,
                 n_out: 3,
-                inputs: core::array::from_fn(|index| opening(10 + 16 * index as u64, None)),
-                outputs: core::array::from_fn(|index| {
-                    opening(
-                        100 + 16 * index as u64,
-                        (index == 0).then_some(registry_key),
-                    )
+                inputs: core::array::from_fn(|index| opening(10 + 16 * index as u64)),
+                outputs: core::array::from_fn(|index| CustomRingOutputOpening {
+                    opening: opening(100 + 16 * index as u64),
+                    ct_hash: if index == 0 { field(700) } else { [0; 32] },
                 }),
                 address_chain: (),
                 private_tx_blinding: field(3),
-                sources: core::array::from_fn(|index| SourceOwner {
+                sources: core::array::from_fn(|index| PolicySource {
                     list_id: if index < 2 { index as u8 + 1 } else { 0 },
-                    owner_hash: two(index, field(200 + index as u64)),
+                    registry: if index == 1 { field(200) } else { [0; 32] },
                 }),
                 policy_len: 2,
                 rules: core::array::from_fn(|index| two(index, field(220 + index as u64))),
                 inline_assets: core::array::from_fn(|index| field(300 + index as u64)),
                 inline_limits: core::array::from_fn(|index| 1_000 * index as u64),
                 inline_count: 2,
-                trees: vec![tree(4, 400), tree(9, 402)],
-                address_tree_id: 4,
-                escrow: Escrow(Some(CurrentKeyRegistryRoot {
-                    root: field(500),
-                    next_index: 1,
-                    history_index: 0,
-                })),
                 limits: OutflowLimitProofInput {
                     limits: core::array::from_fn(|index| OutflowLimit {
                         asset: field(610 + index as u64),
@@ -230,9 +216,13 @@ mod bodies {
                     namespace_owner_hash: field(602),
                     approval_required: true,
                 },
-                answers: (0..ANSWER_SLOTS).map(answer).collect(),
-                revocation_targets: [[0; 32]; ANSWER_SLOTS],
-                revocation_tree_indexes: [0; ANSWER_SLOTS],
+                trees: vec![tree(4, 400)],
+                address_tree_id: 4,
+                key_escrow: true,
+                member_registry_root: field(500),
+                subjects,
+                foreign_root: field(501),
+                foreign_subjects,
             }),
         }
     }
@@ -243,9 +233,8 @@ mod bodies {
             indexed: None,
             reads: PolicyReads {
                 trees: Vec::new(),
-                escrow: EscrowBinding::Off,
-                revocation_targets: [[0; 32]; ANSWER_SLOTS],
-                revocation_tree_indexes: [0; ANSWER_SLOTS],
+                registry: RegistryBinding::default(),
+                foreign: None,
             },
             approval_required: true,
             circuit,
@@ -280,10 +269,8 @@ mod bodies {
         base.anonymous = Some(AnonymousBase {
             identities: identities(),
             n_in: 2,
-            inputs: core::array::from_fn(|index| opening(1_000 + 16 * index as u64, None)),
-            anonymous_outputs: core::array::from_fn(|index| {
-                opening(1_100 + 16 * index as u64, None)
-            }),
+            inputs: core::array::from_fn(|index| opening(1_000 + 16 * index as u64)),
+            anonymous_outputs: core::array::from_fn(|index| opening(1_100 + 16 * index as u64)),
             private_tx_blinding: field(3),
         });
         assert_golden(
@@ -317,13 +304,16 @@ mod bodies {
                 }
             })
         };
-        let mut keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-        for (index, key) in keys.iter_mut().take(2).enumerate() {
-            *key = Some(RegistryKeyOpening {
+        let mut members: [Option<RecordWitness>; MAX_RING_DEPOSIT_AUDIT_SLOTS] = Default::default();
+        for (index, member) in members.iter_mut().take(2).enumerate() {
+            *member = Some(RecordWitness {
                 next: field(40 + index as u64),
-                ct_hash: field(42 + index as u64),
+                lists: 3,
+                escrow_key: field(42 + index as u64),
                 index: 5 + index as u64,
-                path: core::array::from_fn(|level| field(100 * (index as u64 + 1) + level as u64)),
+                path: (0..MEMBER_REGISTRY_HEIGHT as u64)
+                    .map(|level| field(100 * (index as u64 + 1) + level))
+                    .collect(),
             });
         }
         let mut body = DepositBody {
@@ -336,23 +326,36 @@ mod bodies {
             owner_keys: None,
             nullifier_pks: slots(20),
             blindings: Zeroizing::new(slots(30)),
-            keys,
+            ct_hashes: slots(50),
+            members,
             ephemeral_sk: Zeroizing::new(EPH_SK),
             auditor_pk: auditor(),
             key_escrow: true,
-            key_registry_root: field(9),
+            member_registry_root: field(9),
         };
         assert_golden("custom-ring-deposit", &RingRequest(&body).body().unwrap());
         // An anonymous ring escrows no key, each opening discloses its Ed25519 owner.
         body.anonymous = true;
         body.owner_keys = Some(slots(50));
-        body.keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        body.members = [const { None }; MAX_RING_DEPOSIT_AUDIT_SLOTS];
         body.key_escrow = false;
-        body.key_registry_root = [0; 32];
+        body.member_registry_root = [0; 32];
         assert_golden(
             "custom-ring-deposit-anonymous",
             &RingRequest(&body).body().unwrap(),
         );
+    }
+
+    fn members() -> (Member, MemberRegistryTree) {
+        let member = Member::owner_tag(&[9; 32]).unwrap();
+        let mut tree = MemberRegistryTree::new().unwrap();
+        let listed: Vec<_> = [3u8, 12]
+            .into_iter()
+            .map(|byte| (*Member::owner_tag(&[byte; 32]).unwrap().as_bytes(), 1))
+            .collect();
+        let items = tree.list_items(&listed).unwrap();
+        tree.apply(&items).unwrap();
+        (member, tree)
     }
 
     #[test]
@@ -367,53 +370,74 @@ mod bodies {
             },
             nullifier_pk: nullifier_key.pubkey().unwrap(),
         };
-        let member = Member::owner_tag(&[9; 32]).unwrap();
-        let mut tree = KeyRegistryTree::new().unwrap();
-        for byte in [3u8, 12] {
-            tree.register(Registration {
-                member: *Member::owner_tag(&[byte; 32]).unwrap().as_bytes(),
-                key: [byte; 32],
-            })
+        let (member, mut tree) = members();
+        // The member is listed, so the registration rewrites its record.
+        let items = tree.list_items(&[(*member.as_bytes(), 4)]).unwrap();
+        tree.apply(&items).unwrap();
+        let read = ReadMemberRecord { ring, member }
+            .decode(current(&tree, 2), response(&tree, &member, 2, None))
             .unwrap();
-        }
-        let inserted = tree
-            .register(Registration {
-                member: *member.as_bytes(),
-                key: RegisteredKey {
-                    nullifier_pk: &envelope.nullifier_pk,
-                    ciphertext: &envelope.sealed.ciphertext,
-                }
-                .hash()
-                .unwrap(),
-            })
-            .unwrap();
-        let query = ring.member_proof_request(
-            &member,
-            CurrentKeyRegistryRoot {
-                root: inserted.old_root,
-                next_index: inserted.new_index,
-                history_index: 0,
-            },
-        );
-        let response = GetRingKeyRegistryRegisterProofResponse {
-            context: Context::default(),
-            root: Hash(inserted.old_root),
-            next_index: inserted.new_index,
-            member: Hash(inserted.member),
-            low_member: Hash(inserted.low_member),
-            low_next: Hash(inserted.low_next),
-            low_key_hash: Hash(inserted.low_key),
-            low_index: inserted.low_index,
-            low_proof: inserted.low_proof.into_iter().map(Hash).collect(),
-            new_proof: inserted.new_proof.into_iter().map(Hash).collect(),
-        };
         let secret = Zeroizing::new(zolana_hasher::primitives::right_align(
             &nullifier_key.secret(),
         ));
-        let (body, _) =
-            crate::key_registry::register(&envelope, auditor(), secret, &query, response).unwrap();
+        let (body, item) = crate::register_key::register(
+            &envelope,
+            auditor(),
+            secret,
+            &tip(&tree, 2),
+            &read.opening,
+        )
+        .unwrap();
+        let escrow_key = EscrowKey {
+            nullifier_pk: &envelope.nullifier_pk,
+            ciphertext: &envelope.sealed.ciphertext,
+        }
+        .hash()
+        .unwrap();
+        tree.apply(&[item]).unwrap();
+        assert_eq!(body.registry_new_root, tree.root());
+        assert_eq!(item.escrow_key, escrow_key);
         assert_golden(
             "custom-ring-register-key",
+            &RingRequest(&body).body().unwrap(),
+        );
+    }
+
+    #[test]
+    fn the_member_batch_body_matches_the_golden_file() {
+        let ring = CustomRing::new(Address::new_from_array([5; 32]));
+        let (member, tree) = members();
+        let writes = [
+            MemberWrite::add(member, ListId::Allow),
+            MemberWrite::add(Member::owner_tag(&[3; 32]).unwrap(), ListId::Block),
+        ];
+        let root = CurrentRegistryRoot {
+            root: tree.root(),
+            next_index: tree.next_index(),
+            history_index: 1,
+        };
+        let records: Vec<_> = writes
+            .iter()
+            .map(|write| {
+                ReadMemberRecord {
+                    ring,
+                    member: write.member,
+                }
+                .decode(root, response(&tree, &write.member, 1, None))
+                .unwrap()
+            })
+            .collect();
+        let tip = RegistryTip {
+            root,
+            append_path: tree.append_path().unwrap(),
+        };
+        let plan = BatchPlan::new(&tip, &writes, &records).unwrap();
+        let mut reference = tree.clone();
+        reference.apply(&plan.items).unwrap();
+        assert_eq!(plan.new_root, reference.root());
+        let body = plan.body(&tip).unwrap();
+        assert_golden(
+            "custom-ring-update-members",
             &RingRequest(&body).body().unwrap(),
         );
     }

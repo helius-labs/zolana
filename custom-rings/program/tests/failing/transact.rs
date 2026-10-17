@@ -309,11 +309,9 @@ fn output_without_ciphertext_is_rejected() {
 #[test]
 fn confidential_output_with_an_invalid_key_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut low_order = [0u8; 33];
-    low_order[0] = 4;
     let mut alias = auditor_pubkey(4);
     alias[32] |= 0x80;
-    for key in [[0u8; 33], low_order, alias] {
+    for key in [[0u8; 33], alias] {
         let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.outputs = vec![confidential_output(
             RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
@@ -323,6 +321,22 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
         let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
         fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
     }
+}
+
+/// Output framing checks canonical encoding; decryptability is the recipient's responsibility.
+#[test]
+fn a_canonical_low_order_output_key_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut key = [0u8; 33];
+    key[0] = custom_ring_interface::VIEWING_PUBKEY_TAG;
+    let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
+    data.outputs = vec![confidential_output(
+        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        key,
+        &[9],
+    )];
+    transact_fixture(valid_config(), instruction_data(bogus_proof(), data))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]
@@ -508,15 +522,15 @@ fn an_approval_flag_needs_amount_controls() {
 }
 
 #[test]
-fn a_registry_index_without_key_escrow_is_rejected_exactly() {
+fn a_stale_policy_registry_index_without_key_escrow_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut ix = policy_ix_data(
         bogus_proof(),
         transact(vec![auditor_message(auditor_message_len(1))]),
     );
-    ix.key_registry_root_index = 1;
+    ix.registry_root_index = 1;
     let fixture = transact_fixture(valid_config(), encode_transact(tag::TRANSACT, &ix));
-    fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
+    fixture.expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
 }
 
 fn hidden_output() -> TransactOutput {
@@ -601,9 +615,15 @@ fn an_anonymous_transaction_with_another_signer_is_rejected_exactly() {
     let mut signed_tree = anonymous_fixture(anonymous_transact(2, 2));
     signed_tree.sign("input_tree");
     signed_tree.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousSigner));
+}
+
+/// The public sponsor is independent of the ring co-signer slots.
+#[test]
+fn an_anonymous_transaction_with_another_payer_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
     let mut other_payer = anonymous_fixture(anonymous_transact(2, 2));
     other_payer.substitute("spp_payer", Pubkey::new_from_array([78; 32]));
-    other_payer.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousSigner));
+    other_payer.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]

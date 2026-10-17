@@ -23,7 +23,7 @@ use crate::{
     CustomRingMerge, CustomRingTransferInput, DelegateOutput, DelegateTransferInput,
 };
 
-const STALE_ROOT: u32 = CustomRingError::StaleKeyRegistryRoot as u32;
+const STALE_ROOT: u32 = CustomRingError::StaleMemberRegistryRoot as u32;
 const PROOF_FAILED: u32 = CustomRingError::ProofVerificationFailed as u32;
 
 /// Every indexer call fails as unsupported.
@@ -677,7 +677,7 @@ async fn every_operation_keeps_the_signed_attempt_until_confirmation() {
     }
 }
 
-/// Serves one key registry root and one failed proof for every signature.
+/// Serves one member registry root and one failed proof for every signature.
 struct RegistryRpc {
     registry: Account,
 }
@@ -685,7 +685,7 @@ struct RegistryRpc {
 #[async_trait]
 impl AsyncRpc for RegistryRpc {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-        assert_eq!(address, ring().key_registry_root_pda());
+        assert_eq!(address, ring().member_registry_root_pda());
         Ok(Some(self.registry.clone()))
     }
 
@@ -701,21 +701,21 @@ impl AsyncRpc for RegistryRpc {
 /// The program reads the root at the named slot, a later root there fails the proof.
 #[tokio::test]
 async fn a_failed_proof_reproves_only_over_an_overwritten_registry_slot() {
-    use custom_ring_interface::{KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY};
+    use custom_ring_interface::{MEMBER_REGISTRY_ROOT, MEMBER_REGISTRY_ROOT_HISTORY};
     let sender = ShieldedKeypair::new_ed25519().unwrap();
     let bound = BoundRoot::of(
         ring(),
-        EscrowBinding::Registry {
+        EscrowBinding::Registry(RegistryBinding {
             root_index: 3,
             root: [7; 32],
-        },
+        }),
     );
-    let bump = Address::find_program_address(&[KeyRegistryRoot::SEED], &ring().program_id()).1;
+    let bump = Address::find_program_address(&[MemberRegistryRoot::SEED], &ring().program_id()).1;
     for (held, retried) in [([8; 32], true), ([7; 32], false)] {
-        let mut history = [[0; 32]; KEY_REGISTRY_ROOT_HISTORY];
+        let mut history = [[0; 32]; MEMBER_REGISTRY_ROOT_HISTORY];
         history[3] = held;
-        let registry = KeyRegistryRoot {
-            discriminator: KEY_REGISTRY_ROOT,
+        let registry = MemberRegistryRoot {
+            discriminator: MEMBER_REGISTRY_ROOT,
             next_index: 40u64.to_le_bytes(),
             bump,
             history_cursor: 3,

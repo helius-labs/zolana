@@ -65,13 +65,14 @@ pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetShieldedTransactionsBySignatureResponse,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingMemberRecordRequest,
+    GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
     MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
-    RingHistoryOptions, RingMemberProofRequest, Rpc, ShieldedTransaction,
-    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    RingHistoryOptions, Rpc, ShieldedTransaction, ShieldedTransactionStream, UserRecord,
+    MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
