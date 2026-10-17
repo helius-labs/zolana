@@ -16,7 +16,10 @@ WORKDIR /workspace
 # dependencies are resolved from the same workspace and lockfile.
 COPY . .
 
+# ring-projection only compiles the custom ring projector and its RPC methods;
+# photon still needs --enable-ring-projection to start or serve them.
 RUN cargo build --locked --release -p photon-indexer \
+    --features ring-projection \
     --bin photon \
     --bin photon-migration \
     --bin photon-snapshotter \

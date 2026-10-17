@@ -162,6 +162,9 @@ the imported crate's upstream version is not a Zolana release version. `preview`
 takes any branch and any tag, and refuses a `-zolana-` tag so a preview cannot
 claim a release name. Both are attested and immutable.
 
+The photon image is built with the `ring-projection` feature. Ring projections
+stay off until photon is started with `--enable-ring-projection`.
+
 The registry is private ECR with `IMMUTABLE` tags, so the registry itself refuses
 to move a published tag. The workflow also serializes publishes per service,
 refuses tags that already exist, publishes the `sha-<commit>` alias first, and
