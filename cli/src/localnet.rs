@@ -326,9 +326,6 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
             SCOPED_PHOTON_BLOCK_FETCHES.to_string(),
         ]);
     }
-    if opts.photon_custom_rings {
-        args.push("--index-custom-rings".to_string());
-    }
     if let Some(db_url) = &opts.photon_db_url {
         args.push("--db-url".to_string());
         args.push(db_url.clone());

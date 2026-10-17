@@ -172,7 +172,6 @@ ring-localnet: ensure-custom-ring-live-keys build-programs build-cli build-ring-
     keys_dir="{{spp-keys-dir}}"
     [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
     export ZOLANA_PHOTON_BIN="$photon_bin"
-    export ZOLANA_PHOTON_CUSTOM_RINGS=true
     export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
     for port in {{localnet-rpc-port}} {{localnet-photon-port}} {{localnet-prover-port}}; do
       lsof -ti "tcp:$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -218,7 +217,7 @@ ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server b
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     sleep 1
-    nohup "$photon_bin" --index-custom-rings --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
+    nohup "$photon_bin" --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
       > "$workdir/photon.log" 2>&1 &
     nohup target/prover-server start --keys-dir "$keys_dir" \
       --prover-address 0.0.0.0:{{localnet-prover-port}} --auto-download=true \
@@ -426,7 +425,6 @@ _test-ts-live test-script: build-programs build-prover-server build-cli fetch-cu
     # Surfpool gives empty slots synthetic hashes, only the fixture keeps ring blocks linked across the jump.
     cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,custom-rings --target-dir target
     export ZOLANA_PHOTON_BIN="$PWD/target/debug/photon"
-    export ZOLANA_PHOTON_CUSTOM_RINGS=true
     export ZOLANA_RING_SURFPOOL_FIXTURE=1
     keys_dir="{{spp-keys-dir}}"
     [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"

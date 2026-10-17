@@ -71,17 +71,18 @@ impl PhotonApi {
     pub fn new(db_conn: Arc<DatabaseConnection>, rpc_client: Arc<RpcClient>) -> Self {
         Self {
             #[cfg(feature = "custom-rings")]
-            custom_rings: false,
+            custom_rings: true,
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
         }
     }
 
+    /// Serve the shielded pool methods only.
     #[cfg(feature = "custom-rings")]
     #[must_use]
-    pub fn with_custom_rings(mut self) -> Self {
-        self.custom_rings = true;
+    pub fn without_custom_rings(mut self) -> Self {
+        self.custom_rings = false;
         self
     }
 

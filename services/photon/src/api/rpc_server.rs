@@ -219,7 +219,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn registers_only_rings_product_methods() {
+    async fn registers_the_rings_product_methods() {
         let module = build_rpc_module(test_api().await).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
 
@@ -234,24 +234,33 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getUserRecords"));
-        assert!(!methods.contains(&"getRingKeyRegistryEntry"));
-        assert!(!methods.contains(&"getRingKeyRegistryRegisterProof"));
-        assert!(!methods.contains(&"getRingSpendRecord"));
+        #[cfg(not(feature = "custom-rings"))]
+        for method in CUSTOM_RING_METHODS {
+            assert!(!methods.contains(&method));
+        }
     }
 
     #[cfg(feature = "custom-rings")]
     #[tokio::test]
-    async fn registers_custom_ring_methods_only_after_opt_in() {
-        let module = build_rpc_module(test_api().await.with_custom_rings()).unwrap();
+    async fn registers_custom_ring_methods_unless_disabled() {
+        let module = build_rpc_module(test_api().await).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
-        for method in [
-            "getRingKeyRegistryEntry",
-            "getRingKeyRegistryRegisterProof",
-            "getRingSpendRecord",
-        ] {
+        for method in CUSTOM_RING_METHODS {
             assert!(methods.contains(&method));
         }
+
+        let module = build_rpc_module(test_api().await.without_custom_rings()).unwrap();
+        let methods = module.method_names().collect::<Vec<_>>();
+        for method in CUSTOM_RING_METHODS {
+            assert!(!methods.contains(&method));
+        }
     }
+
+    const CUSTOM_RING_METHODS: [&str; 3] = [
+        "getRingKeyRegistryEntry",
+        "getRingKeyRegistryRegisterProof",
+        "getRingSpendRecord",
+    ];
 
     async fn test_api() -> PhotonApi {
         let db = Database::connect("sqlite::memory:").await.unwrap();

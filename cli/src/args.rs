@@ -448,13 +448,6 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long,
-        env = "ZOLANA_PHOTON_CUSTOM_RINGS",
-        help = "Index custom rings in Photon"
-    )]
-    pub(crate) photon_custom_rings: bool,
-
-    #[arg(
-        long,
         help = "Photon database URL; omit for Photon's temporary SQLite database"
     )]
     pub(crate) photon_db_url: Option<String>,

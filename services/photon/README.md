@@ -130,9 +130,10 @@ Late activation resumes from the ring's durable checkpoint after interruption.
 Lookups wait until replay reaches the global custom ring tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
-The default temporary database is discarded on startup. For a fresh ring,
-`--custom-rings-start-slot` may name its creation slot and must repeat the
-stored value on every restart. Do not start after the ring's first
+The default temporary database is discarded on startup. Without
+`--custom-rings-start-slot` the index starts where SPP indexing starts or
+resumes, so rings created earlier are not served. An explicit slot may name a
+ring's creation slot and must repeat the stored value on every restart. Do not start after the ring's first
 `register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history
 available from that slot, and back up the database and its undo journal.
 
@@ -163,8 +164,8 @@ the imported crate's upstream version is not a Zolana release version. `preview`
 takes any branch and any tag, and refuses a `-zolana-` tag so a preview cannot
 claim a release name. Both are attested and immutable.
 
-The photon image is built with the `custom-rings` feature. Custom ring indexing
-stays off until photon is started with `--index-custom-rings`.
+The photon image is built with the `custom-rings` feature, so custom ring
+indexing runs unless photon is started with `--disable-custom-rings`.
 
 The registry is private ECR with `IMMUTABLE` tags, so the registry itself refuses
 to move a published tag. The workflow also serializes publishes per service,

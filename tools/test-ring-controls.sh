@@ -15,7 +15,6 @@ export SURFPOOL_BIN="${SURFPOOL_BIN:-$repo_root/target/tools/surfpool}"
 export ZOLANA_PROCESS_SCOPE_DIR
 ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d -t zolana-ring-tests.XXXXXX)"
 export ZOLANA_RING_SURFPOOL_FIXTURE=1
-export ZOLANA_PHOTON_CUSTOM_RINGS=true
 export ZOLANA_CLI_BIN="$repo_root/target/debug/zolana"
 export ZOLANA_PHOTON_BIN="$repo_root/target/debug/photon"
 export PROVER_BIN="$repo_root/target/prover-server"

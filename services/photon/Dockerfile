@@ -16,8 +16,8 @@ WORKDIR /workspace
 # dependencies are resolved from the same workspace and lockfile.
 COPY . .
 
-# custom-rings only compiles the custom ring indexer and its RPC methods;
-# photon still needs --index-custom-rings to start or serve them.
+# custom-rings compiles the custom ring indexer and its RPC methods, which
+# run unless photon is started with --disable-custom-rings.
 RUN cargo build --locked --release -p photon-indexer \
     --features custom-rings \
     --bin photon \

@@ -86,13 +86,15 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
+    /// Run without the custom ring indexer and its RPC methods.
     #[cfg(feature = "custom-rings")]
-    #[arg(long)]
-    index_custom_rings: bool,
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    disable_custom_rings: bool,
 
-    /// First indexed custom ring slot, the network start by default.
+    /// First indexed custom ring slot, the SPP indexer's last indexed slot by
+    /// default.
     #[cfg(feature = "custom-rings")]
-    #[arg(long, requires = "index_custom_rings")]
+    #[arg(long, conflicts_with = "disable_custom_rings")]
     custom_rings_start_slot: Option<u64>,
 
     /// Metrics endpoint in the format `host:port`
@@ -431,12 +433,15 @@ async fn main() -> Result<()> {
         };
 
         #[cfg(feature = "custom-rings")]
-        let custom_rings_handle = if args.index_custom_rings {
-            // Blocks before an explicit index start are not linkable.
+        let custom_rings_handle = if args.disable_custom_rings {
+            None
+        } else {
+            // Blocks before an explicit index start are not linkable. Without
+            // one the index starts where SPP indexing starts or resumes, so
+            // rings created earlier need the explicit slot.
             let custom_rings_start = match args.custom_rings_start_slot {
                 Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
-                None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
-                None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
+                None => StartSlot::Derived(last_indexed_slot),
             };
             Some(
                 CustomRingIndexer {
@@ -447,8 +452,6 @@ async fn main() -> Result<()> {
                 }
                 .spawn(),
             )
-        } else {
-            None
         };
         #[cfg(not(feature = "custom-rings"))]
         let custom_rings_handle: Option<tokio::task::JoinHandle<()>> = None;
@@ -501,8 +504,8 @@ async fn main() -> Result<()> {
     } else {
         let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
         #[cfg(feature = "custom-rings")]
-        let api = if args.index_custom_rings {
-            api.with_custom_rings()
+        let api = if args.disable_custom_rings {
+            api.without_custom_rings()
         } else {
             api
         };

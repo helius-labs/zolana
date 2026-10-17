@@ -248,10 +248,9 @@ export ZOLANA_RING_SURFPOOL_FIXTURE=1
 ```
 
 The `custom-rings` feature compiles the custom ring worker and RPC methods.
-Photon requires `--index-custom-rings` to start the worker and expose those
-methods. `zolana-ring dev` passes the opt-in through the localnet CLI. Direct
-`zolana dev start` calls need `--photon-custom-rings`. Plain Photon builds
-have no custom ring dependencies.
+Photon runs the worker and serves those methods unless it is started with
+`--disable-custom-rings`. Plain Photon builds have no custom ring
+dependencies.
 
 The fixture feature repairs Surfpool's synthetic parent block hashes on
 loopback RPC only, opted in with `ZOLANA_RING_SURFPOOL_FIXTURE=1`. Production
