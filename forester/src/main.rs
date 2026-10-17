@@ -18,7 +18,10 @@ fn main() -> ExitCode {
     match dispatch(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err:#}");
+            eprintln!(
+                "error: {}",
+                forester::logging::redact_api_keys(&format!("{err:#}"))
+            );
             ExitCode::FAILURE
         }
     }
