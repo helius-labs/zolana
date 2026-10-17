@@ -111,11 +111,15 @@ impl SppTransactionBuilder<'_> {
         let outputs = self.output_utxos(sender)?;
         let shape = canonical_shape(inputs.len() + addresses.len(), outputs.len())
             .map_err(ClientErrorKind::Transaction)?;
-        let mut transaction =
+        let transaction = if self.checked.compact_padding {
+            ConfidentialTransaction::new_compact_with_addresses(inputs, addresses, self.payer)
+        } else {
             ConfidentialTransaction::new_with_addresses(inputs, addresses, self.payer)
-                .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))
-                .and_then(|transaction| transaction.with_output_tree_id(output_tree_id))
-                .map_err(ClientErrorKind::Transaction)?;
+        };
+        let mut transaction = transaction
+            .and_then(|transaction| transaction.with_blinding_seed(blinding_seed))
+            .and_then(|transaction| transaction.with_output_tree_id(output_tree_id))
+            .map_err(ClientErrorKind::Transaction)?;
         for output in outputs {
             match output {
                 Some(output) => transaction.add_output_utxo(output),

@@ -14,6 +14,13 @@ impl SppTransactionBuilder<'_> {
         &self,
         first_nullifier: &[u8; 32],
     ) -> Result<Vec<WalletUtxo>, ClientError> {
+        let padding_tree = self.checked.inputs.iter().find_map(|hash| {
+            let hash = to_bytes(hash).ok()?;
+            self.records
+                .get::<UtxoRecords>()?
+                .get(&hash)
+                .map(|input| input.tree_id)
+        });
         let spent = self
             .checked
             .inputs
@@ -23,8 +30,8 @@ impl SppTransactionBuilder<'_> {
                 Ok(hash) if hash == [0u8; 32] => {
                     if self.checked.preserve_input_slots {
                         Some(
-                            crate::conversion::u16_value(&self.checked.output_tree_id)
-                                .map_err(ClientErrorKind::Circuit)
+                            padding_tree
+                                .ok_or(ClientErrorKind::NoInputs)
                                 .and_then(|tree| {
                                     WalletUtxo::dummy(tree).map_err(ClientErrorKind::Transaction)
                                 }),

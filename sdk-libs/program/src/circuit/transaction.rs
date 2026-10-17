@@ -104,6 +104,7 @@ impl CheckedOutput {
 #[derive(Clone, Debug)]
 pub struct CheckedTransaction {
     pub(crate) preserve_input_slots: bool,
+    pub(crate) compact_padding: bool,
     pub(crate) blinding_seed: CircuitVar,
     pub(crate) first_nullifier: CircuitVar,
     pub(crate) output_tree_id: CircuitVar,
@@ -141,6 +142,7 @@ pub struct ConfidentialTransaction<'a, P> {
     transferred: CircuitVar,
     error: Option<CircuitError>,
     preserve_input_slots: bool,
+    compact_padding: bool,
 }
 
 impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
@@ -155,6 +157,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             transferred: zero(),
             error: None,
             preserve_input_slots: false,
+            compact_padding: false,
         }
     }
 
@@ -162,6 +165,12 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
     /// does not disclose how many of an application's optional inputs exist.
     pub fn with_input_padding(mut self) -> Self {
         self.preserve_input_slots = true;
+        self
+    }
+
+    /// Omit unused padding slots from the published transaction.
+    pub fn with_compact_padding(mut self) -> Self {
+        self.compact_padding = true;
         self
     }
 
@@ -331,6 +340,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         let public_hash = self.public.hash(&transaction_hash)?;
         Ok(CheckedTransaction {
             preserve_input_slots: self.preserve_input_slots,
+            compact_padding: self.compact_padding,
             blinding_seed,
             first_nullifier,
             output_tree_id,

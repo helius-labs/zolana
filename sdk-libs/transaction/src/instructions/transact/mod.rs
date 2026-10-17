@@ -237,7 +237,16 @@ impl ConfidentialTransaction {
     /// instruction and costs no nullifier account, queue entry or tree leaf, but
     /// the transaction then reveals its real input and output counts.
     pub fn new_compact(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
-        let mut transaction = Self::new(inputs, payer)?;
+        Self::new_compact_with_addresses(inputs, Vec::new(), payer)
+    }
+
+    /// Create a transaction with address reservations and compact padding.
+    pub fn new_compact_with_addresses(
+        inputs: Vec<WalletUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        let mut transaction = Self::new_with_addresses(inputs, addresses, payer)?;
         transaction.compact_padding = true;
         Ok(transaction)
     }
