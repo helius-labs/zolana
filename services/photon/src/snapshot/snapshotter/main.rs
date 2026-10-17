@@ -65,6 +65,16 @@ struct Args {
     #[arg(long, default_value = "")]
     r2_prefix: String,
 
+    /// S3 bucket name. The bucket must already exist. The region comes from AWS_REGION
+    /// (with AWS_ENDPOINT for an S3-compatible store), credentials from the environment, a
+    /// profile, or the ECS task or instance role.
+    #[arg(long)]
+    s3_bucket: Option<String>,
+
+    /// S3 prefix. All snapshots will be stored under this prefix in the S3 bucket.
+    #[arg(long, default_value = "")]
+    s3_prefix: String,
+
     /// GCS bucket name. The bucket must already exist. The credentials must be provided
     /// via Application Default Credentials (ADC) or environment variables.
     #[arg(long)]
@@ -249,16 +259,21 @@ async fn main() -> Result<()> {
     let directory_adapter = match (
         args.snapshot_dir.clone(),
         args.r2_bucket.clone(),
+        args.s3_bucket.clone(),
         args.gcs_bucket.clone(),
     ) {
-        (Some(snapshot_dir), None, None) => {
+        (Some(snapshot_dir), None, None, None) => {
             Arc::new(DirectoryAdapter::from_local_directory(snapshot_dir))
         }
-        (None, Some(r2_bucket), None) => Arc::new(
+        (None, Some(r2_bucket), None, None) => Arc::new(
             DirectoryAdapter::from_r2_bucket_and_prefix_and_env(r2_bucket, args.r2_prefix.clone())
                 .await?,
         ),
-        (None, None, Some(gcs_bucket)) => Arc::new(
+        (None, None, Some(s3_bucket), None) => Arc::new(
+            DirectoryAdapter::from_s3_bucket_and_prefix_and_env(s3_bucket, args.s3_prefix.clone())
+                .await?,
+        ),
+        (None, None, None, Some(gcs_bucket)) => Arc::new(
             DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
                 gcs_bucket,
                 args.gcs_prefix.clone(),
@@ -266,7 +281,9 @@ async fn main() -> Result<()> {
             .await?,
         ),
         _ => {
-            bail!("Exactly one of snapshot_dir, r2_bucket, or gcs_bucket must be provided");
+            bail!(
+                "Exactly one of snapshot_dir, r2_bucket, s3_bucket, or gcs_bucket must be provided"
+            );
         }
     };
     let snapshotter_handle = if args.disable_snapshot_generation {
