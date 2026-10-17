@@ -2,6 +2,7 @@ import ProvenZk
 import FormalVerification.Poseidon
 import FormalVerification.Circuit
 import FormalVerification.Lemmas
+import FormalVerification.Collision
 
 open ZolanaProver (F)
 
@@ -45,7 +46,21 @@ def Range.hash : Range → F := fun r => poseidon₂ vec![r.lo, r.hi]
 
 def Range.hashOpt : Option Range → F := fun r => r.map Range.hash |>.getD 0
 
-def poseidon₂_no_zero_preimage : Prop := ∀(a b : F), poseidon₂ vec![a, b] ≠ 0
+/-- An empty slot hashes to 0, so a preimage of 0 forges one. -/
+def Range.hashCollision (lo hi : F) : Option Range → Prop
+  | none => poseidon₂ vec![lo, hi] = 0
+  | some r => Collision poseidon₂ vec![lo, hi] vec![r.lo, r.hi]
+
+theorem Range.hashOpt_eq {lo hi : F} {r : Option Range}
+    (h : poseidon₂ vec![lo, hi] = Range.hashOpt r) :
+    (∃ range, r = some range ∧ lo = range.lo ∧ hi = range.hi) ∨ Range.hashCollision lo hi r := by
+  cases r with
+  | none => exact Or.inr h
+  | some range =>
+    rcases eq_or_collision (H := poseidon₂) h with heq | hcol
+    · simp only [List.Vector.eq_cons, and_true] at heq
+      exact Or.inl ⟨range, rfl, heq.1, heq.2⟩
+    · exact Or.inr hcol
 
 def MerkleTree.ofFn (H : Hash α 2) (emb : β → α) (f : Fin (2^d) → β) : MerkleTree α H d := match d with
   | 0 => leaf (emb (f 0))
