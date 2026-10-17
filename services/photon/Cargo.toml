@@ -31,7 +31,7 @@ name = "photon-snapshot-loader"
 path = "src/snapshot/loader/main.rs"
 
 [features]
-ring-projection = ["dep:bytemuck", "dep:custom-ring-interface", "dep:zolana-hasher", "dep:zolana-ring-indexer"]
+custom-rings = ["dep:bytemuck", "dep:custom-ring-interface", "dep:zolana-hasher", "dep:zolana-ring-indexer"]
 surfpool-fixture = []
 
 [dependencies]

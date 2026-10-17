@@ -7,9 +7,9 @@ const METHODS: &[&str] = &[
     "getMerkleProofs",
     "getNonInclusionProofs",
     "getNullifierQueueElements",
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     "getRingMemberRecord",
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     "getRingMemberRegistryRoot",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",

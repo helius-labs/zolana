@@ -30,13 +30,10 @@ impl MigrationTrait for Migration {
                  PRIMARY KEY(program, member), UNIQUE(program, leaf_index))"
             ),
             format!("DELETE FROM state_trees WHERE tree_kind = {REGISTRY_TREE_KIND}"),
-            "DELETE FROM ring_projection_pending".to_string(),
-            "DELETE FROM ring_projection_blocks".to_string(),
-            "DELETE FROM ring_projection_cursor".to_string(),
         ] {
             conn.execute_unprepared(&sql).await?;
         }
-        Ok(())
+        reset_index(manager).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -60,12 +57,22 @@ impl MigrationTrait for Migration {
                  PRIMARY KEY(program, member), UNIQUE(program, leaf_index))"
             ),
             format!("DELETE FROM state_trees WHERE tree_kind = {REGISTRY_TREE_KIND}"),
-            "DELETE FROM ring_projection_pending".to_string(),
-            "DELETE FROM ring_projection_blocks".to_string(),
-            "DELETE FROM ring_projection_cursor".to_string(),
         ] {
             conn.execute_unprepared(&sql).await?;
         }
-        Ok(())
+        reset_index(manager).await
     }
+}
+
+/// The upstream table rename may already be applied on an existing installation.
+async fn reset_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let prefix = if manager.has_table("custom_ring_cursor").await? {
+        "custom_ring"
+    } else {
+        "ring_projection"
+    };
+    for suffix in ["pending", "blocks", "cursor"] {
+        manager.get_connection().execute_unprepared(&format!("DELETE FROM {prefix}_{suffix}")).await?;
+    }
+    Ok(())
 }

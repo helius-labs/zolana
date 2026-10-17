@@ -873,9 +873,12 @@ outputs present, SPL before SOL; `c + i` recipient `i`; then dummies).
 output with `data = Some` covers itself plus the immediately following `data = None`
 positions. The Transfer scheme puts the sender change bundle at `outputs[0].data`
 (covering the change positions present) and each real recipient ciphertext at its own
-position; a dummy position carries `Inline(random tag)` and random bytes of
-recipient-ciphertext length, indistinguishable from a real recipient. The SPP allows
-`outputs[0].data = None`; which positions bear a ciphertext is a wallet concern.
+position. A dummy borrows an allowed participant's resolved tag and carries random
+bytes of recipient-ciphertext length. A tag equal to the sender's tag reuses the
+sender's encoding, including `Account(0)` when the sender also pays the fee;
+every other tag is `Inline`. This encoding rule applies to real and dummy outputs
+alike. The SPP allows `outputs[0].data = None`; which positions bear a ciphertext
+is a wallet concern.
 
 The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
 `outputs`; a covered position publishes an empty `data` under the covering output's

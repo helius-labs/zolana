@@ -22,9 +22,9 @@ use photon_indexer::migration::{
     MigratorTrait, RingsMigrator,
 };
 
+#[cfg(feature = "custom-rings")]
+use photon_indexer::custom_rings::{CustomRingIndexer, StartSlot};
 use photon_indexer::monitor::continuously_monitor_photon;
-#[cfg(feature = "ring-projection")]
-use photon_indexer::ring_projection::{Projector, StartSlot};
 use photon_indexer::rpc::{BlockHeaders, RpcClient};
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
@@ -86,14 +86,16 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
-    #[cfg(feature = "ring-projection")]
-    #[arg(long)]
-    enable_ring_projection: bool,
+    /// Run without the custom ring indexer and its RPC methods.
+    #[cfg(feature = "custom-rings")]
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    disable_custom_rings: bool,
 
-    /// First projected ring slot, the network start by default.
-    #[cfg(feature = "ring-projection")]
-    #[arg(long, requires = "enable_ring_projection")]
-    ring_projection_start_slot: Option<u64>,
+    /// First indexed custom ring slot, the SPP indexer's last indexed slot by
+    /// default.
+    #[cfg(feature = "custom-rings")]
+    #[arg(long, conflicts_with = "disable_custom_rings")]
+    custom_rings_start_slot: Option<u64>,
 
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
@@ -397,7 +399,7 @@ async fn main() -> Result<()> {
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
-    let (projector_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
+    let (custom_rings_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
         info!("Indexing is disabled");
         (None, None, None)
     } else {
@@ -418,27 +420,41 @@ async fn main() -> Result<()> {
             },
         };
 
-        #[cfg(feature = "ring-projection")]
-        let projector_handle = if args.enable_ring_projection {
-            // Blocks before an explicit index start are not linkable.
-            let projection_start = match args.ring_projection_start_slot {
+        // For localnet we can safely use a large batch size to speed up indexing.
+        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
+            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
+            None => {
+                if is_rpc_node_local {
+                    200
+                } else {
+                    20
+                }
+            }
+        };
+
+        #[cfg(feature = "custom-rings")]
+        let custom_rings_handle = if args.disable_custom_rings {
+            None
+        } else {
+            // Blocks before an explicit index start are not linkable. Without
+            // one the index starts where SPP indexing starts or resumes, so
+            // rings created earlier need the explicit slot.
+            let custom_rings_start = match args.custom_rings_start_slot {
                 Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
-                None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
-                None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
+                None => StartSlot::Derived(last_indexed_slot),
             };
             Some(
-                Projector {
+                CustomRingIndexer {
                     db: db_conn.clone(),
                     rpc: rpc_client.clone(),
-                    start: projection_start,
+                    start: custom_rings_start,
+                    block_fetches: max_concurrent_block_fetches,
                 }
                 .spawn(),
             )
-        } else {
-            None
         };
-        #[cfg(not(feature = "ring-projection"))]
-        let projector_handle: Option<tokio::task::JoinHandle<()>> = None;
+        #[cfg(not(feature = "custom-rings"))]
+        let custom_rings_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         info!("Starting indexer...");
 
@@ -457,18 +473,6 @@ async fn main() -> Result<()> {
             info!("Tree metadata sync completed successfully");
         }
 
-        // For localnet we can safely use a large batch size to speed up indexing.
-        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
-            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
-            None => {
-                if is_rpc_node_local {
-                    200
-                } else {
-                    20
-                }
-            }
-        };
-
         let block_stream_config = BlockStreamConfig {
             rpc_client: rpc_client.clone(),
             max_concurrent_block_fetches,
@@ -477,7 +481,7 @@ async fn main() -> Result<()> {
         };
 
         (
-            projector_handle,
+            custom_rings_handle,
             Some(continuously_index_new_blocks(
                 block_stream_config,
                 db_conn.clone(),
@@ -499,9 +503,9 @@ async fn main() -> Result<()> {
         None
     } else {
         let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
-        #[cfg(feature = "ring-projection")]
-        let api = if args.enable_ring_projection {
-            api.with_ring_projection()
+        #[cfg(feature = "custom-rings")]
+        let api = if args.disable_custom_rings {
+            api.without_custom_rings()
         } else {
             api
         };
@@ -518,7 +522,7 @@ async fn main() -> Result<()> {
 
     match tokio::signal::ctrl_c().await {
         Ok(()) => {
-            if let Some(handle) = projector_handle {
+            if let Some(handle) = custom_rings_handle {
                 handle.abort();
                 let _ = handle.await;
             }

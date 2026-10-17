@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    api::error::{PhotonApiError, RingProjectionError},
+    api::error::{CustomRingError, PhotonApiError},
     ingester::typedefs::block_info::{BlockMetadata, InstructionGroup, TransactionInfo},
     migration::{MigratorTrait, RingsMigrator},
 };
@@ -20,10 +20,10 @@ pub(super) fn member(value: u8) -> [u8; 32] {
         .as_bytes()
 }
 
-pub(super) async fn fixture() -> (DatabaseConnection, RingRoot, ProjectionCursor) {
+pub(super) async fn fixture() -> (DatabaseConnection, RingRoot, CustomRingCursor) {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
-    let mut cursor = ProjectionCursor::new(0);
+    let mut cursor = CustomRingCursor::new(0);
     let root = initialize_root(&db, &mut cursor, [11; 32]).await;
     storage::save_cursor(&db, &cursor).await.unwrap();
     (db, root, cursor)
@@ -31,7 +31,7 @@ pub(super) async fn fixture() -> (DatabaseConnection, RingRoot, ProjectionCursor
 
 pub(super) async fn initialize_root(
     db: &DatabaseConnection,
-    cursor: &mut ProjectionCursor,
+    cursor: &mut CustomRingCursor,
     program: [u8; 32],
 ) -> RingRoot {
     let root = RingRoot {
@@ -46,7 +46,7 @@ pub(super) async fn initialize_root(
     };
     let sentinel = MemberRecordRow::sentinel();
     let tx = db.begin().await.unwrap();
-    let store = Store::new(&tx, program);
+    let store = RingStore::new(&tx, program);
     let computed = store
         .write_leaves(
             &root.address,
@@ -65,11 +65,12 @@ pub(super) async fn initialize_root(
     root
 }
 
-pub(super) fn projector(db: &DatabaseConnection, start: StartSlot) -> Projector {
-    Projector {
+pub(super) fn indexer(db: &DatabaseConnection, start: StartSlot) -> CustomRingIndexer {
+    CustomRingIndexer {
         db: Arc::new(db.clone()),
         rpc: Arc::new(RpcClient::new("http://127.0.0.1:1".into())),
         start,
+        block_fetches: 4,
     }
 }
 
@@ -115,10 +116,12 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
         .unwrap();
     let handle = server.start(module);
     let rpc = RpcClient::new(format!("http://{address}"));
-    let first = block_batch(&rpc, 1..=5100).await.unwrap();
+    let first = block_batch(&rpc, 1..=5100, MIN_BLOCK_BATCH).await.unwrap();
     assert_eq!(first.slots, (5000..=5031).collect::<Vec<_>>());
     assert_eq!(first.scanned_slot, 5031);
-    let second = block_batch(&rpc, 5032..=5100).await.unwrap();
+    let second = block_batch(&rpc, 5032..=5100, MIN_BLOCK_BATCH)
+        .await
+        .unwrap();
     assert_eq!(second.slots, (5032..=5040).collect::<Vec<_>>());
     assert_eq!(second.scanned_slot, 5100);
     handle.stop().unwrap();
@@ -128,12 +131,9 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
 #[tokio::test]
 async fn an_explicit_start_slot_must_match_the_stored_cursor() {
     let (db, _, _) = fixture().await;
-    assert!(projector(&db, StartSlot::Explicit(5))
-        .cursor()
-        .await
-        .is_err());
+    assert!(indexer(&db, StartSlot::Explicit(5)).cursor().await.is_err());
     assert_eq!(
-        projector(&db, StartSlot::Explicit(0))
+        indexer(&db, StartSlot::Explicit(0))
             .cursor()
             .await
             .unwrap()
@@ -141,7 +141,7 @@ async fn an_explicit_start_slot_must_match_the_stored_cursor() {
         0
     );
     assert_eq!(
-        projector(&db, StartSlot::Derived(9))
+        indexer(&db, StartSlot::Derived(9))
             .cursor()
             .await
             .unwrap()
@@ -183,21 +183,18 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
             garbage(healthy.program, Some("failed".into())),
         ],
     };
-    let projector = projector(&db, StartSlot::Derived(0));
+    let indexer = indexer(&db, StartSlot::Derived(0));
     let tx = db.begin().await.unwrap();
-    projector
-        .apply_block(&tx, &block, &mut cursor)
-        .await
-        .unwrap();
+    indexer.apply_block(&tx, &block, &mut cursor).await.unwrap();
     tx.commit().await.unwrap();
 
-    let faulted = Store::new(&db, faulty.program)
+    let faulted = RingStore::new(&db, faulty.program)
         .root()
         .await
         .unwrap()
         .unwrap();
     assert!(faulted.fault.is_some());
-    assert!(Store::new(&db, healthy.program)
+    assert!(RingStore::new(&db, healthy.program)
         .root()
         .await
         .unwrap()
@@ -212,16 +209,16 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
         expected_next_index: 1,
     };
     assert!(matches!(
-        member_registry::member_record(&db, &projector.rpc, request(faulty.program)).await,
-        Err(PhotonApiError::RingProjection(
-            RingProjectionError::OutOfSync(_)
+        member_registry::member_record(&db, &indexer.rpc, request(faulty.program)).await,
+        Err(PhotonApiError::CustomRing(
+            CustomRingError::OutOfSync(_)
         ))
     ));
     // The healthy ring serves the read up to the chain confirmation at the dead RPC.
     assert!(matches!(
-        member_registry::member_record(&db, &projector.rpc, request(healthy.program)).await,
-        Err(PhotonApiError::RingProjection(
-            RingProjectionError::OutOfSync(_)
+        member_registry::member_record(&db, &indexer.rpc, request(healthy.program)).await,
+        Err(PhotonApiError::CustomRing(
+            CustomRingError::OutOfSync(_)
         ))
     ));
 
@@ -229,7 +226,7 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     let tx = db.begin().await.unwrap();
     storage::rollback(&tx, &mut restarted).await.unwrap();
     tx.commit().await.unwrap();
-    assert!(Store::new(&db, faulty.program)
+    assert!(RingStore::new(&db, faulty.program)
         .root()
         .await
         .unwrap()

@@ -146,6 +146,12 @@ Fixed
   `mode: "anonymous"` and report hidden senders, inputs and recipients in
   `anonymous`, and the config decodes with `mode`.
 
+Fixed
+
+- `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
+  differently from the sender's change, so an observer could tell them apart;
+  padding now uses the same encoding as change.
+
 ## 0.4.1-alpha — 2026-10-08
 
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and

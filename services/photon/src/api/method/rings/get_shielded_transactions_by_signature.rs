@@ -24,7 +24,7 @@ pub async fn get_shielded_transactions_by_signature(
 
     let signature = request.tx_signature.0.into();
     let matched_txs =
-        fetch_rings_transactions_by_signature(&tx, signature, EventFilter::All).await?;
+        fetch_rings_transactions_by_signature(&tx, signature).await?;
     let transactions = hydrate_shielded_transactions(&tx, matched_txs).await?;
     tx.commit().await?;
 
@@ -35,21 +35,13 @@ pub async fn get_shielded_transactions_by_signature(
     })
 }
 
-enum EventFilter {
-    All,
-}
-
 async fn fetch_rings_transactions_by_signature(
     tx: &DatabaseTransaction,
     signature: [u8; SIGNATURE_BYTES],
-    events: EventFilter,
 ) -> Result<Vec<MatchedRingsTxRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let signature = bind_sql_value(&mut params, backend, signature.to_vec());
-    let event_filter = match events {
-        EventFilter::All => String::new(),
-    };
     let limit = bind_u64_as_i64(&mut params, backend, PAGE_LIMIT)?;
     let sql = format!(
         "SELECT
@@ -61,7 +53,7 @@ async fn fetch_rings_transactions_by_signature(
             pt.salt AS salt,
             pt.proofless AS proofless
          FROM rings_transactions pt
-         WHERE pt.signature = {signature} {event_filter}
+         WHERE pt.signature = {signature}
          ORDER BY pt.event_index ASC
          LIMIT {limit}"
     );

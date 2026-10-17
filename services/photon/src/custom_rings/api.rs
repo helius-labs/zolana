@@ -14,12 +14,12 @@ use zolana_indexer_api::{
 
 use super::{
     load_root, member_registry_root_pda, proof,
-    storage::{self, PredecessorError, ProjectionCursor, RingRoot, Store},
+    storage::{self, PredecessorError, CustomRingCursor, RingRoot, RingStore},
     ChainRoot,
 };
 use crate::{
     api::{
-        error::{PhotonApiError, RingProjectionError},
+        error::{CustomRingError, PhotonApiError},
         set_transaction_isolation_if_needed,
     },
     ingester::typedefs::block_info::BlockMetadata,
@@ -42,7 +42,7 @@ pub(crate) async fn member_record(
     };
     let (tx, snapshot) = snapshot(db, &request.ring_program_id, Some(expected)).await?;
     let root = &snapshot.root;
-    let store = Store::new(&tx, root.program);
+    let store = RingStore::new(&tx, root.program);
     let (present, record, index, path, low) = match store.member(&member).await.map_err(internal)? {
         Some(row) => {
             let path = proof::path(&tx, root, row.index).await.map_err(internal)?;
@@ -143,16 +143,16 @@ fn hashes(siblings: Vec<[u8; 32]>) -> Vec<Hash> {
 pub(super) async fn ready(
     db: &DatabaseConnection,
     program: &[u8; 32],
-    out_of_sync: fn(String) -> RingProjectionError,
-) -> Result<(DatabaseTransaction, ProjectionCursor), PhotonApiError> {
+    out_of_sync: fn(String) -> CustomRingError,
+) -> Result<(DatabaseTransaction, CustomRingCursor), PhotonApiError> {
     let tx = db.begin().await?;
     set_transaction_isolation_if_needed(&tx).await?;
     let stale = |reason: &str| PhotonApiError::from(out_of_sync(reason.to_owned()));
     let cursor = storage::cursor(&tx)
         .await
         .map_err(internal)?
-        .filter(ProjectionCursor::is_ready)
-        .ok_or_else(|| stale("projector is catching up or recovering"))?;
+        .filter(CustomRingCursor::is_ready)
+        .ok_or_else(|| stale("indexer is catching up or recovering"))?;
     let pending = storage::pending_ring(&tx, program)
         .await
         .map_err(internal)?;
@@ -199,8 +199,8 @@ async fn snapshot(
         return Err(validation("invalid member registry cursor"));
     }
     let program = ring_program_id.0.to_bytes();
-    let (tx, cursor) = ready(db, &program, RingProjectionError::OutOfSync).await?;
-    let root = Store::new(&tx, program)
+    let (tx, cursor) = ready(db, &program, CustomRingError::OutOfSync).await?;
+    let root = RingStore::new(&tx, program)
         .root()
         .await
         .map_err(internal)?
@@ -210,7 +210,7 @@ async fn snapshot(
     }
     if let Some(expected) = expected {
         if root.root != expected.root || root.next_index != expected.next_index {
-            return Err(RingProjectionError::RootChanged.into());
+            return Err(CustomRingError::RootChanged.into());
         }
     }
     let tip = cursor.tip;
@@ -248,7 +248,7 @@ pub(super) async fn canonical_context(
 }
 
 fn out_of_sync(reason: impl Display) -> PhotonApiError {
-    RingProjectionError::OutOfSync(reason.to_string()).into()
+    CustomRingError::OutOfSync(reason.to_string()).into()
 }
 
 pub(super) fn validation(reason: impl Display) -> PhotonApiError {

@@ -5,14 +5,14 @@ use sea_orm::DatabaseTransaction;
 
 use super::{
     fault, instruction_view, proof,
-    storage::{LeafWrite, MemberRestore, PredecessorError, RingRoot, Store, Undo},
-    Invocation, ProjectError,
+    storage::{LeafWrite, MemberRestore, PredecessorError, RingRoot, RingStore, Undo},
+    Invocation, ApplyError,
 };
 
 pub(crate) use super::api::{member_record, registry_root};
 pub(crate) use zolana_ring_indexer::member_registry::{Batch, MemberRecordRow};
 
-pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Batch>, ProjectError> {
+pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Batch>, ApplyError> {
     zolana_ring_indexer::member_registry::batch(instruction_view(invocation.instruction))
         .map_err(|error| fault(format!("{error:#}")))
 }
@@ -20,11 +20,11 @@ pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Batch>, P
 /// Applies the batch in item order against the stored rows, then writes each touched
 /// leaf once. The computed root must be the proven one before anything is published.
 pub(crate) async fn apply(
-    store: &Store<'_, DatabaseTransaction>,
+    store: &RingStore<'_, DatabaseTransaction>,
     root: &RingRoot,
     batch: Batch,
     revision: u64,
-) -> Result<Undo, ProjectError> {
+) -> Result<Undo, ApplyError> {
     let mut rows = Rows::default();
     let mut undo = Undo::root(root.program, Some(root.clone()));
     let mut next_index = root.next_index;
@@ -117,9 +117,9 @@ struct Rows {
 impl Rows {
     async fn load(
         &self,
-        store: &Store<'_, DatabaseTransaction>,
+        store: &RingStore<'_, DatabaseTransaction>,
         member: &[u8; 32],
-    ) -> Result<Option<MemberRecordRow>, ProjectError> {
+    ) -> Result<Option<MemberRecordRow>, ApplyError> {
         if let Some(row) = self.touched.get(member) {
             return Ok(Some(row.clone()));
         }
@@ -129,9 +129,9 @@ impl Rows {
     /// The stored predecessor loses to a touched record that sits closer below `member`.
     async fn predecessor(
         &self,
-        store: &Store<'_, DatabaseTransaction>,
+        store: &RingStore<'_, DatabaseTransaction>,
         member: &[u8; 32],
-    ) -> Result<MemberRecordRow, ProjectError> {
+    ) -> Result<MemberRecordRow, ApplyError> {
         let stored = match store.predecessor(member).await {
             Ok(low) => Some(low),
             Err(PredecessorError::NotAbsent) => None,
@@ -155,7 +155,7 @@ impl Rows {
     }
 
     /// Rollback restores the first state of each touched row.
-    fn capture(&mut self, undo: &mut Undo, before: &MemberRecordRow) -> Result<(), ProjectError> {
+    fn capture(&mut self, undo: &mut Undo, before: &MemberRecordRow) -> Result<(), ApplyError> {
         if self.captured.contains(&before.member) {
             return Ok(());
         }
@@ -177,9 +177,9 @@ impl Rows {
 mod tests {
     use super::*;
     use crate::{
-        api::error::{PhotonApiError, RingProjectionError},
+        api::error::{PhotonApiError, CustomRingError},
         ingester::typedefs::block_info::BlockMetadata,
-        ring_projection::{
+        custom_rings::{
             proof,
             storage::{self, BlockJournal, BlockUndo},
             tests::{field, fixture, member},
@@ -223,7 +223,7 @@ mod tests {
             let items = reference.list_items(&writes).unwrap();
             reference.apply(&items).unwrap();
             let tx = db.begin().await.unwrap();
-            let store = Store::new(&tx, root.program);
+            let store = RingStore::new(&tx, root.program);
             apply(
                 &store,
                 &root,
@@ -233,12 +233,12 @@ mod tests {
             .await
             .unwrap();
             tx.commit().await.unwrap();
-            root = Store::new(&db, root.program).root().await.unwrap().unwrap();
+            root = RingStore::new(&db, root.program).root().await.unwrap().unwrap();
             assert_eq!(root.root, reference.root());
             assert_eq!(root.next_index, reference.next_index());
         }
         assert_eq!(root.history_cursor, 3);
-        let store = Store::new(&db, root.program);
+        let store = RingStore::new(&db, root.program);
         let five = store.member(&member(5)).await.unwrap().unwrap();
         assert_eq!(five.lists, 3);
         assert_eq!(five.next, reference.find(&member(5)).unwrap().1.next);
@@ -255,7 +255,7 @@ mod tests {
         reference.apply(&[item]).unwrap();
         let tx = db.begin().await.unwrap();
         apply(
-            &Store::new(&tx, root.program),
+            &RingStore::new(&tx, root.program),
             &root,
             Batch {
                 new_root: reference.root(),
@@ -270,7 +270,7 @@ mod tests {
         .await
         .unwrap();
         tx.commit().await.unwrap();
-        let row = Store::new(&db, root.program)
+        let row = RingStore::new(&db, root.program)
             .member(&member(5))
             .await
             .unwrap()
@@ -288,7 +288,7 @@ mod tests {
         reference.apply(&items).unwrap();
         let tx = db.begin().await.unwrap();
         assert!(apply(
-            &Store::new(&tx, root.program),
+            &RingStore::new(&tx, root.program),
             &root,
             batch(items.clone(), field(99)),
             2,
@@ -296,13 +296,13 @@ mod tests {
         .await
         .is_err());
         tx.rollback().await.unwrap();
-        let store = Store::new(&db, root.program);
+        let store = RingStore::new(&db, root.program);
         assert!(store.member(&subject).await.unwrap().is_none());
         assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
 
         let tx = db.begin().await.unwrap();
         let undo = apply(
-            &Store::new(&tx, root.program),
+            &RingStore::new(&tx, root.program),
             &root,
             batch(items.clone(), reference.root()),
             cursor.advance_revision().unwrap(),
@@ -342,7 +342,7 @@ mod tests {
 
         let tx = db.begin().await.unwrap();
         let path = proof::path(&tx, &root, 0).await.unwrap();
-        let sentinel = Store::new(&tx, root.program)
+        let sentinel = RingStore::new(&tx, root.program)
             .member(&[0; 32])
             .await
             .unwrap()
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(sentinel.hash().unwrap(), path.leaf);
         assert_eq!(path.root(0).unwrap(), root.root);
         apply(
-            &Store::new(&tx, root.program),
+            &RingStore::new(&tx, root.program),
             &root,
             batch(items, reference.root()),
             restarted.advance_revision().unwrap(),
@@ -373,8 +373,8 @@ mod tests {
         };
         assert!(matches!(
             member_record(&db, &rpc, request.clone()).await,
-            Err(PhotonApiError::RingProjection(
-                RingProjectionError::OutOfSync(_)
+            Err(PhotonApiError::CustomRing(
+                CustomRingError::OutOfSync(_)
             ))
         ));
         cursor.resume(&db).await.unwrap();
@@ -382,13 +382,13 @@ mod tests {
         stale.expected_next_index = 2;
         assert_eq!(
             member_record(&db, &rpc, stale).await,
-            Err(RingProjectionError::RootChanged.into())
+            Err(CustomRingError::RootChanged.into())
         );
         // The read succeeds up to the chain confirmation, which the dead RPC refuses.
         assert!(matches!(
             member_record(&db, &rpc, request).await,
-            Err(PhotonApiError::RingProjection(
-                RingProjectionError::OutOfSync(_)
+            Err(PhotonApiError::CustomRing(
+                CustomRingError::OutOfSync(_)
             ))
         ));
     }

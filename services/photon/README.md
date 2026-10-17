@@ -102,7 +102,7 @@ are full. Save `scannedThrough` from the terminal page to resume after new index
 Ciphertexts stay opaque to Photon. Auditor recovery decrypts the returned deposit
 capsules and transfer messages client-side.
 
-### Ring projections
+### Custom rings
 
 `getRingMemberRecord` takes the ring program, member, and the exact root and
 append index read from the ring's member-registry PDA. It returns the member's
@@ -120,13 +120,13 @@ prevent an ordinary SPP proof from being obtained.
 A ring whose instruction fails validation, or whose root or policy account is
 missing, is quarantined. Its lookups stay unavailable, every other ring keeps
 serving, and a rollback of the fault's journaled block lifts the quarantine.
-An otherwise valid root ahead of the projector is retried, not quarantined.
+An otherwise valid root ahead of the indexer is retried, not quarantined.
 Late activation resumes from the ring's durable checkpoint after interruption.
-Lookups wait until replay reaches the global projection tip.
+Lookups wait until replay reaches the global custom ring tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
 The default temporary database is discarded on startup. For a fresh ring,
-`--ring-projection-start-slot` may name its creation slot and must repeat the
+`--custom-rings-start-slot` may name its creation slot and must repeat the
 stored value on every restart. Do not start after the ring's
 `CREATE_MEMBER_REGISTRY_ROOT` instruction. Keep RPC history available from that
 slot, and back up the database and its undo journal.
@@ -154,6 +154,9 @@ Two channels. `release` requires the tag to name the commit
 the imported crate's upstream version is not a Zolana release version. `preview`
 takes any branch and any tag, and refuses a `-zolana-` tag so a preview cannot
 claim a release name. Both are attested and immutable.
+
+The photon image is built with the `custom-rings` feature, so custom ring
+indexing runs unless photon is started with `--disable-custom-rings`.
 
 The registry is private ECR with `IMMUTABLE` tags, so the registry itself refuses
 to move a published tag. The workflow also serializes publishes per service,

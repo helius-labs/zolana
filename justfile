@@ -173,7 +173,6 @@ ring-localnet: ensure-custom-ring-live-keys build-programs build-cli build-ring-
     keys_dir="{{spp-keys-dir}}"
     [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
     export ZOLANA_PHOTON_BIN="$photon_bin"
-    export ZOLANA_PHOTON_RING_PROJECTION=true
     export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
     for port in {{localnet-rpc-port}} {{localnet-photon-port}} {{localnet-prover-port}}; do
       lsof -ti "tcp:$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -219,7 +218,7 @@ ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server b
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     sleep 1
-    nohup "$photon_bin" --enable-ring-projection --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
+    nohup "$photon_bin" --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
       > "$workdir/photon.log" 2>&1 &
     nohup target/prover-server start --keys-dir "$keys_dir" \
       --prover-address 0.0.0.0:{{localnet-prover-port}} --auto-download=true \
@@ -442,9 +441,8 @@ _test-ts-live test-script: build-programs build-prover-server build-cli fetch-cu
     # The ring controls suite jumps the surfpool clock only inside a scoped runtime.
     export ZOLANA_PROCESS_SCOPE_DIR="$PWD/$workdir/scope"
     # Surfpool gives empty slots synthetic hashes, only the fixture keeps ring blocks linked across the jump.
-    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection --target-dir target
+    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,custom-rings --target-dir target
     export ZOLANA_PHOTON_BIN="$PWD/target/debug/photon"
-    export ZOLANA_PHOTON_RING_PROJECTION=true
     export ZOLANA_RING_SURFPOOL_FIXTURE=1
     keys_dir="{{spp-keys-dir}}"
     [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
@@ -583,7 +581,7 @@ test-ts-all: test-ts test-ts-e2e
 # test runs in CI where a database service is available.
 test-photon:
     cargo nextest run -p photon-indexer
-    cargo nextest run -p photon-indexer --features ring-projection
+    cargo nextest run -p photon-indexer --features custom-rings
 
 # Paths dropped at report time. Single source of truth for `coverage-report`,
 # which both `just coverage` and the CI job go through.
@@ -1484,7 +1482,7 @@ build-localnet: build-programs build-localnet-tools build-localnet-archives
 build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-escrow-keys ensure-dynamic-swap-keys ensure-compression-keys
     cargo build -p xtask --target-dir target
     cargo build --locked -p custom-ring-cli --target-dir target
-    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection --target-dir target
+    cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,custom-rings --target-dir target
 
 # The localnet suites as nextest archives. The test binaries load the programs
 # and keys at run time, so this needs neither.
@@ -1498,7 +1496,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --test windowed_concurrency --archive-file {{dir}}/custom-ring-test-validator.tar.zst
+    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
@@ -1564,7 +1562,7 @@ publish-spp-keys:
     aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' "${sync_excludes[@]}"
 
 build-ring-photon:
-    cargo build --locked -p photon-indexer --bin photon --features ring-projection --target-dir target
+    cargo build --locked -p photon-indexer --bin photon --features custom-rings --target-dir target
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target

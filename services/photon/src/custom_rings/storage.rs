@@ -28,7 +28,7 @@ pub(crate) struct RingRoot {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct ProjectionCursor {
+pub(crate) struct CustomRingCursor {
     pub start_slot: u64,
     pub scanned_slot: u64,
     pub tip: Option<BlockMetadata>,
@@ -37,7 +37,7 @@ pub(crate) struct ProjectionCursor {
     ready: bool,
 }
 
-impl ProjectionCursor {
+impl CustomRingCursor {
     pub fn new(start_slot: u64) -> Self {
         Self {
             start_slot,
@@ -71,7 +71,7 @@ impl ProjectionCursor {
             .revision
             .checked_add(1)
             .filter(|revision| i64::try_from(*revision).is_ok())
-            .context("ring projection storage revision exhausted")?;
+            .context("custom ring storage revision exhausted")?;
         Ok(self.revision)
     }
 }
@@ -139,7 +139,7 @@ pub(crate) struct PendingRing {
     pub program: [u8; 32],
     pub slot: u64,
     pub blockhash: Hash,
-    /// Last historical block committed with the ring's projection changes.
+    /// Last historical block committed with the ring's index changes.
     pub replayed_tip: Option<BlockMetadata>,
 }
 
@@ -155,7 +155,7 @@ const DELETE_MEMBER: &str =
     "DELETE FROM ring_member_registry_members WHERE program=$1 AND member=$2";
 
 pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
-    let sql = "INSERT INTO ring_projection_pending(program,slot,state) VALUES($1,$2,$3) \
+    let sql = "INSERT INTO custom_ring_pending(program,slot,state) VALUES($1,$2,$3) \
                ON CONFLICT(program) DO NOTHING";
     let values = vec![
         value.program.to_vec().into(),
@@ -168,7 +168,7 @@ pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRi
 pub(crate) async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingRing>> {
     read_all(
         conn,
-        "SELECT state FROM ring_projection_pending ORDER BY slot",
+        "SELECT state FROM custom_ring_pending ORDER BY slot",
     )
     .await
 }
@@ -177,7 +177,7 @@ pub(crate) async fn pending_ring<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
 ) -> Result<Option<PendingRing>> {
-    let sql = "SELECT state FROM ring_projection_pending WHERE program=$1";
+    let sql = "SELECT state FROM custom_ring_pending WHERE program=$1";
     read_json(conn, sql, vec![program.to_vec().into()]).await
 }
 
@@ -185,26 +185,26 @@ pub(crate) async fn checkpoint_pending<C: ConnectionTrait>(
     conn: &C,
     pending: &PendingRing,
 ) -> Result<()> {
-    let sql = "UPDATE ring_projection_pending SET state=$2 WHERE program=$1";
+    let sql = "UPDATE custom_ring_pending SET state=$2 WHERE program=$1";
     let values = vec![pending.program.to_vec().into(), json(pending)?];
     exec(conn, sql, values).await
 }
 
 pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<()> {
-    let sql = "DELETE FROM ring_projection_pending WHERE program=$1";
+    let sql = "DELETE FROM custom_ring_pending WHERE program=$1";
     exec(conn, sql, vec![program.to_vec().into()]).await
 }
 
-pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<ProjectionCursor>> {
-    let sql = "SELECT state FROM ring_projection_cursor WHERE id=1";
+pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<CustomRingCursor>> {
+    let sql = "SELECT state FROM custom_ring_cursor WHERE id=1";
     read_json(conn, sql, vec![]).await
 }
 
 pub(crate) async fn save_cursor<C: ConnectionTrait>(
     conn: &C,
-    value: &ProjectionCursor,
+    value: &CustomRingCursor,
 ) -> Result<()> {
-    let sql = "INSERT INTO ring_projection_cursor(id,state) VALUES(1,$1) \
+    let sql = "INSERT INTO custom_ring_cursor(id,state) VALUES(1,$1) \
                ON CONFLICT(id) DO UPDATE SET state=excluded.state";
     exec(conn, sql, vec![json(value)?]).await
 }
@@ -213,7 +213,7 @@ pub(crate) async fn journal<C: ConnectionTrait>(
     conn: &C,
     slot: u64,
 ) -> Result<Option<BlockJournal>> {
-    let sql = "SELECT state FROM ring_projection_blocks WHERE slot=$1";
+    let sql = "SELECT state FROM custom_ring_blocks WHERE slot=$1";
     read_json(conn, sql, vec![int(slot)?]).await
 }
 
@@ -221,13 +221,13 @@ pub(crate) async fn save_journal<C: ConnectionTrait>(
     conn: &C,
     journal: &BlockJournal,
 ) -> Result<()> {
-    let sql = "INSERT INTO ring_projection_blocks(slot,state) VALUES($1,$2) \
+    let sql = "INSERT INTO custom_ring_blocks(slot,state) VALUES($1,$2) \
                ON CONFLICT(slot) DO UPDATE SET state=excluded.state";
     exec(conn, sql, vec![int(journal.metadata.slot)?, json(journal)?]).await
 }
 
 pub(crate) async fn prune_journal<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()> {
-    let sql = "DELETE FROM ring_projection_blocks WHERE slot<$1";
+    let sql = "DELETE FROM custom_ring_blocks WHERE slot<$1";
     exec(conn, sql, vec![int(below)?]).await
 }
 
@@ -241,17 +241,17 @@ pub(crate) async fn roots<C: ConnectionTrait>(conn: &C) -> Result<Vec<RingRoot>>
 
 pub(crate) async fn rollback(
     tx: &DatabaseTransaction,
-    cursor: &mut ProjectionCursor,
+    cursor: &mut CustomRingCursor,
 ) -> Result<()> {
     let tip = cursor
         .tip
         .as_ref()
-        .context("cannot rewind before the ring projection start")?;
+        .context("cannot rewind before the custom ring start")?;
     let journal = journal(tx, tip.slot)
         .await?
-        .context("ring projection journal gap")?;
+        .context("custom ring index journal gap")?;
     let slot = vec![int(journal.metadata.slot)?];
-    let sql = "DELETE FROM ring_projection_pending WHERE slot=$1";
+    let sql = "DELETE FROM custom_ring_pending WHERE slot=$1";
     exec(tx, sql, slot.clone()).await?;
     restore(tx, cursor, &journal.undo.member_registry).await?;
     // Partial replay must rewind with the block that advanced it.
@@ -268,7 +268,7 @@ pub(crate) async fn rollback(
             checkpoint_pending(tx, &candidate).await?;
         }
     }
-    exec(tx, "DELETE FROM ring_projection_blocks WHERE slot=$1", slot).await?;
+    exec(tx, "DELETE FROM custom_ring_blocks WHERE slot=$1", slot).await?;
     cursor.tip = journal.previous_tip;
     cursor.scanned_slot = cursor.tip_slot();
     cursor.suspend(tx).await
@@ -276,11 +276,11 @@ pub(crate) async fn rollback(
 
 async fn restore(
     tx: &DatabaseTransaction,
-    cursor: &mut ProjectionCursor,
+    cursor: &mut CustomRingCursor,
     undos: &[Undo],
 ) -> Result<()> {
     for undo in undos.iter().rev() {
-        let store = Store::new(tx, undo.program);
+        let store = RingStore::new(tx, undo.program);
         let Some(before) = &undo.before else {
             let created = store
                 .root()
@@ -313,12 +313,12 @@ async fn restore(
 }
 
 /// One ring's rows across both projected families.
-pub(crate) struct Store<'c, C> {
+pub(crate) struct RingStore<'c, C> {
     pub(super) conn: &'c C,
     pub(super) program: [u8; 32],
 }
 
-impl<'c, C: ConnectionTrait> Store<'c, C> {
+impl<'c, C: ConnectionTrait> RingStore<'c, C> {
     pub fn new(conn: &'c C, program: [u8; 32]) -> Self {
         Self { conn, program }
     }
@@ -399,7 +399,7 @@ impl<'c, C: ConnectionTrait> Store<'c, C> {
     }
 }
 
-impl Store<'_, DatabaseTransaction> {
+impl RingStore<'_, DatabaseTransaction> {
     pub async fn write_leaves(
         &self,
         tree: &[u8; 32],

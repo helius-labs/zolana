@@ -78,7 +78,7 @@ fn bring_up(config: &RingConfig, auditor_key: &Path, replace: bool) -> Result<()
         }
         line("validator", "zolana dev start");
         let mut command = Command::new("zolana");
-        command.args(["dev", "start", "--photon-ring-projection"]);
+        command.args(["dev", "start"]);
         ZOLANA
             .named("zolana dev start")
             .run(dev_start(&mut command, [rpc, photon, prover]))?;
@@ -125,7 +125,7 @@ fn bring_up_workspace(
         let snapshots = workspace.account_snapshots()?;
         let mut command = workspace.command()?;
         command
-            .args(["dev", "start", "--local", "--photon-ring-projection"])
+            .args(["dev", "start", "--local"])
             .args(["--photon-start-slot", "0", "--account-dir"])
             .arg(snapshots)
             .arg("--sbf-program")

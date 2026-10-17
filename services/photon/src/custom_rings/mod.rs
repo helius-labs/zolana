@@ -29,14 +29,14 @@ use crate::{
 };
 use member_registry::MemberRecordRow;
 use storage::{
-    BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, ProjectionCursor, RingRoot,
-    Store, Undo,
+    BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, CustomRingCursor, RingRoot,
+    RingStore, Undo,
 };
 
 const MAX_RETRY_DELAY_SECS: u64 = 15;
-const BLOCK_FETCH_CONCURRENCY: usize = 4;
 const GET_BLOCKS_PAGE: u64 = 4096;
-const BLOCK_BATCH: usize = 32;
+/// Blocks fetched before a batch is applied, at least this many.
+const MIN_BLOCK_BATCH: usize = 32;
 const ACCOUNTS_PER_REQUEST: usize = 100;
 /// Journal rows older than the deepest confirmed fork are pruned.
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
@@ -59,10 +59,12 @@ impl StartSlot {
     }
 }
 
-pub struct Projector {
+pub struct CustomRingIndexer {
     pub db: Arc<DatabaseConnection>,
     pub rpc: Arc<RpcClient>,
     pub start: StartSlot,
+    /// Concurrent `getBlock` requests, photon's `--max-concurrent-block-fetches`.
+    pub block_fetches: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -71,7 +73,13 @@ enum Progress {
     Behind,
 }
 
-impl Projector {
+impl CustomRingIndexer {
+    /// Two rounds of fetches per batch: enough to keep the fetch overhead
+    /// small, few enough blocks to hold in memory at a backfill setting.
+    fn batch_len(&self) -> usize {
+        MIN_BLOCK_BATCH.max(self.block_fetches.saturating_mul(2))
+    }
+
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut delay = 1;
@@ -83,9 +91,9 @@ impl Projector {
                     }
                     Ok(Progress::CaughtUp) => delay = 1,
                     Err(error) => {
-                        log::error!("ring projector failed ({error:#})");
+                        log::error!("custom ring indexer failed ({error:#})");
                         if let Err(error) = self.suspend().await {
-                            log::error!("cannot mark ring projections unavailable ({error:#})");
+                            log::error!("cannot mark custom ring lookups unavailable ({error:#})");
                         }
                         delay = (delay * 2).min(MAX_RETRY_DELAY_SECS);
                     }
@@ -111,14 +119,19 @@ impl Projector {
         let target = self.rpc.get_slot().await?;
         if cursor.scanned_slot < target {
             cursor.suspend(db).await?;
-            let batch = block_batch(&self.rpc, cursor.scanned_slot + 1..=target).await?;
+            let batch = block_batch(
+                &self.rpc,
+                cursor.scanned_slot + 1..=target,
+                self.batch_len(),
+            )
+            .await?;
             for block in self.fetch_blocks(batch.slots).await {
                 let block = block?;
                 let orphan = cursor
                     .tip
                     .as_ref()
                     .is_some_and(|tip| !tip.is_parent_of(&block.metadata));
-                ensure!(!orphan, "ring projection parent mismatch");
+                ensure!(!orphan, "custom ring index parent mismatch");
                 let tx = db.begin().await?;
                 self.apply_block(&tx, &block, &mut cursor).await?;
                 tx.commit().await?;
@@ -137,10 +150,10 @@ impl Projector {
         Ok(Progress::CaughtUp)
     }
 
-    async fn cursor(&self) -> Result<ProjectionCursor> {
+    async fn cursor(&self) -> Result<CustomRingCursor> {
         let db = self.db.as_ref();
         let Some(cursor) = storage::cursor(db).await? else {
-            let cursor = ProjectionCursor::new(self.start.slot());
+            let cursor = CustomRingCursor::new(self.start.slot());
             storage::save_cursor(db, &cursor).await?;
             return Ok(cursor);
         };
@@ -148,7 +161,7 @@ impl Projector {
             let start = cursor.start_slot;
             ensure!(
                 start == slot,
-                "the stored ring projection starts after slot {start}, not {slot}"
+                "the stored custom ring index starts after slot {start}, not {slot}"
             );
         }
         Ok(cursor)
@@ -162,7 +175,7 @@ impl Projector {
         Ok(())
     }
 
-    async fn rewind_tip(&self, cursor: &mut ProjectionCursor) -> Result<()> {
+    async fn rewind_tip(&self, cursor: &mut CustomRingCursor) -> Result<()> {
         let db = self.db.as_ref();
         cursor.suspend(db).await?;
         let tx = db.begin().await?;
@@ -181,7 +194,7 @@ impl Projector {
         }
     }
 
-    async fn replay_pending(&self, cursor: &mut ProjectionCursor) -> Result<()> {
+    async fn replay_pending(&self, cursor: &mut CustomRingCursor) -> Result<()> {
         let db = self.db.as_ref();
         let Some(tip) = cursor.tip.clone() else {
             return Ok(());
@@ -215,7 +228,7 @@ impl Projector {
     /// Other rings keep serving, only the candidate's instructions are applied.
     async fn replay_ring(
         &self,
-        cursor: &mut ProjectionCursor,
+        cursor: &mut CustomRingCursor,
         candidate: &PendingRing,
         tip: &BlockMetadata,
     ) -> Result<()> {
@@ -239,7 +252,7 @@ impl Projector {
             if candidate.replayed_tip.is_none() && page.first() != Some(&candidate.slot) {
                 bail!("ring initialization is missing from archive history");
             }
-            for chunk in page.chunks(BLOCK_BATCH) {
+            for chunk in page.chunks(self.batch_len()) {
                 for block in self.fetch_blocks(chunk.to_vec()).await {
                     let (block, replayed) = (block?, candidate.replayed_tip.as_ref());
                     let initial =
@@ -256,7 +269,7 @@ impl Projector {
                     // 2. Replay progress and undo data must commit together.
                     let tx = db.begin().await?;
                     let undo = self
-                        .project_block(&tx, &block, cursor, Scope::Ring(candidate.program))
+                        .index_block(&tx, &block, cursor, Scope::Ring(candidate.program))
                         .await?;
                     if let Some(mut journal) = journal {
                         journal.undo.extend(undo);
@@ -274,7 +287,7 @@ impl Projector {
         if !candidate.replayed_tip.as_ref().is_some_and(|checkpoint| {
             checkpoint.slot == tip.slot && checkpoint.blockhash == tip.blockhash
         }) {
-            bail!("ring replay has not reached the confirmed projection tip");
+            bail!("ring replay has not reached the confirmed custom ring tip");
         }
         storage::delete_pending(db, &candidate.program).await
     }
@@ -285,7 +298,7 @@ impl Projector {
                 let block = self.rpc.get_block(slot, TransactionDetails::Full).await?;
                 Ok(parse_ui_confirmed_blocked(block, slot)?)
             })
-            .buffered(BLOCK_FETCH_CONCURRENCY)
+            .buffered(self.block_fetches.max(1))
             .collect()
             .await
     }
@@ -294,9 +307,9 @@ impl Projector {
         &self,
         tx: &DatabaseTransaction,
         block: &BlockInfo,
-        cursor: &mut ProjectionCursor,
+        cursor: &mut CustomRingCursor,
     ) -> Result<()> {
-        let undo = self.project_block(tx, block, cursor, Scope::Every).await?;
+        let undo = self.index_block(tx, block, cursor, Scope::Every).await?;
         storage::save_journal(
             tx,
             &BlockJournal {
@@ -311,11 +324,11 @@ impl Projector {
         cursor.suspend(tx).await
     }
 
-    async fn project_block(
+    async fn index_block(
         &self,
         tx: &DatabaseTransaction,
         block: &BlockInfo,
-        cursor: &mut ProjectionCursor,
+        cursor: &mut CustomRingCursor,
         scope: Scope,
     ) -> Result<BlockUndo> {
         BlockWork {
@@ -329,7 +342,7 @@ impl Projector {
         .await
     }
 
-    async fn check_roots(&self, cursor: &ProjectionCursor, target: u64) -> Result<()> {
+    async fn check_roots(&self, cursor: &CustomRingCursor, target: u64) -> Result<()> {
         let db = self.db.as_ref();
         for root in storage::roots(db).await? {
             if root.fault.is_some() || storage::pending_ring(db, &root.program).await?.is_some() {
@@ -338,20 +351,20 @@ impl Projector {
             match load_root(&self.rpc, &Pubkey::new_from_array(root.program)).await {
                 // Each proof request checks the exact current root.
                 Ok(_) => {}
-                Err(ProjectError::Retry(error)) => return Err(error),
-                Err(ProjectError::Fault(reason)) => {
+                Err(ApplyError::Retry(error)) => return Err(error),
+                Err(ApplyError::Fault(reason)) => {
                     if self.rpc.get_slot().await? > target {
                         continue;
                     }
                     let tip = cursor
                         .tip
                         .as_ref()
-                        .context("root exists without a projection tip")?;
+                        .context("root exists without a custom ring tip")?;
                     let tx = db.begin().await?;
                     let mut journal = storage::journal(&tx, tip.slot)
                         .await?
-                        .context("ring projection journal gap")?;
-                    let undo = Store::new(&tx, root.program)
+                        .context("custom ring index journal gap")?;
+                    let undo = RingStore::new(&tx, root.program)
                         .quarantine_root(root, reason)
                         .await?;
                     journal.undo.member_registry.push(undo);
@@ -396,7 +409,7 @@ fn instruction_view(instruction: &Instruction) -> zolana_ring_indexer::Instructi
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum ProjectError {
+pub(crate) enum ApplyError {
     /// Confined to one ring.
     #[error("{0}")]
     Fault(String),
@@ -404,25 +417,25 @@ pub(crate) enum ProjectError {
     Retry(#[from] anyhow::Error),
 }
 
-impl From<sea_orm::DbErr> for ProjectError {
+impl From<sea_orm::DbErr> for ApplyError {
     fn from(error: sea_orm::DbErr) -> Self {
         Self::Retry(error.into())
     }
 }
 
-impl From<RpcError> for ProjectError {
+impl From<RpcError> for ApplyError {
     fn from(error: RpcError) -> Self {
         Self::Retry(error.into())
     }
 }
 
-impl From<HasherError> for ProjectError {
+impl From<HasherError> for ApplyError {
     fn from(error: HasherError) -> Self {
         fault(format!("hashing failed ({error:?})"))
     }
 }
 
-impl From<PredecessorError> for ProjectError {
+impl From<PredecessorError> for ApplyError {
     fn from(error: PredecessorError) -> Self {
         match error {
             PredecessorError::NotAbsent => fault(error.to_string()),
@@ -431,12 +444,12 @@ impl From<PredecessorError> for ProjectError {
     }
 }
 
-pub(crate) fn fault(reason: impl Into<String>) -> ProjectError {
-    ProjectError::Fault(reason.into())
+pub(crate) fn fault(reason: impl Into<String>) -> ApplyError {
+    ApplyError::Fault(reason.into())
 }
 
 /// A missing or foreign ring account is the ring's fault.
-fn ring_account(result: Result<Account, RpcError>) -> Result<Account, ProjectError> {
+fn ring_account(result: Result<Account, RpcError>) -> Result<Account, ApplyError> {
     match result {
         Err(RpcError::InvalidAccount(reason)) => Err(fault(reason)),
         other => Ok(other?),
@@ -457,7 +470,7 @@ pub(crate) fn member_registry_root_pda(program: &Pubkey) -> (Pubkey, u8) {
 pub(crate) async fn load_root(
     rpc: &RpcClient,
     program: &Pubkey,
-) -> Result<ChainRoot, ProjectError> {
+) -> Result<ChainRoot, ApplyError> {
     let (address, bump) = member_registry_root_pda(program);
     let account = ring_account(rpc.get_account(&address).await)?;
     let root = MemberRegistryRoot::decode(&account.owner, program, &account.data)
@@ -505,7 +518,7 @@ impl<'a> Invocations<'a> {
         self.instructions.get(position)?.data.first().copied()
     }
 
-    fn invocation(&self, position: usize) -> Result<Invocation<'a>, ProjectError> {
+    fn invocation(&self, position: usize) -> Result<Invocation<'a>, ApplyError> {
         let instruction = self
             .instructions
             .get(position)
@@ -516,7 +529,7 @@ impl<'a> Invocations<'a> {
 
 struct BlockWork<'a> {
     tx: &'a DatabaseTransaction,
-    cursor: &'a mut ProjectionCursor,
+    cursor: &'a mut CustomRingCursor,
     block: &'a BlockInfo,
     scope: Scope,
     env: BlockEnv<'a>,
@@ -551,7 +564,7 @@ impl BlockWork<'_> {
             // A pending ring waits for its own replay.
             Scope::Every => storage::pending_ring(self.tx, &program).await?.is_some(),
         };
-        let store = Store::new(self.tx, program);
+        let store = RingStore::new(self.tx, program);
         match family {
             _ if skip => Ok(()),
             Family::Registry => {
@@ -563,7 +576,7 @@ impl BlockWork<'_> {
 
     async fn registry(
         &mut self,
-        store: &Store<'_, DatabaseTransaction>,
+        store: &RingStore<'_, DatabaseTransaction>,
         invocations: &Invocations<'_>,
         position: usize,
         undo: &mut Vec<Undo>,
@@ -580,10 +593,10 @@ impl BlockWork<'_> {
         let outcome = async { self.advance(&root, invocations.invocation(position)?).await }.await;
         match outcome {
             Ok(entry) => undo.extend(entry),
-            Err(ProjectError::Fault(reason)) => {
+            Err(ApplyError::Fault(reason)) => {
                 undo.push(store.quarantine_root(root, reason).await?)
             }
-            Err(ProjectError::Retry(error)) => return Err(error),
+            Err(ApplyError::Retry(error)) => return Err(error),
         }
         Ok(())
     }
@@ -611,7 +624,7 @@ impl BlockWork<'_> {
 
     async fn initialize(
         &mut self,
-        store: &Store<'_, DatabaseTransaction>,
+        store: &RingStore<'_, DatabaseTransaction>,
         address: [u8; 32],
     ) -> Result<Option<Undo>> {
         let program = Pubkey::new_from_array(store.program);
@@ -632,12 +645,12 @@ impl BlockWork<'_> {
         };
         match load_root(self.env.rpc, &program).await {
             Ok(_) => {}
-            Err(ProjectError::Fault(reason)) => {
+            Err(ApplyError::Fault(reason)) => {
                 let mut created = store.quarantine_root(root, reason).await?;
                 created.before = None;
                 return Ok(Some(created));
             }
-            Err(ProjectError::Retry(error)) => return Err(error),
+            Err(ApplyError::Retry(error)) => return Err(error),
         }
         let sentinel = MemberRecordRow::sentinel();
         let leaves = [LeafWrite::of(&sentinel)?];
@@ -654,13 +667,13 @@ impl BlockWork<'_> {
         &mut self,
         root: &RingRoot,
         invocation: Invocation<'_>,
-    ) -> Result<Option<Undo>, ProjectError> {
+    ) -> Result<Option<Undo>, ApplyError> {
         let Some(batch) = member_registry::transition(&invocation)? else {
             return Ok(None);
         };
         let revision = self.cursor.advance_revision()?;
         let savepoint = self.tx.begin().await?;
-        let store = Store::new(&savepoint, root.program);
+        let store = RingStore::new(&savepoint, root.program);
         let applied = member_registry::apply(&store, root, batch, revision).await;
         match applied {
             Ok(_) => savepoint.commit().await?,
@@ -711,14 +724,18 @@ struct BlockBatch {
     scanned_slot: u64,
 }
 
-async fn block_batch(rpc: &RpcClient, slots: RangeInclusive<u64>) -> Result<BlockBatch> {
+async fn block_batch(
+    rpc: &RpcClient,
+    slots: RangeInclusive<u64>,
+    batch_len: usize,
+) -> Result<BlockBatch> {
     let mut start = *slots.start();
     let target = *slots.end();
     let mut batch = Vec::new();
     loop {
         let end = target.min(start.saturating_add(GET_BLOCKS_PAGE - 1));
         let page = confirmed_page(rpc, start..=end).await?;
-        let available = BLOCK_BATCH - batch.len();
+        let available = batch_len - batch.len();
         if page.len() > available {
             batch.extend(page.into_iter().take(available));
             let scanned = *batch.last().context("empty block batch")?;
@@ -728,7 +745,7 @@ async fn block_batch(rpc: &RpcClient, slots: RangeInclusive<u64>) -> Result<Bloc
             });
         }
         batch.extend(page);
-        if end == target || batch.len() == BLOCK_BATCH {
+        if end == target || batch.len() == batch_len {
             return Ok(BlockBatch {
                 slots: batch,
                 scanned_slot: end,

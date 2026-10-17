@@ -49,8 +49,8 @@ pub async fn run_server(
 }
 
 fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, anyhow::Error> {
-    #[cfg(feature = "ring-projection")]
-    let ring_projection = api_and_indexer.ring_projection_enabled();
+    #[cfg(feature = "custom-rings")]
+    let custom_rings = api_and_indexer.custom_rings_enabled();
     let mut module = RpcModule::new(api_and_indexer);
 
     module.register_async_method(
@@ -178,8 +178,8 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
-    #[cfg(feature = "ring-projection")]
-    if ring_projection {
+    #[cfg(feature = "custom-rings")]
+    if custom_rings {
         module.register_async_method(
             zolana_indexer_api::GET_RING_MEMBER_RECORD,
             |params, context, _| async move {
@@ -210,7 +210,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn registers_only_rings_product_methods() {
+    async fn registers_the_rings_product_methods() {
         let module = build_rpc_module(test_api().await).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
 
@@ -225,19 +225,28 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getUserRecords"));
-        assert!(!methods.contains(&"getRingMemberRecord"));
-        assert!(!methods.contains(&"getRingMemberRegistryRoot"));
-    }
-
-    #[cfg(feature = "ring-projection")]
-    #[tokio::test]
-    async fn registers_custom_ring_methods_only_after_opt_in() {
-        let module = build_rpc_module(test_api().await.with_ring_projection()).unwrap();
-        let methods = module.method_names().collect::<Vec<_>>();
-        for method in ["getRingMemberRecord", "getRingMemberRegistryRoot"] {
-            assert!(methods.contains(&method));
+        for method in CUSTOM_RING_METHODS {
+            assert_eq!(methods.contains(&method), cfg!(feature = "custom-rings"));
         }
     }
+
+    #[cfg(feature = "custom-rings")]
+    #[tokio::test]
+    async fn registers_custom_ring_methods_unless_disabled() {
+        let module = build_rpc_module(test_api().await).unwrap();
+        let methods = module.method_names().collect::<Vec<_>>();
+        for method in CUSTOM_RING_METHODS {
+            assert!(methods.contains(&method));
+        }
+
+        let module = build_rpc_module(test_api().await.without_custom_rings()).unwrap();
+        let methods = module.method_names().collect::<Vec<_>>();
+        for method in CUSTOM_RING_METHODS {
+            assert!(!methods.contains(&method));
+        }
+    }
+
+    const CUSTOM_RING_METHODS: [&str; 2] = ["getRingMemberRecord", "getRingMemberRegistryRoot"];
 
     async fn test_api() -> PhotonApi {
         let db = Database::connect("sqlite::memory:").await.unwrap();
