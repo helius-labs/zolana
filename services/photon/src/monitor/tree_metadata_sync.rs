@@ -134,7 +134,7 @@ fn parse_rings_tree_account<'a>(
 }
 
 /// `None` unless the account is an SPP tree.
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 pub(crate) fn rings_tree_id(pubkey: Pubkey, account: &Account) -> Option<u16> {
     let mut data = account.data.clone();
     let tree_id = parse_rings_tree_account(pubkey, account, &mut data)?.tree_id();

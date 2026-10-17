@@ -110,9 +110,9 @@ jobs:
                 ('rings_outputs'),
                 ('rings_output_payloads'),
                 ('rings_tx_nullifiers'),
-                ('ring_projection_cursor'),
-                ('ring_projection_blocks'),
-                ('ring_projection_pending'),
+                ('custom_ring_cursor'),
+                ('custom_ring_blocks'),
+                ('custom_ring_pending'),
                 ('ring_spend_record_rings'),
                 ('ring_spend_records'),
                 ('ring_key_registry_roots'),
@@ -133,4 +133,4 @@ jobs:
         run: |
           cargo test --locked -p zolana-indexer-api
           cargo test --locked -p photon-indexer --all-targets
-          cargo test --locked -p photon-indexer --all-targets --features ring-projection
+          cargo test --locked -p photon-indexer --all-targets --features custom-rings

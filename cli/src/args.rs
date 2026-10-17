@@ -448,10 +448,10 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long,
-        env = "ZOLANA_PHOTON_RING_PROJECTION",
-        help = "Enable custom ring projection in Photon"
+        env = "ZOLANA_PHOTON_CUSTOM_RINGS",
+        help = "Index custom rings in Photon"
     )]
-    pub(crate) photon_ring_projection: bool,
+    pub(crate) photon_custom_rings: bool,
 
     #[arg(
         long,

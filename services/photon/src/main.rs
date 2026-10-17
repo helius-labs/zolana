@@ -22,9 +22,9 @@ use photon_indexer::migration::{
     MigratorTrait, RingsMigrator,
 };
 
+#[cfg(feature = "custom-rings")]
+use photon_indexer::custom_rings::{CustomRingIndexer, StartSlot};
 use photon_indexer::monitor::continuously_monitor_photon;
-#[cfg(feature = "ring-projection")]
-use photon_indexer::ring_projection::{Projector, StartSlot};
 use photon_indexer::rpc::{BlockHeaders, RpcClient};
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
@@ -86,14 +86,14 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     #[arg(long)]
-    enable_ring_projection: bool,
+    index_custom_rings: bool,
 
-    /// First projected ring slot, the network start by default.
-    #[cfg(feature = "ring-projection")]
-    #[arg(long, requires = "enable_ring_projection")]
-    ring_projection_start_slot: Option<u64>,
+    /// First indexed custom ring slot, the network start by default.
+    #[cfg(feature = "custom-rings")]
+    #[arg(long, requires = "index_custom_rings")]
+    custom_rings_start_slot: Option<u64>,
 
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
@@ -397,7 +397,7 @@ async fn main() -> Result<()> {
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
-    let (projector_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
+    let (custom_rings_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
         info!("Indexing is disabled");
         (None, None, None)
     } else {
@@ -418,27 +418,27 @@ async fn main() -> Result<()> {
             },
         };
 
-        #[cfg(feature = "ring-projection")]
-        let projector_handle = if args.enable_ring_projection {
+        #[cfg(feature = "custom-rings")]
+        let custom_rings_handle = if args.index_custom_rings {
             // Blocks before an explicit index start are not linkable.
-            let projection_start = match args.ring_projection_start_slot {
+            let custom_rings_start = match args.custom_rings_start_slot {
                 Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
                 None if args.start_slot.is_some() => StartSlot::Derived(last_indexed_slot),
                 None => StartSlot::Derived(get_network_start_slot(&rpc_client).await),
             };
             Some(
-                Projector {
+                CustomRingIndexer {
                     db: db_conn.clone(),
                     rpc: rpc_client.clone(),
-                    start: projection_start,
+                    start: custom_rings_start,
                 }
                 .spawn(),
             )
         } else {
             None
         };
-        #[cfg(not(feature = "ring-projection"))]
-        let projector_handle: Option<tokio::task::JoinHandle<()>> = None;
+        #[cfg(not(feature = "custom-rings"))]
+        let custom_rings_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         info!("Starting indexer...");
 
@@ -477,7 +477,7 @@ async fn main() -> Result<()> {
         };
 
         (
-            projector_handle,
+            custom_rings_handle,
             Some(continuously_index_new_blocks(
                 block_stream_config,
                 db_conn.clone(),
@@ -499,9 +499,9 @@ async fn main() -> Result<()> {
         None
     } else {
         let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
-        #[cfg(feature = "ring-projection")]
-        let api = if args.enable_ring_projection {
-            api.with_ring_projection()
+        #[cfg(feature = "custom-rings")]
+        let api = if args.index_custom_rings {
+            api.with_custom_rings()
         } else {
             api
         };
@@ -518,7 +518,7 @@ async fn main() -> Result<()> {
 
     match tokio::signal::ctrl_c().await {
         Ok(()) => {
-            if let Some(handle) = projector_handle {
+            if let Some(handle) = custom_rings_handle {
                 handle.abort();
                 let _ = handle.await;
             }

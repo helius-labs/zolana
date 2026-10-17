@@ -13,11 +13,11 @@ use super::{
     key_registry::MemberKey,
     load_root,
     proof::{self, PathOverlay},
-    storage::{self, PredecessorError, ProjectionCursor, RingRoot, RingStore},
+    storage::{self, CustomRingCursor, PredecessorError, RingRoot, RingStore},
 };
 use crate::{
     api::{
-        error::{PhotonApiError, RingProjectionError},
+        error::{CustomRingError, PhotonApiError},
         set_transaction_isolation_if_needed,
     },
     ingester::typedefs::block_info::BlockMetadata,
@@ -61,7 +61,7 @@ pub(crate) async fn insertion(
         .map_err(internal)?
         .is_some()
     {
-        return Err(RingProjectionError::MemberAlreadyRegistered.into());
+        return Err(CustomRingError::MemberAlreadyRegistered.into());
     }
     let low = store
         .predecessor(&request.member.0)
@@ -115,7 +115,7 @@ pub(crate) async fn member_path(
         .member(&request.member.0)
         .await
         .map_err(internal)?
-        .ok_or(RingProjectionError::MemberUnregistered)?;
+        .ok_or(CustomRingError::MemberUnregistered)?;
     let path = proof::path(&tx, root, leaf.index).await.map_err(internal)?;
     if leaf.hash().map_err(internal)? != path.leaf {
         return Err(internal("key registry member disagrees with its leaf"));
@@ -165,8 +165,8 @@ async fn snapshot(
     let cursor = storage::cursor(tx)
         .await
         .map_err(internal)?
-        .filter(ProjectionCursor::is_ready)
-        .ok_or_else(|| out_of_sync("projector is catching up or recovering"))?;
+        .filter(CustomRingCursor::is_ready)
+        .ok_or_else(|| out_of_sync("custom ring indexer is catching up or recovering"))?;
     if storage::pending_ring(tx, &request.ring_program_id.0.to_bytes())
         .await
         .map_err(internal)?
@@ -183,7 +183,7 @@ async fn snapshot(
         return Err(out_of_sync(format!("ring quarantined, {fault}")));
     }
     if root.root != request.expected_root.0 || root.next_index != request.expected_next_index {
-        return Err(RingProjectionError::RootChanged.into());
+        return Err(CustomRingError::RootChanged.into());
     }
     Ok(Snapshot {
         root,
@@ -219,7 +219,7 @@ pub(super) async fn canonical_context(
 }
 
 fn out_of_sync(reason: impl Display) -> PhotonApiError {
-    RingProjectionError::OutOfSync(reason.to_string()).into()
+    CustomRingError::OutOfSync(reason.to_string()).into()
 }
 
 pub(super) fn internal(error: impl Display) -> PhotonApiError {

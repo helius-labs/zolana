@@ -239,7 +239,7 @@ The ring keys must match `prover/server/prover/provingkeys/proving-keys.lock`.
 Local mode verifies these files and fetches no custom-rings release.
 
 ```sh
-cargo build -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
+cargo build -p photon-indexer --bin photon --features surfpool-fixture,custom-rings
 export ZOLANA_RING_WORKSPACE=/absolute/path/to/zolana
 export ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d)"
 export SURFPOOL_BIN=/absolute/path/to/pinned/surfpool
@@ -247,11 +247,11 @@ export ZOLANA_RING_SURFPOOL_FIXTURE=1
 "$ZOLANA_RING_WORKSPACE/target/debug/zolana-ring" dev
 ```
 
-The `ring-projection` feature compiles the custom ring worker and RPC methods.
-Photon requires `--enable-ring-projection` to start the worker and expose those
+The `custom-rings` feature compiles the custom ring worker and RPC methods.
+Photon requires `--index-custom-rings` to start the worker and expose those
 methods. `zolana-ring dev` passes the opt-in through the localnet CLI. Direct
-`zolana dev start` calls need `--photon-ring-projection`. Plain Photon builds
-have no custom ring projection dependencies.
+`zolana dev start` calls need `--photon-custom-rings`. Plain Photon builds
+have no custom ring dependencies.
 
 The fixture feature repairs Surfpool's synthetic parent block hashes on
 loopback RPC only, opted in with `ZOLANA_RING_SURFPOOL_FIXTURE=1`. Production
@@ -349,7 +349,7 @@ count, up to 54.
 
 On devnet, configure the prover, indexer and ring RPC URLs in `ring.toml`.
 They must run the matching release, including its proving keys and Photon
-spend-record and key-registry projections. The CLI probes these services and does
+spend-record and key-registry indexes. The CLI probes these services and does
 not start them. A healthy HTTP endpoint alone does not prove key compatibility.
 The hosted ring RPC derives one auditor key per
 ring from a root secret, so it serves any ring that asks and a new ring needs
@@ -429,7 +429,7 @@ binding the input and output tree accounts before proving.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
 discovery matches the auditor view tag. Spend-record discovery additionally
-requires Photon's ring spend-record projection. A transaction
+requires Photon's custom ring spend-record index. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller. A member
 escrows its nullifier key with `RegisterKey`, `ReadSealedKey` reads the sealed

@@ -25,7 +25,7 @@ pub(crate) struct RingRoot {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct ProjectionCursor {
+pub(crate) struct CustomRingCursor {
     pub start_slot: u64,
     pub scanned_slot: u64,
     pub tip: Option<BlockMetadata>,
@@ -34,7 +34,7 @@ pub(crate) struct ProjectionCursor {
     ready: bool,
 }
 
-impl ProjectionCursor {
+impl CustomRingCursor {
     pub fn new(start_slot: u64) -> Self {
         Self {
             start_slot,
@@ -64,7 +64,7 @@ impl ProjectionCursor {
             .revision
             .checked_add(1)
             .filter(|revision| i64::try_from(*revision).is_ok())
-            .context("ring projection storage revision exhausted")?;
+            .context("custom ring storage revision exhausted")?;
         Ok(self.revision)
     }
 }
@@ -114,7 +114,7 @@ pub(crate) struct PendingRing {
     pub program: [u8; 32],
     pub slot: u64,
     pub blockhash: Hash,
-    /// Last historical block committed with the ring's projection changes.
+    /// Last historical block committed with the ring's index changes.
     pub replayed_tip: Option<BlockMetadata>,
 }
 
@@ -126,9 +126,9 @@ pub(crate) enum PredecessorError {
     Storage(#[from] anyhow::Error),
 }
 
-const CURSOR_TABLE: &str = "ring_projection_cursor";
-const JOURNAL_TABLE: &str = "ring_projection_blocks";
-const PENDING_TABLE: &str = "ring_projection_pending";
+const CURSOR_TABLE: &str = "custom_ring_cursor";
+const JOURNAL_TABLE: &str = "custom_ring_blocks";
+const PENDING_TABLE: &str = "custom_ring_pending";
 const ROOTS_TABLE: &str = "ring_key_registry_roots";
 const MEMBERS_TABLE: &str = "ring_key_registry_members";
 
@@ -196,7 +196,7 @@ pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 
     Ok(())
 }
 
-pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<ProjectionCursor>> {
+pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<CustomRingCursor>> {
     read_json(
         conn,
         &format!("SELECT state FROM {CURSOR_TABLE} WHERE id=1"),
@@ -207,7 +207,7 @@ pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<Projec
 
 pub(crate) async fn save_cursor<C: ConnectionTrait>(
     conn: &C,
-    value: &ProjectionCursor,
+    value: &CustomRingCursor,
 ) -> Result<()> {
     conn.execute(statement(
         conn,
@@ -283,15 +283,15 @@ pub(crate) async fn roots<C: ConnectionTrait>(conn: &C) -> Result<Vec<RingRoot>>
 
 pub(crate) async fn rollback(
     tx: &DatabaseTransaction,
-    cursor: &mut ProjectionCursor,
+    cursor: &mut CustomRingCursor,
 ) -> Result<()> {
     let tip = cursor
         .tip
         .as_ref()
-        .context("cannot rewind before the ring projection start")?;
+        .context("cannot rewind before the custom ring start")?;
     let journal = journal(tx, tip.slot)
         .await?
-        .context("ring projection journal gap")?;
+        .context("custom ring journal gap")?;
     tx.execute(statement(
         tx,
         &format!("DELETE FROM {PENDING_TABLE} WHERE slot=$1"),
@@ -325,7 +325,7 @@ pub(crate) async fn rollback(
 
 async fn restore(
     tx: &DatabaseTransaction,
-    cursor: &mut ProjectionCursor,
+    cursor: &mut CustomRingCursor,
     undos: &[Undo],
 ) -> Result<()> {
     for undo in undos.iter().rev() {

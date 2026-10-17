@@ -151,7 +151,13 @@ fn transaction(program: Pubkey, accounts: &[Pubkey], data: &[u8]) -> Value {
 }
 
 /// Initialization and first registration precede the global tip.
-async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8; 32]) {
+async fn late_ring() -> (
+    CustomRingIndexer,
+    Arc<Mutex<Chain>>,
+    ServerHandle,
+    Pubkey,
+    [u8; 32],
+) {
     let program = Pubkey::new_from_array([11; 32]);
     let address = pda::key_registry_root(&program).0;
     let mut tree = zolana_ring_key_registry::KeyRegistryTree::new().unwrap();
@@ -239,17 +245,17 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
     let (rpc, handle) = rpc(chain.clone()).await;
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
-    let projector = Projector {
+    let indexer = CustomRingIndexer {
         db: Arc::new(db),
         rpc,
         start: StartSlot::Explicit(0),
     };
     assert!(matches!(
-        projector.synchronize().await.unwrap(),
+        indexer.synchronize().await.unwrap(),
         Progress::CaughtUp
     ));
     assert!(
-        storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+        storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
             .await
             .unwrap()
             .is_some()
@@ -259,24 +265,24 @@ async fn late_ring() -> (Projector, Arc<Mutex<Chain>>, ServerHandle, Pubkey, [u8
         activation(program, true),
     );
     chain.lock().unwrap().failed_block = Some(2);
-    (projector, chain, handle, program, insertion.new_root)
+    (indexer, chain, handle, program, insertion.new_root)
 }
 
 #[tokio::test]
 async fn replay_resumes_after_a_committed_initialization_and_restart() {
-    let (projector, chain, handle, program, expected) = late_ring().await;
+    let (indexer, chain, handle, program, expected) = late_ring().await;
     // An archive failure must withhold only the affected ring.
     assert!(matches!(
-        projector.synchronize().await.unwrap(),
+        indexer.synchronize().await.unwrap(),
         Progress::CaughtUp
     ));
-    let checkpoint = storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+    let checkpoint = storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(checkpoint.replayed_tip.unwrap().slot, 1);
     assert_eq!(
-        RingStore::new(projector.db.as_ref(), program.to_bytes())
+        RingStore::new(indexer.db.as_ref(), program.to_bytes())
             .root()
             .await
             .unwrap()
@@ -285,9 +291,9 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
         EMPTY_ROOT
     );
     chain.lock().unwrap().failed_block = None;
-    let restarted = Projector {
-        db: projector.db.clone(),
-        rpc: projector.rpc.clone(),
+    let restarted = CustomRingIndexer {
+        db: indexer.db.clone(),
+        rpc: indexer.rpc.clone(),
         start: StartSlot::Explicit(0),
     };
     for _ in 0..2 {
@@ -316,26 +322,26 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
 
 #[tokio::test]
 async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
-    let (projector, chain, handle, program, expected) = late_ring().await;
-    projector.synchronize().await.unwrap();
-    let mut cursor = projector.cursor().await.unwrap();
+    let (indexer, chain, handle, program, expected) = late_ring().await;
+    indexer.synchronize().await.unwrap();
+    let mut cursor = indexer.cursor().await.unwrap();
     for _ in 0..3 {
-        projector.rewind_tip(&mut cursor).await.unwrap();
+        indexer.rewind_tip(&mut cursor).await.unwrap();
     }
     assert!(
-        storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+        storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
             .await
             .unwrap()
             .is_none()
     );
-    assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+    assert!(RingStore::new(indexer.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
         .is_none());
     chain.lock().unwrap().failed_block = None;
-    projector.synchronize().await.unwrap();
-    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+    indexer.synchronize().await.unwrap();
+    let root = RingStore::new(indexer.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
@@ -348,7 +354,7 @@ async fn rollback_rewinds_an_incomplete_replay_before_canonical_reindex() {
 
 #[tokio::test]
 async fn a_stalled_replay_does_not_starve_another_pending_ring() {
-    let (projector, chain, handle, stalled, _) = late_ring().await;
+    let (indexer, chain, handle, stalled, _) = late_ring().await;
     let healthy = Pubkey::new_from_array([12; 32]);
     let address = pda::key_registry_root(&healthy).0;
     {
@@ -378,31 +384,31 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
             ),
         );
     }
-    projector.synchronize().await.unwrap();
+    indexer.synchronize().await.unwrap();
     assert_eq!(
-        storage::pending(projector.db.as_ref()).await.unwrap().len(),
+        storage::pending(indexer.db.as_ref()).await.unwrap().len(),
         2
     );
     chain.lock().unwrap().accounts.insert(
         zolana_interface::pda::ring_auth(&healthy).0.to_string(),
         activation(healthy, true),
     );
-    projector.synchronize().await.unwrap();
+    indexer.synchronize().await.unwrap();
     assert!(
-        storage::pending_ring(projector.db.as_ref(), &stalled.to_bytes())
+        storage::pending_ring(indexer.db.as_ref(), &stalled.to_bytes())
             .await
             .unwrap()
             .is_some()
     );
     assert!(
-        storage::pending_ring(projector.db.as_ref(), &healthy.to_bytes())
+        storage::pending_ring(indexer.db.as_ref(), &healthy.to_bytes())
             .await
             .unwrap()
             .is_none()
     );
     assert!(key_registry::register(
-        projector.db.as_ref(),
-        &projector.rpc,
+        indexer.db.as_ref(),
+        &indexer.rpc,
         RingMemberProofRequest {
             ring_program_id: healthy.into(),
             member: Hash(member(7)),
@@ -418,10 +424,10 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
 
 #[tokio::test]
 async fn a_fork_rewinds_the_committed_replay_checkpoint() {
-    let (projector, chain, handle, program, expected) = late_ring().await;
+    let (indexer, chain, handle, program, expected) = late_ring().await;
     chain.lock().unwrap().failed_block = Some(3);
-    projector.synchronize().await.unwrap();
-    let checkpoint = storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+    indexer.synchronize().await.unwrap();
+    let checkpoint = storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
         .await
         .unwrap()
         .unwrap();
@@ -440,8 +446,8 @@ async fn a_fork_rewinds_the_committed_replay_checkpoint() {
         chain.failed_block = None;
     }
     // A changed blockhash must trigger rollback during synchronization.
-    projector.synchronize().await.unwrap();
-    let root = RingStore::new(projector.db.as_ref(), program.to_bytes())
+    indexer.synchronize().await.unwrap();
+    let root = RingStore::new(indexer.db.as_ref(), program.to_bytes())
         .root()
         .await
         .unwrap()
@@ -450,7 +456,7 @@ async fn a_fork_rewinds_the_committed_replay_checkpoint() {
     assert_eq!(root.next_index, 2);
     assert!(root.fault.is_none());
     assert!(
-        storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+        storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
             .await
             .unwrap()
             .is_none()
@@ -461,17 +467,17 @@ async fn a_fork_rewinds_the_committed_replay_checkpoint() {
 
 #[tokio::test]
 async fn missing_archived_initialization_never_completes_a_replay() {
-    let (projector, chain, handle, program, _) = late_ring().await;
+    let (indexer, chain, handle, program, _) = late_ring().await;
     chain.lock().unwrap().blocks.remove(&1);
     chain.lock().unwrap().failed_block = None;
     for _ in 0..2 {
-        projector.synchronize().await.unwrap();
-        let checkpoint = storage::pending_ring(projector.db.as_ref(), &program.to_bytes())
+        indexer.synchronize().await.unwrap();
+        let checkpoint = storage::pending_ring(indexer.db.as_ref(), &program.to_bytes())
             .await
             .unwrap()
             .unwrap();
         assert!(checkpoint.replayed_tip.is_none());
-        assert!(RingStore::new(projector.db.as_ref(), program.to_bytes())
+        assert!(RingStore::new(indexer.db.as_ref(), program.to_bytes())
             .root()
             .await
             .unwrap()
@@ -490,7 +496,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
     ] {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         RingsMigrator::up(&db, None).await.unwrap();
-        let mut cursor = ProjectionCursor::new(0);
+        let mut cursor = CustomRingCursor::new(0);
         let faulty = initialize_root(&db, &mut cursor, [11; 32]).await;
         let healthy = initialize_root(&db, &mut cursor, [12; 32]).await;
         let ahead = initialize_root(&db, &mut cursor, [13; 32]).await;
@@ -513,19 +519,19 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             failed_block: None,
         }));
         let (rpc, handle) = rpc(chain).await;
-        let projector = Projector {
+        let indexer = CustomRingIndexer {
             db: Arc::new(db),
             rpc,
             start: StartSlot::Explicit(0),
         };
-        storage::save_cursor(projector.db.as_ref(), &cursor)
+        storage::save_cursor(indexer.db.as_ref(), &cursor)
             .await
             .unwrap();
         assert!(matches!(
-            projector.synchronize().await.unwrap(),
+            indexer.synchronize().await.unwrap(),
             Progress::CaughtUp
         ));
-        let root = |program| RingStore::new(projector.db.as_ref(), program);
+        let root = |program| RingStore::new(indexer.db.as_ref(), program);
         assert!(root(faulty.program)
             .root()
             .await
@@ -547,22 +553,22 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             expected_next_index: 1,
         };
         assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&healthy))
+            key_registry::register(indexer.db.as_ref(), &indexer.rpc, request(&healthy))
                 .await
                 .is_ok()
         );
         assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&faulty))
+            key_registry::register(indexer.db.as_ref(), &indexer.rpc, request(&faulty))
                 .await
                 .is_err()
         );
         assert!(
-            key_registry::register(projector.db.as_ref(), &projector.rpc, request(&ahead))
+            key_registry::register(indexer.db.as_ref(), &indexer.rpc, request(&ahead))
                 .await
                 .is_err()
         );
-        let mut cursor = projector.cursor().await.unwrap();
-        projector.rewind_tip(&mut cursor).await.unwrap();
+        let mut cursor = indexer.cursor().await.unwrap();
+        indexer.rewind_tip(&mut cursor).await.unwrap();
         assert!(root(faulty.program)
             .root()
             .await

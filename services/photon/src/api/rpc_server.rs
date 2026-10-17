@@ -49,8 +49,8 @@ pub async fn run_server(
 }
 
 fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, anyhow::Error> {
-    #[cfg(feature = "ring-projection")]
-    let ring_projection = api_and_indexer.ring_projection_enabled();
+    #[cfg(feature = "custom-rings")]
+    let custom_rings = api_and_indexer.custom_rings_enabled();
     let mut module = RpcModule::new(api_and_indexer);
 
     module.register_async_method(
@@ -178,8 +178,8 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
-    #[cfg(feature = "ring-projection")]
-    if ring_projection {
+    #[cfg(feature = "custom-rings")]
+    if custom_rings {
         module.register_async_method(
             zolana_indexer_api::GET_RING_KEY_REGISTRY_ENTRY,
             |params, context, _| async move {
@@ -239,10 +239,10 @@ mod tests {
         assert!(!methods.contains(&"getRingSpendRecord"));
     }
 
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     #[tokio::test]
     async fn registers_custom_ring_methods_only_after_opt_in() {
-        let module = build_rpc_module(test_api().await.with_ring_projection()).unwrap();
+        let module = build_rpc_module(test_api().await.with_custom_rings()).unwrap();
         let methods = module.method_names().collect::<Vec<_>>();
         for method in [
             "getRingKeyRegistryEntry",
