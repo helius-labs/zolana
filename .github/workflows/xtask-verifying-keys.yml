@@ -62,7 +62,8 @@ jobs:
           cp cli/release-artifacts.lock target/release-staging/release-artifacts.lock
           printf '%s\n' "$ZOLANA_REV" > target/release-staging/SOURCE_COMMIT
           (cd target/release-staging && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS)
-          gh release create "$TEST_TAG" --target "$ZOLANA_REV" --prerelease --latest=false --title 'Test artifacts for DvP PR #41' --notes 'Temporary test artifacts for helius-labs/zolana-examples#41. Native sources are pinned in SOURCE_COMMIT; release-artifacts.lock and SHA256SUMS record the built assets. This is a test prerelease for that PR.' target/release-staging/*
+          mapfile -d '' assets < <(find target/release-staging -maxdepth 1 -type f -print0)
+          gh release create "$TEST_TAG" --target "$ZOLANA_REV" --prerelease --latest=false --title 'Test artifacts for DvP PR #41' --notes 'Temporary test artifacts for helius-labs/zolana-examples#41. Native sources are pinned in SOURCE_COMMIT; release-artifacts.lock and SHA256SUMS record the built assets. This is a test prerelease for that PR.' "${assets[@]}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
