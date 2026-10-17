@@ -32,20 +32,6 @@ async fn rpc(chain: Arc<Mutex<Chain>>) -> (Arc<RpcClient>, ServerHandle) {
         })
         .unwrap();
     module
-        .register_method("getBlocks", |params, chain, _| {
-            let (start, end, _): (u64, u64, Value) = params.parse()?;
-            Ok::<_, ErrorObjectOwned>(
-                chain
-                    .lock()
-                    .unwrap()
-                    .blocks
-                    .range(start..=end)
-                    .map(|(slot, _)| *slot)
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap();
-    module
         .register_method("getBlock", |params, chain, _| {
             let (slot, options): (u64, Value) = params.parse()?;
             let chain = chain.lock().unwrap();

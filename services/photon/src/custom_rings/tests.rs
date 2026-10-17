@@ -95,39 +95,6 @@ fn parent_links_require_both_slot_and_hash() {
 }
 
 #[tokio::test]
-async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
-    let server = jsonrpsee::server::ServerBuilder::default()
-        .build("127.0.0.1:0")
-        .await
-        .unwrap();
-    let address = server.local_addr().unwrap();
-    let mut module = jsonrpsee::RpcModule::new(());
-    module
-        .register_method("getBlocks", |params, _, _| {
-            let (start, end, commitment): (u64, u64, serde_json::Value) = params.parse()?;
-            assert_eq!(commitment["commitment"], "confirmed");
-            Ok::<_, jsonrpsee::types::ErrorObjectOwned>(
-                (5000..=5040)
-                    .filter(|slot| (start..=end).contains(slot))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .unwrap();
-    let handle = server.start(module);
-    let rpc = RpcClient::new(format!("http://{address}"));
-    let first = block_batch(&rpc, 1..=5100, MIN_BLOCK_BATCH).await.unwrap();
-    assert_eq!(first.slots, (5000..=5031).collect::<Vec<_>>());
-    assert_eq!(first.scanned_slot, 5031);
-    let second = block_batch(&rpc, 5032..=5100, MIN_BLOCK_BATCH)
-        .await
-        .unwrap();
-    assert_eq!(second.slots, (5032..=5040).collect::<Vec<_>>());
-    assert_eq!(second.scanned_slot, 5100);
-    handle.stop().unwrap();
-    handle.stopped().await;
-}
-
-#[tokio::test]
 async fn an_explicit_start_slot_must_match_the_stored_cursor() {
     let (db, _, _) = fixture().await;
     assert!(indexer(&db, StartSlot::Explicit(5)).cursor().await.is_err());

@@ -8,6 +8,7 @@ use cadence_macros::statsd_count;
 use futures::{pin_mut, Stream, StreamExt};
 use solana_transaction_status_client_types::TransactionDetails;
 
+use super::FetchError;
 use crate::{
     ingester::typedefs::block_info::{parse_ui_confirmed_blocked, BlockInfo},
     metric,
@@ -174,28 +175,48 @@ impl BlockAssembler {
     }
 }
 
+/// One `getBlock` with full transactions, `None` for a slot the RPC reports
+/// skipped. Every block fetcher goes through here.
+pub(crate) async fn fetch_block(
+    rpc_client: &RpcClient,
+    slot: u64,
+) -> Result<Option<BlockInfo>, FetchError> {
+    match rpc_client.get_block(slot, TransactionDetails::Full).await {
+        Ok(block) => {
+            metric! {
+                statsd_count!("rpc_block_fetched", 1);
+            }
+            parse_ui_confirmed_blocked(block, slot)
+                .map(Some)
+                .map_err(|source| {
+                    metric! {
+                        statsd_count!("rpc_block_parse_failed", 1);
+                    }
+                    FetchError::Parse { slot, source }
+                })
+        }
+        Err(error) if error.is_slot_skipped() => Ok(None),
+        Err(source) => {
+            metric! {
+                statsd_count!("rpc_block_fetch_failed", 1);
+            }
+            Err(FetchError::Rpc { slot, source })
+        }
+    }
+}
+
 pub async fn fetch_block_with_infinite_retries(
     rpc_client: Arc<RpcClient>,
     fetch: Fetch,
 ) -> Option<BlockInfo> {
     let slot = fetch.slot;
     loop {
-        match rpc_client.get_block(slot, TransactionDetails::Full).await {
-            Ok(block) => {
-                metric! {
-                    statsd_count!("rpc_block_fetched", 1);
-                }
-                match parse_ui_confirmed_blocked(block, slot) {
-                    Ok(block) => return Some(block),
-                    Err(err) => {
-                        log::error!("Failed to parse RPC block {}: {}", slot, err);
-                        metric! {
-                            statsd_count!("rpc_block_parse_failed", 1);
-                        }
-                    }
-                }
+        match fetch_block(&rpc_client, slot).await {
+            Ok(Some(block)) => return Some(block),
+            Err(FetchError::Parse { source, .. }) => {
+                log::error!("Failed to parse RPC block {}: {}", slot, source);
             }
-            Err(e) if e.is_slot_skipped() => {
+            Ok(None) => {
                 if fetch.confirmed {
                     metric! {
                         statsd_count!("rpc_skipped_block_contradicted", 1);
@@ -213,11 +234,7 @@ pub async fn fetch_block_with_infinite_retries(
                 log::info!("Skipped block: {}", slot);
                 return None;
             }
-            Err(_) => {
-                metric! {
-                    statsd_count!("rpc_block_fetch_failed", 1);
-                }
-            }
+            Err(FetchError::Rpc { .. }) => {}
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
