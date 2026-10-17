@@ -86,19 +86,20 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"batch_address-append_40_10":  {constraints: 421991, public: 2},
-	"custom_ring_base":            {constraints: 95610, public: 2},
-	"custom_ring_delegate_policy": {constraints: 337209, public: 2},
-	"custom_ring_deposit":         {constraints: 170291, public: 2},
-	"custom_ring_policy":          {constraints: 339469, public: 2},
-	"custom_ring_register_key":    {constraints: 63212, public: 2},
-	"custom_ring_update_members":  {constraints: 386629, public: 2},
-	"merge_24_1":                  {constraints: 525759, public: 2},
-	"merge_ring_24_1":             {constraints: 525837, public: 2},
-	"transfer_confidential_2_4":   {constraints: 57554, public: 2},
-	"transfer_ed25519_ring_2_2":   {constraints: 112284, public: 2},
-	"transfer_ring_2_4":           {constraints: 57680, public: 2},
-	"transfer_ring_authority_2_2": {constraints: 51913, public: 2},
+	"custom_ring_base_confidential": {constraints: 62345, public: 2},
+	"batch_address-append_40_10":    {constraints: 421991, public: 2},
+	"custom_ring_base":              {constraints: 80833, public: 2},
+	"custom_ring_delegate_policy":   {constraints: 325845, public: 2},
+	"custom_ring_deposit":           {constraints: 170291, public: 2},
+	"custom_ring_policy":            {constraints: 328105, public: 2},
+	"custom_ring_register_key":      {constraints: 63212, public: 2},
+	"custom_ring_update_members":    {constraints: 386629, public: 2},
+	"merge_24_1":                    {constraints: 525759, public: 2},
+	"merge_ring_24_1":               {constraints: 525837, public: 2},
+	"transfer_confidential_2_4":     {constraints: 57554, public: 2},
+	"transfer_ed25519_ring_2_2":     {constraints: 112284, public: 2},
+	"transfer_ring_2_4":             {constraints: 57680, public: 2},
+	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

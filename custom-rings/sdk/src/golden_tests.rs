@@ -258,7 +258,7 @@ mod bodies {
             })
             .collect();
         let mut base = BaseBody {
-            circuit_type: RingCircuit::Base,
+            circuit_type: RingCircuit::BaseConfidential,
             public_input_hash: field(1),
             audit: secrets(7),
             n_out: 2,
@@ -266,6 +266,7 @@ mod bodies {
             anonymous: None,
         };
         assert_golden("custom-ring-base", &RingRequest(&base).body().unwrap());
+        base.circuit_type = RingCircuit::Base;
         base.anonymous = Some(AnonymousBase {
             identities: identities(),
             n_in: 2,

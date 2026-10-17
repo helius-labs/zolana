@@ -141,7 +141,11 @@ impl PendingCustomRingProof {
             _ => return Err(RingError::AnonymousDisclosureShape),
         };
         Ok(BaseBody {
-            circuit_type: RingCircuit::Base,
+            circuit_type: if anonymous.is_some() {
+                RingCircuit::Base
+            } else {
+                RingCircuit::BaseConfidential
+            },
             public_input_hash,
             n_out: self.outputs.len() as u8,
             outputs: self.outputs,

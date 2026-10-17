@@ -27,6 +27,7 @@ macro_rules! verifying_keys {
 
 verifying_keys! {
     base_verifying_key => "custom_ring_base.key",
+    base_confidential_verifying_key => "custom_ring_base_confidential.key",
     delegate_policy_verifying_key => "custom_ring_delegate_policy.key",
     deposit_verifying_key => "custom_ring_deposit.key",
     policy_verifying_key => "custom_ring_policy.key",

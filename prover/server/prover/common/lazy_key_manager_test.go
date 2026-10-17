@@ -36,6 +36,7 @@ func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
 	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
 
 	for circuitType, filename := range map[CircuitType]string{
+		CustomRingConfidentialCircuitType:   "custom_ring_base_confidential.key",
 		CustomRingPolicyCircuitType:         "custom_ring_policy.key",
 		CustomRingBaseCircuitType:           "custom_ring_base.key",
 		CustomRingDelegatePolicyCircuitType: "custom_ring_delegate_policy.key",

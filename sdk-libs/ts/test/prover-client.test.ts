@@ -291,7 +291,7 @@ describe("delegate ring prover contracts", () => {
 
 /** Key order from Rust `CustomRingBaseProofRequestJson` in `request_ring.rs`. */
 const EXPECTED_AUDIT_BODY = {
-  circuitType: "custom-ring-base",
+  circuitType: "custom-ring-base-confidential",
   publicInputHash: fieldHex(0),
   privateTxHash: fieldHex(1),
   txViewingSk: fieldHex(2),
@@ -817,7 +817,7 @@ describe("prover request routing", () => {
         "txViewingSk",
       ].sort(),
     );
-    expect(body["circuitType"]).toBe("custom-ring-base");
+    expect(body["circuitType"]).toBe("custom-ring-base-confidential");
     expect(body["auditorPk"]).toHaveLength(66);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {

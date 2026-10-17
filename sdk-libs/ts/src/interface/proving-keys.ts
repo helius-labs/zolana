@@ -14,11 +14,13 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "custom_ring_base.key": "65fcf4f7221e0c7e170f572bf59f636cf50d76789acd69db33d1c90d79e7abc2",
+  "custom_ring_base_confidential.key":
+    "ae4b89e496ae9669f843893b06d529b18d4c5f8a28e096aadf93bcf09d5d2bfa",
   "custom_ring_delegate_policy.key":
-    "11f41a0310294a0d22b8cda31fb8dc1369cd72768fe0d2bf8129dc0585e14023",
+    "df71b1a44a67c87dc98728fe30ff62a02ffec67938708cc668f2f26aa5d2cd91",
+  "custom_ring_base.key": "11edacc4aed3591837422d4c582a511a606f8870c20fc968fd68966bc49f9afe",
   "custom_ring_deposit.key": "7018092f0fa02d11adc6aadc7b083d7d5ae32936c91877252125377ef51b263b",
-  "custom_ring_policy.key": "4a8d772d834dab09eee44f1cae634dc5df88e676c58d324176f3616dca373bd2",
+  "custom_ring_policy.key": "6eac2b4f1a99cf079f57c75b99bd03648392d18400b379996a18b27ad10290d7",
   "custom_ring_register_key.key":
     "cdad9dddf838db7899fe6bd958ec3b6846d4c7ffa12502d388d8dd831574b14f",
   "custom_ring_update_members.key":
@@ -177,6 +179,7 @@ export type ProvingKeyCircuit =
   | { readonly circuit: "merge"; readonly nInputs: number }
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
   | { readonly circuit: "custom-ring-base" }
+  | { readonly circuit: "custom-ring-base-confidential" }
   | { readonly circuit: "custom-ring-policy" }
   | { readonly circuit: "custom-ring-compressed-policy" }
   | { readonly circuit: "custom-ring-delegate-policy" }
@@ -217,6 +220,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
     case "merge-ring":
       return `merge_ring_${request.nInputs}_1.key`;
     case "custom-ring-base":
+    case "custom-ring-base-confidential":
     case "custom-ring-policy":
     case "custom-ring-compressed-policy":
     case "custom-ring-delegate-policy":

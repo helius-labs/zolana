@@ -34,7 +34,8 @@ const (
 	MergeRingCircuitType CircuitType = "merge-ring"
 
 	// CustomRingBaseCircuitType proves the custom ring's audit statement only.
-	CustomRingBaseCircuitType CircuitType = "custom-ring-base"
+	CustomRingBaseCircuitType         CircuitType = "custom-ring-base"
+	CustomRingConfidentialCircuitType CircuitType = "custom-ring-base-confidential"
 
 	// CustomRingPolicyCircuitType folds the audit statement with policy
 	// enforcement in one proof and one verification per transact.
@@ -53,6 +54,7 @@ const (
 
 // RingCircuitTypes are the custom-ring circuits, each proven with one key.
 var RingCircuitTypes = []CircuitType{
+	CustomRingConfidentialCircuitType,
 	CustomRingPolicyCircuitType,
 	CustomRingBaseCircuitType,
 	CustomRingDelegatePolicyCircuitType,

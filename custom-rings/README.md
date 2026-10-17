@@ -372,6 +372,12 @@ payment unreadable, but cannot use that to bypass conservation or double-spend
 checks. Protocols that rely on delivery, such as swaps, need a separate proof
 of the recipient ciphertext and its binding to the intended recipient's key.
 
+Ordinary rings without policy rules use `custom-ring-base-confidential` for
+auditor disclosure. Anonymous rings use `custom-ring-base`. The configured
+ring mode selects the verifying key. The optimized circuits require the
+matching program and local proving keys. The historical release lock does
+not contain the new ordinary key. See [proof costs](proof-costs.md).
+
 An outflow limit bounds one transfer, a sender may move up to the cap in
 every transfer. A limited transfer has one sender. Delegation is exempt from
 the limits. Ordinary policy and scoped co-signing apply to it.

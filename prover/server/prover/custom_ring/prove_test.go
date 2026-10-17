@@ -72,3 +72,30 @@ func TestDelegateProofDoesNotVerifyOnTheMemberRail(t *testing.T) {
 		t.Fatal("a delegate proof verified on the member rail")
 	}
 }
+
+func TestConfidentialAuditKeyCannotReplaceAnonymousAudit(t *testing.T) {
+	ordinary, err := os.ReadFile("testdata/custom-ring-base-confidential.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonymous, err := os.ReadFile("testdata/custom-ring-base-anonymous.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(common.CustomRingConfidentialCircuitType, anonymous); err == nil {
+		t.Fatal("ordinary endpoint accepted anonymous disclosure")
+	}
+	ps := loadRingSystem(t, common.CustomRingConfidentialCircuitType)
+	other := loadRingSystem(t, common.CustomRingBaseCircuitType)
+	assignment := goldenAssignment(t, common.CustomRingConfidentialCircuitType, ordinary)
+	proof, err := Prove(ps, assignment, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyProof(ps, proof, assignment); err != nil {
+		t.Fatal(err)
+	}
+	if verifyProof(other, proof, assignment) == nil {
+		t.Fatal("ordinary audit proof verified under the anonymous-capable key")
+	}
+}

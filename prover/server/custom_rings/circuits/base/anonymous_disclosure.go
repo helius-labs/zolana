@@ -36,12 +36,18 @@ type AuditUtxoWires struct {
 
 // Hash commits the slot as SPP does, the owner of every slot but a UTXO is zero.
 func (w AuditUtxoWires) Hash(api frontend.API) (hash, utxo frontend.Variable) {
-	utxo = isDomain(api, w.Domain, shared.UtxoDomain)
+	opening, utxo := w.Opening(api)
+	return opening.Hash(api), utxo
+}
+
+// Opening binds the owner before the caller chooses the disclosure mode.
+func (w AuditUtxoWires) Opening(api frontend.API) (AuditOutputWires, frontend.Variable) {
+	utxo := isDomain(api, w.Domain, shared.UtxoDomain)
 	owner := gadget.PoseidonHash(api, []frontend.Variable{w.OwnerPkHash, w.NullifierPk})
 	return AuditOutputWires{
 		Domain: w.Domain, TreeID: w.TreeID, OwnerHash: api.Mul(utxo, owner), Asset: w.Asset, Amount: w.Amount,
 		Blinding: w.Blinding, DataHash: w.DataHash, RingDataHash: w.RingDataHash, RingProgramID: w.RingProgramID,
-	}.Hash(api), utxo
+	}, utxo
 }
 
 type anonymousShape struct {
@@ -163,8 +169,7 @@ func chunks(api frontend.API, bytes []frontend.Variable, n int, disclosed fronte
 
 // fieldBytes is the unique native field encoding, so no alias changes a trace.
 func fieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
-	bytes := checked.FieldToBytesBE(api, value)
-	return bytes[:]
+	return canonicalBytes(api, value)
 }
 
 // uintBytes bounds an unsigned integer to n bytes.

@@ -61,6 +61,21 @@ func (w AuditOutputWires) fields() [AuditOutputFieldCount]frontend.Variable {
 	}
 }
 
+// Select chooses the complete note opening with one Boolean mode selector.
+func (w AuditOutputWires) Select(api frontend.API, selected frontend.Variable, other AuditOutputWires) AuditOutputWires {
+	return AuditOutputWires{
+		Domain:        api.Select(selected, w.Domain, other.Domain),
+		TreeID:        api.Select(selected, w.TreeID, other.TreeID),
+		OwnerHash:     api.Select(selected, w.OwnerHash, other.OwnerHash),
+		Asset:         api.Select(selected, w.Asset, other.Asset),
+		Amount:        api.Select(selected, w.Amount, other.Amount),
+		Blinding:      api.Select(selected, w.Blinding, other.Blinding),
+		DataHash:      api.Select(selected, w.DataHash, other.DataHash),
+		RingDataHash:  api.Select(selected, w.RingDataHash, other.RingDataHash),
+		RingProgramID: api.Select(selected, w.RingProgramID, other.RingProgramID),
+	}
+}
+
 // AuditTx is the transaction the caller opened, Hashes commit its output slots.
 type AuditTx struct {
 	Outputs [AuditOutputSlots]AuditOutputWires
@@ -84,7 +99,16 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
 
 	legacy := api.Sub(1, a.Anonymous)
-	plaintext := make([]frontend.Variable, auditDisclosureChunks)
+	// A circuit with a fixed ordinary mode need not prove the anonymous
+	// serialization or encrypt its longer padding. Witness-controlled modes
+	// still execute the complete path.
+	mode, constantMode := api.Compiler().ConstantValue(a.Anonymous)
+	ordinary := constantMode && mode.Sign() == 0
+	chunkCount := auditDisclosureChunks
+	if ordinary {
+		chunkCount = 1 + 3*chainGroups(AuditOutputSlots*AuditOutputFieldCount)
+	}
+	plaintext := make([]frontend.Variable, chunkCount)
 	for i := range plaintext {
 		plaintext[i] = 0
 	}
@@ -94,7 +118,10 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 			plaintext[i*AuditOutputFieldCount+f] = api.Mul(active, field)
 		}
 	}
-	layout := a.anonymousLayout(api, rc, tx)
+	layout := layout{}
+	if !ordinary {
+		layout = a.anonymousLayout(api, rc, tx)
+	}
 	for i, chunk := range layout.chunks {
 		plaintext[i] = api.Add(plaintext[i], chunk)
 	}

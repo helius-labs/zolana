@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00c8ce632072fa94ded4e49fd4f2981d722d4fe0eafdd200e9ebe477a965982a",
+        fingerprint, "00482d6611f26c3ef5a4b191f8f80af181ee1f6662727cc404bfde24ef160919",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn base_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00b537c85c5f94e6cc976c56d568b87ed3e7cb0fcc99ad8ebd6fac963b9a1150",
+        fingerprint, "0018cfa29e2e1a3242286c925312430c80d4553a6a25dcd48aedb016e242351d",
         "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -78,11 +78,20 @@ fn assert_rail_fingerprint(name: &str, vk: &Groth16Verifyingkey, expected: &str)
 }
 
 #[test]
+fn confidential_base_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "base_confidential_verifying_key",
+        &custom_ring_interface::base_confidential_verifying_key::VERIFYINGKEY,
+        "000f543f853c8e9da0dfc1e410440a03bbd6c8f32f61a5b04db851987c291c5b",
+    );
+}
+
+#[test]
 fn delegate_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "delegate_policy_verifying_key",
         &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
-        "004286ea2436402c2031d5610f7cd8d8c07186f6e882c49b51f4050c8d13803b",
+        "009c98a4dda5ece2cc13a0185770f755262a3c1d90bc48a5ead403c3dc6e90a7",
     );
 }
 

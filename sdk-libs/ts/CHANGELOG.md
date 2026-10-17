@@ -10,6 +10,8 @@ per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
 
+- `proveCustomRingBase` selects the smaller ordinary auditor circuit → deploy the matching ring program and serve `custom-ring-base-confidential` with this release's proving keys.
+
 - Asset rules use authenticated mint records in the own or curator registry. The inline eight-mint allowlist is removed. `inlineAssets` and `inlineLimits` now serve only per-mint amount guards. Scalar owner guards reject mixed-mint transfers. Replace inline asset rules with list rules and populate the mint records before transferring.
 
 - `RingMemberRegistryReader` replaces key-registry reads with `getRingMemberRecord` and `getRingMemberRegistryRoot`, authenticated at height 20 with list bits and escrow keys → migrate custom indexer adapters and use this release's program, indexer and prover together.

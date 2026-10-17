@@ -32,12 +32,15 @@ pub struct RingProgram {
 pub struct RingKey(&'static str, &'static str);
 
 impl RingKey {
-    pub const ALL: [Self; 5] = [
+    pub const CONFIDENTIAL_AUDIT: Self =
+        Self("confidential_audit_key", "custom-ring-base-confidential");
+    pub const ALL: [Self; 6] = [
         Self("proving_key", "custom-ring-policy"),
         Self("audit_key", "custom-ring-base"),
         Self("delegate_policy_key", "custom-ring-delegate-policy"),
         Self("register_key", "custom-ring-register-key"),
         Self("deposit_key", "custom-ring-deposit"),
+        Self::CONFIDENTIAL_AUDIT,
     ];
 
     /// Also the key's name in proving-keys.lock.
@@ -135,7 +138,7 @@ mod tests {
     }"#;
 
     #[test]
-    fn the_embedded_lock_parses_and_ships_every_ring_asset() {
+    fn the_embedded_release_preserves_its_assets_and_rejects_the_unreleased_key() {
         assert_eq!(
             RingKey::ALL[2].file_name(),
             "custom_ring_delegate_policy.key"
@@ -143,9 +146,22 @@ mod tests {
         let release = RingRelease::from_lock().expect("lock");
         assert!(!release.tag.is_empty());
         release.program().expect("the ring program");
-        for key in RingKey::ALL {
+        // This immutable historical release predates the ordinary audit key.
+        // Never advertise an artifact that has not been published.
+        for key in RingKey::ALL
+            .into_iter()
+            .filter(|key| *key != RingKey::CONFIDENTIAL_AUDIT)
+        {
             release.key(key).expect("ring key");
         }
+        let missing = release
+            .key(RingKey::CONFIDENTIAL_AUDIT)
+            .expect_err("not released")
+            .to_string();
+        assert!(
+            missing.contains("ships no key for custom-ring-base-confidential"),
+            "{missing}"
+        );
     }
 
     #[test]

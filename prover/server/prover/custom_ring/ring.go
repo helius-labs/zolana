@@ -37,6 +37,7 @@ func ring[P any, C any, PC interface {
 var RingCircuits = []RingCircuit{
 	ring[PolicyParams, policy.CustomRingPolicyCircuit](common.CustomRingPolicyCircuitType),
 	ring[BaseParams, base.CustomRingBaseCircuit](common.CustomRingBaseCircuitType),
+	ring[BaseParams, base.CustomRingConfidentialCircuit](common.CustomRingConfidentialCircuitType),
 	ring[DelegatePolicyParams, policy.CustomRingDelegatePolicyCircuit](common.CustomRingDelegatePolicyCircuitType),
 	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
 	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
@@ -61,6 +62,9 @@ func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, e
 	params := ring.params()
 	if err := Unmarshal(payload, params); err != nil {
 		return nil, err
+	}
+	if circuitType == common.CustomRingConfidentialCircuitType && params.(*BaseParams).Anonymous {
+		return nil, fmt.Errorf("confidential audit circuit cannot prove anonymous disclosure")
 	}
 	return Assign(circuitType, params)
 }

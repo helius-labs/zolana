@@ -31,6 +31,9 @@ func TestWriteGoldenRequests(t *testing.T) {
 		}
 	}
 	write(string(common.CustomRingBaseCircuitType), baseParams(t))
+	ordinary := baseParams(t)
+	ordinary.CircuitType = string(common.CustomRingConfidentialCircuitType)
+	write(ordinary.CircuitType, ordinary)
 	write(string(common.CustomRingBaseCircuitType)+"-anonymous", anonymousBaseParams(t))
 
 	member, _ := rulesFreeParams(t)

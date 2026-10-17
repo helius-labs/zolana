@@ -168,7 +168,7 @@ impl RingKeySource {
     }
 }
 
-const RING_KEY_SOURCES: [RingKeySource; 5] = [
+const RING_KEY_SOURCES: [RingKeySource; 6] = [
     RingKeySource {
         section: "proving_key",
         prover_file: "custom_ring_policy.key",
@@ -193,6 +193,11 @@ const RING_KEY_SOURCES: [RingKeySource; 5] = [
         section: "deposit_key",
         prover_file: "custom_ring_deposit.key",
         asset_stem: "custom-ring-deposit-key",
+    },
+    RingKeySource {
+        section: "confidential_audit_key",
+        prover_file: "custom_ring_base_confidential.key",
+        asset_stem: "custom-ring-base-confidential-key",
     },
 ];
 
@@ -1079,6 +1084,7 @@ mod tests {
                 PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-register-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-deposit-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-base-confidential-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );

@@ -1,8 +1,8 @@
 use custom_ring_interface::{
-    base_verifying_key, delegate_policy_verifying_key, policy_verifying_key, AuditorMessage,
-    CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
-    CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode, N_FOREIGN,
-    TAGGED_X25519_KEY_LEN,
+    base_confidential_verifying_key, base_verifying_key, delegate_policy_verifying_key,
+    policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
+    CustomRingPolicyPublicInput, CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode,
+    N_FOREIGN, TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -215,7 +215,11 @@ impl Rail {
             }
             None => (
                 audit.hash().map_err(CustomRingError::from)?,
-                &base_verifying_key::VERIFYINGKEY,
+                if anonymous {
+                    &base_verifying_key::VERIFYINGKEY
+                } else {
+                    &base_confidential_verifying_key::VERIFYINGKEY
+                },
             ),
         };
         verify_groth16(proof, public_input, verifying_key)?;

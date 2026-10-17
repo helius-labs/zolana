@@ -59,13 +59,15 @@ For an ordinary transfer with one input and two outputs:
 
 | Proof | Constraints | Proving time |
 |---|---:|---:|
-| Default ring | 30,922 | 62.4 ms |
-| Custom ring settlement | 30,987 | 60.7 ms |
-| Custom ring auditor disclosure | 95,610 | 205.5 ms |
-| Custom ring total, without policy rules | 126,597 | 266.2 ms |
+| Default ring | 30,922 | 61.4 ms |
+| Custom ring settlement | 30,987 | 62.4 ms |
+| Custom ring auditor disclosure | 62,345 | 158.6 ms |
+| Custom ring total, without policy rules | 93,332 | 221.1 ms |
 
-Measured on an Apple M5 Pro with five proofs per row. Compilation, setup and verification are excluded. Each proof was verified. The total adds the two proof times. It is not transaction latency. Policy enforcement uses a separate combined policy-and-audit circuit and is not included here.
+Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The total adds the two proof times. It is not transaction latency. Policy enforcement uses a separate combined policy-and-audit circuit and is not included here.
 
-The auditor path already uses the optimized X25519 and AES primitives with a Poseidon key schedule. Removing recipient proofs avoids the multi-million-constraint design. The complete ordinary transfer is still above the 100k target.
+The auditor path uses optimized X25519 and AES with a Poseidon key schedule. Ordinary rings now use a smaller audit circuit that excludes anonymous disclosure work. Settlement selects the key from the ring's configured mode. The complete ordinary transfer falls from 126,597 to 93,332 constraints. The auditor still receives the same checked data.
 
-Reproduce with `go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkPaymentProofs$' -benchtime=5x -count=1` from `prover/server`.
+Anonymous audit proofs also shrink from 95,610 to 80,833 constraints. Canonical byte encoding uses bounded limbs instead of individual bits. Output commitments are computed once. Neither change removes a disclosure check. [Optimization details](proof-costs.md) explain the bounds and validation.
+
+Reproduce with `go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkPaymentProofs$' -benchtime=5x -count=3` from `prover/server`.

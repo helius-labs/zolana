@@ -37,8 +37,11 @@ func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 		inputHashes[i] = api.Mul(nIn.Active[i], utxo, hash)
 	}
 	for i, output := range c.AnonymousOutputs {
-		hash, utxo := output.Hash(api)
-		tx.Hashes[i] = api.Select(c.Anonymous, hash, c.Outputs[i].Hash(api))
+		opening, utxo := output.Opening(api)
+		// Hash the selected opening once. Outside anonymous mode the private
+		// transaction opening below is disabled, so it needs no second hash.
+		hash := opening.Select(api, c.Anonymous, c.Outputs[i]).Hash(api)
+		tx.Hashes[i] = hash
 		outputHashes[i] = api.Mul(tx.NOut.Active[i], utxo, hash)
 	}
 	opened := shared.PrivateTxHashCircuit(api, inputHashes, outputHashes, nil, c.PrivateTxBlinding)

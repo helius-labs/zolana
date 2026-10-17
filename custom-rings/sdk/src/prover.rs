@@ -1,7 +1,7 @@
 use custom_ring_interface::{
-    base_verifying_key, delegate_policy_verifying_key, deposit_verifying_key, policy_verifying_key,
-    register_key_verifying_key, update_members_verifying_key, CustomRingProof, PlainGroth16Proof,
-    PROVING_KEY_SHA256S,
+    base_confidential_verifying_key, base_verifying_key, delegate_policy_verifying_key,
+    deposit_verifying_key, policy_verifying_key, register_key_verifying_key,
+    update_members_verifying_key, CustomRingProof, PlainGroth16Proof, PROVING_KEY_SHA256S,
 };
 use serde::{Serialize, Serializer};
 use zeroize::Zeroizing;
@@ -14,6 +14,7 @@ use crate::RingError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RingCircuit {
+    BaseConfidential,
     Base,
     Policy,
     DelegatePolicy,
@@ -25,6 +26,7 @@ pub(crate) enum RingCircuit {
 impl RingCircuit {
     pub(crate) const fn circuit_type(self) -> &'static str {
         match self {
+            Self::BaseConfidential => "custom-ring-base-confidential",
             Self::Base => "custom-ring-base",
             Self::Policy => "custom-ring-policy",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
@@ -53,6 +55,7 @@ impl RingCircuit {
         public_input_hash: [u8; 32],
     ) -> Result<(), ClientError> {
         let key = match self {
+            Self::BaseConfidential => &base_confidential_verifying_key::VERIFYINGKEY,
             Self::Base => &base_verifying_key::VERIFYINGKEY,
             Self::Policy => &policy_verifying_key::VERIFYINGKEY,
             Self::DelegatePolicy => &delegate_policy_verifying_key::VERIFYINGKEY,

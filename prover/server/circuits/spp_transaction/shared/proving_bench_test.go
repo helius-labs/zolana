@@ -40,7 +40,13 @@ func BenchmarkPaymentProofs(b *testing.B) {
 				DataHash: u.DataHash, RingDataHash: u.RingDataHash, RingProgramID: u.RingProgramID,
 			}
 		}
-		benchmarkPaymentProof(b, &base.CustomRingBaseCircuit{}, keys.Circuit(b, statement))
+		full := keys.Circuit(b, statement)
+		assignment := &base.CustomRingConfidentialCircuit{
+			PublicInputHash: full.PublicInputHash, PrivateTxHash: full.PrivateTxHash,
+			TxViewingSk: full.TxViewingSk, EphSk: full.EphSk, AuditorPk: full.AuditorPk,
+			Salt: full.Salt, NOut: full.NOut, Outputs: full.Outputs,
+		}
+		benchmarkPaymentProof(b, &base.CustomRingConfidentialCircuit{}, assignment)
 	})
 }
 

@@ -334,6 +334,7 @@ fn the_indexed_deposit_binds_the_registry_the_body_names() {
 #[test]
 fn every_circuit_names_its_pinned_proving_key() {
     for circuit in [
+        RingCircuit::BaseConfidential,
         RingCircuit::Base,
         RingCircuit::Policy,
         RingCircuit::DelegatePolicy,
