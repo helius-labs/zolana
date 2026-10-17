@@ -381,12 +381,7 @@ pub(crate) mod fake_node {
         let address = listener.local_addr().unwrap();
         let responses = responses
             .iter()
-            .map(|(status, body)| {
-                format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-            })
+            .map(|(status, body)| http_response(status, body))
             .collect::<Vec<_>>();
         let handle = std::thread::spawn(move || {
             responses
@@ -404,6 +399,32 @@ pub(crate) mod fake_node {
 
     pub(crate) fn serve_once(status: &str, body: &str) -> (String, JoinHandle<Vec<String>>) {
         serve_in_order(&[(status, body)])
+    }
+
+    /// Reads the first request and never answers it, then answers the second.
+    pub(crate) fn serve_after_unanswered(
+        status: &str,
+        body: &str,
+    ) -> (String, JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let response = http_response(status, body);
+        let handle = std::thread::spawn(move || {
+            let (mut unanswered, _) = listener.accept().unwrap();
+            let first = read_request_body(&mut unanswered);
+            let (mut stream, _) = listener.accept().unwrap();
+            let second = read_request_body(&mut stream);
+            stream.write_all(response.as_bytes()).unwrap();
+            vec![first, second]
+        });
+        (format!("http://{address}"), handle)
+    }
+
+    fn http_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
     }
 
     fn read_request_body(stream: &mut TcpStream) -> String {
