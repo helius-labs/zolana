@@ -63,6 +63,8 @@ fn instruction_targets_the_same_ring_and_uses_its_authority() {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0; 32],
+            output_ciphertext_salt: [0; 16],
+            output_ciphertext: [[0; 32]; 3],
             nullifiers: vec![[0; 32]; MERGE_DEFAULT_INPUT_COUNT],
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
@@ -135,4 +137,33 @@ async fn a_merge_refuses_a_missing_ring_and_inputs_of_another_tree() {
         prepared(&owner, 0).prove(input(five), &client).await,
         Err(RingError::InputTreeMismatch)
     ));
+}
+
+#[test]
+fn ring_merge_accepts_fifty_inputs_and_rejects_larger_plans_before_proving() {
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let inputs: Vec<_> = (0..52)
+        .map(|i| note(&owner, i + 1, 0, Some(ring().program_id())))
+        .collect();
+    for count in [51, 52] {
+        assert!(matches!(
+            CustomRingMerge::new(ring(), inputs[..count].to_vec(), None),
+            Err(zolana_transaction::TransactionError::TooManyInputs { got, max: 50 })
+                if got == count
+        ));
+    }
+    let prepared = CustomRingMerge::new(ring(), inputs[..50].to_vec(), None)
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    assert_eq!(prepared.inputs().len(), 52);
+    assert_eq!(
+        prepared
+            .inputs()
+            .iter()
+            .filter(|input| !input.is_compact())
+            .count(),
+        50
+    );
+    assert_eq!(prepared.output().amount, 50 * 51 / 2);
 }

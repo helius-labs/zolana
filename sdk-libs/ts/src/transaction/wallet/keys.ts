@@ -11,6 +11,7 @@ import {
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
+  mergeOutputKey,
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
@@ -49,13 +50,15 @@ export interface TransactionKeyRequest {
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
  * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
- * output blinding, and private-transaction blinding.
+ * output blinding, private-transaction blinding, and the per-merge key of its
+ * output ciphertext.
  */
 export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
   | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
   | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
-  | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>;
+  | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>
+  | Readonly<{ kind: "mergeOutputKey"; firstNullifier: Bytes32 }>;
 
 /**
  * The privacy roles of one shielded wallet, exposed as the functions the
@@ -85,6 +88,7 @@ export interface ShieldedKeys {
     requests: readonly DecryptRequest[],
     context?: RequestContext,
   ): Promise<readonly Uint8Array[]>;
+  /** Fresh byte buffers. Callers own and wipe secret derivations after use. */
   derive(requests: readonly DeriveRequest[], context?: RequestContext): Promise<readonly Bytes32[]>;
   /** Fresh key objects; the caller destroys them. */
   transactionKeys(
@@ -247,6 +251,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
         return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
       case "mergePrivateTxBlinding":
         return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
+      case "mergeOutputKey":
+        return mergeOutputKey(this.#nullifier, request.firstNullifier);
     }
   }
 

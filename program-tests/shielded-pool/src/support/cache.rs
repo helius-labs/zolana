@@ -274,7 +274,7 @@ impl CachedSpendFixture {
             payer: payer.pubkey(),
             input_trees: vec![tree],
             output_tree: tree,
-            owner_signers: Vec::new(),
+            owner_signers: vec![payer.pubkey()],
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }

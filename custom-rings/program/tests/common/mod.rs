@@ -1566,8 +1566,13 @@ fn sol_merge_slots() -> Vec<Slot> {
             meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
             account: account(1_000_000_000),
         },
-        spp_program_slot(),
+        Slot {
+            label: "payer",
+            meta: AccountMeta::new(payer(), true),
+            account: account(1_000_000_000),
+        },
         system_program_slot(),
+        spp_program_slot(),
         Slot {
             label: "sol_interface",
             meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
@@ -1632,6 +1637,8 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [1; 32],
+                output_ciphertext_salt: [2; 16],
+                output_ciphertext: [[3; 32]; 3],
                 eddsa_owner: true,
                 private_tx_hash: [3; 32],
                 nullifiers: vec![[5; 32]; 8],

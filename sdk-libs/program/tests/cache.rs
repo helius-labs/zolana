@@ -29,6 +29,8 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [1u8; 32],
+        output_ciphertext_salt: [0u8; 16],
+        output_ciphertext: [[0u8; 32]; 3],
         nullifiers: (1u8..=8).map(|i| [i; 32]).collect(),
         utxo_tree_root_index: 0,
         nullifier_tree_root_index: 0,

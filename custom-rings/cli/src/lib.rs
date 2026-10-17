@@ -410,7 +410,7 @@ pub struct MergeArgs {
     /// Mint to merge, `sol` by default.
     #[arg(long)]
     pub mint: Option<Mint>,
-    /// Maximum number of notes to merge, from 2 through 54.
+    /// Maximum number of notes to merge, from 2 through 50.
     #[arg(
         long,
         default_value_t = MERGE_DEFAULT_INPUT_COUNT as u64,
@@ -855,8 +855,9 @@ mod tests {
             assert_eq!(args.mint, Some(Mint(zolana_transaction::SOL_MINT)));
         }
         assert_eq!(parse(&[]).expect("defaults").count, 24);
-        assert!(parse(&["--count", "54"]).is_ok());
-        assert!(parse(&["--count", "55"]).is_err());
+        assert!(parse(&["--count", "50"]).is_ok());
+        assert!(parse(&["--count", "51"]).is_err());
+        assert!(parse(&["--count", "52"]).is_err());
         assert!(parse(&["--count", "1"]).is_err());
     }
 

@@ -8,7 +8,6 @@ use custom_ring_interface::{
     DISCLOSURE_SENDER_LEN, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
     RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET, TAGGED_X25519_KEY_LEN,
 };
-use num_bigint::BigUint;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_hasher::primitives::{BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG};
@@ -17,6 +16,7 @@ use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
 };
+use zolana_transaction::field::{field_add, field_sub};
 
 use crate::AuditError;
 
@@ -502,17 +502,12 @@ fn disclosure_stream(
     encrypt: bool,
 ) -> Result<Vec<[u8; 32]>> {
     let pad = disclosure_pad(secret, salt, fields.len())?;
-    let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
     let mut out = vec![[0u8; 32]; fields.len()];
     for ((field, mask), result) in fields.iter().zip(&pad).zip(out.iter_mut()) {
-        let mask = BigUint::from_bytes_be(mask);
-        let value = BigUint::from_bytes_be(field);
-        let masked = match encrypt {
-            true => (value + mask) % &modulus,
-            false => (value + &modulus - mask) % &modulus,
+        *result = match encrypt {
+            true => field_add(field, mask),
+            false => field_sub(field, mask),
         };
-        let bytes = masked.to_bytes_be();
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
     }
     Ok(out)
 }

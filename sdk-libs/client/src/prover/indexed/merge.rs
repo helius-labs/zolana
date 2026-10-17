@@ -1,5 +1,6 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::pack_be;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     instruction::{
@@ -27,8 +28,9 @@ use super::{
 };
 use crate::{
     prover::{
-        field::right_align_slice,
+        field::{right_align, right_align_slice},
         json::MergeOutputParamsJson,
+        merge::check_output_ciphertext,
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
@@ -93,6 +95,7 @@ impl IndexedMergePreparation {
         if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
             return Err(invalid());
         }
+        check_output_ciphertext(&merge, &nullifier_key, &first_nullifier)?;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
@@ -190,6 +193,8 @@ impl IndexedMergePreparation {
             &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
         )
         .hash()?;
+        let salt = right_align(&merge.output_ciphertext_salt);
+        let [ciphertext_0, ciphertext_1, ciphertext_2] = merge.output_ciphertext;
         let public_inputs = vec![
             create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
@@ -207,7 +212,13 @@ impl IndexedMergePreparation {
             } else {
                 nullifier_pk
             },
+            salt,
+            ciphertext_0,
+            ciphertext_1,
+            ciphertext_2,
         ];
+        let [mint_chunk_0, mint_chunk_1] =
+            pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
         let witness = PreparedMergeJson {
             circuit_type: if merge.ring_program_id.is_some() {
                 IndexedCircuit::MergeRing
@@ -220,7 +231,8 @@ impl IndexedMergePreparation {
                 hash: hex_field(&output_hash),
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
-            asset: hex_field(&output.utxo.asset),
+            mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
+            output_ciphertext_salt: hex_field(&salt),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -249,6 +261,8 @@ impl IndexedMergePreparation {
                 c: [0; 32],
             },
             output_utxo_hash: output_hash,
+            output_ciphertext_salt: merge.output_ciphertext_salt,
+            output_ciphertext: merge.output_ciphertext,
             nullifiers: without_compact_padding(&nullifiers).to_vec(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
@@ -336,7 +350,8 @@ struct PreparedMergeJson {
     inputs: Vec<PreparedMergeInputJson>,
     output: MergeOutputParamsJson,
     output_tree_id: String,
-    asset: String,
+    mint_chunks: [String; 2],
+    output_ciphertext_salt: String,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -383,6 +398,64 @@ mod tests {
     }
 
     #[test]
+    fn merge_ring_data_changes_are_rejected_before_witnesses_or_proving() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = solana_address::Address::new_from_array([9; 32]);
+        let mut note = input(&owner);
+        note.utxo.ring_program_id = Some(ring);
+        note.ring_data_hash = Some([3; 32]);
+        note.utxo_hash = note
+            .utxo
+            .hash(&note.nullifier_pubkey, &[0; 32], &[3; 32], note.tree_id)
+            .unwrap();
+        note.nullifier = owner
+            .nullifier_key
+            .nullifier(&note.utxo_hash, &note.utxo.blinding)
+            .unwrap();
+        let prepared = MergeTransaction::new_with_ring(vec![note], ring, None)
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        IndexedMergePreparation {
+            merge: prepared.clone(),
+            nullifier_key: owner.nullifier_key(),
+        }
+        .prepare()
+        .unwrap();
+        for change_input in [false, true] {
+            let mut merge = prepared.clone();
+            if change_input {
+                merge.input_utxos[0].ring_data_hash = Some([4; 32]);
+            } else {
+                merge.output_utxo.ring_data_hash = None;
+            }
+            assert!(matches!(
+                IndexedMergePreparation {
+                    merge: merge.clone(),
+                    nullifier_key: owner.nullifier_key(),
+                }
+                .prepare(),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::MergeOutputRingDataMismatch
+                ))
+            ));
+            assert!(matches!(
+                crate::MergeProver {
+                    transaction: merge,
+                    nullifier_key: owner.nullifier_key(),
+                    proofs: Vec::new(),
+                    dummy_nullifier_proofs: Vec::new(),
+                    cache: None,
+                }
+                .build(),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::MergeOutputRingDataMismatch
+                ))
+            ));
+        }
+    }
+
+    #[test]
     fn prepares_both_owner_rails_without_paths() {
         for owner in [
             ShieldedKeypair::new_ed25519().unwrap(),
@@ -410,7 +483,7 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 12);
             assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
         }
     }

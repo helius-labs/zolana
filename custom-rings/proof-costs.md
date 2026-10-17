@@ -1,3 +1,7 @@
+Constraint counts below include PR #427. Transfer proving times and policy settlement results are the `aa2273c60` baseline, before that PR. Settlement signer binding and keys changed. Fresh transfer timings and valid policy settlements with the matching keys are still required for the combined build. Current merge measurements are separate below.
+
+The new 8, 24 and 52-input ring-merge keys are available locally. They include the ring-state preservation check. Matching ordinary transfer keys and the default-ring 52-input merge key are still unavailable locally. These are separate artifact gaps. Local key generation does not establish settlement coverage or an approved mainnet setup.
+
 The full 2-input, 3-output policy and auditor proof is below 100k constraints. No policy feature was removed. Ordinary recipient encryption stays wallet-side.
 
 | Custom-ring proof | General key | New 2×3 key | Reduction |
@@ -8,7 +12,7 @@ The full 2-input, 3-output policy and auditor proof is below 100k constraints. N
 
 These are exact compiled R1CS counts. The new keys retain sixteen rules, eight list sources, eight per-mint amount thresholds, eight outflow rows, curator lists and key escrow. Each rail keeps its existing semantics. The delegate still requires authorization and escrow and remains exempt from outflow limits.
 
-The 100k budget covers the custom-ring proof. SPP settlement is separate. An ordinary three-output payment uses SPP's padded 2×4 circuit. Ordinary custom settlement adds 57,680 constraints, giving **153,623** across both proofs. The default-ring settlement circuit has 57,554 constraints at that shape.
+The 100k budget covers the custom-ring proof. SPP settlement is separate. An ordinary three-output payment uses SPP's padded 2×4 circuit. Ordinary custom settlement adds 57,684 constraints, giving **153,627** across both proofs. The default-ring settlement circuit has 57,558 constraints at that shape.
 
 The same optimizations now cover eighteen ordinary settlement capacities. Each has a general registry path and a shared-subtree path. The table below counts the complete policy and auditor proof. It excludes SPP settlement. Smaller live counts can use a capacity through settlement's normal padding.
 
@@ -67,7 +71,7 @@ Security checks cover forged hint outputs, modulus wraparound, limb carries, out
 
 All 48 new keys generated and verified real proofs. Full-capacity fixtures exercise the last input, last recipient and last asset. They also reject policy violations after recomputing the transaction statement, so a stale hash cannot explain rejection. The ten existing keys still match their serialized circuits.
 
-All 48 capacity keys also passed [live settlement](test/tests/ring_shapes.rs) on the final SBF programs. Each case proves policy and auditor disclosure, settles through SPP, checks note and nullifier updates, then decrypts the settled outputs. Both general and shared-subtree paths run at every supported capacity.
+All 48 capacity keys also passed [live settlement](test/tests/ring_shapes.rs) on the pre-427 SBF programs. Each case proves policy and auditor disclosure, settles through SPP, checks note and nullifier updates, then decrypts the settled outputs. Both general and shared-subtree paths run at every supported capacity.
 
 | Live transfer mode | Keys exercised | Transaction bytes | Complete transaction CU |
 |---|---:|---:|---:|
@@ -75,7 +79,7 @@ All 48 capacity keys also passed [live settlement](test/tests/ring_shapes.rs) on
 | Anonymous | 8 | 2,323–3,309 | 736,921–756,662 |
 | Delegate | 4 | 2,839–3,349 | 679,298–688,433 |
 
-The three exact 2×3 keys passed the same settlement and auditor checks. That brings live coverage to all 51 policy keys. The TypeScript delegate path also settled with the exact key.
+The three exact 2×3 keys passed the same settlement and auditor checks. That brings live coverage to all 51 specialized policy keys. The TypeScript delegate path also settled with the exact key.
 
 | Exact 2×3 mode | Instruction tag | Transaction bytes | Complete transaction CU |
 |---|---:|---:|---:|
@@ -84,6 +88,24 @@ The three exact 2×3 keys passed the same settlement and auditor checks. That br
 | Delegate | 34 | 3,028 | 679,041 |
 
 These measurements include both proof verifiers and the SPP state transition. They are fixture measurements, not worst-case bounds. Accounts, owner-tag encoding and fee settings affect size. The 16×4 ordinary fixture settles at 3,980 bytes. Adding a separate payer and co-signer makes it 4,204 bytes. The SDK rejects that case before contacting the prover and leaves the input tree unchanged.
+
+The following merge checks use the combined build and regenerated ring-merge keys. They are independent of the older policy transfer results above.
+
+| Real merge inputs | Proof capacity | Transaction bytes | Complete transaction CU | Result |
+|---|---:|---:|---:|---|
+| 2 | 8 | 929 | 132,801 | Settled |
+| 24 | 24 | 2,359 | 203,516 | Settled |
+| 50 | 52 | 4,049 | 302,147 | Settled |
+
+All three cases confirm the expected output commitment, recover the complete merged value and check that the inputs are spent. These are fixture measurements. Account derivations can change CU. The 50-input case has 47 bytes left before the transaction limit.
+
+A 51-input custom merge needs 4,114 bytes, above the 4,096-byte limit. The SDK cap is 50. Extra accounts or signatures can make even 50 too large. The SDK checks the actual serialized layout with a placeholder proof before proving and checks final assembly again. SPP still supports a 52-slot proof. Its bare `merge_ring` instruction has less overhead than the reference custom-ring wrapper.
+
+With the current programs rebuilt and matching proving keys installed, run the three merge settlement cases from the repository root:
+
+```sh
+ZOLANA_PREBUILT=1 bash tools/test-ring-controls.sh ring -j 1 -E 'test(cli_merges_)'
+```
 
 Fresh ephemeral keys and a fresh viewing-key/salt pair remain necessary. Reuse repeats the encryption stream. Both SDKs generate fresh ephemeral keys.
 
@@ -101,21 +123,21 @@ go test ./custom_rings/circuits/base ./custom_rings/circuits/registry
 go test ./prover/custom_ring ./prover/fingerprint
 ```
 
-| Proof for a 2-input, 3-output payment | Constraints | Proving time |
+| Proof for a 2-input, 3-output payment | Current constraints | Pre-427 proving time |
 |---|---:|---:|
-| Default-ring settlement | 57,554 | 146.6 ms |
-| Custom-ring settlement | 57,680 | 159.7 ms |
+| Default-ring settlement | 57,558 | 146.6 ms |
+| Custom-ring settlement | 57,684 | 159.7 ms |
 | General policy and audit | 326,293 | 575.6 ms |
 | New ordinary policy and audit | 95,943 | 237.8 ms |
 | New anonymous policy and audit | 98,809 | 267.9 ms |
 | New delegate policy and audit | 95,217 | 271.9 ms |
-| Custom settlement + new ordinary policy and audit | **153,623** | **397.5 ms** |
+| Custom settlement + new ordinary policy and audit | **153,627** | **397.5 ms** |
 
-Proving benchmarks use an Apple M5 Pro with 18 Go threads. Times are medians of three batches of five proofs. They exclude compilation, setup, witness encoding and verification. Every timed proof is verified outside the timer. The combined time adds the two medians. It is not transaction latency. The default and custom settlement measurements use the padded 2×4 circuit. The policy fixtures contain two real inputs, three real outputs and full tables.
+The pre-427 proving benchmarks used an Apple M5 Pro with 18 Go threads. Times are medians of three batches of five proofs. They exclude compilation, setup, witness encoding and verification. Every timed proof is verified outside the timer. The combined time adds the two medians. It is not transaction latency. The default and custom settlement measurements use the padded 2×4 circuit. The policy fixtures contain two real inputs, three real outputs and full tables.
 
 ```sh
 go test ./prover/custom_ring -run '^$' -bench '^BenchmarkFullPolicyTwoByThree$' -benchtime=5x -count=3
 go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkTwoByThreeSettlement$' -benchtime=5x -count=3
 ```
 
-The existing two-output audit-only path remains 58,645 constraints. With its 30,987-constraint settlement proof, that one-input, two-output transfer totals 89,632. Its two-hash Poseidon KDF came from `../zk-experiments`. The bounded-limb work follows the same principle used there and in [zk.golf](https://zk.golf/llms.txt). The new path changes proof structure, not the auditor's encryption format.
+The two-output audit-only path has 58,645 constraints. Before PR #427 its 30,987-constraint settlement proof brought the one-input, two-output total to 89,632. Its two-hash Poseidon KDF came from `../zk-experiments`. The bounded-limb work follows the same principle used there and in [zk.golf](https://zk.golf/llms.txt). The new path changes proof structure, not the auditor's encryption format.

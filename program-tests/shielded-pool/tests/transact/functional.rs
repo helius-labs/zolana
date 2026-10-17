@@ -89,7 +89,6 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         "shape needs a real slot each"
     );
     let payer = env.rpc.payer.insecure_clone();
-    let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
     let zero = [0u8; 32];
 
@@ -160,11 +159,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     .expect("real input");
 
     // Slot 0 is a real zero-amount change output owned by the input owner, then
-    // two dummies. `AssertDummyTags` only accepts a dummy tag that names an
-    // owner signer other than the payer or a real output's owner, and this
-    // fixture's input owner may be the payer, so without the change output the
-    // two dummy slots would have no nameable participant. That is the same rule
-    // the wallet follows for a self-paid transaction with no real output.
+    // dummies naming it. `AssertDummyTags` only accepts a dummy tag that names
+    // an owner signer or a real output's owner. A wallet builds the same
+    // zero-amount change output for a transaction with no real output.
     let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let change_nullifier_pk = change_nullifier_key
         .pubkey()
@@ -261,19 +258,14 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     .hash()
     .expect("private tx hash");
 
-    // The signer run the proof binds: payer first, then the input owner when
-    // it differs from the payer, zero-padded to the circuit width.
-    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
+    // The signer run in the public input: the input owner, zero-padded to the
+    // circuit width. The fee payer is not in it, so a payer that owns the
+    // input is listed as an owner signer like any other owner.
     let owner_signer_hash =
         solana_owner_identity(&input_owner_bytes).expect("input owner identity");
     let mut signer_hashes = vec![zero; Shape::new(n_inputs, n_outputs).signer_width()];
     if let Some(first) = signer_hashes.first_mut() {
-        *first = payer_hash;
-    }
-    if input_owner_bytes != payer_bytes {
-        if let Some(second) = signer_hashes.get_mut(1) {
-            *second = owner_signer_hash;
-        }
+        *first = owner_signer_hash;
     }
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
@@ -647,13 +639,13 @@ fn transact_sends_valid_proof() {
     let (_, utxo_root_before, _) = current_tree_roots(&env.rpc, &tree);
     let (fees, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
 
-    // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
-    // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
+    // The payer owns the inputs, so it is also listed as an owner signer in
+    // the proof's signer vector.
     let ix = Transact {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -821,7 +813,7 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -971,7 +963,7 @@ fn send_assembled_spend(
         payer: env.rpc.payer.pubkey(),
         input_trees: vec![env.tree],
         output_tree: env.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![env.rpc.payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -1100,7 +1092,7 @@ fn transact_rejects_tampered_output_owner_tag() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1142,7 +1134,7 @@ fn transact_rejects_tampered_public_amount() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -1182,7 +1174,7 @@ fn transact_rejects_an_uncached_spend_that_names_no_utxo_root() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -1214,7 +1206,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -1243,7 +1235,7 @@ fn transact_rejects_tampered_external_data() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -1348,7 +1340,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-TRANSACT-05: the proof binds the signer run (payer first, then unique
+/// INV-TRANSACT-05: the public input includes the signer run (the unique
 /// owner signers) as a fixed-width hash chain. Substituting a different account
 /// that DOES sign in the owner-signer slot passes the signer check, so the
 /// chain binding is the only thing left to fail: the program folds the
@@ -1392,31 +1384,60 @@ fn transact_rejects_a_substituted_input_signer() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-TRANSACT-20: the proof folds `solana_owner_identity(payer)` of accounts[0] as the
-/// first element of the signer chain. Submitting the identical instruction
-/// with a different signing payer must fail proof verification. The inputs are
-/// bound to a separate owner in the signer run, so the payer hash is the only
-/// public-input element that changes.
+/// INV-TRANSACT-20: the fee payer's signature authorizes no
+/// spend. The payer owns the input, but without listing itself as an
+/// owner-signer account its identity is not in the signer chain, so the proof
+/// no longer matches.
 #[test]
-fn transact_rejects_a_substituted_payer() {
+fn transact_rejects_a_payer_owned_input_without_an_owner_signer() {
     let mut env = proof_env();
 
     let tree = env.tree;
     let fee_payer = env.rpc.payer.pubkey();
+    let transact_ix_data = build_valid_transact_ix(&mut env);
+    let ix = Transact {
+        payer: fee_payer,
+        input_trees: vec![tree],
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("the payer alone must not authorize its input");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
+    env.rpc
+        .last_transaction_trace()
+        .expect("payer-only transaction trace")
+        .assert_rolled_back_except(&[fee_payer]);
+}
+
+/// The proof's public input does not include the fee payer: a relayer pays
+/// for a spend the input owner signs as an owner signer.
+#[test]
+fn transact_accepts_a_sponsoring_payer_when_the_owner_signs() {
+    let mut env = proof_env();
+
+    let tree = env.tree;
     let input_owner = Keypair::new();
     env.rpc
         .airdrop(&input_owner.pubkey(), 1_000_000)
         .expect("fund input owner account");
-    let substitute_payer = Keypair::new();
+    let sponsor = Keypair::new();
     env.rpc
-        .airdrop(&substitute_payer.pubkey(), 1_000_000)
-        .expect("fund substitute payer account");
+        .airdrop(&sponsor.pubkey(), 1_000_000_000)
+        .expect("fund sponsor account");
 
-    // The proof binds the default payer's pubkey hash; the substitute signs at
-    // index 0 in its place, so the on-chain recompute disagrees.
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let ix = Transact {
-        payer: substitute_payer.pubkey(),
+        payer: sponsor.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![input_owner.pubkey()],
@@ -1425,18 +1446,11 @@ fn transact_rejects_a_substituted_payer() {
     }
     .instruction();
 
-    let error = env
-        .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[&substitute_payer, &input_owner])
-        .expect_err("a substituted payer must fail proof verification");
-    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
-    let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
-        .last_transaction_trace()
-        .expect("substituted payer transaction trace")
-        .assert_rolled_back_except(&[fee_payer]);
+        .create_and_send_default_payer_transaction(&[ix], &[&sponsor, &input_owner])
+        .expect("a sponsor pays for an owner-signed spend");
+    let (_, nullifier_next) = tree_progress(&env.rpc, &tree);
+    assert_eq!(nullifier_next, 3, "both input slots queue their nullifiers");
 }
 
 /// INV-XC-15: a valid `transact` (tag 12) payload replayed byte-identically
@@ -1460,7 +1474,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1510,7 +1524,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1558,7 +1572,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1729,12 +1743,14 @@ fn transact_accepts_the_widest_input_shape() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
-    assert_eq!(ix.accounts.len(), 5 + shape.n_inputs());
+    // Five fixed metas, one nullifier PDA per input, and the paying owner as
+    // its own owner signer.
+    assert_eq!(ix.accounts.len(), 6 + shape.n_inputs());
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
             &[ix],
@@ -1791,7 +1807,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1830,13 +1846,17 @@ fn ring_transact_accepts_the_widest_input_shape() {
 }
 
 #[test]
-fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
+fn transact_rejects_an_owner_signer_run_longer_than_the_signer_width() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
-    let inputs = transact_ix_data.inputs.len();
-    let extra_signers: Vec<Keypair> = (0..=inputs).map(|_| Keypair::new()).collect();
+    let signer_width = Shape::new(
+        transact_ix_data.inputs.len(),
+        transact_ix_data.outputs.len(),
+    )
+    .signer_width();
+    let extra_signers: Vec<Keypair> = (0..=signer_width).map(|_| Keypair::new()).collect();
     for signer in &extra_signers {
         env.rpc
             .airdrop(&signer.pubkey(), 1_000_000)
@@ -1859,7 +1879,7 @@ fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &signer_refs)
-        .expect_err("an owner-signer run longer than the input count must be rejected");
+        .expect_err("an owner-signer run longer than the signer width must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
@@ -1931,7 +1951,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         payer,
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -2277,7 +2297,7 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         payer,
         input_trees: vec![first_tree, second_tree],
         output_tree: first_tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }

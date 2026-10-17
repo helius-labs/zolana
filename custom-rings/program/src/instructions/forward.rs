@@ -8,7 +8,7 @@ use crate::instructions::{
     deposit_audit::{verify_deposit_disclosure, AuditedDeposit},
     loader::{load_audited_config, load_deposit_audit, load_escrow_root, validate_spp_program},
     public_legs::PublicLegs,
-    shared::cpi_spp,
+    shared::{check_funding_signer, cpi_spp},
     transact::Controls,
 };
 
@@ -115,6 +115,12 @@ impl Forward {
                 return Err(CustomRingError::UnauthorizedCoSigner.into());
             }
         }
+        // SPP debits the depositor on deposits and the payer on merges.
+        let funding_signer = match self {
+            Self::Deposit | Self::AuditedDeposit => 1,
+            Self::Merge => 3,
+        };
+        check_funding_signer(spp_accounts, funding_signer)?;
         cpi_spp(program_id, spp_accounts, data)
     }
 }

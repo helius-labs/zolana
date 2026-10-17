@@ -54,7 +54,7 @@ subject = "sender"
 forbid = "frozen"
 ```
 
-An `above` guard waives a rule when the subject's received amount is at or below the threshold. The proof sums matching outputs, so splitting a payment across slots cannot evade it. Amounts use base units. Sender rules cannot have amount guards. A scalar owner guard sums that owner's outputs, so use per-asset guards when units differ across mints.
+An `above` guard waives a rule when the subject's received amount is at or below the threshold. The proof sums matching outputs, so splitting a payment across slots cannot evade it. Amounts use base units. Sender rules cannot have amount guards. A scalar owner guard sums that owner's outputs and rejects mixed-mint transfers. Use per-asset guards for payments in several mints.
 
 A per-asset owner guard groups outputs by owner and mint. It requires the owner's list condition if any group exceeds its configured threshold. An unconfigured mint is rejected because the proof has no threshold for it. All such rules share one threshold map with up to eight rows.
 
@@ -110,9 +110,9 @@ The address-tree binding stays fixed for the ring. It remains part of the policy
 
 `UpdateMembers` proves a batch of record changes. Each changed bit requires its list's writer. Even an unchanged record needs the authority or matching member to sign. An unsigned no-op cannot advance the registry or rotate its root history. The program checks that every escrow commitment is unchanged before verifying the proof. This applies even when the member or authority signs.
 
-`RegisterKey` proves encryption of the member's nullifier key to the configured auditor. It can insert an absent record or fill the empty escrow commitment of an existing record. It preserves all list bits. A registered key is final. List writes cannot establish, replace or clear it.
+`RegisterKey` proves encryption of the member's nullifier key to the configured auditor. It can insert an absent record or fill the empty escrow commitment of an existing record. It preserves all list bits. Photon projects registration using the stored authenticated list bits. Redundant list fields in registration data cannot replace them. A registered key is final. List writes cannot establish, replace or clear it.
 
-Registry mode requires the output owner's escrow commitment. The auditor can recover notes using the registered key. A delegate is a separate authority and must sign a move. Anonymous mode does not support delegation.
+Registry mode requires the output owner's escrow commitment. The auditor can recover notes using the registered key. A delegate is a separate authority and must sign a move. Anonymous mode does not support delegation. The reference ring rejects public legs on the delegate path. SPP’s authority rail alone allows withdrawals, so each ring must enforce that restriction itself.
 
 ## Proving compliance
 

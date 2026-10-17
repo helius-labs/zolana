@@ -109,8 +109,11 @@ type testAssignment struct {
 	RingProgramID    frontend.Variable
 	InputFlags       frontend.Variable
 	SignerPkHashes   []frontend.Variable
-	TreeSlots        []TreeSlot
-	OutputTreeID     frontend.Variable
+	// AuthorityPayer is the ring authority rail's single signer entry, the
+	// fee payer; nil means testPayerPkHash.
+	AuthorityPayer frontend.Variable
+	TreeSlots      []TreeSlot
+	OutputTreeID   frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -141,17 +144,19 @@ func (a *testAssignment) TransactionSignerPkHashes() []frontend.Variable {
 		return a.SignerPkHashes
 	}
 	out := make([]frontend.Variable, a.Shape.SignerWidth())
-	out[0] = testPayerPkHash()
 	for i := range out {
-		if i != 0 {
-			out[i] = 0
-		}
+		out[i] = 0
 	}
 	return out
 }
 
+// AuthoritySignerPkHashes is the ring authority rail's width-1 vector, which
+// holds the fee payer and authorizes nothing.
 func (a *testAssignment) AuthoritySignerPkHashes() []frontend.Variable {
-	return a.TransactionSignerPkHashes()[:1]
+	if a.AuthorityPayer == nil {
+		a.AuthorityPayer = testPayerPkHash()
+	}
+	return []frontend.Variable{a.AuthorityPayer}
 }
 
 func (a *testAssignment) OutputHashes() []frontend.Variable {
@@ -434,11 +439,11 @@ func buildCircuitAssignmentExact(
 		noAddressNullifiers(shape.NInputs),
 		privateTxBlinding,
 	)
-	payerPkHash := testPayerPkHash()
+	// The fee payer is not an owner signer: the vector holds the deduplicated
+	// input owners only.
 	signerPkHashes := zeroFields(shape.SignerWidth())
-	signerPkHashes[0] = new(big.Int).Set(payerPkHash)
-	nextSigner := 1
-	seenSigners := []*big.Int{payerPkHash}
+	nextSigner := 0
+	seenSigners := []*big.Int{}
 	for _, owner := range inputOwnerPkHashes {
 		if owner.Sign() == 0 {
 			continue
@@ -590,7 +595,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bin
 		BindOutputOwnerTags: bindOutputOwnerTags,
 	}
 	if ringAuthority {
-		publicInputs.SignerPkHashes = publicInputs.SignerPkHashes[:1]
+		publicInputs.SignerPkHashes = spptest.ToBigInts(assignment.AuthoritySignerPkHashes())
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		publicInputs.PublicAssets[i] = spptest.AsBigInt(assignment.PublicAssets[i])

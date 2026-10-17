@@ -269,7 +269,11 @@ func OwnerSignerSlots(nInputs int) int {
 }
 
 // SignerWidth is the public signer vector length on the signature-requiring
-// rails: the payer plus OwnerSignerSlots. The ring authority rail uses 1.
+// rails: the deduplicated owner signers, zero-padded. The fee payer is not a
+// member, so paying a transaction never authorizes spending the payer's UTXOs;
+// an owner that also pays is listed as an owner signer and takes no extra
+// transaction address, hence OwnerSignerSlots plus one. The ring authority
+// rail holds its payer in a vector of width 1 instead.
 func (s Shape) SignerWidth() int {
 	return OwnerSignerSlots(s.NInputs) + 1
 }

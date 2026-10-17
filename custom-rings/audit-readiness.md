@@ -1,6 +1,6 @@
 Custom rings rely on SPP for ownership, inclusion, nullifiers and conservation. The extra proof checks policy and auditor disclosure for the same private transaction hash. Both proofs must pass before settlement.
 
-The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) gives the order of constraints and the account trust boundary. [Proof costs](proof-costs.md) separates the extra proof from SPP settlement. [The change overview](changes-overview.md) explains policy storage and migration.
+The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) gives the order of constraints and the account trust boundary. [Proof costs](proof-costs.md) separates the extra proof from SPP settlement. [The change overview](changes-overview.md) explains policy storage and migration. The [PR and Certora checklist](re-audit-checklist.md) records the current review, fixes and remaining artifact validation.
 
 | Obligation | Enforcement | Regression coverage |
 |---|---|---|
@@ -8,8 +8,10 @@ The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) 
 | Public policy fields cannot be replaced by the prover | [Policy binding](program/src/instructions/transact.rs) reads the program-owned account. Policy writes validate and hash the table. | [Public input mutations](sdk/tests/custom_ring_circuit.rs) and [full-policy rejection tests](../prover/server/custom_rings/circuits/policy/public_table_test.go). |
 | Registry membership and absence are authenticated | [Registry opening](../prover/server/custom_rings/circuits/registry/opening.go) checks canonical ordering, leaf contents and root. [Shared paths](../prover/server/custom_rings/circuits/registry/sparse_subtree.go) require a complete frontier and one aligned block per registry. | Forged hints, boundary values, missing expansions, wrong upper paths and mixed prefixes in [registry tests](../prover/server/custom_rings/circuits/registry). |
 | A listed member cannot claim unproved key escrow | [List updates](program/src/instructions/update_members.rs) preserve escrow and require a writer even for unchanged records. [Registration](program/src/instructions/register_key.rs) accepts only an empty prior commitment and proves the encrypted key binding. | [Atomic rejection tests](program/tests/failing/member_registry.rs), [registration circuit](../prover/server/custom_rings/circuits/policy/register_key_test.go) and [SDK insertion tests](sdk/src/tests/member_registry.rs). |
+| A ring exit retains a spendable owner identity | SDK preflight requires a confidential marker and the correct owner on every real default-ring output. Ring outputs must not carry that marker. Zero-amount outputs are real notes. | Complete, indexed and cached TypeScript paths reject before proof I/O. Raw structural requests and false dummy flags are tested. |
+| Merge preserves committed ring data | The merge circuit requires a common input and output ring data hash and a nonzero derived asset field. SDK builders inherit the hash and reject mixed hashes or an override. | Mixed input hashes, changed outputs, mutated prepared buffers and raw complete/indexed requests are rejected. The custom instruction forwards the inherited hash. |
 | Auditor plaintext matches committed notes | [Audit circuit](../prover/server/custom_rings/circuits/base/audit.go) encrypts the same fields used in note commitments. Anonymous mode also binds hidden owners and spent notes. | [Disclosure vectors](../prover/server/custom_rings/circuits/base/disclosure_test.go), cross-language statement reconstruction and live auditor checks. Fixed-size identity arrays preserve the circuit's four slots on two-output anonymous requests. |
-| Unproved recipient data cannot hide a proved note | [Rust audit](client/src/decrypt.rs) and [TypeScript audit](../sdk-libs/ts/src/ring/audit.ts) keep verified openings authoritative. Recovery consumes these openings directly. | [Rust recovery](client/tests/recover.rs), [TypeScript recovery](../sdk-libs/ts/test/ring-member-registry.test.ts) and the shared RPC fixture. Corrupt ciphertext, false plaintext and unknown assets are covered. |
+| Unproved recipient data cannot hide a proved note | [Rust audit](client/src/decrypt.rs) and [TypeScript audit](../sdk-libs/ts/src/ring/audit.ts) keep verified openings authoritative. Recovery consumes these openings directly and excludes unproved recipient metadata from spend objects. | [Rust recovery](client/tests/recover.rs), [TypeScript recovery](../sdk-libs/ts/test/ring-member-registry.test.ts) and the shared RPC fixture. Corrupt ciphertext, false plaintext and unknown assets are covered. |
 | Indexed data cannot fabricate an audited transfer or a spent note | [Rust origin](client/src/origin.rs) and [TypeScript origin](../sdk-libs/ts/src/ring/origin.ts) reconstruct the confirmed SPP event. Recovery compares transfer, deposit and merge contents before trusting them. | Forged ciphertext, commitments, positions and nullifiers in origin and recovery tests. |
 | Retries follow every policy root | Both SDKs bind the own and curator registry snapshots. Only known stale roots and confirmed expiry can rebuild an attempt. Unknown outcomes retain the signature. | [Rust submission tests](sdk/src/submission.rs) and [TypeScript submission tests](../sdk-libs/ts/test/ring-submission.test.ts). |
 | Upgrades do not strand old auditor configs | [Deployment preflight](cli/src/deploy.rs) rejects incompatible ring and policy layouts before loader writes. | Legacy P-256, malformed account and current-layout tests in the same module. |
@@ -18,21 +20,23 @@ The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) 
 
 The optimized arithmetic must preserve integer meaning over the BN254 field. The tests exercise modular wraparound, forged division hints, carries, comparison bits and noncanonical X25519 bytes. These are constraint attacks, not just valid-wallet examples. Circuit changes require the same checks before regenerating keys.
 
-The final validation uses the rebuilt ring and SPP programs. All 51 policy keys settle real transactions and recover the proved auditor data. This includes both path variants at every supported capacity and all three exact 2×3 modes. Compact padding keeps the full SPP witness while omitting only a validated dummy suffix from the published transaction. The default padding behavior is unchanged.
+The validation snapshot below is from `aa2273c60`, before integrating PR #427. It used rebuilt ring and SPP programs. PR #427 changes settlement signatures, merge ciphertext and keys, so these results are not evidence for the combined build until rerun. All 51 specialized policy keys settle real transactions and recover the proved auditor data. This includes both path variants at every supported capacity and all three exact 2×3 modes. Compact padding keeps the full SPP witness while omitting only a validated dummy suffix from the published transaction. The default padding behavior is unchanged.
 
 | Validation | Result |
 |---|---|
 | Ring program tests against final SBF | 329 passed |
 | Rust ring SDK unit tests | 123 passed |
 | Rust audit client and ring RPC tests | 112 and 62 passed |
-| Rust live lifecycle scenarios | 19 passed |
-| Live policy-key settlement matrix | 51 keys passed |
+| Rust live lifecycle scenarios | 18 passed, plus one CLI unit test |
+| Live specialized policy-key settlement matrix | 51 keys passed |
 | TypeScript checks | 1,621 tests passed, declarations and packed consumer passed |
 | TypeScript live controls and recovery | Both local and prover-resolved paths passed, including exact 2×3 delegation |
 | Photon | 140 library tests and 29 parser integration tests passed |
 | Circuit and key consistency | All 58 ring R1CS files match, all 62 ring and anonymous SPP verifier exports match |
 
-Shared implementations now own auditor openings, confirmed event parsing and key catalogs. Obsolete list-note readers and manual key inventories are removed. The TypeScript ring production source is 79 lines smaller despite the new checks. Regression tests cover these shared paths.
+Shared implementations now own auditor openings, confirmed event parsing and key catalogs. Obsolete list-note readers and manual key inventories are removed. The pre-427 TypeScript ring production source was 79 lines smaller despite the new checks. Regression tests cover these shared paths.
+
+PR #427 adds proof-bound merge output encryption. Recovery no longer needs every predecessor plaintext, so a merger cannot strand known funds by including a note the owner never received. The merge ciphertext is authenticated by rebuilding its commitment after checking the confirmed SPP event. The reference ring also rejects an unsigned funding account before adding its own PDA signature. Fee payment alone never adds an owner to the spend authorization vector.
 
 The accepted limits are explicit.
 
@@ -44,6 +48,7 @@ The accepted limits are explicit.
 - TypeScript builds ordinary and delegate transfers. Anonymous custom-ring transfer construction is currently Rust-only. The default ring remains nonanonymous.
 - Direct SDK scans authenticate settlement through the chain RPC. Ring RPC clients trust the configured audit service to do those checks. Their opening checks establish internal consistency, not independent chain authentication.
 - The auditor trusts its chain RPC for confirmed contents and its indexer for complete history. Indexed event contents are checked against the confirmed SPP instruction and event. Commitment checks detect false openings. They cannot prove that an indexer omitted no transaction. Recovery rejects capped scans and missing mandatory disclosure in confirmed ring rows. RPC pages expose skipped records.
+- Merge proofs support 52 slots. The reference ring fits at most 50 published inputs under the transaction byte limit. Extra accounts or signatures can lower that cap. SDKs check the complete serialized layout before proving and check final assembly again. Legacy merge instructions need migration. The built-in confirmed-origin parser rejects their old wire format. A trusted legacy adapter may reconstruct them, but recovery keeps ciphertext-free outputs unresolved.
 - Old P-256 notes and old list storage require migration. The upgrade guard prevents an incompatible in-place upgrade. It does not migrate funds.
 
 Tests establish specific behavior. They do not establish the absence of every cryptographic flaw or replace an independent audit. Mainnet release also needs a complete artifact set and an accepted Groth16 setup process. The current local setups and historical published manifest must not be presented as an approved mainnet release. No program or key publication is performed by these source checks.

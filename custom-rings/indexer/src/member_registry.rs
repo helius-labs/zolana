@@ -55,7 +55,10 @@ impl MemberRecordRow {
     }
 }
 
-/// A proven batch of record writes, items in the order the program applied them.
+/// A batch of record writes, in the order the program applied them.
+/// Registration proves that list bits are preserved. Its redundant wire list
+/// values are not public inputs, so consumers must retain the stored bits.
+/// Reconstruct the new root before accepting either kind of batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Batch {
     pub new_root: [u8; 32],

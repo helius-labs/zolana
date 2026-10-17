@@ -42,6 +42,8 @@ pub struct RingTransactProof {
     pub ring_program: Pubkey,
     pub ring_config: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
+    /// The explicit Ed25519 input owners in the proof's signer vector.
+    pub owner_signers: Vec<Pubkey>,
 }
 
 impl RingTransactProof {
@@ -50,7 +52,7 @@ impl RingTransactProof {
             payer,
             input_trees: vec![tree],
             output_tree: tree,
-            owner_signers: Vec::new(),
+            owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             data: self.data.clone(),
         }
@@ -194,6 +196,8 @@ impl RealRingTransact {
         .hash()
         .expect("private tx hash");
 
+        // The payer also owns the real input and must sign explicitly as owner.
+        let owner_signers = vec![payer.pubkey()];
         let mut signer_pk_hashes = vec![payer_hash];
         signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
@@ -274,6 +278,7 @@ impl RealRingTransact {
             ring_program,
             ring_config,
             nullifiers,
+            owner_signers,
         }
     }
 }

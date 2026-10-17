@@ -31,6 +31,9 @@ func SelectCount(api frontend.API, count frontend.Variable, first, n int) Count 
 }
 
 // HashPrefix4 is gadget.HashChain4 over the first count values, for a count from 1.
+// It does not bind the prefix length. Callers must fix that length externally
+// or reject explicit trailing zeros. The audit caller relies on SPP rejecting
+// every zero published output commitment before settlement.
 func HashPrefix4(api frontend.API, values []frontend.Variable, c Count) frontend.Variable {
 	head := values[0]
 	selected := api.Mul(c.OneHot[0], head)

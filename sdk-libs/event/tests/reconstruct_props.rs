@@ -11,8 +11,8 @@ mod support;
 use proptest::prelude::*;
 use solana_pubkey::Pubkey;
 use support::{
-    emit_event_data, emit_instruction, merge_ix, merge_ring_ix, source, transact_ix,
-    transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
+    emit_event_data, emit_instruction, merge_ix, merge_output_data, merge_ring_ix, source,
+    transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
@@ -340,7 +340,7 @@ proptest! {
             None => (
                 tag::MERGE_TRANSACT,
                 merge.serialize().expect("serialize merge"),
-                Vec::new(),
+                merge_output_data(None),
             ),
             Some(ring_data_hash) => {
                 let mut ring = merge_ring_ix(output_utxo_hash, ring_data_hash);
@@ -348,7 +348,7 @@ proptest! {
                 (
                     tag::RING_MERGE_TRANSACT,
                     ring.serialize().expect("serialize merge ring"),
-                    ring_data_hash.to_vec(),
+                    merge_output_data(Some(ring_data_hash)),
                 )
             }
         };

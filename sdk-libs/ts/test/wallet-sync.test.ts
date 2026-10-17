@@ -10,7 +10,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergeOutputKey,
+} from "../src/keypair/merge/index.js";
 import {
   DEFAULT_TREE_ID,
   SHIELDED_POOL_PROGRAM_ID,
@@ -48,6 +52,10 @@ import {
   encryptSplit,
   readOutputData,
 } from "../src/transaction/serialization/codecs.js";
+import {
+  encodeMergeOutputData,
+  encryptMergeOutput,
+} from "../src/transaction/serialization/merge.js";
 import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { SOL_ASSET_ID } from "../src/transaction/asset.js";
 import {
@@ -68,6 +76,35 @@ const SPL_MINT = address("So11111111111111111111111111111111111111112");
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
+}
+
+/**
+ * The output data a merge publishes: the merged amount and mint encrypted
+ * under `mergeOutputKey(firstNullifier)`, led by the ring data hash on a ring
+ * merge. It is all the owner needs to rebuild the output.
+ */
+function mergePayload(
+  keypair: ShieldedKeypair,
+  firstNullifier: Bytes32,
+  amount: bigint,
+  ringDataHash?: Bytes32,
+): Uint8Array {
+  const salt = new Uint8Array(16).fill(11) as Bytes16;
+  const nullifierKey = keypair.nullifierKey();
+  try {
+    const ciphertext = encryptMergeOutput(
+      { amount, mint: SOL_MINT },
+      mergeOutputKey(nullifierKey, firstNullifier),
+      salt,
+    );
+    return encodeMergeOutputData({
+      salt,
+      ciphertext,
+      ...(ringDataHash === undefined ? {} : { ringDataHash }),
+    });
+  } finally {
+    nullifierKey.destroy();
+  }
 }
 
 interface RequestWithCursor {
@@ -147,7 +184,7 @@ function mergeAfterSplit() {
           tree: TREE,
           leafIndex: 2n,
         },
-        payload: new Uint8Array(),
+        payload: mergePayload(keypair, firstNullifier, 42n),
       },
     ],
     messages: [],
@@ -178,7 +215,7 @@ function mergeAfterSplit() {
           tree: TREE,
           leafIndex: 3n,
         },
-        payload: new Uint8Array(),
+        payload: mergePayload(keypair, chainedNullifier, 42n),
       },
     ],
     messages: [],
@@ -794,10 +831,10 @@ describe("wallet sync", () => {
   // the circuit, so sync reconstructs it like a padded one.
   it.each([
     { kind: "24-input", real: 2, width: 24, compact: false },
-    { kind: "54-input", real: 2, width: 54, compact: false },
+    { kind: "52-input", real: 2, width: 52, compact: false },
     { kind: "compact 24-input", real: 2, width: 24, compact: true },
-    { kind: "compact 54-input", real: 25, width: 54, compact: true },
-  ])("reconstructs a ciphertext-free $kind merge", async ({ real, width, compact }) => {
+    { kind: "compact 52-input", real: 25, width: 52, compact: true },
+  ])("reconstructs a $kind merge from its output ciphertext", async ({ real, width, compact }) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const amounts = Array.from({ length: real }, (_, index) => BigInt(20 + 2 * index));
@@ -849,7 +886,7 @@ describe("wallet sync", () => {
                 tree: TREE,
                 leafIndex: BigInt(real),
               },
-              payload: new Uint8Array(),
+              payload: mergePayload(keypair, firstNullifier, total),
             },
           ],
           messages: [],
@@ -905,12 +942,13 @@ describe("wallet sync", () => {
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 
-  it("asks a remote key holder once per dependency level, not once per output", async () => {
+  it("asks a remote key holder once per dependency level, not once per output or merge", async () => {
     // A key holder behind a network answers in batches: the pass records every
     // request it cannot answer, resolves them together, and runs again. The
     // result must be the one in-process keys produce, and the call count must
-    // follow the dependency chain (ciphertext, nullifier, merge derivations),
-    // not the number of outputs.
+    // follow the dependency chain (ciphertext and merge keys, then nullifiers),
+    // not the number of outputs. A merge decrypts from its own transaction, so a
+    // chained merge adds no level.
     const { keypair, keys, split, merge, chainedMerge } = mergeAfterSplit();
     const calls = { decrypt: 0, derive: 0, transactionKeys: 0, items: 0 };
     const remote: ShieldedKeys = {
@@ -946,7 +984,7 @@ describe("wallet sync", () => {
     expect(wallet.privateTransactions()).toEqual(local.privateTransactions());
     expect(calls.items).toBeGreaterThan(calls.decrypt + calls.derive + calls.transactionKeys);
     expect(calls.decrypt).toBeLessThanOrEqual(2);
-    expect(calls.derive).toBeLessThanOrEqual(6);
+    expect(calls.derive).toBeLessThanOrEqual(2);
   });
 
   it("hands the sync's request context to every key holder batch", async () => {
@@ -1013,7 +1051,13 @@ describe("wallet sync", () => {
         txSignature: String(index + 3)
           .repeat(64)
           .slice(0, 64) as Signature,
-        outputSlots: [{ viewTag: identityTag, outputContext: context, payload: new Uint8Array() }],
+        outputSlots: [
+          {
+            viewTag: identityTag,
+            outputContext: context,
+            payload: mergePayload(keypair, spent, 42n),
+          },
+        ],
         messages: [],
         nullifiers: [
           spent,
@@ -1029,13 +1073,21 @@ describe("wallet sync", () => {
   }
 
   it("restores a wallet through a long chain of merges in one batch", async () => {
-    // Every merge in the chain needs the nullifier of the previous one's
-    // output, so a fresh restore resolves one merge per key round. The round
-    // budget follows the batch, not a fixed depth.
+    // Every merge output decrypts from its own transaction, so a fresh restore
+    // reaches the whole chain in the same key rounds, whatever its depth and
+    // order: the chain adds no derive round.
     const { keypair, keys, split, merges } = mergeChain(9);
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    let deriveCalls = 0;
+    const counting: ShieldedKeys = {
+      ...remoteOver(keys),
+      derive: (requests) => {
+        deriveCalls++;
+        return keys.derive(requests);
+      },
+    };
 
-    const report = await decryptWithKeys(keys, {
+    const report = await decryptWithKeys(counting, {
       wallet,
       transactions: [split, ...[...merges].reverse()],
     });
@@ -1043,6 +1095,57 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 2 + merges.length, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
     expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(1);
+    expect(deriveCalls).toBeLessThanOrEqual(2);
+  });
+
+  it("decrypts a merge from its own transaction without holding any of its inputs", async () => {
+    // Regression for M-03: the merged amount and mint come from the
+    // proof-bound ciphertext, so neither the inputs nor the transaction that
+    // created them are needed.
+    const { keypair, keys, merge, chainedMerge } = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+
+    const report = await decryptWithKeys(keys, { wallet, transactions: [chainedMerge] });
+
+    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+    expect(wallet.utxos().map((entry) => entry.outputContext)).toEqual([
+      chainedMerge.outputSlots[0]!.outputContext,
+    ]);
+
+    // The first merge decrypts on its own too, and the chained merge then marks
+    // its output spent.
+    const both = new Wallet({ identity: keypair.shieldedAddress() });
+    await decryptWithKeys(keys, { wallet: both, transactions: [merge, chainedMerge] });
+    expect(both.balance(SOL_MINT).amount).toBe(42n);
+    expect(both.utxos().map((entry) => [entry.outputContext, entry.spent])).toEqual([
+      [merge.outputSlots[0]!.outputContext, true],
+      [chainedMerge.outputSlots[0]!.outputContext, false],
+    ]);
+  });
+
+  it("refuses a merge whose ciphertext does not decrypt to its output commitment", async () => {
+    // The cipher is unauthenticated: a ciphertext of another amount still
+    // decrypts in range, and only the commitment check keeps it out.
+    const { keypair, keys, merge } = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const forged = {
+      ...merge,
+      outputSlots: [
+        {
+          ...merge.outputSlots[0]!,
+          payload: mergePayload(keypair, merge.nullifiers[0]!, 43n),
+        },
+      ],
+    };
+
+    const report = await decryptWithKeys(keys, { wallet, transactions: [forged] });
+
+    expect(report).toMatchObject({ storedUtxos: 0 });
+    expect(report.undecryptableCandidates).toBeGreaterThan(0);
+    expect(wallet.utxos()).toEqual([]);
+    expect(wallet.balance(SOL_MINT).amount).toBe(0n);
+    expect(wallet.privateTransactions()).toEqual([]);
   });
 
   it("refuses a key holder that answers a batch short or with a hole", async () => {
@@ -1948,9 +2051,10 @@ describe("wallet sync", () => {
                 tree: TREE,
                 leafIndex: 2n,
               },
-              payload: new Uint8Array(32),
+              payload: mergePayload(keypair, firstNullifier, 42n, new Uint8Array(32) as Bytes32),
             },
           ],
+          ringProgramId: OWNER,
           messages: [],
           nullifiers: [
             ...utxos.map((entry) => entry.nullifier),
@@ -1973,6 +2077,13 @@ describe("wallet sync", () => {
 
   it("ignores a merge whose first nullifier is not owned", async () => {
     const keypair = ShieldedKeypair.generate();
+    const other = ShieldedKeypair.generate();
+    // Nullifiers are field elements on chain; these are no nullifier of this wallet.
+    const foreignNullifiers = Array.from(
+      { length: 8 },
+      (_, index) =>
+        Uint8Array.from({ length: 32 }, (_, byte) => (byte === 31 ? index + 80 : 0)) as Bytes32,
+    );
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const blinding = new Uint8Array(32).fill(5) as Bytes32;
     const existing = new Utxo({
@@ -2004,13 +2115,16 @@ describe("wallet sync", () => {
             tree: TREE,
             leafIndex: 1n,
           },
-          payload: new Uint8Array(),
+          // Another wallet's well-formed merge: under this wallet's key it
+          // decrypts to noise.
+          payload: mergePayload(other, foreignNullifiers[0]!, 42n),
         },
       ],
       messages: [],
-      nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 80)),
+      nullifiers: foreignNullifiers,
       proofless: false,
     } as const;
+    other.destroy();
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },

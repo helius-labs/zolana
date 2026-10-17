@@ -156,7 +156,7 @@ fn write_nullifier_pda_account(
             address,
             Account {
                 lamports,
-                data: borsh::to_vec(&nullifier_pda).expect("serialize nullifier PDA"),
+                data: nullifier_pda.to_account_data().to_vec(),
                 owner: pda::shielded_pool_program_id(),
                 executable: false,
                 rent_epoch: 0,
@@ -189,6 +189,21 @@ fn queue_nullifier_pdas(
         .zip(first_queue_index..)
         .map(|(nullifier, queue_index)| queue_nullifier_pda(env, nullifier, queue_index))
         .collect()
+}
+
+/// The fixtures write nullifier PDAs directly, so seed the tree's open-PDA
+/// count the way transact would have left it.
+fn set_live_nullifier_pdas(env: &mut Pool, live: u64) {
+    let tree = env.tree;
+    let mut account = tree_account(env);
+    {
+        let layout: &mut Layout = wincode::deserialize_mut(&mut account.data).expect("tree layout");
+        layout.live_nullifier_pdas = live;
+    }
+    env.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("write live nullifier PDA count");
 }
 
 fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
@@ -304,6 +319,9 @@ fn assert_close_nullifier_pdas(
         let layout: &mut Layout =
             wincode::deserialize_mut(&mut expected_tree.data).expect("expected tree layout");
         layout.fee_balance -= paid;
+        layout.live_nullifier_pdas = layout
+            .live_nullifier_pdas
+            .saturating_sub(nullifiers.len() as u64);
     }
     assert_eq!(
         tree_account(env),
@@ -623,6 +641,7 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
     let nullifiers = [fe(1), fe(2), fe(3)];
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
     set_close_before_index(&mut env, 4);
+    set_live_nullifier_pdas(&mut env, 5);
     let tree_before = tree_account(&env);
 
     let ix = close_instruction(&env, nullifiers.to_vec());
@@ -893,9 +912,41 @@ fn close_rejects_a_non_nullifier_pda_account() {
     }
 }
 
-/// A program-owned ten-byte account the program never wrote decodes as an
-/// all-zero record. Queue indices start at 1, so a zero `queue_index` is
-/// rejected even though `tree_id` matches and the watermark is above it.
+/// A program-owned account with a valid-looking record but no
+/// nullifier PDA discriminator is not closed.
+#[test]
+fn close_rejects_a_record_without_the_nullifier_pda_discriminator() {
+    let mut env = Pool::initialized();
+    let nullifier = fe(1);
+    let rent = pool_nullifier_pda_rent(&env);
+    let address = write_nullifier_pda_account(
+        &mut env,
+        &nullifier,
+        NullifierPda {
+            queue_index: 1,
+            tree_id: 0,
+        },
+        rent,
+    );
+    let mut account = env.rpc.svm.get_account(&address).expect("nullifier PDA");
+    *account.data.first_mut().expect("discriminator byte") = 0;
+    env.rpc
+        .svm
+        .set_account(address, account)
+        .expect("clear the discriminator");
+    set_close_before_index(&mut env, 2);
+
+    let ix = close_instruction(&env, vec![nullifier]);
+    expect_close_rejection(
+        &mut env,
+        ix,
+        Rejection::pool(ShieldedPoolError::InvalidNullifierPda),
+    );
+}
+
+/// A record with a zero queue index was not written by the program. Queue
+/// indices start at 1, so a zero `queue_index` is rejected even though
+/// `tree_id` matches and the watermark is above it.
 #[test]
 fn close_rejects_a_zero_queue_index_record() {
     let mut env = Pool::initialized();

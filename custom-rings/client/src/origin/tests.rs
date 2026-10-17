@@ -973,13 +973,20 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
     indexed.messages.clear();
     indexed.output_slots.truncate(1);
     indexed.output_slots[0].view_tag = [20; 32];
-    indexed.output_slots[0].payload = vec![13; 32];
+    indexed.output_slots[0].payload =
+        zolana_event::encode_merge_output_data(zolana_event::MergeOutputDataRef {
+            salt: &[7; 16],
+            ciphertext: &[[0; 32]; 3],
+            ring_data_hash: Some(&[13; 32]),
+        });
     let data = MergeRingIxData {
         output_ring_data_hash: [13; 32],
         merge: MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [6; 32],
+            output_ciphertext_salt: [7; 16],
+            output_ciphertext: [[0; 32]; 3],
             eddsa_owner: true,
             private_tx_hash: [0; 32],
             nullifiers: indexed.nullifiers.clone(),

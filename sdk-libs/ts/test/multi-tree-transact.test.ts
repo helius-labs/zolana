@@ -464,7 +464,7 @@ describe("a client proving from two trees", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
-  it("asks a tree holding only padding for no state proofs", async () => {
+  it("rejects a tree holding only padding before requesting any proofs", async () => {
     const fixture = twoTreeFixture();
     const client = new ZolanaClient({
       proofDataSource: "client",
@@ -495,13 +495,13 @@ describe("a client proving from two trees", () => {
       context: { blockTime: 1n, slot: 1n },
       proofs: tree === treeAddress(TREE_0.treeId) ? [spent.nullifier] : fixture.dummyProofs,
     }));
-    // Padding cannot open a tree, so assembly still refuses the slot.
+    // Padding cannot open a tree. Shared preflight refuses it before I/O.
     await expect(
       client.proveTransact(
         proofInputs,
         LocalKeys.fromKeypair(fixture.keypair, client.proofService),
       ),
     ).rejects.toThrow("CLIENT_INPUT_TREE_UNRESOLVED");
-    expect(getMerkleProofs.mock.calls.map((call) => call[0])).toEqual([treeAddress(TREE_0.treeId)]);
+    expect(getMerkleProofs).not.toHaveBeenCalled();
   });
 });

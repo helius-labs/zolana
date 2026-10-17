@@ -756,6 +756,19 @@ describe("RpcTransactionOrigin", () => {
         await expect(origin.confirmedTransaction(forged, ring)).rejects.toMatchObject({
           code: "RING_ORIGIN_DECODE",
         });
+      if (name === "confirmed-merge-event") {
+        // Every framing, ring hash, salt and ciphertext byte comes from settlement.
+        for (const [offset, byte] of output.payload.entries()) {
+          const payload = new Uint8Array(output.payload);
+          payload[offset] = byte ^ 1;
+          await expect(
+            origin.confirmedTransaction(
+              { ...indexed, outputSlots: [{ ...output, payload }] },
+              ring,
+            ),
+          ).rejects.toMatchObject({ code: "RING_ORIGIN_DECODE" });
+        }
+      }
     },
   );
 

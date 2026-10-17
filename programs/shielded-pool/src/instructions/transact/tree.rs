@@ -103,6 +103,7 @@ pub(crate) fn apply_input_trees(
             let forester_fee = input_tree
                 .credit_insertion_fee(tree_input_count as u64)
                 .map_err(tree_error)?;
+            input_tree.record_nullifier_pdas_created(tree_input_count as u64);
             InputTreeResult {
                 input_tree: InputTreeSequence {
                     tree: input_tree_address,

@@ -23,8 +23,8 @@ func TestExportAeglosMergeFixtures(t *testing.T) {
 					family = "merge_ring"
 					options.rail = ringFixtureRail
 					options.ringProgramID = big.NewInt(71)
-					options.inputRingData = []*big.Int{big.NewInt(31), big.NewInt(32)}
-					options.outputRingData = big.NewInt(33)
+					options.inputRingData = []*big.Int{big.NewInt(31), big.NewInt(31)}
+					options.outputRingData = big.NewInt(31)
 				}
 				fixture := buildMergeFixture(t, options)
 				var circuit frontend.Circuit = fixture.defaultCircuit()

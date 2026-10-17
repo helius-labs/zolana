@@ -21,6 +21,7 @@ pub(crate) fn validate_merge_inputs(
 
     let first = inputs.first().ok_or(TransactionError::NoInputs)?;
     let (asset, tree_id) = (first.utxo.asset, first.tree_id);
+    validate_merge_asset(asset)?;
     let mut total = 0u64;
     for (index, input_utxo) in inputs.iter().enumerate() {
         if input_utxo.utxo.asset != asset {
@@ -40,6 +41,43 @@ pub(crate) fn validate_merge_inputs(
         total,
         padded_input_count,
     })
+}
+
+fn validate_merge_asset(asset: Mint) -> Result<(), TransactionError> {
+    // SOL has a zero mint address but a nonzero Poseidon asset identity.
+    if crate::instructions::transact::asset_field(&asset.asset)? == [0; 32] {
+        return Err(TransactionError::ZeroMergeAsset);
+    }
+    Ok(())
+}
+
+/// A merge preserves one common committed ring-data hash. Missing means zero.
+/// Construction may infer that hash, while an already-built witness must match it.
+pub fn merge_ring_data_hash(
+    mut inputs: impl Iterator<Item = (usize, Option<[u8; 32]>)>,
+    output_override: Option<[u8; 32]>,
+) -> Result<Option<[u8; 32]>, TransactionError> {
+    let (_, first) = inputs.next().ok_or(TransactionError::NoInputs)?;
+    let expected = first.unwrap_or_default();
+    if !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&expected)
+        || output_override
+            .is_some_and(|hash| !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&hash))
+    {
+        return Err(TransactionError::NonCanonicalField);
+    }
+    for (index, hash) in inputs {
+        let hash = hash.unwrap_or_default();
+        if !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&hash) {
+            return Err(TransactionError::NonCanonicalField);
+        }
+        if hash != expected {
+            return Err(TransactionError::MergeInputRingDataMismatch { index });
+        }
+    }
+    if output_override.is_some_and(|hash| hash != expected) {
+        return Err(TransactionError::MergeOutputRingDataMismatch);
+    }
+    Ok((expected != [0; 32]).then_some(expected))
 }
 
 pub(crate) fn validate_merge_owner(
@@ -101,6 +139,15 @@ pub(crate) fn pad_with_compact(
 
 impl MergeProofInputs {
     pub fn input_utxo_hashes(&self) -> Result<Vec<&SppProofInputUtxo>, TransactionError> {
+        validate_merge_asset(self.output_utxo.asset)?;
+        merge_ring_data_hash(
+            self.input_utxos
+                .iter()
+                .enumerate()
+                .filter(|(_, input)| !input.is_dummy())
+                .map(|(index, input)| (index, input.ring_data_hash)),
+            Some(self.output_utxo.ring_data_hash.unwrap_or_default()),
+        )?;
         self.input_utxos
             .iter()
             .filter(|input_utxo| !input_utxo.is_dummy())

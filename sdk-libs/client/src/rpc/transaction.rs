@@ -32,13 +32,6 @@ pub fn compile_message(
     .map_err(|error| ClientError::TransactionCompile(error.to_string()))
 }
 
-/// Sign a compiled message, passing each signer once.
-///
-/// `VersionedTransaction::try_new` refuses a signer list longer than the
-/// message's required signatures, where legacy partial signing tolerated a
-/// repeat. A fee payer that also owns a shielded input is one account key but
-/// two entries in the caller's list, so the duplicates are dropped here rather
-/// than at every call site.
 pub(crate) fn ensure_version_1(message: &VersionedMessage) -> Result<(), ClientError> {
     match message {
         VersionedMessage::V1(_) => Ok(()),
@@ -48,6 +41,13 @@ pub(crate) fn ensure_version_1(message: &VersionedMessage) -> Result<(), ClientE
     }
 }
 
+/// Sign a compiled message, passing each signer once.
+///
+/// `VersionedTransaction::try_new` refuses a signer list longer than the
+/// message's required signatures, where legacy partial signing tolerated a
+/// repeat. A fee payer that also owns a shielded input is one account key but
+/// two entries in the caller's list (payer and owner signer), so the
+/// duplicates are dropped here rather than at every call site.
 pub fn sign_transaction(
     message: VersionedMessage,
     signers: &[&dyn Signer],

@@ -23,7 +23,8 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(Layout, tree_id), 2);
     assert_eq!(offset_of!(Layout, fees), 8);
     assert_eq!(offset_of!(Layout, fee_balance), 32);
-    assert_eq!(offset_of!(Layout, _reserved), 40);
+    assert_eq!(offset_of!(Layout, live_nullifier_pdas), 40);
+    assert_eq!(offset_of!(Layout, _reserved), 48);
     assert_eq!(offset_of!(Layout, utxo), 72);
     assert_eq!(TreeAccount::state_root_offset(), 80);
     assert_eq!(offset_of!(Layout, nullifier), 17_152);
@@ -83,6 +84,7 @@ fn init_zeroes_reserved_header() {
         let layout: &mut Layout = wincode::deserialize_mut(&mut bytes).expect("cast layout");
         layout._reserved.fill(0xa5);
         layout.fee_balance = 0xa5a5;
+        layout.live_nullifier_pdas = 0xa5a5;
     }
     let fees = TreeFeeSchedule {
         fee_per_nullifier: 190,
@@ -110,6 +112,7 @@ fn init_zeroes_reserved_header() {
     assert_eq!(layout._reserved, [0u8; TREE_RESERVED_BYTES]);
     assert_eq!(layout.fees, fees);
     assert_eq!(layout.fee_balance, 0);
+    assert_eq!(layout.live_nullifier_pdas, 0);
     assert_eq!(layout.tree_id, 0x0102);
     assert_eq!(bytes.get(2..4), Some(&[0x02, 0x01][..]));
 }

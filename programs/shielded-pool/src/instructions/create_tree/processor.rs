@@ -17,15 +17,22 @@ use zolana_interface::{
 };
 use zolana_tree::TreeAccount;
 
-use super::allocate::{fund_tree, grow_tree, is_unallocated, TreeAllocation};
+use super::{
+    allocate::{fund_tree, grow_tree, is_unallocated, TreeAllocation},
+    pending::PendingCreation,
+};
 use crate::instructions::{
     protocol_config::loader::load_protocol_config_mut,
     shared::{tree_error, verify_pda},
 };
 
-pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = CreateTreeData::try_from_slice(data)
+pub fn process_create_tree(accounts: &mut [AccountView], ix_data: &[u8]) -> ProgramResult {
+    let data = CreateTreeData::try_from_slice(ix_data)
         .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
+    // Every later step must repeat these bytes, so reject what `init` would
+    // reject before the first step records them and takes the lamports.
+    data.fees.validate().map_err(tree_error)?;
+    data.nullifier_params.validate().map_err(tree_error)?;
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
@@ -69,6 +76,10 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
     )
     .ok_or(ProgramError::ArithmeticOverflow)?;
 
+    let pending = PendingCreation {
+        payer,
+        data: ix_data,
+    };
     if unallocated {
         TreeAllocation {
             payer,
@@ -79,13 +90,16 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
             lamports,
         }
         .create()?;
+        pending.record(tree)?;
     } else {
         grow_tree(tree, full_size)?;
+        pending.check(tree)?;
     }
     if tree.data_len() < full_size {
         return Ok(());
     }
 
+    pending.clear(tree)?;
     fund_tree(payer, tree, lamports)?;
     let tree_pubkey = tree.address().to_bytes();
     let mut tree_data = tree

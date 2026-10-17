@@ -21,7 +21,7 @@ func padFixtureCompact(fixture *mergeWitnessFixture) {
 
 func TestMergeCompactPaddingSolves(t *testing.T) {
 	assert := test.NewAssert(t)
-	for _, width := range []int{defaultFixtureInputs, 54} {
+	for _, width := range []int{defaultFixtureInputs, 52} {
 		fixture := buildMergeFixture(t, mergeFixtureOptions{inputCount: width})
 		padFixtureCompact(fixture)
 		refreshDefaultPublicInputHash(t, fixture)
@@ -34,8 +34,8 @@ func TestMergeRingCompactPaddingSolves(t *testing.T) {
 	fixture := buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
 		ringProgramID:  big.NewInt(0x5a),
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
+		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)},
+		outputRingData: big.NewInt(0xD0),
 	})
 	padFixtureCompact(fixture)
 	refreshRingPublicInputHash(t, fixture)

@@ -155,7 +155,7 @@ mod strategies {
         (
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>()),
-            any::<[u8; 32]>(),
+            (any::<[u8; 32]>(), any::<[u8; 16]>(), any::<[[u8; 32]; 3]>()),
             prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
             any::<u16>(),
             any::<u16>(),
@@ -166,7 +166,7 @@ mod strategies {
                 |(
                     expiry_unix_ts,
                     (a, b, c),
-                    output_utxo_hash,
+                    (output_utxo_hash, output_ciphertext_salt, output_ciphertext),
                     nullifiers,
                     utxo_tree_root_index,
                     nullifier_tree_root_index,
@@ -178,6 +178,8 @@ mod strategies {
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
                         output_utxo_hash,
+                        output_ciphertext_salt,
+                        output_ciphertext,
                         eddsa_owner,
                         private_tx_hash,
                         nullifiers,

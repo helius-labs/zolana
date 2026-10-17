@@ -856,7 +856,8 @@ fn tx_size(args: Vec<String>) {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
-            owner_signers: Vec::new(),
+            // The payer owns the inputs, so it is also an owner signer.
+            owner_signers: vec![payer_pk],
             interface_transfer_accounts: Vec::new(),
             data,
         }
@@ -877,7 +878,8 @@ fn tx_size(args: Vec<String>) {
             input_trees: vec![tree],
             output_tree: tree,
             ring_program_id: ring_config,
-            owner_signers: Vec::new(),
+            // The payer owns the inputs, so it is also an owner signer.
+            owner_signers: vec![payer_pk],
             interface_transfer_accounts: Vec::new(),
             data,
         }
@@ -947,6 +949,8 @@ fn tx_size(args: Vec<String>) {
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
+            output_ciphertext_salt: [0u8; 16],
+            output_ciphertext: [[0u8; 32]; 3],
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,

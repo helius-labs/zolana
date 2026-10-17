@@ -114,3 +114,23 @@ fn an_audit_only_deposit_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
     deposit_fixture().expect_spp_cpi(&mollusk);
 }
+
+/// The forwarder raises every `ring_auth` occurrence to a signer,
+/// so a depositor slot naming `ring_auth` would let any caller deposit the
+/// lamports and token accounts it controls.
+#[test]
+fn ring_auth_as_the_depositor_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = deposit_fixture();
+    fixture.substitute("depositor", ring_auth_pda().0);
+    fixture.unsign("depositor");
+    fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+}
+
+#[test]
+fn an_unsigned_depositor_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = deposit_fixture();
+    fixture.unsign("depositor");
+    fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+}

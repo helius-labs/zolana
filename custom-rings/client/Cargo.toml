@@ -27,7 +27,6 @@ rpc = [
 base64 = { workspace = true, optional = true }
 p256 = { workspace = true }
 hex = { workspace = true }
-num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
 rand = { workspace = true, optional = true }

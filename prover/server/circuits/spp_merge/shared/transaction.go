@@ -24,7 +24,7 @@ const (
 // Merge instruction data carries no circuit selector: both the prover and the
 // program derive the shape from the declared nullifier count, so every side
 // must agree on which counts exist.
-var SupportedInputCounts = []int{8, 24, 54}
+var SupportedInputCounts = []int{8, 24, 52}
 
 // IsSupportedInputCount reports whether a merge circuit exists for n inputs.
 func IsSupportedInputCount(n int) bool {
@@ -78,6 +78,11 @@ type CommonPublicInputs struct {
 	TreeSlots []transaction.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
+
+	// OutputCiphertextSalt is the per-proof pad nonce of the output
+	// ciphertext. It is 16 bytes of instruction data, so it is canonical
+	// without a range check.
+	OutputCiphertextSalt frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -87,7 +92,10 @@ type Transaction struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	// MintChunks are the hash_bytes_32 chunks of the merged asset's mint:
+	// bytes 0..31 and byte 31. The asset field is derived from them, so the
+	// output ciphertext carries the mint itself.
+	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -97,10 +105,11 @@ type Transaction struct {
 	RingProgramID frontend.Variable
 }
 
-// Derived contains the owner identity a wrapper may publish in its
-// public-input-hash preimage.
+// Derived contains the values a wrapper publishes in its public-input-hash
+// preimage beyond the common prefix.
 type Derived struct {
-	OwnerPkHash frontend.Variable
+	OwnerPkHash      frontend.Variable
+	OutputCiphertext []frontend.Variable
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -194,6 +203,8 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		[]frontend.Variable{t.OwnerPkHash, t.UserNullifierPk},
 	)
 
+	asset := gadget.HashChain(api, t.MintChunks[:])
+
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{t.UserNullifierSecret})
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
 	api.AssertIsBoolean(t.Public.AllowDummyInputs)
@@ -217,7 +228,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
 		NullifierSecret: t.UserNullifierSecret,
-		Asset:           t.Asset,
+		Asset:           asset,
 		RingProgramID:   t.RingProgramID,
 		FirstNullifier:  frontend.Variable(0),
 	}
@@ -241,10 +252,18 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.OutputHash,
 		outputBlinding,
 		userOwnerHash,
-		t.Asset,
+		asset,
 		sumInputs,
 		t.RingProgramID,
 		t.Public.OutputTreeID,
+	)
+	outputCiphertext := MergeOutputCiphertext(
+		api,
+		t.UserNullifierSecret,
+		nullifiers[0],
+		t.Public.OutputCiphertextSalt,
+		sumInputs,
+		t.MintChunks,
 	)
 
 	addressNullifiers := make([]frontend.Variable, len(inputHashes))
@@ -265,6 +284,23 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	return Derived{
-		OwnerPkHash: t.OwnerPkHash,
+		OwnerPkHash:      t.OwnerPkHash,
+		OutputCiphertext: outputCiphertext,
 	}, nil
+}
+
+// AssertRingDataPreserved prevents consolidation from replacing recovery or
+// application state. Every real input must carry the output's ring data hash.
+// Padding carries no state and is exempt. The default rail already pins these
+// fields to zero, so only the ring wrapper calls this additional relation.
+// Constrain must first establish each domain is UtxoDomain or DummyDomain.
+// Their difference is nonzero in the field, so multiplying by domain minus
+// DummyDomain gates equality without another Boolean selector or division hint.
+func (t Transaction) AssertRingDataPreserved(api frontend.API) {
+	for _, input := range t.Inputs {
+		api.AssertIsEqual(api.Mul(
+			api.Sub(input.Domain, DummyDomain),
+			api.Sub(input.RingDataHash, t.Output.RingDataHash),
+		), 0)
+	}
 }

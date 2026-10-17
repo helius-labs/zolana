@@ -32,14 +32,19 @@ pub(crate) async fn apply(
         match rows.load(store, &item.member).await? {
             Some(existing) => {
                 if existing.index != item.index
-                    || existing.lists != item.old_lists
+                    || (batch.seal.is_none() && existing.lists != item.old_lists)
                     || existing.escrow_key != item.old_escrow_key
                 {
                     return Err(fault("record mismatch"));
                 }
                 rows.capture(&mut undo, &existing)?;
                 let mut written = existing.clone();
-                written.lists = item.lists;
+                // Registration proves that list bits stay unchanged but does not
+                // expose them as public inputs. Use the authenticated stored row.
+                // List-update batches bind their wire values to the proven root.
+                if batch.seal.is_none() {
+                    written.lists = item.lists;
+                }
                 written.escrow_key = item.escrow_key;
                 if item.escrow_key != item.old_escrow_key {
                     written.seal = batch.seal.clone();
@@ -281,6 +286,61 @@ mod tests {
             .unwrap();
         assert_eq!(row.escrow_key, escrow_key(5));
         assert_eq!(row.seal.unwrap().ciphertext, [5; 32]);
+    }
+
+    #[tokio::test]
+    async fn registration_reconstructs_lists_from_the_authenticated_record() {
+        let (db, mut root, mut cursor) = fixture().await;
+        let mut reference = MemberRegistryTree::new().unwrap();
+        let subject = member(5);
+        let items = reference.list_items(&[(subject, 3)]).unwrap();
+        reference.apply(&items).unwrap();
+        let tx = db.begin().await.unwrap();
+        apply(
+            &RingStore::new(&tx, root.program),
+            &root,
+            batch(items, reference.root()),
+            cursor.advance_revision().unwrap(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        root = RingStore::new(&db, root.program)
+            .root()
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut item = reference.register_item(&subject, escrow_key(5)).unwrap();
+        reference.apply(&[item]).unwrap();
+        // These redundant fields are not in the registration's public inputs.
+        // This storage fixture has no proof. The proven root authenticates the
+        // reconstructed row, including its existing list membership.
+        item.old_lists = 0;
+        item.lists = 0;
+        let tx = db.begin().await.unwrap();
+        let store = RingStore::new(&tx, root.program);
+        apply(
+            &store,
+            &root,
+            Batch {
+                new_root: reference.root(),
+                items: vec![item],
+                seal: Some(SealedKey {
+                    eph_pk: [5; 33],
+                    ciphertext: [5; 32],
+                }),
+            },
+            cursor.advance_revision().unwrap(),
+        )
+        .await
+        .unwrap();
+        let row = store.member(&subject).await.unwrap().unwrap();
+        assert_eq!(row.lists, 3);
+        assert_eq!(row.escrow_key, escrow_key(5));
+        assert_eq!(row.seal.unwrap().ciphertext, [5; 32]);
+        assert_eq!(store.root().await.unwrap().unwrap().root, reference.root());
+        tx.commit().await.unwrap();
     }
 
     #[tokio::test]

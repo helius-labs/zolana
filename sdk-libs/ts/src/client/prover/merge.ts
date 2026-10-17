@@ -1,5 +1,6 @@
 import type {
   Address,
+  Bytes16,
   Bytes32,
   MergeTransactInstructionData,
   RequestContext,
@@ -13,7 +14,7 @@ import {
 import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
-import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import { PreparedMerge, mergeRingDataHash } from "../../transaction/instructions/builders.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
@@ -272,13 +273,17 @@ interface MergePublicInputFields {
    * rail, the output ring data hash and ring program id on a ring merge.
    */
   readonly owner: readonly [bigint, bigint];
+  /** The output ciphertext's salt as a field element, then its three elements. */
+  readonly outputCiphertextSalt: bigint;
+  readonly outputCiphertext: readonly [bigint, bigint, bigint];
 }
 
 /**
  * The merge public inputs without the tree slots, which
  * `resolvedPublicInputHash` inserts. The nullifier chain folds to the right
  * over the circuit width; the 1 is the dummy-input policy merge always
- * publishes. Mirrors the element order of Rust `MergeProver::build`.
+ * publishes; the output ciphertext follows the owner binding. Mirrors the
+ * element order of Rust `MergeProver::build`.
  */
 export function mergePublicInputs(input: MergePublicInputFields): readonly bigint[] {
   return [
@@ -289,6 +294,8 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.externalDataHash,
     1n,
     ...input.owner,
+    input.outputCiphertextSalt,
+    ...input.outputCiphertext,
   ];
 }
 
@@ -377,6 +384,19 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
+  const outputCiphertextSalt = prepared.outputCiphertextSalt();
+  const outputCiphertext = prepared.outputCiphertext();
+  const [ciphertext0, ciphertext1, ciphertext2] = outputCiphertext.map((element) =>
+    bytesField(element, "merge output ciphertext"),
+  );
+  if (ciphertext0 === undefined || ciphertext1 === undefined || ciphertext2 === undefined) {
+    throw new ClientError("CLIENT_INVALID_MERGE");
+  }
+  const mint = addressBytes(prepared.output.asset);
+  const mintChunks = [
+    asField(bytesToBigInt(mint.subarray(0, 31))),
+    asField(bytesToBigInt(mint.subarray(31))),
+  ] as const;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
@@ -390,11 +410,15 @@ export function prepareMerge(
             bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
           ]
         : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+    outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
+    outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
   }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
     outputTreeId: asField(outputTreeIdField),
+    mintChunks,
+    outputCiphertextSalt: asField(bytesToBigInt(outputCiphertextSalt)),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(
       bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
@@ -431,6 +455,12 @@ export function prepareMerge(
           expiryUnixTs,
           proof: copyMergeProof(proof),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
+          outputCiphertextSalt: new Uint8Array(outputCiphertextSalt) as Bytes16,
+          outputCiphertext: Object.freeze([
+            new Uint8Array(outputCiphertext[0]) as Bytes32,
+            new Uint8Array(outputCiphertext[1]) as Bytes32,
+            new Uint8Array(outputCiphertext[2]) as Bytes32,
+          ] as const),
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           // The trailing compact padding is left out; SPP fills it back in.
@@ -512,6 +542,10 @@ function checkNullifierRoot(
 
 function validatePreparedMerge(prepared: PreparedMerge): void {
   if (!(prepared instanceof PreparedMerge)) throw new ClientError("CLIENT_INVALID_MERGE");
+  mergeRingDataHash(
+    prepared.inputs,
+    prepared.output.ringDataHash ?? (new Uint8Array(32) as Bytes32),
+  );
   const actual = prepared.inputs.length;
   if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(actual)) {
     throw new ClientError("CLIENT_INVALID_MERGE_SHAPE", {

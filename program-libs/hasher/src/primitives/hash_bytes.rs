@@ -12,6 +12,9 @@ pub const SOLANA_OWNER_TAG: u8 = 0x53;
 /// representation and does not invoke Poseidon. This construction is only
 /// suitable when `N` is fixed by the protocol: byte strings of different
 /// lengths can have the same packed representation.
+/// In particular, 32-byte and 33-byte values share a namespace. Keep their
+/// protocol roles separate and never use equality across those roles as
+/// evidence of identity or authorization.
 pub fn hash_bytes<const N: usize>(bytes: &[u8; N]) -> Result<[u8; 32], HasherError> {
     let mut chunks = bytes.chunks(PACK_BE_CHUNK_BYTES);
     let Some(first) = chunks.next() else {
@@ -26,7 +29,8 @@ pub fn hash_bytes<const N: usize>(bytes: &[u8; N]) -> Result<[u8; 32], HasherErr
 
 /// Owner identity of a Solana key: `hash_bytes_33(SOLANA_OWNER_TAG || pk)`.
 ///
-/// The algorithm tag separates owner identities from untagged byte commitments.
+/// The tag identifies the algorithm within the owner encoding. It does not
+/// make this namespace disjoint from arbitrary untagged byte commitments.
 pub fn solana_owner_identity(pk: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     let mut tagged = [0u8; 33];
     tagged[0] = SOLANA_OWNER_TAG;

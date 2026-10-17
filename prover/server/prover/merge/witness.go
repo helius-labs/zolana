@@ -29,12 +29,13 @@ func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
-	circuit.Asset = p.Asset
+	circuit.MintChunks = p.mintChunks()
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.OutputTreeID = p.OutputTreeID
+	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.UserSigningPkHash = p.OwnerPkHash
 	circuit.PublicInputHash = p.PublicInputHash
 
@@ -59,12 +60,13 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
-	circuit.Asset = p.Asset
+	circuit.MintChunks = p.mintChunks()
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.OutputTreeID = p.OutputTreeID
+	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
 	circuit.PublicInputHash = p.PublicInputHash
@@ -99,6 +101,10 @@ func (p *MergeParameters) assignTreeSlots(slots []transaction.TreeSlot) error {
 		}
 	}
 	return nil
+}
+
+func (p *MergeParameters) mintChunks() [2]frontend.Variable {
+	return [2]frontend.Variable{p.MintChunks[0], p.MintChunks[1]}
 }
 
 func (p *MergeParameters) inputAt(i int) mergecircuit.Input {

@@ -246,8 +246,11 @@ async fn an_audit_only_transfer_stages_the_auditor_message_under_the_ring_tag() 
     let external = &staged.proof_inputs.external_data;
     assert_eq!(external.instruction_discriminator, RING_TRANSACT);
     assert_eq!(external.messages.len(), 1);
-    // The fee payer owns the spent note and signs once.
-    assert!(staged.owner_signers.is_empty());
+    // The note owner is explicit even when it also pays the transaction fee.
+    assert_eq!(
+        staged.owner_signers,
+        vec![solana_signer::Signer::pubkey(&sender)]
+    );
     for encoded in &external.outputs {
         assert!(encoded.data.is_some());
     }

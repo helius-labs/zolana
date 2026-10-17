@@ -296,9 +296,13 @@ pub(crate) struct MergeParametersJson {
     pub tree_slots: Vec<TreeSlotJson>,
     #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
-    /// The single asset shared by every real input and the merged output.
-    #[serde(rename = "asset")]
-    pub asset: String,
+    /// The `hash_bytes_32` chunks of the mint shared by every real input and the
+    /// merged output; the circuit derives the asset from them.
+    #[serde(rename = "mintChunks")]
+    pub mint_chunks: Vec<String>,
+    /// Per-proof pad nonce of the output ciphertext.
+    #[serde(rename = "outputCiphertextSalt")]
+    pub output_ciphertext_salt: String,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -365,7 +369,8 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         output: merge_output_to_json(&inputs.output),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
-        asset: fe_to_string(&inputs.output.utxo.asset),
+        mint_chunks: inputs.mint_chunks.iter().map(big_uint_to_string).collect(),
+        output_ciphertext_salt: big_uint_to_string(&inputs.output_ciphertext_salt),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -515,6 +520,33 @@ pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> Result<String, 
 
 /// Serialize the eddsa confidential policy-ring transfer witness.
 pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientError> {
+    let dummy_domain = zolana_hasher::primitives::right_align(
+        &zolana_transaction::utxo::DUMMY_DOMAIN.to_be_bytes(),
+    );
+    for (index, output) in inputs.outputs.iter().enumerate() {
+        if [output.utxo.domain, output.utxo.ring_program_id]
+            .iter()
+            .any(|field| !zolana_hasher::primitives::is_canonical_bn254_scalar_be(field))
+        {
+            return Err(zolana_transaction::TransactionError::NonCanonicalField.into());
+        }
+        if output.utxo.domain == dummy_domain {
+            continue;
+        }
+        let owner = super::field::right_align_slice(&output.owner_pk_hash.to_bytes_be())?;
+        let published = inputs
+            .published_output_owner_pk_hashes
+            .get(index)
+            .filter(|identity| **identity != BigUint::ZERO)
+            .map(|identity| super::field::right_align_slice(&identity.to_bytes_be()))
+            .transpose()?;
+        zolana_transaction::instructions::transact::external_data::validate_ring_output_owner(
+            index,
+            output.utxo.ring_program_id != [0; 32],
+            owner,
+            published,
+        )?;
+    }
     transfer_inputs_json(inputs, "transfer-ring")
 }
 
@@ -601,16 +633,12 @@ mod merge_tests {
         }
     }
 
-    // Guards the wire-format field names against the Go server
-    // (prover/server/prover/merge/marshal.go): a serde-rename typo would break
-    // the request silently. Asserts circuitType and the full key set.
-    #[test]
-    fn to_json_merge_shape() {
+    fn sample_merge_inputs() -> MergeInputs {
         let input = TransferInput {
             owner_pk_hash: BigUint::ZERO,
             ..sample_input()
         };
-        let inputs = MergeInputs {
+        MergeInputs {
             inputs: vec![input; 8],
             output: TransferOutput {
                 utxo: sample_utxo(),
@@ -621,6 +649,8 @@ mod merge_tests {
             },
             tree_slots: sample_tree_slots(),
             output_tree_id: BigUint::from(3u8),
+            mint_chunks: [BigUint::from(0x0102u16), BigUint::from(0x20u8)],
+            output_ciphertext_salt: BigUint::from(0x5a17u16),
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
@@ -630,7 +660,67 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
-        };
+        }
+    }
+
+    #[test]
+    fn raw_merge_state_is_checked_before_request_creation() {
+        use crate::prover::requests;
+        use zolana_transaction::TransactionError;
+        let mut inputs = sample_merge_inputs();
+        inputs.inputs[0].utxo.domain = zolana_hasher::primitives::right_align(
+            &zolana_transaction::utxo::UTXO_DOMAIN.to_be_bytes(),
+        );
+        requests::merge(&inputs).unwrap();
+        let mut bad = inputs.clone();
+        bad.output.utxo.asset = [0; 32];
+        assert!(matches!(
+            requests::merge(&bad),
+            Err(ClientError::Transaction(TransactionError::ZeroMergeAsset))
+        ));
+        bad.output.utxo.asset = zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+        assert!(matches!(
+            requests::merge(&bad),
+            Err(ClientError::Transaction(
+                TransactionError::NonCanonicalField
+            ))
+        ));
+        inputs.ring_program_id = BigUint::from(9u8);
+        inputs.inputs[0].utxo.ring_data_hash = fe(3);
+        inputs.output.utxo.ring_data_hash = fe(3);
+        inputs.output_ring_data_hash = BigUint::from(3u8);
+        // Padding's ring data does not govern the live merge state.
+        inputs.inputs[1].utxo.ring_data_hash = fe(7);
+        requests::merge_ring(&inputs).unwrap();
+        let mut alias = inputs.clone();
+        alias.inputs[0].utxo.ring_data_hash = zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+        assert!(matches!(
+            requests::merge_ring(&alias),
+            Err(ClientError::Transaction(
+                TransactionError::NonCanonicalField
+            ))
+        ));
+        for change_public in [false, true] {
+            let mut bad = inputs.clone();
+            if change_public {
+                bad.output_ring_data_hash = BigUint::from(4u8);
+            } else {
+                bad.inputs[0].utxo.ring_data_hash = fe(4);
+                bad.inputs[0].is_dummy = BigUint::from(1u8);
+            }
+            assert!(matches!(
+                requests::merge_ring(&bad),
+                Err(ClientError::Transaction(
+                    TransactionError::MergeOutputRingDataMismatch
+                ))
+            ));
+        }
+    }
+
+    // The field names match the Go parser, including its independent merge ciphertext.
+    #[test]
+    fn to_json_merge_shape() {
+        let inputs = sample_merge_inputs();
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
         assert_eq!(value["circuitType"], "merge");
@@ -639,7 +729,8 @@ mod merge_tests {
             "output",
             "treeSlots",
             "outputTreeId",
-            "asset",
+            "mintChunks",
+            "outputCiphertextSalt",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
@@ -652,6 +743,11 @@ mod merge_tests {
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
+        assert_eq!(value["mintChunks"], serde_json::json!(["0x102", "0x20"]));
+        assert!(
+            value.get("asset").is_none(),
+            "the circuit derives the asset from the mint chunks"
+        );
         assert_eq!(value["inputs"].as_array().unwrap().len(), 8);
         let in0 = &value["inputs"][0];
         for key in [

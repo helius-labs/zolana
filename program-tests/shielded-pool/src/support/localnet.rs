@@ -305,10 +305,11 @@ pub struct SolTransferWitnessArgs {
     pub private_tx_inputs: [[u8; 32]; 2],
     /// Public SOL movement field (zero when no SOL enters or leaves).
     pub public_sol_amount: [u8; 32],
-    /// `solana_owner_identity` of the fee payer's address: the sole unique
-    /// signer-run element for these flows (owner == payer), zero-padded to
-    /// width 3.
-    pub payer_pubkey_hash: [u8; 32],
+    /// `solana_owner_identity` of the input owner, the sole unique signer-run
+    /// element for these flows, zero-padded to width 3. The owner pays for
+    /// the transaction too, so the instruction must also list it as an owner
+    /// signer: the fee payer alone is not in the signer vector.
+    pub owner_pubkey_hash: [u8; 32],
     /// Label for hashing/prover error contexts ("transfer", "withdraw").
     pub label: &'static str,
 }
@@ -384,7 +385,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     )
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
-    let signer_hashes = [args.payer_pubkey_hash, [0u8; 32], [0u8; 32]];
+    let signer_hashes = [args.owner_pubkey_hash, [0u8; 32], [0u8; 32]];
     let input_flags = transact_input_flags(&args.input_utxos);
     let public_input = PublicInputs {
         nullifiers: &nullifiers,

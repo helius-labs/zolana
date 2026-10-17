@@ -181,6 +181,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_ROOT_MISMATCH: IndexDetails;
   /** An output blinding is not the one the circuit derives for its slot. */
   readonly CLIENT_OUTPUT_BLINDING_MISMATCH: IndexDetails;
+  readonly CLIENT_OUTPUT_OWNER_MARKER_MISMATCH: IndexDetails;
   /** The proof inputs were built for another output tree than the client's. */
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
@@ -266,6 +267,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TOO_MANY_INPUT_TREES",
   "CLIENT_NULLIFIER_ROOT_MISMATCH",
   "CLIENT_OUTPUT_BLINDING_MISMATCH",
+  "CLIENT_OUTPUT_OWNER_MARKER_MISMATCH",
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_SHAPE",
@@ -427,6 +429,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TOO_MANY_INPUT_TREES: { got: "number", max: "number" },
   CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
+  CLIENT_OUTPUT_OWNER_MARKER_MISMATCH: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_INVALID_CACHE_ACCESS: { field: "string", index: "number" },

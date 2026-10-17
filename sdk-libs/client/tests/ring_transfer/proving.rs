@@ -63,7 +63,8 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
         &blinding_seed,
     );
     // The authorized signer vector must contain every real input's owner
-    // pk-field (payer-first on-chain; any placement satisfies Contains).
+    // pk-field (the program's owner-signer run; any placement satisfies
+    // Contains).
     let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
     signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);

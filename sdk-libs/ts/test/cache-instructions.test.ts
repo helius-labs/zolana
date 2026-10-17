@@ -127,6 +127,8 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
       c: field(3),
     },
     outputUtxoHash: field(9),
+    outputCiphertextSalt: filled(5, 16) as Bytes16,
+    outputCiphertext: [field(6), field(7), field(8)],
     eddsaOwner: true,
     privateTxHash: field(3),
     nullifiers: Array.from({ length: 8 }, (_, index) => field(index + 1)),
@@ -288,12 +290,14 @@ describe("transact cache accounts", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      ownerSigners: [],
       data: transactData(UNCACHED),
     });
     const read = await transactInstruction({
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      ownerSigners: [],
       cache: TransactCacheAccounts.read(CACHE),
       data: transactData(cachedCircuit(1n)),
     });
@@ -307,6 +311,7 @@ describe("transact cache accounts", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      ownerSigners: [],
       cache: TransactCacheAccounts.write({ cache: CACHE, writer }),
       data: transactData(
         cachedCircuit(0n, [
@@ -328,6 +333,7 @@ describe("transact cache accounts", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      ownerSigners: [],
       cache: TransactCacheAccounts.readAndWrite(OTHER_CACHE, { cache: CACHE, writer: WRITER }),
       data: transactData(cachedCircuit(1n, [[1, 3]])),
     });
@@ -362,6 +368,7 @@ describe("transact cache accounts", () => {
         payer: PAYER,
         inputTree: TREE,
         outputTree: OUTPUT_TREE,
+        ownerSigners: [],
         ...(cache === undefined ? {} : { cache }),
         data: transactData(circuit),
       }),
@@ -430,7 +437,7 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 528);
+    expect(cached.data).toHaveLength(1 + 640);
     expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
     expect(plain.data?.at(-1)).toBe(0);
   });

@@ -326,6 +326,12 @@ pub enum ClientError {
     #[error("merge output does not match the finalized inputs")]
     MergeOutputMismatch,
 
+    /// The output ciphertext does not encrypt the amount and mint of the
+    /// output the inputs commit to; the request fails before it reaches the
+    /// prover.
+    #[error("merge output ciphertext does not encrypt the output under the owner's key")]
+    MergeOutputCiphertextMismatch,
+
     /// A real input reached the prover request without the secret its owner
     /// proves ownership with, because no
     /// [`ProofAuthority`](crate::authority::ProofAuthority) completed it.

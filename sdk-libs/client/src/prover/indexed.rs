@@ -431,8 +431,8 @@ impl IndexedCircuit {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
             Self::TransferAnonymousRingEd25519 => 19,
-            Self::Merge => 8,
-            Self::MergeRing => 8,
+            // Tree-independent prefix, rail tail, salt and three ciphertext fields.
+            Self::Merge | Self::MergeRing => 12,
         }
     }
 }

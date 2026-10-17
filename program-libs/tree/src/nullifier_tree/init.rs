@@ -1,12 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::nullifier_tree::{
-    constants::{
-        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_TREE_HEIGHT,
-        DEFAULT_NULLIFIER_ZKP_BATCH_SIZE, NULLIFIER_TREE_INIT_ROOT_40,
+use crate::{
+    error::TreeError,
+    nullifier_tree::{
+        constants::{
+            DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_TREE_HEIGHT,
+            DEFAULT_NULLIFIER_ZKP_BATCH_SIZE, NULLIFIER_TREE_INIT_ROOT_40,
+            NULLIFIER_TREE_ZKP_BATCHES,
+        },
+        error::NullifierTreeError,
+        layout::NullifierTreeLayout,
     },
-    error::NullifierTreeError,
-    layout::NullifierTreeLayout,
 };
 
 #[repr(C)]
@@ -24,6 +28,26 @@ impl Default for NullifierTreeInitParams {
             input_queue_zkp_batch_size: DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
             height: DEFAULT_NULLIFIER_TREE_HEIGHT,
         }
+    }
+}
+
+impl NullifierTreeInitParams {
+    /// The parameter checks `TreeAccount::init` applies. A multi-step tree
+    /// creation runs them before its first step records the parameters, since
+    /// every later step must repeat them. The zkp batch size must have a
+    /// verifying key, otherwise no batch update can be proven and the queue
+    /// wedges once both batches fill.
+    pub fn validate(&self) -> Result<(), TreeError> {
+        if self.height != DEFAULT_NULLIFIER_TREE_HEIGHT
+            || !match_circuit_size(self.input_queue_zkp_batch_size)
+        {
+            return Err(TreeError::NullifierInit);
+        }
+        NullifierTreeLayout::<NULLIFIER_TREE_ZKP_BATCHES>::validate_configuration(
+            self.input_queue_batch_size,
+            self.input_queue_zkp_batch_size,
+        )
+        .map_err(|_| TreeError::NullifierInit)
     }
 }
 

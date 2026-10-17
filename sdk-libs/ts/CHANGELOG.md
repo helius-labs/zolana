@@ -7,10 +7,14 @@ private transfer can pay several recipients. Viewing keys and ring auditors
 move to X25519, and the auditor of an anonymous ring reads its hidden
 senders, inputs and recipients. A ring policy bounds each transfer's outflow
 per mint, and member registries hold list membership and escrowed keys.
+Paying a transaction fee no longer authorizes a spend. Merge outputs encrypt their amount and mint for the owner, so recovery needs none of their input ciphertexts.
 
 Breaking
 
-- `RingRpc` requires commitment-checked `outputOpenings`, and `AuditedRingTransaction.outputContexts` identifies every disclosed slot → read authoritative values from openings and treat `outputs` as optional recipient delivery metadata. Recovery reads both data hashes from disclosure, so remove `resolveOutputHashes` from `RingRecoveryParams`.
+- Ring transfer proving rejects absent or mismatched default-ring output markers with `CLIENT_OUTPUT_OWNER_MARKER_MISMATCH` before indexer or prover calls. Keep the confidential marker and the actual recipient owner tag on exits. Ordinary recipient ciphertext remains unproved.
+- Ring merges preserve the common committed `ringDataHash`. Mixed input hashes or a different explicit output hash fail with `TRANSACTION_MERGE_RING_DATA_MISMATCH`. An omitted output hash inherits the inputs.
+
+- `RingRpc` requires commitment-checked `outputOpenings`, and `AuditedRingTransaction.outputContexts` identifies every disclosed slot → read authoritative values from openings and treat `outputs` as optional recipient delivery metadata. Recovery reads both data hashes from disclosure and leaves recovered `utxo.data` empty. Read optional delivery metadata through audit outputs. Remove `resolveOutputHashes` from `RingRecoveryParams`.
 - `TransactionOrigin` requires `confirmedTransaction` → custom adapters must bind indexed ciphertext, commitments, nullifiers and output positions to the exact confirmed SPP transfer, deposit or merge. Only another ring's event returns no match. A transfer with missing mandatory auditor disclosure now fails explicitly.
 - Ring transfer builders select full-policy proofs for eighteen supported shapes with up to sixteen inputs and four outputs, use smaller proofs when registry records share an eight-leaf subtree, and check transaction size before proving → deploy the matching ring program and serve all keys from this release.
 - `CustomRingPolicyProofRequest.shape` sizes the input, output and subject witnesses, `registrySubtree` chooses shared paths, and `CustomRingTransferParams.transaction` includes extra signers and setup instructions in the size check → use `RING_POLICY_SUPPORTED_SHAPES` and pass all planned transaction additions before proving.
@@ -97,6 +101,19 @@ Breaking
 - `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now
   pass the ring config as the second account, which the ring program of this
   release requires → rebuild the instruction with this version.
+- `MAX_MERGE_INPUTS` is 52 and `MAX_RING_MERGE_INPUTS` is 50 and the widest merge takes 52 notes instead of 54 →
+  select at most 52 notes per merge, and at most 50 on a custom ring. Extra accounts can lower
+  the custom-ring limit. The builder checks the complete transaction size before proving.
+- `MergeTransactInstructionData` carries `outputCiphertextSalt` and
+  `outputCiphertext`, and `Merge` and `PreparedMerge` require the encrypted
+  output → build merges with `Merge.fromKeypair` or the client's merge flow, or
+  pass the wallet's `mergeOutputKey` answer as `Merge`'s `outputKey`.
+- `DeriveRequest` has a `mergeOutputKey` kind → a custom `ShieldedKeys` answers
+  it with `mergeOutputKey(nullifierKey, firstNullifier)`.
+- `transactInstruction` (`getTransactInstructionAsync`) and
+  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
+  in first-input order, the fee payer too when it owns an input → pass the
+  input owners, or `[]` when no Ed25519 owner spends.
 
 Added
 
@@ -124,6 +141,12 @@ Added
   `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
   `invalidDepositData`, `memberBatchOrder`, `memberBatchTooLarge` and `memberRecordMismatch`, and `ShieldedPoolError`
   names `RingEd25519OutputOwnerTag`, the refusals of this release's programs.
+- `RingProgramError.missingFundingSigner` rejects an unsigned depositor or payer before the ring signs its SPP call.
+- `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
+  tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
+  tree creation step that differs from the step that started it, and
+  `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
+  BN254 field.
 
 Changed
 
@@ -134,8 +157,16 @@ Changed
 - Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
+- Transfers, withdrawals, splits and custom ring transfers list an input owner
+  who also pays as an owner signer, and a fee payer that owns no input no
+  longer appears in their proofs.
 
 Fixed
+
+- `syncWallet` and custom ring recovery could not recover a merge output whose
+  merge folded in a note the wallet never received, which left the wallet's own
+  notes in that merge unspendable, and now recover it from the merge
+  transaction alone.
 
 - `recoverRingMemberNotes` reconstructs notes from proved auditor openings even when recipient ciphertext is missing, misleading or addressed to another viewing key, and unresolved assets remain explicit.
 - `RingTransactionSubmission` retries proofs invalidated by either the own or curator registry history and retains pending state when a registry read fails.

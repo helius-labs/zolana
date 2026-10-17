@@ -1,0 +1,150 @@
+import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
+import { fieldAdd, fieldSub } from "../../hasher/index.js";
+import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
+import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
+import { TransactionError } from "../error.js";
+import { checked, decodeAddress, encodeAddress } from "../internal.js";
+import { EncryptedScheme, decodeOutputData, encodeOutputData } from "./codecs.js";
+
+/** The two output fields a merge proof encrypts for the owner. Rust `MergeOutputPlaintext`. */
+export interface MergeOutputPlaintext {
+  readonly amount: bigint;
+  readonly mint: Address;
+}
+
+export type MergeOutputCiphertext = readonly [Bytes32, Bytes32, Bytes32];
+
+const SALT_LENGTH = 16;
+const HASH_BYTES_CHUNK = 31;
+
+/** Bytes of the encrypted part of a merge output body: the salt, then the ciphertext. */
+export const MERGE_OUTPUT_BODY_LENGTH = SALT_LENGTH + 32 * MERGE_OUTPUT_CIPHERTEXT_ELEMENTS;
+
+/** `[amount, mint chunk 0, mint chunk 1]`: the `hash_bytes_32` chunks of the mint. */
+function plaintextFields(plaintext: MergeOutputPlaintext): readonly [bigint, bigint, bigint] {
+  if (plaintext.amount < 0n || plaintext.amount > 0xffff_ffff_ffff_ffffn) {
+    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
+      field: "merge output amount",
+      value: String(plaintext.amount),
+    });
+  }
+  const mint = decodeAddress(plaintext.mint);
+  return [
+    plaintext.amount,
+    bytesToBigInt(mint.subarray(0, HASH_BYTES_CHUNK)),
+    bytesToBigInt(mint.subarray(HASH_BYTES_CHUNK)),
+  ];
+}
+
+/**
+ * The ciphertext a merge instruction carries: element `i` of the plaintext
+ * plus `mergeOutputPads(key, salt)[i]` in the BN254 scalar field. `key` is the
+ * wallet's `mergeOutputKey` answer and `salt` must be fresh per proof. Mirrors
+ * Rust `MergeOutputPlaintext::encrypt`.
+ */
+export function encryptMergeOutput(
+  plaintext: MergeOutputPlaintext,
+  key: Bytes32,
+  salt: Bytes16,
+): MergeOutputCiphertext {
+  const [pad0, pad1, pad2] = mergeOutputPads(key, salt);
+  const [amount, chunk0, chunk1] = plaintextFields(plaintext);
+  const encrypt = (element: bigint, pad: bigint) =>
+    bigIntToBytes(fieldAdd(element, pad)) as Bytes32;
+  return Object.freeze([
+    encrypt(amount, pad0),
+    encrypt(chunk0, pad1),
+    encrypt(chunk1, pad2),
+  ] as const);
+}
+
+/**
+ * Decrypts `salt || ciphertext` with the per-merge key. The cipher is
+ * unauthenticated: an element outside its slot's range is how a ciphertext
+ * addressed to another key shows up, and it fails closed. The caller still
+ * checks the rebuilt output against the published commitment. Mirrors Rust
+ * `MergeOutputPlaintext::decrypt`.
+ */
+export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputPlaintext {
+  if (body.length !== MERGE_OUTPUT_BODY_LENGTH) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      field: "merge output body",
+      expected: MERGE_OUTPUT_BODY_LENGTH,
+      actual: body.length,
+    });
+  }
+  const [pad0, pad1, pad2] = mergeOutputPads(key, body.subarray(0, SALT_LENGTH));
+  const decrypt = (index: number, pad: bigint): bigint => {
+    const offset = SALT_LENGTH + 32 * index;
+    return fieldSub(bytesToBigInt(body.subarray(offset, offset + 32)), pad);
+  };
+  const amount = decrypt(0, pad0);
+  const chunk0 = decrypt(1, pad1);
+  const chunk1 = decrypt(2, pad2);
+  if (amount >= 1n << 64n || chunk0 >= 1n << BigInt(8 * HASH_BYTES_CHUNK) || chunk1 >= 1n << 8n) {
+    throw new TransactionError("TRANSACTION_INVALID_MERGE_OUTPUT_PLAINTEXT");
+  }
+  const mint = new Uint8Array(32);
+  mint.set(bigIntToBytes(chunk0, HASH_BYTES_CHUNK));
+  mint.set(bigIntToBytes(chunk1, 1), HASH_BYTES_CHUNK);
+  return Object.freeze({ amount, mint: encodeAddress(mint) });
+}
+
+/**
+ * A merge output's data slot: `VerifiablyEncrypted(scheme || [ring_data_hash
+ * ||] salt || ciphertext)`, as Rust `encode_merge_output_data` and the indexer
+ * rebuild it from the merge instruction.
+ */
+export function encodeMergeOutputData(
+  input: Readonly<{
+    salt: Bytes16;
+    ciphertext: MergeOutputCiphertext;
+    ringDataHash?: Bytes32;
+  }>,
+): Uint8Array {
+  const parts = [
+    ...(input.ringDataHash === undefined
+      ? []
+      : [checked<Bytes32>(input.ringDataHash, 32, "merge ring data hash")]),
+    checked<Bytes16>(input.salt, SALT_LENGTH, "merge output salt"),
+    ...input.ciphertext.map((element) => checked<Bytes32>(element, 32, "merge output ciphertext")),
+  ];
+  const body = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    body.set(part, offset);
+    offset += part.length;
+  }
+  return encodeOutputData(EncryptedScheme.merge, body);
+}
+
+/** The encrypted body of a merge output slot. */
+export type MergeOutputBody = Readonly<{ ringDataHash?: Bytes32; encrypted: Uint8Array }>;
+
+/**
+ * Reads a merge output slot's payload: `undefined` for any other scheme or a
+ * payload that does not decode.
+ */
+export function readMergeOutputBody(payload: Uint8Array): MergeOutputBody | undefined {
+  try {
+    const frame = decodeOutputData(payload);
+    return frame.scheme === EncryptedScheme.merge ? splitMergeOutputBody(frame.body) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Splits a merge output body (after the scheme byte) into the `merge_ring`
+ * output ring data hash and the encrypted part. `undefined` for any other length.
+ */
+export function splitMergeOutputBody(body: Uint8Array): MergeOutputBody | undefined {
+  if (body.length === MERGE_OUTPUT_BODY_LENGTH) return Object.freeze({ encrypted: body });
+  if (body.length === 32 + MERGE_OUTPUT_BODY_LENGTH) {
+    return Object.freeze({
+      ringDataHash: new Uint8Array(body.subarray(0, 32)) as Bytes32,
+      encrypted: body.subarray(32),
+    });
+  }
+  return undefined;
+}

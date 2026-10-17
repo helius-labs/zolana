@@ -84,7 +84,8 @@ ring_errors! {
     DelegateRequiresPolicy = 8170 => "a delegate needs a policy ring",
     // 8171 retired with the revocation targets.
     InvalidPolicyTrees = 8172 => "policy tree accounts are invalid",
-    // 8173 and 8174 retired with the window index.
+    MissingFundingSigner = 8173 => "forwarded funding account must sign on entry",
+    // 8174 retired with the window index.
     UnexpectedMemberRegistryRoot = 8175 => "the statement binds no member registry root",
     UnexpectedApproval = 8176 => "approval needs a member transfer under outflow limits",
     InvalidSettlementAccounts = 8177 => "settlement accounts do not match the public legs",

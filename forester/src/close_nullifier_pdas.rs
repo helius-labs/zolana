@@ -13,7 +13,7 @@ use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, P
 use zolana_client::{
     compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
 };
-use zolana_interface::{pda, NULLIFIER_PDA_SIZE};
+use zolana_interface::{pda, NullifierPda};
 use zolana_program::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeAccount;
@@ -175,7 +175,7 @@ pub fn retain_open_accounts(
         .zip(accounts)
         .filter(|(_, account)| {
             account.as_ref().is_some_and(|account| {
-                account.owner == program_id && account.data.len() == NULLIFIER_PDA_SIZE
+                account.owner == program_id && NullifierPda::read_from(&account.data).is_some()
             })
         })
         .map(|(nullifier, _)| *nullifier)

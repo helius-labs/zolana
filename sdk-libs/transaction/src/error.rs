@@ -73,8 +73,19 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
+    #[error(
+        "ring transfer output {index} has an encryption marker incompatible with its ring binding"
+    )]
+    RingOutputMarkerMismatch { index: usize },
+
+    #[error("non-canonical BN254 scalar encoding")]
+    NonCanonicalField,
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
+
+    #[error("merge output plaintext element {index} is out of range")]
+    InvalidMergeOutputPlaintext { index: usize },
 
     #[error("output blinding derivation requires the transaction's first nullifier")]
     MissingFirstNullifier,
@@ -239,10 +250,19 @@ pub enum TransactionError {
     #[error("merge input {index} has a different ring program id")]
     MergeInputRingMismatch { index: usize },
 
+    #[error("merge input {index} has a different committed ring data hash")]
+    MergeInputRingDataMismatch { index: usize },
+
+    #[error("merge output must preserve the inputs' committed ring data hash")]
+    MergeOutputRingDataMismatch,
+
+    #[error("merge asset identity must be nonzero")]
+    ZeroMergeAsset,
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
-    #[error("merge input {index} carries program or ring data, which is not supported")]
+    #[error("merge input {index} carries data unsupported by this merge rail")]
     MergeInputHasData { index: usize },
 
     #[error("keypair error: {0}")]

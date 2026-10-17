@@ -64,12 +64,8 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
     let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");
     let mut indexer = TestIndexer::new();
     let inputs = (0..real_inputs)
-        .map(|index| {
-            let ring_data_hash = ring.map(|_| {
-                let mut hash = [0u8; 32];
-                hash[31] = u8::try_from(index + 1).expect("merge input count fits u8");
-                hash
-            });
+        .map(|_| {
+            let ring_data_hash = ring.map(|_| output_ring_data_hash());
             let utxo = Utxo {
                 owner,
                 asset: Mint::SOL,

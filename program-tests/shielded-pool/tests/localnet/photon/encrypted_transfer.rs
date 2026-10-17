@@ -104,6 +104,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
+    // The payer owns the inputs, so it signs as their owner as well.
+    let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
     let mut assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
     let proof = assembled.prove(&ProverClient::local(), &sender)?;
@@ -113,7 +115,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         payer: payer.pubkey(),
         input_trees: vec![tree_pubkey],
         output_tree: tree_pubkey,
-        owner_signers: Vec::new(),
+        owner_signers,
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }

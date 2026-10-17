@@ -91,6 +91,8 @@ impl AnonymousRingEd25519Prover<'_> {
                 return Err(ClientError::AnonymousOutputNotInRing { index });
             }
         }
+        self.external_data
+            .validate_ring_output_markers(&self.outputs)?;
         let owner = self.owner.pubkey();
         let owner_public_key = owner.as_ed25519()?;
 
@@ -178,6 +180,18 @@ impl ProveRequest for AnonymousEd25519TransferInputs {
     /// The Solana-only wire form with the circuit type and the owner fields of
     /// the prover's `AnonymousEd25519TransferParametersJSON`.
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        let ring =
+            crate::prover::field::right_align_slice(&self.transfer.ring_program_id.to_bytes_be())?;
+        let dummy = zolana_hasher::primitives::right_align(
+            &zolana_transaction::utxo::DUMMY_DOMAIN.to_be_bytes(),
+        );
+        for (index, output) in self.transfer.outputs.iter().enumerate() {
+            if output.utxo.domain != dummy
+                && (ring == [0; 32] || output.utxo.ring_program_id != ring)
+            {
+                return Err(ClientError::AnonymousOutputNotInRing { index });
+            }
+        }
         let mut body: Map<String, Value> = serde_json::from_str(&to_json_ring(&self.transfer)?)
             .expect("the transfer request is a JSON object");
         body.insert(

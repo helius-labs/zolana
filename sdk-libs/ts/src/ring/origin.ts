@@ -34,6 +34,7 @@ import type {
   Signature,
 } from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
+import { encodeMergeOutputData } from "../transaction/serialization/merge.js";
 
 import { RingError } from "./error.js";
 
@@ -534,10 +535,17 @@ function readConfirmedEvent(
   if (tag === InstructionTag.ringMergeTransact) {
     if (kind !== 3) throw invalid("event.kind");
     const data = new Reader(source.data.slice(1));
-    const payload = data.bytes(32, "merge.ringDataHash");
+    const ringDataHash = data.bytes(32, "merge.ringDataHash") as Bytes32;
     data.u64("merge.expiry");
     data.bytes(192, "merge.proof");
     const hash = data.bytes(32, "merge.outputHash") as Bytes32;
+    const salt = data.bytes(16, "merge.outputCiphertextSalt") as Bytes16;
+    const ciphertext = [
+      data.bytes(32, "merge.outputCiphertext.amount") as Bytes32,
+      data.bytes(32, "merge.outputCiphertext.mintLow") as Bytes32,
+      data.bytes(32, "merge.outputCiphertext.mintHigh") as Bytes32,
+    ] as const;
+    const payload = encodeMergeOutputData({ ringDataHash, salt, ciphertext });
     data.bool("merge.eddsaOwner");
     data.bytes(32, "merge.privateTxHash");
     const nullifiers = Array.from(

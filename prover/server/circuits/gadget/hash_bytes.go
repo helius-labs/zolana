@@ -10,6 +10,10 @@ const HashBytesChunkSize = 31
 
 // HashBytes commits a fixed-size byte value using the protocol's canonical
 // 31-byte big-endian packing and left-to-right Poseidon hash chain.
+// Callers range-check each byte and fix its role and length externally. No
+// length or domain is included. A 32-byte value and a 33-byte value can share
+// the same packed fields when the longer final chunk begins with zero, so
+// hashes from different key or data roles must not be compared as identities.
 func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
 	return HashChain(api, PackBytesBE(api, bytes))
 }

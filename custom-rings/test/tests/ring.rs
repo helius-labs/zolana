@@ -471,6 +471,24 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
 /// instruction-builder assertion.
 #[test]
 fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
+    cli_merge_fragments(&[3_000_000, 5_000_000])
+}
+
+#[test]
+fn cli_merges_twenty_four_custom_ring_notes() -> Result<()> {
+    cli_merge_fragments(&[3_000_000; 24])
+}
+
+/// With the standard accounts, a ring-forwarded merge fits 50 real inputs in
+/// a 4,096-byte transaction. The 52-slot proof pads its final two slots.
+#[test]
+fn cli_merges_maximum_custom_ring_notes() -> Result<()> {
+    cli_merge_fragments(&[3_000_000; custom_ring_sdk::MAX_MERGE_INPUTS])
+}
+
+fn cli_merge_fragments(amounts: &[u64]) -> Result<()> {
+    let count = amounts.len().to_string();
+    let total: u64 = amounts.iter().sum();
     let env = setup()?;
     let tree = env.register_default_tree()?;
     let ring = CustomRing::new(custom_ring_program_id()?);
@@ -485,7 +503,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
 
     // The first run creates the persistent sender key, but correctly refuses
     // to manufacture a merge from fewer than two notes.
-    let empty = project.output(&["merge", "--count", "2"])?;
+    let empty = project.output(&["merge", "--count", &count])?;
     assert!(!empty.status.success(), "an empty wallet cannot merge");
     let empty_text = merged(&empty);
     assert!(
@@ -494,7 +512,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
     );
     let sender = project.demo_sender()?;
 
-    for amount in [3_000_000_u64, 5_000_000] {
+    for &amount in amounts {
         let deposit = RingDeposit {
             ring,
             payer: &env.payer,
@@ -508,14 +526,55 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
         custom_ring_cli::wait_for_indexed_transaction(&env.client, receipt.signature)?;
     }
 
-    let output = project.run(&["merge", "--count", "2"])?;
+    let output = project.run(&["merge", "--count", &count])?;
     for line in [
-        "inputs      2",
-        "amount      8000000",
-        "merge is value-preserving",
+        format!("inputs      {count}"),
+        format!("amount      {total}"),
+        "merge is value-preserving".to_owned(),
     ] {
-        assert!(output.contains(line), "{line} in\n{output}");
+        assert!(output.contains(&line), "{line} in\n{output}");
     }
+
+    // The CLI checks the expected commitment. Independently scan the wallet to
+    // check that the inputs are spent and the owner recovers the entire value.
+    let scan = zolana_client::UtxoScan::new(&sender, &env.assets)
+        .with_ring_deposit_payload(ring.program_id(), zolana_ring_client::deposit_payload)
+        .fetch(env.client.indexer())?;
+    assert_eq!(
+        scan.spendable
+            .utxos()
+            .map(|note| note.utxo.amount)
+            .collect::<Vec<_>>(),
+        vec![total]
+    );
+
+    let signature = output
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            (fields.next() == Some("merge"))
+                .then(|| fields.next()?.parse::<Signature>().ok())
+                .flatten()
+        })
+        .context("merge CLI did not print its confirmed signature")?;
+    let confirmed: serde_json::Value = env.client.rpc().client().send(
+        solana_rpc_client_api::request::RpcRequest::GetTransaction,
+        serde_json::json!([signature.to_string(), {
+            "encoding": "base64",
+            "commitment": "confirmed",
+            "maxSupportedTransactionVersion": 1,
+        }]),
+    )?;
+    assert!(confirmed["meta"]["err"].is_null(), "{confirmed}");
+    let encoded = confirmed["transaction"][0]
+        .as_str()
+        .context("confirmed merge has no base64 transaction")?;
+    let bytes = encoded.len() / 4 * 3 - encoded.bytes().rev().take_while(|b| *b == b'=').count();
+    assert!(bytes <= MAX_TRANSACTION_SIZE, "merge has {bytes} bytes");
+    println!(
+        "merge inputs={count} amount={total} bytes={bytes} compute_units={} signature={signature}",
+        confirmed["meta"]["computeUnitsConsumed"]
+    );
     project.remove()?;
     Ok(())
 }

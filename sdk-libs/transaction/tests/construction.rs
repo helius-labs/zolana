@@ -1557,3 +1557,74 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
         );
     }
 }
+
+#[test]
+fn ring_output_markers_preserve_exits_and_reject_live_misrouting() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    for compact in [false, true] {
+        let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+        let mut tx = if compact {
+            ConfidentialTransaction::new_compact_with_ring(vec![input], payer(&owner), ring)
+        } else {
+            ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring)
+        }
+        .unwrap();
+        tx.transfer_with_ring(&receiver, Mint::SOL, 3, None)
+            .unwrap();
+        tx.pad_utxos(Shape::IN1_OUT4, &owner.shielded_address().unwrap())
+            .unwrap();
+        let proof = tx.encrypt(&owner).unwrap();
+        let check = |external: &zolana_transaction::ExternalData,
+                     outputs: &[SppProofOutputUtxo]| {
+            external.validate_ring_output_markers(outputs)
+        };
+        check(&proof.external_data, &proof.output_utxos).unwrap();
+        let exit = proof
+            .output_utxos
+            .iter()
+            .position(|output| !output.is_dummy() && output.ring_program_id.is_none())
+            .unwrap();
+        let inside = proof
+            .output_utxos
+            .iter()
+            .position(|output| !output.is_dummy() && output.ring_program_id.is_some())
+            .unwrap();
+        for amount in [0, 3] {
+            let mut outputs = proof.output_utxos.clone();
+            outputs[exit].amount = amount;
+            for payload in [
+                None,
+                Some(Vec::new()),
+                Some(vec![0]),
+                proof.external_data.outputs[inside].data.clone(),
+            ] {
+                let mut external = proof.external_data.clone();
+                external.outputs[exit].data = payload;
+                assert_eq!(
+                    check(&external, &outputs),
+                    Err(E::RingOutputMarkerMismatch { index: exit })
+                );
+            }
+        }
+        let mut external = proof.external_data.clone();
+        external.outputs[inside].data = external.outputs[exit].data.clone();
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::RingOutputMarkerMismatch { index: inside })
+        );
+        let mut external = proof.external_data.clone();
+        external.resolved_owner_tags[exit] = [0; 32];
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::OwnerTagMismatch { slot_index: exit })
+        );
+        let mut external = proof.external_data.clone();
+        external.outputs.truncate(exit);
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::RingOutputMarkerMismatch { index: exit })
+        );
+    }
+}

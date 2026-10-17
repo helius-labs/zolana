@@ -1,3 +1,4 @@
+import { checkRingOutputOwners, checkMergeRingData } from "./outputs.js";
 import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import {
   STATE_ROOT_HISTORY_CAPACITY,
@@ -107,6 +108,11 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     publicInputs: requestDecoder.list(request["publicInputs"], "publicInputs").map(requestField),
     ...(minContextSlot === undefined ? {} : { minContextSlot }),
   };
+  const mintChunks = (): readonly [Field, Field] => {
+    const [chunk0, chunk1, ...rest] = fields("mintChunks");
+    if (chunk0 === undefined || chunk1 === undefined || rest.length !== 0) throw invalid();
+    return [chunk0, chunk1];
+  };
   const result: IndexedProofInputs =
     circuit === "merge"
       ? {
@@ -114,6 +120,8 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
           circuit,
           payload: {
             ...common,
+            mintChunks: mintChunks(),
+            outputCiphertextSalt: field("outputCiphertextSalt"),
             output: decodeOutput(payload["output"]),
             ownerPublicKeyHash: field("ownerPublicKeyHash"),
             userNullifierPublicKey: field("userNullifierPublicKey"),
@@ -143,6 +151,17 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
           },
         };
+  if (result.circuit === "transferRing")
+    checkRingOutputOwners(
+      result.payload.outputs,
+      result.payload.publishedOutputOwnerPublicKeyHashes,
+    );
+  if (result.circuit === "merge")
+    checkMergeRingData(
+      result.payload.inputs,
+      result.payload.output,
+      result.payload.outputRingDataHash,
+    );
   checkStatement(result);
   return result;
 }
@@ -315,7 +334,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 8 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge" ? 12 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

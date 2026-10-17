@@ -57,6 +57,7 @@ fn error_codes_are_stable() {
         (InvalidDepositDisclosure as u32, 8166),
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidPolicyTrees as u32, 8172),
+        (MissingFundingSigner as u32, 8173),
         (UnexpectedMemberRegistryRoot as u32, 8175),
         (UnexpectedApproval as u32, 8176),
         (InvalidSettlementAccounts as u32, 8177),
@@ -136,6 +137,7 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | InvalidDepositDisclosure
         | DelegateRequiresPolicy
         | InvalidPolicyTrees
+        | MissingFundingSigner
         | UnexpectedMemberRegistryRoot
         | UnexpectedApproval
         | InvalidSettlementAccounts

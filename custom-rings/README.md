@@ -107,8 +107,9 @@ members over the shielded pool's authority rail. Its dedicated policy key
 keeps audit, list rules and ordinary amount guards and exempts the outflow
 limits and their approval demand. The members' identities are
 the screened parties. The ring refuses a public leg on that rail, so a
-delegate cannot withdraw, and the shielded pool refuses the rail until
-governance enables it for the ring with `set_ring_activation`. A move spends
+delegate cannot withdraw. SPP's authority rail alone would accept a public
+withdrawal. The shielded pool refuses the rail until governance enables it
+for the ring with `set_ring_activation`. A move spends
 the source member's notes with that member's nullifier key. `init` creates
 the ring's member registry, a member-keyed tree the ring owns and Photon
 indexes, and `transact` and `transfer` escrow the sender's key there on
@@ -190,6 +191,12 @@ Ring controls require a fresh deployment. No state migration is provided.
 The policy statements also require matching program verification keys, prover
 keys and SDKs. Install the keys pinned by
 `prover/server/prover/provingkeys/proving-keys.lock` together with the program.
+
+An exit to the default ring must carry the confidential marker and the actual
+recipient owner tag. The SDK rejects missing or mismatched markers before
+indexer or prover calls. This includes zero-amount real notes and cached outputs.
+Dummy padding keeps its normal rules. This check prevents a zero-identity output.
+It does not prove the recipient ciphertext.
 
 ## How auditor visibility works
 
@@ -358,7 +365,7 @@ stay spendable with that key, keep it with the other keys.
 `zolana-ring merge` syncs that sender, selects the smallest two to 24 clean
 notes of one mint on one tree, and consolidates them. It merges SOL by default.
 `--mint <address>` selects a registered SPL mint and `--count` caps the input
-count, up to 54.
+count, up to 50. Extra accounts or signatures can lower that limit.
 `zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
 `deploy`.
 
@@ -424,8 +431,8 @@ registry paths. Compact padding omits trailing dummy slots and reveals those
 counts. Delegate builders opt in with Rust's `.with_compact_padding()` or
 TypeScript's `compactPadding: true`. Defaults retain padded counts. Anonymous
 transfers allow a compact output suffix but reject compact inputs and caches.
-SPP still receives a full padded witness. All 51 policy keys pass live settlement
-and auditor recovery checks.
+SPP still receives a full padded witness. Before PR #427, all 51 specialized policy keys passed live settlement
+and auditor recovery checks. The combined build needs a fresh run after its settlement-key changes.
 
 The complete V1 transaction must fit 4,096 bytes and 64 accounts. Capacities
 with 8 or 16 outputs, or at least 24 inputs, are excluded. Even 16×4 can
@@ -487,12 +494,17 @@ Recovery reads the verified auditor openings directly. It checks ownership,
 ring, amount and application hashes against the published commitments. Broken
 or misleading recipient ciphertext cannot hide a proved note or abort its audit
 page. The RPC returns these fields in `outputOpenings` with their tree contexts.
-`outputs` contains optional recipient metadata. `undecryptableSlots` reports
+`outputs` contains optional recipient metadata. Recovered spend objects omit this
+unproved metadata and retain the proved data hashes. Recipient metadata cannot
+make a plain note ineligible for recovery, merging or delegate selection. `undecryptableSlots` reports
 missing or inconsistent recipient metadata, not missing auditor disclosure.
 
 Recovery follows merge successors and checks each successor commitment. An
 unknown proved asset stays in `unopened` until it is resolved or its note is
-confirmed spent. Deposits with verified disclosure can start a recovered merge
+confirmed spent. Rust also reports unknown mints from authenticated merge
+outputs in `unknown_mints`. The built-in confirmed-origin parser rejects legacy merge instruction formats.
+They need migration. If a trusted adapter reconstructs a legacy event, its
+ciphertext-free output remains unresolved. Deposits with verified disclosure can start a recovered merge
 chain. Deposits without disclosure encrypt their blinding only to the recipient.
 Matching tags for those deposits appear in `unsupported_deposits`
 (`unsupportedDeposits` in TypeScript), with ownership and spent status unknown.
@@ -512,7 +524,7 @@ any curator, and include the required audit and policy proofs. Money inputs come
 submission APIs handle signing and retry on `RingProgramError.staleMemberRegistryRoot`,
 a failed proof over an overwritten registry slot and a verified blockhash
 expiry. `createRingMergeSubmission` consolidates
-two to 24 clean notes of one owner, asset and ring (up to 54 with `maxInputs`), preserving their
+two to 24 clean notes of one owner, asset and ring (up to 50 with `maxInputs`), preserving their
 value and enforcing the configured transfer co-signer.
 
 TypeScript callers needing restart recovery use `sendPersisted` with a
@@ -542,7 +554,11 @@ the key only to a request the upgrade authority signs while no config exists,
 so `init` needs that keypair and the program must be deployed first. `init`
 creates the config under the upgrade authority and hands it to
 `config_authority_keypair` when that key differs. Input owners authorize the
-spend, any signer may pay the transaction fee. Keys and `.env` belong in the
+spend, any signer may pay the transaction fee. The forwarder rejects a
+depositor or payer that did not sign the instruction
+(`MissingFundingSigner`): it raises every `ring_auth` occurrence to a
+signer for the SPP call, so a caller naming `ring_auth` there would spend
+what that PDA controls. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
@@ -559,12 +575,23 @@ Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
 always verifies its proof, including when the setting is off.
-Ring merge is also ciphertext-free: it combines up to 54 notes of one owner,
-asset and ring into one note without moving value to another owner. The SDKs
-fill the merge proof's unused slots with compact padding, which the transaction
-leaves out, so a merge reveals how many notes it combines. It is not in
+Ring merge publishes the merged note's amount and mint as a proof-bound
+ciphertext that the owner decrypts with its nullifier key, so the owner rebuilds the note from the
+merge transaction alone. Its 52-slot proof combines notes of one owner, asset and
+ring without moving value to another owner. Every real input must carry the
+same committed ring data hash. The output preserves it. SDKs inherit that hash
+and reject a different override before proving. The ring transaction fits at most
+50 real inputs. The minimal 50-input transaction uses 4,049 bytes. A 51-input
+transaction uses 4,114 bytes and exceeds the 4,096-byte limit. Extra accounts
+or signatures can lower the cap. SDKs compile the complete account layout with
+a placeholder proof before proving and check the final transaction again.
+The SDKs fill the merge proof's unused slots with
+compact padding, which the transaction leaves out, so a merge reveals how many
+notes it combines. It is not in
 the auditor-tag scan. Any later transfer of the merged value still takes the
-normal audited policy path.
+normal audited policy path. Legacy merge instruction formats need migration.
+The built-in confirmed-origin reader rejects them. A trusted adapter may
+reconstruct legacy events, but ciphertext-free outputs remain unresolved.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction.
 

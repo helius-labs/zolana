@@ -12,7 +12,10 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, ClientError, Context,
     GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
 };
-use zolana_event::{encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput};
+use zolana_event::{
+    encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositOutput,
+    MergeOutputDataRef,
+};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Secret};
 use zolana_ring_client::{
     seal_deposits, AuditError, AuditorEncryption, DepositOpening, MemberRecovery, RecoveredNotes,
@@ -22,8 +25,8 @@ use zolana_transaction::{
     instructions::merge::MergeTransaction,
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::ring_deposit::RingDepositPlaintext,
-    AssetRegistry, Mint, OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo,
-    UtxoSerialization, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, DataRecord, Mint, OutputContext, OutputSlot, ShieldedTransaction,
+    SppProofOutputUtxo, Utxo, UtxoSerialization, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 const RING: Address = Address::new_from_array([42; 32]);
@@ -164,7 +167,7 @@ impl Fixture {
     }
 
     fn merge(&self, inputs: &[WalletUtxo], tree_id: u16) -> (WalletUtxo, ShieldedTransaction) {
-        let prepared = MergeTransaction::new_with_ring(inputs.to_vec(), RING, Some([6; 32]))
+        let prepared = MergeTransaction::new_with_ring(inputs.to_vec(), RING, None)
             .expect("merge")
             .with_output_tree_id(tree_id)
             .encrypt(&self.member)
@@ -182,6 +185,7 @@ impl Fixture {
             .collect();
         let signature = self.signature();
         let mut held = self.held(&prepared.output_utxo, tree_id);
+        held.ring_data_hash = Some(held.ring_data_hash.unwrap_or_default());
         held.tx_signature = signature;
         let transaction = ShieldedTransaction {
             slot: u64::from(self.sequence.get()),
@@ -192,11 +196,11 @@ impl Fixture {
             output_slots: vec![OutputSlot {
                 view_tag: first,
                 output_context: output_context(&held),
-                payload: prepared
-                    .output_utxo
-                    .ring_data_hash
-                    .expect("ring hash")
-                    .to_vec(),
+                payload: encode_merge_output_data(MergeOutputDataRef {
+                    salt: &prepared.output_ciphertext_salt,
+                    ciphertext: &prepared.output_ciphertext,
+                    ring_data_hash: Some(&prepared.output_utxo.ring_data_hash.unwrap_or_default()),
+                }),
             }],
             messages: Vec::new(),
             nullifiers,
@@ -521,7 +525,7 @@ async fn checks_whether_a_rebuilt_successor_was_spent_without_an_auditor_message
 }
 
 #[tokio::test]
-async fn incomplete_merge_history_reports_the_successor_without_restoring_spent_inputs() {
+async fn a_merge_found_through_one_held_input_decrypts_with_the_whole_total() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.encrypt(fixture.output(4), 2);
     let (second, second_tx) = fixture.encrypt(fixture.output(5), 2);
@@ -535,8 +539,9 @@ async fn incomplete_merge_history_reports_the_successor_without_restoring_spent_
             .run(fixture.recovery(), &history)
             .await
             .expect("recover");
-        assert!(recovered.utxos.is_empty());
-        assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
+        assert_eq!(recovered.utxos, vec![merged.clone()]);
+        assert_eq!(merged.utxo.amount, 9);
+        assert!(recovered.unopened.is_empty());
     }
 }
 
@@ -584,7 +589,8 @@ async fn proof_bound_hash_metadata_is_recovered_without_a_caller_resolver() {
         .output(9)
         .with_ring_data(RING, vec![1, 2, 3], [4; 32])
         .with_utxo_data(vec![5, 6], [7; 32]);
-    let (held, transaction) = fixture.encrypt(output, 7);
+    let (mut held, transaction) = fixture.encrypt(output, 7);
+    held.utxo.data = Data::default();
     let history = History {
         transactions: vec![transaction],
         ..Default::default()
@@ -981,4 +987,70 @@ async fn a_foreign_invocation_cannot_mark_a_ring_note_spent() {
     };
     let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
     assert_eq!(recovered.utxos, vec![note]);
+}
+
+#[tokio::test]
+async fn unknown_merge_mints_remain_unresolved_and_still_follow_spends() {
+    let fixture = Fixture::new();
+    let mint = Mint::new(Address::new_from_array([71; 32]), 2);
+    let mut output = fixture.output(4);
+    output.asset = mint;
+    let (first, first_tx) = fixture.encrypt(output.clone(), 2);
+    output.amount = 5;
+    let (second, _) = fixture.encrypt(output, 2);
+    let (merged, merge_tx) = fixture.merge(&[first, second], 7);
+    let mut history = History {
+        transactions: vec![first_tx, merge_tx.clone()],
+        ..Default::default()
+    };
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert!(recovered.utxos.is_empty());
+    assert_eq!(recovered.unopened, vec![merged.utxo_hash]);
+    assert_eq!(recovered.unknown_mints, [mint.asset].into_iter().collect());
+    assert!(history
+        .queried
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|batch| batch.contains(&merged.nullifier)));
+    let assets = AssetRegistry::new([(mint.asset_id, mint.asset)]).unwrap();
+    let recovered = fixture
+        .recovery()
+        .run(&history, &history, &assets)
+        .await
+        .unwrap();
+    assert_eq!(recovered.utxos, vec![merged.clone()]);
+    assert!(recovered.unopened.is_empty());
+    assert!(recovered.unknown_mints.is_empty());
+
+    let mut spent = merge_tx;
+    spent.tx_signature = fixture.signature();
+    spent.nullifiers = vec![merged.nullifier];
+    spent.output_slots.clear();
+    history.transactions.push(spent);
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert!(recovered.utxos.is_empty());
+    assert!(recovered.unopened.is_empty());
+}
+
+#[tokio::test]
+async fn unproved_recipient_metadata_cannot_block_plain_note_recovery_or_merge() {
+    let fixture = Fixture::new();
+    let mut output = fixture.output(9);
+    output.data = Data::new(vec![
+        DataRecord::UtxoData(vec![8]),
+        DataRecord::Memo(vec![9]),
+    ]);
+    let (mut held, transaction) = fixture.encrypt(output, 7);
+    assert!(MergeTransaction::new_with_ring(vec![held.clone()], RING, None).is_err());
+    let history = History {
+        transactions: vec![transaction],
+        ..Default::default()
+    };
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    held.utxo.data = Data::default();
+    assert_eq!(recovered.utxos, vec![held]);
+    assert!(recovered.unopened.is_empty());
+    assert!(recovered.utxos[0].data_hash.is_none());
+    assert!(MergeTransaction::new_with_ring(recovered.utxos, RING, None).is_ok());
 }

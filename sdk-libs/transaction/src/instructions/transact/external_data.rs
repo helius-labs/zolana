@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_event::MessageData;
+use zolana_event::{is_confidential_encrypted_output, MessageData};
 use zolana_interface::instruction::{
     instruction_data::transact::{InterfaceTransfer, TransactOutput},
     tag,
@@ -8,7 +8,31 @@ use zolana_interface::pda;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
 use zolana_program::{SettlementAccounts, TransactExternalData};
 
-use crate::{error::TransactionError, SOL_MINT};
+use crate::{error::TransactionError, SppProofOutputUtxo, SOL_MINT};
+
+/// One live ring-rail output publishes its owner exactly when it exits to the
+/// default ring. `None` means the wire marker publishes no owner identity.
+pub fn validate_ring_output_owner(
+    index: usize,
+    ring_bound: bool,
+    owner_identity: [u8; 32],
+    published_identity: Option<[u8; 32]>,
+) -> Result<(), TransactionError> {
+    if !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&owner_identity)
+        || published_identity.is_some_and(|identity| {
+            !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&identity)
+        })
+    {
+        return Err(TransactionError::NonCanonicalField);
+    }
+    if published_identity.is_some() == ring_bound || (!ring_bound && owner_identity == [0; 32]) {
+        return Err(TransactionError::RingOutputMarkerMismatch { index });
+    }
+    if !ring_bound && published_identity != Some(owner_identity) {
+        return Err(TransactionError::OwnerTagMismatch { slot_index: index });
+    }
+    Ok(())
+}
 
 /// One ordered interface transfer, including the accounts committed by the
 /// canonical external-data hash. SPL legs retain their mint so proof public
@@ -117,6 +141,44 @@ pub struct ExternalData {
 }
 
 impl ExternalData {
+    /// Match each live output's public owner marker to its committed ring.
+    /// A default-ring exit must publish its actual owner. An unmarked exit
+    /// instead forces a zero owner identity in the ring circuit and burns it.
+    /// Ring outputs keep that identity private. Genuine padding is exempt.
+    pub fn validate_ring_output_markers(
+        &self,
+        outputs: &[SppProofOutputUtxo],
+    ) -> Result<(), TransactionError> {
+        for (index, output) in outputs.iter().enumerate() {
+            let Some(owner) = &output.owner_address else {
+                continue;
+            };
+            let marked = self
+                .outputs
+                .get(index)
+                .and_then(|slot| slot.data.as_deref())
+                .is_some_and(is_confidential_encrypted_output);
+            let published = marked
+                .then(|| {
+                    let tag = self
+                        .resolved_owner_tags
+                        .get(index)
+                        .ok_or(TransactionError::OwnerTagMismatch { slot_index: index })?;
+                    Ok::<_, TransactionError>(zolana_hasher::primitives::solana_owner_identity(
+                        tag,
+                    )?)
+                })
+                .transpose()?;
+            validate_ring_output_owner(
+                index,
+                output.ring_program_id.is_some(),
+                owner.signing_pubkey.owner_proof_input_hash()?,
+                published,
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn new(
         tx_viewing_pk: [u8; 33],
         salt: [u8; 16],

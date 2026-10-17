@@ -88,6 +88,11 @@ pub struct MergeInputs {
     pub tree_slots: [TreeSlotFields; INPUT_TREES],
     /// Raw `u16` id of the tree the merged output is appended to.
     pub output_tree_id: BigUint,
+    /// The `hash_bytes_32` chunks of the merged mint; the circuit derives the
+    /// asset from them and encrypts them for the owner.
+    pub mint_chunks: [BigUint; 2],
+    /// Per-proof pad nonce of the output ciphertext, a public input.
+    pub output_ciphertext_salt: BigUint,
     /// Shared owner identity: `owner_pk_hash` carries the owner's pk_field on
     /// both owner rails.
     pub owner_pk_hash: BigUint,

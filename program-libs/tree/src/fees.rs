@@ -3,6 +3,12 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::{error::TreeError, TreeAccount};
 
+/// The highest `fee_per_nullifier` a tree accepts: 0.001 SOL. Spends pay the
+/// tree's current rate, which the payer does not sign, so the cap bounds what a
+/// fee authority can charge a payer above the rate it reviewed. An at-cost
+/// schedule charges about 108 lamports per nullifier.
+pub const MAX_FEE_PER_NULLIFIER: u64 = 1_000_000;
+
 #[repr(C)]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable, BorshSerialize, BorshDeserialize,
@@ -14,6 +20,14 @@ pub struct TreeFeeSchedule {
 }
 
 impl TreeFeeSchedule {
+    /// The one check every stored schedule passes, at creation and on update.
+    pub fn validate(&self) -> Result<(), TreeError> {
+        if self.fee_per_nullifier > MAX_FEE_PER_NULLIFIER {
+            return Err(TreeError::FeeTooHigh);
+        }
+        Ok(())
+    }
+
     pub fn at_cost(
         zkp_batch_size: u64,
         append_reimbursement: u64,
@@ -42,8 +56,10 @@ impl TreeAccount<'_> {
         self.layout().fee_balance
     }
 
-    pub fn set_fee_schedule(&mut self, fees: TreeFeeSchedule) {
+    pub fn set_fee_schedule(&mut self, fees: TreeFeeSchedule) -> Result<(), TreeError> {
+        fees.validate()?;
         self.layout_mut().fees = fees;
+        Ok(())
     }
 
     pub fn credit_insertion_fee(&mut self, inserted: u64) -> Result<u64, TreeError> {
@@ -58,6 +74,22 @@ impl TreeAccount<'_> {
             .checked_add(fee)
             .ok_or(TreeError::FeeOverflow)?;
         Ok(fee)
+    }
+
+    pub fn live_nullifier_pdas(&self) -> u64 {
+        self.layout().live_nullifier_pdas
+    }
+
+    /// Count nullifier PDAs created for `queued` nullifiers.
+    pub fn record_nullifier_pdas_created(&mut self, queued: u64) {
+        let layout = self.layout_mut();
+        layout.live_nullifier_pdas = layout.live_nullifier_pdas.saturating_add(queued);
+    }
+
+    /// Count nullifier PDAs closed back into the tree.
+    pub fn record_nullifier_pdas_closed(&mut self, closed: u64) {
+        let layout = self.layout_mut();
+        layout.live_nullifier_pdas = layout.live_nullifier_pdas.saturating_sub(closed);
     }
 
     pub fn take_append_reimbursement(&mut self, num_update: u32) -> u64 {

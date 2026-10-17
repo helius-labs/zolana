@@ -1,3 +1,4 @@
+import { encodeOutputData, EncryptedScheme } from "../src/transaction/serialization/codecs.js";
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -143,9 +144,19 @@ function fixture(
       salt: new Uint8Array(16) as Bytes16,
       outputs: outputs.map((entry) => ({
         utxoHash: entry.hash(TREE_ID),
-        ownerTag: { kind: "inline", value: ownerTag },
+        ownerTag: {
+          kind: "inline",
+          value: entry.ownerAddress?.signingPublicKey.confidentialViewTag() ?? ownerTag,
+        },
+        ...(entry.isDummy()
+          ? {}
+          : {
+              data: encodeOutputData(EncryptedScheme.confidential, Uint8Array.of(1), "encrypted"),
+            }),
       })),
-      resolvedOwnerTags: outputs.map(() => ownerTag),
+      resolvedOwnerTags: outputs.map(
+        (entry) => entry.ownerAddress?.signingPublicKey.confidentialViewTag() ?? ownerTag,
+      ),
       messages: [],
     }),
     blindingSeed: seed,
@@ -940,7 +951,7 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(304);
+    expect(encodeMergeTransactInstructionData(data)).toHaveLength(416);
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,

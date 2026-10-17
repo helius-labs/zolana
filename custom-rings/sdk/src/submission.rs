@@ -378,6 +378,15 @@ impl RingOperation<'_> {
                 proved(proven.instruction()?, InstructionTag::UpdateMembers, bound)
             }
             Self::Merge(operation) => {
+                check_transaction_size_with_budget(
+                    &payer,
+                    &operation.prepared.preview_instruction(
+                        &operation.input,
+                        payer,
+                        operation.cosigner,
+                    ),
+                    ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge)),
+                )?;
                 let mut proven = boxed(|| {
                     operation
                         .prepared

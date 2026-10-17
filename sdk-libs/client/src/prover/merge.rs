@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_event::MessageData;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_hasher::primitives::pack_be;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -15,10 +15,11 @@ use zolana_interface::{
     state::cache::CACHE_CAPACITY,
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
-use zolana_keypair::{Curve, NullifierKey};
+use zolana_keypair::{viewing_key::Salt, Curve, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
+        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
+        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,
         MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
@@ -78,9 +79,8 @@ pub struct MergeProofResult {
     pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,
     pub output_ring_data_hash: [u8; 32],
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    pub output_data: MessageData,
+    pub output_ciphertext_salt: Salt,
+    pub output_ciphertext: MergeOutputCiphertext,
 }
 
 impl MergeProofResult {
@@ -93,6 +93,8 @@ impl MergeProofResult {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
+            output_ciphertext_salt: self.output_ciphertext_salt,
+            output_ciphertext: self.output_ciphertext,
             nullifiers: without_compact_padding(&self.nullifiers).to_vec(),
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
@@ -103,8 +105,8 @@ impl MergeProofResult {
     }
 
     /// Assemble the `merge_ring` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
-    /// the ring program selected. The caller passes the result to the
+    /// body wrapped in a [`MergeRingIxData`] preserving the inputs' common
+    /// `ring_data_hash`. The caller passes the result to the
     /// `MergeRing` builder with the tree / ring_config accounts.
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
         MergeRingIxData {
@@ -112,6 +114,29 @@ impl MergeProofResult {
             merge: self.instruction_data(proof),
         }
     }
+}
+
+/// Refuses a merge whose ciphertext does not encrypt its output's amount and
+/// mint under the owner's per-merge key. The circuit binds the ciphertext it
+/// computes, so such a request could not be proven; this names the mismatch
+/// before the prover round trip.
+pub(crate) fn check_output_ciphertext(
+    merge: &MergeProofInputs,
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+) -> Result<(), ClientError> {
+    let expected = MergeOutputPlaintext {
+        amount: merge.output_utxo.amount,
+        mint: merge.output_utxo.asset.asset,
+    }
+    .encrypt(
+        &merge_output_key(nullifier_key, first_nullifier)?,
+        &merge.output_ciphertext_salt,
+    )?;
+    if merge.output_ciphertext != expected {
+        return Err(ClientError::MergeOutputCiphertextMismatch);
+    }
+    Ok(())
 }
 
 impl MergeProver {
@@ -187,6 +212,7 @@ impl MergeProver {
         if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
             return Err(ClientError::OutputBlindingMismatch { index: 0 });
         }
+        check_output_ciphertext(tx, &self.nullifier_key, &first_nullifier)?;
         let MergeProofInputs {
             input_utxos,
             output_utxo,
@@ -194,10 +220,10 @@ impl MergeProver {
             signing_pubkey,
             output_tree_id,
             ring_program_id,
-            tx_viewing_pk,
-            salt,
-            output_data,
+            output_ciphertext_salt,
+            output_ciphertext,
         } = self.transaction;
+        let [mint_chunk_0, mint_chunk_1] = pack_be::<32, 2>(output_utxo.asset.asset.as_array());
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
         let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
         let input_tree_context = assembled_inputs.single_tree_context()?;
@@ -252,6 +278,8 @@ impl MergeProver {
             // nullifier key cannot manufacture a merge for this signing identity.
             elements.extend([user_signing_pk_hash, nullifier_pubkey]);
         }
+        elements.push(right_align(&output_ciphertext_salt));
+        elements.extend(output_ciphertext);
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let eddsa_owner = match signing_pubkey.curve()? {
             Curve::Ed25519 | Curve::Pda => true,
@@ -268,6 +296,8 @@ impl MergeProver {
             output,
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(output_tree_id),
+            mint_chunks: [be(&mint_chunk_0), be(&mint_chunk_1)],
+            output_ciphertext_salt: be(&right_align(&output_ciphertext_salt)),
             owner_pk_hash: be(&user_signing_pk_hash),
             user_nullifier_pk: be(&nullifier_pubkey),
             user_nullifier_secret: be(&user_nullifier_secret),
@@ -292,9 +322,8 @@ impl MergeProver {
             cache_slot,
             ring_program_id,
             output_ring_data_hash,
-            tx_viewing_pk,
-            salt,
-            output_data,
+            output_ciphertext_salt,
+            output_ciphertext,
         })
     }
 }

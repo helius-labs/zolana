@@ -11,7 +11,10 @@ use zolana_client::{
     AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, MergeProver,
     ProofCompressed,
 };
-use zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData;
+use zolana_interface::instruction::instruction_data::{
+    merge_ring::MergeRingIxData,
+    merge_transact::{MergeProof, MergeTransactIxData},
+};
 use zolana_keypair::NullifierKey;
 use zolana_program::instruction::MergeRing;
 use zolana_transaction::{
@@ -21,7 +24,10 @@ use zolana_transaction::{
     ShieldedKeys, SppProofOutputUtxo, WalletUtxo,
 };
 
-pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
+pub use zolana_transaction::instructions::merge::MERGE_DEFAULT_INPUT_COUNT;
+/// Custom forwarding leaves room for 50 real inputs in a minimal v1 transaction.
+/// The proof still uses the shared 52-slot circuit with compact padding.
+pub const MAX_MERGE_INPUTS: usize = 50;
 
 use crate::{transact_ix::ring_prefix, tree_id, CustomRing, RingError};
 
@@ -39,6 +45,12 @@ impl CustomRingMerge {
         inputs: Vec<WalletUtxo>,
         output_ring_data_hash: Option<[u8; 32]>,
     ) -> Result<Self, TransactionError> {
+        if inputs.len() > MAX_MERGE_INPUTS {
+            return Err(TransactionError::TooManyInputs {
+                got: inputs.len(),
+                max: MAX_MERGE_INPUTS,
+            });
+        }
         let inner =
             MergeTransaction::new_with_ring(inputs, ring.program_id(), output_ring_data_hash)?;
         Ok(Self { ring, inner })
@@ -89,9 +101,6 @@ pub struct ProvenCustomRingMerge {
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    pub output_data: zolana_event::MessageData,
 }
 
 impl PreparedCustomRingMerge {
@@ -105,6 +114,46 @@ impl PreparedCustomRingMerge {
 
     pub const fn output(&self) -> &SppProofOutputUtxo {
         &self.inner.output_utxo
+    }
+
+    /// Preserve the real accounts and published nullifiers for exact wire sizing.
+    /// Proof, root indexes and commitment placeholders have their final fixed widths.
+    pub(crate) fn preview_instruction(
+        &self,
+        input: &MergeProofInput,
+        payer: Address,
+        cosigner: Option<Address>,
+    ) -> Instruction {
+        CustomRingMergeInstruction {
+            ring: self.ring,
+            input_tree: input.input_tree,
+            output_tree: input.output_tree,
+            payer,
+            cosigner,
+            data: MergeRingIxData {
+                output_ring_data_hash: self.inner.output_utxo.ring_data_hash.unwrap_or_default(),
+                merge: MergeTransactIxData {
+                    expiry_unix_ts: self.inner.expiry_unix_ts,
+                    proof: MergeProof::zeroed(),
+                    output_utxo_hash: [0; 32],
+                    output_ciphertext_salt: self.inner.output_ciphertext_salt,
+                    output_ciphertext: self.inner.output_ciphertext,
+                    eddsa_owner: false,
+                    private_tx_hash: [0; 32],
+                    nullifiers: self
+                        .inner
+                        .input_utxos
+                        .iter()
+                        .filter(|input| !input.is_compact())
+                        .map(|input| input.nullifier)
+                        .collect(),
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                    cache_slot: None,
+                },
+            },
+        }
+        .instruction()
     }
 
     pub async fn prove<R: AsyncRpc, I: AsyncIndexer>(
@@ -180,9 +229,6 @@ impl PreparedCustomRingMerge {
                 .filter(|utxo| !utxo.is_dummy())
                 .count(),
             merged_amount: inner.output_utxo.amount,
-            tx_viewing_pk: inner.tx_viewing_pk,
-            salt: inner.salt,
-            output_data: inner.output_data,
         })
     }
 }

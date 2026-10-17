@@ -306,7 +306,7 @@ fn prepare(
             payer,
             input_trees: vec![spec.input_tree.account],
             output_tree: spec.output_tree.account,
-            owner_signers: vec![],
+            owner_signers: vec![payer],
             interface_transfer_accounts: settlements,
             data,
         },

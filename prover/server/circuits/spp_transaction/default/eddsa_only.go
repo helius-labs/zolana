@@ -25,7 +25,8 @@ type DefaultRingConfidentialEd25519Public struct {
 	TreeSlots []shared.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
-	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Blinded hash of input and output commitments and address nullifiers.
+	// External data is bound separately by the outer public-input hash.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
 	// Hash that ties arbitrary data to the proof.
@@ -39,7 +40,8 @@ type DefaultRingConfidentialEd25519Public struct {
 	// 1+shared.TreeIndexBits*i. Dummy input UTXOs are not allowed once the
 	// nullifier tree capacity is less than remaining state tree capacity.
 	InputFlags frontend.Variable
-	// Hashed EdDSA signer pubkeys, with the fee payer first.
+	// Hashed EdDSA owner-signer pubkeys, deduplicated and zero-padded. The
+	// fee payer is not one unless it is also listed as an owner signer.
 	SignerPkHashes []frontend.Variable
 	// Owner pubkey hashes for all output slots. Real outputs publish their owners;
 	// dummy outputs must name a transaction participant.
@@ -129,8 +131,8 @@ func (c *DefaultRingConfidentialEd25519Circuit) Define(api frontend.API) error {
 	// Enforce confidentiality:
 	// 1. Input owners are private and each must be in the public signer vector.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. Every dummy tag names an owner signer other than the payer or a real
-	//    output owner, except compact padding, whose tag is 0.
+	// 3. Every dummy tag names an owner signer or a real output owner, except
+	//    compact padding, whose tag is 0.
 
 	// 1.
 	authorized := shared.Signers(c.Public.SignerPkHashes)
@@ -160,7 +162,7 @@ func (c *DefaultRingConfidentialEd25519Circuit) Define(api frontend.API) error {
 		tx.OutputIsCompact,
 		nil,
 		c.Public.OutputOwnerPkHashes,
-		authorized.WithoutPayer(),
+		authorized,
 	); err != nil {
 		return err
 	}

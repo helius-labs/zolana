@@ -90,6 +90,7 @@ describe("nullifier PDA accounts", () => {
             payer: PAYER,
             inputTree: TREE,
             outputTree: OUTPUT_TREE,
+            ownerSigners: [],
             data,
           }),
         ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
@@ -140,6 +141,7 @@ describe("nullifier PDA accounts", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      ownerSigners: [],
       withdrawal: { kind: "sol", recipient: OWNER },
       data: transactData(inputs),
     });
@@ -176,6 +178,33 @@ describe("nullifier PDA accounts", () => {
     expect(instruction.accounts?.slice(5).map((meta) => [meta.address, meta.role])).toEqual([
       [pda, AccountRole.WRITABLE],
       [OWNER_SIGNER, AccountRole.READONLY_SIGNER],
+      [SOL_INTERFACE, AccountRole.WRITABLE],
+      [OWNER, AccountRole.WRITABLE],
+    ]);
+  });
+
+  it("lists an owner who also pays as a readonly owner signer after the nullifier PDAs", async () => {
+    const inputs = [input(71), input(72)];
+    const instruction = await transactInstruction({
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      ownerSigners: [PAYER, OWNER],
+      withdrawal: { kind: "sol", recipient: OWNER },
+      data: transactData(inputs),
+    });
+
+    const [first, second] = await nullifierPdas(inputs);
+    expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [OUTPUT_TREE, AccountRole.WRITABLE],
+      [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
+      [SYSTEM, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
+      [first, AccountRole.WRITABLE],
+      [second, AccountRole.WRITABLE],
+      [PAYER, AccountRole.READONLY_SIGNER],
+      [OWNER, AccountRole.READONLY_SIGNER],
       [SOL_INTERFACE, AccountRole.WRITABLE],
       [OWNER, AccountRole.WRITABLE],
     ]);
@@ -266,6 +295,12 @@ describe("nullifier PDA accounts", () => {
         c: filled(45, 32) as Bytes32,
       },
       outputUtxoHash: filled(46, 32) as Bytes32,
+      outputCiphertextSalt: filled(48, 16) as Bytes16,
+      outputCiphertext: [
+        filled(49, 32) as Bytes32,
+        filled(50, 32) as Bytes32,
+        filled(51, 32) as Bytes32,
+      ],
       eddsaOwner: true,
       privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,

@@ -34,9 +34,17 @@ import {
   treeAddress,
 } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
-import type { Bytes31, Bytes32, Bytes33, Bytes128 } from "../src/interface/types.js";
+import type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes128 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergeOutputKey,
+} from "../src/keypair/merge/index.js";
+import {
+  encodeMergeOutputData,
+  encryptMergeOutput,
+} from "../src/transaction/serialization/merge.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 
@@ -774,7 +782,7 @@ function ringTransaction(
 }
 
 describe("ring member recovery", () => {
-  it.each(["malformed", "wrongRecipient", "wrongAmount", "unknownAsset"] as const)(
+  it.each(["malformed", "wrongRecipient", "wrongAmount", "unknownAsset", "unprovedData"] as const)(
     "recovers proved openings despite %s recipient data",
     async (corruption) => {
       const auditor = X25519Secret.generate();
@@ -783,7 +791,7 @@ describe("ring member recovery", () => {
       const original = ringTransaction({
         auditor,
         source,
-        outputs: [{ amount: 7n, dataHash: blinding(1) }],
+        outputs: [{ amount: 7n, dataHash: blinding(corruption === "unprovedData" ? 0 : 1) }],
       });
       const key = recoverTransactionViewingKey(
         auditor,
@@ -806,7 +814,14 @@ describe("ring member recovery", () => {
                     assetId: corruption === "unknownAsset" ? 999n : 1n,
                     amount: corruption === "wrongAmount" ? 999n : 7n,
                     blinding: blinding(50),
-                    data: new Data(),
+                    data: new Data(
+                      corruption === "unprovedData"
+                        ? [
+                            { kind: "utxoData", bytes: Uint8Array.of(9) },
+                            { kind: "memo", bytes: Uint8Array.of(10) },
+                          ]
+                        : [],
+                    ),
                     ringProgramId: RING,
                   },
                   original.salt,
@@ -828,7 +843,10 @@ describe("ring member recovery", () => {
       });
       expect(audited.outputOpenings).toHaveLength(1);
       expect(audited.outputContexts[0]).toEqual(transaction.outputSlots[0]?.outputContext);
-      expect(audited.undecryptableSlots).toEqual(corruption === "wrongRecipient" ? [] : [0]);
+      expect(audited.undecryptableSlots).toEqual(
+        corruption === "wrongRecipient" || corruption === "unprovedData" ? [] : [0],
+      );
+      if (corruption === "unprovedData") expect(audited.outputs[0]?.data.records()).toHaveLength(2);
       const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
       const getShieldedTransactionsByNullifiers = vi.fn(async () => transactionsPage());
       const recovered = await recoverRingMemberNotes({
@@ -852,7 +870,10 @@ describe("ring member recovery", () => {
         },
       });
       expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([7n]);
-      expect(recovered.notes[0]?.dataHash).toEqual(blinding(1));
+      expect(recovered.notes[0]?.dataHash).toEqual(
+        corruption === "unprovedData" ? undefined : blinding(1),
+      );
+      expect(recovered.notes[0]?.utxo.data.records()).toEqual([]);
       expect(recovered.unopened).toEqual([]);
       expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(1);
       expect(getProgramAccounts).not.toHaveBeenCalled();
@@ -1040,6 +1061,7 @@ function mergeTransaction(
       tree: treeAddress(treeId),
       leafIndex: 4n,
     };
+    const salt = new Uint8Array(16).fill(treeId + 1) as Bytes16;
     return {
       transaction: {
         txSignature: "1".repeat(87) as Signature,
@@ -1052,7 +1074,15 @@ function mergeTransaction(
           {
             viewTag: first.nullifier,
             outputContext,
-            payload: ringDataHash,
+            payload: encodeMergeOutputData({
+              ringDataHash,
+              salt,
+              ciphertext: encryptMergeOutput(
+                { amount: utxo.amount, mint: utxo.asset },
+                mergeOutputKey(key, first.nullifier),
+                salt,
+              ),
+            }),
           },
         ],
         messages: [],
@@ -1269,6 +1299,124 @@ describe("recovery closure", () => {
     auditor.destroy();
   });
 
+  it.each(["ordinary", "unprovedData", "unreadable"] as const)(
+    "decrypts an unseen-input merge despite %s predecessor delivery",
+    async (delivery) => {
+      const source = actor(3);
+      const auditor = X25519Secret.generate();
+      const key = source.keypair.nullifierKey();
+      const original = ringTransaction({
+        auditor,
+        source,
+        outputs: [
+          {
+            amount: 2n,
+            dataHash: blinding(0),
+            ...(delivery === "unprovedData"
+              ? {
+                  data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(9) }]),
+                }
+              : {}),
+          },
+        ],
+      });
+      const seed =
+        delivery === "unreadable"
+          ? {
+              ...original,
+              outputSlots: original.outputSlots.map((slot) => ({
+                ...slot,
+                payload: Uint8Array.of(255),
+              })),
+            }
+          : original;
+      const seedSlot = seed.outputSlots[0];
+      if (seedSlot === undefined) throw new Error("seed output missing");
+      const known = new Utxo({
+        owner: source.address.signingPublicKey,
+        asset: SOL_MINT,
+        amount: 2n,
+        blinding: blinding(50),
+        ringProgramId: RING,
+      });
+      const unseen = new Utxo({
+        owner: source.address.signingPublicKey,
+        asset: SOL_MINT,
+        amount: 40n,
+        blinding: blinding(60),
+        ringProgramId: RING,
+      });
+      const unseenContext = {
+        hash: unseen.hash(source.address.nullifierPublicKey, 0),
+        tree: TREE,
+        leafIndex: 9n,
+      };
+      // The unseen input is first, so recovery cannot derive the output by
+      // summing known inputs or requiring a known first-nullifier predecessor.
+      const merged = mergeTransaction(source, [
+        {
+          utxo: unseen,
+          outputContext: unseenContext,
+          nullifier: unseen.nullifier(unseenContext.hash, key),
+          spent: false,
+        },
+        {
+          utxo: known,
+          outputContext: seedSlot.outputContext,
+          nullifier: known.nullifier(seedSlot.outputContext.hash, key),
+          spent: false,
+        },
+      ]);
+      const authenticate = vi.fn(async (transaction: IndexedShieldedTransaction) => {
+        if (transaction !== seed && transaction !== merged.transaction)
+          throw new RingError("RING_ORIGIN_DECODE");
+        return transaction;
+      });
+      const query = vi.fn(async (request: Readonly<{ nullifiers: readonly Bytes32[] }>) =>
+        transactionsPage({
+          transactions: merged.transaction.nullifiers.some((nullifier) =>
+            request.nullifiers.some((requested) => requested.join() === nullifier.join()),
+          )
+            ? [merged.transaction]
+            : [],
+        }),
+      );
+      try {
+        const result = await recoverRingMemberNotes({
+          client: {
+            ...ringAuditReader({
+              getShieldedTransactionsByTags: async (request) =>
+                transactionsPage({
+                  transactions: request.ringProgramId === undefined ? [seed] : [],
+                }),
+            }),
+            getShieldedTransactionsByNullifiers: query,
+          },
+          ringProgramId: RING,
+          auditor,
+          source: source.address,
+          nullifierKey: key,
+          assets: new AssetRegistry(),
+          resolveTreeId: () => 0,
+          origin: { ringInvoked: async () => true, confirmedTransaction: authenticate },
+        });
+        expect(result.unopened).toEqual([]);
+        expect(result.unsupportedDeposits).toEqual([]);
+        expect(result.notes).toHaveLength(1);
+        expect(result.notes[0]?.utxo.amount).toBe(42n);
+        expect(result.notes[0]?.outputContext).toEqual(merged.note.outputContext);
+        expect(result.notes[0]?.nullifier).toEqual(merged.note.nullifier);
+        expect(authenticate).toHaveBeenCalledWith(merged.transaction, RING, undefined);
+        expect(query.mock.calls.flatMap(([request]) => request.nullifiers)).toContainEqual(
+          merged.note.nullifier,
+        );
+      } finally {
+        key.destroy();
+        auditor.destroy();
+      }
+    },
+  );
+
   it("authenticates spend responses before hiding a recovered note", async () => {
     const source = actor(3);
     const auditor = X25519Secret.generate();
@@ -1322,7 +1470,7 @@ describe("recovery closure", () => {
     }
   });
 
-  it("recovers data hashes from proof-bound disclosure", async () => {
+  it("recovers proved data hashes without trusting recipient metadata", async () => {
     const source = actor(3);
     const auditor = X25519Secret.generate();
     const key = source.keypair.nullifierKey();
@@ -1358,7 +1506,7 @@ describe("recovery closure", () => {
     };
     const disclosed = await recoverRingMemberNotes(input);
     expect(disclosed.notes[0]).toMatchObject({ dataHash, ringDataHash });
-    expect(disclosed.notes[0]?.utxo.data.records()).toEqual(data.records());
+    expect(disclosed.notes[0]?.utxo.data.records()).toEqual([]);
     expect(disclosed.unopened).toEqual([]);
     const spent = await recoverRingMemberNotes({
       ...input,

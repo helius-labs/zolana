@@ -32,6 +32,8 @@ func constrainOutput(
 		RingProgramID: ringProgramID,
 	}
 	// DataHash is fixed to zero, so no owner signature is needed. The merged
-	// output is always real, so it is never compact padding.
+	// output is always real, so it is never compact padding. ConstrainOutput
+	// therefore rejects asset field zero. The zero mint address used for SOL
+	// hashes to a nonzero asset field and remains valid.
 	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0), frontend.Variable(0), treeID)
 }

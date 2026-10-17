@@ -78,13 +78,51 @@ pub fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientE
 }
 
 pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+    validate_merge_state(inputs)?;
     let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
     Ok(in_response(to_json_merge(inputs), key))
 }
 
 pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+    validate_merge_state(inputs)?;
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
     Ok(in_response(to_json_merge_ring(inputs), key))
+}
+
+/// Raw numeric requests carry the same merge state obligation as wallet plans.
+fn validate_merge_state(inputs: &MergeInputs) -> Result<(), ClientError> {
+    use zolana_transaction::{instructions::merge::merge_ring_data_hash, TransactionError};
+    let ring = super::field::right_align_slice(&inputs.ring_program_id.to_bytes_be())?;
+    let published_hash =
+        super::field::right_align_slice(&inputs.output_ring_data_hash.to_bytes_be())?;
+    if [inputs.output.utxo.asset, ring, published_hash]
+        .iter()
+        .any(|field| !zolana_hasher::primitives::is_canonical_bn254_scalar_be(field))
+    {
+        return Err(TransactionError::NonCanonicalField.into());
+    }
+    if inputs.output.utxo.asset == [0; 32] {
+        return Err(TransactionError::ZeroMergeAsset.into());
+    }
+    let output_hash = inputs.output.utxo.ring_data_hash;
+    if num_bigint::BigUint::from_bytes_be(&output_hash) != inputs.output_ring_data_hash
+        || (inputs.ring_program_id == num_bigint::BigUint::ZERO && output_hash != [0; 32])
+    {
+        return Err(TransactionError::MergeOutputRingDataMismatch.into());
+    }
+    let dummy = zolana_hasher::primitives::right_align(
+        &zolana_transaction::utxo::DUMMY_DOMAIN.to_be_bytes(),
+    );
+    merge_ring_data_hash(
+        inputs
+            .inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.utxo.domain != dummy)
+            .map(|(index, input)| (index, Some(input.utxo.ring_data_hash))),
+        Some(output_hash),
+    )?;
+    Ok(())
 }
 
 /// A batch proof runs far longer than a connection should be held open, so it

@@ -949,7 +949,7 @@ describe("ring openings", () => {
     );
   });
 
-  it("assembles a foreign fee payer with the owner as an appended signer", async () => {
+  it("assembles a foreign fee payer out of the signer vector, the owner first", async () => {
     const payer = actor(8).address.solanaAddress();
     const owner = actor(3);
     const { proofInputs } = await auditedProofInputs(
@@ -972,13 +972,26 @@ describe("ring openings", () => {
     // Signers enter the chain as tagged Solana identities, `hash(0x53 || pk)`.
     const hashOf = (target: Address) =>
       bytesToBigInt(solanaOwnerIdentity(new Uint8Array(getAddressEncoder().encode(target))));
-    expect(vector[0]).toBe(hashOf(payer));
-    expect(vector[0]).toBe(signerIdentity(payer));
-    expect(vector[1]).toBe(hashOf(owner.address.solanaAddress()));
-    expect(vector.slice(2).every((entry) => entry === 0n)).toBe(true);
-    expect(ownerSignerAddresses(proofInputs.inputUtxos, payer)).toEqual([
-      owner.address.solanaAddress(),
-    ]);
+    // The payer owns no input, so paying authorizes nothing: it is not in the vector.
+    expect(vector[0]).toBe(hashOf(owner.address.solanaAddress()));
+    expect(vector[0]).toBe(signerIdentity(owner.address.solanaAddress()));
+    expect(vector).not.toContain(signerIdentity(payer));
+    expect(vector.slice(1).every((entry) => entry === 0n)).toBe(true);
+    expect(ownerSignerAddresses(proofInputs.inputUtxos)).toEqual([owner.address.solanaAddress()]);
+  });
+
+  it("assembles an owner who also pays once, in the first signer slot", async () => {
+    const owner = actor(3);
+    const { proofInputs } = await auditedProofInputs(4n, X25519Secret.generate());
+    expect(proofInputs.payer).toBe(owner.address.solanaAddress());
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const vector = assemble(proofInputs, [spendProofFor(input)], [], {
+      kind: "ring",
+      ring: RING,
+    }).proverInputs.payload.signerPublicKeyHashes;
+    expect(vector[0]).toBe(signerIdentity(owner.address.solanaAddress()));
+    expect(vector.slice(1).every((entry) => entry === 0n)).toBe(true);
   });
 
   it("refuses a tree the client does not prove from, before any fetch", async () => {
@@ -1017,9 +1030,8 @@ describe("ring openings", () => {
     expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierPublicKey());
   });
 
-  it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
+  it("derives deduplicated owner signers like Rust `owner_signer_pubkeys`", () => {
     const owner = actor(3);
-    const payer = actor(8).address.solanaAddress();
     const input = (blinding: number) =>
       ownedInput(owner, {
         owner: owner.keypair.signingPublicKey(),
@@ -1028,8 +1040,8 @@ describe("ring openings", () => {
         blinding: scalar(blinding),
       });
     const ownerAddress = owner.address.solanaAddress();
-    expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);
-    expect(ownerSignerAddresses([input(1), input(2)], ownerAddress)).toEqual([]);
+    // The fee payer gets no special treatment: whoever pays, the owner is listed once.
+    expect(ownerSignerAddresses([input(1), input(2)])).toEqual([ownerAddress]);
   });
 
   it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {
@@ -1531,7 +1543,9 @@ describe("ring proof folded fields", () => {
     expect(proven.policy?.memberRegistryRoot).toEqual(MEMBER_REGISTRY_EMPTY_ROOT);
     expect(proven.inputTrees).toEqual([ACTIVE_TREE]);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
-    expect(proven.ownerSigners).toEqual([]);
+    // The sender pays and owns the input, so it is listed as an owner signer too.
+    expect(prepared.payer).toBe(sender.address.solanaAddress());
+    expect(proven.ownerSigners).toEqual([sender.address.solanaAddress()]);
   });
 
   const requireAllow: Rule = {

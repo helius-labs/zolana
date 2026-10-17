@@ -779,3 +779,67 @@ fn payload_and_address_limits_fail_before_submission() {
     instruction.accounts.clear();
     assert!(super::check_transaction_size(&payer, &instruction).is_ok());
 }
+
+#[tokio::test]
+async fn merge_sizes_are_checked_before_rpc_or_proving() {
+    struct MissingRing(Arc<AtomicUsize>);
+
+    #[async_trait]
+    impl AsyncRpc for MissingRing {
+        async fn get_account(&self, _address: Address) -> Result<Option<Account>, ClientError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let payer = sender.pubkey();
+    let input_tree = Address::new_from_array([212; 32]);
+    for (count, cosigner, split_trees, fits) in [
+        (50, false, false, true),
+        (50, false, true, true),
+        (50, true, false, false),
+        (50, true, true, false),
+        (49, true, false, true),
+    ] {
+        let inputs = (0..count)
+            .map(|i| note(&sender, i + 1, 0, Some(ring().program_id())))
+            .collect();
+        let prepared = CustomRingMerge::new(ring(), inputs, None)
+            .unwrap()
+            .encrypt(&sender)
+            .unwrap();
+        let mut operation = RingMergeOperation::new(
+            prepared,
+            MergeProofInput {
+                nullifier_key: sender.nullifier_key.clone(),
+                input_tree,
+                output_tree: if split_trees {
+                    Address::new_from_array([213; 32])
+                } else {
+                    input_tree
+                },
+            },
+        );
+        if cosigner {
+            operation = operation.with_cosigner(Address::new_from_array([211; 32]));
+        }
+        let requests = Arc::new(AtomicUsize::new(0));
+        let client = AsyncZolanaClient::new(
+            MissingRing(requests.clone()),
+            NoIndexer,
+            AsyncProverClient::local(),
+        );
+        let result = RingOperation::from(operation).prove(&client, payer).await;
+        if fits {
+            assert!(matches!(result, Err(RingError::MissingRingConfig)));
+            assert_eq!(requests.load(Ordering::SeqCst), 1);
+        } else {
+            assert!(matches!(
+                result,
+                Err(RingError::TransactionTooLarge { bytes, limit }) if bytes > limit
+            ));
+            assert_eq!(requests.load(Ordering::SeqCst), 0);
+        }
+    }
+}

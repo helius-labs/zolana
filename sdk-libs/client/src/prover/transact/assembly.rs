@@ -530,7 +530,8 @@ pub struct PublicInputs<'a, Roots = &'a [TreeSlot; INPUT_TREES]> {
     /// index, built by [`zolana_interface::tree_slot::pack_input_flags`]. It
     /// occupies the element the plain dummy-input boolean used to.
     pub input_flags: &'a [u8; 32],
-    /// Payer first, then unique appended owner signers, then zero padding.
+    /// Unique owner signers in first-occurrence order, then zero padding. The
+    /// fee payer is not in it unless it is also an owner signer.
     pub signer_pk_hashes: &'a [[u8; 32]],
     /// Appended by owner-signed rails. The default rail publishes every slot;
     /// custom-ring rails publish only confidential-encryption-marked slots.

@@ -57,9 +57,22 @@ pub fn tree_working_capital_lamports(
     input_queue_batch_size: u64,
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
+    tree_liquid_working_capital_lamports(input_queue_batch_size, 0, nullifier_pda_rent)
+}
+
+/// The part of the working capital that must stay liquid in the tree: rent at
+/// the current rate for every nullifier PDA that may still be created while
+/// `live_nullifier_pdas` are open. Rent held by open PDAs returns to the tree
+/// on close, so it is not reserved twice.
+pub fn tree_liquid_working_capital_lamports(
+    input_queue_batch_size: u64,
+    live_nullifier_pdas: u64,
+    nullifier_pda_rent: u64,
+) -> Option<u64> {
     (NUM_BATCHES as u64)
         .checked_add(1)?
         .checked_mul(input_queue_batch_size)?
+        .saturating_sub(live_nullifier_pdas)
         .checked_mul(nullifier_pda_rent)
 }
 
@@ -168,18 +181,35 @@ mod tests {
     #[test]
     fn working_capital_funds_three_batches_of_live_nullifier_pdas() {
         let nullifier_pda_rent = Rent::default().minimum_balance(NULLIFIER_PDA_SIZE);
-        assert_eq!(nullifier_pda_rent, 960_480);
+        assert_eq!(nullifier_pda_rent, 967_440);
 
         let canonical = nullifier_tree_params().input_queue_batch_size;
         assert_eq!(
             tree_working_capital_lamports(canonical, nullifier_pda_rent),
-            Some(3 * 24_995 * 960_480)
+            Some(3 * 24_995 * 967_440)
         );
         assert_eq!(
             tree_working_capital_lamports(canonical / 2, nullifier_pda_rent),
-            Some(3 * 12_497 * 960_480)
+            Some(3 * 12_497 * 967_440)
         );
         assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
+    }
+
+    #[test]
+    fn liquid_working_capital_excludes_rent_held_by_open_nullifier_pdas() {
+        let canonical = nullifier_tree_params().input_queue_batch_size;
+        assert_eq!(
+            tree_liquid_working_capital_lamports(canonical, 0, 9),
+            tree_working_capital_lamports(canonical, 9)
+        );
+        assert_eq!(
+            tree_liquid_working_capital_lamports(canonical, canonical, 9),
+            Some(2 * canonical * 9)
+        );
+        assert_eq!(
+            tree_liquid_working_capital_lamports(canonical, 4 * canonical, 9),
+            Some(0)
+        );
     }
 
     #[test]

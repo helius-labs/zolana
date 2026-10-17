@@ -41,10 +41,10 @@ fn verifying_key_fingerprint_is_pinned() {
     let keys: [(&str, &Groth16Verifyingkey); 88] = vks![
         merge_8_1,
         merge_24_1,
-        merge_54_1,
+        merge_52_1,
         merge_ring_8_1,
         merge_ring_24_1,
-        merge_ring_54_1,
+        merge_ring_52_1,
         transfer_confidential_1_2,
         transfer_confidential_1_4,
         transfer_confidential_1_8,
@@ -139,7 +139,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00cb31d2dda91ca472ae91cc13f37764f758ac268f559552cf98de1334b411da",
+        fingerprint, "00e32f23516a3ba0e639f052331471744ef0aeba0c04096500d57b936b077cef",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

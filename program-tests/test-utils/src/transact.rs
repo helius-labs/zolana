@@ -356,8 +356,8 @@ pub struct TransferProverInputsArgs {
     pub private_tx_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [[u8; 32]; N_PUBLIC_SLOTS],
-    /// The signer run the proof binds: payer first, then unique owner signers,
-    /// zero-padded to the circuit width (`n_inputs + 1`).
+    /// The signer run in the public input: the unique owner signers (the fee
+    /// payer only when it is listed as one), zero-padded to the circuit width.
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub public_input_hash: [u8; 32],
 }
@@ -565,10 +565,10 @@ pub fn real_output(
 ///
 /// `AssertDummyTags`
 /// (`prover/server/circuits/spp_transaction/shared/owner_tags.go`) only accepts
-/// a dummy tag that names an owner signer *other than the payer* or a real
-/// output's owner, so an all-dummy output set is unprovable when the payer is
-/// the transaction's only signer. Production wallets emit the same zero-amount
-/// change output for a self-paid transaction that has no change.
+/// a dummy tag that names an owner signer or a real output's owner; the fee
+/// payer is neither unless it is listed as an owner signer. Production wallets
+/// build the same zero-amount change output for a self-paid transaction that
+/// has no change.
 ///
 /// The caller still stamps the tags with [`set_output_owner_tags`], passing
 /// `change_nullifier_pk` for slot 0 and zero for the dummy slots, and must fold
@@ -989,9 +989,8 @@ pub fn build_spl_withdrawal(
     .expect("withdraw input");
 
     // The withdrawal drains the UTXO, so slot 0 is a real zero-amount change
-    // output owned by the payer and slots 1-2 are dummies naming it: the payer
-    // is the only signer here and `AssertDummyTags` refuses a dummy tag that
-    // names only the payer. See [`change_and_dummy_outputs`].
+    // output owned by the payer and slots 1-2 are dummies naming it. See
+    // [`change_and_dummy_outputs`].
     let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let change_nullifier_pk = change_nullifier_key
         .pubkey()
@@ -1081,7 +1080,8 @@ pub fn build_spl_withdrawal(
         payer: payer.pubkey(),
         input_trees: vec![*tree],
         output_tree: *tree,
-        owner_signers: Vec::new(),
+        // The payer owns the spent input, so it also signs as its owner.
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,

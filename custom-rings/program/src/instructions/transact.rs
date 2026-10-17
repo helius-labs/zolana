@@ -25,7 +25,7 @@ use crate::{
         },
         policy_trees::PolicyTrees,
         public_legs::PublicLegs,
-        shared::{cpi_spp, parse},
+        shared::{check_funding_signer, cpi_spp, parse},
         verifier::{verify_groth16, verify_groth16_inputs},
     },
     state::is_x25519_viewing_key,
@@ -278,6 +278,7 @@ impl Rail {
                 .serialize()
                 .map_err(|_| CustomRingError::InvalidInstructionData)?,
         );
+        check_funding_signer(spp_accounts, 0)?;
         cpi_spp(program_id, spp_accounts, &instruction_data)
     }
 

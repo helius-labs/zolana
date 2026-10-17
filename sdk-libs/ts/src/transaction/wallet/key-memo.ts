@@ -165,6 +165,8 @@ function deriveKey(request: DeriveRequest): string {
       return `mergeBlinding|${hex(request.firstNullifier)}`;
     case "mergePrivateTxBlinding":
       return `mergePrivateTxBlinding|${hex(request.firstNullifier)}`;
+    case "mergeOutputKey":
+      return `mergeOutputKey|${hex(request.firstNullifier)}`;
   }
 }
 

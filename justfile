@@ -1181,7 +1181,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
       tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
 
 # Confirm the widest transact shape of every output count (49x2, 24x4, 16x8,
-# 8x16) on the confidential and ring Ed25519 rails, and the 54-input
+# 8x16) on the confidential and ring Ed25519 rails, and the 52-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.
 test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
@@ -1240,8 +1240,8 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
 # Custom-ring lifecycle on a local validator
 # (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
-# proof binds the verifiable encryption of the transaction viewing key to the
-# auditor key -- and assert the auditor client decrypts the outputs.
+# proof binds the auditor disclosure to committed notes, then checks that
+# the auditor decrypts those settled notes.
 test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-server build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1342,11 +1342,11 @@ test-client-example-merge-transfer: build-programs build-prover-server build-cli
       cargo run -p client-example --example merge_transfer
 
 # Optimized merge + transfer SDK example
-# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 53 UTXOs in
+# (sdk-tests/client/rust/optimized_merge_transfer.rs). Consolidates 51 UTXOs in
 # one merge that writes its output commitment into a cache PDA, and spends that
 # commitment from the cache, so the transfer proof is generated concurrently
 # with the merge proof instead of waiting for the merged output to be indexed.
-# Same stack as test-client-example; needs the merge_54_1 proving key, which the
+# Same stack as test-client-example; needs the merge_52_1 proving key, which the
 # prover lazy-loads on the first request.
 test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash

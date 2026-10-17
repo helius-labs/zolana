@@ -106,21 +106,21 @@ func TestCustomRingConfidentialEd25519AcceptsZeroDummyOutputTag(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer signs but is not a dummy marker: a fee payer must not
-// be shown as a ring recipient by a transaction it only paid for.
+// A fee payer that owns no input is absent from the signer vector.
+// A dummy must not show it as a recipient of a transaction it only funded.
 func TestCustomRingConfidentialEd25519RejectsDummyOutputPayerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 	retagRealOutput(t, assignment, outsideRecipient(t))
-	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
+	tagDummyOutput(t, assignment, testPayerPkHash())
 	refreshPublicInputHash(t, assignment)
 
 	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
-// An owner signer other than the payer is public in the signer vector, so a
+// An owner signer is public in the signer vector, so a
 // dummy may repeat it even when no output publishes it.
 func TestCustomRingConfidentialEd25519AcceptsDummyOutputOwnerSignerTag(t *testing.T) {
 	assert := test.NewAssert(t)

@@ -40,7 +40,6 @@ type mergeFixtureOptions struct {
 	inputCount        int
 	externalDataHash  *big.Int
 	rail              mergeFixtureRail
-	asset             *big.Int
 	ringProgramID     *big.Int
 	inputRingData     []*big.Int
 	outputRingData    *big.Int
@@ -63,6 +62,20 @@ const (
 	fixtureInputTreeID  = 7
 	fixtureOutputTreeID = 11
 )
+
+// fixtureMint has a nonzero last byte so both hash_bytes_32 chunks matter.
+var fixtureMint = [32]byte{
+	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+	0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+	0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+	0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+}
+
+// fixtureCiphertextSalt is a 16-byte salt, as the instruction data carries.
+var fixtureCiphertextSalt = new(big.Int).SetBytes([]byte{
+	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+	0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+})
 
 // fixtureSlotTreeIDs returns InputTrees distinct tree ids, slot 0 = fixtureInputTreeID.
 func fixtureSlotTreeIDs() []*big.Int {
@@ -106,7 +119,7 @@ type mergeWitnessFixture struct {
 	inputs []merge.Input
 	output merge.Output
 
-	asset               *big.Int
+	mintChunks          [2]*big.Int
 	ownerPkHash         *big.Int
 	userNullifierPk     *big.Int
 	userNullifierSecret *big.Int
@@ -114,6 +127,8 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
+	outputCiphertext    []*big.Int
+	publicInputPreimage []*big.Int
 	publicInputHash     *big.Int
 }
 
@@ -128,8 +143,8 @@ func buildRingWitness(t testing.TB, ringProgramID *big.Int) *merge.RingCircuit {
 	return buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
 		ringProgramID:  ringProgramID,
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
+		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)},
+		outputRingData: big.NewInt(0xD0),
 	}).ringCircuit()
 }
 
@@ -156,9 +171,9 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		t.Fatal(err)
 	}
 
-	asset := big.NewInt(1)
-	if options.asset != nil {
-		asset = new(big.Int).Set(options.asset)
+	asset, err := protocol.AssetField(fixtureMint)
+	if err != nil {
+		t.Fatal(err)
 	}
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
@@ -305,6 +320,12 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		RingProgramID: ringProgramID,
 	}
 	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
+	outputCiphertext, err := protocol.MergeOutputCiphertext(
+		nullifierSecret, nullifiers[0], fixtureCiphertextSalt, outAmount, fixtureMint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	externalDataHash := options.externalDataHash
 	if externalDataHash == nil {
@@ -408,6 +429,8 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
 	}
+	publicInputPreimage = append(publicInputPreimage, fixtureCiphertextSalt)
+	publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	publicInputHash := hashChain4(t, publicInputPreimage)
 
 	inputs := mergeshared.NewInputs(inputCount)
@@ -417,6 +440,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
+	public.OutputCiphertextSalt = fixtureCiphertextSalt
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,
@@ -463,7 +487,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	return &mergeWitnessFixture{
 		inputs:              inputs,
 		output:              merge.Output{RingDataHash: outputRingData},
-		asset:               asset,
+		mintChunks:          protocol.MintChunks(fixtureMint),
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
@@ -471,15 +495,21 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash:   userSigningPkHash,
 		outputRingDataHash:  outputRingData,
 		ringProgramID:       ringProgramID,
+		outputCiphertext:    outputCiphertext,
+		publicInputPreimage: publicInputPreimage,
 		publicInputHash:     publicInputHash,
 	}
+}
+
+func (f *mergeWitnessFixture) mintChunkVariables() [2]frontend.Variable {
+	return [2]frontend.Variable{f.mintChunks[0], f.mintChunks[1]}
 }
 
 func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment := merge.NewMergeCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = f.mintChunkVariables()
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
@@ -493,7 +523,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment := merge.NewMergeRingCircuit(len(f.inputs))
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
-	assignment.Asset = f.asset
+	assignment.MintChunks = f.mintChunkVariables()
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret

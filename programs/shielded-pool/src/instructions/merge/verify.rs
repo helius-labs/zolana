@@ -1,6 +1,7 @@
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
+use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, right_align};
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -10,7 +11,7 @@ use zolana_interface::{
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
     verifying_keys::{
-        merge_24_1, merge_54_1, merge_8_1, merge_ring_24_1, merge_ring_54_1, merge_ring_8_1,
+        merge_24_1, merge_52_1, merge_8_1, merge_ring_24_1, merge_ring_52_1, merge_ring_8_1,
     },
 };
 
@@ -29,9 +30,10 @@ pub enum MergeOwnerBinding {
         nullifier_pk: [u8; 32],
     },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
-    /// calling `ring_config`, plus the output `ring_data_hash` the ring program
-    /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
+    /// calling `ring_config`, plus the carried output `ring_data_hash`. The
+    /// proof binds that hash to the output and every real input. Consolidation
+    /// preserves ring state without a separate policy proof. Verified against
+    /// `merge_ring_<n_inputs>_1`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
@@ -75,6 +77,14 @@ impl<'a> MergeProof<'a> {
 
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
+        if !self
+            .ix
+            .output_ciphertext
+            .iter()
+            .all(is_canonical_bn254_scalar_be)
+        {
+            return Err(ShieldedPoolError::NonCanonicalMergeCiphertext.into());
+        }
         let public_input_hash = self.public_input_hash()?;
         let p = &self.ix.proof;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
@@ -105,10 +115,10 @@ impl<'a> MergeProof<'a> {
         let vk = match (&self.derived.owner_binding, self.circuit_width()?) {
             (MergeOwnerBinding::Default { .. }, 8) => &merge_8_1::VERIFYINGKEY,
             (MergeOwnerBinding::Default { .. }, 24) => &merge_24_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Default { .. }, 54) => &merge_54_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Default { .. }, 52) => &merge_52_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 54) => &merge_ring_54_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
             _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
         };
         Ok(vk)
@@ -123,10 +133,11 @@ impl<'a> MergeProof<'a> {
     /// hash, dummy-input policy); the default merge then appends the owner's
     /// signing identity and nullifier public key (from the registry), while the
     /// policy-ring merge omits that identity (no registry to bind it against) and
-    /// appends the output `ring_data_hash` and `ring_program_id`. The 7-element
-    /// prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group without
-    /// padding. Continuing from its hash with the two-element owner-binding tail
-    /// is therefore equivalent to folding all 9 elements together.
+    /// appends the output `ring_data_hash` and `ring_program_id`. Both then end
+    /// with the output ciphertext salt and the three ciphertext elements. The
+    /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
+    /// without padding. Continuing from its hash with the six-element tail is
+    /// therefore equivalent to folding all 13 elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -139,20 +150,26 @@ impl<'a> MergeProof<'a> {
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
         ])?;
-        match &self.derived.owner_binding {
+        let (tail_0, tail_1) = match &self.derived.owner_binding {
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *output_ring_data_hash,
-                *ring_program_id,
-            ]),
+            } => (*output_ring_data_hash, *ring_program_id),
             MergeOwnerBinding::Default {
                 signing_pk_field,
                 nullifier_pk,
-            } => create_hash_chain_4_from_slice(&[prefix_hash, *signing_pk_field, *nullifier_pk]),
-        }
+            } => (*signing_pk_field, *nullifier_pk),
+        };
+        let [ciphertext_0, ciphertext_1, ciphertext_2] = *self.ix.output_ciphertext;
+        create_hash_chain_4_from_slice(&[
+            prefix_hash,
+            tail_0,
+            tail_1,
+            right_align(self.ix.output_ciphertext_salt),
+            ciphertext_0,
+            ciphertext_1,
+            ciphertext_2,
+        ])
         .map_err(Into::into)
     }
 }

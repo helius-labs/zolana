@@ -102,6 +102,7 @@ export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
 export const RingProgramError = Object.freeze({
   proofVerificationFailed: 8101,
   staleMemberRegistryRoot: 8161,
+  missingFundingSigner: 8173,
   unexpectedMemberRegistryRoot: 8175,
   unexpectedApproval: 8176,
   invalidSettlementAccounts: 8177,

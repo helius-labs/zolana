@@ -39,7 +39,7 @@ func TestProveAndVerifyEveryShape(t *testing.T) {
 			if err := shape.Validate(); err != nil {
 				t.Fatal(err)
 			}
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, _, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatalf("build transaction: %v", err)
 			}
@@ -47,7 +47,7 @@ func TestProveAndVerifyEveryShape(t *testing.T) {
 			if err != nil {
 				t.Fatalf("setup: %v", err)
 			}
-			built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+			built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 			if err != nil {
 				t.Fatalf("build assignment: %v", err)
 			}

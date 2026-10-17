@@ -6,7 +6,7 @@ import type { Bytes32, RequestContext } from "../interface/types.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import { readRingDepositCapsule } from "./deposit-capsule.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../keypair/merge/index.js";
+import { mergeOutputBlinding, mergeOutputKey } from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 
@@ -15,11 +15,12 @@ import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
-import { bytesToBigInt, equal } from "../transaction/internal.js";
+import { U64_MAX, bytesToBigInt, equal } from "../transaction/internal.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
+import { decryptMergeOutput, readMergeOutputBody } from "../transaction/serialization/merge.js";
 import { decodeRingDepositOutput } from "../transaction/serialization/ring-deposit.js";
 import { Utxo, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
@@ -74,8 +75,6 @@ interface Candidate {
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
 }
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 export async function recoverRingMemberNotes(
   input: RingRecoveryParams,
@@ -138,13 +137,12 @@ export async function recoverRingMemberNotes(
         treeId = await input.resolveTreeId(outputContext.tree);
         treeIds.set(outputContext.tree, treeId);
       }
-      const metadata = transaction.outputs.find((output) => output.slotIndex === slotIndex);
+      // Recipient metadata is unproved. It must not change spend eligibility.
       const utxo = new Utxo({
         owner: input.source.signingPublicKey,
         asset,
         amount,
         blinding: opening.blinding,
-        ...(metadata === undefined ? {} : { data: metadata.data }),
         ringProgramId: input.ringProgramId,
       });
       const hashes = {
@@ -165,9 +163,6 @@ export async function recoverRingMemberNotes(
     }
   }
   const spent = new Set<string>();
-  const byNullifier = new Map(
-    candidates.map((candidate) => [bytesKey(candidate.nullifier), candidate]),
-  );
   const pending = new Map<string, IndexedShieldedTransaction>();
   const queries = [
     ...candidates.map((candidate) => candidate.nullifier),
@@ -197,19 +192,14 @@ export async function recoverRingMemberNotes(
       const hash = bytesKey(slot.outputContext.hash);
       if (!seen.has(hash)) pending.set(hash, transaction);
     }
-    let progressed = true;
-    while (progressed) {
-      progressed = false;
-      for (const [hash, transaction] of pending) {
-        const candidate = await recoverMerge(input, transaction, byNullifier, treeIds);
-        if (candidate === undefined) continue;
-        seen.add(hash);
-        candidates.push(candidate);
-        queries.push(candidate.nullifier);
-        byNullifier.set(bytesKey(candidate.nullifier), candidate);
-        pending.delete(hash);
-        progressed = true;
-      }
+    // Each merge output decrypts from its own transaction, so one pass settles it.
+    for (const [hash, transaction] of pending) {
+      const candidate = await recoverMerge(input, transaction, treeIds);
+      if (candidate === undefined) continue;
+      seen.add(hash);
+      candidates.push(candidate);
+      queries.push(candidate.nullifier);
+      pending.delete(hash);
     }
   }
   for (const transaction of pending.values()) {
@@ -387,10 +377,15 @@ async function spendingTransactions(
   }
 }
 
+/**
+ * Decrypts a ring merge's output from its own transaction: the proof binds the
+ * ciphertext of the output's amount and mint, so the owner needs none of the
+ * merge's inputs, whichever notes the ring folded in. The cipher is
+ * unauthenticated, so the rebuilt output still has to match the commitment.
+ */
 async function recoverMerge(
   input: RingRecoveryParams,
   transaction: IndexedShieldedTransaction,
-  known: ReadonlyMap<string, Candidate>,
   treeIds: Map<Address, TreeId>,
 ): Promise<Candidate | undefined> {
   const firstNullifier = transaction.nullifiers[0];
@@ -398,41 +393,25 @@ async function recoverMerge(
   if (
     firstNullifier === undefined ||
     slot === undefined ||
-    mergePaddedInputCount(transaction.nullifiers.length) === undefined ||
-    slot.payload.length !== 32
+    mergePaddedInputCount(transaction.nullifiers.length) === undefined
   )
     return undefined;
-  const first = known.get(bytesKey(firstNullifier));
-  if (first === undefined || first.utxo.ringProgramId !== input.ringProgramId) return undefined;
-  const real = new Set<string>();
-  let padded = false;
-  let amount = 0n;
-  for (const [index, nullifier] of transaction.nullifiers.entries()) {
-    if (equal(nullifier, mergeDummyNullifier(input.nullifierKey, firstNullifier, index))) {
-      padded = true;
-      continue;
-    }
-    const key = bytesKey(nullifier);
-    const predecessor = known.get(key);
-    if (
-      padded ||
-      real.has(key) ||
-      predecessor === undefined ||
-      predecessor.utxo.asset !== first.utxo.asset ||
-      predecessor.utxo.ringProgramId !== input.ringProgramId ||
-      predecessor.utxo.data.utxoData() !== undefined ||
-      predecessor.dataHash?.some((byte) => byte !== 0)
-    )
-      return undefined;
-    real.add(key);
-    amount += predecessor.utxo.amount;
-    if (amount > U64_MAX) return undefined;
+  const body = readMergeOutputBody(slot.payload);
+  const ringDataHash = body?.ringDataHash;
+  if (body === undefined || ringDataHash === undefined) return undefined;
+  const outputKey = mergeOutputKey(input.nullifierKey, firstNullifier);
+  let plaintext;
+  try {
+    plaintext = decryptMergeOutput(body.encrypted, outputKey);
+  } catch {
+    return undefined;
+  } finally {
+    outputKey.fill(0);
   }
-  const ringDataHash = new Uint8Array(slot.payload) as Bytes32;
   const utxo = new Utxo({
     owner: input.source.signingPublicKey,
-    asset: first.utxo.asset,
-    amount,
+    asset: plaintext.mint,
+    amount: plaintext.amount,
     blinding: mergeOutputBlinding(input.nullifierKey, firstNullifier),
     ringProgramId: input.ringProgramId,
   });

@@ -6,7 +6,13 @@ import {
   treeSlotsHashChain,
   type TreeSlot,
 } from "../interface/tree-slot.js";
-import { SOLANA_OWNER_TAG, hashBytes } from "../hasher/index.js";
+import {
+  BN254_SCALAR_ORDER,
+  SOLANA_OWNER_TAG,
+  fieldAdd,
+  fieldSub,
+  hashBytes,
+} from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
@@ -34,8 +40,6 @@ export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */
 export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
 
 /** Two Poseidon outputs supply 31 key bytes, then one key byte and a 12-byte nonce. */
@@ -267,7 +271,7 @@ export function parseAuditorMessage(
   const bytes = checkedBytes(data, 65 + 32 * count, "auditor message");
   const disclosure = Array.from({ length: count }, (_, index) => {
     const field = bytes.slice(65 + 32 * index, 65 + 32 * (index + 1)) as Bytes32;
-    if (bytesToBigInt(field) >= BN254_MODULUS)
+    if (bytesToBigInt(field) >= BN254_SCALAR_ORDER)
       throw new RangeError("non-canonical audit disclosure field");
     return field;
   });
@@ -377,8 +381,8 @@ function applyDisclosurePad(
     values.map((value, index) => {
       const mask = maskAt(pad, index);
       const masked = seal
-        ? (bytesToBigInt(value) + mask) % BN254_MODULUS
-        : (bytesToBigInt(value) + BN254_MODULUS - mask) % BN254_MODULUS;
+        ? fieldAdd(bytesToBigInt(value), mask)
+        : fieldSub(bytesToBigInt(value), mask);
       return bigIntToBytes(masked) as Bytes32;
     }),
   );

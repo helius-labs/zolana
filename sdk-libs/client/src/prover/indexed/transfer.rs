@@ -79,6 +79,11 @@ impl IndexedTransferPreparation<'_> {
             }
         }
         let shape = transaction.check_shape()?;
+        if matches!(&rail, IndexedTransferRail::Ring(_)) {
+            transaction
+                .external_data
+                .validate_ring_output_markers(&transaction.output_utxos)?;
+        }
         let proof_inputs = transaction
             .input_utxos
             .iter()
@@ -131,6 +136,9 @@ impl IndexedTransferPreparation<'_> {
                     return Err(ClientError::AnonymousOutputNotInRing { index });
                 }
             }
+            transaction
+                .external_data
+                .validate_ring_output_markers(&transaction.output_utxos)?;
         }
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
@@ -626,6 +634,133 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn ring_output_routing_is_checked_before_authority_or_proving() {
+        struct NoAuthority;
+        impl ProofAuthority for NoAuthority {
+            fn complete_inputs(&self, _: &mut [TransferInput]) -> Result<(), ClientError> {
+                panic!("invalid output routing reached the proof authority")
+            }
+        }
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let mut transaction = fixture(&owner, Some(ring), 2);
+        transaction.output_utxos[0].ring_program_id = None;
+        let complete = |transaction: SppProofInputs| {
+            let shape = transaction.check_shape().unwrap();
+            crate::RingTransferProver {
+                inputs: complete_inputs(&transaction),
+                outputs: transaction.output_utxos.clone(),
+                blinding_seed: transaction.blinding_seed,
+                output_tree_id: transaction.output_tree_id,
+                external_data: transaction.external_data.clone(),
+                public_transfers: transaction.public_transfers().unwrap(),
+                signer_pk_hashes: transaction.signer_pk_hashes(shape.signer_width()).unwrap(),
+                allow_dummy_inputs: true,
+                ring_program_id: Some(ring),
+                shape,
+            }
+            .build()
+        };
+        for amount in [0, 10] {
+            transaction.output_utxos[0].amount = amount;
+            let indexed = IndexedTransferPreparation {
+                transaction: transaction.clone(),
+                rail: IndexedTransferRail::Ring(ring),
+            }
+            .prepare(&NoAuthority);
+            assert!(matches!(
+                indexed,
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::RingOutputMarkerMismatch { index: 0 }
+                ))
+            ));
+            assert!(matches!(
+                complete(transaction.clone()),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::RingOutputMarkerMismatch { index: 0 }
+                ))
+            ));
+        }
+        let tag = owner.signing_pubkey().confidential_view_tag().unwrap();
+        transaction.external_data.outputs[0].owner_tag = OwnerTag::Inline(tag);
+        transaction.external_data.resolved_owner_tags[0] = tag;
+        transaction.external_data.outputs[0].data = Some(
+            borsh::to_vec(&zolana_event::OutputDataEncoding::Encrypted(vec![
+                zolana_event::CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+                7,
+            ]))
+            .unwrap(),
+        );
+        transaction.external_data.outputs[0].utxo_hash = transaction.output_utxos[0]
+            .hash(transaction.output_tree_id)
+            .unwrap();
+        let mut encoded = complete(transaction.clone()).unwrap().inputs;
+        owner.complete_inputs(&mut encoded.inputs).unwrap();
+        crate::prover::requests::transfer_ring(&encoded).unwrap();
+        for amount in [0, 10] {
+            let mut raw = encoded.clone();
+            raw.outputs[0].utxo.amount = zolana_hasher::primitives::right_align(&[amount]);
+            raw.outputs[0].owner_pk_hash = num_bigint::BigUint::ZERO;
+            raw.published_output_owner_pk_hashes[0] = num_bigint::BigUint::ZERO;
+            // A forged dummy flag cannot exempt a live UTXO domain.
+            raw.outputs[0].is_dummy = num_bigint::BigUint::from(1u8);
+            assert!(matches!(
+                crate::prover::requests::transfer_ring(&raw),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::RingOutputMarkerMismatch { index: 0 }
+                ))
+            ));
+        }
+        let modulus =
+            num_bigint::BigUint::from_bytes_be(&zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE);
+        for field in 0..3 {
+            let mut raw = encoded.clone();
+            raw.outputs[0].owner_pk_hash = num_bigint::BigUint::ZERO;
+            raw.published_output_owner_pk_hashes[0] = num_bigint::BigUint::ZERO;
+            match field {
+                0 => {
+                    raw.outputs[0].owner_pk_hash = modulus.clone();
+                    raw.published_output_owner_pk_hashes[0] = modulus.clone();
+                }
+                1 => {
+                    raw.outputs[0].utxo.ring_program_id =
+                        zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE
+                }
+                _ => {
+                    raw.outputs[0].utxo.domain =
+                        crate::prover::field::right_align_slice(&(&modulus + 1u8).to_bytes_be())
+                            .unwrap()
+                }
+            }
+            assert!(matches!(
+                crate::prover::requests::transfer_ring(&raw),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::NonCanonicalField
+                ))
+            ));
+        }
+        IndexedTransferPreparation {
+            transaction: transaction.clone(),
+            rail: IndexedTransferRail::Ring(ring),
+        }
+        .prepare(&owner)
+        .unwrap();
+        // Hidden-owner transfers still prohibit default-ring exits even when marked.
+        let anonymous = IndexedTransferPreparation {
+            transaction,
+            rail: IndexedTransferRail::AnonymousRingEd25519 {
+                ring,
+                owner: &owner.signing_key,
+            },
+        }
+        .prepare(&NoAuthority);
+        assert!(matches!(
+            anonymous,
+            Err(ClientError::AnonymousOutputNotInRing { index: 0 })
+        ));
     }
 
     #[test]

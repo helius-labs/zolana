@@ -101,6 +101,8 @@ mod tests {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
+            output_ciphertext_salt: [0u8; 16],
+            output_ciphertext: [[0u8; 32]; 3],
             nullifiers: nullifiers(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,

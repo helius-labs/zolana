@@ -16,11 +16,17 @@ Now:      committed notes → proof checks encrypted disclosure → auditor
 
 Auditor disclosure is now verifiable against the committed notes. Settlement requires the proof. A sender cannot settle a transfer while substituting a false audit record. Auditor recovery reads that proved record directly. Broken or misleading recipient data cannot hide it. Audit scans and recovery compare indexed transfer, deposit and merge data with the exact confirmed SPP event. A fabricated indexer row cannot invent an audited payment or mark a note spent.
 
+Exits to the default ring must publish the recipient owner through the confidential marker. SDKs reject a missing or wrong marker before proving. Otherwise a zero-identity output can burn the funds. Dummy padding is exempt.
+
 Ordinary recipient encryption stays wallet-side. The proof does not guarantee that a recipient can recover the payment. A sender can already send their own funds to the wrong address or burn them. This does not bypass SPP's conservation or double-spend checks.
 
 Swaps and other protocols that rely on delivery need a separate guarantee. That requires proving both the recipient ciphertext and its binding to the intended recipient's key. Ordinary self-funded transfers do not pay for that proof.
 
 Audited deposits also prove that the auditor's record matches the deposit that settled. Deposit amounts remain public.
+
+Merges now prove an encrypted copy of the merged amount and mint too. The owner or registered-key recovery can rebuild the output even when a merger includes an input they never received. They decrypt with the nullifier key and check the resulting commitment. This is separate from ordinary recipient delivery. Merge proofs have 52 slots. A custom-ring merge fits at most 50 published inputs. Extra accounts can lower that cap. SDKs check the serialized transaction before proving. All real inputs must have the same committed ring data hash. The output inherits it. Merging cannot clear or replace that commitment.
+
+Paying fees no longer adds a signer to the ownership proof. An owner who also pays still appears explicitly among owner signers. The ring also checks that the forwarded depositor or payer signed before adding its own PDA signature.
 
 Policy rules screen senders, recipients and assets. For example, a recipient must be approved and a sender must not be frozen. Amount thresholds can waive a check. Outflow thresholds can require a co-signer.
 
@@ -56,7 +62,7 @@ PolicyConfig PDA                 MemberRegistryRoot PDA
                      [member | next | list bits | escrow]
 ```
 
-List updates change bits and preserve the escrow commitment. The program rejects any attempt to change escrow through a list update. Only key registration can set an empty escrow commitment. Its proof binds the recovery ciphertext to the member's nullifier key. A registered key is final. Registration preserves the list bits. Transfers no longer need list entry history or revocation proofs. They read a registry snapshot without changing it.
+List updates change bits and preserve the escrow commitment. The program rejects any attempt to change escrow through a list update. Only key registration can set an empty escrow commitment. Its proof binds the recovery ciphertext to the member's nullifier key. A registered key is final. Registration preserves the list bits. Photon keeps those authenticated bits instead of trusting redundant registration fields. Transfers no longer need list entry history or revocation proofs. They read a registry snapshot without changing it.
 
 A policy edit validates the new table, replaces its hash and increments its generation. A membership edit publishes a new registry root. These have different effects. A proof for different rules no longer matches the current table. An older registry root can still be accepted until it leaves the 32-root history. Membership records are public. Anonymous transfers hide which records they use.
 
@@ -96,16 +102,16 @@ Before: each record gets a full path + policy is hashed again
 Now:    records share a path + verifier reads the stored policy
 ```
 
-| Proof for a 2-input, 3-output payment | Constraints | Proving time |
+| Proof for a 2-input, 3-output payment | Current constraints | Pre-427 proving time |
 |---|---:|---:|
-| Default-ring settlement | 57,554 | 146.6 ms |
-| Custom-ring settlement | 57,680 | 159.7 ms |
+| Default-ring settlement | 57,558 | 146.6 ms |
+| Custom-ring settlement | 57,684 | 159.7 ms |
 | General policy and audit | 326,293 | 575.6 ms |
 | New ordinary policy and audit | **95,943** | **237.8 ms** |
 | New anonymous policy and audit | **98,809** | **267.9 ms** |
 | New delegate policy and audit | **95,217** | **271.9 ms** |
 
-The sub-100k figure covers policy and audit. Ordinary custom settlement adds another 57,680 constraints. Both proofs together total **153,623 constraints and 397.5 ms**. Default-ring settlement has no custom policy or auditor disclosure.
+The sub-100k figure covers policy and audit. Ordinary custom settlement adds another 57,684 constraints. Both proofs together total **153,627 constraints**. The previous build took 397.5 ms across both proofs. Default-ring settlement has no custom policy or auditor disclosure.
 
 The shared-path proof requires queried records to share one aligned eight-leaf block within each registry. Absence checks use the predecessor's position. The registry itself can be much larger. Every supported shape also has a general proof for scattered records. Indexed requests use that general path because the client does not yet know the record positions. Both paths enforce the same policy.
 
@@ -134,12 +140,12 @@ Transaction size is the other limit. A V1 transaction has 4,096 bytes. With ordi
 | 1×8 | 4,970 | Excluded |
 | 1×16 | 8,786 | Excluded |
 
-These serializer measurements include the priority-fee header and use the current SDK encoding. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
+These pre-427 serializer measurements include the priority-fee header. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
 
-All 51 policy keys now pass full live settlement and auditor checks. This covers the 48 capacity keys and three exact 2×3 keys. Those fixtures consume 678k–757k CU across both verifiers and SPP settlement. [Proof costs](proof-costs.md) separates the rails and records the tested byte sizes.
+Before PR #427, all 51 specialized policy keys passed full live settlement and auditor checks. This covers the 48 capacity keys and three exact 2×3 keys. Those fixtures consume 678k–757k CU across both verifiers and SPP settlement. [Proof costs](proof-costs.md) separates the rails and records the tested byte sizes.
 
 The 8-output, 16-output and 24-input-or-larger capacities are excluded. No keys are generated for them. More signers, extra data or extra instructions can also make a supported capacity too large. The 64-account limit still applies. Anonymous and delegate shape sets also remain bounded by their settlement rails.
 
-Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The combined time adds the two proof times. It is not transaction latency.
+Constraint counts include PR #427. Its signer binding adds four constraints to ordinary settlement. The timing and size tables are the pre-427 baseline. The combined build needs fresh measurements because settlement authorization and keys changed. Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The combined time adds the two proof times. It is not transaction latency.
 
-The existing one-input, two-output audit-only transfer remains 89,632 constraints across both proofs. It has no policy rules. [Proof costs and security checks](proof-costs.md) give the bounds, fallback and reproduction commands. One catalog now drives all 58 ring keys in the CLI, release tools and TypeScript pins. Generation updates these together. Release loading rejects missing or mismatched keys. Deployment also checks the verifier markers embedded in the program, so stale binaries cannot be paired with current keys. New keys are generated locally. The matching program, keys and clients still need deployment together. The [audit map](audit-readiness.md) links the guarantees to source and tests.
+The pre-427 one-input, two-output audit-only transfer used 89,632 constraints across both proofs. It has no policy rules. [Proof costs and security checks](proof-costs.md) give the bounds, fallback and reproduction commands. One catalog now drives all 58 ring keys in the CLI, release tools and TypeScript pins. Generation updates these together. Release loading rejects missing or mismatched keys. Deployment also checks the verifier markers embedded in the program, so stale binaries cannot be paired with current keys. New keys are generated locally. The matching program, keys and clients still need deployment together. The [audit map](audit-readiness.md) links the guarantees to source and tests. The [PR and Certora checklist](re-audit-checklist.md) records the current findings and the matching-key validation still needed.

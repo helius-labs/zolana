@@ -224,14 +224,14 @@ func TestDefaultRingConfidentialEd25519DummyOutputSignerTagSolves(t *testing.T) 
 	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer signs but is not a nameable dummy identity: a fee payer must not
-// be shown as a recipient by a transaction it only paid for.
+// A fee payer that owns no input is absent from the signer vector.
+// A dummy must not show it as a recipient of a transaction it only funded.
 func TestDefaultRingConfidentialEd25519RejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 
-	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
+	tagDummyOutput(t, assignment, testPayerPkHash())
 	refreshDefaultRingPublicInputHash(t, assignment)
 
 	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
@@ -318,4 +318,24 @@ func refreshDummyOutputPrivateTxHash(t testing.TB, assignment *testAssignment) {
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
+}
+
+// The fee payer is not in the signer vector, so an input it owns
+// is authorized only when it is also listed as an owner signer. Dropping the
+// owner from the vector leaves the input unauthorized.
+func TestDefaultRingConfidentialEd25519RejectsAnInputOwnerOutsideTheSignerVector(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+
+	owner := spptest.AsBigInt(assignment.Inputs[0].OwnerPkHash)
+	for i := range assignment.SignerPkHashes {
+		if spptest.AsBigInt(assignment.SignerPkHashes[i]).Cmp(owner) == 0 {
+			assignment.SignerPkHashes[i] = 0
+		}
+	}
+	refreshDefaultRingPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }

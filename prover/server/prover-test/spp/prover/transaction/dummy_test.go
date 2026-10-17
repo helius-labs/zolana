@@ -57,7 +57,7 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		t.Fatalf("build assignment: %v", err)
 	}

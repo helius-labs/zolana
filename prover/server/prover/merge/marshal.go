@@ -38,15 +38,17 @@ type MergeParametersJSON struct {
 	TreeSlots []common.TreeSlotParamsJSON `json:"treeSlots"`
 	// OutputTreeID is the raw u16 id of the tree the merged output is inserted
 	// into.
-	OutputTreeID        string `json:"outputTreeId"`
-	Asset               string `json:"asset"`
-	OwnerPkHash         string `json:"ownerPkHash"`
-	UserNullifierPk     string `json:"userNullifierPk"`
-	UserNullifierSecret string `json:"userNullifierSecret"`
-	ExternalDataHash    string `json:"externalDataHash"`
-	PrivateTxHash       string `json:"privateTxHash"`
-	PublicInputHash     string `json:"publicInputHash"`
-	AllowDummyInputs    string `json:"allowDummyInputs"`
+	OutputTreeID        string   `json:"outputTreeId"`
+	MintChunks          []string `json:"mintChunks"`
+	OwnerPkHash         string   `json:"ownerPkHash"`
+	UserNullifierPk     string   `json:"userNullifierPk"`
+	UserNullifierSecret string   `json:"userNullifierSecret"`
+	ExternalDataHash    string   `json:"externalDataHash"`
+	PrivateTxHash       string   `json:"privateTxHash"`
+	PublicInputHash     string   `json:"publicInputHash"`
+	AllowDummyInputs    string   `json:"allowDummyInputs"`
+	// OutputCiphertextSalt is the 16-byte pad nonce of the output ciphertext.
+	OutputCiphertextSalt string `json:"outputCiphertextSalt"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -78,7 +80,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		CircuitType:         circuitType,
 		TreeSlots:           common.TreeSlotsToJSON(p.TreeSlots),
 		OutputTreeID:        common.FeHex(p.OutputTreeID),
-		Asset:               common.FeHex(p.Asset),
+		MintChunks:          common.FeHexSlice(p.MintChunks[:]),
 		RingProgramID:       common.FeHex(p.RingProgramID),
 		OutputRingDataHash:  common.FeHex(p.OutputRingDataHash),
 		OwnerPkHash:         common.FeHex(p.OwnerPkHash),
@@ -88,6 +90,8 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
+
+		OutputCiphertextSalt: common.FeHex(p.OutputCiphertextSalt),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -165,7 +169,15 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
 		return err
 	}
-	if p.Asset, err = common.FeFromHex(params.Asset); err != nil {
+	if len(params.MintChunks) != len(p.MintChunks) {
+		return fmt.Errorf("merge: got %d mint chunks, want %d", len(params.MintChunks), len(p.MintChunks))
+	}
+	for i, chunk := range params.MintChunks {
+		if p.MintChunks[i], err = common.FeFromHex(chunk); err != nil {
+			return err
+		}
+	}
+	if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
 		return err
 	}
 

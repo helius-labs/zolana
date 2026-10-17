@@ -102,11 +102,11 @@ var expectedFingerprints = map[string]fingerprint{
 	"custom_ring_policy":               {constraints: 326293, public: 2},
 	"custom_ring_register_key":         {constraints: 63212, public: 2},
 	"custom_ring_update_members":       {constraints: 386629, public: 2},
-	"merge_24_1":                       {constraints: 525759, public: 2},
-	"merge_ring_24_1":                  {constraints: 525837, public: 2},
-	"transfer_confidential_2_4":        {constraints: 57554, public: 2},
+	"merge_24_1":                       {constraints: 527430, public: 2},
+	"merge_ring_24_1":                  {constraints: 527556, public: 2},
+	"transfer_confidential_2_4":        {constraints: 57558, public: 2},
 	"transfer_ed25519_ring_2_2":        {constraints: 112284, public: 2},
-	"transfer_ring_2_4":                {constraints: 57680, public: 2},
+	"transfer_ring_2_4":                {constraints: 57684, public: 2},
 	"transfer_ring_authority_2_2":      {constraints: 51913, public: 2},
 }
 

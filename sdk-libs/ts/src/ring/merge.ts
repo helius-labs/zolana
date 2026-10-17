@@ -1,11 +1,21 @@
+import { blockhash } from "@solana/kit";
 import type { RingMergeClient, WalletKeys } from "../client/ports.js";
+import type { LatestBlockhash } from "../client/kit.js";
+import { prepareMerge as prepareMergeProof } from "../client/prover/merge.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
 import { initializePoseidon } from "../hasher/index.js";
-import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MAX_RING_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
+import type {
+  Address,
+  Bytes128,
+  MergeTransactInstructionData,
+  RequestContext,
+  Transaction,
+} from "../interface/types.js";
+import { ZERO_32 } from "../transaction/internal.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { prepareMerge } from "../flows/merge.js";
 import { checkKeysIdentity } from "../transaction/wallet/keys.js";
@@ -41,7 +51,7 @@ export interface RingMergeTransactionParams {
   /** Defaults to the owner. */
   readonly feePayer?: Address;
   readonly asset?: Address;
-  /** The most notes merged, smallest first, from 2 through `MAX_MERGE_INPUTS`, default `MERGE_INPUT_COUNT`. */
+  /** The most notes merged, smallest first, from 2 through `MAX_RING_MERGE_INPUTS`, default `MERGE_INPUT_COUNT`. */
   readonly maxInputs?: number;
   readonly outputTree?: Address;
   readonly cosigner?: SignerAccount;
@@ -128,6 +138,38 @@ async function buildRingMerge(
       context,
     );
     const expectedHash = prepared.outputHash();
+    const compile = async (
+      data: MergeTransactInstructionData,
+      lifetime: LatestBlockhash,
+    ): Promise<Transaction> =>
+      compileUnsignedTransaction({
+        feePayer,
+        lifetime,
+        instructions: [
+          await ringMergeInstruction({
+            ringProgramId: params.ringProgramId,
+            inputTree: params.client.tree,
+            outputTree: outputTree.tree,
+            payer: feePayer,
+            data,
+            outputRingDataHash: prepared.output.ringDataHash ?? ZERO_32,
+            ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
+          }),
+        ],
+        computeUnitLimit: 1_400_000,
+      });
+    // Compile the real account layout with fixed-size proof placeholders before
+    // requesting a proof. A co-signer or separate tree can exceed the byte limit
+    // even when the input count fits. Final assembly uses the same compiler.
+    const preview = prepareMergeProof(prepared, params.client.tree).finish({
+      slot: { id: prepared.inputTreeId, utxoRoot: ZERO_32, nullifierRoot: ZERO_32 },
+      utxoRootIndex: 0,
+      nullifierRootIndex: 0,
+    });
+    await compile(
+      preview.instructionData({ a: ZERO_32, b: new Uint8Array(128) as Bytes128, c: ZERO_32 }),
+      { blockhash: blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n },
+    );
     const intent: TransactionIntent = {
       kind: "ringMerge",
       ringProgramId: params.ringProgramId,
@@ -152,25 +194,9 @@ async function buildRingMerge(
       context,
     );
     if (!equalBytes(data.outputUtxoHash, expectedHash)) throw ringIntentMismatch("output");
-    const [instruction, lifetime] = await Promise.all([
-      ringMergeInstruction({
-        ringProgramId: params.ringProgramId,
-        inputTree: params.client.tree,
-        outputTree: outputTree.tree,
-        payer: feePayer,
-        data,
-        outputRingDataHash: new Uint8Array(32) as Bytes32,
-        ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
-      }),
-      params.client.getLatestBlockhash(context),
-    ]);
+    const lifetime = await params.client.getLatestBlockhash(context);
     return {
-      transaction: compileUnsignedTransaction({
-        feePayer,
-        lifetime,
-        instructions: [instruction],
-        computeUnitLimit: 1_400_000,
-      }),
+      transaction: await compile(data, lifetime),
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
       intentHash: planned,
       ringInstructionIndex: 0,
@@ -182,9 +208,9 @@ async function buildRingMerge(
 }
 
 function mergeWidth(maxInputs = MERGE_INPUT_COUNT): number {
-  if (maxInputs > MAX_MERGE_INPUTS) {
+  if (maxInputs > MAX_RING_MERGE_INPUTS) {
     throw new RingError("RING_TOO_MANY_INPUTS", {
-      details: { selected: maxInputs, maximum: MAX_MERGE_INPUTS },
+      details: { selected: maxInputs, maximum: MAX_RING_MERGE_INPUTS },
     });
   }
   if (!Number.isSafeInteger(maxInputs) || maxInputs < 2) {

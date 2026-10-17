@@ -124,7 +124,8 @@ pub(crate) fn close_into(
 }
 
 /// Forwards `data`, tag byte included, over `accounts` in SPP's order with the
-/// ring authority PDA raised to a signer.
+/// ring authority PDA raised to a signer. Routes that debit a caller account
+/// must call `check_funding_signer` before forwarding.
 #[inline(never)]
 pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     program_id: &Address,
@@ -163,4 +164,16 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
         accounts,
         &[Signer::from(ring_auth_seeds.as_slice())],
     )
+}
+
+/// Require the SPP funding account to have signed before the ring raises its PDA.
+/// Otherwise a caller could name `ring_auth` as payer and gain its CPI signature.
+pub(crate) fn check_funding_signer(accounts: &[AccountView], index: usize) -> ProgramResult {
+    let funder = accounts
+        .get(index)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !funder.is_signer() {
+        return Err(CustomRingError::MissingFundingSigner.into());
+    }
+    Ok(())
 }

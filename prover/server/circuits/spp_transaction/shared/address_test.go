@@ -23,7 +23,24 @@ func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *b
 func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkHash, seed *big.Int) {
 	t.Helper()
 	setAddressSlot(t, &assignment.Inputs[idx], ownerPkHash, ownerPkHash, seed)
-	assignment.SignerPkHashes[0] = ownerPkHash
+	addOwnerSigner(t, assignment, ownerPkHash)
+}
+
+// addOwnerSigner puts ownerPkHash in the first free slot of the signer vector
+// unless it is already there.
+func addOwnerSigner(t testing.TB, assignment *testAssignment, ownerPkHash *big.Int) {
+	t.Helper()
+	for i := range assignment.SignerPkHashes {
+		existing := spptest.AsBigInt(assignment.SignerPkHashes[i])
+		if existing.Cmp(ownerPkHash) == 0 {
+			return
+		}
+		if existing.Sign() == 0 {
+			assignment.SignerPkHashes[i] = ownerPkHash
+			return
+		}
+	}
+	t.Fatalf("signer vector is full")
 }
 
 // setAddressSlot rewrites in as an address slot: owner hash over ownerPkHash

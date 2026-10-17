@@ -15,12 +15,15 @@ use zolana_client::{
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
     IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScan,
 };
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_event::{
+    encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
+};
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+        merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -284,7 +287,8 @@ fn deposit(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> (EncryptedUtxoMat
     (matched, deposited)
 }
 
-/// A merge of `inputs`, its output tagged with `view_tag`.
+/// A merge of `inputs`, its output tagged with `view_tag` and published with
+/// the ciphertext of its amount and mint under the owner's per-merge key.
 fn merge(
     owner: &ShieldedKeypair,
     inputs: &[&Note],
@@ -300,6 +304,21 @@ fn merge(
     let mut utxo = inputs[0].utxo.clone();
     utxo.amount = inputs.iter().map(|input| input.utxo.amount).sum();
     utxo.blinding = merge_output_blinding(&owner.nullifier_key, &first).unwrap();
+    let salt = [nonce; 16];
+    let ciphertext = MergeOutputPlaintext {
+        amount: utxo.amount,
+        mint: utxo.asset.asset,
+    }
+    .encrypt(
+        &merge_output_key(&owner.nullifier_key, &first).unwrap(),
+        &salt,
+    )
+    .unwrap();
+    let payload = encode_merge_output_data(MergeOutputDataRef {
+        salt: &salt,
+        ciphertext: &ciphertext,
+        ring_data_hash: None,
+    });
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {
         slot: u64::from(nonce),
@@ -311,7 +330,7 @@ fn merge(
             view_tag,
             merged.hash,
             u64::from(nonce),
-            Vec::new(),
+            payload,
         )],
         messages: Vec::new(),
         nullifiers,
@@ -594,13 +613,14 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
 }
 
 #[test]
-fn a_merge_found_before_one_of_its_inputs_rebuilds_in_a_later_round() {
+fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
     let owner = keypair(8);
     let (first_deposit, first) = deposit(&owner, 30, 1);
     let (second_deposit, second) = deposit(&owner, 12, 2);
-    // Ring merges, tagged only by their first nullifier. M1 spends `first` and
-    // Y, and the query for `first` finds it in the same round as M0, a round
-    // before M0' produces Y.
+    // Merges tagged only by their first nullifier, as ring merges are. M1
+    // spends `first` and Y, and the query for `first` finds it in the same
+    // round as M0, a round before M0' produces Y. M1 decrypts with the whole
+    // total from its own ciphertext, and Y, found later, is already spent.
     let (m0, x) = merge(&owner, &[&second], second.nullifier, 3);
     let (m0_prime, y) = merge(&owner, &[&x], x.nullifier, 4);
     let (m1, merged) = merge(&owner, &[&first, &y], first.nullifier, 5);

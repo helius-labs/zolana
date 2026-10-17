@@ -3,10 +3,17 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 
-pub const MAX_MERGE_INPUTS: usize = 54;
+pub const MAX_MERGE_INPUTS: usize = 52;
 
 pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 3] =
     [8, MERGE_DEFAULT_INPUT_COUNT, MAX_MERGE_INPUTS];
+
+/// Per-proof pad nonce of the merge output ciphertext, in bytes.
+pub const MERGE_OUTPUT_CIPHERTEXT_SALT_LEN: usize = 16;
+
+/// Field elements in the merge output ciphertext: the output amount and the
+/// two `hash_bytes_32` chunks of its mint.
+pub const MERGE_OUTPUT_CIPHERTEXT_ELEMENTS: usize = 3;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
@@ -47,6 +54,11 @@ pub struct MergeTransactIxData {
     pub expiry_unix_ts: u64,
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
+    /// The output's amount and mint encrypted for the owner, so the owner can
+    /// rebuild the output from this instruction alone. Both are public inputs
+    /// of the merge proof.
+    pub output_ciphertext_salt: [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
+    pub output_ciphertext: [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
     /// Retained wire flag. Must be true to bind the registry
     /// owner identity for Ed25519 keys and PDAs.
     pub eddsa_owner: bool,
@@ -88,6 +100,8 @@ pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
+    pub output_ciphertext_salt: &'a [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
+    pub output_ciphertext: &'a [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
     pub eddsa_owner: bool,
     pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
@@ -168,6 +182,8 @@ mod tests {
                 c: [3u8; 32],
             },
             output_utxo_hash: [9u8; 32],
+            output_ciphertext_salt: [5u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
+            output_ciphertext: [[6u8; 32], [7u8; 32], [8u8; 32]],
             nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
                 .map(|i| [i; 32])
                 .collect(),
@@ -188,6 +204,8 @@ mod tests {
         assert_eq!(view.proof.b, &owned.proof.b);
         assert_eq!(view.proof.c, &owned.proof.c);
         assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
+        assert_eq!(view.output_ciphertext_salt, &owned.output_ciphertext_salt);
+        assert_eq!(view.output_ciphertext, &owned.output_ciphertext);
         assert_eq!(view.nullifiers, owned.nullifiers);
         assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
         assert_eq!(
@@ -202,7 +220,7 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        assert_eq!(bytes.len(), 271 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 383 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

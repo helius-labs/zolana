@@ -164,6 +164,9 @@ impl Owner<'_> {
         if anonymous {
             check_anonymous_slots(program, shape, &proof_inputs)?;
         }
+        proof_inputs
+            .external_data
+            .validate_ring_output_markers(&proof_inputs.output_utxos)?;
         let limits = match &limit {
             Limit::Unbounded => None,
             Limit::Bounded(identity, limits) => {

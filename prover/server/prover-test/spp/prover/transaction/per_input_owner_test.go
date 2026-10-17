@@ -48,10 +48,11 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 }
 
 // Spec UTXO Ownership: Ed25519 owners may differ per input. The owner tags stay
-// private while the public signer transcript contains each non-payer owner.
+// private while the public signer transcript contains each owner, and not the
+// fee payer as such.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, _, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,16 +63,16 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	tx.Inputs[1].Utxo.OwnerSolanaPubkey = parse.BytesHex(otherOwner[:])
 	refreshStateEntry(t, &tx, 1)
 
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		t.Fatalf("distinct Solana owners must build: %v", err)
 	}
 	entries := built.publicInputs.SignerPkHashes
 	if entries[0].Sign() == 0 {
-		t.Fatalf("payer signer entry must be non-zero, got %v", entries[0])
+		t.Fatalf("first owner signer entry must be non-zero, got %v", entries[0])
 	}
 	if entries[1].Sign() == 0 {
-		t.Fatalf("non-payer signer entry must be non-zero, got %v", entries[1])
+		t.Fatalf("second owner signer entry must be non-zero, got %v", entries[1])
 	}
 	if entries[2].Sign() != 0 {
 		t.Fatalf("unused signer entry must be zero, got %v", entries[2])

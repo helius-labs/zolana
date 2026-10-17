@@ -603,7 +603,8 @@ fn dummy_hash_has_fixed_domain_and_tree_bound_zero_secret_nullifier() {
 }
 
 #[test]
-fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies() {
+/// The signer vector holds only input owners, including an owner who pays.
+fn signers_are_owners_deduplicated_by_identity_and_exclude_the_payer_and_dummies() {
     let alice = keypair(7);
     let bob = keypair(9);
     let mut tx = proof();
@@ -629,40 +630,30 @@ fn signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies() {
         tx.owner_signer_pubkeys().unwrap(),
         vec![alice_address, bob_address, address(13)]
     );
-    let expected: Vec<_> = [address(9), alice_address, bob_address, address(13)]
+    let expected: Vec<_> = [alice_address, bob_address, address(13)]
         .iter()
         .map(|a| solana_owner_identity(a.as_array()).unwrap())
         .collect();
-    assert_eq!(tx.signer_pk_hashes(4).unwrap(), expected);
+    assert_eq!(tx.signer_pk_hashes(3).unwrap(), expected);
     let mut padded = expected;
     padded.extend([[0; 32]; 2]);
-    assert_eq!(tx.signer_pk_hashes(6).unwrap(), padded);
-    for width in [0, 1, 3] {
+    assert_eq!(tx.signer_pk_hashes(5).unwrap(), padded);
+    for width in [0, 1, 2] {
         assert!(matches!(
             tx.signer_pk_hashes(width),
             Err(TransactionError::UnsupportedShape { n_in: 6, n_out: 0 })
         ));
     }
+    // A paying owner stays an owner signer.
     tx.payer = alice_address;
     assert_eq!(
         tx.owner_signer_pubkeys().unwrap(),
-        vec![bob_address, address(13)]
-    );
-    tx.payer = address(13);
-    assert_eq!(
-        tx.owner_signer_pubkeys().unwrap(),
-        vec![alice_address, bob_address]
+        vec![alice_address, bob_address, address(13)]
     );
     tx.input_utxos = vec![SppProofInputUtxo::dummy(0).unwrap()];
     assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![]);
-    assert_eq!(
-        tx.signer_pk_hashes(1).unwrap(),
-        vec![solana_owner_identity(address(13).as_array()).unwrap()]
-    );
-    assert!(matches!(
-        tx.signer_pk_hashes(0),
-        Err(TransactionError::UnsupportedShape { n_in: 1, n_out: 0 })
-    ));
+    assert_eq!(tx.signer_pk_hashes(1).unwrap(), vec![[0; 32]]);
+    assert_eq!(tx.signer_pk_hashes(0).unwrap(), Vec::<[u8; 32]>::new());
     // This committed identity vector independently pins the primitive used by signer assembly.
     let vector: serde_json::Value = serde_json::from_str(include_str!(
         "../../../test-vectors/transact_derivation.json"

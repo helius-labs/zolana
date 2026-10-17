@@ -299,7 +299,7 @@ describe("private transaction construction", () => {
     );
     if (material === undefined) throw new Error("authorization was not minted");
     expect(material.proofInputs.payer).toBe(PAYER);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, PAYER)).toEqual([
+    expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([
       keypair.shieldedAddress().solanaAddress(),
     ]);
   });
@@ -371,11 +371,11 @@ describe("private transaction construction", () => {
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
 
-  it("pads named merge inputs to the narrowest proof and refuses more than 54", async () => {
+  it("pads named merge inputs to the narrowest proof and refuses more than 52", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(
       keypair,
-      Array.from({ length: 55 }, (_, index) => BigInt(index + 1)),
+      Array.from({ length: 53 }, (_, index) => BigInt(index + 1)),
     );
     const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
@@ -383,8 +383,8 @@ describe("private transaction construction", () => {
       [8, 8],
       [9, 24],
       [24, 24],
-      [25, 54],
-      [54, 54],
+      [25, 52],
+      [52, 52],
     ] as const) {
       const merge = await createMerge({
         wallet,
@@ -400,7 +400,7 @@ describe("private transaction construction", () => {
       createMerge({ wallet, keys, asset: SOL_MINT, inputs: hashes }),
     ).rejects.toMatchObject({
       code: "WALLET_TOO_MANY_INPUTS",
-      details: { got: 55, max: 54 },
+      details: { got: 53, max: 52 },
     });
   });
 
@@ -545,6 +545,47 @@ describe("prover indexer lag", () => {
 });
 
 describe("keys at the wallet boundary", () => {
+  it.each([false, true])(
+    "wipes a merge output key after construction or a rejected batch (%s)",
+    async (short) => {
+      const keypair = ShieldedKeypair.generate();
+      const wallet = fundedWallet(keypair, [20n, 30n]);
+      const local = LocalShieldedKeys.fromKeypair(keypair);
+      let outputKey: Bytes32 | undefined;
+      const keys: ShieldedKeys = {
+        address: () => local.address(),
+        viewingPublicKeys: () => local.viewingPublicKeys(),
+        decrypt: (requests) => local.decrypt(requests),
+        transactionKeys: (requests) => local.transactionKeys(requests),
+        derive: async (requests) => {
+          const answers = await local.derive(requests);
+          outputKey = answers[2];
+          expect(outputKey?.some((byte) => byte !== 0)).toBe(true);
+          return short ? answers.slice(0, -1) : answers;
+        },
+      };
+      try {
+        if (short) {
+          await expect(createMerge({ wallet, keys, asset: SOL_MINT })).rejects.toMatchObject({
+            code: "WALLET_KEYS_BATCH_MISMATCH",
+          });
+          expect(wallet._reservationEntries()).toHaveLength(0);
+        } else {
+          const merged = await createMerge({ wallet, keys, asset: SOL_MINT });
+          expect(merged.mergedAmount).toBe(50n);
+          expect(
+            merged.prepared.outputCiphertext().some((field) => field.some((byte) => byte !== 0)),
+          ).toBe(true);
+          wallet._releaseReservation(merged.reservationId);
+        }
+        expect(outputKey?.every((byte) => byte === 0)).toBe(true);
+      } finally {
+        local.destroy();
+        keypair.destroy();
+      }
+    },
+  );
+
   it("refuses a merge whose key holder answers the derivation batch short", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(keypair, [20n, 30n]);
@@ -806,9 +847,7 @@ describe("unsigned public transaction builders", () => {
         const material = authorizedPrivateTransactionMaterial(request.authorized);
         if (material === undefined) throw new Error("authorization was not minted");
         expect(material.proofInputs.payer).toBe(feePayer ?? owner);
-        expect(ownerSignerAddresses(material.proofInputs.inputUtxos, feePayer ?? owner)).toEqual(
-          feePayer === undefined ? [] : [owner],
-        );
+        expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
       }
     },
   );
@@ -1441,9 +1480,7 @@ describe("multi-recipient transfer", () => {
       const material = authorizedPrivateTransactionMaterial(request.authorized);
       if (material === undefined) throw new Error("authorization was not minted");
       expect(material.proofInputs.payer).toBe(feePayer ?? owner);
-      expect(ownerSignerAddresses(material.proofInputs.inputUtxos, feePayer ?? owner)).toEqual(
-        feePayer === undefined ? [] : [owner],
-      );
+      expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
     },
   );
 

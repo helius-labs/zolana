@@ -160,8 +160,8 @@ impl CreateProofInputParams {
         };
         let external_hash = program.external_data_hash;
         let private_tx = program.private_tx_hash;
-        let payer_hash = solana_owner_identity(self.authority.as_array())?;
-        let signer_hashes = [payer_hash, owner_pk_hash, zero];
+        // The fee payer is not an owner signer.
+        let signer_hashes = [owner_pk_hash, zero, zero];
         let output_owner_hashes = [owner_pk_hash, zero];
         let public_transfers = PublicTransfers::default();
         // The address slot and the compact padding, both in tree slot 0, dummy

@@ -209,7 +209,7 @@ var ringEd25519Shapes = [][2]uint32{{2, 2}, {2, 4}, {3, 4}, {4, 2}}
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
-var mergeSupportedInputCounts = []uint32{8, 24, 54}
+var mergeSupportedInputCounts = []uint32{8, 24, 52}
 
 type ProofShape struct {
 	Circuit CircuitType

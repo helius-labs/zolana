@@ -1,3 +1,4 @@
+import { checkRingOutputOwners, checkMergeRingData } from "./outputs.js";
 import { X25519PublicKey, X25519Secret } from "../../keypair/x25519.js";
 import type {
   IndexedPolicyInputs,
@@ -780,6 +781,7 @@ function mergeProverRequest(
   inputs: MergeInputs | PreparedMergeInputs,
   secret: SecretEncoder,
 ): ProverRequestBody {
+  checkMergeRingData(inputs.inputs, inputs.output, inputs.outputRingDataHash);
   return Object.freeze({
     circuitType: mergeCircuit(inputs),
     inputs: inputs.inputs.map(mergeInputJson),
@@ -791,7 +793,8 @@ function mergeProverRequest(
         }
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
-    asset: hex(inputs.output.circuit.asset, "asset"),
+    mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
+    outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt"),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),
@@ -1263,6 +1266,8 @@ function proverRequest(
   secret: SecretEncoder,
 ): ProverRequestBody {
   const payload = inputs.payload;
+  if (inputs.circuit === "transferRing")
+    checkRingOutputOwners(payload.outputs, payload.publishedOutputOwnerPublicKeyHashes);
   return Object.freeze({
     circuitType: transferCircuit(inputs),
     nInputs: payload.inputs.length,

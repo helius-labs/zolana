@@ -173,9 +173,12 @@ impl Shape {
         self.n_outputs
     }
 
-    /// Slots in the public signer vector on the signature-requiring rails:
-    /// the payer followed by [`owner_signer_slots`] owner signers. The ring
-    /// authority rail publishes a single slot instead.
+    /// Slots in the public signer vector on the signature-requiring rails.
+    /// Every slot is an owner signer; the fee payer is not one unless it is
+    /// listed as an owner signer. An owner that also pays takes no address
+    /// beyond the fixed accounts, so the vector has one slot beyond
+    /// [`owner_signer_slots`]. The ring authority rail publishes a single slot
+    /// holding the payer instead.
     pub const fn signer_width(self) -> usize {
         owner_signer_slots(self.n_inputs) + 1
     }

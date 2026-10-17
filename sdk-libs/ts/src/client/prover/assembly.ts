@@ -1,3 +1,4 @@
+import { checkRingOutputOwners } from "./outputs.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type {
@@ -102,17 +103,17 @@ let lastResolvedHash:
     }>
   | undefined;
 
-/** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
-export function ownerSignerAddresses(
-  inputs: readonly ProofInputUtxo[],
-  payer: Address,
-): readonly Address[] {
+/**
+ * Unique Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`.
+ * The fee payer gets no special treatment: it is listed only when it owns an input.
+ */
+export function ownerSignerAddresses(inputs: readonly ProofInputUtxo[]): readonly Address[] {
   const seen = new Set<string>();
   const signers: Address[] = [];
   for (const input of inputs) {
     if (input.isDummy()) continue;
     const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
-    if (address === payer || seen.has(address)) continue;
+    if (seen.has(address)) continue;
     seen.add(address);
     signers.push(address);
   }
@@ -295,15 +296,18 @@ function prepareTransferUnchecked(
     transfers.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its tagged identity in
-  // the vector, the payer in slot zero and unique non-payer owners after it,
-  // matching Rust's `signer_pk_hashes`.
-  const ownerSignerHashes = plan.authority
-    ? []
-    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(signerIdentity);
+  // the vector. Owner-signed rails list the unique Ed25519 input owners, the
+  // payer only when it owns an input, matching Rust's `signer_pk_hashes`. The
+  // authority rail's width-1 vector is the payer.
+  const signerHashes = plan.authority
+    ? [signerIdentity(proofInputs.payer)]
+    : ownerSignerAddresses(proofInputs.inputUtxos).map(signerIdentity);
+  if (signerHashes.length > plan.signerSlots) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
   const signerPublicKeyHashes = [
-    signerIdentity(proofInputs.payer),
-    ...ownerSignerHashes,
-    ...Array.from({ length: plan.signerSlots - 1 - ownerSignerHashes.length }, () => 0n),
+    ...signerHashes,
+    ...Array.from({ length: plan.signerSlots - signerHashes.length }, () => 0n),
   ];
   const flags = inputFlags(true, treeIndexes);
   const ringProgramId = plan.ring === undefined ? 0n : hashBytesBigInt(addressBytes(plan.ring));
@@ -499,8 +503,11 @@ function publishedOwnerFields(
       return undefined;
     case "every":
       return outputs.map((output) => output.ownerPublicKeyHash);
-    case "confidentialMarked":
-      return confidentialMarkedOutputOwnerHashes(external, outputs.length);
+    case "confidentialMarked": {
+      const published = confidentialMarkedOutputOwnerHashes(external, outputs.length);
+      checkRingOutputOwners(outputs, published);
+      return published;
+    }
   }
 }
 
@@ -1438,6 +1445,8 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
       input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
   );
   if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
+  if (inputs.ringProgramId !== 0n)
+    checkRingOutputOwners(inputs.outputs, inputs.publishedOutputOwnerPublicKeyHashes);
   return Object.freeze({
     circuit: inputs.ringProgramId === 0n ? "transfer" : "transferRing",
     payload: inputs,

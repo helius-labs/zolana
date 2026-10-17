@@ -5,7 +5,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
+    verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
@@ -96,7 +96,7 @@ impl MergeHarness {
         let vk = match result.nullifiers.len() {
             8 => &merge_8_1::VERIFYINGKEY,
             24 => &merge_24_1::VERIFYINGKEY,
-            54 => &merge_54_1::VERIFYINGKEY,
+            52 => &merge_52_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge"),
         };
         let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
@@ -108,8 +108,9 @@ impl MergeHarness {
             .len();
         assert_eq!(sent, n, "compact padding is left out of the instruction");
 
-        // The owner reconstructs the ciphertext-free merge output from the
-        // first real input and its published nullifier.
+        // The owner derives the merge output blinding from its nullifier key
+        // and the first real input's published nullifier; the amount and mint
+        // come from the proof-bound output ciphertext.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge output blinding"),

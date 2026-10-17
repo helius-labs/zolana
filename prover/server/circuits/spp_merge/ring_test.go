@@ -31,7 +31,7 @@ func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {
 	}
 }
 
-func TestMergeRingCircuitProves(t *testing.T) {
+func TestMergeRingCircuitSolves(t *testing.T) {
 	assignment := buildRingWitness(t, big.NewInt(0x5A0E))
 	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("ring merge witness not solved: %v", err)
@@ -63,5 +63,35 @@ func TestMergeRingCircuitRejectsWrongOutputRingDataHash(t *testing.T) {
 	a.OutputRingDataHash = big.NewInt(0xBAD)
 	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected output ring-data-hash binding to fail, got solved")
+	}
+}
+
+// Build each opening and transcript from scratch so only state preservation,
+// rather than a stale commitment or public hash, can reject the mutation.
+func TestMergeRingPreservesEveryRealInputRingData(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		inputs [2]int64
+		output int64
+		valid  bool
+	}{
+		{"zero_state", [2]int64{0, 0}, 0, true},
+		{"common_state_with_dummy_padding", [2]int64{17, 17}, 17, true},
+		{"erase_state", [2]int64{17, 17}, 0, false},
+		{"replace_state", [2]int64{17, 17}, 19, false},
+		{"first_input_differs", [2]int64{19, 17}, 17, false},
+		{"second_input_differs", [2]int64{17, 19}, 17, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := buildMergeFixture(t, mergeFixtureOptions{
+				inputCount: 8, rail: ringFixtureRail, ringProgramID: big.NewInt(0x5A),
+				inputRingData:  []*big.Int{big.NewInt(tc.inputs[0]), big.NewInt(tc.inputs[1])},
+				outputRingData: big.NewInt(tc.output),
+			})
+			err := test.IsSolved(merge.NewMergeRingCircuit(8), f.ringCircuit(), ecc.BN254.ScalarField())
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%v, got %v", tc.valid, err)
+			}
+		})
 	}
 }

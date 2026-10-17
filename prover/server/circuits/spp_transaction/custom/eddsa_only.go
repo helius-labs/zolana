@@ -24,7 +24,8 @@ type CustomRingConfidentialEd25519Public struct {
 	TreeSlots []shared.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
-	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Blinded hash of input and output commitments and address nullifiers.
+	// External data is bound separately by the outer public-input hash.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
 	// Hash that ties arbitrary data to the proof.
@@ -41,7 +42,8 @@ type CustomRingConfidentialEd25519Public struct {
 	// nullifier tree capacity is less than remaining state tree capacity, to
 	// ensure that every new UTXO can be nullified.
 	InputFlags frontend.Variable
-	// Hashed EdDSA signer pubkeys, with the fee payer first.
+	// Hashed EdDSA owner-signer pubkeys, deduplicated and zero-padded. The
+	// fee payer is not one unless it is also listed as an owner signer.
 	SignerPkHashes []frontend.Variable
 	// Default-ring real outputs publish owner pubkey hashes; custom-ring real outputs
 	// publish zero. Marked dummy outputs may publish a constrained participant.
@@ -162,7 +164,7 @@ func (c *CustomRingConfidentialEd25519Circuit) Define(api frontend.API) error {
 		tx.Outputs,
 		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
-		authorized.WithoutPayer(),
+		authorized,
 	); err != nil {
 		return err
 	}
