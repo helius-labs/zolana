@@ -1,50 +1,71 @@
-name: xtask
+name: DvP PR 41 test artifacts
 
-# The verifying-key smoke runs the xtask codegen against the Go prover server's
-# export-vk, so xtask and the prover are its inputs.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "xtask/**"
-      - "prover/**"
-      - ".github/actions/setup-rust/**"
-      - ".github/workflows/xtask-verifying-keys.yml"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "xtask/**"
-      - "prover/**"
-      - ".github/actions/setup-rust/**"
-      - ".github/workflows/xtask-verifying-keys.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: dvp-pr-41-test-artifacts
+  cancel-in-progress: false
 
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: "0"
-  RUST_BACKTRACE: "1"
+  ZOLANA_REV: 48dd15086b75fa870f2fdc46934434e8bb54a05f
+  TEST_TAG: test-dvp-pr-41-20261017-48dd150
+  AGAVE_VERSION: v4.0.2
+  SBF_TOOLS_VERSION: v1.53
+  CARGO_INCREMENTAL: '0'
 
 jobs:
-  xtask-verifying-keys:
-    name: xtask / verifying-keys smoke
+  artifacts:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
-      # The xtask exports the verifying key by running the Go prover server.
+        with:
+          ref: ${{ env.ZOLANA_REV }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
+          shared-key: dvp-pr-41-test-artifacts
+          install-just: 'false'
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Cache the smoke proving key
-        uses: actions/cache@v4
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler cmake clang
+      - uses: ./.github/actions/install-anza
         with:
-          path: target/verifying-keys-smoke/keys
-          key: verifying-keys-smoke-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just xtask-create-verifying-keys-smoke
+          version: ${{ env.AGAVE_VERSION }}
+      - uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
+      - name: Build protocol programs from pinned source
+        run: |
+          mkdir -p target/deploy
+          cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --manifest-path programs/user-registry/Cargo.toml --sbf-out-dir target/deploy -- --locked --features bpf-entrypoint
+          cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --manifest-path programs/shielded-pool/Cargo.toml --sbf-out-dir target/deploy -- --locked --features bpf-entrypoint
+      - name: Fetch pinned smart account binary
+        run: |
+          curl -sSfL --retry 5 https://github.com/helius-labs/zolana/releases/download/v0.4.0-alpha/squads_smart_account_program-v0.4.0-alpha.so -o target/deploy/squads_smart_account_program.so
+          echo '1c95bd7be140589d2aec38a85d7ecfe70ec69639277f622c898f821ab1d636fa  target/deploy/squads_smart_account_program.so' | sha256sum --check
+      - name: Build test release assets
+        run: cargo run --locked -p xtask -- create-release --tag "$TEST_TAG" --prerelease
+      - name: Publish test prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp cli/release-artifacts.lock target/release-staging/release-artifacts.lock
+          printf '%s\n' "$ZOLANA_REV" > target/release-staging/SOURCE_COMMIT
+          (cd target/release-staging && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS)
+          gh release create "$TEST_TAG" --target "$ZOLANA_REV" --prerelease --latest=false --title 'Test artifacts for DvP PR #41' --notes 'Temporary test artifacts for helius-labs/zolana-examples#41. Native sources are pinned in SOURCE_COMMIT; release-artifacts.lock and SHA256SUMS record the built assets. This is a test prerelease for that PR.' target/release-staging/*
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dvp-pr-41-test-artifacts
+          path: target/release-staging/*
+          if-no-files-found: ignore
