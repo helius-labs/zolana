@@ -9,6 +9,7 @@ use photon_indexer::common::{
 use photon_indexer::ingester::fetchers::BlockStreamConfig;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_byte_stream_from_directory_adapter, DirectoryAdapter,
+    SnapshotFileWithSlots,
 };
 use std::future::pending;
 use std::io;
@@ -294,32 +295,36 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to inspect snapshot source")?;
 
-        let last_indexed_slot = match args.start_slot {
-            Some(start_slot) => {
-                if !snapshot_files.is_empty() {
-                    bail!("Cannot specify start_slot when snapshot files are present");
+        // A start slot only places an empty store. With files present it must
+        // be where they began, so a service can pass the same flag on every
+        // restart and resume.
+        let last_indexed_slot = match (args.start_slot, snapshot_files.first()) {
+            (Some(start_slot), None) => match start_slot.as_str() {
+                "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
+                _ => {
+                    let start_slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    fetch_block_parent_slot(&rpc_client, start_slot).await?
                 }
-                let start_slot = match start_slot.as_str() {
-                    "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
-                    _ => {
-                        let start_slot = start_slot
-                            .parse::<u64>()
-                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
-                        fetch_block_parent_slot(&rpc_client, start_slot).await?
+            },
+            (Some(start_slot), Some(first)) => {
+                if start_slot != "latest" {
+                    let slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    let begins = fetch_block_parent_slot(&rpc_client, slot).await? + 1;
+                    if first.start_slot != begins {
+                        bail!(
+                            "The stored snapshots start at slot {}, not at slot {begins} where --start-slot {slot} begins",
+                            first.start_slot
+                        );
                     }
-                };
-                start_slot
-            }
-            None => {
-                if snapshot_files.is_empty() {
-                    get_network_start_slot(&rpc_client).await
-                } else {
-                    snapshot_files
-                        .last()
-                        .context("Snapshot list became empty unexpectedly")?
-                        .end_slot
                 }
+                last_snapshot_slot(&snapshot_files)?
             }
+            (None, None) => get_network_start_slot(&rpc_client).await,
+            (None, Some(_)) => last_snapshot_slot(&snapshot_files)?,
         };
         info!("Starting from slot: {}", last_indexed_slot + 1);
         Some(
@@ -378,4 +383,11 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn last_snapshot_slot(snapshot_files: &[SnapshotFileWithSlots]) -> Result<u64> {
+    Ok(snapshot_files
+        .last()
+        .context("Snapshot list became empty unexpectedly")?
+        .end_slot)
 }
