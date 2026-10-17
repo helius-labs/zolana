@@ -1060,7 +1060,7 @@ describe("prover request routing", () => {
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
   });
-  it("sends a proof and its poll to the Helius gateway's key-less paths", async () => {
+  it("sends a proof and its poll to the Helius gateway's key paths", async () => {
     const urls: URL[] = [];
     const fetch = vi.fn(async (input: URL | string) => {
       const url = new URL(String(input));
@@ -1083,8 +1083,8 @@ describe("prover request routing", () => {
     await prover.prove(transferInputs());
 
     expect(urls.map((url) => url.pathname)).toEqual([
-      "/v1/zolana/prove",
-      "/v1/zolana/prove/status",
+      "/v1/zolana/prove/transfer_confidential_2_2",
+      "/v1/zolana/prove/transfer_confidential_2_2/status",
     ]);
     expect(urls.map((url) => url.searchParams.get("api-key"))).toEqual(["k", "k"]);
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");

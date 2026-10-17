@@ -38,6 +38,9 @@ Changed
 
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
+- `ProverClient` sends a proof on the Helius gateway to its proving key's path,
+  `/v1/zolana/prove/<key>`, and polls `/v1/zolana/prove/<key>/status`, as on
+  any other prover; the gateway serves no key-less proof path.
 
 Fixed
 

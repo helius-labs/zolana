@@ -240,7 +240,7 @@ pub(crate) fn transport_error(error: ApiError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prover::tee::{NitroFixture, TeePolicy};
+    use crate::prover::tee::{FixtureSession, NitroFixture, TeePolicy};
 
     fn session() -> TeeSession {
         TeeSession::new(

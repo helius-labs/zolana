@@ -73,6 +73,8 @@ sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
   keypair/             -- shielded key material and hashes
+  prover-tee/          -- the encrypted prover wire contract: attestation
+                          verification, policy pins, HPKE request encryption
   program/             -- SBF-buildable SDK for programs: shielded-pool instruction
                           builders and on-chain SPP derivations; features `cpi`
                           (transact CPI) and `compression` (compressed accounts)

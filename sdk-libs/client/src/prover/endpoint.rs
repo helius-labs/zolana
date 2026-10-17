@@ -33,8 +33,7 @@ impl ProverEndpoint {
     }
 
     /// Whether this is the Helius gateway's zolana namespace on a
-    /// `*.helius-rpc.com` host, which routes proofs only to the key-less
-    /// `/prove` and `/prove/status` and has no indexed route.
+    /// `*.helius-rpc.com` host, which has no indexed route.
     pub(crate) fn is_gateway(&self) -> bool {
         self.base.as_ref().is_some_and(|url| {
             let helius = url.host_str().is_some_and(|host| {
@@ -80,18 +79,13 @@ impl ProverEndpoint {
     }
 
     /// Where a queued proof of `key` is polled, so the poll reaches the pool
-    /// that queued it; the key-less `/prove/status` on the gateway.
+    /// that queued it.
     pub(crate) fn status_url(
         &self,
         key: &ExpectedProvingKey,
         job_id: &str,
     ) -> Result<Url, ClientError> {
-        let path = if self.is_gateway() {
-            "/prove".to_owned()
-        } else {
-            key.prove_path()
-        };
-        let mut url = self.url(&format!("{path}/status"))?;
+        let mut url = self.url(&format!("{}/status", key.prove_path()))?;
         url.query_pairs_mut().append_pair("jobId", job_id);
         Ok(url)
     }
@@ -226,18 +220,11 @@ mod tests {
             String::from(endpoint.status_url(&key, "job-1").unwrap()),
             "https://gateway.invalid/zolana/prove/merge_54_1/status?api-key=k&jobId=job-1"
         );
-        // The Helius gateway polls every proof at the key-less path; another
-        // host's `/v1/zolana` keeps key paths.
         let helius =
             ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k");
         assert_eq!(
             String::from(helius.status_url(&key, "job-1").unwrap()),
-            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/status?api-key=k&jobId=job-1"
-        );
-        let other = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=k");
-        assert_eq!(
-            String::from(other.status_url(&key, "job-1").unwrap()),
-            "https://gateway.invalid/v1/zolana/prove/merge_54_1/status?api-key=k&jobId=job-1"
+            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/merge_54_1/status?api-key=k&jobId=job-1"
         );
         // A `#` from the server must not push the key into a fragment.
         let url = endpoint.status_url(&key, "a#b&c").unwrap();

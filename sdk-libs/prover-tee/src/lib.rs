@@ -3,24 +3,26 @@
 mod attestation;
 mod dstack;
 mod encryption;
+#[cfg(any(test, feature = "test-fixtures"))]
+mod fixture_prover;
 mod nitro;
 mod platform;
 mod policy;
-mod session;
 #[cfg(test)]
 mod tests;
 mod verify;
 
 pub use attestation::Attestation;
 pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
-pub(crate) use encryption::EncryptedRequest;
-#[cfg(test)]
-pub(crate) use nitro::tests::Fixture as NitroFixture;
+pub use encryption::{decrypt_response, EncryptedRequest};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use fixture_prover::{seal_response, FixtureProver, OpenedRequest};
+#[cfg(any(test, feature = "test-fixtures"))]
+pub use nitro::fixture::Fixture as NitroFixture;
 pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
-pub use platform::{Platform, PlatformIdentity, PlatformPolicy};
+pub use platform::{Anchors, Platform, PlatformIdentity, PlatformPolicy};
 pub use policy::{GpuRequirement, TeePolicy, TeePolicyFile};
-pub(crate) use session::TeeSession;
-pub use verify::{inspect, verify, AttestedIdentity, AttestedProver};
+pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver};
 
 use thiserror::Error;
 
