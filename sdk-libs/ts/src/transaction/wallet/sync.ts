@@ -1168,7 +1168,9 @@ function commitPass(
     transactions,
     nullifiers,
     viewingKeyHistory,
-    lastSynced: input.config?.syncedAt ?? 0n,
+    // Omitted, not zero: `_replace` leaves the recorded timestamp untouched,
+    // so a direct decode pass without a `syncedAt` cannot reset it.
+    ...(input.config?.syncedAt === undefined ? {} : { lastSynced: input.config.syncedAt }),
   });
   return Object.freeze({
     storedUtxos: pass.storedUtxos,
