@@ -1,8 +1,9 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     env::temp_dir,
     fs::{self, File, OpenOptions},
     io::{BufReader, Error, Read, Write},
+    ops::RangeInclusive,
     path::PathBuf,
     pin::Pin,
     sync::Arc,
@@ -552,6 +553,110 @@ fn has_ring_config_registration(tx: &TransactionInfo, slot: u64) -> bool {
             );
             false
         }
+    }
+}
+
+/// A store's blocks read forward once, for a consumer that asks for
+/// increasing slot ranges: the custom ring indexer rebuilding from a snapshot.
+pub struct SnapshotReader {
+    blocks: Pin<Box<dyn Stream<Item = Vec<BlockInfo>> + Send>>,
+    pending: VecDeque<BlockInfo>,
+    /// Slots below this have been read.
+    position: u64,
+    /// The highest block slot the stream has produced.
+    seen: Option<u64>,
+    /// The stream has nothing more.
+    ended: bool,
+    started: bool,
+    end_slot: u64,
+}
+
+impl SnapshotReader {
+    /// `None` when the store is empty or has not kept custom ring instructions
+    /// since its first slot: replaying it would under-index rings silently.
+    pub async fn open_for_custom_rings(
+        directory_adapter: Arc<DirectoryAdapter>,
+    ) -> Result<Option<Self>> {
+        if !keeps_custom_rings(directory_adapter.clone()).await? {
+            return Ok(None);
+        }
+        let files = get_snapshot_files_with_metadata(directory_adapter.as_ref()).await?;
+        let (Some(first), Some(last)) = (files.first(), files.last()) else {
+            return Ok(None);
+        };
+        let (position, end_slot) = (first.start_slot, last.end_slot);
+        Ok(Some(Self {
+            blocks: Box::pin(load_block_stream_from_directory_adapter(directory_adapter).await),
+            pending: VecDeque::new(),
+            position,
+            seen: None,
+            ended: false,
+            started: false,
+            end_slot,
+        }))
+    }
+
+    /// The first slot not yet read.
+    pub fn position(&self) -> u64 {
+        self.position
+    }
+
+    /// Whether any range has been taken.
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
+    pub fn end_slot(&self) -> u64 {
+        self.end_slot
+    }
+
+    /// The blocks in `slots`, which must not start before `position`: the
+    /// reader does not go back. The range is clipped to the store's last slot.
+    /// A stream that ends before that slot is an error, not a run of skipped
+    /// slots.
+    pub async fn take(&mut self, slots: RangeInclusive<u64>) -> Result<Vec<BlockInfo>> {
+        if *slots.start() < self.position {
+            return Err(anyhow!(
+                "snapshot already read past slot {}, cannot return to {}",
+                self.position,
+                slots.start()
+            ));
+        }
+        self.started = true;
+        let through = (*slots.end()).min(self.end_slot);
+        let mut blocks = Vec::new();
+        loop {
+            if self.pending.is_empty() {
+                match self.blocks.next().await {
+                    Some(batch) => self.pending.extend(batch),
+                    None => {
+                        self.ended = true;
+                        break;
+                    }
+                }
+            }
+            let Some(slot) = self.pending.front().map(|block| block.metadata.slot) else {
+                break;
+            };
+            if slot > through {
+                break;
+            }
+            let block = self.pending.pop_front().context("pending block vanished")?;
+            self.seen = Some(slot);
+            if slot >= *slots.start() {
+                blocks.push(block);
+            }
+        }
+        // The last file ends at a block, so a whole stream reaches end_slot.
+        if self.ended && self.seen.is_none_or(|seen| seen < self.end_slot) {
+            return Err(anyhow!(
+                "snapshot ended at slot {:?} before its last slot {}",
+                self.seen,
+                self.end_slot
+            ));
+        }
+        self.position = through.saturating_add(1);
+        Ok(blocks)
     }
 }
 
@@ -1149,6 +1254,62 @@ mod tests {
             .collect();
         assert_eq!(kept, [(1, 1), (2, 1)]);
         assert!(keeps_custom_rings(adapter.clone()).await.unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    async fn store_of(slots: std::ops::RangeInclusive<u64>) -> (PathBuf, Arc<DirectoryAdapter>) {
+        let dir = temp_dir().join(format!("photon-snapshot-reader-{}", Pubkey::new_unique()));
+        fs::create_dir_all(&dir).unwrap();
+        let adapter = Arc::new(DirectoryAdapter::from_local_directory(
+            dir.to_string_lossy().into_owned(),
+        ));
+        let blocks: Vec<BlockInfo> = slots
+            .map(|slot| BlockInfo {
+                metadata: BlockMetadata {
+                    slot,
+                    parent_slot: slot - 1,
+                    ..Default::default()
+                },
+                transactions: Vec::new(),
+            })
+            .collect();
+        update_snapshot_helper(adapter.clone(), stream::iter([blocks]), 0, 1, u64::MAX)
+            .await
+            .unwrap();
+        (dir, adapter)
+    }
+
+    fn slots(blocks: &[BlockInfo]) -> Vec<u64> {
+        blocks.iter().map(|block| block.metadata.slot).collect()
+    }
+
+    #[tokio::test]
+    async fn a_reader_serves_increasing_ranges_and_never_goes_back() {
+        let (dir, adapter) = store_of(1..=10).await;
+        let mut reader = SnapshotReader::open_for_custom_rings(adapter)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reader.end_slot(), 10);
+        assert_eq!(slots(&reader.take(1..=3).await.unwrap()), [1, 2, 3]);
+        // Slots between ranges are passed over, not returned later.
+        assert_eq!(slots(&reader.take(6..=7).await.unwrap()), [6, 7]);
+        assert!(reader.take(5..=9).await.is_err());
+        // A range past the store is clipped to its last slot.
+        assert_eq!(slots(&reader.take(8..=50).await.unwrap()), [8, 9, 10]);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_store_that_ends_before_its_last_slot_is_an_error() {
+        let (dir, adapter) = store_of(1..=3).await;
+        // The last file lost its blocks.
+        fs::write(dir.join("snapshot-3-3"), []).unwrap();
+        let mut reader = SnapshotReader::open_for_custom_rings(adapter)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(reader.take(1..=10).await.is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 

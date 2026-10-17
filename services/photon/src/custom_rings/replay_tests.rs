@@ -1,6 +1,8 @@
 use super::tests::{field, initialize_root, member};
 use super::*;
+use crate::ingester::fetchers::range::block_range;
 use crate::migration::{MigratorTrait, RingsMigrator};
+use crate::snapshot::{update_snapshot_helper, DirectoryAdapter, SnapshotReader};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use custom_ring_interface::{
     instruction::tag, CustomRingProof, KeyRegistryRoot, RegisterKeyIxData, RegisteredKey,
@@ -17,6 +19,8 @@ struct Chain {
     blocks: BTreeMap<u64, Value>,
     accounts: HashMap<String, Value>,
     failed_block: Option<u64>,
+    /// Slots fetched with full transactions, in request order.
+    full_fetches: Vec<u64>,
 }
 
 async fn rpc(chain: Arc<Mutex<Chain>>) -> (Arc<RpcClient>, ServerHandle) {
@@ -34,7 +38,10 @@ async fn rpc(chain: Arc<Mutex<Chain>>) -> (Arc<RpcClient>, ServerHandle) {
     module
         .register_method("getBlock", |params, chain, _| {
             let (slot, options): (u64, Value) = params.parse()?;
-            let chain = chain.lock().unwrap();
+            let mut chain = chain.lock().unwrap();
+            if options["transactionDetails"] == "full" {
+                chain.full_fetches.push(slot);
+            }
             if chain.failed_block == Some(slot) && options["transactionDetails"] == "full" {
                 return Err(ErrorObjectOwned::owned(
                     -32000,
@@ -227,6 +234,7 @@ async fn late_ring() -> (
             ),
         ]),
         failed_block: None,
+        full_fetches: Vec::new(),
     }));
     let (rpc, handle) = rpc(chain.clone()).await;
     let db = Database::connect("sqlite::memory:").await.unwrap();
@@ -236,6 +244,7 @@ async fn late_ring() -> (
         rpc,
         start: StartSlot::Explicit(0),
         block_fetches: 4,
+        snapshot: Default::default(),
     };
     assert!(matches!(
         indexer.synchronize().await.unwrap(),
@@ -283,6 +292,7 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
         rpc: indexer.rpc.clone(),
         start: StartSlot::Explicit(0),
         block_fetches: 4,
+        snapshot: Default::default(),
     };
     for _ in 0..2 {
         assert!(matches!(
@@ -505,6 +515,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             blocks: BTreeMap::from([(1, block(1, vec![]))]),
             accounts,
             failed_block: None,
+            full_fetches: Vec::new(),
         }));
         let (rpc, handle) = rpc(chain).await;
         let indexer = CustomRingIndexer {
@@ -512,6 +523,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             rpc,
             start: StartSlot::Explicit(0),
             block_fetches: 4,
+            snapshot: Default::default(),
         };
         storage::save_cursor(indexer.db.as_ref(), &cursor)
             .await
@@ -568,4 +580,68 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
         handle.stop().unwrap();
         handle.stopped().await;
     }
+}
+
+#[tokio::test]
+async fn a_rebuild_from_a_snapshot_matches_the_rpc_index_and_fetches_only_past_it() {
+    let (late, chain, handle, program, expected) = late_ring().await;
+    chain.lock().unwrap().failed_block = None;
+    let rpc = late.rpc.clone();
+
+    // A ring-aware writer's snapshot of slots 1..=3, through the real fetch path.
+    let dir = std::env::temp_dir().join(format!("photon-ring-snapshot-{}", Pubkey::new_unique()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let adapter = Arc::new(DirectoryAdapter::from_local_directory(
+        dir.to_string_lossy().into_owned(),
+    ));
+    let blocks = block_range(rpc.clone(), None, 1..=3, 4).map(|block| vec![block.unwrap()]);
+    update_snapshot_helper(adapter.clone(), blocks, 0, 1, u64::MAX)
+        .await
+        .unwrap();
+    // A block the snapshot has not reached.
+    chain.lock().unwrap().blocks.insert(4, block(4, vec![]));
+
+    let indexed = |snapshot: Option<SnapshotReader>| {
+        let rpc = rpc.clone();
+        async move {
+            let db = Database::connect("sqlite::memory:").await.unwrap();
+            RingsMigrator::up(&db, None).await.unwrap();
+            let indexer = CustomRingIndexer {
+                db: Arc::new(db),
+                rpc,
+                start: StartSlot::Explicit(0),
+                block_fetches: 4,
+                snapshot: tokio::sync::Mutex::new(snapshot),
+            };
+            assert!(matches!(
+                indexer.synchronize().await.unwrap(),
+                Progress::CaughtUp
+            ));
+            RingStore::new(indexer.db.as_ref(), program.to_bytes())
+                .root()
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+
+    let from_rpc = indexed(None).await;
+    chain.lock().unwrap().full_fetches.clear();
+    let reader = SnapshotReader::open_for_custom_rings(adapter.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let from_snapshot = indexed(Some(reader)).await;
+
+    assert_eq!(from_snapshot.root, expected);
+    assert_eq!(
+        (from_snapshot.root, from_snapshot.next_index),
+        (from_rpc.root, from_rpc.next_index)
+    );
+    assert!(from_snapshot.fault.is_none());
+    // Only the slot past the snapshot came from the RPC.
+    assert_eq!(chain.lock().unwrap().full_fetches, [4]);
+    std::fs::remove_dir_all(dir).unwrap();
+    handle.stop().unwrap();
+    handle.stopped().await;
 }

@@ -70,6 +70,7 @@ pub(super) fn indexer(db: &DatabaseConnection, start: StartSlot) -> CustomRingIn
         rpc: Arc::new(RpcClient::new("http://127.0.0.1:1".into())),
         start,
         block_fetches: 4,
+        snapshot: Default::default(),
     }
 }
 

@@ -26,7 +26,7 @@ use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
 use crate::{
     ingester::{
         fetchers::{
-            range::{block_range, RangeError},
+            range::{block_range, check_link, RangeError},
             spawn_stream,
         },
         typedefs::block_info::{
@@ -34,6 +34,7 @@ use crate::{
         },
     },
     rpc::{RpcClient, RpcError},
+    snapshot::SnapshotReader,
 };
 use key_registry::{MemberKey, Registration};
 use spend_record::{SpendRing, SpendStore, SpendUndo};
@@ -74,6 +75,9 @@ pub struct CustomRingIndexer {
     pub start: StartSlot,
     /// Concurrent `getBlock` requests, photon's `--max-concurrent-block-fetches`.
     pub block_fetches: usize,
+    /// A store to rebuild from: the slots it covers are read from it instead of
+    /// fetched, until it is used up.
+    pub snapshot: tokio::sync::Mutex<Option<SnapshotReader>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,12 +130,24 @@ impl CustomRingIndexer {
         if cursor.scanned_slot < target {
             cursor.suspend(db).await?;
             let through = target.min(cursor.scanned_slot.saturating_add(PASS_SLOTS));
-            let mut blocks = self.blocks(cursor.tip.clone(), cursor.scanned_slot + 1..=through);
-            while let Some(block) = blocks.next().await {
-                let block = block?;
-                let tx = db.begin().await?;
-                self.apply_block(&tx, &block, &mut cursor).await?;
-                tx.commit().await?;
+            let mut next = cursor.scanned_slot + 1;
+            if let Some((blocks, covered)) = self.snapshot_blocks(next..=through).await? {
+                for block in blocks {
+                    check_link(cursor.tip.as_ref(), &block.metadata)?;
+                    let tx = db.begin().await?;
+                    self.apply_block(&tx, &block, &mut cursor).await?;
+                    tx.commit().await?;
+                }
+                next = covered + 1;
+            }
+            if next <= through {
+                let mut blocks = self.blocks(cursor.tip.clone(), next..=through);
+                while let Some(block) = blocks.next().await {
+                    let block = block?;
+                    let tx = db.begin().await?;
+                    self.apply_block(&tx, &block, &mut cursor).await?;
+                    tx.commit().await?;
+                }
             }
             cursor.scanned_slot = through;
             storage::save_cursor(db, &cursor).await?;
@@ -298,6 +314,44 @@ impl CustomRingIndexer {
             bail!("ring replay has not reached the confirmed custom ring tip");
         }
         storage::delete_pending(db, &candidate.program).await
+    }
+
+    /// The pass's blocks the snapshot covers, and the last slot it covered.
+    /// `None` leaves the pass to RPC: there is no snapshot, it begins later, it
+    /// is used up, or a rewind went back past what was already read.
+    async fn snapshot_blocks(
+        &self,
+        slots: RangeInclusive<u64>,
+    ) -> Result<Option<(Vec<BlockInfo>, u64)>> {
+        let mut snapshot = self.snapshot.lock().await;
+        let Some(reader) = snapshot.as_mut() else {
+            return Ok(None);
+        };
+        if *slots.start() > reader.end_slot() {
+            log::info!(
+                "custom ring rebuild left the snapshot after slot {}",
+                reader.end_slot()
+            );
+            *snapshot = None;
+            return Ok(None);
+        }
+        if *slots.start() < reader.position() {
+            if reader.started() {
+                log::warn!(
+                    "custom ring rewind went back past snapshot slot {}; fetching from RPC",
+                    reader.position()
+                );
+                *snapshot = None;
+            }
+            return Ok(None);
+        }
+        let covered = (*slots.end()).min(reader.end_slot());
+        let blocks = reader.take(slots).await.context("custom ring snapshot")?;
+        if covered == reader.end_slot() {
+            log::info!("custom ring rebuild read the snapshot through slot {covered}");
+            *snapshot = None;
+        }
+        Ok(Some((blocks, covered)))
     }
 
     /// Blocks in `slots` linked to `after`, fetched in their own task while

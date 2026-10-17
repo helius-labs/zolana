@@ -68,21 +68,31 @@ pub fn block_range(
                     return;
                 }
             };
-            if let Some(previous) = &previous {
-                if !previous.is_parent_of(&block.metadata) {
-                    yield Err(RangeError::BrokenLink {
-                        slot: block.metadata.slot,
-                        parent_slot: block.metadata.parent_slot,
-                        parent_blockhash: block.metadata.parent_blockhash.clone(),
-                        previous_slot: previous.slot,
-                        previous_blockhash: previous.blockhash.clone(),
-                    });
-                    return;
-                }
+            if let Err(error) = check_link(previous.as_ref(), &block.metadata) {
+                yield Err(error);
+                return;
             }
             previous = Some(block.metadata.clone());
             yield Ok(block);
         }
+    }
+}
+
+/// `block` must be the child of `previous`, by slot and hash. Without a
+/// previous block there is nothing to link to.
+pub fn check_link(
+    previous: Option<&BlockMetadata>,
+    block: &BlockMetadata,
+) -> Result<(), RangeError> {
+    match previous {
+        Some(previous) if !previous.is_parent_of(block) => Err(RangeError::BrokenLink {
+            slot: block.slot,
+            parent_slot: block.parent_slot,
+            parent_blockhash: block.parent_blockhash.clone(),
+            previous_slot: previous.slot,
+            previous_blockhash: previous.blockhash.clone(),
+        }),
+        _ => Ok(()),
     }
 }
 
