@@ -13,19 +13,25 @@ use custom_ring_interface::{
     instruction::{accounts, tag},
     pda, KeyRegistryRoot, PolicyConfig, KEY_REGISTRY_ROOT, POLICY_CONFIG,
 };
-use futures::{stream, StreamExt};
+use futures::{Stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
 use thiserror::Error;
 use zolana_hasher::HasherError;
+use zolana_indexer_api::Hash;
 use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
 
 use crate::{
-    ingester::typedefs::block_info::{
-        parse_ui_confirmed_blocked, BlockInfo, BlockMetadata, Instruction, InstructionGroup,
-        TransactionInfo,
+    ingester::{
+        fetchers::{
+            range::{block_range, RangeError},
+            spawn_stream,
+        },
+        typedefs::block_info::{
+            BlockInfo, BlockMetadata, Instruction, InstructionGroup, TransactionInfo,
+        },
     },
     rpc::{RpcClient, RpcError},
 };
@@ -37,9 +43,9 @@ use storage::{
 };
 
 const MAX_RETRY_DELAY_SECS: u64 = 15;
-const GET_BLOCKS_PAGE: u64 = 4096;
-/// Blocks fetched before a batch is applied, at least this many.
-const MIN_BLOCK_BATCH: usize = 32;
+/// Slots scanned per synchronization pass, so a long backfill still returns
+/// to rewinds and pending-ring replays between passes.
+const PASS_SLOTS: u64 = 1_024;
 const ACCOUNTS_PER_REQUEST: usize = 100;
 /// Journal rows older than the deepest confirmed fork are pruned.
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
@@ -77,12 +83,6 @@ enum Progress {
 }
 
 impl CustomRingIndexer {
-    /// Two rounds of fetches per batch: enough to keep the fetch overhead
-    /// small, few enough blocks to hold in memory at a backfill setting.
-    fn batch_len(&self) -> usize {
-        MIN_BLOCK_BATCH.max(self.block_fetches.saturating_mul(2))
-    }
-
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut delay = 1;
@@ -125,31 +125,24 @@ impl CustomRingIndexer {
         let target = self.rpc.get_slot().await?;
         if cursor.scanned_slot < target {
             cursor.suspend(db).await?;
-            let batch = block_batch(
-                &self.rpc,
-                cursor.scanned_slot + 1..=target,
-                self.batch_len(),
-            )
-            .await?;
-            for block in self.fetch_blocks(batch.slots).await {
+            let through = target.min(cursor.scanned_slot.saturating_add(PASS_SLOTS));
+            let mut blocks = self.blocks(cursor.tip.clone(), cursor.scanned_slot + 1..=through);
+            while let Some(block) = blocks.next().await {
                 let block = block?;
-                if cursor
-                    .tip
-                    .as_ref()
-                    .is_some_and(|tip| !tip.is_parent_of(&block.metadata))
-                {
-                    bail!("custom ring parent mismatch");
-                }
                 let tx = db.begin().await?;
                 self.apply_block(&tx, &block, &mut cursor).await?;
                 tx.commit().await?;
             }
-            cursor.scanned_slot = batch.scanned_slot;
+            cursor.scanned_slot = through;
             storage::save_cursor(db, &cursor).await?;
             let pruned_below = cursor.scanned_slot.saturating_sub(JOURNAL_RETENTION_SLOTS);
             storage::prune_journal(db, pruned_below).await?;
         }
         if cursor.scanned_slot < target {
+            log::info!(
+                "custom rings indexed through slot {} of {target}",
+                cursor.scanned_slot
+            );
             return Ok(Progress::Behind);
         }
         // 3. Invalid ring accounts must not serve proofs.
@@ -256,55 +249,47 @@ impl CustomRingIndexer {
                 bail!("ring replay checkpoint is no longer canonical; waiting for rollback");
             }
         }
-        let mut start = candidate
-            .replayed_tip
-            .as_ref()
-            .map_or(Ok(candidate.slot), |tip| {
-                tip.slot.checked_add(1).context("slot overflow")
-            })?;
-        while start <= tip.slot {
-            let end = tip.slot.min(start.saturating_add(GET_BLOCKS_PAGE - 1));
-            let page = confirmed_page(&self.rpc, start..=end).await?;
-            if candidate.replayed_tip.is_none() && page.first() != Some(&candidate.slot) {
-                bail!("ring initialization is missing from archive history");
-            }
-            for chunk in page.chunks(self.batch_len()) {
-                for block in self.fetch_blocks(chunk.to_vec()).await {
-                    let block = block?;
-                    if candidate.replayed_tip.is_none()
-                        && block.metadata.blockhash != candidate.blockhash
-                    {
-                        bail!("ring initialization is no longer canonical");
-                    }
-                    if candidate
-                        .replayed_tip
-                        .as_ref()
-                        .is_some_and(|checkpoint| !checkpoint.is_parent_of(&block.metadata))
-                    {
-                        bail!("ring replay parent mismatch");
-                    }
-                    let journal = storage::journal(db, block.metadata.slot).await?;
-                    if journal.as_ref().is_some_and(|journal| {
-                        journal.metadata.blockhash != block.metadata.blockhash
-                    }) {
-                        bail!("ring replay crossed a confirmed fork");
-                    }
-                    // 2. Replay progress and undo data must commit together.
-                    let tx = db.begin().await?;
-                    let undo = self
-                        .index_block(&tx, &block, cursor, Scope::Ring(candidate.program))
-                        .await?;
-                    if let Some(mut journal) = journal {
-                        journal.undo.extend(undo);
-                        storage::save_journal(&tx, &journal).await?;
-                    }
-                    storage::save_cursor(&tx, cursor).await?;
-                    candidate.replayed_tip = Some(block.metadata.clone());
-                    storage::checkpoint_pending(&tx, &candidate).await?;
-                    tx.commit().await?;
+        // The first replayed block is the initialization, linked to its parent.
+        let (after, start) = match &candidate.replayed_tip {
+            Some(checkpoint) => (
+                checkpoint.clone(),
+                checkpoint.slot.checked_add(1).context("slot overflow")?,
+            ),
+            None => (
+                self.initialization_parent(&candidate).await?,
+                candidate.slot,
+            ),
+        };
+        if start <= tip.slot {
+            let mut blocks = self.blocks(Some(after), start..=tip.slot);
+            while let Some(block) = blocks.next().await {
+                let block = block.context("ring replay")?;
+                if candidate.replayed_tip.is_none()
+                    && block.metadata.blockhash != candidate.blockhash
+                {
+                    bail!("ring initialization is no longer canonical");
                 }
+                let journal = storage::journal(db, block.metadata.slot).await?;
+                if journal
+                    .as_ref()
+                    .is_some_and(|journal| journal.metadata.blockhash != block.metadata.blockhash)
+                {
+                    bail!("ring replay crossed a confirmed fork");
+                }
+                // 2. Replay progress and undo data must commit together.
+                let tx = db.begin().await?;
+                let undo = self
+                    .index_block(&tx, &block, cursor, Scope::Ring(candidate.program))
+                    .await?;
+                if let Some(mut journal) = journal {
+                    journal.undo.extend(undo);
+                    storage::save_journal(&tx, &journal).await?;
+                }
+                storage::save_cursor(&tx, cursor).await?;
+                candidate.replayed_tip = Some(block.metadata.clone());
+                storage::checkpoint_pending(&tx, &candidate).await?;
+                tx.commit().await?;
             }
-            start = end.checked_add(1).context("slot overflow")?;
         }
         // 3. Serve the ring only after replay reaches the global tip.
         if !candidate.replayed_tip.as_ref().is_some_and(|checkpoint| {
@@ -315,15 +300,42 @@ impl CustomRingIndexer {
         storage::delete_pending(db, &candidate.program).await
     }
 
-    async fn fetch_blocks(&self, slots: Vec<u64>) -> Vec<Result<BlockInfo>> {
-        stream::iter(slots)
-            .map(|slot| async move {
-                let block = self.rpc.get_block(slot, TransactionDetails::Full).await?;
-                Ok(parse_ui_confirmed_blocked(block, slot)?)
-            })
-            .buffered(self.block_fetches.max(1))
-            .collect()
+    /// Blocks in `slots` linked to `after`, fetched in their own task while
+    /// the caller applies the ones before.
+    fn blocks(
+        &self,
+        after: Option<BlockMetadata>,
+        slots: RangeInclusive<u64>,
+    ) -> impl Stream<Item = Result<BlockInfo, RangeError>> + Unpin {
+        spawn_stream(
+            block_range(self.rpc.clone(), after, slots, self.block_fetches),
+            self.block_fetches,
+        )
+    }
+
+    /// The block a ring's initialization block names as parent, so replay
+    /// starts at the initialization itself.
+    async fn initialization_parent(&self, candidate: &PendingRing) -> Result<BlockMetadata> {
+        let block = match self
+            .rpc
+            .get_block(candidate.slot, TransactionDetails::None)
             .await
+        {
+            Ok(block) => block,
+            Err(error) if error.is_slot_skipped() => {
+                bail!("ring initialization is missing from archive history")
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if block.blockhash != candidate.blockhash.to_string() {
+            bail!("ring initialization is no longer canonical");
+        }
+        Ok(BlockMetadata {
+            slot: block.parent_slot,
+            blockhash: Hash::try_from(block.previous_blockhash.as_str())
+                .map_err(|error| anyhow::anyhow!("invalid parent blockhash ({error})"))?,
+            ..Default::default()
+        })
     }
 
     async fn apply_block(
@@ -884,52 +896,6 @@ fn activated_ring_config(account: &Account, program: &Pubkey) -> bool {
                 && config.program_id == *program
                 && config.is_activated()
         })
-}
-
-struct BlockBatch {
-    slots: Vec<u64>,
-    scanned_slot: u64,
-}
-
-async fn block_batch(
-    rpc: &RpcClient,
-    slots: RangeInclusive<u64>,
-    batch_len: usize,
-) -> Result<BlockBatch> {
-    let mut start = *slots.start();
-    let target = *slots.end();
-    let mut batch = Vec::new();
-    loop {
-        let end = target.min(start.saturating_add(GET_BLOCKS_PAGE - 1));
-        let page = confirmed_page(rpc, start..=end).await?;
-        let available = batch_len - batch.len();
-        if page.len() > available {
-            batch.extend(page.into_iter().take(available));
-            let scanned = *batch.last().context("empty block batch")?;
-            return Ok(BlockBatch {
-                slots: batch,
-                scanned_slot: scanned,
-            });
-        }
-        batch.extend(page);
-        if end == target || batch.len() == batch_len {
-            return Ok(BlockBatch {
-                slots: batch,
-                scanned_slot: end,
-            });
-        }
-        start = end.checked_add(1).context("slot overflow")?;
-    }
-}
-
-async fn confirmed_page(rpc: &RpcClient, range: RangeInclusive<u64>) -> Result<Vec<u64>> {
-    let page = rpc.get_blocks(range.clone()).await?;
-    if page.iter().any(|slot| !range.contains(slot))
-        || page.windows(2).any(|pair| pair[0] >= pair[1])
-    {
-        bail!("invalid confirmed block order");
-    }
-    Ok(page)
 }
 
 #[cfg(test)]
