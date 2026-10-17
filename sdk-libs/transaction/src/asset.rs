@@ -65,7 +65,9 @@ impl AssetRegistry {
     }
 
     pub fn insert(&mut self, asset_id: u64, mint: Address) -> Result<(), TransactionError> {
-        if asset_id == SOL_ASSET_ID {
+        // Zero is as reserved as SOL: it is the "no SPL change" sentinel in
+        // the sender plaintext, and the on-chain asset counter starts at 2.
+        if asset_id <= SOL_ASSET_ID {
             return Err(TransactionError::ReservedAssetId(asset_id));
         }
         if self.0.contains_key(&asset_id) {
