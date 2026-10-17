@@ -52,7 +52,8 @@ let signature = Submission::new(&signed, fee_payer, &authority)
 proves, signs, sends and waits until the transaction is confirmed and
 indexed. `finish_unsigned_sync` / `finish_unsigned` stop at the unsigned
 message, for a fee payer whose key lives elsewhere. The message carries a
-blockhash fetched after proving.
+blockhash fetched beside the proof, or after it when the proof took longer
+than ten seconds.
 
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
 prover of the caller's, such as one on the device; `with_prover` on either
