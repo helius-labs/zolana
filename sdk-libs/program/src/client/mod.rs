@@ -1,6 +1,5 @@
 mod data_utxo;
 mod program_owner;
-mod scalar;
 #[cfg(feature = "client")]
 mod transaction;
 #[cfg(feature = "client")]
@@ -12,7 +11,6 @@ use zolana_keypair::random_blinding;
 
 pub use data_utxo::DataUtxo;
 pub use program_owner::ProgramOwner;
-pub use scalar::{Blinding, Hash};
 pub use zolana_keypair::circuit::client::Owner;
 pub use zolana_zk_dsl::Bytes;
 pub use zolana_zk_dsl::{PublicField, PublicFieldKind, PublicHashField, PublicInputLayout};

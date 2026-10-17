@@ -39,8 +39,8 @@ pub mod wasm;
 
 #[cfg(feature = "circuit")]
 pub use client::{
-    Blinding, Bytes, DataUtxo, Hash, Owner, ProgramOwner, PublicField, PublicFieldKind,
-    PublicHashField, PublicInputLayout, TxContext,
+    Bytes, DataUtxo, Owner, ProgramOwner, PublicField, PublicFieldKind, PublicHashField,
+    PublicInputLayout, TxContext,
 };
 #[cfg(feature = "client")]
 pub use client::{ProgramTransaction, ZkCircuit, ZkProgram};

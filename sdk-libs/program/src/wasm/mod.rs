@@ -73,7 +73,3 @@ fn shielded_address(bytes: &[u8]) -> Result<ShieldedAddress, ClientError> {
         .map_err(|_| ClientErrorKind::SenderLength { found: bytes.len() })?;
     Ok(ShieldedAddress::from_bytes(&bytes).map_err(ClientErrorKind::InvalidSender)?)
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const SCALAR_INPUT_TYPES: &str =
-    "export type Hash = Uint8Array;\nexport type Blinding = Uint8Array;";
