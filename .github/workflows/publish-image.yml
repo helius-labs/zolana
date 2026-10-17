@@ -9,8 +9,9 @@
 # Two channels, because one rule could not fit both jobs:
 #
 #   release  the tag must name the commit (<service>-zolana-<sha12>) and the
-#            commit must be on main. This is photon's original rule, now
-#            available to every service.
+#            commit must be on main or on a release/* branch, which holds a
+#            stack's program-compatible line (release/devnet-c). This is
+#            photon's original rule, now available to every service.
 #   preview  any branch, any tag. Still immutable, still attested; it just does
 #            not claim to be a release.
 #
@@ -44,6 +45,7 @@ on:
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
       - "tools/check-photon-image.sh"
+      - "tools/check-release-source.sh"
       - ".github/workflows/publish-image.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -59,6 +61,7 @@ on:
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
       - "tools/check-photon-image.sh"
+      - "tools/check-release-source.sh"
       - ".github/workflows/publish-image.yml"
   workflow_dispatch:
     inputs:
@@ -117,11 +120,7 @@ jobs:
       - name: Validate release source
         if: startsWith(github.ref, 'refs/tags/photon-zolana-')
         run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "Photon production images must be built from a commit on main" >&2
-            exit 1
-          fi
+          tools/check-release-source.sh "$GITHUB_SHA"
 
           if [[ "$GITHUB_REF" == refs/tags/photon-zolana-* ]]; then
             expected_ref="refs/tags/photon-zolana-${GITHUB_SHA:0:12}"
@@ -216,7 +215,7 @@ jobs:
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
       # Release is the strict channel: the tag must name the commit, and the
-      # commit must be on main. Preview exists because that rule would ban what
+      # commit must be on main or a release/* branch. Preview exists because that rule would ban what
       # we actually do -- every image running on devnet today was built from a
       # feature branch -- and an unenforceable rule gets bypassed rather than
       # followed. A preview build is still attested and still immutable; it just
@@ -247,9 +246,8 @@ jobs:
             exit 1
           fi
 
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::a release must be built from a commit on main" >&2
+          if ! tools/check-release-source.sh "$GITHUB_SHA"; then
+            echo "::error::a release must be built from a commit on main or a release/* branch" >&2
             exit 1
           fi
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
