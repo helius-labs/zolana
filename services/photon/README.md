@@ -104,12 +104,14 @@ capsules and transfer messages client-side.
 
 ### Ring projections
 
-`getRingKeyRegistryEntry` and `getRingKeyRegistryRegisterProof` take the ring
-program, member, and the exact root and append index read from the ring's
-key-registry PDA. `context.slot` is the projection tip, so a client waits until
-it reaches the slot of its own registration.
+`getRingMemberRecord` takes the ring program, member, and the exact root and
+append index read from the ring's member-registry PDA. It returns the member's
+record and path, or `present: false` with the low record that brackets the
+member. `getRingMemberRegistryRoot` returns the projected root, its history slot,
+the append index and the path of the next empty leaf. `context.slot` is the
+projection tip, so a client waits until it reaches the slot of its own write.
 
-One ring projector serves the key registry. It runs alongside SPP indexing with
+One ring projector serves the member registry. It runs alongside SPP indexing with
 its own durable cursor and undo journal and applies confirmed blocks in order.
 On a fork it suspends lookups, rewinds its own rows, and replays canonical
 blocks. SPP tables stay untouched. An SPP indexer fork or archive gap can still
@@ -126,12 +128,11 @@ Use a persistent `--db-url` and run migrations before starting a new binary.
 The default temporary database is discarded on startup. For a fresh ring,
 `--ring-projection-start-slot` may name its creation slot and must repeat the
 stored value on every restart. Do not start after the ring's
-`CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history available from that
+`CREATE_MEMBER_REGISTRY_ROOT` instruction. Keep RPC history available from that
 slot, and back up the database and its undo journal.
 
-The key registry answers `-32070` for an unavailable projection and `-32071`
-for a changed root or cursor. A key-registry lookup answers `-32072` for an unregistered member
-and `-32073` for one already registered.
+The member registry answers `-32070` for an unavailable projection and `-32071`
+for a changed root or cursor.
 
 Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A
 non-contiguous nullifier queue or reconstructed-root mismatch makes the indexer retry the same

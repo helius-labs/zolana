@@ -273,7 +273,7 @@ pub enum ClientError {
     #[error("the prover has no indexer for indexed proofs")]
     ProverIndexerUnconfigured,
 
-    #[error("the ring key registry holds no matching nullifier key for member {member:?}")]
+    #[error("the ring member registry holds no matching nullifier key for member {member:?}")]
     RegistryMemberMissing { member: [u8; 32] },
 
     #[error("invalid indexed proof request")]
