@@ -46,7 +46,7 @@ fn a_deposit_leg_reaches_the_proof() {
     for byte in [53u8, 54] {
         fixture.push(Slot {
             label: "settlement",
-            meta: AccountMeta::new(Pubkey::new_from_array([byte; 32]), false),
+            meta: AccountMeta::new(Pubkey::new_from_array([byte; 32]), byte == 54),
             account: account(1_000_000_000),
         });
     }

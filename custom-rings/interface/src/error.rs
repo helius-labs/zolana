@@ -104,6 +104,7 @@ ring_errors! {
     MemberBatchOrder = 8189 => "member batch is not strictly ascending by member",
     MemberBatchTooLarge = 8190 => "member batch is empty or exceeds the proof width",
     MemberRecordMismatch = 8191 => "member record does not match the signer or the sealed key",
+    MissingOwnerSigner = 8192 => "forwarded owner signer must sign on entry",
 }
 
 impl From<CustomRingError> for ProgramError {

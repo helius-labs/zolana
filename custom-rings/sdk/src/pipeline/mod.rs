@@ -596,10 +596,7 @@ impl Spp {
                     output_tree_id: inputs.output_tree_id,
                     external_data: inputs.external_data.clone(),
                     public_transfers: inputs.public_transfers()?,
-                    signer_pk_hashes: anonymous::anonymous_signers(
-                        inputs.payer,
-                        shape.signer_width(),
-                    )?,
+                    signer_pk_hashes: anonymous::anonymous_signers(shape.signer_width()),
                     allow_dummy_inputs: trees.allow_dummy_inputs,
                     owner,
                     ring_program_id: Some(program),

@@ -62,9 +62,11 @@ type MergeParameters struct {
 	// slot's tree.
 	OutputTreeID *big.Int
 
-	// MintChunks are the hash_bytes_32 chunks of the mint shared by every real
-	// input and the merged output; the circuit derives the asset from them and
-	// encrypts them for the owner.
+	// MintChunks are supplied as the 31+1 byte hash_bytes_32 chunks of the mint.
+	// The circuit derives the asset from them and encrypts them for the owner.
+	// It does not range-check the chunk widths. A different encoding for an
+	// existing input asset would require a second preimage for HashChain, and
+	// the owner decoder rejects noncanonical chunks.
 	MintChunks [2]*big.Int
 
 	// RingProgramID is the policy-ring merge circuit's top-level public

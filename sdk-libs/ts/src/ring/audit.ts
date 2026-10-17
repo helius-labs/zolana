@@ -78,7 +78,7 @@ export interface AuditedRingOutput {
   readonly slotIndex: number;
   readonly outputContext: OutputContext;
   readonly recipientViewingPublicKey: X25519PublicKey;
-  /** `OutputSlot.viewTag`, which the circuit binds to the output's owner. In an anonymous ring, the disclosed owner key. */
+  /** Recipient-delivery view tag. In an anonymous ring, the disclosed owner key. */
   readonly ownerTag: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
@@ -314,6 +314,14 @@ export async function auditRing(
   const viewTag = auditorViewTag(input.auditor.publicKey());
   const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;
+  for (const [name, value] of [
+    ["pageSize", pageSize],
+    ["maxPages", maxPages],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new RingError("RING_RPC", { details: { reason: "invalid scan limit", name, value } });
+    }
+  }
   const origin = new CachedTransactionOrigin(
     input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
   );
@@ -368,7 +376,9 @@ export async function auditRing(
       }
       transactions.push(audited);
     }
-    const next = response.nextCursor;
+    // Photon also returns the last row's cursor on a terminal page. Its
+    // scanned-through frontier, not that row cursor, marks a complete scan.
+    const next = response.scannedThrough === undefined ? response.nextCursor : undefined;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
     if (cursor !== undefined && equal(cursor, next)) {
       throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });

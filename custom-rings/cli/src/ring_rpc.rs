@@ -124,9 +124,10 @@ impl RingRpcClient {
         ring: Address,
         reader: &dyn Signer,
         signature: Signature,
+        event_index: u16,
     ) -> Result<DecryptedTransaction> {
         wait_for("ring rpc to open the transaction", || {
-            find_decrypted(signature, |cursor| {
+            find_decrypted(signature, event_index, |cursor| {
                 let mut request = GetDecryptedTransactionsRequest::read(ring);
                 if let Some(cursor) = cursor {
                     request = request.with_cursor(cursor)?;
@@ -170,9 +171,11 @@ impl RingRpcClient {
     }
 }
 
-/// Walks pages until `signature` appears, a page error is a retry and a repeated cursor an error.
+/// Walks pages until the requested event appears. A page error is a retry.
+/// A repeated cursor is an error.
 fn find_decrypted(
     signature: Signature,
+    event_index: u16,
     mut page: impl FnMut(Option<Base64String>) -> Result<DecryptedTransactionsPage>,
 ) -> Result<Probe<DecryptedTransaction>> {
     let mut cursor = None;
@@ -184,15 +187,15 @@ fn find_decrypted(
         if let Some(item) = read
             .items
             .into_iter()
-            .find(|item| item.tx_signature.0 == signature)
+            .find(|item| item.tx_signature.0 == signature && item.event_index == event_index)
         {
             return Ok(Probe::Ready(item));
         }
         for skipped in read.skipped {
             let reason = skipped.reason;
             ensure!(
-                skipped.tx_signature.0 != signature,
-                "ring rpc could not open {signature}, {reason:?}"
+                skipped.tx_signature.0 != signature || skipped.event_index != event_index,
+                "ring rpc could not open {signature} event {event_index}, {reason:?}"
             );
         }
         let Some(next) = read.cursor else {
@@ -256,6 +259,7 @@ mod tests {
             anonymous: None,
             slot: 1,
             tx_signature: signature.into(),
+            event_index: 0,
             tx_viewing_pk: Vec::new().into(),
             outputs: Vec::new(),
             output_openings: Vec::new(),
@@ -270,7 +274,7 @@ mod tests {
     fn the_page_walk_follows_cursors_to_the_transaction() {
         let wanted = Signature::from([3; 64]);
         let pages = Cell::new(0u8);
-        let found = find_decrypted(wanted, |cursor| {
+        let found = find_decrypted(wanted, 0, |cursor| {
             let index = pages.get();
             pages.set(index + 1);
             assert_eq!(cursor, (index > 0).then(|| vec![index].into()));
@@ -281,18 +285,45 @@ mod tests {
         })
         .expect("walk");
         assert!(matches!(found, Probe::Ready(item) if item.tx_signature.0 == wanted));
-        let absent = find_decrypted(wanted, |_| Ok(page(None, Vec::new()))).expect("walk");
+        let absent = find_decrypted(wanted, 0, |_| Ok(page(None, Vec::new()))).expect("walk");
         assert!(matches!(absent, Probe::NotYet));
+    }
+
+    #[test]
+    fn the_page_walk_matches_the_event_within_a_signature() {
+        let wanted = Signature::from([3; 64]);
+        let mut other = opened(wanted);
+        other.event_index = 1;
+        let mut pages = 0;
+        let found = find_decrypted(wanted, 0, |_| {
+            pages += 1;
+            Ok(if pages == 1 {
+                DecryptedTransactionsPage {
+                    skipped: vec![SkippedTransaction {
+                        slot: 1,
+                        tx_signature: wanted.into(),
+                        event_index: 1,
+                        reason: SkippedReason::InvalidAuditData,
+                    }],
+                    ..page(Some(1), vec![other.clone()])
+                }
+            } else {
+                page(None, vec![opened(wanted)])
+            })
+        })
+        .expect("walk");
+        assert!(matches!(found, Probe::Ready(item) if item.event_index == 0));
+        assert_eq!(pages, 2);
     }
 
     #[test]
     fn a_repeated_cursor_or_an_endless_walk_is_refused() {
         let wanted = Signature::from([3; 64]);
-        let repeated = find_decrypted(wanted, |_| Ok(page(Some(9), Vec::new())));
+        let repeated = find_decrypted(wanted, 0, |_| Ok(page(Some(9), Vec::new())));
         let error = repeated.err().expect("repeated cursor").to_string();
         assert_eq!(error, "the ring rpc repeated its cursor");
         let next = Cell::new(0u8);
-        let endless = find_decrypted(wanted, |_| {
+        let endless = find_decrypted(wanted, 0, |_| {
             next.set(next.get().wrapping_add(1));
             Ok(page(Some(next.get()), Vec::new()))
         });
@@ -304,11 +335,12 @@ mod tests {
     #[test]
     fn a_skipped_transaction_is_final_and_a_failed_page_is_retried() {
         let wanted = Signature::from([3; 64]);
-        let skipped = find_decrypted(wanted, |_| {
+        let skipped = find_decrypted(wanted, 0, |_| {
             Ok(DecryptedTransactionsPage {
                 skipped: vec![SkippedTransaction {
                     slot: 1,
                     tx_signature: wanted.into(),
+                    event_index: 0,
                     reason: SkippedReason::InvalidAuditData,
                 }],
                 ..page(None, Vec::new())
@@ -319,7 +351,7 @@ mod tests {
             .expect("skipped")
             .to_string()
             .contains("could not open"));
-        let failed = find_decrypted(wanted, |_| bail!("down")).expect("retry");
+        let failed = find_decrypted(wanted, 0, |_| bail!("down")).expect("retry");
         assert!(matches!(failed, Probe::Retry(error) if error.to_string() == "down"));
     }
 }

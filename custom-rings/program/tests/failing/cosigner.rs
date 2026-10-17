@@ -7,14 +7,15 @@ use custom_ring_interface::{
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use pinocchio::Address;
 use solana_account::Account;
+use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::InterfaceTransfer;
 
 use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
     clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, custom, deposit_fixture,
-    merge_fixture, rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
-    sol_settlement, spl_settlement, stored, Fixture, Slot, SOL, USDC,
+    merge_fixture, rent_recipient, ring_auth_pda, set_cosigner_data, set_cosigner_fixture,
+    setup_mollusk, sol_settlement, spl_settlement, stored, Fixture, Slot, SOL, USDC,
 };
 use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
@@ -233,6 +234,88 @@ fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixtu
     fixture
 }
 
+fn signed_sol_deposit_settlement() -> Vec<Slot> {
+    let mut group = sol_settlement();
+    group[1].meta.is_signer = true;
+    group
+}
+
+fn spl_deposit_settlement(signed: bool) -> Vec<Slot> {
+    let mut group = spl_settlement(USDC);
+    group[0].meta.pubkey = USDC;
+    group[1].meta.pubkey = Pubkey::new_from_array([55; 32]);
+    group[2].label = "token_authority";
+    group[2].meta.is_signer = signed;
+    group
+}
+
+#[test]
+fn a_sol_deposit_requires_its_source_to_sign_before_the_ring_cpi() {
+    let (mollusk, _) = setup_mollusk();
+    let leg = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
+    gated_transact(leg.clone(), sol_settlement())
+        .expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+    let mut pda_source = gated_transact(leg.clone(), sol_settlement());
+    pda_source.substitute("recipient", ring_auth_pda().0);
+    pda_source.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+    gated_transact(leg, signed_sol_deposit_settlement())
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn an_spl_deposit_requires_its_token_authority_to_sign_before_the_ring_cpi() {
+    let (mollusk, _) = setup_mollusk();
+    let leg = vec![InterfaceTransfer::SplDeposit {
+        amount: 5,
+        spl_interface_bump: 250,
+    }];
+    gated_transact(leg.clone(), spl_deposit_settlement(false))
+        .expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+    let mut pda_authority = gated_transact(leg.clone(), spl_deposit_settlement(false));
+    pda_authority.substitute("token_authority", ring_auth_pda().0);
+    pda_authority.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+    gated_transact(leg, spl_deposit_settlement(true))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn a_later_deposit_group_also_requires_its_source_signature() {
+    let (mollusk, _) = setup_mollusk();
+    let mut groups = sol_settlement();
+    groups.extend(spl_deposit_settlement(false));
+    gated_transact(
+        vec![
+            InterfaceTransfer::SolWithdrawal { amount: 1 },
+            InterfaceTransfer::SplDeposit {
+                amount: 1,
+                spl_interface_bump: 250,
+            },
+        ],
+        groups,
+    )
+    .expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+}
+
+#[test]
+fn an_owner_signer_must_sign_before_the_ring_pda_is_forwarded() {
+    let (mollusk, _) = setup_mollusk();
+    let mut pda_owner = gated_transact(Vec::new(), Vec::new());
+    pda_owner.push(Slot {
+        label: "owner_signer",
+        meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+        account: account(1_000_000_000),
+    });
+    pda_owner.expect_err(&mollusk, custom(CustomRingError::MissingOwnerSigner));
+
+    let mut real_owner = gated_transact(Vec::new(), Vec::new());
+    real_owner.push(Slot {
+        label: "owner_signer",
+        meta: AccountMeta::new_readonly(Pubkey::new_from_array([61; 32]), true),
+        account: account(1_000_000_000),
+    });
+    real_owner.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
 fn with_cosigner(mut fixture: Fixture, account: Account, signed: bool) -> Fixture {
     fixture.set_account("cosigner_pda", account);
     if signed {
@@ -297,7 +380,7 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
     with_cosigner(
         gated_transact(
             vec![InterfaceTransfer::SolDeposit { amount: 5 }],
-            sol_settlement(),
+            signed_sol_deposit_settlement(),
         ),
         scoped,
         false,
@@ -332,7 +415,7 @@ fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
 fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(CoSignScope::WITHDRAWALS, &[(SOL, 10)]);
-    let mut settlements = sol_settlement();
+    let mut settlements = signed_sol_deposit_settlement();
     settlements.extend(sol_settlement());
     let mixed = gated_transact(
         vec![

@@ -157,6 +157,7 @@ fn a_decrypted_page_keeps_its_wire_json() {
         value: DecryptedTransactionsPage {
             items: vec![DecryptedTransaction::new(
                 audited,
+                7,
                 vec![[12; 32]],
                 vec![Address::new_from_array([13; 32])],
                 vec![withdrawal],
@@ -164,6 +165,7 @@ fn a_decrypted_page_keeps_its_wire_json() {
             skipped: vec![SkippedTransaction {
                 slot: 40,
                 tx_signature: Signature::from([14; 64]).into(),
+                event_index: 8,
                 reason: SkippedReason::MissingAuditorMessage,
             }],
             cursor: Some(vec![15].into()),

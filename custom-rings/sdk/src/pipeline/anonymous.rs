@@ -4,7 +4,7 @@
 use custom_ring_interface::RingMode;
 use solana_address::Address;
 use zolana_client::{AsyncRpc, Shape};
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity, SOLANA_OWNER_TAG};
+use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
 use zolana_keypair::{Curve, ShieldedAddress, SigningKey};
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_transaction::instructions::transact::SppProofInputs;
@@ -142,11 +142,8 @@ pub(crate) fn anonymous_disclosure(
     })
 }
 
-/// Only the payer signs in public, the hidden owner signs inside the proof.
-pub(super) fn anonymous_signers(payer: Address, width: usize) -> Result<Vec<[u8; 32]>, RingError> {
-    let mut signers = vec![[0; 32]; width];
-    *signers
-        .first_mut()
-        .ok_or(RingError::PolicyShapeUnsupported)? = solana_owner_identity(payer.as_array())?;
-    Ok(signers)
+/// The hidden owner signs inside the proof. SPP excludes the fee payer from
+/// the signer vector on owner-signed rails, so every public slot is zero.
+pub(super) fn anonymous_signers(width: usize) -> Vec<[u8; 32]> {
+    vec![[0; 32]; width]
 }

@@ -32,7 +32,7 @@ import {
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
-import { auditRingTransaction } from "../src/ring/audit.js";
+import { auditRing, auditRingTransaction } from "../src/ring/audit.js";
 import { recoverRingMemberNotes } from "../src/ring/recover.js";
 import { Utxo } from "../src/transaction/utxo.js";
 import { ringAuditReader, transactionsPage } from "./helpers/clients.js";
@@ -658,6 +658,63 @@ describe("anonymous ring audit", () => {
     });
     expect(none.notes).toEqual([]);
     expect(none.unopened).toEqual([]);
+  });
+
+  it("completes recovery at the page cap when Photon reports a terminal frontier", async () => {
+    const indexed = transaction();
+    let taggedReads = 0;
+    const client = {
+      ...ringAuditReader({
+        getShieldedTransactionsByTags: async (request) => {
+          if (request.ringProgramId !== undefined) return transactionsPage();
+          taggedReads++;
+          return transactionsPage({
+            transactions: [indexed],
+            nextCursor: Uint8Array.of(1),
+            scannedThrough: Uint8Array.of(2),
+          });
+        },
+      }),
+      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+    };
+    const recovered = await recoverRingMemberNotes({
+      client,
+      ringProgramId: RING,
+      auditor,
+      source,
+      nullifierKey: member.nullifierKey(),
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      resolveTreeId: () => 0,
+      maxPages: 1,
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (record: IndexedShieldedTransaction) => record,
+      },
+    });
+    expect(taggedReads).toBe(1);
+    expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([42n]);
+    expect(recovered.unopened).toEqual([]);
+  });
+
+  it("rejects invalid scan bounds before returning an empty audit", async () => {
+    const client = ringAuditReader({
+      getShieldedTransactionsByTags: async () => {
+        throw new Error("invalid bounds reached the indexer");
+      },
+    });
+    for (const limits of [
+      { maxPages: 0 },
+      { maxPages: -1 },
+      { maxPages: 1.5 },
+      { pageSize: 0 },
+      { pageSize: -1 },
+      { pageSize: Number.POSITIVE_INFINITY },
+    ]) {
+      await expect(
+        auditRing({ client, auditor, ringProgramId: RING, assets: new AssetRegistry(), ...limits }),
+      ).rejects.toThrow("RING_RPC");
+    }
   });
 });
 

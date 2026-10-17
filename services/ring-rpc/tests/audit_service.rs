@@ -290,6 +290,7 @@ struct StaticSource {
     /// Confirmed deposits and merges do not carry transfer auditor messages.
     confirmed_events: HashMap<(Signature, u16), zolana_ring_client::ConfirmedEvent>,
     next_cursor: Option<Vec<u8>>,
+    scanned_through: Option<Vec<u8>>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
     configs: HashMap<Address, RingConfiguration>,
@@ -349,7 +350,7 @@ impl TransactionSource for StaticSource {
             },
             transactions,
             next_cursor: self.next_cursor.clone(),
-            scanned_through: None,
+            scanned_through: self.scanned_through.clone(),
             output_tree_id: Some(TREE_ID),
         };
         async move { Ok(response) }
@@ -638,6 +639,7 @@ impl Fixture {
             origins: HashMap::new(),
             confirmed_events: HashMap::new(),
             next_cursor: Some(vec![7, 7]),
+            scanned_through: None,
             configs: HashMap::from([(
                 RING,
                 RingConfiguration {
@@ -755,6 +757,54 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
             ),
         ]
     );
+}
+
+#[tokio::test]
+async fn a_terminal_indexer_page_has_no_next_audit_cursor() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.scanned_through = Some(vec![9, 9]);
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = page();
+    let request = auth(&delegate());
+    let response = service
+        .read(AuditRead {
+            auth: &request,
+            page: &page,
+        })
+        .await
+        .expect("read");
+
+    assert_eq!(response.value.items.len(), 1);
+    assert_eq!(response.value.cursor, None);
+}
+
+#[tokio::test]
+async fn events_in_one_signature_keep_distinct_ordinals() {
+    let fixture = Fixture::new();
+    let mut second = fixture.audited.clone();
+    second.event_index = Some(1);
+    let source = fixture
+        .source()
+        .with_transactions(vec![fixture.audited.clone(), second]);
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = page();
+    let request = auth(&delegate());
+    let response = service
+        .read(AuditRead {
+            auth: &request,
+            page: &page,
+        })
+        .await
+        .expect("read");
+
+    assert_eq!(response.value.items.len(), 2);
+    assert_eq!(
+        response.value.items[0].tx_signature,
+        response.value.items[1].tx_signature
+    );
+    assert_eq!(response.value.items[0].event_index, 0);
+    assert_eq!(response.value.items[1].event_index, 1);
 }
 
 #[tokio::test]
@@ -1251,6 +1301,25 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     for cursor in [Vec::new(), vec![1; 257]] {
         let mut source = fixture.source();
         source.next_cursor = Some(cursor);
+        let service = fixture.hub(source).service(None).expect("service");
+        let request = auth(&signer);
+        assert!(matches!(
+            service
+                .read(AuditRead {
+                    auth: &request,
+                    page: &page(),
+                })
+                .await,
+            Err(RingRpcError::InvalidIndexerResponse)
+        ));
+    }
+
+    for (transactions, scanned_through) in [
+        (vec![fixture.audited.clone()], Vec::new()),
+        (vec![fixture.audited.clone(); 100], vec![9]),
+    ] {
+        let mut source = fixture.source().with_transactions(transactions);
+        source.scanned_through = Some(scanned_through);
         let service = fixture.hub(source).service(None).expect("service");
         let request = auth(&signer);
         assert!(matches!(

@@ -26,7 +26,7 @@ Audited deposits also prove that the auditor's record matches the deposit that s
 
 Merges now prove an encrypted copy of the merged amount and mint too. The owner or registered-key recovery can rebuild the output even when a merger includes an input they never received. They decrypt with the nullifier key and check the resulting commitment. This is separate from ordinary recipient delivery. Merge proofs have 52 slots. A custom-ring merge fits at most 50 published inputs. Extra accounts can lower that cap. SDKs check the serialized transaction before proving. All real inputs must have the same committed ring data hash. The output inherits it. Merging cannot clear or replace that commitment.
 
-Paying fees no longer adds a signer to the ownership proof. An owner who also pays still appears explicitly among owner signers. The ring also checks that the forwarded depositor or payer signed before adding its own PDA signature.
+Paying fees no longer adds a signer to the ownership proof. An owner who also pays still appears explicitly among owner signers. Anonymous transfers have an empty public signer vector and prove the hidden owner's signature instead. Before adding its PDA signature, the ring checks the payer, every deposit source and every public owner signer. A caller cannot use the ring PDA as a substitute signature.
 
 Policy rules screen senders, recipients and assets. For example, a recipient must be approved and a sender must not be frozen. Amount thresholds can waive a check. Outflow thresholds can require a co-signer.
 
@@ -143,6 +143,8 @@ Transaction size is the other limit. A V1 transaction has 4,096 bytes. With ordi
 These pre-427 serializer measurements include the priority-fee header. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
 
 Before PR #427, all 51 specialized policy keys passed full live settlement and auditor checks. This covers the 48 capacity keys and three exact 2×3 keys. Those fixtures consume 678k–757k CU across both verifiers and SPP settlement. [Proof costs](proof-costs.md) separates the rails and records the tested byte sizes.
+
+After PR #427, nine anonymous and five delegate specialized cases have fresh valid-proof settlement coverage. The other 37 specialized cases still need the ordinary settlement keys from the new setup. The three regenerated ring-merge keys have settled 2, 24 and 50 real inputs. A ring merge encrypts its output for owner recovery, not direct auditor reading. An audit-only ring's auditor cannot open that output from the merge ciphertext alone.
 
 The 8-output, 16-output and 24-input-or-larger capacities are excluded. No keys are generated for them. More signers, extra data or extra instructions can also make a supported capacity too large. The 64-account limit still applies. Anonymous and delegate shape sets also remain bounded by their settlement rails.
 

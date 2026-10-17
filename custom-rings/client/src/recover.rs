@@ -65,7 +65,7 @@ struct NoteDataHashes {
 /// Verified unspent notes with the coverage left unresolved.
 pub struct RecoveredNotes {
     pub utxos: Vec<WalletUtxo>,
-    /// Audited or merge commitments without a verified opening or a confirmed spend.
+    /// Commitments that cannot yet become spendable notes, including unknown mints.
     pub unopened: Vec<[u8; 32]>,
     /// Tagged deposits whose ownership and spentness are unknown.
     pub unsupported_deposits: Vec<[u8; 32]>,
@@ -372,10 +372,18 @@ impl<'a> MemberRecovery<'a> {
                 if opening.owner_hash != owner_hash {
                     continue;
                 }
+                let asset = Address::new_from_array(output.asset);
+                // The deposit proof binds the raw mint. Verify its note commitment
+                // even when the local asset registry has not learned its ID yet.
+                let mint = match assets.mint(&asset) {
+                    Ok(mint) => Some(mint),
+                    Err(TransactionError::UnknownMint(_)) => None,
+                    Err(error) => return Err(error.into()),
+                };
                 let utxo = Utxo {
                     ring_program_id: Some(ring),
                     ..self.source.utxo(
-                        assets.mint(&Address::new_from_array(output.asset))?,
+                        mint.unwrap_or_else(|| zolana_transaction::Mint::new(asset, 0)),
                         output.amount,
                         *opening.blinding,
                     )
@@ -391,7 +399,12 @@ impl<'a> MemberRecovery<'a> {
                     return Err(AuditError::DepositOpeningMismatch);
                 }
                 found.seen.insert(context.hash);
-                found.candidates.push(note);
+                if mint.is_some() {
+                    found.candidates.push(note);
+                } else {
+                    found.unknown_mints.insert(asset);
+                    found.unresolved.push((context.hash, note.nullifier));
+                }
             }
         }
         Ok(unsupported)

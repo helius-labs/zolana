@@ -112,6 +112,7 @@ export const RingProgramError = Object.freeze({
   memberBatchOrder: 8189,
   memberBatchTooLarge: 8190,
   memberRecordMismatch: 8191,
+  missingOwnerSigner: 8192,
 } as const);
 
 export class RingError extends Error {

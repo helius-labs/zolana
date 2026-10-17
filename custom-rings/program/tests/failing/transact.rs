@@ -9,6 +9,7 @@
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{tag, CustomRingProof, DisclosureShape, PlainGroth16Proof};
 use solana_account::Account;
+use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
@@ -29,7 +30,7 @@ use crate::common::{
     account, anonymous_config_account, audit_ix_data, auditor_message_len, auditor_pubkey,
     authority, config_account_in_mode, disclosed_message_len, encode_transact,
     initialized_config_account, legacy_auditor_pubkey, limit_policy_config_account, policy_ix_data,
-    setup_mollusk, transact_fixture, Fixture,
+    setup_mollusk, transact_fixture, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -568,10 +569,20 @@ fn anonymous_transact(inputs: u8, outputs: u8) -> TransactIxData {
 }
 
 fn anonymous_fixture(data: TransactIxData) -> Fixture {
-    transact_fixture(
-        anonymous_config_account(),
-        instruction_data(bogus_proof(), data),
-    )
+    anonymous_fixture_with_config(data, anonymous_config_account())
+}
+
+fn anonymous_fixture_with_config(data: TransactIxData, config: Account) -> Fixture {
+    let input_count = data.inputs.len();
+    let mut fixture = transact_fixture(config, instruction_data(bogus_proof(), data));
+    for index in 0..input_count {
+        fixture.push(Slot {
+            label: "nullifier_pda",
+            meta: AccountMeta::new(Pubkey::new_from_array([80 + index as u8; 32]), false),
+            account: account(1_000_000_000),
+        });
+    }
+    fixture
 }
 
 #[test]
@@ -593,7 +604,7 @@ fn an_anonymous_ring_refuses_every_other_rail_exactly() {
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     let mut hidden = anonymous_transact(2, 2);
     hidden.messages = vec![auditor_message(auditor_message_len(2))];
-    let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), hidden));
+    let fixture = anonymous_fixture_with_config(hidden, valid_config());
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
 

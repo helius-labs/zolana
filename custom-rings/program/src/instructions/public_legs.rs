@@ -8,6 +8,8 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
+use super::shared::check_funding_signer;
+
 const SOL: Address = Address::new_from_array([0; 32]);
 const MAX_LEGS: usize = if MAX_INTERFACE_TRANSFERS > MAX_DEPOSIT_ASSETS {
     MAX_INTERFACE_TRANSFERS
@@ -40,6 +42,7 @@ impl<'a> PublicLegs<'a> {
     };
 
     /// `settlements` are the trailing settlement groups of a transact's forwarded list.
+    /// Check each deposit's actual funding principal before the ring PDA signs the SPP CPI.
     #[inline(never)]
     pub fn from_transact(
         legs: &[InterfaceTransfer],
@@ -55,6 +58,11 @@ impl<'a> PublicLegs<'a> {
             let group = settlements
                 .get(offset..offset + leg.settlement_account_count())
                 .ok_or(invalid)?;
+            match leg {
+                InterfaceTransfer::SolDeposit { .. } => check_funding_signer(group, 1)?,
+                InterfaceTransfer::SplDeposit { .. } => check_funding_signer(group, 2)?,
+                _ => {}
+            }
             let mint = match leg.mint_account_position() {
                 Some(position) => group.get(position).ok_or(invalid)?.address(),
                 None => &SOL,

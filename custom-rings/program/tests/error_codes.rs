@@ -73,6 +73,7 @@ fn error_codes_are_stable() {
         (MemberBatchOrder as u32, 8189),
         (MemberBatchTooLarge as u32, 8190),
         (MemberRecordMismatch as u32, 8191),
+        (MissingOwnerSigner as u32, 8192),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +153,7 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | InvalidMergeDisclosure
         | MemberBatchOrder
         | MemberBatchTooLarge
-        | MemberRecordMismatch => {}
+        | MemberRecordMismatch
+        | MissingOwnerSigner => {}
     }
 }

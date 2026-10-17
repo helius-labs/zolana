@@ -358,7 +358,8 @@ fn read_back(ctx: &Context, reader: &Keypair, signature: Signature) -> Result<()
     ctx.wait_for_indexed(signature)?;
     let opened = ctx
         .ring_rpc()
-        .wait_for_decrypted(ctx.ring.program_id(), reader, signature)
+        // This submission contains one ring operation, so its SPP event is index zero.
+        .wait_for_decrypted(ctx.ring.program_id(), reader, signature, 0)
         .context("the ring rpc did not open the transfer")?;
     let heading = format!("auditor sees slot {} at {signature}", opened.slot);
     ui::heading(icon::AUDITOR, &heading);

@@ -232,10 +232,9 @@ impl IndexedTransferPreparation<'_> {
                 .hash()?;
         let public_transfers = transaction.public_transfers()?;
         let signers = if hidden_owner.is_some() {
-            let mut signers = vec![[0; 32]; shape.signer_width()];
-            *signers.first_mut().ok_or_else(super::invalid)? =
-                zolana_hasher::primitives::solana_owner_identity(transaction.payer.as_array())?;
-            signers
+            // SPP excludes the fee payer from owner-signed rail signer vectors.
+            // The owner signs privately and no public signer authorizes its inputs.
+            vec![[0; 32]; shape.signer_width()]
         } else if authority_rail {
             vec![zolana_hasher::primitives::solana_owner_identity(
                 transaction.payer.as_array(),
@@ -833,11 +832,6 @@ mod tests {
                     )
                 }
                 3 => {
-                    let mut signers = vec![[0; 32]; shape.signer_width()];
-                    signers[0] = zolana_hasher::primitives::solana_owner_identity(
-                        transaction.payer.as_array(),
-                    )
-                    .unwrap();
                     let result = crate::prover::transact::AnonymousRingEd25519Prover {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
@@ -845,7 +839,7 @@ mod tests {
                         output_tree_id: transaction.output_tree_id,
                         external_data: transaction.external_data.clone(),
                         public_transfers,
-                        signer_pk_hashes: signers,
+                        signer_pk_hashes: vec![[0; 32]; shape.signer_width()],
                         allow_dummy_inputs,
                         owner: &owner.signing_key,
                         ring_program_id: ring,
@@ -921,16 +915,7 @@ mod tests {
             signers.len(),
             transaction.check_shape().unwrap().signer_width()
         );
-        assert!(signers[1..]
-            .iter()
-            .all(|signer| signer == &hex_field(&[0; 32])));
-        assert_eq!(
-            witness["signerPkHashes"][0],
-            hex_field(
-                &zolana_hasher::primitives::solana_owner_identity(transaction.payer.as_array())
-                    .unwrap()
-            )
-        );
+        assert!(signers.iter().all(|signer| signer == &hex_field(&[0; 32])));
         assert_eq!(prepared.request.data.public_inputs.len(), 19);
         let digest = zolana_transaction::instructions::transact::transact_message_hash(
             &prepared.private_tx_hash(),

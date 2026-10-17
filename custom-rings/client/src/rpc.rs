@@ -246,6 +246,8 @@ pub struct DecryptedTransactionsPage {
 pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
+    /// The ring event within a Solana transaction. A signature can contain several events.
+    pub event_index: u16,
     /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
     /// Optional recipient payload metadata, never the authoritative inventory of notes.
@@ -371,6 +373,7 @@ pub struct DecryptedOutput {
 pub struct SkippedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
+    pub event_index: u16,
     pub reason: SkippedReason,
 }
 
@@ -457,6 +460,7 @@ impl DecryptedTransaction {
     /// The opened values with the indexed nullifiers and the transaction's public legs.
     pub fn new(
         audited: AuditedTransaction,
+        event_index: u16,
         nullifiers: Vec<[u8; 32]>,
         signers: Vec<Address>,
         withdrawals: Vec<RingWithdrawal>,
@@ -479,6 +483,7 @@ impl DecryptedTransaction {
         Self {
             slot: audited.slot,
             tx_signature: audited.tx_signature.into(),
+            event_index,
             tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
             outputs: outputs.collect(),
             output_openings: audited

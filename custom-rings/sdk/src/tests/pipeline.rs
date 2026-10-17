@@ -726,6 +726,19 @@ fn anonymous() -> CustomRingConfig {
     }
 }
 
+#[test]
+fn anonymous_signer_slots_exclude_the_fee_payer_for_every_shape() {
+    for shape in zolana_client::SPP_SUPPORTED_SHAPES {
+        if shape.is_anonymous_ring_ed25519() {
+            assert_eq!(
+                anonymous::anonymous_signers(shape.signer_width()),
+                vec![[0; 32]; shape.signer_width()],
+                "{shape:?}"
+            );
+        }
+    }
+}
+
 fn owner_transfer(
     sender: &ShieldedKeypair,
     transaction: ConfidentialTransaction,

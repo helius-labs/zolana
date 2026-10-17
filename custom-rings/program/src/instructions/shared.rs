@@ -166,8 +166,8 @@ pub(crate) fn cpi_spp<A: AsRef<AccountView>>(
     )
 }
 
-/// Require the SPP funding account to have signed before the ring raises its PDA.
-/// Otherwise a caller could name `ring_auth` as payer and gain its CPI signature.
+/// Require an SPP funding principal to have signed before the ring raises its PDA.
+/// The payer and every public deposit source must pass this check.
 pub(crate) fn check_funding_signer(accounts: &[AccountView], index: usize) -> ProgramResult {
     let funder = accounts
         .get(index)

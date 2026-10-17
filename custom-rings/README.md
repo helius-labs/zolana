@@ -432,7 +432,8 @@ counts. Delegate builders opt in with Rust's `.with_compact_padding()` or
 TypeScript's `compactPadding: true`. Defaults retain padded counts. Anonymous
 transfers allow a compact output suffix but reject compact inputs and caches.
 SPP still receives a full padded witness. Before PR #427, all 51 specialized policy keys passed live settlement
-and auditor recovery checks. The combined build needs a fresh run after its settlement-key changes.
+and auditor recovery checks. After PR #427, nine anonymous and five delegate cases passed again with valid proofs.
+The other 37 specialized cases still need matching ordinary settlement keys.
 
 The complete V1 transaction must fit 4,096 bytes and 64 accounts. Capacities
 with 8 or 16 outputs, or at least 24 inputs, are excluded. Even 16×4 can
@@ -554,11 +555,12 @@ the key only to a request the upgrade authority signs while no config exists,
 so `init` needs that keypair and the program must be deployed first. `init`
 creates the config under the upgrade authority and hands it to
 `config_authority_keypair` when that key differs. Input owners authorize the
-spend, any signer may pay the transaction fee. The forwarder rejects a
-depositor or payer that did not sign the instruction
-(`MissingFundingSigner`): it raises every `ring_auth` occurrence to a
-signer for the SPP call, so a caller naming `ring_auth` there would spend
-what that PDA controls. Keys and `.env` belong in the
+spend, any signer may pay the transaction fee. The forwarder requires the
+payer, each SOL deposit source, each SPL token authority and each owner
+signer to sign the original instruction. It rejects missing funding signatures
+with `MissingFundingSigner` and missing owner signatures with
+`MissingOwnerSigner`. The ring PDA then signs only the authorized SPP call.
+Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in

@@ -319,6 +319,8 @@ export interface DecryptedRingWithdrawal {
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
+  /** Ordinal of the confirmed SPP event within this Solana transaction. */
+  readonly eventIndex: number;
   readonly txViewingPublicKey: X25519PublicKey;
   /** Optional recipient delivery metadata, never a complete accounting of disclosed notes. */
   readonly outputs: readonly DecryptedRingOutput[];
@@ -345,6 +347,7 @@ export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";
 export interface SkippedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
+  readonly eventIndex: number;
   readonly reason: SkippedReason;
 }
 
@@ -699,6 +702,7 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
+    eventIndex: u16(wire["eventIndex"], "eventIndex"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
     ...(anonymous
       ? { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }
@@ -803,6 +807,13 @@ function u32(value: unknown, path: string): number {
   return Number(decoded);
 }
 
+/** An SPP event ordinal cannot exceed the indexer's u16 wire range. */
+function u16(value: unknown, path: string): number {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffffn) throw invalid(path);
+  return Number(decoded);
+}
+
 function u64(value: unknown, path: string): bigint {
   const decoded = integer(value, path);
   if (decoded < 0n || decoded > 0xffff_ffff_ffff_ffffn) throw invalid(path);
@@ -831,6 +842,7 @@ function decodeSkipped(wire: Record<string, unknown>): SkippedRingTransaction {
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
+    eventIndex: u16(wire["eventIndex"], "eventIndex"),
     reason,
   });
 }

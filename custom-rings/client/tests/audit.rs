@@ -810,7 +810,7 @@ fn recipient_delivery_cannot_erase_or_replace_verified_disclosure() {
         assert_eq!(audited.outputs[0].slot_index, 1);
         assert_eq!(audited.undecryptable_slots, vec![0]);
         let wire =
-            zolana_ring_client::rpc::DecryptedTransaction::new(audited, vec![], vec![], vec![]);
+            zolana_ring_client::rpc::DecryptedTransaction::new(audited, 0, vec![], vec![], vec![]);
         assert_eq!(wire.output_openings.len(), 2);
         assert_eq!(wire.output_openings[0].amount, field(42).into());
         assert_eq!(

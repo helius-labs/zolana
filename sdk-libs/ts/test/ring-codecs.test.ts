@@ -1798,6 +1798,7 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
+                  eventIndex: 3,
                   txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputOpenings: [auditOpeningWire(0n), auditOpeningWire(7n, RING)],
                   outputs: [
@@ -1820,6 +1821,7 @@ describe("ring read request", () => {
                 {
                   slot: 7,
                   txSignature: signatureOf(2),
+                  eventIndex: 4,
                   reason: "invalidAuditData",
                 },
               ],
@@ -1843,8 +1845,10 @@ describe("ring read request", () => {
     expect(page.slot).toBe(9n);
     expect(page.blockTime).toBe(1_700_000_000n);
     expect(page.cursor).toEqual(Uint8Array.of(1, 2, 3));
+    expect(page.items[0]?.eventIndex).toBe(3);
+    expect(page.skipped[0]?.eventIndex).toBe(4);
     expect(page.skipped).toEqual([
-      { slot: 7n, signature: signatureOf(2), reason: "invalidAuditData" },
+      { slot: 7n, signature: signatureOf(2), eventIndex: 4, reason: "invalidAuditData" },
     ]);
     const item = page.items[0];
     expect(item?.slot).toBe(8n);
@@ -1899,6 +1903,7 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
+                  eventIndex: 0,
                   txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputOpenings: [auditOpeningWire(7n)],
                   outputs: [
@@ -1940,6 +1945,7 @@ describe("ring read request", () => {
     anonymous?: unknown,
     openings: unknown = [],
     outputs: readonly Record<string, unknown>[] = [],
+    eventIndex: unknown = 0,
   ) =>
     (async () =>
       new Response(
@@ -1953,6 +1959,7 @@ describe("ring read request", () => {
                 {
                   slot: 8,
                   txSignature: signatureOf(1),
+                  eventIndex,
                   txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputOpenings: openings,
                   outputs,
@@ -2014,6 +2021,14 @@ describe("ring read request", () => {
     }).getDecryptedTransactions({ ringProgramId: RING, signer });
     expect(valid.items[0]?.outputOpenings[0]?.amount).toEqual(bigIntBytes(7n, 32));
     expect(valid.items[0]?.outputs).toEqual([]);
+    for (const eventIndex of [null, -1, 65536, 1.5]) {
+      await expect(
+        new RingRpc("http://ring.example", {
+          fetch: withdrawalPage([], undefined, [opening], [], eventIndex),
+          allowInsecureHttp: true,
+        }).getDecryptedTransactions({ ringProgramId: RING, signer }),
+      ).rejects.toMatchObject({ code: "RING_RPC" });
+    }
     const metadata = {
       slotIndex: 0,
       recipientViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),

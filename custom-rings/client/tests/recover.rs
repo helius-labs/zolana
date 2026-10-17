@@ -804,6 +804,52 @@ async fn audited_deposit_recovery_preserves_committed_data_hashes() {
 }
 
 #[tokio::test]
+async fn unknown_audited_deposit_mints_remain_unresolved_without_hiding_other_notes() {
+    let fixture = Fixture::new();
+    let mint = Mint::new(Address::new_from_array([71; 32]), 2);
+    let (known, known_tx) = fixture.deposit(fixture.output(4), 2);
+    let mut unknown_output = fixture.output(9);
+    unknown_output.asset = mint;
+    let (unknown, unknown_tx) = fixture.deposit(unknown_output, 7);
+    let mut history = History {
+        transactions: vec![known_tx, unknown_tx.clone()],
+        ..Default::default()
+    };
+
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert_eq!(recovered.utxos, vec![known.clone()]);
+    assert_eq!(recovered.unopened, vec![unknown.utxo_hash]);
+    assert!(recovered.unsupported_deposits.is_empty());
+    assert_eq!(recovered.unknown_mints, [mint.asset].into_iter().collect());
+    assert!(history
+        .queried
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|batch| batch.contains(&unknown.nullifier)));
+
+    let assets = AssetRegistry::new([(mint.asset_id, mint.asset)]).unwrap();
+    let recovered = fixture
+        .recovery()
+        .run(&history, &history, &assets)
+        .await
+        .unwrap();
+    assert_eq!(recovered.utxos, vec![known.clone(), unknown.clone()]);
+    assert!(recovered.unopened.is_empty());
+    assert!(recovered.unknown_mints.is_empty());
+
+    let mut spent = unknown_tx;
+    spent.tx_signature = fixture.signature();
+    spent.proofless = false;
+    spent.nullifiers = vec![unknown.nullifier];
+    spent.output_slots.clear();
+    history.transactions.push(spent);
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert_eq!(recovered.utxos, vec![known]);
+    assert!(recovered.unopened.is_empty());
+}
+
+#[tokio::test]
 async fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
     let fixture = Fixture::new();
     let (first, first_tx) = fixture.deposit(fixture.output(4), 2);

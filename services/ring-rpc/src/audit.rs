@@ -252,6 +252,7 @@ impl<S: TransactionSource> AuditService<S> {
             match result {
                 Ok(opened) => items.push(DecryptedTransaction::new(
                     opened,
+                    event_index,
                     tx.nullifiers,
                     origin.signers,
                     origin.withdrawals,
@@ -259,6 +260,7 @@ impl<S: TransactionSource> AuditService<S> {
                 Err(reason) => skipped.push(SkippedTransaction {
                     slot: tx.slot,
                     tx_signature: tx.tx_signature.into(),
+                    event_index,
                     reason: match reason {
                         AuditError::MissingAuditorMessage => SkippedReason::MissingAuditorMessage,
                         _ => SkippedReason::InvalidAuditData,
@@ -274,7 +276,12 @@ impl<S: TransactionSource> AuditService<S> {
             value: DecryptedTransactionsPage {
                 items,
                 skipped,
-                cursor: response.next_cursor.map(Into::into),
+                // Photon reports the last matched row even on a terminal page.
+                // A scan frontier means there is no next page to fetch.
+                cursor: response
+                    .next_cursor
+                    .filter(|_| response.scanned_through.is_none())
+                    .map(Into::into),
             },
         })
     }
@@ -295,8 +302,12 @@ fn validate_indexer_response(
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
     let next = response.next_cursor.as_deref();
+    let frontier = response.scanned_through.as_deref();
     if response.transactions.len() > page.limit.get() as usize
         || next.is_some_and(|cursor| !cursor_in_bounds(cursor) || page.cursor() == Some(cursor))
+        || frontier.is_some_and(|cursor| {
+            !cursor_in_bounds(cursor) || response.transactions.len() >= page.limit.get() as usize
+        })
     {
         return Err(RingRpcError::InvalidIndexerResponse);
     }

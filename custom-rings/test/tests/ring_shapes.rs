@@ -449,3 +449,47 @@ fn exact_two_by_three_policy_keys_settle_for_every_mode() -> Result<()> {
     }
     Ok(())
 }
+
+/// The anonymous settlement keys still match the post-427 program. Keep these
+/// cases runnable while ordinary owner-signed keys await publication.
+#[test]
+fn anonymous_shapes_settle_with_current_keys() -> Result<()> {
+    settle_matching_key_mode(Mode::Anonymous, 8)
+}
+
+/// The ring-authority settlement keys also match the post-427 program.
+#[test]
+fn delegate_shapes_settle_with_current_keys() -> Result<()> {
+    settle_matching_key_mode(Mode::Delegate, 4)
+}
+
+fn settle_matching_key_mode(mode: Mode, expected_capacities: usize) -> Result<()> {
+    let program = Keypair::new().pubkey();
+    let env = setup_with_extra_rings(&[program])?;
+    let ring = GovernedRing {
+        env: &env,
+        ring: CustomRing::new(program),
+        mode,
+        auditor: X25519Secret::new(),
+        delegate: Keypair::new(),
+    };
+    ring.configure()?;
+    let mut covered = 0;
+    for shape in SPP_SUPPORTED_SHAPES {
+        if !policy_shape_supported(
+            shape.n_inputs(),
+            shape.n_outputs(),
+            mode.anonymous(),
+            mode.delegate(),
+        ) {
+            continue;
+        }
+        for subtree in [false, true] {
+            ring.transfer(shape, subtree)?;
+            covered += 1;
+        }
+    }
+    assert_eq!(covered, expected_capacities);
+    ring.transfer_with_outputs(Shape::IN2_OUT4, 3, true)?;
+    Ok(())
+}

@@ -151,6 +151,7 @@ impl Rail {
 
         let spp_accounts = rest.remaining_mut()?;
         validate_spp_program(spp_accounts)?;
+        check_funding_signer(spp_accounts, 0)?;
         if anonymous {
             check_anonymous_settlement(transact, spp_accounts)?;
         }
@@ -164,6 +165,9 @@ impl Rail {
             .checked_sub(settlement_len)
             .and_then(|start| spp_accounts.get(start..))
             .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+        if self == Rail::Member {
+            check_owner_signers_on_entry(transact, spp_accounts, settlement_len)?;
+        }
         let legs = PublicLegs::from_transact(&transact.interface_transfers, settlements)?;
         let demanded = if approval_required {
             Some(approval_cosigner(program_id, controls.cosigner_pda)?)
@@ -278,7 +282,6 @@ impl Rail {
                 .serialize()
                 .map_err(|_| CustomRingError::InvalidInstructionData)?,
         );
-        check_funding_signer(spp_accounts, 0)?;
         cpi_spp(program_id, spp_accounts, &instruction_data)
     }
 
@@ -313,6 +316,30 @@ impl Rail {
         };
         Ok((input.hash()?, verifying_key))
     }
+}
+
+/// SPP reads the owner signer run after its fixed prefix, trees and nullifier
+/// accounts. The ring PDA must not become an owner signer only in the CPI.
+fn check_owner_signers_on_entry(
+    transact: &TransactIxData,
+    spp_accounts: &[AccountView],
+    settlement_len: usize,
+) -> ProgramResult {
+    let first = 5usize
+        .checked_add(transact.tree_contexts.len())
+        .and_then(|count| count.checked_add(transact.inputs.len()))
+        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+    let last = spp_accounts
+        .len()
+        .checked_sub(settlement_len)
+        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+    let signers = spp_accounts
+        .get(first..last)
+        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+    if signers.iter().any(|account| !account.is_signer()) {
+        return Err(CustomRingError::MissingOwnerSigner.into());
+    }
+    Ok(())
 }
 
 /// Copied out, no account borrow may live across the SPP CPI.

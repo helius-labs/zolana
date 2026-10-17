@@ -163,6 +163,10 @@ Changed
 
 Fixed
 
+- `RingProgramError.missingOwnerSigner` reports an owner account that did not sign before the ring forwards a transfer, and public deposit sources must also sign before the ring PDA signs for SPP.
+- `RingRpc.getDecryptedTransactions` now includes the SPP event index on opened and skipped records, so separate ring events in one Solana transaction have distinct identities.
+- `auditRing` now recognizes a terminal scan at the page limit even when Photon also returns a row cursor, so `recoverRingMemberNotes` does not report a complete history as incomplete, and invalid page limits fail instead of returning an empty audit.
+
 - `syncWallet` and custom ring recovery could not recover a merge output whose
   merge folded in a note the wallet never received, which left the wallet's own
   notes in that merge unspendable, and now recover it from the merge

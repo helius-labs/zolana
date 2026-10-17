@@ -78,8 +78,8 @@ func hideInput(t testing.TB, a *testAssignment, i int, identity *big.Int) {
 	a.Inputs[i].OwnerPkHash = 0
 }
 
-// ed25519RingAssignment spends ring notes of identity into ring outputs. The
-// payer is the only public signer.
+// ed25519RingAssignment spends ring notes of identity into ring outputs. SPP
+// excludes the fee payer from the owner-signer vector, which is all zero here.
 func ed25519RingAssignment(t testing.TB, shape protocol.Shape, identity *big.Int) *testAssignment {
 	t.Helper()
 	a := buildCircuitAssignment(t, shape)
@@ -90,7 +90,6 @@ func ed25519RingAssignment(t testing.TB, shape protocol.Shape, identity *big.Int
 		a.Outputs[i].Utxo.RingProgramID = a.RingProgramID
 	}
 	a.SignerPkHashes = asFrontendVariables(zeroFields(shape.SignerWidth()))
-	a.SignerPkHashes[0] = testPayerPkHash()
 	rebuildAfterOwnerChange(t, a)
 	return a
 }
@@ -342,7 +341,6 @@ func TestCustomRingAnonymousEd25519RejectsAddressInput(t *testing.T) {
 		a.Outputs[i].Utxo.RingProgramID = a.RingProgramID
 	}
 	a.SignerPkHashes = asFrontendVariables(zeroFields(shape.SignerWidth()))
-	a.SignerPkHashes[0] = testPayerPkHash()
 	rebuildAfterOwnerChange(t, a)
 	seed := spptest.Fe(0xABCDEF)
 	setAddressSlot(t, &a.Inputs[1], identity, spptest.Fe(0), seed)
@@ -371,7 +369,7 @@ func TestCustomRingAnonymousEd25519RequiresHiddenInput(t *testing.T) {
 	nullifierPk := spptest.MustNullifierPk(t, spptest.AsBigInt(a.Inputs[1].NullifierSecret))
 	a.Inputs[1].Utxo.Owner = spptest.MustOwnerHash(t, signer, nullifierPk)
 	a.Inputs[1].OwnerPkHash = signer
-	a.SignerPkHashes[1] = signer
+	a.SignerPkHashes[0] = signer
 	rebuildAfterOwnerChange(t, a)
 	checkCachedWitness(t, ccs, asCustomRingAnonymousEd25519(a, authorizeEd25519(t, a, publicKeyBytes(owner), owner)), true)
 

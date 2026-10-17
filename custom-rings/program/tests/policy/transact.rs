@@ -154,6 +154,21 @@ fn policy_fixture_with(ix: CustomRingTransactIxData) -> Fixture {
     )
 }
 
+/// Shaped test instructions carry real input slots in their forwarded SPP layout.
+/// Keep the account fixture aligned so pre-proof account checks reach the proof.
+fn shaped_fixture(tag: u8, ix: CustomRingTransactIxData) -> Fixture {
+    let input_count = ix.transact.inputs.len();
+    let mut fixture = transact_fixture(escrowed_config_account(), encode_transact(tag, &ix));
+    for index in 0..input_count {
+        fixture.push(Slot {
+            label: "input_nullifier",
+            meta: AccountMeta::new(Pubkey::new_from_array([index as u8 + 100; 32]), false),
+            account: account(1_000_000_000),
+        });
+    }
+    fixture
+}
+
 #[test]
 fn the_fixed_policy_tag_refuses_other_shapes_and_audit_only_rings() {
     let (mollusk, _) = setup_mollusk();
@@ -512,7 +527,7 @@ fn an_oversized_forwarded_list_still_fails_at_the_proof() {
     for index in 0..MAX_CPI_ACCOUNTS {
         fixture.push(Slot {
             label: "extra",
-            meta: AccountMeta::new_readonly(Pubkey::new_from_array([index as u8 + 100; 32]), false),
+            meta: AccountMeta::new_readonly(Pubkey::new_from_array([index as u8 + 100; 32]), true),
             account: account(1),
         });
     }
@@ -574,10 +589,7 @@ fn the_fixed_policy_verifier_fits_the_transaction_budget() {
     let mut ix = ix_data(0, 0, false, transact);
     ix.proof.commitment = [0; 32];
     ix.proof.commitment_pok = [0; 32];
-    let fixture = transact_fixture(
-        escrowed_config_account(),
-        encode_transact(tag::TRANSACT_TWO_BY_THREE, &ix),
-    );
+    let fixture = shaped_fixture(tag::TRANSACT_TWO_BY_THREE, ix);
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_eq!(
         result.program_result,
@@ -616,7 +628,7 @@ fn both_shaped_policy_keys_reach_the_pairing_within_the_budget() {
         let mut ix = ix_data(0, 0, false, transact);
         ix.proof.commitment = [0; 32];
         ix.proof.commitment_pok = [0; 32];
-        let fixture = transact_fixture(escrowed_config_account(), encode_transact(tag, &ix));
+        let fixture = shaped_fixture(tag, ix);
         let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
         assert_eq!(
             result.program_result,
@@ -652,10 +664,7 @@ fn shaped_tags_reject_audit_only_rings_and_unshipped_or_overfull_shapes() {
                     tree_index: 0,
                 })
                 .collect();
-            let fixture = transact_fixture(
-                escrowed_config_account(),
-                encode_transact(tag, &ix_data(0, 0, false, transact)),
-            );
+            let fixture = shaped_fixture(tag, ix_data(0, 0, false, transact));
             fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
         }
     }
