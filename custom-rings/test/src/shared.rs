@@ -208,7 +208,7 @@ pub enum Tier {
 }
 
 impl Tier {
-    /// Every referenced list served from the ring's own entries.
+    /// Every referenced list served from the ring's own registry.
     pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
         Self::Policy {
             address_tree,
@@ -284,16 +284,20 @@ impl<'a> ConfiguredRing<'a> {
             shared_sources,
         } = self.tier
         {
+            // Every policy transfer binds the ring's member registry.
             send(
                 rpc,
                 self.payer,
-                &[self.ring.create_policy(
-                    authority,
-                    authority,
-                    address_tree,
-                    rules,
-                    &shared_sources,
-                )?],
+                &[
+                    self.ring.create_member_registry_root(authority, authority),
+                    self.ring.create_policy(
+                        authority,
+                        authority,
+                        address_tree,
+                        rules,
+                        &shared_sources,
+                    )?,
+                ],
             )?;
         }
         Ok(PinnedRing {

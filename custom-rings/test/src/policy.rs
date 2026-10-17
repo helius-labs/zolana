@@ -1,22 +1,25 @@
-//! Entry writes and governed transfers shared by the policy suites, and the
-//! tables they pin.
+//! Member list writes and governed transfers shared by the policy suites, and
+//! the tables they pin.
 
 use anyhow::{anyhow, Result};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use custom_ring_sdk::{
-    compute_unit_limit, CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput,
-    DepositAsset, InstructionTag, LiveEntry, PolicyConfig, PoolTree, ProvenTransfer, ReadEntry,
-    RingDeposit, RingDepositReceipt, RingError, UpdateEntry,
+    CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset, MemberWrite,
+    PolicyConfig, ProvenTransfer, ReadMemberRecord, RingDeposit, RingDepositReceipt, RingError,
+    RingSubmission, SettledSubmission, UpdateMembers,
 };
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ProverClient, SolanaRpc, ZolanaClient};
 use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, X25519Secret};
-use zolana_ring_policy::{
-    EntryState, ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject,
-};
-use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
+use zolana_ring_policy::{ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject};
+use zolana_test_utils::test_validator_asserts::wait_for_merkle_proof;
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, Shape},
     Utxo,
@@ -42,10 +45,6 @@ pub const BLOCK_ONLY: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
     .build();
 
-pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
-    .rule(Rule::forbid(Subject::Asset, ListId::Block))
-    .build();
-
 pub const LIMIT_CAP: u64 = 650_000_000;
 pub const LIMIT_COSIGN_ABOVE: u64 = 300_000_000;
 
@@ -58,7 +57,7 @@ pub const OUTFLOW_LIMIT: RuleTable = RuleTable::builder()
     }])
     .build();
 
-/// An Approval entry or no Block entry admits an output owner.
+/// Approval or no Block admits an output owner.
 pub const APPROVAL_OR_UNBLOCKED: RuleTable = RuleTable::builder()
     .rule(Rule::any_of(
         Subject::OutputOwner,
@@ -226,95 +225,61 @@ impl PolicyTransfer<'_> {
     }
 }
 
-pub enum EntryTarget {
-    Claim { list_id: ListId, member: Member },
-    Successor(LiveEntry),
+const INDEXING_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Polls the indexer until `member`'s record in `ring` carries `list_id` as `present`.
+pub fn wait_for_list(
+    env: &TestEnv,
+    ring: CustomRing,
+    list_id: ListId,
+    member: Member,
+    present: bool,
+) -> Result<()> {
+    let deadline = Instant::now() + INDEXING_TIMEOUT;
+    loop {
+        let read = ReadMemberRecord { ring, member };
+        match env.run(read.read(env.client.as_async())) {
+            Ok(Some(record)) if record.opening.list_set().contains(list_id) == present => {
+                return Ok(())
+            }
+            _ if Instant::now() > deadline => {
+                return Err(anyhow!(
+                    "{list_id:?} of {member:?} not indexed as {present}"
+                ))
+            }
+            _ => sleep(Duration::from_millis(500)),
+        }
+    }
 }
 
-/// Landed and readable through the indexer before `send` returns.
-pub struct EntryWrite<'a> {
+/// One proven member batch of the ring authority, readable through the indexer on return.
+pub struct RegistryWrite<'a> {
     pub ring: CustomRing,
-    pub target: EntryTarget,
-    pub state: EntryState,
-    /// Pays the transaction, the ring authority co-signs the mutation.
-    pub fee_payer: &'a dyn Signer,
+    pub list_id: ListId,
+    pub member: Member,
+    pub present: bool,
     pub env: &'a TestEnv,
 }
 
-impl EntryWrite<'_> {
-    pub fn send(self) -> Result<LiveEntry> {
-        let address_tree = self.address_tree()?;
-        self.send_to(address_tree)
-    }
-
-    fn address_tree(&self) -> Result<PoolTree> {
-        Ok(PoolTree::address_tree(&policy_config(self.ring, self.env)?))
-    }
-
-    /// The written version lands in `output_tree`, its address stays in the address tree.
-    pub fn send_to(self, output_tree: PoolTree) -> Result<LiveEntry> {
+impl RegistryWrite<'_> {
+    pub fn send(self) -> Result<()> {
         let env = self.env;
-        let rpc = env.client.rpc();
-        let indexer = env.client.indexer();
-        let client = env.client.as_async();
         let authority = env.payer.pubkey();
-        let address_tree = self.address_tree()?;
-        let proven = match self.target {
-            EntryTarget::Claim { list_id, member } => {
-                let create = CreateEntry {
-                    ring: self.ring,
-                    payer: authority,
-                    address_tree,
-                    output_tree,
-                    list_id,
-                    member,
-                    state: self.state,
-                    content_hash: [0u8; 32],
-                };
-                env.run(create.prove(client))?
-            }
-            EntryTarget::Successor(spent) => {
-                let update = UpdateEntry {
-                    ring: self.ring,
-                    payer: authority,
-                    address_tree,
-                    output_tree,
-                    spent,
-                    state: self.state,
-                    content_hash: [0u8; 32],
-                };
-                env.run(update.prove(client))?
-            }
+        let write = match self.present {
+            true => MemberWrite::add(self.member, self.list_id),
+            false => MemberWrite::remove(self.member, self.list_id),
         };
-        let entry = proven.entry();
-        let instructions = [proven.instruction()?];
-        let signers: Vec<&dyn Signer> = if self.fee_payer.pubkey() == authority {
-            vec![&env.payer]
-        } else {
-            vec![self.fee_payer, &env.payer]
+        let update = UpdateMembers {
+            ring: self.ring,
+            writes: vec![write],
+            signers: vec![authority],
         };
-        let signature = rpc.create_and_send_transaction(
-            &instructions,
-            self.fee_payer.pubkey(),
-            &signers,
-            ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::CreateEntry)),
-        )?;
-        wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
-        let read = ReadEntry::new(
-            address_tree.id,
-            self.ring.namespace_pda(),
-            entry.list_id,
-            entry.member,
-        );
-        let live = env
-            .run(read.read(client))?
-            .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
-        assert_eq!(live.entry, entry, "indexed entry equals the mutation");
-        assert_eq!(
-            live.tree_id, output_tree.id,
-            "the version lands in the output tree"
-        );
-        wait_for_merkle_proof(indexer, output_tree.address, live.utxo_hash);
-        Ok(live)
+        let mut submission = RingSubmission::new(update);
+        let settled =
+            env.run(submission.send_until_settled(env.client.as_async(), &env.payer, &[]))?;
+        if let SettledSubmission::Failed { signature, error } = settled {
+            return Err(anyhow!("member batch {signature} failed {error}"));
+        }
+        wait_for_list(env, self.ring, self.list_id, self.member, self.present)
     }
 }

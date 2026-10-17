@@ -35,8 +35,8 @@ use custom_ring_sdk::{
     compute_unit_limit, CoSignScope, CoSignThreshold, CustomRing, CustomRingTransact,
     CustomRingTransfer, CustomRingTransferInput, DelegateOutput, DelegateTransfer,
     DelegateTransferInput, Deposit, EscrowBinding, InstructionTag, ProvenDelegateTransfer,
-    ProvenTransfer, ReadSealedKey, RegisterKey, RingDeposit, RingDepositReceipt, RingError,
-    RingOperation, RingSubmission, SettledSubmission,
+    ProvenTransfer, ReadMemberRecord, RegisterKey, RegistryBinding, RingDeposit,
+    RingDepositReceipt, RingError, RingOperation, RingSubmission, SettledSubmission,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -1985,7 +1985,7 @@ fn an_outflow_limit_ring_bounds_each_transfer() -> Result<()> {
     Ok(())
 }
 
-/// Registers every member before the delegate turns key escrow on.
+/// Registers every member in the pinned registry before the delegate turns key escrow on.
 struct EscrowedDelegate<'a> {
     ring: CustomRing,
     delegate: Address,
@@ -1996,11 +1996,6 @@ impl EscrowedDelegate<'_> {
     fn set(self, env: &TestEnv) -> Result<()> {
         let rpc = env.client.rpc();
         let authority = env.payer.pubkey();
-        send(
-            rpc,
-            &env.payer,
-            &[self.ring.create_key_registry_root(authority, authority)],
-        )?;
         for member in self.members {
             let registration = RegisterKey {
                 ring: self.ring,
@@ -2040,10 +2035,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     send(
         rpc,
         &env.payer,
-        &[
-            ring.create_key_registry_root(env.payer.pubkey(), env.payer.pubkey()),
-            ring.set_deposit_audit(env.payer.pubkey(), env.payer.pubkey(), true)?,
-        ],
+        &[ring.set_deposit_audit(env.payer.pubkey(), env.payer.pubkey(), true)?],
     )?;
     let member = &env.sender.keypair;
     let member_address = member.shielded_address()?;
@@ -2103,18 +2095,19 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     let registration = env.run(RegisterKey { ring, member }.prove(env.client.as_async()))?;
     send(rpc, member, &[registration.instruction()?])?;
     let root = env
-        .run(ring.key_registry_root(env.client.as_async()))?
-        .context("key registry")?;
+        .run(ring.member_registry_root(env.client.as_async()))?
+        .context("member registry")?;
     assert_eq!(root.next_index, 2, "one registered member plus sentinel");
     let member_tag = Member::owner_tag(member.pubkey().as_array())?;
     let sealed = wait_for("the registered key", || {
-        let read = ReadSealedKey {
+        let read = ReadMemberRecord {
             ring,
             member: member_tag,
-            root,
         };
-        match env.run(read.read(env.client.as_async())) {
-            Ok(entry) => Ok(Probe::Ready(entry)),
+        match env.run(read.read_at(env.client.as_async(), root)) {
+            Ok(record) => Ok(record
+                .sealed_key()
+                .map_or(Probe::Retry(anyhow!("no sealed key yet")), Probe::Ready)),
             Err(error @ RingError::Client(_)) => Ok(Probe::Retry(error.into())),
             Err(error) => Err(error.into()),
         }
@@ -2210,8 +2203,8 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
 
     // 4. A plain deposit never builds, the audited one binds the registry root.
     let root = env
-        .run(ring.key_registry_root(env.client.as_async()))?
-        .context("key registry")?;
+        .run(ring.member_registry_root(env.client.as_async()))?
+        .context("member registry")?;
     let plain = RingAssetDeposit {
         asset: DepositAsset::Sol,
         view_tag: [0; 32],
@@ -2231,10 +2224,10 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
             depositor: member.pubkey(),
             deposits: vec![plain],
             proof: None,
-            escrow: EscrowBinding::Registry {
+            escrow: EscrowBinding::Registry(RegistryBinding {
                 root_index: root.history_index,
                 root: root.root,
-            },
+            }),
             cosigner: None,
         }
         .instruction(),
