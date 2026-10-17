@@ -350,6 +350,28 @@ describe("private transaction construction", () => {
     });
   });
 
+  it("automatically splits one note when the wallet spans more than two trees", () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
+    wallet._replace({
+      utxos: wallet.utxos().map((entry, index) => ({
+        ...entry,
+        outputContext: { ...entry.outputContext, tree: treeAddress(index) },
+      })),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const before = wallet.utxos();
+    const split = createSplit({ wallet, payer: PAYER, asset: SOL_MINT, parts: 2 });
+    expect(split).toMatchObject({ numOutputs: 2, perOutputAmount: 50n });
+    expect(split.transaction.inputCount()).toBe(1);
+    expect(split.transaction.tree()).toBe(treeAddress(2));
+    expect(split.transaction._inputs()[0]?.entry.outputContext.hash).toEqual(filled(3));
+    expect(wallet.utxos()).toEqual(before);
+    expect(wallet._activeReservations(BigInt(Date.now()))).toHaveLength(1);
+    expect(wallet._activeReservations(BigInt(Date.now()))[0]?.utxoHashes).toEqual([filled(3)]);
+  });
+
   it("keeps split and merge conservation in their internal intent models", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(keypair, [20n, 30n, 100n]);

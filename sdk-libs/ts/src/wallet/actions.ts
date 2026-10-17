@@ -223,7 +223,7 @@ function defaultSpendPolicy(): SpendPolicy {
   };
 }
 
-/** The trees holding spendable funds of `asset`, at most `MAX_INPUT_TREES` of them. */
+/** The trees holding spendable funds of `asset`. */
 function spendTrees(wallet: Wallet, asset: Address): readonly Address[] {
   const trees: Address[] = [];
   for (const entry of wallet.utxos()) {
@@ -234,11 +234,6 @@ function spendTrees(wallet: Wallet, asset: Address): readonly Address[] {
   if (first === undefined) {
     throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
       details: { requested: "1", available: "0" },
-    });
-  }
-  if (trees.length > MAX_INPUT_TREES) {
-    throw new WalletError("WALLET_MULTIPLE_INPUT_TREES", {
-      details: { asset, treeCount: trees.length },
     });
   }
   return Object.freeze(trees);
@@ -458,8 +453,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
   if (params.input !== undefined && named === undefined) {
     throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
   }
-  // A split spends one UTXO, so it takes the tree of the UTXO it picks and
-  // only needs the candidate trees bounded.
+  // A split spends one UTXO; other candidates do not add input trees.
   const trees = named ? [named.outputContext.tree] : spendTrees(params.wallet, params.asset);
   const reserved = reservedUtxoKeys(params.wallet);
   const candidates = entries.filter(
