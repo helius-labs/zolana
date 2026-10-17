@@ -106,6 +106,15 @@ struct Args {
     #[arg(long, default_value = "")]
     r2_prefix: String,
 
+    /// S3 bucket name for Rings BlockInfo snapshots. The region comes from
+    /// AWS_REGION, credentials from the environment or the task role.
+    #[arg(long)]
+    s3_bucket: Option<String>,
+
+    /// S3 prefix for Rings BlockInfo snapshot files.
+    #[arg(long, default_value = "")]
+    s3_prefix: String,
+
     /// GCS bucket name for Rings BlockInfo snapshots.
     #[arg(long)]
     gcs_bucket: Option<String>,
@@ -236,27 +245,37 @@ async fn snapshot_directory_adapter(args: &Args) -> Result<Option<Arc<DirectoryA
         match (
             args.snapshot_dir.clone(),
             args.r2_bucket.clone(),
+            args.s3_bucket.clone(),
             args.gcs_bucket.clone(),
         ) {
-            (Some(snapshot_dir), None, None) => Some(Arc::new(
+            (Some(snapshot_dir), None, None, None) => Some(Arc::new(
                 DirectoryAdapter::from_local_directory(snapshot_dir),
             )),
-            (None, Some(r2_bucket), None) => Some(Arc::new(
+            (None, Some(r2_bucket), None, None) => Some(Arc::new(
                 DirectoryAdapter::from_r2_bucket_and_prefix_and_env(
                     r2_bucket,
                     args.r2_prefix.clone(),
                 )
                 .await?,
             )),
-            (None, None, Some(gcs_bucket)) => Some(Arc::new(
+            (None, None, Some(s3_bucket), None) => Some(Arc::new(
+                DirectoryAdapter::from_s3_bucket_and_prefix_and_env(
+                    s3_bucket,
+                    args.s3_prefix.clone(),
+                )
+                .await?,
+            )),
+            (None, None, None, Some(gcs_bucket)) => Some(Arc::new(
                 DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
                     gcs_bucket,
                     args.gcs_prefix.clone(),
                 )
                 .await?,
             )),
-            (None, None, None) => None,
-            _ => bail!("Specify only one of --snapshot-dir, --r2-bucket, or --gcs-bucket"),
+            (None, None, None, None) => None,
+            _ => bail!(
+                "Specify only one of --snapshot-dir, --r2-bucket, --s3-bucket, or --gcs-bucket"
+            ),
         },
     )
 }

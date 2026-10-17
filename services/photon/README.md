@@ -89,8 +89,9 @@ cargo run -p photon-indexer --bin photon -- \
   --snapshot-dir=./rings-snapshots
 ```
 
-`--r2-bucket`/`--r2-prefix` and `--gcs-bucket`/`--gcs-prefix` are available for remote snapshot
-storage.
+`--r2-bucket`/`--r2-prefix`, `--s3-bucket`/`--s3-prefix` and `--gcs-bucket`/`--gcs-prefix` are
+available for remote snapshot storage. S3 takes its region from `AWS_REGION` and its credentials
+from the environment, a profile, or the ECS task or instance role.
 
 ## Operations
 
