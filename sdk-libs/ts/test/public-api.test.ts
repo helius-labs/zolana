@@ -463,11 +463,11 @@ describe("address and instruction builders", () => {
       inputQueueZkpBatchSize: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
       height: NULLIFIER_TREE_HEIGHT,
     });
-    expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(5);
+    expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
-    expect(TREE_ACCOUNT_SIZE).toBe(18_608);
+    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
     expect(TREE_CREATION_STEP_COUNT).toBe(Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP));
-    expect(TREE_CREATION_STEP_COUNT).toBe(2);
+    expect(TREE_CREATION_STEP_COUNT).toBe(4);
     expect(STATE_ROOT_OFFSET).toBe(80);
 
     const payer = { address: OWNER } as TransactionSigner;
@@ -495,7 +495,7 @@ describe("address and instruction builders", () => {
         InstructionTag.createTree,
         0,
         0,
-        163,
+        168,
         97,
         0,
         0,
@@ -503,8 +503,8 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
-        135,
-        19,
+        250,
+        0,
         0,
         0,
         0,

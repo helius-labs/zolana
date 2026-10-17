@@ -208,7 +208,7 @@ fixture's spendable set unchanged.
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the
-tampered-proof-on-a-full-batch and success-path legs need 4999 queued nullifiers via
+tampered-proof-on-a-full-batch and success-path legs need 250 queued nullifiers via
 the localnet forester), INV-XC-04 (rollback is asserted for most instructions but
 not a full per-instruction account-equality sweep of all 18), and INV-XC-11
 (golden vectors + tamper tests cover the public-input binding, but not an

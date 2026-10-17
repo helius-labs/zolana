@@ -159,7 +159,7 @@ function proofFixture(
       highElementIndex: 1n,
       root: bytes(6),
       rootSeq: 1n,
-      rootIndex: 2,
+      rootIndex: 7,
     },
   };
   const dummyProofs = dummyInputs.map((dummy): NonInclusionProof => ({
@@ -172,7 +172,7 @@ function proofFixture(
     highElementIndex: 1n,
     root: bytes(6),
     rootSeq: 1n,
-    rootIndex: 2,
+    rootIndex: 7,
   }));
   return { proofInputs, spendProof, dummyProofs, keypair };
 }
@@ -1319,7 +1319,7 @@ describe("prover indexer fetching", () => {
       if (corruption === "index")
         resolution.trees[0] = { ...resolution.trees[0]!, utxoRootIndex: 500 };
       if (corruption === "nullifierIndex")
-        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 5 };
+        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 100 };
       if (corruption === "modulus")
         resolution.trees[0] = {
           ...resolution.trees[0]!,

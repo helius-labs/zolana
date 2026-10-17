@@ -51,23 +51,13 @@ A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
 prover through the Helius gateway's `/v1/zolana` routes. On the gateway,
 proofs fetch their Merkle data on the client and go to the prover's key-less
 path. A Nitro Enclave prover can be held to one encryption key, and a
-sponsor can pay the fee of a private transfer, withdrawal, or split. Nullifier
-trees append 4,999 nullifiers per proof, which shrinks a tree account to two
-creation instructions.
+sponsor can pay the fee of a private transfer, withdrawal, or split.
 
 Breaking
 
 - `TransactionErrorCode` no longer includes `TRANSACTION_ED25519_PAYER_MISMATCH`,
   since a fee payer other than the owner is now accepted → remove it from
   exhaustive switches.
-- `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE` is 4999 (was 250) and
-  `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 24,995 (was 25,000), so
-  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 5, `TREE_ACCOUNT_SIZE` is 18,608
-  and `TREE_CREATION_STEP_COUNT` is 2 → point the client at a deployment
-  created with this release, since tree accounts of the previous layout no
-  longer decode.
-- `PROVING_KEY_SHA256S` pins `batch_address-append_40_4999.key` in place of
-  `batch_address-append_40_250.key` → run a prover with the matching key set.
 
 Added
 

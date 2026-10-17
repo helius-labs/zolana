@@ -107,7 +107,7 @@ fn batch_update_rejects_an_unsigned_authority() {
 /// A batch proof the tree cannot accept (no zkp batch is ready, or the zkp
 /// batch index is out of range) must fail with the exact tree-update error and
 /// leave every account untouched. Rejecting a tampered proof for a FULL zkp
-/// batch is exercised on localnet only: filling one batch takes 4999 queued
+/// batch is exercised on localnet only: filling one batch takes 250 queued
 /// nullifiers plus a real batch-address-append proof.
 #[test]
 fn batch_update_rejects_a_non_canonical_root() {

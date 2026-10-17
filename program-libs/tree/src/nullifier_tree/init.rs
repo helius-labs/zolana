@@ -28,8 +28,8 @@ impl Default for NullifierTreeInitParams {
 }
 
 /// ZKP batch sizes a tree can be created with: the shapes that have a
-/// committed verifying key (`batch_address_append_40_{10,4999}`).
-pub const SUPPORTED_ZKP_BATCH_SIZES: [u64; 2] = [10, 4999];
+/// committed verifying key (`batch_address_append_40_{10,250}`).
+pub const SUPPORTED_ZKP_BATCH_SIZES: [u64; 2] = [10, 250];
 
 /// Whether `hash_chain_4` folds `zkp_batch_size` values into full groups of
 /// three. The first value seeds the chain and every later group of three is

@@ -6,7 +6,7 @@ A proof is sent to the path of the proving key that proves it,
 `POST /prove/<key>` or `POST /prove/<key>/indexed`, and a queued proof is
 polled at `GET /prove/<key>/status?jobId=<id>`, where `<key>` is the key file
 name without `.key`: `transfer_confidential_2_2`, `merge_54_1`,
-`batch_address-append_40_4999`. Every path is also served under `/v1/zolana`.
+`batch_address-append_40_250`. Every path is also served under `/v1/zolana`.
 A gateway routes and prices on the path alone, so it can send each key to a
 pool of provers sized for it at a price that matches its cost, and send each
 poll to the pool whose queue holds the job.

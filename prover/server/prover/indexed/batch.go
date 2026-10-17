@@ -71,7 +71,7 @@ func decodeBatch(data []byte) (BatchRequest, error) {
 	if len(data) > 1<<20 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
 		return request, fmt.Errorf("invalid indexed batch")
 	}
-	if request.CircuitType != common.BatchAddressAppendCircuitType || request.TreeHeight != 40 || (request.BatchSize != 10 && request.BatchSize != 4999) || request.AnchorIndex == 0 || request.StartIndex < request.AnchorIndex || request.StartIndex > (1<<40)-uint64(request.BatchSize) {
+	if request.CircuitType != common.BatchAddressAppendCircuitType || request.TreeHeight != 40 || (request.BatchSize != 10 && request.BatchSize != 250) || request.AnchorIndex == 0 || request.StartIndex < request.AnchorIndex || request.StartIndex > (1<<40)-uint64(request.BatchSize) {
 		return request, fmt.Errorf("invalid indexed batch bounds")
 	}
 	if _, err := decodeHash(request.Tree); err != nil {

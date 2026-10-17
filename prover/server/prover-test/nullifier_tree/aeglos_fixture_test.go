@@ -12,7 +12,7 @@ func TestExportAeglosForesterFixtures(t *testing.T) {
 	if os.Getenv("AEGLOS_FIXTURES") == "" {
 		t.Skip("AEGLOS_FIXTURES is unset")
 	}
-	for _, batch := range []uint32{10, 4999} {
+	for _, batch := range []uint32{10, 250} {
 		var previous *merkletree.IndexedMerkleTree
 		for variant := range 2 {
 			params, err := BuildTestAddressTree(40, batch, previous, uint64(variant)*uint64(batch)+1)

@@ -243,10 +243,7 @@ fn a_revocation_behind_an_older_admitted_root_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyFactRevoked));
 }
 
-/// Roots written after the init root in slot 0. The cursor starts at 1, so this
-/// is the most that fit without wrapping it, and `cursor - NULLIFIER_ROTATIONS`
-/// is then slot 1: the oldest root that is still live.
-const NULLIFIER_ROTATIONS: u16 = (NULLIFIER_TREE_ROOT_HISTORY_CAPACITY - 2) as u16;
+const NULLIFIER_ROTATIONS: u16 = 12;
 
 fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
     transact_fixture(

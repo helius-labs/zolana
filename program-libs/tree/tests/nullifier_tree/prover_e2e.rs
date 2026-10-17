@@ -9,15 +9,9 @@ use zolana_client::{
 use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
-    access::get_merkle_tree_account_size,
-    constants::{
-        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE, NULLIFIER_TREE_INIT_ROOT_40,
-    },
-    error::NullifierTreeError,
-    init::NullifierTreeInitParams,
-    layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataBatchNullifyInputs,
-    proof::NullifierTreeProof,
+    access::get_merkle_tree_account_size, constants::NULLIFIER_TREE_INIT_ROOT_40,
+    error::NullifierTreeError, init::NullifierTreeInitParams, layout::NullifierTreeLayout,
+    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::NullifierTreeProof,
 };
 
 const HEIGHT: u32 = 40;
@@ -284,37 +278,6 @@ fn nullifier_tree_single_update() {
 
     let mut queued = Vec::new();
     for _ in 0..10u64 {
-        let nullifier = random_nullifier(&mut rng);
-        account.insert_nullifier_into_queue(&nullifier).unwrap();
-        queued.push(nullifier);
-    }
-
-    let mut forester = NullifierForester::new();
-    let new_root = forester.perform_update(account, &queued);
-    assert_eq!(account.get_root().unwrap(), new_root);
-    assert_eq!(account.get_root().unwrap(), forester.reference.root());
-}
-
-/// One update at the production zkp batch size, through the committed
-/// verifying key. Ignored by default: proving it loads the ~75 GB
-/// `batch_address-append_40_4999` key, which needs a prover host with several
-/// hundred GB of memory.
-#[test]
-#[ignore = "needs the batch_address-append_40_4999 proving key and a large-memory host"]
-fn nullifier_tree_canonical_zkp_batch_update() {
-    spawn_prover().unwrap();
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
-    let account = init_tree_account_data::<ZKP>(
-        &mut account_data,
-        DEFAULT_NULLIFIER_BATCH_SIZE,
-        DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
-        HEIGHT,
-    )
-    .unwrap();
-
-    let mut queued = Vec::new();
-    for _ in 0..DEFAULT_NULLIFIER_ZKP_BATCH_SIZE {
         let nullifier = random_nullifier(&mut rng);
         account.insert_nullifier_into_queue(&nullifier).unwrap();
         queued.push(nullifier);

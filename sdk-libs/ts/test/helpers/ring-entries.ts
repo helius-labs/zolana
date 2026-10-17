@@ -117,7 +117,7 @@ export function entryProofReads(
         ? {
             owner: SHIELDED_POOL_PROGRAM_ID,
             lamports: 1n,
-            data: treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n }),
+            data: treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 6n }),
           }
         : undefined;
     }),
@@ -182,10 +182,10 @@ export function entryProofReads(
   return reads;
 }
 
-/** The head roots `treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n })` decodes to. */
+/** The head roots `treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 6n })` decodes to. */
 export const FIXTURE_HEADS = Object.freeze({
   stateRoot: filled(0x14) as Bytes32,
   stateRootIndex: 4,
-  nullifierRoot: filled(0x23) as Bytes32,
-  nullifierRootIndex: 3,
+  nullifierRoot: filled(0x25) as Bytes32,
+  nullifierRootIndex: 5,
 });
