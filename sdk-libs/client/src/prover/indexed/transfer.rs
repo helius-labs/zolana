@@ -385,6 +385,12 @@ impl PreparedIndexedTransfer {
     pub fn private_tx_hash(&self) -> [u8; 32] {
         self.data.private_tx_hash
     }
+
+    /// Fixed-size proof placeholders and the exact accounts and ciphertexts.
+    /// Used to reject transactions that cannot fit before requesting a proof.
+    pub fn transaction_template(&self) -> &TransactIxData {
+        &self.data
+    }
 }
 
 impl Request for PreparedIndexedTransfer {

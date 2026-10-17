@@ -55,7 +55,7 @@ func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rang
 	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
 	checked.sources = c.checkSources(api)
 	for i, packed := range c.Rules {
-		if c.FixedInputs != 0 {
+		if c.compact() {
 			checked.rules[i] = decodeRuleCompact(api, packed)
 		} else {
 			checked.rules[i] = decodeRule(api, packed)

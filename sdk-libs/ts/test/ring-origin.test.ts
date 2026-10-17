@@ -135,6 +135,34 @@ describe("ringInvokedIn", () => {
 });
 
 describe("ringEventInvokedIn", () => {
+  it.each([35, 36, 37, 38])("authenticates the SPP event below shaped outer tag %i", (tag) => {
+    const source: OriginInstructionGroup = {
+      outer: { programId: RING, stackHeight: 1, accounts: [], data: Uint8Array.of(tag) },
+      inner: [
+        {
+          programId: POOL,
+          stackHeight: 2,
+          accounts: [],
+          data: Uint8Array.of(
+            tag === 36 || tag === 38
+              ? InstructionTag.ringAuthorityTransact
+              : InstructionTag.ringTransact,
+          ),
+        },
+        {
+          programId: POOL,
+          stackHeight: 3,
+          accounts: [],
+          data: Uint8Array.of(InstructionTag.emitEvent),
+        },
+      ],
+    };
+    expect(ringEventInvokedIn([source], 0, RING)).toBe(true);
+    expect(
+      ringEventInvokedIn([{ ...source, outer: { ...source.outer, programId: OTHER } }], 0, RING),
+    ).toBe(false);
+  });
+
   it("attributes each event to its own source instruction", () => {
     const source = (programId: Address, outer: Address): OriginInstructionGroup => ({
       outer: { programId: outer, stackHeight: 1, accounts: [], data: new Uint8Array() },

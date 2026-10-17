@@ -22,13 +22,20 @@ pub(crate) enum RingCircuit {
     PolicyTwoByThree,
     AnonymousPolicyTwoByThree,
     DelegatePolicyTwoByThree,
+    Shaped {
+        inputs: u8,
+        outputs: u8,
+        anonymous: bool,
+        delegate: bool,
+        subtree: bool,
+    },
     Deposit,
     RegisterKey,
     UpdateMembers,
 }
 
 impl RingCircuit {
-    pub(crate) const fn circuit_type(self) -> &'static str {
+    pub(crate) fn circuit_type(self) -> String {
         match self {
             Self::BaseConfidential => "custom-ring-base-confidential",
             Self::Base => "custom-ring-base",
@@ -40,7 +47,22 @@ impl RingCircuit {
             Self::Deposit => "custom-ring-deposit",
             Self::RegisterKey => "custom-ring-register-key",
             Self::UpdateMembers => "custom-ring-update-members",
+            Self::Shaped {
+                inputs,
+                outputs,
+                anonymous,
+                delegate,
+                subtree,
+            } => {
+                return format!(
+                    "custom-ring-{}policy-{inputs}-{outputs}{}{}",
+                    if delegate { "delegate-" } else { "" },
+                    if anonymous { "-anonymous" } else { "" },
+                    if subtree { "-subtree" } else { "" }
+                );
+            }
         }
+        .to_owned()
     }
 
     /// The key file is the circuit type in snake case.
@@ -48,6 +70,7 @@ impl RingCircuit {
         let name = format!("{}.key", self.circuit_type().replace('-', "_"));
         PROVING_KEY_SHA256S
             .iter()
+            .chain(custom_ring_interface::shaped_verifying_keys::SHAPED_PROVING_KEY_SHA256S)
             .find(|(key, _)| *key == name)
             .map(|(_, sha256)| ExpectedProvingKey {
                 name: name.clone(),
@@ -72,6 +95,11 @@ impl RingCircuit {
             Self::Deposit => &deposit_verifying_key::VERIFYINGKEY,
             Self::RegisterKey => &register_key_verifying_key::VERIFYINGKEY,
             Self::UpdateMembers => &update_members_verifying_key::VERIFYINGKEY,
+            Self::Shaped { .. } => {
+                return Err(ClientError::ProofVerification(
+                    "shaped policy requires its public table".to_owned(),
+                ))
+            }
         };
         verify_proof_statement(proof, public_input_hash, key)
     }
@@ -85,6 +113,16 @@ impl RingCircuit {
         )
     }
 
+    pub(crate) fn proof_kind(self) -> custom_ring_interface::PolicyProofKind {
+        use custom_ring_interface::PolicyProofKind;
+        match self {
+            Self::Shaped { subtree: true, .. } => PolicyProofKind::Subtree,
+            Self::Shaped { .. } => PolicyProofKind::General,
+            _ if self.is_two_by_three() => PolicyProofKind::TwoByThree,
+            _ => PolicyProofKind::Legacy,
+        }
+    }
+
     pub(crate) fn verify_table(
         self,
         proof: &Proof,
@@ -94,6 +132,22 @@ impl RingCircuit {
             Self::PolicyTwoByThree => &policy_2x3_verifying_key::VERIFYINGKEY,
             Self::AnonymousPolicyTwoByThree => &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
             Self::DelegatePolicyTwoByThree => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
+            Self::Shaped {
+                inputs,
+                outputs,
+                anonymous,
+                delegate,
+                subtree,
+            } => custom_ring_interface::shaped_verifying_keys::policy_shape_key(
+                usize::from(inputs),
+                usize::from(outputs),
+                anonymous,
+                delegate,
+                subtree,
+            )
+            .ok_or_else(|| {
+                ClientError::ProofVerification("unsupported shaped policy key".to_owned())
+            })?,
             _ => {
                 return Err(ClientError::ProofVerification(
                     "not a public-table policy key".to_owned(),
@@ -106,7 +160,7 @@ impl RingCircuit {
 
 impl Serialize for RingCircuit {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.circuit_type())
+        serializer.serialize_str(&self.circuit_type())
     }
 }
 

@@ -4,7 +4,7 @@
 mod instructions;
 mod state;
 
-use custom_ring_interface::InstructionTag;
+use custom_ring_interface::{InstructionTag, PolicyProofKind};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{forward::Forward, *};
@@ -30,9 +30,17 @@ pub fn process_instruction(
         InstructionTag::InitSppRingConfig => {
             process_init_spp_ring_config_ix(program_id, accounts, ix_data)
         }
-        InstructionTag::Transact => process_transact_ix(program_id, accounts, ix_data, false),
+        InstructionTag::Transact => {
+            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Legacy)
+        }
         InstructionTag::TransactTwoByThree => {
-            process_transact_ix(program_id, accounts, ix_data, true)
+            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::TwoByThree)
+        }
+        InstructionTag::TransactShaped => {
+            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::General)
+        }
+        InstructionTag::TransactShapedSubtree => {
+            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Subtree)
         }
         // SPP's dispatcher strips the tag byte, the forwarder passes it on.
         InstructionTag::Deposit => Forward::Deposit.process(program_id, accounts, instruction_data),
@@ -63,10 +71,16 @@ pub fn process_instruction(
             process_set_deposit_audit_ix(program_id, accounts, ix_data)
         }
         InstructionTag::DelegateTransact => {
-            process_delegate_transact_ix(program_id, accounts, ix_data, false)
+            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Legacy)
         }
         InstructionTag::DelegateTransactTwoByThree => {
-            process_delegate_transact_ix(program_id, accounts, ix_data, true)
+            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::TwoByThree)
+        }
+        InstructionTag::DelegateTransactShaped => {
+            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::General)
+        }
+        InstructionTag::DelegateTransactShapedSubtree => {
+            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Subtree)
         }
         InstructionTag::CreateMemberRegistryRoot => {
             process_create_member_registry_root_ix(program_id, accounts, ix_data)

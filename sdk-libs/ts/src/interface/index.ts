@@ -68,7 +68,14 @@ export {
   nullifierTreeParams,
 } from "./program.js";
 export type { CreateTreeData, NullifierTreeParams } from "./program.js";
-export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
+export {
+  SPP_SUPPORTED_SHAPES,
+  RING_POLICY_SUPPORTED_SHAPES,
+  RING_POLICY_MAX_INPUTS,
+  validateRingPolicyShape,
+  selectSppShape,
+  validateSppShape,
+} from "./shape.js";
 export type { Shape } from "./shape.js";
 export {
   CACHE_ACCOUNT_SIZE,

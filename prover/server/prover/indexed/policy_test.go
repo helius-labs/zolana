@@ -462,3 +462,83 @@ func TestPolicyResolvesMintMembershipWithoutTreatingItAsAnEscrowedOwner(t *testi
 		t.Fatal("owner escrow lost")
 	}
 }
+
+func TestShapedPolicyResolvesDynamicSubjectOffsets(t *testing.T) {
+	registry := newHostRegistry(t)
+	for _, kind := range []common.CircuitType{"custom-ring-policy-16-4", "custom-ring-delegate-policy-4-4", "custom-ring-policy-3-4-anonymous"} {
+		t.Run(string(kind), func(t *testing.T) {
+			shape, ok := common.ParseRingPolicyShape(kind)
+			if !ok {
+				t.Fatal("shape not registered")
+			}
+			request := policyFixture(t, registry)
+			var raw map[string]any
+			if err := json.Unmarshal(request.Prepared, &raw); err != nil {
+				t.Fatal(err)
+			}
+			input := raw["inputs"].([]any)[0]
+			inputs := make([]any, shape.NInputs)
+			for i := range inputs {
+				inputs[i] = input
+			}
+			// Use independently decoded slots before changing the tail owner.
+			raw["inputs"] = inputs
+			encodedRaw := encoded(t, raw)
+			if err := json.Unmarshal(encodedRaw, &raw); err != nil {
+				t.Fatal(err)
+			}
+			raw["circuitType"] = kind
+			raw["nIn"] = shape.NInputs
+			raw["nOut"] = shape.NOutputs
+			raw["anonymous"] = shape.Anonymous
+			tail := raw["inputs"].([]any)[shape.NInputs-1].(map[string]any)
+			tail["domain"] = common.ToHex(big.NewInt(shared.UtxoDomain))
+			tail["ownerPkHash"] = common.ToHex(big.NewInt(5))
+			output := raw["outputs"].([]any)[shape.NOutputs-1].(map[string]any)
+			output["domain"] = common.ToHex(big.NewInt(shared.UtxoDomain))
+			output["ownerPkHash"] = common.ToHex(big.NewInt(5))
+			output["nullifierPk"] = common.ToHex(big.NewInt(6))
+			raw["keyEscrow"] = true
+			request.CircuitType = kind
+			body := raw
+			if shape.Delegate {
+				body = map[string]any{"circuitType": kind, "policy": raw}
+			}
+			request.Prepared = encoded(t, body)
+			if err := Validate(encoded(t, request)); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			resolver := newTestResolver(t)
+			resolver.client.Transport = recordTransport(t, &calls, func(Hash) (any, map[string]any) { return registry.present(), nil })
+			resolved, err := resolver.Resolve(context.Background(), encoded(t, request))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params ring.PolicyParams
+			if shape.Delegate {
+				var wrapper ring.DelegatePolicyParams
+				if err = ring.Unmarshal(resolved.Payload, &wrapper); err != nil {
+					t.Fatal(err)
+				}
+				params = wrapper.Policy
+			} else if err = ring.Unmarshal(resolved.Payload, &params); err != nil {
+				t.Fatal(err)
+			}
+			if len(params.Subjects) != shape.NInputs+2*shape.NOutputs {
+				t.Fatalf("wrong subject capacity %d", len(params.Subjects))
+			}
+			for _, index := range []int{shape.NInputs - 1, shape.NInputs + shape.NOutputs - 1} {
+				if params.Subjects[index] == nil || !params.Subjects[index].Present {
+					t.Fatalf("tail subject %d not resolved", index)
+				}
+			}
+			if params.Outputs[shape.NOutputs-1].CtHash.Cmp(registry.ctHash) != 0 {
+				t.Fatal("tail output escrow hash missing")
+			}
+			if calls != 1 {
+				t.Fatalf("duplicate member fetched %d times", calls)
+			}
+		})
+	}
+}

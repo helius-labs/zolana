@@ -1,3 +1,5 @@
+import { SHAPED_PROVING_KEY_SHA256S } from "./shaped-proving-keys.js";
+import { validateRingPolicyShape, type Shape } from "./shape.js";
 import { InterfaceError } from "./errors.js";
 
 /**
@@ -10,6 +12,7 @@ import { InterfaceError } from "./errors.js";
  * rotation updates this table in the same change.
  */
 export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
+  ...SHAPED_PROVING_KEY_SHA256S,
   "custom_ring_delegate_policy_2x3.key":
     "06f5e0babd78b420fcbc66e26a1f897287b0ae7fa6d839634d6e2f80b19951da",
   "custom_ring_policy_2x3_anonymous.key":
@@ -183,6 +186,14 @@ export type ProvingKeyCircuit =
     }
   | { readonly circuit: "merge"; readonly nInputs: number }
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
+  | {
+      readonly circuit:
+        | "custom-ring-policy-shaped"
+        | "custom-ring-delegate-policy-shaped"
+        | "custom-ring-policy-anonymous-shaped";
+      readonly shape: Shape;
+      readonly registrySubtree?: boolean;
+    }
   | { readonly circuit: "custom-ring-base" }
   | { readonly circuit: "custom-ring-base-confidential" }
   | { readonly circuit: "custom-ring-policy" }
@@ -227,6 +238,12 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
       return `merge_ring_${request.nInputs}_1.key`;
+    case "custom-ring-policy-shaped":
+    case "custom-ring-delegate-policy-shaped":
+    case "custom-ring-policy-anonymous-shaped":
+      if (request.registrySubtree !== undefined && typeof request.registrySubtree !== "boolean")
+        throw new InterfaceError("INTERFACE_INVALID_SHAPE");
+      return `${shapedPolicyCircuit(request.shape, request.registrySubtree === true, request.circuit === "custom-ring-delegate-policy-shaped", request.circuit === "custom-ring-policy-anonymous-shaped").replaceAll("-", "_")}.key`;
     case "custom-ring-base":
     case "custom-ring-base-confidential":
     case "custom-ring-policy":
@@ -241,4 +258,38 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       // The prover's `RingKeyFiles`: custom-ring-<x> is custom_ring_<x>.key.
       return `${request.circuit.replaceAll("-", "_")}.key`;
   }
+}
+
+/** The program selects a shaped policy key from the settlement capacities and registry proof mode. */
+export function shapedPolicyCircuit(
+  shape: Shape,
+  subtree = false,
+  delegate = false,
+  anonymous = false,
+): string {
+  validateRingPolicyShape(shape.inputs, shape.outputs, shape);
+  if (
+    typeof subtree !== "boolean" ||
+    typeof delegate !== "boolean" ||
+    typeof anonymous !== "boolean" ||
+    (delegate && anonymous)
+  )
+    throw new InterfaceError("INTERFACE_INVALID_SHAPE");
+  if (
+    (delegate &&
+      ![
+        [2, 2],
+        [4, 4],
+      ].some(([n, m]) => shape.inputs === n && shape.outputs === m)) ||
+    (anonymous &&
+      ![
+        [2, 2],
+        [2, 4],
+        [3, 4],
+        [4, 2],
+      ].some(([n, m]) => shape.inputs === n && shape.outputs === m))
+  )
+    throw new InterfaceError("INTERFACE_INVALID_SHAPE");
+  const prefix = delegate ? "custom-ring-delegate-policy" : "custom-ring-policy";
+  return `${prefix}-${shape.inputs}-${shape.outputs}${anonymous ? "-anonymous" : ""}${subtree ? "-subtree" : ""}`;
 }

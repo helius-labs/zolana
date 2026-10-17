@@ -124,14 +124,18 @@ mod bodies {
         AnonymousIdentities {
             flag: AnonymousFlag,
             sender: identity(0x41),
-            recipients: core::array::from_fn(|index| match index < 2 {
-                true => identity(0x42 + index as u8),
-                false => [0; IDENTITY_LEN],
-            }),
-            recipient_viewing_keys: core::array::from_fn(|index| match index < 2 {
-                true => viewing(0x44 + index as u8),
-                false => [0; IDENTITY_LEN],
-            }),
+            recipients: (0..4)
+                .map(|index| match index < 2 {
+                    true => identity(0x42 + index as u8),
+                    false => [0; IDENTITY_LEN],
+                })
+                .collect(),
+            recipient_viewing_keys: (0..4)
+                .map(|index| match index < 2 {
+                    true => viewing(0x44 + index as u8),
+                    false => [0; IDENTITY_LEN],
+                })
+                .collect(),
         }
     }
 
@@ -189,11 +193,15 @@ mod bodies {
                 foreign: None,
                 n_in: 2,
                 n_out: 3,
-                inputs: core::array::from_fn(|index| opening(10 + 16 * index as u64)),
-                outputs: core::array::from_fn(|index| CustomRingOutputOpening {
-                    opening: opening(100 + 16 * index as u64),
-                    ct_hash: if index == 0 { field(700) } else { [0; 32] },
-                }),
+                inputs: (0..5)
+                    .map(|index| opening(10 + 16 * index as u64))
+                    .collect(),
+                outputs: (0..4)
+                    .map(|index| CustomRingOutputOpening {
+                        opening: opening(100 + 16 * index as u64),
+                        ct_hash: if index == 0 { field(700) } else { [0; 32] },
+                    })
+                    .collect(),
                 address_chain: (),
                 private_tx_blinding: field(3),
                 sources: core::array::from_fn(|index| PolicySource {
@@ -220,9 +228,9 @@ mod bodies {
                 address_tree_id: 4,
                 key_escrow: true,
                 member_registry_root: field(500),
-                subjects,
+                subjects: subjects.into(),
                 foreign_root: field(501),
-                foreign_subjects,
+                foreign_subjects: foreign_subjects.into(),
             }),
         }
     }

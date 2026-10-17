@@ -621,3 +621,43 @@ fn a_failed_transaction_grants_no_origin() {
         Err(AuditError::Client(ClientError::TransactionFailed(_)))
     ));
 }
+
+#[test]
+fn shaped_policy_outer_tags_preserve_confirmed_ring_origin() {
+    for (outer_tag, inner_tag) in [
+        (
+            custom_ring_interface::tag::TRANSACT_SHAPED,
+            tag::RING_TRANSACT,
+        ),
+        (
+            custom_ring_interface::tag::DELEGATE_TRANSACT_SHAPED,
+            tag::RING_AUTHORITY_TRANSACT,
+        ),
+        (
+            custom_ring_interface::tag::TRANSACT_SHAPED_SUBTREE,
+            tag::RING_TRANSACT,
+        ),
+        (
+            custom_ring_interface::tag::DELEGATE_TRANSACT_SHAPED_SUBTREE,
+            tag::RING_AUTHORITY_TRANSACT,
+        ),
+    ] {
+        let mut outer = instruction(RING, 1);
+        outer.data = vec![outer_tag];
+        let mut source = instruction(POOL, 2);
+        source.data = ring_transact_bytes(Vec::new());
+        source.data[0] = inner_tag;
+        let mut event = instruction(POOL, 3);
+        event.data = vec![tag::EMIT_EVENT];
+        let groups = [InstructionGroup {
+            outer,
+            inner: vec![source, event],
+        }];
+        assert!(ring_event_origin_in(&groups, 0, RING).unwrap().ring_invoked);
+        assert!(
+            !ring_event_origin_in(&groups, 0, OTHER)
+                .unwrap()
+                .ring_invoked
+        );
+    }
+}

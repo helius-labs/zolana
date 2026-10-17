@@ -84,6 +84,11 @@ instruction_tags! {
     /// Full policy and audit, fixed 2x3 shape and shared registry subtrees.
     TransactTwoByThree = TRANSACT_TWO_BY_THREE: 33 => PROOF_UNITS,
     DelegateTransactTwoByThree = DELEGATE_TRANSACT_TWO_BY_THREE: 34 => PROOF_UNITS,
+    /// Full policy and audit over the declared SPP shape.
+    TransactShaped = TRANSACT_SHAPED: 35 => PROOF_UNITS,
+    DelegateTransactShaped = DELEGATE_TRANSACT_SHAPED: 36 => PROOF_UNITS,
+    TransactShapedSubtree = TRANSACT_SHAPED_SUBTREE: 37 => PROOF_UNITS,
+    DelegateTransactShapedSubtree = DELEGATE_TRANSACT_SHAPED_SUBTREE: 38 => PROOF_UNITS,
 }
 
 /// Config-authority change to the direct-deposit disclosure requirement.
@@ -253,4 +258,24 @@ pub struct RegisterKeyIxData {
 pub struct SetPolicySourceIxData {
     pub list_id: u8,
     pub source: u8,
+}
+
+/// Selects the policy proof family. The settlement circuit determines its capacity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PolicyProofKind {
+    #[default]
+    Legacy,
+    TwoByThree,
+    General,
+    Subtree,
+}
+
+impl PolicyProofKind {
+    pub const fn public_table(self) -> bool {
+        !matches!(self, Self::Legacy)
+    }
+
+    pub const fn shaped(self) -> bool {
+        matches!(self, Self::General | Self::Subtree)
+    }
 }

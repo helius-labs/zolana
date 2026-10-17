@@ -161,7 +161,21 @@ impl CustomRingTransact {
         self,
         two_by_three: bool,
     ) -> Result<Instruction, RingError> {
-        if two_by_three
+        self.instruction_with_policy_kind(if two_by_three {
+            custom_ring_interface::PolicyProofKind::TwoByThree
+        } else {
+            custom_ring_interface::PolicyProofKind::Legacy
+        })
+    }
+
+    pub fn instruction_with_policy_kind(
+        self,
+        kind: custom_ring_interface::PolicyProofKind,
+    ) -> Result<Instruction, RingError> {
+        if kind.public_table() && self.policy.is_none() {
+            return Err(RingError::PolicyShapeUnsupported);
+        }
+        if kind == custom_ring_interface::PolicyProofKind::TwoByThree
             && (self.policy.is_none()
                 || self.transact.inputs.len() != 2
                 || self.transact.outputs.len() != 3)
@@ -185,10 +199,11 @@ impl CustomRingTransact {
             proof: self.proof,
         }
         .instruction(
-            if two_by_three {
-                tag::TRANSACT_TWO_BY_THREE
-            } else {
-                tag::TRANSACT
+            match kind {
+                custom_ring_interface::PolicyProofKind::Legacy => tag::TRANSACT,
+                custom_ring_interface::PolicyProofKind::TwoByThree => tag::TRANSACT_TWO_BY_THREE,
+                custom_ring_interface::PolicyProofKind::General => tag::TRANSACT_SHAPED,
+                custom_ring_interface::PolicyProofKind::Subtree => tag::TRANSACT_SHAPED_SUBTREE,
             },
             Vec::new(),
             spp.instruction().accounts,
@@ -206,7 +221,20 @@ impl CustomRingDelegateTransact {
         self,
         two_by_three: bool,
     ) -> Result<Instruction, RingError> {
-        if two_by_three && (self.transact.inputs.len() != 2 || self.transact.outputs.len() != 3) {
+        self.instruction_with_policy_kind(if two_by_three {
+            custom_ring_interface::PolicyProofKind::TwoByThree
+        } else {
+            custom_ring_interface::PolicyProofKind::Legacy
+        })
+    }
+
+    pub fn instruction_with_policy_kind(
+        self,
+        kind: custom_ring_interface::PolicyProofKind,
+    ) -> Result<Instruction, RingError> {
+        if kind == custom_ring_interface::PolicyProofKind::TwoByThree
+            && (self.transact.inputs.len() != 2 || self.transact.outputs.len() != 3)
+        {
             return Err(RingError::PolicyShapeUnsupported);
         }
         if !self.transact.interface_transfers.is_empty() {
@@ -232,10 +260,15 @@ impl CustomRingDelegateTransact {
             proof: self.proof,
         }
         .instruction(
-            if two_by_three {
-                tag::DELEGATE_TRANSACT_TWO_BY_THREE
-            } else {
-                tag::DELEGATE_TRANSACT
+            match kind {
+                custom_ring_interface::PolicyProofKind::Legacy => tag::DELEGATE_TRANSACT,
+                custom_ring_interface::PolicyProofKind::TwoByThree => {
+                    tag::DELEGATE_TRANSACT_TWO_BY_THREE
+                }
+                custom_ring_interface::PolicyProofKind::General => tag::DELEGATE_TRANSACT_SHAPED,
+                custom_ring_interface::PolicyProofKind::Subtree => {
+                    tag::DELEGATE_TRANSACT_SHAPED_SUBTREE
+                }
             },
             delegate,
             spp.instruction().accounts,

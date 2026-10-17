@@ -20,6 +20,8 @@ import {
   encodeTransactInstructionData,
   writeTreeContext,
 } from "../interface/codecs/index.js";
+import { validateRingPolicyShape, type Shape } from "../interface/shape.js";
+import { shapedPolicyCircuit } from "../interface/proving-keys.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
   nullifierPdaAddress,
@@ -66,6 +68,10 @@ const RingProgramTag = Object.freeze({
   delegateTransact: 25,
   transactTwoByThree: 33,
   delegateTransactTwoByThree: 34,
+  transactShaped: 35,
+  delegateTransactShaped: 36,
+  transactSubtree: 37,
+  delegateTransactSubtree: 38,
   createPolicy: 7,
   updateMembers: 32,
   setPolicySource: 10,
@@ -191,6 +197,8 @@ type RingTransactCommon = RingTransactTrees &
     /** Must equal the proof's approval bit. */
     approvalRequired?: boolean;
     twoByThree?: boolean;
+    /** Select a shaped full-policy proof with general or shared registry paths. */
+    policyShape?: "general" | "subtree";
   }>;
 
 export async function ringTransactInstruction(
@@ -238,7 +246,13 @@ export async function ringTransactInstruction(
       ...pool,
     ],
     data: transactData(
-      input.twoByThree === true ? RingProgramTag.transactTwoByThree : RingProgramTag.transact,
+      input.policyShape === undefined
+        ? input.twoByThree === true
+          ? RingProgramTag.transactTwoByThree
+          : RingProgramTag.transact
+        : input.policyShape === "subtree"
+          ? RingProgramTag.transactSubtree
+          : RingProgramTag.transactShaped,
       input,
     ),
   };
@@ -252,6 +266,8 @@ function transactData(
     policy?: RingTransactPolicy;
     approvalRequired?: boolean;
     twoByThree?: boolean;
+    /** Select a shaped full-policy proof with general or shared registry paths. */
+    policyShape?: "general" | "subtree";
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
@@ -264,6 +280,30 @@ function transactData(
       input.data.outputs.length !== 3)
   )
     throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+  if (input.policyShape !== undefined) {
+    if (
+      !["general", "subtree"].includes(input.policyShape) ||
+      input.twoByThree === true ||
+      input.policy === undefined
+    )
+      throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+    let shape: Shape;
+    try {
+      shape = validateRingPolicyShape(
+        input.data.inputs.length,
+        input.data.outputs.length,
+        input.data.circuit,
+      );
+      shapedPolicyCircuit(
+        shape,
+        input.policyShape === "subtree",
+        tag === RingProgramTag.delegateTransactShaped ||
+          tag === RingProgramTag.delegateTransactSubtree,
+      );
+    } catch {
+      throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+    }
+  }
   const proof = checkedCustomRingProof(input.proof);
   const policy = input.policy;
   const contexts = policy?.treeContexts ?? [];
@@ -325,9 +365,13 @@ export async function ringDelegateTransactInstruction(
       ...pool,
     ],
     data: transactData(
-      input.twoByThree === true
-        ? RingProgramTag.delegateTransactTwoByThree
-        : RingProgramTag.delegateTransact,
+      input.policyShape === undefined
+        ? input.twoByThree === true
+          ? RingProgramTag.delegateTransactTwoByThree
+          : RingProgramTag.delegateTransact
+        : input.policyShape === "subtree"
+          ? RingProgramTag.delegateTransactSubtree
+          : RingProgramTag.delegateTransactShaped,
       input,
     ),
   };

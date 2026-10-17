@@ -221,6 +221,14 @@ const RING_KEY_SOURCES: [RingKeySource; 10] = [
     },
 ];
 
+const SHAPED_RING_KEY_SOURCES: &[RingKeySource] = include!("shaped_ring_keys.rs");
+
+fn ring_key_sources() -> impl Iterator<Item = &'static RingKeySource> {
+    RING_KEY_SOURCES
+        .iter()
+        .chain(SHAPED_RING_KEY_SOURCES.iter())
+}
+
 /// Deployed per ring under its own id, shipped by the custom-rings set alone.
 const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
     role: "ring_program",
@@ -330,7 +338,7 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
     });
     let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
-    for source in &RING_KEY_SOURCES {
+    for source in ring_key_sources() {
         let key_source = repo.join(PROVING_KEYS_DIR).join(source.prover_file);
         require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
         let asset = source.asset(&options.tag);
@@ -649,7 +657,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
         names.extend(programs.iter().filter_map(asset_name));
     }
     for key in std::iter::once("ring_program")
-        .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        .chain(ring_key_sources().map(|source| source.section))
         .chain(std::iter::once("accounts"))
     {
         if let Some(name) = lock.get(key).and_then(asset_name) {
@@ -1085,29 +1093,55 @@ mod tests {
             "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for source in &RING_KEY_SOURCES {
+        for source in ring_key_sources() {
             lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
         }
-        for section in std::iter::once("ring_program")
-            .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        for section in
+            std::iter::once("ring_program").chain(ring_key_sources().map(|source| source.section))
         {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
         }
+        let pinned: Value = serde_json::from_str(include_str!(
+            "../../prover/server/prover/provingkeys/proving-keys.lock"
+        ))
+        .unwrap();
+        let pinned_files: std::collections::BTreeSet<_> = pinned["keys"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|file| file.starts_with("custom_ring_"))
+            .map(String::as_str)
+            .collect();
+        let sources: Vec<_> = ring_key_sources().collect();
+        assert_eq!(sources.len(), 58);
         assert_eq!(
-            staged_asset_paths(Path::new("/stage"), &lock),
-            vec![
-                PathBuf::from("/stage/custom-ring-program-v1.so"),
-                PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-base-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-register-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-deposit-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-base-confidential-key-v1.key"),
-                PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
-            ]
+            sources
+                .iter()
+                .map(|source| source.prover_file)
+                .collect::<std::collections::BTreeSet<_>>(),
+            pinned_files
         );
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.section)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            sources.len()
+        );
+        let expected: Vec<_> = std::iter::once(PathBuf::from("/stage/custom-ring-program-v1.so"))
+            .chain(
+                sources
+                    .iter()
+                    .map(|source| Path::new("/stage").join(source.asset("v1"))),
+            )
+            .chain(std::iter::once(PathBuf::from(
+                "/stage/ring-rpc-linux-x64-v1",
+            )))
+            .collect();
+        assert_eq!(staged_asset_paths(Path::new("/stage"), &lock), expected);
         assert_eq!(ReleaseSet::CustomRings.cli_binaries().len(), 1);
         assert_eq!(ReleaseSet::CustomRings.title("v1"), "custom-rings v1");
         assert_eq!(

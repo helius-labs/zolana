@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { RING_POLICY_SUPPORTED_SHAPES } from "../src/interface/shape.js";
 import { InterfaceError } from "../src/interface/errors.js";
 import { expectedProvingKey, PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
 
@@ -47,6 +48,50 @@ describe("expectedProvingKey", () => {
         "custom_ring_policy.key",
       ].map((name) => ({ name, sha256: lock.keys[name]?.sha256 })),
     );
+  });
+
+  it("refuses malformed shaped request flags", () => {
+    const request = {
+      circuit: "custom-ring-policy-shaped",
+      shape: { inputs: 1, outputs: 2 },
+      registrySubtree: false,
+    } as const;
+    Reflect.set(request, "registrySubtree", "false");
+    expect(() => expectedProvingKey(request)).toThrow(InterfaceError);
+  });
+
+  it("pins both registry path variants for every supported ordinary shape", () => {
+    for (const shape of RING_POLICY_SUPPORTED_SHAPES) {
+      for (const registrySubtree of [false, true]) {
+        const key = expectedProvingKey({
+          circuit: "custom-ring-policy-shaped",
+          shape,
+          registrySubtree,
+        });
+        expect(key.name).toBe(
+          `custom_ring_policy_${shape.inputs}_${shape.outputs}${registrySubtree ? "_subtree" : ""}.key`,
+        );
+        expect(key.sha256).toBe(lock.keys[key.name]?.sha256);
+      }
+    }
+    expect(() =>
+      expectedProvingKey({
+        circuit: "custom-ring-policy-shaped",
+        shape: { inputs: 1, outputs: 8 },
+      }),
+    ).toThrow(InterfaceError);
+    expect(() =>
+      expectedProvingKey({
+        circuit: "custom-ring-policy-shaped",
+        shape: { inputs: 24, outputs: 2 },
+      }),
+    ).toThrow(InterfaceError);
+    expect(() =>
+      expectedProvingKey({
+        circuit: "custom-ring-delegate-policy-shaped",
+        shape: { inputs: 2, outputs: 4 },
+      }),
+    ).toThrow(InterfaceError);
   });
 
   it("throws for a shape without a committed verifying key", () => {

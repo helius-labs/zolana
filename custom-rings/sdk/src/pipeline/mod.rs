@@ -82,7 +82,7 @@ pub type DelegateTransfer<'a> = RingTransfer<Delegated<'a>>;
 
 #[must_use = "build or submit the proven transfer"]
 pub struct ProvenRingTransfer {
-    two_by_three: bool,
+    policy_kind: custom_ring_interface::PolicyProofKind,
     pub tx_viewing_key: ViewingKey,
     pub data: TransactIxData,
     pub proof: CustomRingProof,
@@ -184,6 +184,33 @@ impl<R: Rail> RingTransfer<R> {
         {
             return Err(RingError::ApprovalWithoutCoSigner);
         }
+        let preview = ProvenRingTransfer {
+            policy_kind: custom_ring_interface::PolicyProofKind::Legacy,
+            tx_viewing_key: staged.tx_viewing_key.clone(),
+            data: spp.preview(inputs)?,
+            proof: CustomRingProof {
+                groth16: custom_ring_interface::PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+            policy: policy.as_ref().map(|policy| policy.reads.clone()),
+            cosigner: self.cosigner,
+            approval_required: policy
+                .as_ref()
+                .is_some_and(|policy| policy.approval_required),
+            outputs: Vec::new(),
+            owner_signers: staged.owner_signers.clone(),
+            interface_transfer_accounts: staged.interface_transfer_accounts.clone(),
+            payer: inputs.payer,
+            delegate: staged.delegate,
+            trees: trees.clone(),
+            ring: self.ring,
+        };
+        crate::submission::check_transaction_size(&inputs.payer, &preview.instruction()?)?;
         let private_tx_hash = spp.private_tx_hash();
         let tier = match policy {
             Some(policy) => Tier::Policy(Box::new(policy.finish(staged.pending, private_tx_hash)?)),
@@ -195,12 +222,12 @@ impl<R: Rail> RingTransfer<R> {
             })),
         };
         // Neither proof is an input to the other, the requests go out together.
-        let ((data, outputs), (proof, policy, approval_required, two_by_three)) = futures::try_join!(
+        let ((data, outputs), (proof, policy, approval_required, policy_kind)) = futures::try_join!(
             boxed(|| spp.prove(client, &staged.proof_inputs)),
             boxed(|| tier.prove(client)),
         )?;
         Ok(ProvenRingTransfer {
-            two_by_three,
+            policy_kind,
             tx_viewing_key: staged.tx_viewing_key,
             data,
             proof: to_instruction_proof(proof)?,
@@ -225,6 +252,15 @@ impl<R: Rail> RingTransfer<R> {
         indexed: bool,
     ) -> Result<PolicyStatement, RingError> {
         let inputs = &staged.proof_inputs;
+        let shape = inputs.check_shape()?;
+        if !custom_ring_interface::policy_shape_supported(
+            shape.n_inputs(),
+            shape.n_outputs(),
+            staged.pending.is_anonymous(),
+            staged.delegate.is_some(),
+        ) {
+            return Err(RingError::PolicyShapeUnsupported);
+        }
         let limits = match staged.limits {
             Some(limits) => limits,
             None => committed(self.ring, pinned)?,
@@ -251,6 +287,15 @@ impl<R: Rail> RingTransfer<R> {
             witness,
             policy_hash: pinned.config.policy_hash,
             circuit,
+            shape: zolana_interface::shape::Shape::new(
+                inputs.input_utxos.len(),
+                inputs.output_utxos.len(),
+            ),
+            published_inputs: inputs
+                .input_utxos
+                .iter()
+                .filter(|input| !input.is_compact())
+                .count(),
         })
     }
 }
@@ -295,6 +340,8 @@ struct PolicyStatement {
     approval_required: bool,
     policy_hash: [u8; 32],
     circuit: RingCircuit,
+    shape: zolana_interface::shape::Shape,
+    published_inputs: usize,
 }
 
 impl PolicyStatement {
@@ -305,16 +352,49 @@ impl PolicyStatement {
     ) -> Result<PolicyRequest, RingError> {
         let PolicyProof { mut body, indexed } =
             pending.finish(private_tx_hash, self.witness, &self.policy_hash)?;
-        let circuit = if indexed.is_none() && body.witness.supports_two_by_three() {
+        let circuit = if indexed.is_none()
+            && self.published_inputs == 2
+            && body.witness.supports_two_by_three()
+        {
             match (self.circuit, body.anonymous.is_some()) {
                 (RingCircuit::DelegatePolicy, _) => RingCircuit::DelegatePolicyTwoByThree,
                 (_, true) => RingCircuit::AnonymousPolicyTwoByThree,
                 (_, false) => RingCircuit::PolicyTwoByThree,
             }
         } else {
-            self.circuit
+            let delegate = self.circuit == RingCircuit::DelegatePolicy;
+            let anonymous = body.anonymous.is_some();
+            let supported = if delegate {
+                self.shape.is_ring_authority()
+            } else if anonymous {
+                self.shape.is_anonymous_ring_ed25519()
+            } else {
+                self.shape.is_supported()
+            };
+            if !supported {
+                return Err(RingError::PolicyShapeUnsupported);
+            }
+            let subtree = indexed.is_none() && body.witness.shared_subtree();
+            body.witness
+                .reshape(self.shape.n_inputs(), self.shape.n_outputs())?;
+            if let Some(identities) = &mut body.anonymous {
+                identities
+                    .recipients
+                    .resize(self.shape.n_outputs(), [0; crate::request::IDENTITY_LEN]);
+                identities.recipient_viewing_keys.resize(
+                    self.shape.n_outputs(),
+                    [0; custom_ring_interface::TAGGED_X25519_KEY_LEN],
+                );
+            }
+            RingCircuit::Shaped {
+                inputs: self.shape.n_inputs() as u8,
+                outputs: self.shape.n_outputs() as u8,
+                anonymous,
+                delegate,
+                subtree,
+            }
         };
-        let public_table = if circuit.is_two_by_three() {
+        let public_table = if circuit.proof_kind().public_table() {
             body.circuit_type = circuit;
             Some(
                 body.witness
@@ -358,9 +438,10 @@ impl PolicyRequest {
         match self.circuit {
             RingCircuit::Policy
             | RingCircuit::PolicyTwoByThree
-            | RingCircuit::AnonymousPolicyTwoByThree => {
-                requests::CircuitRequest::of(&RingRequest(&self.body))
-            }
+            | RingCircuit::AnonymousPolicyTwoByThree
+            | RingCircuit::Shaped {
+                delegate: false, ..
+            } => requests::CircuitRequest::of(&RingRequest(&self.body)),
             _ => requests::CircuitRequest::of(&RingRequest(&self.envelope())),
         }
     }
@@ -380,8 +461,18 @@ impl PolicyRequest {
         let indexed = IndexedPolicyRequest::new(request.body()?, request.proving_key()?, data)?;
         let proof = prover.prove_indexed(&indexed).await?;
         // The resolved roots enter the transaction only after the statement verifies.
-        self.circuit
-            .verify(&proof.proof, proof.resolution.public_input_hash)?;
+        if let Some(inputs) = &self.public_table {
+            // Indexed policy resolution must reproduce the pinned trees and statement.
+            if inputs[0] != proof.resolution.public_input_hash {
+                return Err(RingError::Client(ClientError::ProofVerification(
+                    "resolved policy statement differs".to_owned(),
+                )));
+            }
+            self.circuit.verify_table(&proof.proof, inputs)?;
+        } else {
+            self.circuit
+                .verify(&proof.proof, proof.resolution.public_input_hash)?;
+        }
         self.reads.trees = proof
             .resolution
             .trees
@@ -404,19 +495,27 @@ impl Tier {
     async fn prove<P: AsyncRpc, I: AsyncIndexer>(
         self,
         client: &AsyncZolanaClient<P, I>,
-    ) -> Result<(Proof, Option<PolicyReads>, bool, bool), RingError> {
+    ) -> Result<
+        (
+            Proof,
+            Option<PolicyReads>,
+            bool,
+            custom_ring_interface::PolicyProofKind,
+        ),
+        RingError,
+    > {
         match self {
             Self::Base(body) => Ok((
                 client.prove_request(&RingRequest(&*body)).await?,
                 None,
                 false,
-                false,
+                custom_ring_interface::PolicyProofKind::Legacy,
             )),
             Self::Policy(request) => {
                 let approval_required = request.approval_required;
-                let two_by_three = request.circuit.is_two_by_three();
+                let policy_kind = request.circuit.proof_kind();
                 let (proof, reads) = boxed(|| request.prove(client)).await?;
-                Ok((proof, Some(reads), approval_required, two_by_three))
+                Ok((proof, Some(reads), approval_required, policy_kind))
             }
         }
     }
@@ -582,6 +681,55 @@ impl Spp {
         }
     }
 
+    fn preview(&self, transaction: &SppProofInputs) -> Result<TransactIxData, RingError> {
+        let complete = match self {
+            Self::Indexed(prepared) => return Ok(prepared.transaction_template().clone()),
+            Self::Complete(complete) => complete,
+        };
+        let shape = transaction.check_shape()?;
+        let (n, m, p) = (
+            shape.n_inputs() as u8,
+            shape.n_outputs() as u8,
+            N_PUBLIC_SLOTS as u8,
+        );
+        let circuit = match complete.inputs {
+            SppInputs::Ring(_) => CircuitId::ConfidentialRingEd25519(n, m, p),
+            SppInputs::Authority(_) => CircuitId::RingAuthority(n, m, p),
+            SppInputs::Anonymous(_) => CircuitId::AnonymousRingEd25519(
+                n,
+                m,
+                p,
+                zolana_interface::verifying_keys::Bsb22Commitment {
+                    commitment: [0; 32],
+                    commitment_pok: [0; 32],
+                },
+            ),
+        };
+        let external = &transaction.external_data;
+        Ok(TransactIxData {
+            proof: zolana_interface::instruction::TransactProof::zeroed(),
+            expiry_unix_ts: external.expiry_unix_ts,
+            private_tx_hash: complete.private_tx_hash,
+            circuit,
+            inputs: input_utxos_from_nullifiers(
+                &complete.nullifiers,
+                &complete.input_tree_indexes,
+            )?,
+            tree_contexts: complete.tree_contexts.clone(),
+            interface_transfers: external
+                .interface_transfers
+                .iter()
+                .map(|leg| leg.interface_transfer())
+                .collect(),
+            data_hash: external.data_hash,
+            ring_data_hash: external.ring_data_hash,
+            tx_viewing_pk: external.tx_viewing_pk,
+            salt: external.salt,
+            outputs: external.outputs.clone(),
+            messages: external.messages.clone(),
+        })
+    }
+
     async fn prove<P: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<P, I>,
@@ -687,7 +835,7 @@ impl ProvenRingTransfer {
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
             }
-            .instruction_with_policy_shape(self.two_by_three),
+            .instruction_with_policy_kind(self.policy_kind),
             Some(delegate) => CustomRingDelegateTransact {
                 ring: self.ring,
                 payer: self.payer,
@@ -700,7 +848,7 @@ impl ProvenRingTransfer {
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
             }
-            .instruction_with_policy_shape(self.two_by_three),
+            .instruction_with_policy_kind(self.policy_kind),
         }
     }
 }

@@ -29,6 +29,7 @@ use crate::{
 };
 
 /// Input owners, output owners, then output assets used by asset rules.
+#[cfg(test)]
 pub(crate) const SUBJECT_SLOTS: usize = POLICY_INPUT_SLOTS + 2 * POLICY_OUTPUT_SLOTS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,8 +73,8 @@ pub(crate) struct CustomRingWitness {
     pub foreign: Option<ForeignBinding>,
     pub n_in: u8,
     pub n_out: u8,
-    pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
-    pub outputs: [CustomRingOutputOpening; POLICY_OUTPUT_SLOTS],
+    pub inputs: Vec<CustomRingOpening>,
+    pub outputs: Vec<CustomRingOutputOpening>,
     #[serde(serialize_with = "fe::zero")]
     pub address_chain: (),
     #[serde(with = "fe")]
@@ -101,28 +102,73 @@ pub(crate) struct CustomRingWitness {
     pub member_registry_root: [u8; 32],
     /// Own-registry openings of the live slots, `None` where the prover fills them.
     #[serde(serialize_with = "subjects")]
-    pub subjects: [Option<crate::request::SubjectWitness>; SUBJECT_SLOTS],
+    pub subjects: Vec<Option<crate::request::SubjectWitness>>,
     /// Zero without a curator.
     #[serde(with = "fe")]
     pub foreign_root: [u8; 32],
     #[serde(serialize_with = "subjects")]
-    pub foreign_subjects: [Option<crate::request::SubjectWitness>; SUBJECT_SLOTS],
+    pub foreign_subjects: Vec<Option<crate::request::SubjectWitness>>,
 }
 
 impl CustomRingWitness {
     /// A conservative selector. Indexed requests keep their existing route,
     /// since their record indices are not known until the service resolves them.
     pub fn supports_two_by_three(&self) -> bool {
-        if self.indexed.is_some() || self.n_in != 2 || self.n_out != 3 {
-            return false;
-        }
+        self.indexed.is_none() && self.n_in == 2 && self.n_out == 3 && self.shared_subtree()
+    }
+
+    pub fn shared_subtree(&self) -> bool {
         [&self.subjects, &self.foreign_subjects]
             .into_iter()
             .all(|subjects| {
-                let mut prefixes = subjects.iter().flatten().map(|s| s.record.index >> 3);
-                let first = prefixes.next();
-                prefixes.all(|prefix| Some(prefix) == first)
+                let indices = subjects.iter().flatten().map(|s| s.record.index);
+                let mut prefix = None;
+                for index in indices {
+                    if index >= 1 << 20 {
+                        return false;
+                    }
+                    match prefix {
+                        Some(expected) if expected != index >> 3 => return false,
+                        None => prefix = Some(index >> 3),
+                        _ => {}
+                    }
+                }
+                true
             })
+    }
+
+    /// Reorders the three subject ranges when moving from the legacy layout to
+    /// a proof whose arrays have exactly the settlement circuit's capacity.
+    pub fn reshape(&mut self, inputs: usize, outputs: usize) -> Result<(), RingError> {
+        if usize::from(self.n_in) > inputs || usize::from(self.n_out) > outputs {
+            return Err(RingError::PolicyShapeUnsupported);
+        }
+        let old_inputs = self.inputs.len();
+        let old_outputs = self.outputs.len();
+        for subjects in [&mut self.subjects, &mut self.foreign_subjects] {
+            let old = core::mem::take(subjects);
+            *subjects = (0..inputs + 2 * outputs).map(|_| None).collect();
+            for (position, subject) in old.into_iter().enumerate() {
+                let destination = if position < old_inputs {
+                    (position < inputs).then_some(position)
+                } else if position < old_inputs + old_outputs {
+                    let offset = position - old_inputs;
+                    (offset < outputs).then_some(inputs + offset)
+                } else {
+                    let offset = position - old_inputs - old_outputs;
+                    (offset < outputs).then_some(inputs + outputs + offset)
+                };
+                if let Some(destination) = destination {
+                    subjects[destination] = subject;
+                } else if subject.is_some() {
+                    return Err(RingError::PolicyShapeUnsupported);
+                }
+            }
+        }
+        self.inputs.resize(inputs, CustomRingOpening::default());
+        self.outputs
+            .resize(outputs, CustomRingOutputOpening::default());
+        Ok(())
     }
 
     pub fn public_table_inputs(
@@ -229,7 +275,9 @@ impl<'a> WitnessInput<'a> {
         client: &(impl AsyncRpc + ?Sized),
         indexed: bool,
     ) -> Result<Box<CustomRingWitness>, RingError> {
-        if self.inputs.len() > POLICY_INPUT_SLOTS || self.outputs.len() > POLICY_OUTPUT_SLOTS {
+        if self.inputs.len() > zolana_interface::MAX_TRANSACT_INPUTS
+            || self.outputs.len() > zolana_interface::MAX_OUTPUTS
+        {
             return Err(RingError::PolicyShapeUnsupported);
         }
         let config = &self.pinned.config;
@@ -263,8 +311,17 @@ impl<'a> WitnessInput<'a> {
         self.assemble(tree, root, curator, slots, records, indexed)
     }
 
+    fn capacities(&self) -> (usize, usize) {
+        if self.inputs.len() <= POLICY_INPUT_SLOTS && self.outputs.len() <= POLICY_OUTPUT_SLOTS {
+            (POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS)
+        } else {
+            (self.inputs.len(), self.outputs.len())
+        }
+    }
+
     /// Live slots in circuit order, inputs then outputs, with their owner tags.
     fn slots(&self) -> Result<Vec<Slot>, RingError> {
+        let (input_slots, output_slots) = self.capacities();
         let mut slots = Vec::new();
         for (position, input) in self.inputs.iter().enumerate() {
             if input.is_dummy() {
@@ -280,7 +337,7 @@ impl<'a> WitnessInput<'a> {
                 continue;
             };
             slots.push(Slot {
-                position: POLICY_INPUT_SLOTS + position,
+                position: input_slots + position,
                 member: Member::from_bytes(address.signing_pubkey.owner_proof_input_hash()?)?,
             });
         }
@@ -294,7 +351,7 @@ impl<'a> WitnessInput<'a> {
             for (position, output) in self.rule_outputs().iter().enumerate() {
                 if output.owner_address.is_some() {
                     slots.push(Slot {
-                        position: POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS + position,
+                        position: input_slots + output_slots + position,
                         member: Member::asset(&output.asset.asset)?,
                     });
                 }
@@ -362,9 +419,12 @@ impl<'a> WitnessInput<'a> {
     ) -> Result<Box<CustomRingWitness>, RingError> {
         let config = &self.pinned.config;
         let sources = source_map(config)?;
-        let mut subjects: [Option<_>; SUBJECT_SLOTS] = Default::default();
-        let mut foreign_subjects: [Option<_>; SUBJECT_SLOTS] = Default::default();
-        let mut ct_hashes = [[0; 32]; POLICY_OUTPUT_SLOTS];
+        let (input_slots, output_slots) = self.capacities();
+        let mut subjects: Vec<Option<_>> =
+            (0..input_slots + 2 * output_slots).map(|_| None).collect();
+        let mut foreign_subjects: Vec<Option<_>> =
+            (0..input_slots + 2 * output_slots).map(|_| None).collect();
+        let mut ct_hashes = vec![[0; 32]; output_slots];
         if let Some(records) = &records {
             self.check_rules(&sources, &slots, records)?;
             for slot in &slots {
@@ -378,20 +438,19 @@ impl<'a> WitnessInput<'a> {
                     .as_ref()
                     .map(crate::request::SubjectWitness::of);
                 if self.key_escrow
-                    && (POLICY_INPUT_SLOTS..POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS)
-                        .contains(&slot.position)
+                    && (input_slots..input_slots + output_slots).contains(&slot.position)
                 {
-                    let output = &self.outputs[slot.position - POLICY_INPUT_SLOTS];
-                    ct_hashes[slot.position - POLICY_INPUT_SLOTS] =
+                    let output = &self.outputs[slot.position - input_slots];
+                    ct_hashes[slot.position - input_slots] =
                         escrowed_ct_hash(output, slot.member, &found.own)?;
                 }
             }
         }
-        let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
+        let mut inputs = vec![CustomRingOpening::default(); input_slots];
         for (slot, input) in inputs.iter_mut().zip(self.inputs) {
             *slot = input_opening(input)?;
         }
-        let mut outputs = [CustomRingOutputOpening::default(); POLICY_OUTPUT_SLOTS];
+        let mut outputs = vec![CustomRingOutputOpening::default(); output_slots];
         for (index, (slot, output)) in outputs.iter_mut().zip(self.outputs).enumerate() {
             *slot = CustomRingOutputOpening {
                 opening: output_opening(output, self.output_tree_id)?,
@@ -565,23 +624,23 @@ impl<'a> WitnessInput<'a> {
     /// The owners a list rule ranges over.
     fn subjects(&self, rule: &Rule, slots: &[Slot]) -> Result<Vec<Member>, RingError> {
         let outputs = self.rule_outputs().len();
+        let (input_slots, output_slots) = self.capacities();
         Ok(match rule.subject {
             Subject::OutputOwner => slots
                 .iter()
                 .filter(|slot| {
-                    slot.position >= POLICY_INPUT_SLOTS
-                        && slot.position - POLICY_INPUT_SLOTS < outputs
+                    slot.position >= input_slots && slot.position - input_slots < outputs
                 })
                 .map(|slot| slot.member)
                 .collect(),
             Subject::Sender => slots
                 .iter()
-                .filter(|slot| slot.position < POLICY_INPUT_SLOTS)
+                .filter(|slot| slot.position < input_slots)
                 .map(|slot| slot.member)
                 .collect(),
             Subject::Asset => slots
                 .iter()
-                .filter(|slot| slot.position >= POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS)
+                .filter(|slot| slot.position >= input_slots + output_slots)
                 .map(|slot| slot.member)
                 .collect(),
             Subject::ExitDestination => Vec::new(),

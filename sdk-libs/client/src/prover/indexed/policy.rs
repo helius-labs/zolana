@@ -62,6 +62,44 @@ pub struct IndexedPolicyRequest {
 /// Witness fields the indexed prover fills from its own registry projection.
 const REGISTRY_OPENINGS: [&str; 2] = ["subjects", "foreignSubjects"];
 
+/// Only the general shaped family is resolvable without knowing registry indices.
+fn policy_circuit_delegate(circuit: &str) -> Option<bool> {
+    match circuit {
+        "custom-ring-policy" => return Some(false),
+        "custom-ring-delegate-policy" => return Some(true),
+        _ => {}
+    }
+    let (tail, delegate) = if let Some(tail) = circuit.strip_prefix("custom-ring-delegate-policy-")
+    {
+        (tail, true)
+    } else {
+        (circuit.strip_prefix("custom-ring-policy-")?, false)
+    };
+    let mut parts = tail.split('-');
+    let n: usize = parts.next()?.parse().ok()?;
+    let m: usize = parts.next()?.parse().ok()?;
+    let anonymous = match parts.next() {
+        None => false,
+        Some("anonymous") => true,
+        _ => return None,
+    };
+    if parts.next().is_some() {
+        return None;
+    }
+    let canonical = format!("{n}-{m}{}", if anonymous { "-anonymous" } else { "" });
+    if canonical != tail || (anonymous && delegate) {
+        return None;
+    }
+    let valid = if delegate {
+        matches!((n, m), (2, 2) | (4, 4))
+    } else if anonymous {
+        matches!((n, m), (2, 2) | (2, 4) | (3, 4) | (4, 2))
+    } else {
+        matches!(n, 1 | 2 | 3 | 4 | 5 | 6 | 8 | 12 | 16) && matches!(m, 2 | 4)
+    };
+    valid.then_some(delegate)
+}
+
 impl IndexedPolicyRequest {
     pub fn new(
         witness: Zeroizing<String>,
@@ -89,13 +127,8 @@ impl IndexedPolicyRequest {
             .and_then(serde_json::Value::as_str)
             .ok_or_else(invalid)?
             .to_owned();
-        if !matches!(
-            circuit.as_str(),
-            "custom-ring-policy" | "custom-ring-delegate-policy"
-        ) {
-            return Err(invalid());
-        }
-        let policy = if circuit == "custom-ring-policy" {
+        let delegate = policy_circuit_delegate(&circuit).ok_or_else(invalid)?;
+        let policy = if !delegate {
             &mut prepared.0
         } else {
             prepared.get_mut("policy").ok_or_else(invalid)?
@@ -253,8 +286,10 @@ mod tests {
 
     fn request(circuit: &str, foreign: bool) -> IndexedPolicyRequest {
         let mut policy = serde_json::json!({"circuitType":"custom-ring-policy","txViewingSk":"secret","treeSlots":[],"publicInputHash":"0x1","outputs":[{"amount":"0x1","ctHash":"0x2"}],"subjects":vec![serde_json::Value::Null; 9],"foreignRoot":"0x0","foreignSubjects":vec![serde_json::Value::Null; 9]});
-        if circuit != "custom-ring-policy" {
+        if policy_circuit_delegate(circuit) == Some(true) {
             policy = serde_json::json!({"circuitType":circuit,"policy":policy});
+        } else {
+            policy["circuitType"] = serde_json::Value::String(circuit.to_owned());
         }
         IndexedPolicyRequest::new(
             Zeroizing::new(policy.to_string()),
@@ -283,7 +318,13 @@ mod tests {
 
     #[test]
     fn policy_resolution_rejects_changed_anchors_and_transcripts() {
-        for circuit in ["custom-ring-policy", "custom-ring-delegate-policy"] {
+        for circuit in [
+            "custom-ring-policy",
+            "custom-ring-delegate-policy",
+            "custom-ring-policy-16-4",
+            "custom-ring-policy-3-4-anonymous",
+            "custom-ring-delegate-policy-4-4",
+        ] {
             let request = request(circuit, false);
             let mut resolution = ProofResolution {
                 trees: request.data.trees.clone(),
@@ -309,7 +350,7 @@ mod tests {
                 assert_eq!(request.check(&changed).is_ok(), mutation == 0);
             }
             let body: serde_json::Value = serde_json::from_str(&request.body().unwrap()).unwrap();
-            let prepared = if circuit == "custom-ring-policy" {
+            let prepared = if policy_circuit_delegate(circuit) == Some(false) {
                 &body["prepared"]
             } else {
                 &body["prepared"]["policy"]
@@ -353,5 +394,41 @@ mod tests {
                 "nextIndex": 2,
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod shaped_names {
+    use super::policy_circuit_delegate;
+
+    #[test]
+    fn only_shipped_general_policy_names_are_indexable() {
+        for n in [1, 2, 3, 4, 5, 6, 8, 12, 16] {
+            for m in [2, 4] {
+                assert_eq!(
+                    policy_circuit_delegate(&format!("custom-ring-policy-{n}-{m}")),
+                    Some(false)
+                );
+            }
+        }
+        assert_eq!(
+            policy_circuit_delegate("custom-ring-policy-3-4-anonymous"),
+            Some(false)
+        );
+        assert_eq!(
+            policy_circuit_delegate("custom-ring-delegate-policy-4-4"),
+            Some(true)
+        );
+        for bad in [
+            "custom-ring-policy-1-8",
+            "custom-ring-policy-24-2",
+            "custom-ring-policy-01-2",
+            "custom-ring-policy-2-2-subtree",
+            "custom-ring-policy-1-2-anonymous",
+            "custom-ring-delegate-policy-2-4",
+            "custom-ring-delegate-policy-2-2-anonymous",
+        ] {
+            assert_eq!(policy_circuit_delegate(bad), None, "{bad}");
+        }
     }
 }

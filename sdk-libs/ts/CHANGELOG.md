@@ -10,7 +10,8 @@ per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
 
-- Ring transfer builders select the smaller full-policy proof for two inputs and three outputs when each registry's queried records share an eight-leaf subtree, and `proveCustomRingBase` selects the smaller ordinary auditor proof for two outputs → deploy the matching ring program and serve all keys from this release.
+- Ring transfer builders select full-policy proofs for eighteen supported shapes with up to sixteen inputs and four outputs, use smaller proofs when registry records share an eight-leaf subtree, and check transaction size before proving → deploy the matching ring program and serve all keys from this release.
+- `CustomRingPolicyProofRequest.shape` sizes the input, output and subject witnesses, `registrySubtree` chooses shared paths, and `CustomRingTransferParams.transaction` includes extra signers and setup instructions in the size check → use `RING_POLICY_SUPPORTED_SHAPES` and pass all planned transaction additions before proving.
 - Auditor key envelopes use a two-hash Poseidon KDF. Previous envelope ciphertexts do not open with this release's auditor client → rotate the ring prover and auditor client together.
 
 - Asset rules use authenticated mint records in the own or curator registry. The inline eight-mint allowlist is removed. `inlineAssets` and `inlineLimits` now serve only per-mint amount guards. Scalar owner guards reject mixed-mint transfers. Replace inline asset rules with list rules and populate the mint records before transferring.

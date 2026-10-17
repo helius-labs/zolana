@@ -66,6 +66,11 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	add("transfer_ed25519_ring_2_2", anonymousRing, err)
 
 	for _, ring := range customring.RingCircuits {
+		// The shape matrix is checked against each installed serialized key
+		// by TestRingKeysCarryTheCompiledCircuits and full-policy solves.
+		if _, shaped := common.ParseRingPolicyShape(ring.Type); shaped {
+			continue
+		}
 		cs, err := ring.R1CS()
 		add(strings.TrimSuffix(common.RingKeyFile(ring.Type), ".key"), cs, err)
 	}

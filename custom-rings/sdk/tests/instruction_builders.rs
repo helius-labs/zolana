@@ -1366,3 +1366,183 @@ fn the_cosigner_slot_signs_only_when_set() {
         AccountMeta::new_readonly(cosigner, true)
     );
 }
+
+/// The real v1 serializer, both proofs, all nullifiers and a full auditor message.
+/// All notes stay in the ring, one input tree, one owner, no memo or extra data.
+fn measured_policy_shape(
+    inputs: usize,
+    outputs: usize,
+    curated: bool,
+    rail: u8,
+) -> zolana_client::TransactionSize {
+    use zolana_interface::instruction::{OwnerTag, TransactOutput};
+    use zolana_keypair::ViewingKey;
+    use zolana_transaction::{
+        serialization::{
+            confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+            UtxoSerialization,
+        },
+        Data, SOL_ASSET_ID,
+    };
+    let key = ViewingKey::new();
+    let plaintext = ConfidentialOutputPlaintext {
+        asset_id: SOL_ASSET_ID,
+        amount: u64::MAX,
+        blinding: [0; 32],
+        ring_program_id: Some(ring().program_id()),
+        data: Data::default(),
+    };
+    let cx = ConfidentialEncode {
+        recipient_pubkey: key.pubkey(),
+        tx: key,
+        salt: [0; 16],
+        slot_index: 0,
+    };
+    let ciphertext = if rail == 1 {
+        Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)
+    } else {
+        Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
+    }
+    .unwrap()
+    .data;
+    let mut transact = transact_data(Vec::new());
+    transact.circuit = match rail {
+        1 => CircuitId::AnonymousRingEd25519(
+            inputs as u8,
+            outputs as u8,
+            N_PUBLIC_SLOTS as u8,
+            zolana_interface::verifying_keys::Bsb22Commitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+        ),
+        2 => CircuitId::RingAuthority(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
+        _ => CircuitId::ConfidentialRingEd25519(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
+    };
+    transact.inputs = (0..inputs)
+        .map(|index| InputUtxo {
+            nullifier_hash: [index as u8 + 1; 32],
+            tree_index: 0,
+        })
+        .collect();
+    transact.outputs = (0..outputs)
+        .map(|index| TransactOutput {
+            utxo_hash: [index as u8 + 1; 32],
+            owner_tag: OwnerTag::Inline([index as u8 + 60; 32]),
+            data: Some(ciphertext.clone()),
+        })
+        .collect();
+    let fields = if rail == 1 {
+        custom_ring_interface::DisclosureShape {
+            anonymous: true,
+            inputs,
+            outputs,
+        }
+        .field_count()
+        .unwrap()
+    } else {
+        9 * outputs.max(4)
+    };
+    transact.messages[0].data = vec![0; 65 + 32 * fields];
+    let instruction = if rail == 2 {
+        CustomRingDelegateTransact {
+            ring: ring(),
+            payer: payer(),
+            cosigner: if curated { Some(authority()) } else { None },
+            input_trees: vec![input_tree()],
+            output_tree: input_tree(),
+            policy: if curated {
+                curated_reads()
+            } else {
+                address_tree_reads()
+            },
+            delegate: if curated { owner_signer() } else { payer() },
+            proof: sample_proof(),
+            approval_required: curated,
+            transact,
+        }
+        .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
+        .unwrap()
+    } else {
+        CustomRingTransact {
+            ring: ring(),
+            payer: payer(),
+            cosigner: if curated { Some(authority()) } else { None },
+            input_trees: vec![input_tree()],
+            output_tree: input_tree(),
+            policy: Some(if curated {
+                curated_reads()
+            } else {
+                address_tree_reads()
+            }),
+            owner_signers: if rail == 1 {
+                Vec::new()
+            } else if curated {
+                vec![owner_signer()]
+            } else {
+                vec![payer()]
+            },
+            interface_transfer_accounts: Vec::new(),
+            proof: sample_proof(),
+            approval_required: curated,
+            transact,
+        }
+        .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
+        .unwrap()
+    };
+    transaction_size(
+        &payer(),
+        &[instruction],
+        ComputeBudgetConfig::new(1_400_000).with_priority_fee(u64::MAX),
+    )
+    .unwrap()
+}
+
+#[test]
+fn policy_shape_transaction_size_matrix() {
+    for shape in zolana_interface::shape::SPP_SUPPORTED_SHAPES {
+        let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 0);
+        let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 0);
+        assert_eq!(
+            minimum.fits(),
+            custom_ring_interface::policy_shape_supported(
+                shape.n_inputs(),
+                shape.n_outputs(),
+                false,
+                false
+            )
+        );
+        if (shape.n_inputs(), shape.n_outputs()) == (16, 4) {
+            assert!(!full.fits());
+        }
+        println!(
+            "POLICY_SIZE {} {} {} {} {} {}",
+            shape.n_inputs(),
+            shape.n_outputs(),
+            minimum.bytes,
+            minimum.addresses,
+            full.bytes,
+            full.addresses
+        );
+    }
+}
+
+#[test]
+fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
+    for (n, m, rail) in [
+        (2, 2, 1),
+        (2, 4, 1),
+        (3, 4, 1),
+        (4, 2, 1),
+        (2, 2, 2),
+        (4, 4, 2),
+    ] {
+        let minimum = measured_policy_shape(n, m, false, rail);
+        let full = measured_policy_shape(n, m, true, rail);
+        assert!(minimum.fits() && full.fits());
+        println!(
+            "POLICY_RAIL_SIZE {rail} {n} {m} {} {} {} {}",
+            minimum.bytes, minimum.addresses, full.bytes, full.addresses
+        );
+    }
+}

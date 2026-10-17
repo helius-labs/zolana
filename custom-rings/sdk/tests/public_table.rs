@@ -16,21 +16,47 @@ fn field(value: &Value) -> [u8; 32] {
 
 #[test]
 fn full_policy_proofs_bind_every_public_field_in_rust() {
-    let cases = [
+    let mut cases = vec![
         (
-            include_str!("fixtures/custom-ring-policy-2x3.json"),
+            include_str!("fixtures/custom-ring-policy-2x3.json").to_owned(),
             &policy_2x3_verifying_key::VERIFYINGKEY,
         ),
         (
-            include_str!("fixtures/custom-ring-policy-2x3-anonymous.json"),
+            include_str!("fixtures/custom-ring-policy-2x3-anonymous.json").to_owned(),
             &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
         ),
         (
-            include_str!("fixtures/custom-ring-delegate-policy-2x3.json"),
+            include_str!("fixtures/custom-ring-delegate-policy-2x3.json").to_owned(),
             &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
         ),
     ];
-    for (data, key) in cases {
+    for (inputs, outputs, anonymous, delegate) in [
+        (1, 2, false, false),
+        (16, 2, false, false),
+        (16, 4, false, false),
+        (3, 4, true, false),
+        (4, 4, false, true),
+    ] {
+        for subtree in [false, true] {
+            let name = format!(
+                "custom-ring-{}policy-{inputs}-{outputs}{}{}",
+                if delegate { "delegate-" } else { "" },
+                if anonymous { "-anonymous" } else { "" },
+                if subtree { "-subtree" } else { "" }
+            );
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/shaped-proofs")
+                .join(format!("{name}.json"));
+            let data = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let key = custom_ring_interface::shaped_verifying_keys::policy_shape_key(
+                inputs, outputs, anonymous, delegate, subtree,
+            )
+            .expect("shipped key");
+            cases.push((data, key));
+        }
+    }
+    for (data, key) in &cases {
         let vector: Value = serde_json::from_str(data).unwrap();
         let request = vector["request"]
             .get("policy")
@@ -119,8 +145,8 @@ fn full_policy_proofs_bind_every_public_field_in_rust() {
                 "public field {index}"
             );
         }
-        for (_, other_key) in cases {
-            if !core::ptr::eq(other_key, key) {
+        for (_, other_key) in &cases {
+            if !core::ptr::eq(*other_key, *key) {
                 assert!(verify_proof_inputs(&proof, &public, other_key).is_err());
             }
         }

@@ -10,6 +10,8 @@ pub mod instruction;
 pub mod member_registry;
 pub mod policy_public_input;
 pub mod public_table;
+#[cfg(feature = "verifying-keys")]
+pub mod shaped_verifying_keys;
 pub mod state;
 
 macro_rules! verifying_keys {

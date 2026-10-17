@@ -24,6 +24,7 @@ import {
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
+import { validateRingPolicyShape, type Shape } from "../../interface/shape.js";
 import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { bytesToBigInt } from "../../keypair/bytes.js";
@@ -34,6 +35,7 @@ import { wireDecoder } from "../../interface/decode.js";
 import {
   PROVING_KEY_SHA256S,
   expectedProvingKey,
+  shapedPolicyCircuit,
   type ExpectedProvingKey,
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
@@ -314,7 +316,9 @@ export class ProverClient {
   ): Promise<IndexedProofResult> {
     const inputs = snapshotPolicyInputs(request);
     const body = indexedPolicyEnvelope(inputs, customRingPolicyProofRequest(inputs.policy));
-    const key = provingKeyFor({ circuit: inputs.circuit });
+    const key = provingKeyFor(
+      policyProofKey(inputs.policy, inputs.circuit === "custom-ring-delegate-policy"),
+    );
     const result = parseIndexedResponse(
       await this.#send(JSON.stringify(body), "indexed", key, context),
       key,
@@ -328,9 +332,7 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     const body = JSON.stringify(customRingPolicyProofRequest(inputs));
-    const key = provingKeyFor({
-      circuit: inputs.twoByThree === true ? "custom-ring-policy-2x3" : "custom-ring-policy",
-    });
+    const key = provingKeyFor(policyProofKey(inputs));
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -381,19 +383,10 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     if (inputs.limits.approvalRequired) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    const body = JSON.stringify({
-      circuitType:
-        inputs.twoByThree === true
-          ? "custom-ring-delegate-policy-2x3"
-          : "custom-ring-delegate-policy",
-      policy: customRingPolicyProofRequest(inputs),
-    });
-    const key = provingKeyFor({
-      circuit:
-        inputs.twoByThree === true
-          ? "custom-ring-delegate-policy-2x3"
-          : "custom-ring-delegate-policy",
-    });
+    const policy = customRingPolicyProofRequest(inputs);
+    const keyRequest = policyProofKey(inputs, true);
+    const body = JSON.stringify({ circuitType: policyProofName(inputs, true), policy });
+    const key = provingKeyFor(keyRequest);
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -862,26 +855,9 @@ export function customRingBaseProofRequest(
 export function customRingPolicyProofRequest(
   inputs: CustomRingPolicyProofRequest,
 ): Readonly<Record<string, unknown>> {
-  if (inputs.twoByThree !== undefined && typeof inputs.twoByThree !== "boolean")
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  if (
-    inputs.twoByThree === true &&
-    (inputs.nIn !== 2 ||
-      inputs.nOut !== 3 ||
-      ![inputs.subjects, inputs.foreignSubjects].every(
-        (subjects) =>
-          Array.isArray(subjects) &&
-          subjects.every(
-            (subject) => subject === undefined || (subject !== null && typeof subject === "object"),
-          ) &&
-          shareMemberSubtree(
-            subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
-          ),
-      ))
-  )
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  const capacity = policyWitnessCapacity(inputs);
   return Object.freeze({
-    circuitType: inputs.twoByThree === true ? "custom-ring-policy-2x3" : "custom-ring-policy",
+    circuitType: policyProofName(inputs),
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
@@ -890,10 +866,10 @@ export function customRingPolicyProofRequest(
     salt: bytesHex(inputs.salt),
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
-    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map((opening) => {
+    inputs: sized(inputs.inputs, capacity.inputs, "inputs").map((opening) => {
       return openingJson(opening);
     }),
-    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map((opening) => ({
+    outputs: sized(inputs.outputs, capacity.outputs, "outputs").map((opening) => ({
       ...openingJson(opening),
       ctHash: hex32(opening.ctHash ?? new Uint8Array(32), "ctHash"),
     })),
@@ -918,16 +894,83 @@ export function customRingPolicyProofRequest(
     approvalRequired: inputs.limits.approvalRequired,
     keyEscrow: inputs.keyEscrow,
     memberRegistryRoot: hex32(inputs.memberRegistryRoot, "memberRegistryRoot"),
-    subjects: sized(inputs.subjects, RING_INPUT_SLOTS + 2 * RING_OUTPUT_SLOTS, "subjects").map(
+    subjects: sized(inputs.subjects, capacity.inputs + 2 * capacity.outputs, "subjects").map(
       subjectJson,
     ),
     foreignRoot: hex32(inputs.foreignRoot, "foreignRoot"),
     foreignSubjects: sized(
       inputs.foreignSubjects,
-      RING_INPUT_SLOTS + 2 * RING_OUTPUT_SLOTS,
+      capacity.inputs + 2 * capacity.outputs,
       "foreignSubjects",
     ).map(subjectJson),
   });
+}
+
+function policyProofKey(inputs: CustomRingPolicyProofRequest, delegate = false): ProvingKeyCircuit {
+  if (inputs.shape !== undefined)
+    return {
+      circuit: delegate ? "custom-ring-delegate-policy-shaped" : "custom-ring-policy-shaped",
+      shape: inputs.shape,
+      registrySubtree: inputs.registrySubtree === true,
+    };
+  return {
+    circuit: delegate
+      ? inputs.twoByThree === true
+        ? "custom-ring-delegate-policy-2x3"
+        : "custom-ring-delegate-policy"
+      : inputs.twoByThree === true
+        ? "custom-ring-policy-2x3"
+        : "custom-ring-policy",
+  };
+}
+
+function policyProofName(inputs: CustomRingPolicyProofRequest, delegate = false): string {
+  return inputs.shape === undefined
+    ? policyProofKey(inputs, delegate).circuit
+    : shapedPolicyCircuit(inputs.shape, inputs.registrySubtree === true, delegate);
+}
+
+function policyWitnessCapacity(inputs: CustomRingPolicyProofRequest): Shape {
+  if (
+    (inputs.twoByThree !== undefined && typeof inputs.twoByThree !== "boolean") ||
+    (inputs.registrySubtree !== undefined && typeof inputs.registrySubtree !== "boolean")
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  let capacity: Shape = { inputs: RING_INPUT_SLOTS, outputs: RING_OUTPUT_SLOTS };
+  if (inputs.shape !== undefined) {
+    if (inputs.shape === null || typeof inputs.shape !== "object" || inputs.twoByThree === true)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    try {
+      capacity = validateRingPolicyShape(inputs.nIn, inputs.nOut, inputs.shape);
+    } catch {
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    }
+  } else if (inputs.registrySubtree === true) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  if (
+    !Number.isInteger(inputs.nIn) ||
+    inputs.nIn < 1 ||
+    inputs.nIn > capacity.inputs ||
+    !Number.isInteger(inputs.nOut) ||
+    inputs.nOut < 1 ||
+    inputs.nOut > capacity.outputs ||
+    (inputs.twoByThree === true && (inputs.nIn !== 2 || inputs.nOut !== 3))
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  if (
+    (inputs.twoByThree === true || inputs.registrySubtree === true) &&
+    ![inputs.subjects, inputs.foreignSubjects].every(
+      (subjects) =>
+        Array.isArray(subjects) &&
+        subjects.every(
+          (subject) => subject === undefined || (subject !== null && typeof subject === "object"),
+        ) &&
+        shareMemberSubtree(
+          subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
+        ),
+    )
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return capacity;
 }
 
 /** Mirrors Go `readTreeSlots`, the populated prefix of one to `INPUT_TREES` slots. */

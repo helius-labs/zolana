@@ -743,3 +743,39 @@ async fn a_failed_proof_reproves_only_over_an_overwritten_registry_slot() {
         assert_eq!(submission.attempts(), 1);
     }
 }
+
+#[test]
+fn payload_and_address_limits_fail_before_submission() {
+    let payer = Address::new_from_array([201; 32]);
+    let mut instruction = Instruction {
+        program_id: Address::new_from_array([202; 32]),
+        accounts: Vec::new(),
+        data: vec![0; 4096],
+    };
+    assert!(matches!(
+        super::check_transaction_size(&payer, &instruction),
+        Err(RingError::TransactionTooLarge { .. })
+    ));
+    let budget = ComputeBudgetConfig::new(1_400_000);
+    let size = zolana_client::transaction_size(&payer, core::slice::from_ref(&instruction), budget)
+        .unwrap();
+    instruction
+        .data
+        .truncate(4096 - (size.bytes - instruction.data.len()));
+    assert!(super::check_transaction_size(&payer, &instruction).is_ok());
+    assert!(super::check_transaction_size_with_budget(
+        &payer,
+        &instruction,
+        budget.with_priority_fee(1)
+    )
+    .is_err());
+    instruction.data.clear();
+    instruction.accounts = (1..=64)
+        .map(|n| {
+            solana_instruction::AccountMeta::new_readonly(Address::new_from_array([n; 32]), false)
+        })
+        .collect();
+    assert!(super::check_transaction_size(&payer, &instruction).is_err());
+    instruction.accounts.clear();
+    assert!(super::check_transaction_size(&payer, &instruction).is_ok());
+}

@@ -121,7 +121,7 @@ func policyJSONValue(name string, v reflect.Value) any {
 	if v.Kind() == reflect.Struct {
 		return policyRequestJSON(v)
 	}
-	if v.Kind() == reflect.Array {
+	if v.Kind() == reflect.Array || v.Kind() == reflect.Slice {
 		if strings.Contains("|TxViewingSk|EphSk|AuditorPk|Salt|Sender|Recipient|RecipientViewingKey|", "|"+name+"|") {
 			bytes := make([]byte, v.Len())
 			for i := range bytes {

@@ -70,7 +70,8 @@ var RingCircuitTypes = []CircuitType{
 }
 
 func (c CircuitType) IsRing() bool {
-	return slices.Contains(RingCircuitTypes, c)
+	_, shaped := ParseRingPolicyShape(c)
+	return shaped || slices.Contains(RingCircuitTypes, c)
 }
 
 // RingKeyFile names a custom-ring circuit's key file, or "" for none.

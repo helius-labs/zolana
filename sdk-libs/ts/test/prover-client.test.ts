@@ -1,3 +1,4 @@
+import { RING_POLICY_SUPPORTED_SHAPES, SPP_SUPPORTED_SHAPES } from "../src/interface/shape.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 
 import { address, getBase58Decoder } from "@solana/kit";
@@ -721,6 +722,50 @@ describe("prover request routing", () => {
     expect(raw).toHaveLength(1);
   });
 
+  it("encodes every supported shaped policy with capacity-sized witness slots", () => {
+    const request = ringRequest(x25519.getPublicKey(bytes(4)));
+    expect(RING_POLICY_SUPPORTED_SHAPES).toHaveLength(18);
+    for (const shape of RING_POLICY_SUPPORTED_SHAPES) {
+      for (const registrySubtree of [false, true]) {
+        const shaped = {
+          ...request,
+          shape,
+          registrySubtree,
+          nIn: shape.inputs,
+          nOut: shape.outputs,
+          inputs: Array.from({ length: shape.inputs }, zeroOpening),
+          outputs: Array.from({ length: shape.outputs }, zeroOpening),
+          subjects: Array.from({ length: shape.inputs + 2 * shape.outputs }, () => undefined),
+          foreignSubjects: Array.from(
+            { length: shape.inputs + 2 * shape.outputs },
+            () => undefined,
+          ),
+        };
+        const body = customRingPolicyProofRequest(shaped);
+        expect(body["circuitType"]).toBe(
+          `custom-ring-policy-${shape.inputs}-${shape.outputs}${registrySubtree ? "-subtree" : ""}`,
+        );
+        expect(body["inputs"]).toHaveLength(shape.inputs);
+        expect(body["outputs"]).toHaveLength(shape.outputs);
+        expect(body["subjects"]).toHaveLength(shape.inputs + 2 * shape.outputs);
+        expect(() => customRingPolicyProofRequest({ ...shaped, twoByThree: true })).toThrow(
+          expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+        );
+        expect(() => customRingPolicyProofRequest({ ...shaped, nIn: shape.inputs + 1 })).toThrow(
+          expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+        );
+        expect(() => customRingPolicyProofRequest({ ...shaped, subjects: [] })).toThrow(
+          expect.objectContaining({ code: "CLIENT_INVALID_LENGTH" }),
+        );
+      }
+    }
+    for (const shape of SPP_SUPPORTED_SHAPES.filter((s) => s.inputs > 16 || s.outputs > 4)) {
+      expect(() => customRingPolicyProofRequest({ ...request, shape })).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
+    }
+  });
+
   it("sends output ciphertext hashes and authenticated member subjects separately", () => {
     const request = ringRequest(x25519.getPublicKey(bytes(4)));
     const subject = {
@@ -767,6 +812,19 @@ describe("prover request routing", () => {
     );
     expect(customRingPolicyProofRequest({ ...scattered, twoByThree: false })["circuitType"]).toBe(
       "custom-ring-policy",
+    );
+    const shape = { inputs: 2, outputs: 4 };
+    const general = {
+      ...scattered,
+      twoByThree: false,
+      shape,
+      subjects: scattered.subjects.slice(0, 10),
+      foreignSubjects: scattered.foreignSubjects.slice(0, 10),
+      inputs: scattered.inputs.slice(0, 2),
+    };
+    expect(customRingPolicyProofRequest(general)["circuitType"]).toBe("custom-ring-policy-2-4");
+    expect(() => customRingPolicyProofRequest({ ...general, registrySubtree: true })).toThrow(
+      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
     );
     expect(body).toMatchObject({ keyEscrow: true, memberRegistryRoot: fieldHex(15) });
     expect(body["outputs"]).toEqual(
@@ -1406,6 +1464,55 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
 }
 
 describe("indexed policy proofs", () => {
+  it.each([
+    { circuit: "custom-ring-policy", shape: { inputs: 16, outputs: 4 } },
+    { circuit: "custom-ring-delegate-policy", shape: { inputs: 4, outputs: 4 } },
+  ] as const)(
+    "routes indexed $circuit requests to their shaped general key",
+    async ({ circuit, shape }) => {
+      const { inputs, resolution } = indexedPolicy(circuit);
+      const shaped: IndexedPolicyInputs = {
+        ...inputs,
+        policy: {
+          ...inputs.policy,
+          shape,
+          nIn: shape.inputs,
+          nOut: shape.outputs,
+          inputs: Array.from({ length: shape.inputs }, zeroOpening),
+          outputs: Array.from({ length: shape.outputs }, zeroOpening),
+          subjects: Array.from({ length: shape.inputs + 2 * shape.outputs }, () => undefined),
+          foreignSubjects: Array.from(
+            { length: shape.inputs + 2 * shape.outputs },
+            () => undefined,
+          ),
+        },
+      };
+      const name = `${circuit}-${shape.inputs}-${shape.outputs}`;
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({
+          ...proofFor({ circuitType: name }),
+          proofCommitment: ["0x1", "0x2"],
+          proofCommitmentPok: ["0x0", "0x0"],
+          resolution,
+        }),
+      );
+      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+      await prover.proveIndexedPolicy(shaped);
+      expect(String(fetch.mock.calls[0]?.[0])).toContain(
+        `/prove/${name.replaceAll("-", "_")}/indexed`,
+      );
+      const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      expect(wire).toMatchObject({ circuitType: name, prepared: { circuitType: name } });
+      await expect(
+        prover.proveIndexedPolicy({
+          ...shaped,
+          policy: { ...shaped.policy, registrySubtree: true },
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each(["custom-ring-policy", "custom-ring-delegate-policy"] as const)(
     "binds returned roots for %s",
     async (circuit) => {

@@ -11,6 +11,9 @@ import (
 )
 
 func policyCircuit(circuit common.CircuitType) bool {
+	if shape, ok := common.ParseRingPolicyShape(circuit); ok {
+		return !shape.Subtree
+	}
 	switch circuit {
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		return true
@@ -23,7 +26,8 @@ func policyCircuit(circuit common.CircuitType) bool {
 func decodePolicy(request Request) (*preparedProof, error) {
 	var value any
 	var p *ring.PolicyParams
-	if request.CircuitType == common.CustomRingDelegatePolicyCircuitType {
+	shape, _ := common.ParseRingPolicyShape(request.CircuitType)
+	if request.CircuitType == common.CustomRingDelegatePolicyCircuitType || shape.Delegate {
 		wrapper := &ring.DelegatePolicyParams{}
 		value, p = wrapper, &wrapper.Policy
 	} else {
@@ -93,9 +97,9 @@ func liveSubjects(p *ring.PolicyParams) []int {
 	}
 	for o, output := range p.Outputs {
 		if o < int(p.NOut) && output.Domain.Int != nil && output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) == 0 {
-			live = append(live, policy.NInputs+o)
+			live = append(live, len(p.Inputs)+o)
 			if assetRules && output.Asset.Int != nil && output.Asset.Sign() != 0 {
-				live = append(live, policy.NInputs+policy.NOutputs+o)
+				live = append(live, len(p.Inputs)+len(p.Outputs)+o)
 			}
 		}
 	}
@@ -103,8 +107,8 @@ func liveSubjects(p *ring.PolicyParams) []int {
 }
 
 func subjectOpening(p *ring.PolicyParams, slot int) *ring.Opening {
-	if slot < policy.NInputs {
+	if slot < len(p.Inputs) {
 		return &p.Inputs[slot]
 	}
-	return &p.Outputs[(slot-policy.NInputs)%policy.NOutputs].Opening
+	return &p.Outputs[(slot-len(p.Inputs))%len(p.Outputs)].Opening
 }

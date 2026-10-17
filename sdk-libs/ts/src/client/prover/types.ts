@@ -150,7 +150,7 @@ export interface AssembledTransfer {
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
-/** Rust `POLICY_INPUT_SLOTS` and `POLICY_OUTPUT_SLOTS`, the ring circuit's slot counts. */
+/** Legacy policy witness widths, shaped policy requests use their declared capacities. */
 export const RING_INPUT_SLOTS = 5;
 export const RING_OUTPUT_SLOTS = 4;
 /** Rust `MAX_RULES` and `MAX_INLINE_ASSETS`, the fixed rule table width. */
@@ -281,6 +281,10 @@ export function outflowLimitsOff(
 export interface CustomRingPolicyProofRequest {
   /** Use the fixed 2x3 proof when each registry's records share an eight-leaf subtree. */
   readonly twoByThree?: boolean;
+  /** Supported SPP capacities for the shaped policy proof, with witnesses padded to this shape. */
+  readonly shape?: Shape;
+  /** Prove shared eight-leaf registry paths, or use full paths when omitted. */
+  readonly registrySubtree?: boolean;
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

@@ -598,3 +598,65 @@ fn the_fixed_policy_verifier_fits_the_transaction_budget() {
         result.compute_units_consumed
     );
 }
+
+#[test]
+fn both_shaped_policy_keys_reach_the_pairing_within_the_budget() {
+    let (mollusk, _) = setup_mollusk();
+    for tag in [tag::TRANSACT_SHAPED, tag::TRANSACT_SHAPED_SUBTREE] {
+        let mut transact = transact_data();
+        transact.circuit = CircuitId::ConfidentialRingEd25519(16, 4, N_PUBLIC_SLOTS as u8);
+        transact.inputs = (1..=16)
+            .map(|i| InputUtxo {
+                nullifier_hash: [i; 32],
+                tree_index: 0,
+            })
+            .collect();
+        transact.outputs = vec![confidential_output(); 4];
+        transact.messages[0].data.resize(auditor_message_len(4), 0);
+        let mut ix = ix_data(0, 0, false, transact);
+        ix.proof.commitment = [0; 32];
+        ix.proof.commitment_pok = [0; 32];
+        let fixture = transact_fixture(escrowed_config_account(), encode_transact(tag, &ix));
+        let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+        assert_eq!(
+            result.program_result,
+            mollusk_svm::result::ProgramResult::Failure(custom(
+                CustomRingError::ProofVerificationFailed
+            ))
+        );
+        assert!(result.compute_units_consumed > 400_000);
+        assert!(result.compute_units_consumed < 900_000);
+        eprintln!(
+            "shaped policy tag {tag} through pairing: {} CU",
+            result.compute_units_consumed
+        );
+    }
+}
+
+#[test]
+fn shaped_tags_reject_audit_only_rings_and_unshipped_or_overfull_shapes() {
+    let (mollusk, _) = setup_mollusk();
+    for tag in [tag::TRANSACT_SHAPED, tag::TRANSACT_SHAPED_SUBTREE] {
+        let audit = audit_transact_fixture(
+            audit_only_config_account(authority(), auditor_pubkey(4)),
+            encode_transact(tag, &audit_ix_data(bogus_proof(), transact_data())),
+        );
+        audit.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+        for (capacity, actual) in [(1, 2), (24, 24)] {
+            let mut transact = transact_data();
+            transact.circuit =
+                CircuitId::ConfidentialRingEd25519(capacity, 2, N_PUBLIC_SLOTS as u8);
+            transact.inputs = (1..=actual)
+                .map(|i| InputUtxo {
+                    nullifier_hash: [i; 32],
+                    tree_index: 0,
+                })
+                .collect();
+            let fixture = transact_fixture(
+                escrowed_config_account(),
+                encode_transact(tag, &ix_data(0, 0, false, transact)),
+            );
+            fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+        }
+    }
+}

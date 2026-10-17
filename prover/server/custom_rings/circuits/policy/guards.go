@@ -16,8 +16,8 @@ type outputTotals struct {
 	byOwner, byAsset, byOwnerAndAsset frontend.Variable
 }
 
-func sumOutputs(api frontend.API, outputs []utxoView, liveOwner, liveAsset [NOutputs]frontend.Variable) [NOutputs]outputTotals {
-	var totals [NOutputs]outputTotals
+func sumOutputs(api frontend.API, outputs []utxoView, liveOwner, liveAsset []frontend.Variable) []outputTotals {
+	totals := make([]outputTotals, len(outputs))
 	for i, output := range outputs {
 		totals[i] = outputTotals{0, 0, 0}
 		for j, other := range outputs {

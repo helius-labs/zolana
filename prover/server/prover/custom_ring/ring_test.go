@@ -49,7 +49,8 @@ func TestRingCircuitsCarryOnePrivateCommitment(t *testing.T) {
 				t.Fatalf("commitment covers %d public wires", len(info[0].PublicAndCommitmentCommitted))
 			}
 			public := 2
-			if _, ok := ring.Circuit().(*policy.PublicTableTwoByThreeCircuit); ok {
+			_, shaped := ring.Circuit().(*policy.ShapeCircuit)
+			if _, ok := ring.Circuit().(*policy.PublicTableTwoByThreeCircuit); ok || shaped {
 				public = 79
 			}
 			if cs.GetNbPublicVariables() != public {

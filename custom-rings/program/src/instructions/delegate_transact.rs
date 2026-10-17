@@ -12,7 +12,7 @@ pub fn process_delegate_transact_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
-    two_by_three: bool,
+    kind: custom_ring_interface::PolicyProofKind,
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let controls = Controls::next(&mut iter)?;
@@ -26,5 +26,5 @@ pub fn process_delegate_transact_ix(
     if !delegate.is_signer() || delegate.address() != &expected {
         return Err(CustomRingError::UnauthorizedDelegate.into());
     }
-    Rail::Delegate.verify_and_forward(program_id, controls, iter, data, two_by_three)
+    Rail::Delegate.verify_and_forward(program_id, controls, iter, data, kind)
 }

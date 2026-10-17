@@ -26,7 +26,7 @@ mod witness;
 
 pub use custom_ring_interface::{
     compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, ListRegistry,
-    PolicyConfig, RingMode,
+    PolicyConfig, PolicyProofKind, RingMode,
 };
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 

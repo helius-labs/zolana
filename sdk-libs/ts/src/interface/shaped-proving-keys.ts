@@ -1,0 +1,81 @@
+// Generated from the shaped policy keys in proving-keys.lock.
+export const SHAPED_PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
+  "custom_ring_delegate_policy_2_2.key":
+    "9ad0613c99d41b0e125ec006927528dfbf2ad13dfeb046d7613b7fd245f7134e",
+  "custom_ring_delegate_policy_2_2_subtree.key":
+    "52303231fc4d6c1dbbbdc69c63af8ed9538f32cbfb15e3fc7f5f912038788910",
+  "custom_ring_delegate_policy_4_4.key":
+    "0bec7556790818424ef77b4ba90fcf04b4d1579086d3f47e82eb9b8f6f50f360",
+  "custom_ring_delegate_policy_4_4_subtree.key":
+    "81626c011b1500c9bcff81aee8de2d6017a416afb4ba356ce1aff2c318715e28",
+  "custom_ring_policy_12_2.key": "a514177ac1b988789400cb6397eacb6fad7d8fb91c41f52442878bae68223ae7",
+  "custom_ring_policy_12_2_subtree.key":
+    "ab406a998f57d84353eea2af7941ba7e122abcc747d6c9d769623e104649179c",
+  "custom_ring_policy_12_4.key": "780306adc13614881d5b97102480487a5c934e70f7c496b234ed5086992c56a9",
+  "custom_ring_policy_12_4_subtree.key":
+    "eb5c2de552d8e037a8acef62f4e9f919393894337cbf096af646ca568024b621",
+  "custom_ring_policy_16_2.key": "c9ee0405fe96a70e75ee62387a52acd64de1c83128990dc1789ee336dfab5bd0",
+  "custom_ring_policy_16_2_subtree.key":
+    "f265005eb93d056a2287fd32c80227599e31542a03ec73d056dd81b7e0115f62",
+  "custom_ring_policy_16_4.key": "60b8a157fa38e872a22d75e81c2edfcbd5dfee5f4f50738396fa1a8831770913",
+  "custom_ring_policy_16_4_subtree.key":
+    "bef365c0eebbfcee2ce862fe3eb6919e50808c133c96fecc46620313e2a0f881",
+  "custom_ring_policy_1_2.key": "7ba1046fad6545c8280a966ae818b6a5cb92e3bd8b4a7d1c5bbc67980a512f57",
+  "custom_ring_policy_1_2_subtree.key":
+    "c7a56bff09644c0470a63e0a642b93ffa674bf005e14139d6a26d2f3a152774e",
+  "custom_ring_policy_1_4.key": "bb25bfc7fe280fd27aa5dbdeee69ea6e79acecb04821a857f960a28b0ca5c5d0",
+  "custom_ring_policy_1_4_subtree.key":
+    "3c31cd6e76df8462f74e6ad0efc3061f7f52e0581cd18f6d7a43145094c29aa7",
+  "custom_ring_policy_2_2.key": "a2d7cc67e465db9c014a5a50bcf6d37b5ebde34a9aea9be4078e3145c139e712",
+  "custom_ring_policy_2_2_anonymous.key":
+    "fb59fe0e652ae4f5b9ed38477579261b9a2422fd6ca996e44ffb0b71659a08d6",
+  "custom_ring_policy_2_2_anonymous_subtree.key":
+    "d34688307b30a31608972bcba1acb214c64e0e23c519573beed3b8f23306f976",
+  "custom_ring_policy_2_2_subtree.key":
+    "048efa7571747a499a62b54fbffeade19ab529497a1a0a6e2168510163276237",
+  "custom_ring_policy_2_4.key": "c4e8374912488b86e528523c17677e39e5bc0ecdc17675177a5905b594343a27",
+  "custom_ring_policy_2_4_anonymous.key":
+    "950c4677f1dfc8df18dbcde5d74f7de7f894961e822986c2603efa6cbdee2d5f",
+  "custom_ring_policy_2_4_anonymous_subtree.key":
+    "c4c910d0a9a4d0d4d305dac1887cb9003b20f5e9faa11c7a00d06c4ffe057209",
+  "custom_ring_policy_2_4_subtree.key":
+    "eb4cf7ed3e7a1249a3ebba484cf96c7561b8572c09eb6cdfee60abaf4ce2f089",
+  "custom_ring_policy_3_2.key": "95fa2fd5c73e19e560f02e7ca72b80e82295d23917084f668b0ba1e44502efdd",
+  "custom_ring_policy_3_2_subtree.key":
+    "97903c4e6be82833b7c478f7dfca9ba0a632533893503fa8b7266456c3bd197e",
+  "custom_ring_policy_3_4.key": "4d5210c514e1543b2038493ba52e5d1758ce1f78c03e91352e8195c4873f7ce3",
+  "custom_ring_policy_3_4_anonymous.key":
+    "1fc3c979be36491949530530ded441c34bbb2ae6a9c3e3f67f088fedad7767a3",
+  "custom_ring_policy_3_4_anonymous_subtree.key":
+    "090562ef18faee224eb92a4bef2da0992273ab4170ba4eb0f2725904bad98bdb",
+  "custom_ring_policy_3_4_subtree.key":
+    "f61b6d89e1bc6150d479260dfea0e37b088438029d2293a2ec7895f4fb2aa0ec",
+  "custom_ring_policy_4_2.key": "6428be2ba49d2783204b033daf11c7d1dcf41d758a53af8fded8b7dc6aa5e4a0",
+  "custom_ring_policy_4_2_anonymous.key":
+    "1c3c2e3c400ed0234ec833b5df9935b101c5e5ddf0568f9eb51e336a89167569",
+  "custom_ring_policy_4_2_anonymous_subtree.key":
+    "c699b7ef3a1c832113dbbc417ca86e852ae47639b773bf4b9aa62bc02989e004",
+  "custom_ring_policy_4_2_subtree.key":
+    "298e05a09b1c5376af840b02b3f700cb945ca02835ee62bd99935018e42c7526",
+  "custom_ring_policy_4_4.key": "29b5a515c295fb812b4ff8029dea06e69679fb88cfcd0a724d4ffa04ca9bfca5",
+  "custom_ring_policy_4_4_subtree.key":
+    "6bbffab11b04f4288ec5f0315955570542d7d216c5f5118b41117894e363f41d",
+  "custom_ring_policy_5_2.key": "4dc308f98ed980f01eed74f172ca8b1e2c4584e3e71da08d3d3252e2375df638",
+  "custom_ring_policy_5_2_subtree.key":
+    "d79a4bb06eea8adc9f709c67dcc2bef3d0da8556ddc586076b384cbac7273de8",
+  "custom_ring_policy_5_4.key": "8c92cec869b0a7956c4d3756904c705cb4d3e3ef12f5bbee86474548618e8e5a",
+  "custom_ring_policy_5_4_subtree.key":
+    "e367c04513b298adcdbdedc11a322a8ddc145ca856e55a393ce27a65364b7244",
+  "custom_ring_policy_6_2.key": "a2785899576acee96557961c099c065c1a091ff9af264928f77abf9d2afd72ec",
+  "custom_ring_policy_6_2_subtree.key":
+    "1a1d20848fc00bb8b24ce1cad45f27911ae849a939dae856997a3cb707c7141c",
+  "custom_ring_policy_6_4.key": "0e2f6cba0f54d72bab731ca25ec1ff9026b92a47d02d7dab5d9faf7c0c09c57b",
+  "custom_ring_policy_6_4_subtree.key":
+    "29ca22c76ee2a4ed9dd170f5aa19065e6984bb926498a7f39332087b213a77ed",
+  "custom_ring_policy_8_2.key": "47df139f51b7b37e59f074914ff856ec352f51a8f5b9ab62eae589677f38f73b",
+  "custom_ring_policy_8_2_subtree.key":
+    "e64d113f85271aa20cecd6e5fdcd38b1109a0783a981bdef6e47e85cbce93cfe",
+  "custom_ring_policy_8_4.key": "09ae88d5976c972ed3451c9094e0b7c7e2033f8fd747ff7fe6599005b2b4de38",
+  "custom_ring_policy_8_4_subtree.key":
+    "607cc0568827a04ed35184772eac99fb509f7e1f729d3b989a3e03d106b0ca85",
+});

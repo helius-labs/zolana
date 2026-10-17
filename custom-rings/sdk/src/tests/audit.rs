@@ -49,8 +49,8 @@ pub(super) fn witness() -> CustomRingWitness {
         foreign: None,
         n_in: 1,
         n_out: 1,
-        inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
-        outputs: [CustomRingOutputOpening::default(); POLICY_OUTPUT_SLOTS],
+        inputs: vec![CustomRingOpening::default(); POLICY_INPUT_SLOTS],
+        outputs: vec![CustomRingOutputOpening::default(); POLICY_OUTPUT_SLOTS],
         address_chain: (),
         private_tx_blinding: [0; 32],
         sources: [PolicySource::default(); MAX_SOURCES],
@@ -67,9 +67,9 @@ pub(super) fn witness() -> CustomRingWitness {
         address_tree_id: 0,
         key_escrow: true,
         member_registry_root: REGISTRY_ROOT,
-        subjects: Default::default(),
+        subjects: (0..crate::witness::SUBJECT_SLOTS).map(|_| None).collect(),
         foreign_root: [0; 32],
-        foreign_subjects: Default::default(),
+        foreign_subjects: (0..crate::witness::SUBJECT_SLOTS).map(|_| None).collect(),
     }
 }
 

@@ -19,6 +19,7 @@ import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_WIDTHS,
   selectSppShape,
+  validateRingPolicyShape,
   signerWidth,
   type Shape,
 } from "../../interface/shape.js";
@@ -1331,22 +1332,26 @@ export interface RingOpenings {
 }
 
 /** A dummy output retains the tree and blinding bound by its SPP commitment and auditor disclosure. */
-export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
+export function ringOpenings(proofInputs: SppProofInputs, shape?: Shape): RingOpenings {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
+  const capacity =
+    shape === undefined
+      ? { inputs: RING_INPUT_SLOTS, outputs: RING_OUTPUT_SLOTS }
+      : validateRingPolicyShape(proofInputs.inputUtxos.length, proofInputs.outputs.length, shape);
   if (
-    proofInputs.inputUtxos.length > RING_INPUT_SLOTS ||
-    proofInputs.outputs.length > RING_OUTPUT_SLOTS
+    proofInputs.inputUtxos.length > capacity.inputs ||
+    proofInputs.outputs.length > capacity.outputs
   ) {
     throw new ClientError("CLIENT_PROVER_INPUT");
   }
   const outputTreeId = treeIdField(proofInputs.outputTreeId);
-  const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
+  const inputs = Array.from({ length: capacity.inputs }, (_, index) => {
     const input = proofInputs.inputUtxos[index];
     return input === undefined ? zeroOpening(0) : inputOpening(input);
   });
-  const outputs = Array.from({ length: RING_OUTPUT_SLOTS }, (_, index) => {
+  const outputs = Array.from({ length: capacity.outputs }, (_, index) => {
     const output = proofInputs.outputs[index];
     return output === undefined ? zeroOpening(0) : outputOpening(output, outputTreeId);
   });

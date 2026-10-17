@@ -46,7 +46,7 @@ func fill(dst, src reflect.Value, path string) []error {
 			}
 			errs = append(errs, fill(dst.Field(i), value, name)...)
 		}
-	case reflect.Array:
+	case reflect.Array, reflect.Slice:
 		if src.IsValid() && (src.Kind() != reflect.Slice || src.Len() != dst.Len()) {
 			return []error{fmt.Errorf("%s: expected %d values", path, dst.Len())}
 		}

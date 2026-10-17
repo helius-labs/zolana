@@ -374,3 +374,48 @@ fn the_fast_policy_selector_preserves_the_general_fallback() {
     w.foreign_subjects[5].as_mut().unwrap().record.index = 8;
     assert!(!w.supports_two_by_three());
 }
+
+#[test]
+fn shaped_witness_preserves_each_subject_range() {
+    let mut value = witness();
+    value.n_in = 2;
+    value.n_out = 2;
+    let sender = subject(true);
+    let recipient = subject(false);
+    let asset = subject(true);
+    value.subjects[0] = Some(sender);
+    value.subjects[5] = Some(recipient);
+    value.subjects[9] = Some(asset);
+    let before = serde_json::to_value(&value).unwrap();
+    value.reshape(16, 2).unwrap();
+    let after = serde_json::to_value(&value).unwrap();
+    assert_eq!(after["inputs"].as_array().unwrap().len(), 16);
+    assert_eq!(after["outputs"].as_array().unwrap().len(), 2);
+    assert_eq!(after["subjects"].as_array().unwrap().len(), 20);
+    assert_eq!(after["subjects"][0], before["subjects"][0]);
+    assert_eq!(after["subjects"][16], before["subjects"][5]);
+    assert_eq!(after["subjects"][18], before["subjects"][9]);
+    assert!(value.reshape(1, 2).is_err());
+}
+
+#[test]
+fn every_shaped_request_uses_the_shared_catalog_and_exact_key_pin() {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../policy-shapes.json")).unwrap();
+    for row in manifest.as_array().unwrap() {
+        let circuit = RingCircuit::Shaped {
+            inputs: row["inputs"].as_u64().unwrap() as u8,
+            outputs: row["outputs"].as_u64().unwrap() as u8,
+            anonymous: row["anonymous"].as_bool().unwrap(),
+            delegate: row["delegate"].as_bool().unwrap(),
+            subtree: row["subtree"].as_bool().unwrap(),
+        };
+        assert_eq!(circuit.circuit_type(), row["circuit"].as_str().unwrap());
+        assert!(circuit.proof_kind().shaped());
+        let key = circuit.proving_key().unwrap();
+        assert_eq!(
+            key.name,
+            format!("{}.key", circuit.circuit_type().replace('-', "_"))
+        );
+    }
+}

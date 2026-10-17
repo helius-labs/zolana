@@ -125,3 +125,56 @@ func TestCompactRuleDecode(t *testing.T) {
 		hintattack.RequireConstraintRejection(t, err)
 	}
 }
+
+type shapedAmountCompareCircuit struct {
+	Total, Threshold, Result frontend.Variable
+	Inputs                   int `gnark:"-"`
+}
+
+func (c *shapedAmountCompareCircuit) Define(api frontend.API) error {
+	p := CustomRingPolicyCircuit{Dynamic: &ShapeWires{Inputs: make([]UtxoWires, c.Inputs), Outputs: make([]OutputWires, 4)}}
+	api.AssertIsEqual(p.amountAtMost(api, c.Total, c.Threshold), c.Result)
+	return nil
+}
+
+func TestShapedAmountComparisonLargestAggregate(t *testing.T) {
+	const inputs = 16
+	q := ecc.BN254.ScalarField()
+	cs, err := frontend.Compile(q, r1cs.NewBuilder, &shapedAmountCompareCircuit{Inputs: inputs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offset := new(big.Int).Lsh(big.NewInt(1), 68)
+	max := new(big.Int).Sub(offset, big.NewInt(1))
+	solve := func(w *shapedAmountCompareCircuit, options ...solver.Option) error {
+		witness, err := frontend.NewWitness(w, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cs.IsSolved(witness, options...)
+	}
+	for _, tc := range []shapedAmountCompareCircuit{{0, 0, 1, inputs}, {max, max, 1, inputs}, {max, 0, 0, inputs}, {0, max, 1, inputs}, {new(big.Int).Lsh(big.NewInt(1), 67), max, 1, inputs}} {
+		if err := solve(&tc); err != nil {
+			t.Fatal(err)
+		}
+		tc.Result = 1 - tc.Result.(int)
+		if solve(&tc) == nil {
+			t.Fatal("incorrect wide comparison accepted")
+		}
+	}
+	called := false
+	forge := func(field *big.Int, in, out []*big.Int) error {
+		called = true
+		if err := shapedAmountComparisonHint(field, in, out); err != nil {
+			return err
+		}
+		out[0].Sub(out[0], offset)
+		out[1].Add(out[1], big.NewInt(1))
+		return nil
+	}
+	err = solve(&shapedAmountCompareCircuit{1, 0, 1, inputs}, solver.OverrideHint(solver.GetHintID(shapedAmountComparisonHint), forge), hintattack.SkipMissingLookupQueries(t))
+	if !called {
+		t.Fatal("forgery did not execute")
+	}
+	hintattack.RequireConstraintRejection(t, err)
+}

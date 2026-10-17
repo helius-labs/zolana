@@ -34,7 +34,7 @@ pub struct RingKey(&'static str, &'static str);
 impl RingKey {
     pub const CONFIDENTIAL_AUDIT: Self =
         Self("confidential_audit_key", "custom-ring-base-confidential");
-    pub const ALL: [Self; 10] = [
+    const LEGACY: [Self; 10] = [
         Self("proving_key", "custom-ring-policy"),
         Self("audit_key", "custom-ring-base"),
         Self("delegate_policy_key", "custom-ring-delegate-policy"),
@@ -49,6 +49,24 @@ impl RingKey {
         Self("delegate_policy_2x3_key", "custom-ring-delegate-policy-2x3"),
         Self("update_members_key", "custom-ring-update-members"),
     ];
+
+    pub const ALL: [Self;
+        10 + custom_ring_interface::shaped_verifying_keys::SHAPED_POLICY_KEY_NAMES.len()] = {
+        let names = custom_ring_interface::shaped_verifying_keys::SHAPED_POLICY_KEY_NAMES;
+        let mut keys = [Self("", "");
+            10 + custom_ring_interface::shaped_verifying_keys::SHAPED_POLICY_KEY_NAMES.len()];
+        let mut i = 0;
+        while i < Self::LEGACY.len() {
+            keys[i] = Self::LEGACY[i];
+            i += 1;
+        }
+        let mut j = 0;
+        while j < names.len() {
+            keys[i + j] = Self(names[j].0, names[j].1);
+            j += 1;
+        }
+        keys
+    };
 
     /// Also the key's name in proving-keys.lock.
     pub fn file_name(self) -> String {

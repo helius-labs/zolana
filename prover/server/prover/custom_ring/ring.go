@@ -1,7 +1,9 @@
 package custom_ring
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -45,6 +47,18 @@ var RingCircuits = []RingCircuit{
 	twoByThreeRing(common.CustomRingPolicyTwoByThreeCircuitType, false, false),
 	twoByThreeRing(common.CustomRingAnonymousPolicyTwoByThreeCircuitType, true, false),
 	twoByThreeRing(common.CustomRingDelegatePolicyTwoByThreeCircuitType, false, true),
+}
+
+func init() {
+	for _, shape := range common.RingPolicyShapes {
+		params := func() any { return new(PolicyParams) }
+		if shape.Delegate {
+			params = func() any { return new(DelegatePolicyParams) }
+		}
+		RingCircuits = append(RingCircuits, RingCircuit{Type: shape.CircuitType(), params: params, Circuit: func() frontend.Circuit {
+			return policy.NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)
+		}})
+	}
 }
 
 func twoByThreeRing(kind common.CircuitType, anonymous, delegate bool) RingCircuit {
@@ -92,6 +106,9 @@ func Assign(circuitType common.CircuitType, params any) (frontend.Circuit, error
 		return nil, err
 	}
 	assignment := ring.Circuit()
+	if shaped, ok := assignment.(*policy.ShapeCircuit); ok {
+		return assignShapedPolicy(shaped, params)
+	}
 	if fast, ok := assignment.(*policy.PublicTableTwoByThreeCircuit); ok {
 		if delegated, ok := params.(*DelegatePolicyParams); ok {
 			params = &delegated.Policy
@@ -143,4 +160,49 @@ func (r RingCircuit) Convert(pkPath, vkPath string) (*common.RingProofSystem, er
 		return nil, err
 	}
 	return &common.RingProofSystem{CircuitType: r.Type, ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
+}
+
+func assignShapedPolicy(c *policy.ShapeCircuit, params any) (frontend.Circuit, error) {
+	if delegated, ok := params.(*DelegatePolicyParams); ok {
+		params = &delegated.Policy
+	}
+	p, ok := params.(*PolicyParams)
+	if !ok {
+		return nil, fmt.Errorf("invalid shaped policy params %T", params)
+	}
+	dst := reflect.ValueOf(&c.Policy).Elem()
+	errs := fill(dst, reflect.Value{}, "")
+	src := reflect.ValueOf(p).Elem()
+	for i := 0; i < dst.NumField(); i++ {
+		field := dst.Type().Field(i)
+		if field.Tag.Get("gnark") == "-" {
+			continue
+		}
+		switch field.Name {
+		case "Inputs", "Outputs", "Subjects", "ForeignSubjects":
+			continue
+		}
+		value := src.FieldByName(field.Name)
+		if field.Anonymous {
+			value = src
+		}
+		errs = append(errs, fill(dst.Field(i), value, field.Name)...)
+	}
+	errs = append(errs, fill(reflect.ValueOf(&c.ShapeWires).Elem(), src, "")...)
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	c.Policy.Dynamic = &c.ShapeWires
+	if len(c.Registry) != 0 {
+		c.Policy.RegistrySubtreeDepth = registry.SparseSubtreeDepth
+	}
+	table, err := policy.AssignPublicTable(&c.Policy, c.Anonymous, c.Delegate)
+	if err != nil {
+		return nil, err
+	}
+	c.Table, c.TreeHash = table.Table, table.TreeHash
+	if len(c.Registry) != 0 {
+		copy(c.Registry, table.Registry[:])
+	}
+	return c, nil
 }

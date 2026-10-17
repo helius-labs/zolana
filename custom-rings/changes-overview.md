@@ -33,9 +33,32 @@ Before: member + list → versioned note + revocation evidence
 Now:    member       → one registry leaf [list bits | escrow commitment]
 ```
 
-Membership now lives in a bitmap in an indexed Merkle tree. The ring stores accepted roots on chain. Photon stores the records and supplies authenticated paths. One opening supplies a member's status across rules. List updates preserve the escrow commitment. Key registration preserves the list bits.
+The policy and its members live in different places.
 
-Transfers no longer need list entry history or revocation proofs. They check a registry snapshot. Recent roots remain usable, so updates do not instantly invalidate older proofs. Membership records are public. Anonymous transfers hide which records they use.
+| Data | Stored where | What it contains |
+|---|---|---|
+| Rules and thresholds | The ring's 1,596-byte `PolicyConfig` PDA | Sixteen packed rules, eight list sources, eight mint-specific amount thresholds and eight outflow rows. Also the policy hash, address-tree binding and update generation. |
+| Accepted registry snapshots | The ring's 1,035-byte `MemberRegistryRoot` PDA | Thirty-two recent Merkle roots, the current root position and the next free leaf index. |
+| Members and mint memberships | Registry leaves reconstructed by Photon | An owner or asset identifier, its next identifier in sorted order, a 64-bit list bitmap and an escrow commitment. Current policies address eight list IDs. |
+| Recovery ciphertext | The registration instruction, indexed with the member record | The encrypted nullifier key. Its hash is bound into that member's escrow commitment. |
+
+A rule names a subject, required or forbidden list bits, an optional alternative list set and an amount guard. It occupies one 32-byte field in the policy account. Each list source stores its list ID and a registry address. Zero means this ring's registry. A nonzero address names the curator's registry.
+
+A member does not get a separate account for every list. One leaf holds all its list bits. The `next` identifier lets a proof show that a missing member falls between two entries. Photon supplies the record and Merkle path. The proof checks that path against an accepted on-chain root.
+
+```text
+PolicyConfig PDA                 MemberRegistryRoot PDA
+  rules + list source map          accepted roots
+             ↓                          ↑
+  own registry or curator        proof checks a path
+                                        ↑
+                              Photon record
+                     [member | next | list bits | escrow]
+```
+
+List updates change bits and preserve the escrow commitment. Key registration changes the escrow commitment and preserves the bits. Transfers no longer need list entry history or revocation proofs. They read a registry snapshot without changing it.
+
+A policy edit validates the new table, replaces its hash and increments its generation. A membership edit publishes a new registry root. These have different effects. A proof for different rules no longer matches the current table. An older registry root can still be accepted until it leaves the 32-root history. Membership records are public. Anonymous transfers hide which records they use.
 
 A ring can read its own lists and lists from one other ring. That ring is the curator. Several rings can share its screening decisions without copying the entries.
 
@@ -55,7 +78,18 @@ Registry mode keeps key escrow for recovery and a separately authorized delegate
 
 Programs, proving keys, SDKs and indexer layouts must agree. Existing list notes need migration into the registry.
 
-The full policy and auditor proof now fits below 100k constraints for two inputs and three outputs. All rule capacity, curator lists and escrow remain. The saving comes from sharing registry paths, binding the public policy directly from its account and proving only the selected shape and mode.
+The full policy and auditor proof now fits below 100k constraints for two inputs and three outputs. All rule capacity, curator lists and escrow remain. The savings preserve the same policy and auditor checks.
+
+| Optimization | Work saved |
+|---|---|
+| Shape and mode keys | Prove only the supported input and output capacity. Omit anonymous disclosure work from ordinary transfers. |
+| Public policy binding | The verifier reads the stored table into 78 public fields. Each transfer no longer hashes the whole public table inside the circuit. Policy writes still validate and hash it. |
+| Shared registry paths | Records in the same eight-leaf block share one upper Merkle path per registry. General proofs still accept scattered records. |
+| Smaller integer checks | Bound limbs and carries instead of decomposing every value into bits. Absence proofs still enforce strict canonical ordering. |
+| Less repeated policy work | Decode each packed rule once and reuse amount checks for the same asset. |
+| Optimized auditor encryption | Use the existing X25519 and AES gadgets, the two-hash Poseidon key schedule and bounded canonical byte encoding. Reuse note commitments and omit unused disclosure work. |
+
+The public table is read from the program-owned account. The prover cannot supply a replacement table. The proof stays 192 bytes. The new public fields do not add instruction payload.
 
 ```text
 Before: each record gets a full path + policy is hashed again
@@ -73,7 +107,34 @@ Now:    records share a path + verifier reads the stored policy
 
 The sub-100k figure covers policy and audit. Ordinary custom settlement adds another 57,680 constraints. Both proofs together total **153,623 constraints and 397.5 ms**. Default-ring settlement has no custom policy or auditor disclosure.
 
-The smaller proof requires queried records to share one aligned eight-leaf block within each registry. Absence checks use the predecessor's position. The registry itself can be much larger. Scattered records, other shapes and indexed requests keep the general proof. No policy checks are dropped to qualify.
+The shared-path proof requires queried records to share one aligned eight-leaf block within each registry. Absence checks use the predecessor's position. The registry itself can be much larger. Every supported shape also has a general proof for scattered records. Indexed requests use that general path because the client does not yet know the record positions. Both paths enforce the same policy.
+
+The new keys cover the default ring's shapes that fit the current ring transaction format. These are proof capacities. Smaller live counts use the same padding rules as settlement. The dedicated 2×3 optimization remains available.
+
+| Transfer mode | New proof capacities |
+|---|---|
+| Ordinary | 1, 2, 3, 4, 5, 6, 8, 12 or 16 inputs, each with 2 or 4 outputs |
+| Anonymous | 2×2, 2×4, 3×4 and 4×2 |
+| Delegate | 2×2 and 4×4 |
+
+Each capacity has a general key and a shared-path key. That adds 48 keys without changing the policy account or auditor ciphertext format. Larger shapes cost more. For example, 1×2 uses 87,884 constraints with shared paths. 16×4 uses 145,405. The sub-100k result is not a promise for every shape.
+
+Rust builds all three transfer modes. TypeScript builds ordinary and delegate transfers. Its audit reader supports anonymous transfers, but it has no anonymous transfer builder.
+
+Transaction size is the other limit. A V1 transaction has 4,096 bytes. With ordinary recipient ciphertexts, auditor disclosure, one owner who also pays and one policy tree, the Rust serializer measures:
+
+| Shape | Serialized bytes | Result |
+|---|---:|---|
+| 12×4 | 3,788 | Fits |
+| 16×2 | 3,674 | Fits |
+| 16×4 | 4,052 | Fits only with little extra data |
+| 24×2 | 4,202 | Excluded |
+| 1×8 | 4,970 | Excluded |
+| 1×16 | 8,786 | Excluded |
+
+These measurements include the priority-fee header and use the current SDK encoding. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
+
+The 8-output, 16-output and 24-input-or-larger capacities are excluded. No keys are generated for them. More signers, extra data or extra instructions can also make a supported capacity too large. The 64-account limit still applies. Anonymous and delegate shape sets also remain bounded by their settlement rails.
 
 Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The combined time adds the two proof times. It is not transaction latency.
 

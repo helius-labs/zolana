@@ -54,6 +54,31 @@ export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
   shape(49, 2),
 ]);
 
+/** Full policy plus auditor proof shapes that fit the ring's transaction format before optional data and accounts. */
+export const RING_POLICY_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze(
+  SPP_SUPPORTED_SHAPES.filter((candidate) => candidate.inputs <= 16 && candidate.outputs <= 4),
+);
+export const RING_POLICY_MAX_INPUTS = Math.max(
+  ...RING_POLICY_SUPPORTED_SHAPES.map((entry) => entry.inputs),
+);
+
+/** A supported shape still needs the final transaction byte-size check. */
+export function validateRingPolicyShape(inputs: number, outputs: number, declared: Shape): Shape {
+  if (declared === null || typeof declared !== "object")
+    throw new InterfaceError("INTERFACE_INVALID_SHAPE");
+  const checked = validateSppShape(inputs, outputs, declared);
+  if (
+    !RING_POLICY_SUPPORTED_SHAPES.some(
+      (candidate) => candidate.inputs === checked.inputs && candidate.outputs === checked.outputs,
+    )
+  )
+    throw new InterfaceError("INTERFACE_INVALID_SHAPE", {
+      inputs: checked.inputs,
+      outputs: checked.outputs,
+    });
+  return checked;
+}
+
 function count(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new InterfaceError("INTERFACE_INVALID_SHAPE", { [name]: value });

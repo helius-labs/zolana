@@ -23,6 +23,38 @@ use crate::{
     UpdateMembers,
 };
 
+/// The default transfer budget, before any proving request is sent.
+pub(crate) fn check_transaction_size(
+    payer: &Address,
+    instruction: &Instruction,
+) -> Result<(), RingError> {
+    check_transaction_size_with_budget(payer, instruction, ComputeBudgetConfig::new(1_400_000))
+}
+
+fn check_transaction_size_with_budget(
+    payer: &Address,
+    instruction: &Instruction,
+    budget: ComputeBudgetConfig,
+) -> Result<(), RingError> {
+    let size = zolana_client::transaction_size(payer, core::slice::from_ref(instruction), budget)?;
+    if size.bytes > solana_message::v1::MAX_TRANSACTION_SIZE {
+        return Err(RingError::TransactionTooLarge {
+            bytes: size.bytes,
+            limit: solana_message::v1::MAX_TRANSACTION_SIZE,
+        });
+    }
+    if size.addresses > usize::from(solana_message::v1::MAX_ADDRESSES) {
+        return Err(RingError::Client(
+            zolana_client::ClientError::TransactionCompile(format!(
+                "transaction has {} addresses, maximum is {}",
+                size.addresses,
+                solana_message::v1::MAX_ADDRESSES
+            )),
+        ));
+    }
+    Ok(())
+}
+
 const MAX_ATTEMPTS: u8 = 3;
 const PENDING_POLL: Duration = Duration::from_millis(500);
 
@@ -207,6 +239,11 @@ impl<'a> RingSubmission<'a> {
                 Some(_) => None,
                 None => {
                     let proved = boxed(|| self.operation.prove(client, payer.pubkey())).await?;
+                    check_transaction_size_with_budget(
+                        &payer.pubkey(),
+                        &proved.instruction,
+                        proved.budget,
+                    )?;
                     let (blockhash, last_valid_block_height) =
                         client.get_latest_blockhash().await?;
                     let message = compile_message(

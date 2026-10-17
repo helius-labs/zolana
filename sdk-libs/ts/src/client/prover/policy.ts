@@ -1,5 +1,6 @@
 import { getBase58Decoder } from "@solana/kit";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { shapedPolicyCircuit } from "../../interface/proving-keys.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
@@ -37,6 +38,7 @@ export function indexedPolicyEnvelope(
 ): Readonly<Record<string, unknown>> {
   if (
     inputs.policy.twoByThree === true ||
+    inputs.policy.registrySubtree === true ||
     !["custom-ring-policy", "custom-ring-delegate-policy"].includes(inputs.circuit) ||
     inputs.trees.length < 1 ||
     inputs.trees.length > 5 ||
@@ -74,13 +76,19 @@ export function indexedPolicyEnvelope(
     };
   });
   const registry = inputs.registry;
+  const circuit =
+    inputs.policy.shape === undefined
+      ? inputs.circuit
+      : shapedPolicyCircuit(
+          inputs.policy.shape,
+          false,
+          inputs.circuit === "custom-ring-delegate-policy",
+        );
   const wrapped =
-    inputs.circuit === "custom-ring-policy"
-      ? prepared
-      : { circuitType: inputs.circuit, policy: prepared };
+    inputs.circuit === "custom-ring-policy" ? prepared : { circuitType: circuit, policy: prepared };
   return {
     ...contextSlotJson(inputs.minContextSlot),
-    circuitType: inputs.circuit,
+    circuitType: circuit,
     prepared: wrapped,
     trees,
     publicInputs: inputs.publicInputs.map(hex),
@@ -126,6 +134,10 @@ export function indexedDepositEnvelope(
 export function snapshotPolicyInputs(inputs: IndexedPolicyInputs): IndexedPolicyInputs {
   return {
     ...inputs,
+    policy: {
+      ...inputs.policy,
+      ...(inputs.policy.shape === undefined ? {} : { shape: { ...inputs.policy.shape } }),
+    },
     registry: { ...inputs.registry, root: checkedBytes(inputs.registry.root, 32, "registry root") },
     ...(inputs.foreignRegistry === undefined
       ? {}

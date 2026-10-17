@@ -38,12 +38,21 @@ func AssignPublicTable(p *CustomRingPolicyCircuit, anonymous, delegate bool) (*P
 		}
 		return int(n.Uint64()), nil
 	}
+	inputs, outputs, own, foreignRecords := p.wires()
+	nIn, err := count(p.NIn, len(inputs))
+	if err != nil {
+		return nil, err
+	}
+	nOut, err := count(p.NOut, len(outputs))
+	if err != nil {
+		return nil, err
+	}
 	mode := 0
 	if anonymous {
 		mode = 1
 	}
-	if integer(p.NIn).Cmp(big.NewInt(2)) != 0 || integer(p.NOut).Cmp(big.NewInt(3)) != 0 || integer(p.Anonymous).Cmp(big.NewInt(int64(mode))) != 0 || anonymous && delegate {
-		return nil, fmt.Errorf("2x3 policy requires its pinned shape and mode")
+	if nIn < 1 || nOut < 1 || p.Dynamic == nil && (nIn != 2 || nOut != 3) || integer(p.Anonymous).Cmp(big.NewInt(int64(mode))) != 0 || anonymous && delegate {
+		return nil, fmt.Errorf("policy requires its pinned shape and mode")
 	}
 	ruleCount, err := count(p.PolicyLen, NRules)
 	if err != nil {
@@ -100,22 +109,25 @@ func AssignPublicTable(p *CustomRingPolicyCircuit, anonymous, delegate bool) (*P
 			InlineAssets: p.InlineAssets, InlineLimits: p.InlineLimits, InlineCount: p.InlineCount,
 			Limits: p.Limits, LimitCount: p.LimitCount}, TreeHash: treeHash,
 	}
+	if p.Dynamic != nil && p.RegistrySubtreeDepth == 0 {
+		return w, nil
+	}
 	subjects := make(map[int]*big.Int)
-	for i, input := range p.Inputs[:2] {
+	for i, input := range inputs[:nIn] {
 		if integer(input.Domain).Cmp(big.NewInt(shared.UtxoDomain)) == 0 {
 			subjects[i] = integer(input.OwnerPkHash)
 		}
 	}
-	for i, output := range p.Outputs[:3] {
+	for i, output := range outputs[:nOut] {
 		if integer(output.Domain).Cmp(big.NewInt(shared.UtxoDomain)) != 0 {
 			continue
 		}
-		subjects[NInputs+i] = integer(output.OwnerPkHash)
+		subjects[len(inputs)+i] = integer(output.OwnerPkHash)
 		if assetRules && integer(output.Asset).Sign() != 0 {
-			subjects[NInputs+NOutputs+i] = integer(output.Asset)
+			subjects[len(inputs)+len(outputs)+i] = integer(output.Asset)
 		}
 	}
-	for registryIndex, records := range [2][NSubjects]registry.MemberOpening{p.Subjects, p.ForeignSubjects} {
+	for registryIndex, records := range [2][]registry.MemberOpening{own, foreignRecords} {
 		var openings []registry.SparseOpening
 		if registryIndex == 0 || foreign {
 			for i, record := range records {

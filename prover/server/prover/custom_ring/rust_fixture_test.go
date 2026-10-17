@@ -34,6 +34,9 @@ func TestRustFixturesDecodeAndAssign(t *testing.T) {
 		seen[meta.CircuitType] = true
 	}
 	for _, ring := range RingCircuits {
+		if _, shaped := common.ParseRingPolicyShape(ring.Type); shaped {
+			continue
+		}
 		if !seen[ring.Type] {
 			t.Errorf("no Rust fixture for %s", ring.Type)
 		}

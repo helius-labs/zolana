@@ -31,24 +31,28 @@ func (c *PublicTableTwoByThreeCircuit) Define(api frontend.API) error {
 	p.RegistryWitness = &c.Registry
 	p.PublicTreeHash = c.TreeHash
 	p.PublicPolicyHash = c.Table.Hash
-	api.AssertIsEqual(p.PolicyLen, c.Table.PolicyLen)
-	api.AssertIsEqual(p.InlineCount, c.Table.InlineCount)
-	api.AssertIsEqual(p.LimitCount, c.Table.LimitCount)
-	for i, source := range c.Table.Sources {
+	bindPublicTable(api, p, c.Table)
+	return c.Circuit.Define(api)
+}
+
+func bindPublicTable(api frontend.API, p *CustomRingPolicyCircuit, table PublicTable) {
+	api.AssertIsEqual(p.PolicyLen, table.PolicyLen)
+	api.AssertIsEqual(p.InlineCount, table.InlineCount)
+	api.AssertIsEqual(p.LimitCount, table.LimitCount)
+	for i, source := range table.Sources {
 		api.AssertIsEqual(p.Sources[i].ListId, source.ListId)
 		api.AssertIsEqual(p.Sources[i].Registry, source.Registry)
 	}
-	for i, rule := range c.Table.Rules {
+	for i, rule := range table.Rules {
 		api.AssertIsEqual(p.Rules[i], rule)
 	}
-	for i, asset := range c.Table.InlineAssets {
+	for i, asset := range table.InlineAssets {
 		api.AssertIsEqual(p.InlineAssets[i], asset)
-		api.AssertIsEqual(p.InlineLimits[i], c.Table.InlineLimits[i])
+		api.AssertIsEqual(p.InlineLimits[i], table.InlineLimits[i])
 	}
-	for i, limit := range c.Table.Limits {
+	for i, limit := range table.Limits {
 		api.AssertIsEqual(p.Limits[i].Asset, limit.Asset)
 		api.AssertIsEqual(p.Limits[i].Cap, limit.Cap)
 		api.AssertIsEqual(p.Limits[i].CosignAbove, limit.CosignAbove)
 	}
-	return c.Circuit.Define(api)
 }

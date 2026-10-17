@@ -7,9 +7,9 @@ import type {
 import {
   RING_INPUT_SLOTS,
   RING_OUTPUT_SLOTS,
-  RING_SUBJECT_SLOTS,
   type CustomRingSubjectWitness,
 } from "../client/prover/types.js";
+import { validateRingPolicyShape, type Shape } from "../interface/shape.js";
 import type { TreeSlot } from "../interface/tree-slot.js";
 import type { Address, Bytes32, RequestContext, TreeContext } from "../interface/types.js";
 import type { ProofInputUtxo, ProofOutputUtxo } from "../transaction/utxo.js";
@@ -42,6 +42,7 @@ export type RingPolicyAnswerClient = Pick<ChainReader, "getAccount"> &
 export interface PolicyAnswerInput {
   readonly ringProgramId: Address;
   readonly keyEscrow: boolean;
+  readonly shape?: Shape;
   readonly proofDataSource: ProofDataSource;
   readonly table: RuleTable;
   readonly config: RingPolicyConfig;
@@ -100,7 +101,11 @@ async function proveAtRoots(
   input: PolicyAnswerInput & Readonly<{ client: RingPolicyAnswerClient }>,
   context: RequestContext,
 ): Promise<PolicyAnswers> {
-  if (input.inputs.length > RING_INPUT_SLOTS || input.outputs.length > RING_OUTPUT_SLOTS)
+  const capacity =
+    input.shape === undefined
+      ? { inputs: RING_INPUT_SLOTS, outputs: RING_OUTPUT_SLOTS }
+      : validateRingPolicyShape(input.inputs.length, input.outputs.length, input.shape);
+  if (input.inputs.length > capacity.inputs || input.outputs.length > capacity.outputs)
     throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
   policySourceOwners(input.config.sources);
   const root = await fetchRingMemberRegistryRoot(input.client, input.ringProgramId, context);
@@ -130,14 +135,14 @@ async function proveAtRoots(
     };
   }
   const own: Array<CustomRingSubjectWitness | undefined> = Array.from(
-    { length: RING_SUBJECT_SLOTS },
+    { length: capacity.inputs + 2 * capacity.outputs },
     () => undefined,
   );
   const other: Array<CustomRingSubjectWitness | undefined> = Array.from(
-    { length: RING_SUBJECT_SLOTS },
+    { length: capacity.inputs + 2 * capacity.outputs },
     () => undefined,
   );
-  const ctHashes: Bytes32[] = Array.from({ length: RING_OUTPUT_SLOTS }, () => ZERO_32);
+  const ctHashes: Bytes32[] = Array.from({ length: capacity.outputs }, () => ZERO_32);
   if (input.proofDataSource !== "prover") {
     const slots: Array<Readonly<{ position: number; member: Member }>> = [];
     input.inputs.forEach((spend, position) => {
@@ -147,7 +152,7 @@ async function proveAtRoots(
     input.outputs.forEach((output, index) => {
       if (output.ownerAddress !== undefined)
         slots.push({
-          position: RING_INPUT_SLOTS + index,
+          position: capacity.inputs + index,
           member: ownerMember({ ...output, ownerAddress: output.ownerAddress }),
         });
     });
@@ -155,7 +160,7 @@ async function proveAtRoots(
       input.outputs.forEach((output, index) => {
         if (output.ownerAddress !== undefined)
           slots.push({
-            position: RING_INPUT_SLOTS + RING_OUTPUT_SLOTS + index,
+            position: capacity.inputs + capacity.outputs + index,
             member: memberOfAsset(output.asset),
           });
       });
@@ -205,10 +210,10 @@ async function proveAtRoots(
         if (read.foreign !== undefined) other[slot.position] = subjectWitness(read.foreign.opening);
         if (
           input.keyEscrow &&
-          slot.position >= RING_INPUT_SLOTS &&
-          slot.position < RING_INPUT_SLOTS + RING_OUTPUT_SLOTS
+          slot.position >= capacity.inputs &&
+          slot.position < capacity.inputs + capacity.outputs
         ) {
-          const index = slot.position - RING_INPUT_SLOTS;
+          const index = slot.position - capacity.inputs;
           const output = input.outputs[index];
           if (
             output?.ownerAddress === undefined ||

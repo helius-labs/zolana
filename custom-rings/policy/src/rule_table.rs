@@ -15,9 +15,9 @@ pub const MAX_SOURCES: usize = 8;
 pub const N_FOREIGN: usize = 1;
 /// Outflow limit slots per table, a circuit width.
 pub const MAX_OUTFLOW_LIMITS: usize = 8;
-/// Input slots the policy opens per transfer, a circuit width.
+/// Input slots in legacy policy witnesses. Shaped witnesses use their SPP capacity.
 pub const POLICY_INPUT_SLOTS: usize = 5;
-/// Output slots the policy opens per transfer, a circuit width.
+/// Output slots in legacy policy witnesses and the ordinary audit disclosure.
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
 pub const POLICY_VERSION: u8 = 10;

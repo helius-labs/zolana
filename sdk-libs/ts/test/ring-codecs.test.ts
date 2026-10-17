@@ -1206,6 +1206,57 @@ describe("ring transact", () => {
     ...input,
   });
 
+  it("selects the shaped member and delegate verification tags", async () => {
+    const data = {
+      ...transactData(),
+      circuit: { kind: "ringEddsa", inputs: 2, outputs: 4, publicAssetSlots: 3 } as const,
+      inputs: Array.from({ length: 2 }, (_, index) => ({
+        nullifierHash: filled(index + 1, 32) as Bytes32,
+        treeIndex: 0,
+      })),
+      outputs: Array.from({ length: 3 }, (_, index) => ({
+        utxoHash: filled(index + 1, 32) as Bytes32,
+        ownerTag: { kind: "account", index: 0 } as const,
+      })),
+    };
+    for (const policyShape of ["general", "subtree"] as const) {
+      const common = {
+        ringProgramId: RING,
+        payer: PAYER,
+        inputTrees: [TREE],
+        outputTree: OUTPUT_TREE,
+        policy: policy(),
+        proof: customRingProof(),
+        policyShape,
+      };
+      expect((await ringTransactInstruction({ ...common, data })).data?.[0]).toBe(
+        policyShape === "general" ? 35 : 37,
+      );
+      const delegateData = {
+        ...data,
+        circuit: { kind: "ringAuthority", inputs: 4, outputs: 4, publicAssetSlots: 3 } as const,
+      };
+      expect(
+        (
+          await ringDelegateTransactInstruction({
+            ...common,
+            delegate: addressOf(47),
+            data: delegateData,
+          })
+        ).data?.[0],
+      ).toBe(policyShape === "general" ? 36 : 38);
+      await expect(
+        ringTransactInstruction({ ...common, data, twoByThree: true }),
+      ).rejects.toMatchObject({ code: "RING_POLICY_SHAPE_UNSUPPORTED" });
+      await expect(
+        ringTransactInstruction({
+          ...common,
+          data: { ...data, circuit: { ...data.circuit, inputs: 24, outputs: 2 } },
+        }),
+      ).rejects.toMatchObject({ code: "RING_POLICY_SHAPE_UNSUPPORTED" });
+    }
+  });
+
   it("appends the settlement accounts of a public withdrawal", async () => {
     const recipient = addressOf(31);
     const instruction = await ringTransactInstruction({

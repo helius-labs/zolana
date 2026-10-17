@@ -80,7 +80,11 @@ import { MEMBER_REGISTRY_EMPTY_ROOT } from "../src/ring/member-registry-tree.js"
 import { ringMemberRegistryRootPda } from "../src/interface/pda/index.js";
 import { entryProofReads } from "./helpers/ring-entries.js";
 import { treeAccount } from "./helpers/tree-account.js";
-import { RING_AUTHORITY_WIDTHS, ringAuthorityWidth } from "../src/interface/shape.js";
+import {
+  RING_POLICY_SUPPORTED_SHAPES,
+  RING_AUTHORITY_WIDTHS,
+  ringAuthorityWidth,
+} from "../src/interface/shape.js";
 import {
   ConfidentialTransfer,
   SppProofInputs,
@@ -1275,6 +1279,153 @@ describe("ring proof folded fields", () => {
     }
   });
 
+  it("rejects excluded shapes and actual oversized transactions before either proof", async () => {
+    const accounts = await ringAccounts(X25519Secret.generate(), true);
+    const proveRingTransact = vi.fn(async () => ({
+      data: ringInstructionData(scalar(91)),
+      roots: SPP_ROOTS,
+    }));
+    const proveCustomRingPolicy = vi.fn(async () => new Uint8Array(192));
+    const client = ringTransferClient({
+      tree: ACTIVE_TREE,
+      getAccount: accounts.getAccount,
+      proveRingTransact,
+      proveCustomRingPolicy,
+    });
+    const wide = preparedTransfer(4n, [], [], RING, SOL_MINT, undefined, { inputs: 1, outputs: 8 });
+    await expect(
+      proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: wide.prepared,
+        keys: walletKeys(wide.sender),
+        assets: new AssetRegistry(),
+        tree: ACTIVE_TREE,
+      }),
+    ).rejects.toMatchObject({ code: "RING_POLICY_SHAPE_UNSUPPORTED" });
+    const normal = preparedTransfer(4n);
+    await expect(
+      proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: normal.prepared,
+        keys: walletKeys(normal.sender),
+        assets: new AssetRegistry(),
+        tree: ACTIVE_TREE,
+        transaction: {
+          setupInstructions: [
+            { programAddress: actor(40).address.solanaAddress(), data: new Uint8Array(4000) },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INTERFACE_TRANSACTION_TOO_LARGE" });
+    const malformed = {
+      client,
+      ringProgramId: RING,
+      prepared: normal.prepared,
+      keys: walletKeys(normal.sender),
+      assets: new AssetRegistry(),
+      tree: ACTIVE_TREE,
+    };
+    Reflect.set(malformed, "transaction", null);
+    await expect(proveCustomRingTransfer(malformed)).rejects.toMatchObject({
+      code: "RING_BUILD_TRANSFER",
+    });
+    expect(proveRingTransact).not.toHaveBeenCalled();
+    expect(proveCustomRingPolicy).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 2])(
+    "selects the legacy 2×3 key only for two published inputs, got %i",
+    async (publishedInputs) => {
+      const base = preparedTransfer(4n, [1n]);
+      const spends = [...base.prepared.inputs];
+      if (publishedInputs === 2)
+        spends.push(
+          ownedInput(base.sender, {
+            owner: base.sender.keypair.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 10n,
+            blinding: scalar(77),
+            ringProgramId: RING,
+          }),
+        );
+      const transfer = ConfidentialTransfer.compact(
+        base.sender.address,
+        spends,
+        base.prepared.payer,
+      )
+        .withRingProgramId(RING)
+        .withShape({ inputs: 2, outputs: 4 });
+      transfer.send(base.recipient.address, SOL_MINT, 4n);
+      transfer.send(actor(5).address, SOL_MINT, 1n);
+      const accounts = await ringAccounts(X25519Secret.generate(), true);
+      let captured: CustomRingPolicyProofRequest | undefined;
+      const client = ringTransferClient({
+        tree: ACTIVE_TREE,
+        getAccount: accounts.getAccount,
+        proveRingTransact: async () => ({
+          data: ringInstructionData(scalar(91)),
+          roots: SPP_ROOTS,
+        }),
+        proveCustomRingPolicy: async (request) => {
+          captured = request;
+          return new Uint8Array(192);
+        },
+      });
+      const proven = await proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: transfer.prepare(),
+        keys: walletKeys(base.sender),
+        assets: new AssetRegistry(),
+        tree: ACTIVE_TREE,
+      });
+      expect(captured?.nIn).toBe(2);
+      expect(captured?.nOut).toBe(3);
+      expect(captured?.twoByThree).toBe(publishedInputs === 2);
+      expect(proven.twoByThree).toBe(publishedInputs === 2);
+      expect(captured?.inputs).toHaveLength(publishedInputs === 2 ? 5 : 2);
+      expect(captured?.subjects).toHaveLength(publishedInputs === 2 ? 13 : 10);
+      expect(captured?.shape).toEqual(
+        publishedInputs === 2 ? undefined : { inputs: 2, outputs: 4 },
+      );
+    },
+  );
+
+  it("builds capacity-sized witnesses for every supported ordinary shape", async () => {
+    const accounts = await ringAccounts(X25519Secret.generate(), true);
+    for (const shape of RING_POLICY_SUPPORTED_SHAPES) {
+      const transfer = preparedTransfer(4n, [], [], RING, SOL_MINT, undefined, shape);
+      let captured: CustomRingPolicyProofRequest | undefined;
+      const client = ringTransferClient({
+        tree: ACTIVE_TREE,
+        getAccount: accounts.getAccount,
+        proveRingTransact: async () => ({
+          data: ringInstructionData(scalar(91)),
+          roots: SPP_ROOTS,
+        }),
+        proveCustomRingPolicy: async (request) => {
+          captured = request;
+          return new Uint8Array(192);
+        },
+      });
+      const proven = await proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: transfer.prepared,
+        keys: walletKeys(transfer.sender),
+        assets: new AssetRegistry(),
+        tree: ACTIVE_TREE,
+      });
+      expect(captured?.shape).toEqual(shape);
+      expect(captured?.inputs).toHaveLength(shape.inputs);
+      expect(captured?.outputs).toHaveLength(shape.outputs);
+      expect(captured?.subjects).toHaveLength(shape.inputs + 2 * shape.outputs);
+      expect(proven.policyShape).toBe("subtree");
+    }
+  });
+
   it("sends the zero address chain to the custom prover", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
     const accounts = await ringAccounts(X25519Secret.generate(), true);
@@ -1292,7 +1443,7 @@ describe("ring proof folded fields", () => {
     });
     const base = {
       client: ringTransferClient({
-        tree: RING,
+        tree: ACTIVE_TREE,
         getAccount: accounts.getAccount,
         proveRingTransact,
         proveCustomRingPolicy,
@@ -1301,7 +1452,7 @@ describe("ring proof folded fields", () => {
       prepared,
       keys: walletKeys(sender),
       assets: new AssetRegistry(),
-      tree: RING,
+      tree: ACTIVE_TREE,
       outputTree: ACTIVE_TREE,
     } as const;
     // An empty table reads both roots from the address tree head.
@@ -1324,7 +1475,7 @@ describe("ring proof folded fields", () => {
     });
     expect(proven.policy?.memberRegistryRootIndex).toBe(1);
     expect(proven.policy?.memberRegistryRoot).toEqual(MEMBER_REGISTRY_EMPTY_ROOT);
-    expect(proven.inputTrees).toEqual([RING]);
+    expect(proven.inputTrees).toEqual([ACTIVE_TREE]);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
     expect(proven.ownerSigners).toEqual([]);
   });
@@ -1368,7 +1519,7 @@ describe("ring proof folded fields", () => {
       let policyCalls = 0;
       const proven = await proveCustomRingTransfer({
         client: ringTransferClient({
-          tree: RING,
+          tree: ACTIVE_TREE,
           getAccount: async (address) =>
             address === rootAddress
               ? ownedAccount(RING, memberRegistryRootData({ ...registry.tip, bump: rootBump }))
@@ -1400,7 +1551,7 @@ describe("ring proof folded fields", () => {
         prepared,
         keys: walletKeys(sender),
         assets: new AssetRegistry(),
-        tree: RING,
+        tree: ACTIVE_TREE,
         outputTree: ACTIVE_TREE,
       });
       expect(order.at(-1)).toBe("spp");
@@ -1460,7 +1611,7 @@ describe("ring proof folded fields", () => {
       });
       const proving = proveCustomRingTransfer({
         client: ringTransferClient({
-          tree: RING,
+          tree: ACTIVE_TREE,
           getAccount: accounts.getAccount,
           proveRingTransact: async () => ({
             data: ringInstructionData(scalar(91)),
@@ -1475,7 +1626,7 @@ describe("ring proof folded fields", () => {
         prepared,
         keys: walletKeys(sender),
         assets: new AssetRegistry(),
-        tree: RING,
+        tree: ACTIVE_TREE,
         outputTree: ACTIVE_TREE,
       });
       if (member === owner)
@@ -1498,7 +1649,7 @@ describe("ring proof folded fields", () => {
     await expect(
       proveCustomRingTransfer({
         client: ringTransferClient({
-          tree: RING,
+          tree: ACTIVE_TREE,
           getAccount: accounts.getAccount,
           proveRingTransact,
           getRingMemberRecord: async () => ({ ...emptyMemberRecord(), rootIndex: 1 }),
@@ -1507,7 +1658,7 @@ describe("ring proof folded fields", () => {
         prepared,
         keys: walletKeys(sender),
         assets: new AssetRegistry(),
-        tree: RING,
+        tree: ACTIVE_TREE,
         outputTree: ACTIVE_TREE,
       }),
     ).rejects.toMatchObject({ code: "RING_POLICY_RULE_UNSATISFIED", details: { ruleIndex: 0 } });
@@ -1527,7 +1678,7 @@ describe("ring proof folded fields", () => {
 
     const proven = await proveCustomRingTransfer({
       client: ringTransferClient({
-        tree: RING,
+        tree: ACTIVE_TREE,
         getAccount: accounts.getAccount,
         proveRingTransact: async (proofInputs) => {
           finalized = proofInputs;
@@ -1542,7 +1693,7 @@ describe("ring proof folded fields", () => {
       prepared,
       keys: walletKeys(sender),
       assets: new AssetRegistry(),
-      tree: RING,
+      tree: ACTIVE_TREE,
       outputTree: ACTIVE_TREE,
     });
 
@@ -1567,7 +1718,7 @@ describe("ring proof folded fields", () => {
       }),
     );
     expect(proven).not.toHaveProperty("policy");
-    expect(proven.inputTrees).toEqual([RING]);
+    expect(proven.inputTrees).toEqual([ACTIVE_TREE]);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
   });
 });

@@ -54,7 +54,8 @@ func (tx transaction) slots() []utxoView {
 // constrainTransaction binds the openings to the SPP transaction hash.
 func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc frontend.Rangechecker) transaction {
 	nIn, nOut := c.NIn, c.NOut
-	inputCapacity, outputCapacity := NInputs, NOutputs
+	inputs, outputs, _, _ := c.wires()
+	inputCapacity, outputCapacity := len(inputs), len(outputs)
 	if c.FixedInputs != 0 {
 		nIn = c.FixedInputs
 		inputCapacity = c.FixedInputs
@@ -64,15 +65,15 @@ func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc fron
 		outputCapacity = c.FixedOutputs
 	}
 	tx := transaction{
-		nIn: base.SelectCount(api, nIn, 1, NInputs), nOut: base.SelectCount(api, nOut, 1, NOutputs),
+		nIn: base.SelectCount(api, nIn, 1, len(inputs)), nOut: base.SelectCount(api, nOut, 1, len(outputs)),
 		inputs: make([]utxoView, inputCapacity), outputs: make([]utxoView, outputCapacity),
 	}
 	inputHashes, outputHashes := make([]frontend.Variable, inputCapacity), make([]frontend.Variable, outputCapacity)
-	for i, w := range c.Inputs[:inputCapacity] {
+	for i, w := range inputs[:inputCapacity] {
 		tx.inputs[i] = w.check(api, rc, tx.nIn.Active[i], true)
 		inputHashes[i] = api.Mul(tx.inputs[i].utxo, tx.inputs[i].hash)
 	}
-	for i, w := range c.Outputs[:outputCapacity] {
+	for i, w := range outputs[:outputCapacity] {
 		tx.outputs[i] = w.check(api, rc, tx.nOut.Active[i], false)
 		outputHashes[i] = api.Mul(tx.outputs[i].utxo, tx.outputs[i].hash)
 	}
@@ -86,10 +87,26 @@ func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc fron
 
 // auditTx hands the audit block the openings an anonymous ring discloses, its count caps the inputs at AuditInputSlots.
 func (c *CustomRingPolicyCircuit) auditTx(tx transaction) base.AuditTx {
+	inputs, outputs, _, _ := c.wires()
+	inputCount := min(base.AuditInputSlots, len(tx.nIn.OneHot))
 	out := base.AuditTx{
-		Compact: c.FixedInputs != 0,
+		Compact: c.compact(),
 		NOut:    tx.nOut,
-		NIn:     base.Count{OneHot: tx.nIn.OneHot[:base.AuditInputSlots], Active: tx.nIn.Active[:base.AuditInputSlots]},
+		NIn:     base.Count{OneHot: tx.nIn.OneHot[:inputCount], Active: tx.nIn.Active[:inputCount]},
+	}
+	// Anonymous serialization has four fixed slots. Zero extension admits smaller
+	// settlement capacities without changing the byte layout or enabling padding.
+	for len(out.NIn.Active) < base.AuditInputSlots {
+		out.NIn.Active = append(out.NIn.Active, 0)
+	}
+	for len(out.NIn.OneHot) < base.AuditInputSlots {
+		out.NIn.OneHot = append(out.NIn.OneHot, 0)
+	}
+	for len(out.NOut.Active) < base.AuditOutputSlots {
+		out.NOut.Active = append(out.NOut.Active, 0)
+	}
+	for len(out.NOut.OneHot) < base.AuditOutputSlots {
+		out.NOut.OneHot = append(out.NOut.OneHot, 0)
 	}
 	for i := range out.Outputs {
 		out.Outputs[i] = base.AuditOutputWires{Domain: 0, TreeID: 0, OwnerHash: 0, Asset: 0, Amount: 0, Blinding: 0, DataHash: 0, RingDataHash: 0, RingProgramID: 0}
@@ -98,12 +115,13 @@ func (c *CustomRingPolicyCircuit) auditTx(tx transaction) base.AuditTx {
 	}
 	for i, output := range tx.outputs {
 		out.Outputs[i], out.Hashes[i] = output.opening, output.hash
-		out.Notes[i] = base.AuditUtxoWires(c.Outputs[i].UtxoWires)
+		out.Notes[i] = base.AuditUtxoWires(outputs[i].UtxoWires)
 	}
+
 	for i := range out.Inputs {
 		out.Inputs[i] = base.AuditUtxoWires{Domain: 0, TreeID: 0, OwnerPkHash: 0, NullifierPk: 0, Asset: 0, Amount: 0, Blinding: 0, DataHash: 0, RingDataHash: 0, RingProgramID: 0}
 		if i < len(tx.inputs) {
-			out.Inputs[i] = base.AuditUtxoWires(c.Inputs[i])
+			out.Inputs[i] = base.AuditUtxoWires(inputs[i])
 		}
 	}
 	return out

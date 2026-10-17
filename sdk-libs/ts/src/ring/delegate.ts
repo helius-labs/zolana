@@ -290,6 +290,13 @@ async function buildDelegateTransaction(
         client: move.client,
         ringProgramId: move.ringProgramId,
         prepared,
+        transaction: {
+          delegate,
+          ...(cosigner === undefined ? {} : { cosigner }),
+          ...(move.priorityFeeLamports === undefined
+            ? {}
+            : { priorityFeeLamports: move.priorityFeeLamports }),
+        },
         spender,
         assets,
         tree: move.client.tree,
@@ -310,6 +317,7 @@ async function buildDelegateTransaction(
       ...(proven.policy === undefined ? {} : { policy: proven.policy }),
       proof: proven.proof,
       twoByThree: proven.twoByThree === true,
+      ...(proven.policyShape === undefined ? {} : { policyShape: proven.policyShape }),
       data: proven.data,
       delegate,
       ...(cosigner === undefined ? {} : { cosigner }),

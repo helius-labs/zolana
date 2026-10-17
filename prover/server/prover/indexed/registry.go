@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	"github.com/helius-labs/zolana/prover/server/prover/transcript"
@@ -42,7 +41,7 @@ func prepareRegistries(p *ring.PolicyParams, request Request) error {
 			return err
 		}
 	}
-	p.Subjects = make([]*ring.MemberOpening, policy.NSubjects)
+	p.Subjects = make([]*ring.MemberOpening, len(p.Inputs)+2*len(p.Outputs))
 	p.ForeignSubjects = make([]*ring.MemberOpening, len(p.Subjects))
 	for i := range p.Outputs {
 		p.Outputs[i].CtHash = ring.Field{Int: new(big.Int)}
@@ -128,7 +127,7 @@ func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p
 	for _, slot := range liveSubjects(p) {
 		opening := subjectOpening(p, slot)
 		memberKey := opening.OwnerPkHash.Int
-		if slot >= policy.NInputs+policy.NOutputs {
+		if slot >= len(p.Inputs)+len(p.Outputs) {
 			memberKey = opening.Asset.Int
 		}
 		record, err := r.memberRecord(ctx, request, &own, memberKey)
@@ -143,7 +142,7 @@ func (r *Resolver) resolvePolicyRegistry(ctx context.Context, request Request, p
 			}
 			p.ForeignSubjects[slot] = &curator.opening
 		}
-		if output := slot - len(p.Inputs); output >= 0 && output < policy.NOutputs && p.KeyEscrow {
+		if output := slot - len(p.Inputs); output >= 0 && output < len(p.Outputs) && p.KeyEscrow {
 			member, _ := hashField(opening.OwnerPkHash.Int)
 			if err := record.verifyEscrow(member, opening.NullifierPk.Int); err != nil {
 				return err

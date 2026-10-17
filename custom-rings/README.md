@@ -25,19 +25,36 @@ are data `init` pins from `ring.toml`.
    [`PolicyConfig`](interface/src/state.rs) pins their hash, sources and address tree.
 2. [`transaction.go`](../prover/server/custom_rings/circuits/policy/transaction.go)
    binds private slot openings to SPP's transaction hash.
-   [`list_facts.go`](../prover/server/custom_rings/circuits/policy/list_facts.go)
-   proves entry state, and [`evaluate.go`](../prover/server/custom_rings/circuits/policy/evaluate.go)
+   [`subjects.go`](../prover/server/custom_rings/circuits/policy/subjects.go)
+   authenticates member records, and [`evaluate.go`](../prover/server/custom_rings/circuits/policy/evaluate.go)
    applies the rules to those openings.
 3. [`limits.go`](../prover/server/custom_rings/circuits/policy/limits.go)
    bounds each transfer's outflow per mint and sets the approval bit.
 4. [`transact.rs`](program/src/instructions/transact.rs) binds the proof to
-   trusted accounts and the clock, checks public controls, and forwards the
+   trusted accounts, checks public controls, and forwards the
    settlement to SPP.
-5. [`transfer.rs`](sdk/src/transfer.rs) assembles the client proof inputs.
-   [`indexer`](indexer/src/lib.rs) validates key transitions and builds the
-   key registry's Merkle overlay. Photon owns block fetching,
-   persistence and replay. Clients validate its exact-root key-registry proofs
+5. [`pipeline`](sdk/src/pipeline/mod.rs) assembles the client proof inputs.
+   [`indexer`](indexer/src/lib.rs) validates member transitions and builds the
+   member registry's Merkle overlay. Photon owns block fetching,
+   persistence and replay. Clients validate its proofs against the requested root
    before using them.
+
+`PolicyConfig` stores the sixteen packed rules, eight list sources, eight
+mint-specific amount thresholds and eight outflow rows. It also stores the
+policy hash and update generation. A source names this ring's registry or a
+curator's registry. A ring can use one curator.
+
+Membership lives separately. `MemberRegistryRoot` stores the last 32 Merkle
+roots and the next leaf index. Photon reconstructs each leaf as
+`[member | next member | 64-bit list bitmap | escrow commitment]`. One record holds
+all an owner's or mint's list memberships. List changes preserve its escrow
+commitment. Key registration preserves its list bits. The encrypted recovery
+key travels in registration data and is indexed with the record.
+
+This replaces versioned SPP list notes and their revocation proofs. Transfers
+read a registry snapshot without changing it. A changed policy hash rejects
+proofs for the old rules immediately. A list change can still leave an older
+snapshot usable until its root leaves the 32-root history.
 
 ## Roles
 
@@ -88,7 +105,7 @@ the screened parties. The ring refuses a public leg on that rail, so a
 delegate cannot withdraw, and the shielded pool refuses the rail until
 governance enables it for the ring with `set_ring_activation`. A move spends
 the source member's notes with that member's nullifier key. `init` creates
-the ring's key registry, a member-keyed tree the ring owns and Photon
+the ring's member registry, a member-keyed tree the ring owns and Photon
 indexes, and `transact` and `transfer` escrow the sender's key there on
 first use, sealed to the ring auditor's X25519 key with a proof that binds
 the ciphertext to the auditor the config pins. `zolana-ring key register`
@@ -112,7 +129,7 @@ governance disabling the rail or the authority pausing the ring.
 
 Setting the delegate turns on key escrow, and no instruction turns it off.
 `set_delegate` refuses an audit-only ring and a ring without an initialized
-key registry. From then on the ring checks every UTXO output of a member
+member registry. From then on the ring checks every UTXO output of a member
 transfer, a delegate move or a deposit. Each output carries a key registered
 for its owner, proven against one of the registry's last 32 roots. A plain
 deposit is refused with
@@ -123,9 +140,10 @@ output key before proving, `UnregisteredOutputKey` in Rust. Ed25519 owners
 sign registration directly. A PDA owner
 registers only through a signed CPI from its program. A transact or an audited
 deposit names the history slot of the registry root its proof binds, and a slot
-no root was written to fails as `StaleKeyRegistryRoot`. `register_key` needs no
-ring authority, so more than 32 registrations between a proof and its landing
-overwrite that slot and the program rejects the proof. The SDK submissions
+no root was written to fails as `StaleMemberRegistryRoot`. `register_key` needs no
+ring authority. Registrations and list updates both advance the root history.
+Enough updates between proving and landing overwrite that slot and the
+program rejects the proof. The SDK submissions
 then read the history, find another root at the slot and prove again.
 
 Deposit auditing is optional and defaults to off. `deploy --deposit-audit`
@@ -170,13 +188,16 @@ keys and SDKs. Install the keys pinned by
 
 ## How auditor visibility works
 
-Every transfer encrypts its transaction viewing key to the auditor under a
-fresh ephemeral key and publishes the ciphertext as an SPP message. The ring
-program accepts the transfer only with a proof that the ciphertext holds the
-key behind the transfer's published viewing key. SPP binds the message into
-the transfer's own proof, so a transfer cannot publish one ciphertext and prove
-another. The auditor decrypts one message per transaction and opens every
-output with it.
+Every transfer encrypts its transaction viewing key to the X25519 auditor
+under a fresh ephemeral key. It also publishes a dedicated encrypted audit
+record. The proof binds the encrypted secret to the published viewing key.
+It also proves that the audit record contains the note fields used to compute
+the output commitments.
+Anonymous mode also discloses the sender, spent notes and recipients.
+
+SPP binds these messages to the transfer. A valid transfer cannot hide its
+committed outputs behind a different auditor ciphertext. Ordinary recipient
+ciphertexts remain wallet-side and are outside this guarantee.
 
 The order is fixed by the hashes. SPP hashes the messages into
 `external_data_hash`, which the SPP proof commits to, and `private_tx_hash` is
@@ -271,7 +292,7 @@ port refuses the run. Logs remain in the printed scratch directory.
 
 `zolana-ring new` is a wizard. It asks for the ring name, the service URLs of
 both clusters and the target, then offers common policy options and an
-advanced rule builder. Picking an option selects the policy tier; finishing
+advanced rule builder. Picking an option selects the policy tier. Finishing
 without one selects audit-only. A policy uses the SPP default tree as its address tree,
 writes it explicitly to `ring.toml`, and asks for a source only for each list
 its finished rules read. Each option compiles as one unit when added. The
@@ -293,7 +314,7 @@ policy grammar and the worked examples are in
 localnet` picks localnet and starts them. `zolana-ring deploy` downloads the
 ring program of the release the CLI came from, checks it against the lockfile
 built into the CLI, and
-fixes who may `init`, the upgrade authority; `--program-so` deploys a local
+fixes who may `init`, the upgrade authority. `--program-so` deploys a local
 build instead. A cli whose embedded release ships no ring program refuses
 `deploy` and names `--program-so`. A ring with a `[policy]` section is a
 policy ring, the same binary serves it and an audit-only ring, the tier is
@@ -331,7 +352,7 @@ transfer` sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
 stay spendable with that key, keep it with the other keys.
 `zolana-ring merge` syncs that sender, selects the smallest two to 24 clean
-notes of one mint on one tree, and consolidates them. It merges SOL by default;
+notes of one mint on one tree, and consolidates them. It merges SOL by default.
 `--mint <address>` selects a registered SPL mint and `--count` caps the input
 count, up to 54.
 `zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
@@ -339,7 +360,7 @@ count, up to 54.
 
 On devnet, configure the prover, indexer and ring RPC URLs in `ring.toml`.
 They must run the matching release, including its proving keys and Photon's
-key-registry projection. The CLI probes these services and does
+member-registry projection. The CLI probes these services and does
 not start them. A healthy HTTP endpoint alone does not prove key compatibility.
 The hosted ring RPC derives one auditor key per
 ring from a root secret, so it serves any ring that asks and a new ring needs
@@ -351,7 +372,7 @@ refuses to pin a key from `keys/` against a service that holds its own.
 
 The authority pays for every step. Localnet airdrops what a step spends,
 devnet cannot, so a step it cannot pay for stops at the web faucet and
-continues on the next keypress; without a terminal the shortfall is an error.
+continues on the next keypress. Without a terminal the shortfall is an error.
 `deploy` prices the loader's rent from the binary and `transact` its
 deposits, so the pause names the amount instead of failing inside the deploy.
 
@@ -376,8 +397,21 @@ Ordinary rings without policy rules use `custom-ring-base-confidential` for
 two-output auditor disclosure and `custom-ring-base` for other output counts.
 Anonymous rings use `custom-ring-base`. The configured ring mode and settled
 output count select the verifying key. The optimized circuits require the
-matching program and local proving keys. The historical release lock does
-not contain the new ordinary key. See [proof costs](proof-costs.md).
+matching program, proving keys and clients. New keys are generated locally
+and are not part of the historical release.
+
+Policy transfers support ordinary capacities of 1, 2, 3, 4, 5, 6, 8, 12 or
+16 inputs with 2 or 4 outputs. Anonymous capacities are 2×2, 2×4, 3×4 and
+4×2. Delegate capacities are 2×2 and 4×4. Each has a general registry proof
+and a smaller proof for records sharing an eight-leaf block. The exact 2×3
+optimization remains available.
+
+The complete V1 transaction must fit 4,096 bytes and 64 accounts. Capacities
+with 8 or 16 outputs, or at least 24 inputs, are excluded. Even 16×4 can
+exceed the limit with a curator, co-signer or extra data. The SDK checks the
+core transfer before proving and the complete transaction at final assembly.
+See the [change overview](changes-overview.md) for measured sizes and storage
+layout, and [proof costs](proof-costs.md) for every supported capacity.
 
 An outflow limit bounds one transfer, a sender may move up to the cap in
 every transfer. A limited transfer has one sender. Delegation is exempt from
@@ -397,7 +431,7 @@ is in `services/ring-rpc/README.md`.
 
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
 derives the ring's addresses, reads its typed accounts (`config`,
-`policy_config`, `key_registry_root` and the others) and builds
+`policy_config`, `member_registry_root` and the others) and builds
 the authority instructions (`create_config`, `init_spp_ring_config`,
 `grant_read_access`, `set_paused`, `create_policy`, `set_policy_rules`,
 `set_source_owner` and the others). `create_policy` and `set_policy_rules` take
@@ -409,13 +443,13 @@ the RPC, the indexer and the prover. A blocking caller runs an operation as
 
 A participant sends `RingDeposit`, prepares a `ConfidentialTransaction` from
 the SPP transaction SDK and proves it with `CustomRingTransfer::new(..)`, the
-entry mutations are `CreateEntry` and `UpdateEntry`. `prove` reads the table
+list mutations use `UpdateMembers`. `prove` reads the table
 from the policy config and trusts its rows only under the pinned hash
 (`policy_config_table`), `client_rules_match` compares a table of the caller's
 with the stored rows. `RingSubmission` proves, signs and sends a
 `RingOperation` (a transfer, a delegate move, a key registration, a merge, a
 deposit or a built instruction) as a v1 message. It keeps the intent across
-`StaleKeyRegistryRoot`, a failed proof over an overwritten registry slot and a
+`StaleMemberRegistryRoot`, a failed proof over an overwritten registry slot and a
 verified blockhash expiry, with at most three signed attempts. Any other
 failure is final. An unknown outcome keeps the signature for status
 checks, `send_until_settled` polls it until the cluster settles it.
@@ -424,14 +458,14 @@ its transactions, the ring RPC and the lifecycle test both use it. Auditor
 discovery matches the auditor view tag. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller. A member
-escrows its nullifier key with `RegisterKey`, `ReadSealedKey` reads the sealed
-entry and opens it with the auditor key, `RingRecovery` rebuilds the member's
-notes from the audit view and `DelegateTransfer` moves them.
+escrows its nullifier key with `RegisterKey`. `ReadMemberRecord` supplies its
+`SealedKeyEntry`, which opens with the auditor key. `RingRecovery` rebuilds the
+member's notes from the audit view and `DelegateTransfer` moves them.
 
 Recovery follows merge successors and checks each opening against its tree's
-commitment. For notes with nonzero application hashes, callers supply those
-hashes through `with_data_hashes` (Rust) or `resolveOutputHashes` (TypeScript).
-the ciphertext does not carry them. A missing or incorrect opening is reported
+commitment. Verified audit disclosure supplies the application hashes. Older
+notes without those fields can use `with_data_hashes` (Rust) or
+`resolveOutputHashes` (TypeScript). A missing or incorrect opening is reported
 in `unopened`. Deposits with verified disclosure supply their opening to the
 auditor and can start a recovered merge chain. Deposits without disclosure
 encrypt their blinding only to the recipient. Recovery reports matching tags
@@ -441,14 +475,14 @@ Recovered notes are not a complete balance when either list is nonempty.
 
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
 builds unsigned V1 transfers, withdrawals, exits, delegate moves and merges. Builders
-read the ring's tier and policy, fetch list proofs from every tree its entries live in, and
-include the required audit and policy proofs. Money inputs come from
+read the ring's tier and policy, fetch member records from its own registry and
+any curator, and include the required audit and policy proofs. Money inputs come from
 `client.tree`, and `outputTree` defaults to it.
-`createRingKeyRegistryRootInstruction` creates the key registry once,
+`createRingMemberRegistryRootInstruction` creates the member registry once,
 `prepareRingKeyRegistration` enrols a member, `fetchRingSealedKey` and
 `openRingSealedKey` read its key with the auditor key, and
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
-submission APIs handle signing and retry on `RingProgramError.staleKeyRegistryRoot`,
+submission APIs handle signing and retry on `RingProgramError.staleMemberRegistryRoot`,
 a failed proof over an overwritten registry slot and a verified blockhash
 expiry. `createRingMergeSubmission` consolidates
 two to 24 clean notes of one owner, asset and ring (up to 54 with `maxInputs`), preserving their
@@ -474,7 +508,7 @@ The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 ## Pitfalls and limits
 
 Local rings share the ring RPC port, `zolana-ring localnet` replaces an RPC left
-by another ring and `pipeline` keeps one that answers; a hosted ring RPC is only checked, never replaced, and a
+by another ring and `pipeline` keeps one that answers. A hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
 hosted RPC, `--trust-ring-rpc` is for a local instance. The ring RPC releases
 the key only to a request the upgrade authority signs while no config exists,
@@ -487,9 +521,10 @@ them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
 full.
 
-The auditor opens outputs created by the supported clients and reports slots
-in another encoding as undecryptable. Direct deposits expose mint and amount,
-but auditor recovery also needs the optional verified disclosure. A ring deposit
+Current transfers prove their dedicated auditor disclosure against the
+committed outputs. Historical slots in another encoding may be undecryptable.
+Direct deposits expose mint and amount, but auditor recovery also needs the
+optional verified disclosure. A ring deposit
 carries no list-policy proof.
 The program still checks scoped co-signing and public deposit caps before
 authorizing it. List rules apply when the note is transferred.
@@ -501,11 +536,10 @@ Ring merge is also ciphertext-free: it combines up to 54 notes of one owner,
 asset and ring into one note without moving value to another owner. The SDKs
 fill the merge proof's unused slots with compact padding, which the transaction
 leaves out, so a merge reveals how many notes it combines. It is not in
-the auditor-tag scan; any later transfer of the merged value still takes the
+the auditor-tag scan. Any later transfer of the merged value still takes the
 normal audited policy path.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
-ring pauses only through its frozen `set_paused` instruction. The released
-transfer proof does not prove that a ciphertext matches a committed output.
+ring pauses only through its frozen `set_paused` instruction.
 
 A changed policy hash takes effect at once, proofs over the prior hash fail
 and their notes stay unspent. An identical re-pin preserves the statement.
@@ -514,6 +548,6 @@ tree, a `ring.toml` naming another tree is refused, the tree is fixed at
 `init`. Curated sources are per cluster, `[policy.sources.localnet]` and
 `[policy.sources.devnet]` name their own curators and a catalogue name
 resolves only on the cluster that lists it. The SDK refuses a `create_policy`
-transaction past the signed V1 size (`TransactionTooLarge`). A rule
-names authority-written lists only, the member-written lists are enrolled by
-their members and read by no rule.
+transaction past the signed V1 size (`TransactionTooLarge`). Rules may reference
+any defined list. `UpdateMembers` requires the authority's signature for changes
+to authority-written bits and the member's signature for member-written bits.

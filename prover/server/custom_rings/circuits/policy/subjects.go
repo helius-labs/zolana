@@ -20,9 +20,10 @@ type subjectView struct {
 
 // resolveSubjects opens every live UTXO slot's owner in the ring registry, and in the curator
 // registry when the sources name one. Other slots leave their openings unread.
-func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transaction, checked checkedPolicy) [NSubjects]subjectView {
+func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transaction, checked checkedPolicy) []subjectView {
 	sources := checked.sources
-	var subjects [NSubjects]subjectView
+	inputs, outputs, ownOpenings, foreignOpenings := c.wires()
+	subjects := make([]subjectView, len(ownOpenings))
 	var ownBatch, foreignBatch *registry.SubtreeBatch
 	if c.RegistryWitness != nil {
 		ownBatch = registry.NewSparseSubtreeBatch(api, c.MemberRegistryRoot, &c.RegistryWitness[0])
@@ -35,7 +36,7 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 		if batch != nil {
 			return batch.Resolve(api, o, active, member)
 		}
-		if c.FixedInputs != 0 {
+		if c.compact() {
 			return o.ResolveCompact(api, active, root, member)
 		}
 		return o.Resolve(api, active, root, member)
@@ -43,12 +44,12 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 	for index, slot := range tx.slots() {
 		s := index
 		if index >= len(tx.inputs) {
-			s = NInputs + index - len(tx.inputs)
+			s = len(inputs) + index - len(tx.inputs)
 		}
-		own, escrowKey := resolve(c.Subjects[s], slot.utxo, c.MemberRegistryRoot, slot.ownerPkHash, ownBatch)
-		foreign, _ := resolve(c.ForeignSubjects[s], api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash, foreignBatch)
+		own, escrowKey := resolve(ownOpenings[s], slot.utxo, c.MemberRegistryRoot, slot.ownerPkHash, ownBatch)
+		foreign, _ := resolve(foreignOpenings[s], api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash, foreignBatch)
 		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
-		subjects[s] = subjectView{present: c.Subjects[s].Present, escrowKey: escrowKey}
+		subjects[s] = subjectView{present: ownOpenings[s].Present, escrowKey: escrowKey}
 		for i := range subjects[s].onList {
 			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
 		}
@@ -57,7 +58,7 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
 	for i, packed := range c.Rules {
 		var rule ruleFields
-		if c.FixedInputs != 0 {
+		if c.compact() {
 			rule = checked.rules[i]
 		} else {
 			rule = decodeRule(api, packed)
@@ -66,10 +67,10 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 		assetRules = api.Or(assetRules, api.Mul(active, rule.onAsset))
 	}
 	for o, slot := range tx.outputs {
-		s := NInputs + NOutputs + o
+		s := len(inputs) + len(outputs) + o
 		active := api.Mul(slot.utxo, assetRules, base.NonZero(api, slot.asset))
-		own, _ := resolve(c.Subjects[s], active, c.MemberRegistryRoot, slot.asset, ownBatch)
-		foreign, _ := resolve(c.ForeignSubjects[s], api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset, foreignBatch)
+		own, _ := resolve(ownOpenings[s], active, c.MemberRegistryRoot, slot.asset, ownBatch)
+		foreign, _ := resolve(foreignOpenings[s], api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset, foreignBatch)
 		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
 		for i := range subjects[s].onList {
 			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
@@ -83,13 +84,14 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 }
 
 // constrainEscrow requires every live output owner's record to escrow the key the output uses.
-func (c *CustomRingPolicyCircuit) constrainEscrow(api frontend.API, tx transaction, subjects [NSubjects]subjectView) {
+func (c *CustomRingPolicyCircuit) constrainEscrow(api frontend.API, tx transaction, subjects []subjectView) {
 	api.AssertIsBoolean(c.KeyEscrow)
 	for o, output := range tx.outputs {
-		subject := subjects[NInputs+o]
+		inputs, outputs, _, _ := c.wires()
+		subject := subjects[len(inputs)+o]
 		escrowed := api.Mul(output.utxo, c.KeyEscrow)
 		shared.AssertWhen(api, escrowed, subject.present)
-		key := gadget.PoseidonHash(api, []frontend.Variable{output.nullifierPk, c.Outputs[o].CtHash})
+		key := gadget.PoseidonHash(api, []frontend.Variable{output.nullifierPk, outputs[o].CtHash})
 		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: subject.escrowKey, B: key})
 	}
 }

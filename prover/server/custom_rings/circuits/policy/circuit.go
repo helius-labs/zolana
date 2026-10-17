@@ -19,7 +19,8 @@ type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	base.Audit
 	// Compile-time capacities for a specialized key. Zero retains the general circuit.
-	FixedInputs, FixedOutputs int `gnark:"-"`
+	FixedInputs, FixedOutputs int         `gnark:"-"`
+	Dynamic                   *ShapeWires `gnark:"-"`
 	// FixedMode is 0 for a witnessed mode, 1 for ordinary, 2 for anonymous.
 	FixedMode            int `gnark:"-"`
 	RegistrySubtreeDepth int `gnark:"-"`

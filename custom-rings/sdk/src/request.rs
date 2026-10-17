@@ -9,9 +9,7 @@ use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::{ViewingKey, X25519Pubkey};
-use zolana_ring_policy::{
-    OutflowLimit, PolicySource, MAX_OUTFLOW_LIMITS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
-};
+use zolana_ring_policy::{OutflowLimit, PolicySource, MAX_OUTFLOW_LIMITS, POLICY_OUTPUT_SLOTS};
 
 pub(crate) use registry::{RecordUpdate, RecordWitness, SubjectWitness};
 
@@ -309,9 +307,9 @@ pub(crate) struct AnonymousIdentities {
     #[serde(with = "fe")]
     pub sender: [u8; IDENTITY_LEN],
     #[serde(serialize_with = "fe::seq")]
-    pub recipients: [[u8; IDENTITY_LEN]; POLICY_OUTPUT_SLOTS],
+    pub recipients: Vec<[u8; IDENTITY_LEN]>,
     #[serde(serialize_with = "fe::seq")]
-    pub recipient_viewing_keys: [[u8; TAGGED_X25519_KEY_LEN]; POLICY_OUTPUT_SLOTS],
+    pub recipient_viewing_keys: Vec<[u8; TAGGED_X25519_KEY_LEN]>,
 }
 
 /// The base circuit opens the SPP slots itself, the policy witness opens them otherwise.
@@ -612,7 +610,7 @@ impl Serialize for Slot<'_> {
 
 /// Input owners, output owners and output assets. Unused slots send `null`.
 pub(crate) fn subjects<S: Serializer>(
-    subjects: &[Option<SubjectWitness>; POLICY_INPUT_SLOTS + 2 * POLICY_OUTPUT_SLOTS],
+    subjects: &[Option<SubjectWitness>],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(subjects.iter())
