@@ -30,6 +30,7 @@ fn every_verifying_key_marker_is_in_the_program_binary() {
     found.sort();
     let mut expected: Vec<([u8; 32], bool)> = zolana_interface::verifying_keys::PROVING_KEY_SHA256S
         .iter()
+        .chain(zolana_interface::verifying_keys::UNPUBLISHED_PROVING_KEY_SHA256S)
         .chain(zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S)
         .map(|(_, sha256)| (*sha256, false))
         .collect();

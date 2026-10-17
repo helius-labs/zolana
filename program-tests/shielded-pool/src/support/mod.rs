@@ -3,6 +3,7 @@
 //! - [`runtime`]: LiteSVM setup and account sizing.
 //! - [`fixtures`]: initialized pool environments and builders.
 //! - [`transact`]: transact fixtures and tree helpers.
+//! - [`batch`]: batch settlement through the test batch program.
 //! - [`cache`]: a transact that spends from a cache instead of the state tree.
 //! - [`merge`]: real merge proofs at every supported shape.
 //! - [`ring`]: real ring transact proofs on both policy-ring rails.
@@ -10,6 +11,8 @@
 //! - [`mollusk`]: Mollusk snapshot fixtures.
 //! - [`forester`]: local-validator nullifier-tree driver.
 
+pub mod batch;
+pub mod batch_ring;
 pub mod cache;
 pub mod fixtures;
 pub mod merge;

@@ -309,22 +309,52 @@ var transferSupportedShapes = [][2]uint32{
 	{6, 4},
 	{5, 16},
 	{6, 8},
+	{4, 32},
 	{8, 2},
 	{8, 4},
 	{8, 8},
 	{8, 16},
+	{4, 64},
 	{12, 2},
 	{12, 4},
 	{12, 8},
 	{16, 2},
 	{16, 4},
 	{16, 8},
+	{4, 146},
+	{4, 148},
 	{24, 2},
 	{24, 4},
 	{32, 2},
+	{16, 140},
+	{16, 142},
 	{40, 2},
 	{48, 2},
 	{49, 2},
+	{57, 120},
+	{57, 121},
+	{58, 121},
+}
+
+// batchSettlementShapes are the batch-settlement shapes each rail has keys
+// for; every rail sizes its widest shapes to its own instruction data. Mirrors
+// the batch sections of circuit_key_item! in
+// program-libs/interface/src/verifying_keys/circuit.rs.
+var batchSettlementShapes = map[CircuitType][][2]uint32{
+	TransferConfidentialCircuitType: {{4, 32}, {4, 64}, {4, 148}, {16, 142}, {58, 121}},
+	TransferRingCircuitType:         {{4, 32}, {4, 64}, {4, 148}, {16, 142}, {57, 121}},
+	TransferP256RingCircuitType:     {{4, 32}, {4, 64}, {4, 146}, {16, 140}, {57, 120}},
+}
+
+func isBatchSettlementShape(nInputs uint32, nOutputs uint32) bool {
+	for _, shapes := range batchSettlementShapes {
+		for _, shape := range shapes {
+			if shape[0] == nInputs && shape[1] == nOutputs {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
@@ -350,6 +380,14 @@ func (shape ProofShape) Supported() bool {
 			}
 		}
 	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferP256RingCircuitType:
+		if isBatchSettlementShape(shape.Inputs, shape.Outputs) {
+			for _, keyed := range batchSettlementShapes[shape.Circuit] {
+				if shape.Inputs == keyed[0] && shape.Outputs == keyed[1] {
+					return true
+				}
+			}
+			return false
+		}
 		for _, supported := range transferSupportedShapes {
 			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
 				return true

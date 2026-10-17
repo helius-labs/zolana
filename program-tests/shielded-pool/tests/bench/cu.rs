@@ -59,6 +59,8 @@ use zolana_test_utils::{
     },
 };
 
+mod output_scaling;
+
 const PLAIN_PROGRAM_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/shielded_pool_program_plain.so"

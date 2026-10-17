@@ -2,7 +2,8 @@ use zolana_hasher::{
     hash_chain::create_right_hash_chain_4_from_slice,
     zero_suffix_hash_chain::{
         create_padded_right_hash_chain_4, create_zero_suffix_right_hash_chain_4,
-        ZERO_SUFFIX_CHAINS, ZERO_SUFFIX_CHAIN_MAX_WIDTH, ZERO_SUFFIX_GROUPS,
+        PADDED_CHAIN_MAX_WIDTH, ZERO_SUFFIX_CHAINS, ZERO_SUFFIX_CHAIN_MAX_WIDTH,
+        ZERO_SUFFIX_GROUPS,
     },
     HasherError,
 };
@@ -52,7 +53,7 @@ fn value(index: usize) -> [u8; 32] {
 
 #[test]
 fn the_padded_fold_is_the_full_fold_for_every_width_and_sent_count() {
-    for width in 0..=ZERO_SUFFIX_CHAIN_MAX_WIDTH {
+    for width in 0..=PADDED_CHAIN_MAX_WIDTH {
         for sent_count in 0..=width {
             let sent: Vec<[u8; 32]> = (0..sent_count).map(value).collect();
             let mut full = sent.clone();
@@ -75,12 +76,28 @@ fn the_padded_fold_is_the_full_fold_for_every_width_and_sent_count() {
 #[test]
 fn the_padded_fold_rejects_a_width_past_the_table() {
     assert_eq!(
-        create_padded_right_hash_chain_4(&[], ZERO_SUFFIX_CHAIN_MAX_WIDTH + 1),
+        create_padded_right_hash_chain_4(&[], PADDED_CHAIN_MAX_WIDTH + 1),
         Err(HasherError::InvalidInputLength(
-            ZERO_SUFFIX_CHAIN_MAX_WIDTH,
-            ZERO_SUFFIX_CHAIN_MAX_WIDTH + 1
+            PADDED_CHAIN_MAX_WIDTH,
+            PADDED_CHAIN_MAX_WIDTH + 1
         ))
     );
+}
+
+#[test]
+fn the_zero_suffix_fold_is_the_full_fold_up_to_the_widest_chain() {
+    let widths = (PADDED_CHAIN_MAX_WIDTH + 1..=ZERO_SUFFIX_CHAIN_MAX_WIDTH).step_by(7);
+    for width in widths.chain([ZERO_SUFFIX_CHAIN_MAX_WIDTH]) {
+        for sent_count in [0, 1, 2, 3, 4, width / 2, width - 1, width] {
+            let mut full: Vec<[u8; 32]> = (0..sent_count).map(value).collect();
+            full.resize(width, [0u8; 32]);
+            assert_eq!(
+                create_zero_suffix_right_hash_chain_4(&full).unwrap(),
+                create_right_hash_chain_4_from_slice(&full).unwrap(),
+                "width {width}, sent {sent_count}"
+            );
+        }
+    }
 }
 
 #[test]

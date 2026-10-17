@@ -56,6 +56,27 @@ macro_rules! circuit_key_item {
                 (48, 2) => transfer_confidential_48_2, transfer_ring_48_2, transfer_p256_ring_48_2;
                 (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_p256_ring_49_2;
             }
+            batch_confidential {
+                (4, 32) => transfer_confidential_4_32;
+                (4, 64) => transfer_confidential_4_64;
+                (4, 148) => transfer_confidential_4_148;
+                (16, 142) => transfer_confidential_16_142;
+                (58, 121) => transfer_confidential_58_121;
+            }
+            batch_ring {
+                (4, 32) => transfer_ring_4_32;
+                (4, 64) => transfer_ring_4_64;
+                (4, 148) => transfer_ring_4_148;
+                (16, 142) => transfer_ring_16_142;
+                (57, 121) => transfer_ring_57_121;
+            }
+            batch_p256 {
+                (4, 32) => transfer_p256_ring_4_32;
+                (4, 64) => transfer_p256_ring_4_64;
+                (4, 146) => transfer_p256_ring_4_146;
+                (16, 140) => transfer_p256_ring_16_140;
+                (57, 120) => transfer_p256_ring_57_120;
+            }
             authority {
                 (2, 2) => transfer_ring_authority_2_2;
                 (4, 4) => transfer_ring_authority_4_4;
@@ -64,6 +85,9 @@ macro_rules! circuit_key_item {
     };
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $p256:ident;)* }
+        batch_confidential { $(($ci:literal, $co:literal) => $batch_confidential:ident;)* }
+        batch_ring { $(($ri:literal, $ro:literal) => $batch_ring:ident;)* }
+        batch_p256 { $(($pi:literal, $po:literal) => $batch_p256:ident;)* }
         authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
     ) => {{
         use super::*;
@@ -75,6 +99,17 @@ macro_rules! circuit_key_item {
                 }
                 CircuitId::RingEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
                 CircuitId::RingP256($i, $o, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$p256::$item,
+            )*
+            $(
+                CircuitId::ConfidentialEddsa($ci, $co, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                    &$batch_confidential::$item
+                }
+            )*
+            $(
+                CircuitId::RingEddsa($ri, $ro, CURRENT_PUBLIC_ASSET_SLOTS) => &$batch_ring::$item,
+            )*
+            $(
+                CircuitId::RingP256($pi, $po, CURRENT_PUBLIC_ASSET_SLOTS, _) => &$batch_p256::$item,
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,

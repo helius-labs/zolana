@@ -27,6 +27,8 @@ pub mod transfer_confidential_12_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_12_8;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_16_142;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_16_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_16_4;
@@ -67,13 +69,21 @@ pub mod transfer_confidential_48_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_49_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_4_148;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_4_32;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_4;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_4_64;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_4_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_58_121;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -102,6 +112,8 @@ pub mod transfer_p256_ring_12_2;
 pub mod transfer_p256_ring_12_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_12_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_16_140;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_16_2;
 #[cfg(feature = "verifying-keys")]
@@ -143,13 +155,21 @@ pub mod transfer_p256_ring_48_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_49_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_4_146;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_4_32;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_4;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_4_64;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_57_120;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -178,6 +198,8 @@ pub mod transfer_ring_12_2;
 pub mod transfer_ring_12_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_12_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_16_142;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_16_2;
 #[cfg(feature = "verifying-keys")]
@@ -219,13 +241,21 @@ pub mod transfer_ring_48_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_49_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_4_148;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_16;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_2;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_4_32;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_4;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_4_64;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_4_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_57_121;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_5_16;
 #[cfg(feature = "verifying-keys")]
@@ -252,6 +282,71 @@ pub mod transfer_ring_8_8;
 pub mod transfer_ring_authority_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_authority_4_4;
+
+/// Output-scaling prototype keys: generated locally, not in proving-keys.lock.
+#[cfg(feature = "verifying-keys")]
+pub const UNPUBLISHED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
+    (
+        "transfer_confidential_4_32.key",
+        transfer_confidential_4_32::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_4_64.key",
+        transfer_confidential_4_64::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_4_148.key",
+        transfer_confidential_4_148::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_16_142.key",
+        transfer_confidential_16_142::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_58_121.key",
+        transfer_confidential_58_121::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_4_32.key",
+        transfer_ring_4_32::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_4_64.key",
+        transfer_ring_4_64::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_4_148.key",
+        transfer_ring_4_148::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_16_142.key",
+        transfer_ring_16_142::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_57_121.key",
+        transfer_ring_57_121::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_p256_ring_4_32.key",
+        transfer_p256_ring_4_32::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_p256_ring_4_64.key",
+        transfer_p256_ring_4_64::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_p256_ring_4_146.key",
+        transfer_p256_ring_4_146::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_p256_ring_16_140.key",
+        transfer_p256_ring_16_140::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_p256_ring_57_120.key",
+        transfer_p256_ring_57_120::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+];
 
 /// Proving key file name, as in proving-keys.lock and the prover's
 /// `/proving-keys`, and the sha256 its committed verifying key pins.

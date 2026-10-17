@@ -9,8 +9,9 @@
 use std::collections::BTreeMap;
 
 use zolana_interface::{
+    shape::Shape,
     verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData, PROVING_KEY_SHA256S},
-    MAX_OUTPUTS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
+    MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
 const LOCK: &str = include_str!("../../../prover/server/prover/provingkeys/proving-keys.lock");
@@ -43,6 +44,10 @@ fn proving_key_sha256s_match_lockfile() {
     }
 }
 
+/// Widest output count with keys in proving-keys.lock. The output-scaling
+/// prototype shapes above it verify against locally generated keys.
+const LOCKED_MAX_OUTPUTS: u8 = 16;
+
 /// Every supported transfer circuit resolves to the proving-key sha256 of the
 /// key file its rail and shape name, the digest a prover reports for it.
 #[test]
@@ -58,9 +63,11 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
     };
     let mut checked = 0;
     let max_inputs = u8::try_from(MAX_TRANSACT_INPUTS).expect("fits u8");
-    let max_outputs = u8::try_from(MAX_OUTPUTS).expect("fits u8");
     for n_inputs in 1..=max_inputs {
-        for n_outputs in 1..=max_outputs {
+        for n_outputs in 1..=LOCKED_MAX_OUTPUTS {
+            if Shape::new(usize::from(n_inputs), usize::from(n_outputs)).is_batch_settlement() {
+                continue;
+            }
             for (rail, circuit) in [
                 (
                     "transfer_confidential",

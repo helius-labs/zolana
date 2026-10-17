@@ -16,6 +16,7 @@ members = [
     "programs/user-registry",
     "program-tests/ring-test-program",
     "program-tests/spp-recorder-program",
+    "program-tests/spp-batch-program",
     "bench/tree",
     "cli",
     "custom-rings/cli",
