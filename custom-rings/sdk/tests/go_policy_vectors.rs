@@ -327,6 +327,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         output_hashes: &[[0u8; 32]; 4],
         salt: &[0u8; 16],
         disclosure: &[[0u8; 32]; custom_ring_interface::AUDIT_DISCLOSURE_FIELD_COUNT],
+        anonymous: false,
     };
     let elements = audit.elements().expect("elements");
     let mut revocation_targets = [[0u8; 32]; zolana_ring_policy::ANSWER_SLOTS];
@@ -368,7 +369,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
 #[test]
 fn nonzero_revocation_tail_matches_go_and_typescript() {
     let mut elements = vec![hex32(
-        "1c26456bcdeb4de535d7e8ccf1db5ff70f6f2b527565dc004291f705b5e5b72e",
+        "12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f",
     )];
     elements.extend_from_slice(&[
         [0x2a; 32],
@@ -386,7 +387,7 @@ fn nonzero_revocation_tail_matches_go_and_typescript() {
     elements.extend_from_slice(&[[0; 32]; zolana_ring_policy::ANSWER_SLOTS - 2]);
     assert_eq!(
         zolana_hasher::hash_chain::create_hash_chain_from_slice(&elements).expect("chain"),
-        hex32("1ef22522e0d6233331b953baa067b2f821aaaf670c2313b5b27c5126956185d1")
+        hex32("287fe8b5f9ae4740720aa0c80bb628572ec71a111acfa1156c866d774f4a9257")
     );
 }
 

@@ -20,6 +20,8 @@ pub trait ViewingKeyTrait {
     fn pubkey(&self) -> X25519Pubkey;
 
     /// ECDH with `counterparty`, returning the shared point's x-coordinate.
+    /// A backend exposing this exposes every key-exchange PDA role and shared
+    /// view tag for a chosen counterparty. The view root itself stays unreachable.
     fn ecdh(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError>;
 
     // --- view-tag derivation ---

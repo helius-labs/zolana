@@ -25,11 +25,13 @@ use zolana_hasher::{
         create_right_hash_chain_from_slice,
     },
     primitives::hash_bytes,
+    sha256::Sha256,
+    Hasher,
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof as ProofData, TreeContext,
+        Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
+        TransactOutput, TransactProof as ProofData, TreeContext,
     },
     merge_utils::owner_proof_input_hash_compressed,
     state::cache::empty_cached_input_fields,
@@ -444,6 +446,104 @@ fn compact_program_assembly_matches_the_go_ordering() {
         ),
     };
     assert_eq!(proof.public_input_hash().expect("assembly"), clone.hash());
+}
+
+/// The program assembles the RingEd25519 public input hash the circuit proves
+/// for the committed Go request of `TestCustomRingEd25519RequestFixture`. It is
+/// the RingP256 layout with a zero default owner and zero published output owners.
+#[test]
+fn ring_ed25519_assembly_matches_the_go_request_fixture() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../prover/server/prover/transfer_eddsa_only/testdata/ed25519-ring-2x2.json");
+    let request: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
+        .expect("parse fixture");
+    let entries = |key: &str| -> Vec<Value> {
+        request
+            .get(key)
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("fixture list {key}"))
+            .clone()
+    };
+    let circuit = CircuitId::RingEd25519(
+        2,
+        2,
+        3,
+        Bsb22Commitment {
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
+    );
+    let private_tx_hash = fe_at(&request, "privateTxHash");
+    let external_data_hash = fe_at(&request, "externalDataHash");
+    let mut message_digest = fe_at(&request, "messageHashLow");
+    message_digest[..16].copy_from_slice(&fe_at(&request, "messageHashHigh")[16..]);
+    assert_eq!(
+        Sha256::hashv(&[private_tx_hash.as_slice(), external_data_hash.as_slice()])
+            .expect("sha256"),
+        message_digest,
+        "the fixture signs sha256(private_tx_hash || external_data_hash)"
+    );
+
+    let owned = TransactIxData {
+        private_tx_hash,
+        inputs: entries("inputs")
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: fe_at(input, "nullifier"),
+                tree_index: 0,
+            })
+            .collect(),
+        outputs: entries("outputs")
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: fe_at(output, "hash"),
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
+            })
+            .collect(),
+        ..ix_data(circuit)
+    };
+    let bytes = owned.serialize().expect("serialize transact ix");
+    let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
+
+    let mut derived = TransactProofInputs::new(circuit);
+    derived.tree_slots = entries("treeSlots")
+        .iter()
+        .map(|slot| TreeSlot {
+            id: fe_at(slot, "id"),
+            utxo_root: fe_at(slot, "utxoRoot"),
+            nullifier_root: fe_at(slot, "nullifierRoot"),
+        })
+        .collect();
+    derived.output_tree_id = fe_at(&request, "outputTreeId");
+    derived.external_data_hash = external_data_hash;
+    derived.ring_program_id = fe_at(&request, "ringProgramId");
+    derived.input_flags = fe_at(&request, "inputFlags");
+    for (slot, asset) in derived
+        .public_slot_assets
+        .iter_mut()
+        .zip(fe_list(&request, "publicAssets"))
+    {
+        *slot = asset;
+    }
+    // The fixture moves no public value, so every slot amount is zero.
+    assert!(fe_list(&request, "publicAmounts")
+        .iter()
+        .all(|amount| *amount == [0u8; 32]));
+    let signers = fe_list(&request, "signerPkHashes");
+    let unique = signers
+        .iter()
+        .take_while(|signer| **signer != [0u8; 32])
+        .count();
+    derived.signer_pk_hashes[..unique].copy_from_slice(&signers[..unique]);
+    derived.unique_owner_signer_count = u8::try_from(unique).expect("signer count");
+
+    assert_eq!(
+        TransactProof::new(&ix, &derived)
+            .public_input_hash()
+            .expect("assembly"),
+        fe_at(&request, "publicInputHash")
+    );
 }
 
 /// The field-derivation vector pins `solana_pk_hash`, the signed public

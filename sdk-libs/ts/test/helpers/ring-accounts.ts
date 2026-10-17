@@ -98,6 +98,8 @@ export function ringProgramConfigData(
     bump: number;
     hasPolicy: boolean;
     keyEscrow?: boolean;
+    /** Rust `RingMode::Anonymous`, overrides `keyEscrow`. */
+    anonymous?: boolean;
   }>,
 ): Uint8Array {
   return new Writer()
@@ -106,7 +108,7 @@ export function ringProgramConfigData(
     .bytes(input.auditorPublicKey, 33, "auditorPublicKey")
     .u8(input.bump, "bump")
     .u8(input.hasPolicy ? 1 : 0, "hasPolicy")
-    .u8(input.keyEscrow === true ? 1 : 0, "keyEscrow")
+    .u8(input.anonymous === true ? 2 : input.keyEscrow === true ? 1 : 0, "mode")
     .finish();
 }
 

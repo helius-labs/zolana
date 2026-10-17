@@ -8,27 +8,30 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 const (
-	MaxDeposits    = 8
-	OpeningBytes   = 64
+	MaxDeposits = 8
+	// OpeningBytes is owner hash || blinding || owner key.
+	OpeningBytes   = 96
 	Domain         = 0x43524450 // "CRDP"
 	EncryptionInfo = "CRING/dep1"
 )
 
-// Properties: the first Count of 1..8 owner commitments open to (owner hash, blinding) pairs that are AES-CTR
-// encrypted to the X25519 key AuditorPk, padding slots are zero, and escrow finds every owner's key in its
-// member record.
+// Properties: the first Count of 1..8 owner commitments open to (owner hash, blinding, Ed25519 owner key in an
+// anonymous ring else zero) AES-CTR encrypted to AuditorPk, padding slots are zero, escrow finds every owner's key.
 
 type CustomRingDepositCircuit struct {
 	PublicInputHash    frontend.Variable `gnark:",public"`
 	ContextHash        frontend.Variable
 	Count              frontend.Variable
+	Anonymous          frontend.Variable
 	OwnerPkHashes      [MaxDeposits]frontend.Variable
+	OwnerKeys          [MaxDeposits][32]frontend.Variable
 	NullifierPks       [MaxDeposits]frontend.Variable
 	Blindings          [MaxDeposits]frontend.Variable
 	EphSk              [32]frontend.Variable
@@ -40,6 +43,7 @@ type CustomRingDepositCircuit struct {
 }
 
 func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
+	api.AssertIsBoolean(c.Anonymous)
 	count := base.SelectCount(api, c.Count, 1, MaxDeposits)
 	registry.AssertMode(api, c.KeyEscrow, c.MemberRegistryRoot)
 	owners := make([]frontend.Variable, MaxDeposits)
@@ -53,12 +57,19 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		c.Members[i].AssertPresent(api, escrowed, c.MemberRegistryRoot, c.OwnerPkHashes[i])
 		key := gadget.PoseidonHash(api, []frontend.Variable{c.NullifierPks[i], c.CtHashes[i]})
 		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: c.Members[i].EscrowKey, B: key})
+		anonymous := api.Mul(c.Anonymous, count.Active[i])
+		// SolanaOwnerIdentity bounds the key bytes the envelope encrypts.
+		identity := checked.SolanaOwnerIdentity(api, c.OwnerKeys[i])
+		api.AssertIsEqual(api.Mul(anonymous, api.Sub(c.OwnerPkHashes[i], identity)), 0)
+		for _, b := range c.OwnerKeys[i] {
+			api.AssertIsEqual(api.Mul(api.Sub(1, anonymous), b), 0)
+		}
 		owners[i] = gadget.PoseidonHash(api, []frontend.Variable{c.OwnerPkHashes[i], c.NullifierPks[i]})
 		// The canonical field encoding keeps one plaintext per opening.
-		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, owners[i], 32), ve.FieldToBytesBE(api, c.Blindings[i], 32))
+		plaintext = slices.Concat(plaintext, ve.FieldToBytesBE(api, owners[i], 32), ve.FieldToBytesBE(api, c.Blindings[i], 32), c.OwnerKeys[i][:])
 	}
 	sealed := base.Envelope{Plaintext: plaintext, EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: EncryptionInfo}.Seal(api)
-	chain := []frontend.Variable{Domain, c.ContextHash, c.Count}
+	chain := []frontend.Variable{Domain, c.ContextHash, c.Count, c.Anonymous}
 	for i, owner := range owners {
 		commitment := gadget.PoseidonHash(api, []frontend.Variable{owner, c.Blindings[i]})
 		ciphertext := gadget.HashBytes(api, sealed.Ciphertext[i*OpeningBytes:(i+1)*OpeningBytes])

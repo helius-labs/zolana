@@ -2,7 +2,8 @@ use arrayvec::ArrayVec;
 use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
 pub use zolana_event::{
     confidential_encrypted_output_body, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, MessageData, OutputUtxo,
+    ring_anonymous_encrypted_output_body, ring_confidential_encrypted_output_body, MessageData,
+    OutputUtxo,
 };
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 

@@ -14,13 +14,13 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "custom_ring_base.key": "58ea292fb55fe1efa1fe1e596e251a7b7dbcb720da72e4af7dc585af0e5ca513",
+  "custom_ring_base.key": "a96822836acd5f8127bce8f1d23bf47a85421685327bf5f04a93e6d8e1d3692a",
   "custom_ring_delegate_policy.key":
-    "a731f737af2872a06922682458bc427f75e3f97a38b4be2c92ee6e518319433e",
-  "custom_ring_deposit.key": "00369d9cd2ccc8e818071e1957cc4cd4cbcbaeb968f929afd2543b8cc995350d",
-  "custom_ring_policy.key": "ca5f9a81effa4588989d6533a1c08f9f6a1e2740e0d7342ccc512e304eee80a0",
+    "7a11b1f9af6ef394dcfc8e1c9a3ef0e1bd6172880fbe9cd93ed85d2559d2ea1b",
+  "custom_ring_deposit.key": "85ca05e282b9b64bfda61aa73e63439396c42fdce100e34bc0ddac5a8329c418",
+  "custom_ring_policy.key": "c6627c31c98b1e71df4195b34474c93035208efdd67b6d517ffc5d895052445f",
   "custom_ring_register_key.key":
-    "404b553ab83b2ca8a35967dc674da017664fc088182f9888eb5268fd92de5c08",
+    "049feeed5ebfb64276ab32aa0539e60a5cd7aeb5256efb6829383a90504d876c",
   "merge_24_1.key": "a0dfaa1e73d2d9e1159d2ebab82baa6d0602482d75f24dcbff596322dc389c88",
   "merge_54_1.key": "951ec83dc53d112a46a1eb9cd308e6abd933291eb3109647a479e2321fce7423",
   "merge_8_1.key": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",
@@ -103,6 +103,14 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "82975fe1145c827a76f8b76e229bb9c8501f993b1a4f7709446b7717f30bd07a",
   "transfer_confidential_8_8.key":
     "f8972d03f57baef87702aaddb87a3b831d2377723e930fb25675fe3e473d8aec",
+  "transfer_ed25519_ring_2_2.key":
+    "a3bedbae74fff82c566787baed29a0132b895a553927a114cbc08aa7f71c6693",
+  "transfer_ed25519_ring_2_4.key":
+    "fbe2a295f4041e380bdf5906414c64f4d010c7e3e81301120d3f7210bdca131d",
+  "transfer_ed25519_ring_3_4.key":
+    "fb59ac91d4b5573f1d0d62f0773c4e1503eee5577911172761ae0e9d03c1adbf",
+  "transfer_ed25519_ring_4_2.key":
+    "7a271d8a88255f98a397082a57b64ea28bb0b19c73076ad71d8ffda2f2deb2a1",
   "transfer_p256_ring_12_2.key": "5fbd495e2bb9708de6f698d18f2e43abc9cd9c93fa349f7aa98ec673b5c2f285",
   "transfer_p256_ring_12_4.key": "4b76a834d132d42606686bb47810d13fb43388fcb2f36b1df5b77ed6e5718510",
   "transfer_p256_ring_12_8.key": "62ec6e93e003c569af76eece780f8dfd620890c70494165f44aa11777bc3c87e",
@@ -206,6 +214,7 @@ export type ProvingKeyCircuit =
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
   | { readonly circuit: "custom-ring-base" }
   | { readonly circuit: "custom-ring-policy" }
+  | { readonly circuit: "custom-ring-compressed-policy" }
   | { readonly circuit: "custom-ring-delegate-policy" }
   | { readonly circuit: "custom-ring-deposit" }
   | { readonly circuit: "custom-ring-register-key" };
@@ -244,6 +253,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_ring_${request.nInputs}_1.key`;
     case "custom-ring-base":
     case "custom-ring-policy":
+    case "custom-ring-compressed-policy":
     case "custom-ring-delegate-policy":
     case "custom-ring-deposit":
     case "custom-ring-register-key":

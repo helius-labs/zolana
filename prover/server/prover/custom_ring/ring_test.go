@@ -111,8 +111,20 @@ func TestAssignNamesEveryMissingValue(t *testing.T) {
 
 // The encoder writes back the bytes clients send, the indexer resends them.
 func TestGoldenRequestsRoundTripByteForByte(t *testing.T) {
-	for _, ring := range RingCircuits {
-		payload, err := os.ReadFile(filepath.Join("testdata", string(ring.Type)+".json"))
+	files, err := filepath.Glob("testdata/*.json")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no fixtures: %v", err)
+	}
+	for _, file := range files {
+		payload, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta, err := common.ParseProofRequestMeta(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ring, err := Ring(meta.CircuitType)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +141,7 @@ func TestGoldenRequestsRoundTripByteForByte(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(encoded, compact.Bytes()) {
-			t.Errorf("%s re-encodes differently", ring.Type)
+			t.Errorf("%s re-encodes differently", filepath.Base(file))
 		}
 	}
 }
@@ -190,5 +202,44 @@ func TestDecodeRejectsMalformedRequests(t *testing.T) {
 	}
 	if _, err := Decode(common.CustomRingPolicyCircuitType, append(payload, []byte("{}")...)); err == nil {
 		t.Fatal("trailing data decoded")
+	}
+}
+
+func TestDecodeRejectsMalformedAnonymousRequests(t *testing.T) {
+	payload, err := os.ReadFile("testdata/custom-ring-base-anonymous.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]func(map[string]any){
+		"anonymous as a number":    func(m map[string]any) { m["anonymous"] = 1 },
+		"short sender":             func(m map[string]any) { m["sender"] = m["sender"].(string)[:64] },
+		"three recipients":         func(m map[string]any) { m["recipients"] = m["recipients"].([]any)[:3] },
+		"untagged viewing key":     func(m map[string]any) { m["recipientViewingKeys"].([]any)[0] = "0x" + strings.Repeat("11", 32) },
+		"unknown input field":      func(m map[string]any) { m["inputs"].([]any)[0].(map[string]any)["key"] = "0x00" },
+		"five inputs":              func(m map[string]any) { m["inputs"] = append(m["inputs"].([]any), m["inputs"].([]any)[0]) },
+		"short anonymous outputs":  func(m map[string]any) { m["anonymousOutputs"] = m["anonymousOutputs"].([]any)[:1] },
+		"blinding above the field": func(m map[string]any) { m["privateTxBlinding"] = "0x" + ecc.BN254.ScalarField().Text(16) },
+		"uppercase recipient": func(m map[string]any) {
+			m["recipients"].([]any)[0] = strings.ToUpper(m["recipients"].([]any)[0].(string))
+		},
+		"input count above a byte":  func(m map[string]any) { m["nIn"] = 256 },
+		"recipients as one string":  func(m map[string]any) { m["recipients"] = m["sender"] },
+		"viewing keys as an object": func(m map[string]any) { m["recipientViewingKeys"] = map[string]any{} },
+	}
+	for name, tamper := range tests {
+		t.Run(name, func(t *testing.T) {
+			var raw map[string]any
+			if err := json.Unmarshal(payload, &raw); err != nil {
+				t.Fatal(err)
+			}
+			tamper(raw)
+			data, err := json.Marshal(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Decode(common.CustomRingBaseCircuitType, data); err == nil {
+				t.Fatal("malformed anonymous request decoded")
+			}
+		})
 	}
 }

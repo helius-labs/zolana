@@ -61,9 +61,28 @@ impl ConfidentialTransaction {
     ///    owner tag and ciphertext in output order.
     /// 6. Build the external data and return the assembled proof inputs.
     pub fn encrypt_with_viewing_key(
+        self,
+        sender: &ShieldedAddress,
+        tx_viewing_key: &ViewingKey,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, false)
+    }
+
+    /// Keeps recipient viewing keys in the auditor disclosure, not the public
+    /// output body. The caller must publish that disclosure before proving SPP.
+    pub fn encrypt_anonymous_with_viewing_key(
+        self,
+        sender: &ShieldedAddress,
+        tx_viewing_key: &ViewingKey,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, true)
+    }
+
+    fn encrypt_with_viewing_key_mode(
         mut self,
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
+        anonymous: bool,
     ) -> Result<SppProofInputs, TransactionError> {
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
@@ -91,7 +110,19 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = self.owner_tags(&sender.signing_pubkey)?;
+        // Anonymous outputs share the zero scan tag so no public field names
+        // either the recipient or a sender-owned change output.
+        let owner_tags = if anonymous {
+            vec![
+                ResolvedOwnerTag {
+                    tag: OwnerTag::Inline([0; 32]),
+                    resolved: [0; 32]
+                };
+                self.outputs.len()
+            ]
+        } else {
+            self.owner_tags(&sender.signing_pubkey)?
+        };
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
@@ -103,7 +134,13 @@ impl ConfidentialTransaction {
             .map(|(slot_index, output)| {
                 output
                     .owner_address
-                    .map(|_| output.seal(slot_index as u32, tx_viewing_key, salt))
+                    .map(|_| {
+                        if anonymous {
+                            output.seal_ring_anonymous(slot_index as u32, tx_viewing_key, salt)
+                        } else {
+                            output.seal(slot_index as u32, tx_viewing_key, salt)
+                        }
+                    })
                     .transpose()
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;

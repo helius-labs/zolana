@@ -1,12 +1,13 @@
 use custom_ring_interface::{
     deposit_verifying_key::VERIFYINGKEY, tag, AuditedDepositPrefix, CustomRingError,
-    CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule,
-    MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
+    CustomRingProof, DepositContext, DepositPublicInput, RingDepositAuditCapsule, RingMode,
+    MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
+    VIEWING_PUBKEY_TAG,
 };
 use pinocchio::{Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
 
-use crate::instructions::verifier::verify_groth16;
+use crate::instructions::{loader::AuditedConfig, verifier::verify_groth16};
 
 pub(crate) struct AuditedDeposit<'a> {
     pub proof: CustomRingProof,
@@ -36,7 +37,7 @@ impl<'a> AuditedDeposit<'a> {
 pub(crate) fn verify_deposit_disclosure(
     program_id: &Address,
     tree: &Address,
-    auditor_pk: &[u8; 33],
+    config: &AuditedConfig,
     key_registry_root: Option<&[u8; 32]>,
     audited: &AuditedDeposit<'_>,
     deposit: &RingDepositIxDataRef<'_>,
@@ -49,12 +50,13 @@ pub(crate) fn verify_deposit_disclosure(
     }
     let mut owners = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
     let mut ciphertexts = [[0; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
-    let mut eph_pk = [0; 33];
+    let mut eph_pk = [0; TAGGED_X25519_KEY_LEN];
     for (slot, entry) in deposit.deposits.iter().enumerate() {
         let capsule = RingDepositAuditCapsule::parse(entry.encrypted.ciphertext)
             .ok()
             .flatten()
             .filter(|capsule| usize::from(capsule.slot_index) == slot)
+            .filter(|capsule| capsule.eph_pk[0] == VIEWING_PUBKEY_TAG)
             .filter(|capsule| slot == 0 || *capsule.eph_pk == eph_pk)
             .ok_or(invalid)?;
         eph_pk = *capsule.eph_pk;
@@ -70,9 +72,10 @@ pub(crate) fn verify_deposit_disclosure(
     .map_err(CustomRingError::from)?;
     let public_input = DepositPublicInput {
         context_hash: &context_hash,
+        anonymous: config.mode == RingMode::Anonymous,
         owner_utxo_hashes: &owners[..count],
         ciphertexts: &ciphertexts[..count],
-        auditor_pk,
+        auditor_pk: &config.auditor_pubkey,
         eph_pk: &eph_pk,
         key_registry_root,
     }

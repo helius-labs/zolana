@@ -356,3 +356,41 @@ func countedFieldElements(n int, value int64) []*big.Int {
 	}
 	return out
 }
+
+func TestEd25519TransferKeepsRingWitnessPrivate(t *testing.T) {
+	params := Ed25519TransferParameters{
+		TransferParameters: *sampleTransferParams(ConfidentialVariant),
+		MessageHashLow:     big.NewInt(7), MessageHashHigh: big.NewInt(9),
+	}
+	params.PublishedOutputOwnerPkHashes = nil
+	data, err := json.Marshal(&params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Ed25519TransferParameters
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Variant != RingVariant || decoded.MessageHashLow.Cmp(params.MessageHashLow) != 0 || decoded.OwnerPublicKey != params.OwnerPublicKey || decoded.OwnerSignature != params.OwnerSignature {
+		t.Fatal("Ed25519 request lost its ring binding or owner witness")
+	}
+	var wire Ed25519TransferParametersJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire.PublishedOutputOwnerPkHashes = []string{"0x01"}
+	published, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(published, &decoded); err == nil {
+		t.Fatal("accepted published owner hashes")
+	}
+	params.PublishedOutputOwnerPkHashes = []*big.Int{big.NewInt(1)}
+	if _, err := json.Marshal(&params); err == nil {
+		t.Fatal("serialized published owner hashes")
+	}
+	if err := params.ValidateShape(); err == nil {
+		t.Fatal("validated published owner hashes")
+	}
+}

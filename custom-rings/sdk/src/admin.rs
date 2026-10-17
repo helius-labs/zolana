@@ -35,11 +35,34 @@ impl CustomRing {
         auditor_pubkey: X25519Pubkey,
         has_policy: bool,
     ) -> Result<Instruction, RingError> {
+        self.config_instruction(payer, authority, auditor_pubkey, has_policy, false)
+    }
+
+    /// A ring whose spends prove a hidden owner and disclose every opening to the auditor.
+    pub fn create_anonymous_config(
+        self,
+        payer: Address,
+        authority: Address,
+        auditor_pubkey: X25519Pubkey,
+        has_policy: bool,
+    ) -> Result<Instruction, RingError> {
+        self.config_instruction(payer, authority, auditor_pubkey, has_policy, true)
+    }
+
+    fn config_instruction(
+        self,
+        payer: Address,
+        authority: Address,
+        auditor_pubkey: X25519Pubkey,
+        has_policy: bool,
+        anonymous: bool,
+    ) -> Result<Instruction, RingError> {
         let data = tagged(
             tag::CREATE_CONFIG,
             &CreateConfigIxData {
                 auditor_pubkey: *auditor_pubkey.as_bytes(),
                 has_policy,
+                anonymous,
             },
         )?;
         let mut accounts = vec![

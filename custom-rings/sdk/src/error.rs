@@ -142,6 +142,24 @@ pub enum RingError {
     },
     #[error("an escrowed ring accepts audited deposits only")]
     AuditRequired,
+    #[error("an anonymous ring refuses this operation")]
+    AnonymousRingRefused,
+    #[error("an anonymous transfer requires the hidden Ed25519 signing key")]
+    MissingAnonymousSigner,
+    #[error("the ring is not anonymous, its owners sign in public")]
+    NotAnonymousRing,
+    #[error("the hidden signer does not match the sender")]
+    AnonymousSignerMismatch,
+    #[error("public transaction signers must differ from the hidden owner")]
+    AnonymousPublicSignerLinksOwner,
+    #[error("anonymous transfers require uncached Ed25519 ring outputs without compact padding")]
+    InvalidAnonymousSlot,
+    #[error("the anonymous rail has no keys for this transaction shape")]
+    AnonymousShapeUnsupported,
+    #[error("the anonymous disclosure does not match the transaction shape")]
+    AnonymousDisclosureShape,
+    #[error("an anonymous ring requires an Ed25519 recipient")]
+    AnonymousRecipient,
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]

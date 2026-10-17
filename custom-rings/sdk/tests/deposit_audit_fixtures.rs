@@ -81,6 +81,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         openings.push(DepositOpening {
             owner_hash,
             blinding: Zeroizing::new(blinding),
+            owner_key: None,
         });
         deposits.push(RingAssetDeposit {
             asset: DepositAsset::Sol,
@@ -131,6 +132,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         .collect();
     let public_input_hash = DepositPublicInput {
         context_hash: &context_hash,
+        anonymous: false,
         owner_utxo_hashes: &owners,
         ciphertexts: &encryption.ciphertexts,
         auditor_pk: auditor.as_bytes(),

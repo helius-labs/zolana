@@ -107,7 +107,7 @@ fn config() -> RingProgramConfig {
         auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
         has_policy: 0,
-        key_escrow: 0,
+        mode: 0,
     }
 }
 

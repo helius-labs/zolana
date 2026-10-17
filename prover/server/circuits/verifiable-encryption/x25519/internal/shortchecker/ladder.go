@@ -23,9 +23,9 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/lookup"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/r1c"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/lookup"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/shortladder"
 )
 
 // init registers untrusted decomposition, multiplication and ladder hints.
@@ -51,42 +51,9 @@ func (c *curve) nativeValue(e *fpElement) frontend.Variable {
 }
 
 // assertDistinctX rejects equality modulo p between reduced coordinates.
-// Reduced widths must already be constrained. Since coordinates lie below
-// 2^255, checking integer differences 0 and +/-p covers every alias.
+// Reduced widths must already be constrained.
 func (c *curve) assertDistinctX(a, b *fpElement) {
-	// 1. Require reduced bounds and pack each coordinate into two small chunks.
-	widths := c.fp.ReducedWidths()
-	if !a.IsReduced(widths) || !b.IsReduced(widths) {
-		panic("x25519: distinct point guard needs reduced coordinates")
-	}
-	pack := func(e *fpElement, start, end int) frontend.Variable {
-		out := frontend.Variable(0)
-		for i := start; i < end; i++ {
-			out = c.api.Add(out, c.api.Mul(e.Limbs()[i], pow2((i-start)*c.lay.LimbBits)))
-		}
-		return out
-	}
-	cut := (c.lay.NbLimbs + 1) / 2
-	B := pow2(cut * c.lay.LimbBits)
-	mask := new(big.Int).Sub(B, big.NewInt(1))
-	p := prime()
-	pl := new(big.Int).And(p, mask)
-	ph := new(big.Int).Rsh(p, uint(cut*c.lay.LimbBits))
-	lo := c.api.Sub(pack(a, 0, cut), pack(b, 0, cut))
-	hi := c.api.Sub(pack(a, cut, c.lay.NbLimbs), pack(b, cut, c.lay.NbLimbs))
-	// For reduced noncanonical coordinates in [0,2^255), equal Fp values
-	// differ by 0 or +/-p. Since p=2^255-19, only these three packed pairs are
-	// possible. A low-half borrow would need a high difference of +/-2^(255-cut).
-	// 2. Exclude all three possible equality aliases using checked inverses.
-	for _, k := range []int64{-1, 0, 1} {
-		dl := c.api.Sub(lo, new(big.Int).Mul(big.NewInt(k), pl))
-		dh := c.api.Sub(hi, new(big.Int).Mul(big.NewInt(k), ph))
-		inv, err := c.api.Compiler().NewHint(shortPackedNonzeroHint, 2, dl, dh)
-		if err != nil {
-			panic(err)
-		}
-		r1c.AssertProduct(c.api, inv[1], dh, c.api.Sub(1, c.api.Mul(inv[0], dl)))
-	}
+	shortladder.AssertDistinct(c.api, c.fp, a, b, shortPackedNonzeroHint)
 }
 
 // quadrupleAndAddLazy constrains one lazy 4A+T ladder step. T must be a
@@ -149,6 +116,8 @@ func (c *curve) scalarMulChecked(q *point, s *frElement) *point {
 // ensures this for clamped quotients. The hinted R is independently checked
 // on the curve and in the subgroup. A nonzero bounded reconstruction
 // denominator and the final target equality bind R uniquely to [s]Q.
+// Completeness holds up to a negligible set of scalars whose lazy-step
+// accumulator is the identity. It depends only on s, so the host resamples.
 func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	// 1. Obtain and bound signed reconstruction halves from an untrusted hint.
 	fr, fp, api := c.fr, c.fp, c.api
@@ -163,28 +132,16 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	var s1, s2 *frElement
 	var s1digits, s2digits []frontend.Variable
 	var s1Top, s2Top frontend.Variable
-	if c.lay.Lookups {
-		// Bits above bit 0 are consumed only through their radix-four digit.
-		// Bounding the digit is sufficient. The constituent hint values need
-		// not themselves be Boolean. Keep the hint's existing output shape.
-		s1digits = c.radixFourDigits(s1bits)
-		s2digits = c.radixFourDigits(s2bits)
-		s1Top, s2Top = s1digits[len(s1digits)-1], s2digits[len(s2digits)-1]
-		s1 = c.scalarFromRadixFour(s1bits[0], s1digits)
-		s2 = c.scalarFromRadixFour(s2bits[0], s2digits)
-		api.AssertIsDifferent(api.Add(s2bits[0], s2digits[0], s2digits[1:]...), 0)
-	} else {
-		for _, bits := range [][]frontend.Variable{s1bits, s2bits} {
-			api.AssertIsEqual(bits[halfScalarBits-1], 0)
-			for _, b := range bits[:halfScalarBits-1] {
-				api.AssertIsBoolean(b)
-			}
-		}
-		s1 = c.scalarFromBits(s1bits[:halfScalarBits-1])
-		s2 = c.scalarFromBits(s2bits[:halfScalarBits-1])
-		s1Top, s2Top = s1bits[halfScalarBits-2], s2bits[halfScalarBits-2]
-		api.AssertIsDifferent(api.Add(s2bits[0], s2bits[1], s2bits[2:]...), 0)
-	}
+	// Bits above bit 0 are consumed only through their radix-four digit.
+	// Bounding the digit is sufficient. The constituent hint values need
+	// not themselves be Boolean. Keep the hint's existing output shape.
+	s1digits = c.radixFourDigits(s1bits)
+	s2digits = c.radixFourDigits(s2bits)
+	s1Top, s2Top = s1digits[len(s1digits)-1], s2digits[len(s2digits)-1]
+	s1 = c.scalarFromRadixFour(s1bits[0], s1digits)
+	s2 = c.scalarFromRadixFour(s2bits[0], s2digits)
+	api.AssertIsDifferent(api.Add(s2bits[0], s2digits[0], s2digits[1:]...), 0)
+
 	// 2. Enforce s*signed(s2)+s1=0 in the selected scalar field.
 	c.scalarZero(T(1, s, fr.Select(sign, fr.Neg(s2), s2)), T(1, s1))
 
@@ -219,12 +176,7 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	api.AssertIsEqual(s1Top, 0)
 	api.AssertIsEqual(s2Top, 0)
 	acc = t2
-	lookup := func(i int) *point {
-		return c.muxSlot(slots, s1bits[i], s2bits[i], s1bits[i-1], s2bits[i-1])
-	}
-	if c.lay.Lookups {
-		lookup = c.packedTableLookup(slots, s1digits, s2digits)
-	}
+	lookup := c.packedTableLookup(slots, s1digits, s2digits)
 	// 6. Process each radix-four digit with the guarded lazy step.
 	// Certain scalar residues can make an intermediate accumulator the identity.
 	// This affine step then rejects an honest proof. A caller can retry with a
@@ -240,20 +192,6 @@ func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	target := c.selectPoint(s1bits[0], c.selectPoint(s2bits[0], r3, r4), t4)
 	c.assertEqual(acc, target)
 	return r
-}
-
-// scalarFromBits packs Boolean scalar bits into bounded limbs. FromBinary
-// constrains the bits, so the recorded limb widths follow from recomposition.
-func (c *curve) scalarFromBits(bits []frontend.Variable) *frElement {
-	var limbs []frontend.Variable
-	var widths []int
-	// Pack bounded binary chunks and record their exact widths.
-	for i := 0; i < len(bits); i += c.lay.LimbBits {
-		chunk := bits[i:min(len(bits), i+c.lay.LimbBits)]
-		limbs = append(limbs, c.api.FromBinary(chunk...))
-		widths = append(widths, len(chunk))
-	}
-	return c.fr.Bounded(limbs, widths)
 }
 
 // radixFourDigits bounds the reconstruction's low bit and paired radix-four
@@ -382,21 +320,6 @@ func implicitDoubledY(p *big.Int, lambda0, xA, xD, yA *big.Int) *big.Int {
 	return y.Mod(y, p)
 }
 
-// modRatio computes a variable-time host quotient modulo a public prime.
-// It returns zero for a zero denominator to allow witness generation at
-// exceptional inputs. Callers must constrain denominators or resolve those
-// cases through the ladder proof. This helper supplies no security check.
-func modRatio(p, num, den *big.Int) *big.Int {
-	// 1. Reduce the denominator and handle zero for witness generation.
-	d := new(big.Int).Mod(den, p)
-	if d.Sign() == 0 {
-		return new(big.Int)
-	}
-	// 2. Compute the host inverse and reduce the resulting quotient.
-	d.ModInverse(d, p)
-	return d.Mul(d, num).Mod(d, p)
-}
-
 // shortImplicitChordHint proposes the chord from 2A to T, or its tangent
 // when those points coincide. The hint is untrusted. The lazy step's equations,
 // output guard and final target equality jointly validate the equal-point case.
@@ -438,53 +361,6 @@ func shortImplicitSecondSlopeHint(q *big.Int, inputs, outputs []*big.Int) error 
 	})
 }
 
-// packedCoordinate combines already bounded limbs into native-field groups.
-// The caller selects a group width below the native modulus. Signed Y groups
-// are kept small enough for subsequent products and tracked as signed bounds.
-func (c *curve) packedCoordinate(e *fpElement, group int) []frontend.Variable {
-	api := c.api
-	limbs := e.Limbs()
-	var out []frontend.Variable
-	// Recompose each group using the caller's established limb bounds.
-	for g := 0; g < len(limbs); g += group {
-		sum := frontend.Variable(0)
-		for j := g; j < min(g+group, len(limbs)); j++ {
-			sum = api.Add(sum, api.Mul(limbs[j], pow2(c.lay.LimbBits*(j-g))))
-		}
-		out = append(out, sum)
-	}
-	return out
-}
-
-// unpackedCoordinate records packed groups as sparse emulated limbs.
-// The inputs must come from a checked lookup or Boolean selection of bounded
-// rows. WithBounds records that justification and adds no range constraints.
-func (c *curve) unpackedCoordinate(packed []frontend.Variable, group int, signed bool) *fpElement {
-	// 1. Derive each packed group's unsigned or signed interval.
-	widths := c.fp.ReducedWidths()
-	n := len(widths)
-	limbs := make([]frontend.Variable, n)
-	lo, hi := make([]*big.Int, n), make([]*big.Int, n)
-	for j := range limbs {
-		limbs[j] = 0
-		lo[j], hi[j] = new(big.Int), new(big.Int)
-		if j%group != 0 {
-			continue
-		}
-		bits := 0
-		for _, w := range widths[j:min(j+group, n)] {
-			bits += w
-		}
-		limbs[j] = packed[j/group]
-		hi[j].Sub(pow2(bits), big.NewInt(1))
-		if signed {
-			lo[j].Neg(hi[j])
-		}
-	}
-	// 2. Record the bounds justified by the checked selection, without new hints.
-	return c.fp.WithBounds(limbs, lo, hi)
-}
-
 // packedTableLookup creates a checked lookup over the 16 signed ladder slots.
 // Slots must have proven curve membership and reduced coordinate bounds.
 // The committed row lookup binds the selector and every output column,
@@ -514,7 +390,7 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 		if bitIndex&1 == 0 {
 			y = fp.Neg(y)
 		}
-		row := append(c.packedCoordinate(slot.X, packedXGroup), c.packedCoordinate(y, c.packedYGroup())...)
+		row := append(shortladder.PackCoordinate(api, fp, slot.X, packedXGroup), shortladder.PackCoordinate(api, fp, y, c.packedYGroup())...)
 		table.Insert(row)
 	}
 	// 3. Bind each query to a committed row and recover bounded coordinates.
@@ -522,56 +398,16 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 		digit := (i - 2) / 2
 		selector := api.Add(s1digits[digit], api.Mul(s2digits[digit], 4))
 		cols := table.Lookup(selector)
-		x := c.unpackedCoordinate(cols[:nbPackedX], packedXGroup, false)
+		x := shortladder.UnpackCoordinate(fp, cols[:nbPackedX], packedXGroup, false)
 		if i == 2 {
 			// The final guarded addition compares reduced X coordinates.
 			x = fp.Eval(T(1, x))
 		}
-		return &point{X: x, Y: c.unpackedCoordinate(cols[nbPackedX:nbPackedX+nbPackedY], c.packedYGroup(), true)}
+		return &point{X: x, Y: shortladder.UnpackCoordinate(fp, cols[nbPackedX:nbPackedX+nbPackedY], c.packedYGroup(), true)}
 	}
-}
-
-// muxSlot selects the same signed ladder slot without lookup arguments.
-// The selector inputs must be Boolean, and all eight slots must already have
-// curve membership and reduced bounds. Coordinate selection preserves both.
-func (c *curve) muxSlot(slots []*point, b0, b1, b2, b3 frontend.Variable) *point {
-	// 1. Require reduced coordinate bounds for every candidate slot.
-	api, fp := c.api, c.fp
-	widths := fp.ReducedWidths()
-	for _, slot := range slots {
-		if !slot.X.IsReduced(widths) || !slot.Y.IsReduced(widths) {
-			panic("table points must be reduced")
-		}
-	}
-	// 2. Select the slot through Boolean multiplexers.
-	sel := []frontend.Variable{api.Xor(b0, b3), api.Xor(b1, b3), api.Xor(b2, b3)}
-	mux := func(column func(int) []frontend.Variable) []frontend.Variable {
-		level := make([][]frontend.Variable, len(slots))
-		for i := range slots {
-			level[i] = column(i)
-		}
-		for _, bit := range sel {
-			next := make([][]frontend.Variable, len(level)/2)
-			for j := range next {
-				next[j] = make([]frontend.Variable, len(level[2*j]))
-				for l := range next[j] {
-					next[j][l] = api.Select(bit, level[2*j+1][l], level[2*j][l])
-				}
-			}
-			level = next
-		}
-		return level[0]
-	}
-	// 3. Restore the selected Y sign and retain the proven coordinate bounds.
-	xs := mux(func(i int) []frontend.Variable { return slots[i].X.Limbs() })
-	packed := mux(func(i int) []frontend.Variable { return c.packedCoordinate(slots[i].Y, c.packedYGroup()) })
-	sign := api.Sub(api.Mul(b0, 2), 1)
-	for g := range packed {
-		packed[g] = api.Mul(sign, packed[g])
-	}
-	return &point{X: fp.Reduced(xs), Y: c.unpackedCoordinate(packed, c.packedYGroup(), true)}
 }
 
 // packedYGroup keeps each packed Y below half the native-field width.
 // This prevents native wraparound in the subsequent squared differences.
+// Signed Y groups are tracked with symmetric bounds when unpacked.
 func (c *curve) packedYGroup() int { return min(3, 120/c.lay.LimbBits) }

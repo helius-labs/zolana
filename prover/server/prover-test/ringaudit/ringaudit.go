@@ -5,6 +5,7 @@ import (
 	stdaes "crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
+	"encoding/binary"
 	"math/big"
 	"testing"
 
@@ -141,28 +142,101 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	}
 }
 
-// Statement is the audit witness with the outputs it discloses.
+// Statement is the audit witness with the slots it discloses.
 type Statement struct {
 	Audit   base.Audit
 	Outputs [base.AuditOutputSlots]base.AuditOutputWires
 	Count   int
+	// An anonymous ring discloses these and opens private_tx_hash from them.
+	NIn               int
+	Inputs            [base.AuditInputSlots]base.AuditUtxoWires
+	Notes             [base.AuditOutputSlots]base.AuditUtxoWires
+	PrivateTxBlinding *big.Int
 }
 
 // Statement discloses one zero output.
 func (k Keys) Statement(privateTxHash *big.Int) Statement {
-	s := Statement{Audit: base.Audit{PrivateTxHash: privateTxHash}, Count: 1}
+	s := Statement{Audit: base.Audit{PrivateTxHash: privateTxHash, Anonymous: 0}, Count: 1, PrivateTxBlinding: big.NewInt(0)}
 	setBytes(s.Audit.TxViewingSk[:], k.txSk[:])
 	setBytes(s.Audit.EphSk[:], k.ephSk[:])
 	setBytes(s.Audit.AuditorPk[:], k.auditorPk[:])
 	setBytes(s.Audit.Salt[:], make([]byte, 16))
+	setBytes(s.Audit.Sender[:], make([]byte, base.IdentityLen))
 	for i := range s.Outputs {
 		s.Outputs[i] = base.AuditOutputWires{
 			Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
 			Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
 			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
 		}
+		s.Notes[i] = zeroUtxo()
+		setBytes(s.Audit.Recipients[i][:], make([]byte, base.IdentityLen))
+		setBytes(s.Audit.RecipientViewingKeys[i][:], make([]byte, 33))
+	}
+	for i := range s.Inputs {
+		s.Inputs[i] = zeroUtxo()
 	}
 	return s
+}
+
+// AnonymousStatement spends one note of the sender into one ring note of the recipient.
+func (k Keys) AnonymousStatement(t testing.TB) Statement {
+	t.Helper()
+	s := k.Statement(big.NewInt(0))
+	s.Audit.Anonymous = 1
+	s.NIn = 1
+	s.PrivateTxBlinding = big.NewInt(0x5b1d)
+	sender, senderHash := Identity(t, 0xa1)
+	recipient, recipientHash := Identity(t, 0xb2)
+	setBytes(s.Audit.Sender[:], sender[:])
+	setBytes(s.Audit.Recipients[0][:], recipient[:])
+	viewing := Tagged(XPrivateKey(t, Scalar(0x55)).PublicKey().Bytes())
+	setBytes(s.Audit.RecipientViewingKeys[0][:], viewing[:])
+	s.Inputs[0] = base.AuditUtxoWires{
+		Domain: big.NewInt(protocol.UtxoDomain), TreeID: big.NewInt(3),
+		OwnerPkHash: senderHash, NullifierPk: spptest.MustNullifierPk(t, big.NewInt(7)),
+		Asset: big.NewInt(10), Amount: big.NewInt(100), Blinding: big.NewInt(51),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(77), RingProgramID: big.NewInt(90),
+	}
+	s.Notes[0] = base.AuditUtxoWires{
+		Domain: big.NewInt(protocol.UtxoDomain), TreeID: big.NewInt(9),
+		OwnerPkHash: recipientHash, NullifierPk: spptest.MustNullifierPk(t, big.NewInt(20)),
+		Asset: big.NewInt(10), Amount: big.NewInt(100), Blinding: big.NewInt(61),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(78), RingProgramID: big.NewInt(90),
+	}
+	s.Rebind(t)
+	return s
+}
+
+// Rebind opens private_tx_hash from the anonymous slots.
+func (s *Statement) Rebind(t testing.TB) {
+	t.Helper()
+	var inputs, outputs []*big.Int
+	for _, input := range s.Inputs[:s.NIn] {
+		if hash, utxo := UtxoHash(t, input); utxo {
+			inputs = append(inputs, hash)
+		}
+	}
+	for _, output := range s.Notes[:s.Count] {
+		if hash, utxo := UtxoHash(t, output); utxo {
+			outputs = append(outputs, hash)
+		}
+	}
+	s.Audit.PrivateTxHash = spptest.MustPrivateTxHash(t, inputs, outputs, nil, s.PrivateTxBlinding)
+}
+
+// Circuit is the base assignment that proves the statement.
+func (k Keys) Circuit(t testing.TB, s Statement) *base.CustomRingBaseCircuit {
+	t.Helper()
+	return &base.CustomRingBaseCircuit{
+		PublicInputHash:   spptest.MustHashChain(t, k.ChainElementsFor(t, s)),
+		Audit:             s.Audit,
+		NOut:              s.Count,
+		Outputs:           s.Outputs,
+		NIn:               s.NIn,
+		Inputs:            s.Inputs,
+		AnonymousOutputs:  s.Notes,
+		PrivateTxBlinding: s.PrivateTxBlinding,
+	}
 }
 
 // ChainElements returns the base chain of a one-slot zero-output statement.
@@ -174,9 +248,16 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 	t.Helper()
 	txLo, txHi := pack33(k.txPk)
 	sealed := k.Seal(t, k.txSk[:], auditEncInfo)
+	anonymous := spptest.AsBigInt(s.Audit.Anonymous).Sign() != 0
 	outputHashes := make([]*big.Int, s.Count)
 	plaintext := make([]*big.Int, 0, base.AuditOutputSlots*base.AuditOutputFieldCount)
 	for i, output := range s.Outputs {
+		if anonymous {
+			if i < s.Count {
+				outputHashes[i], _ = UtxoHash(t, s.Notes[i])
+			}
+			continue
+		}
 		fields := spptest.ToBigInts([]frontend.Variable{output.Domain, output.TreeID, output.OwnerHash, output.Asset, output.Amount,
 			output.Blinding, output.DataHash, output.RingDataHash, output.RingProgramID})
 		if i >= s.Count {
@@ -188,6 +269,9 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 			DataHash: fields[6], RingDataHash: fields[7], RingProgramID: fields[8],
 		}, fields[1])
 		plaintext = append(plaintext, fields...)
+	}
+	if anonymous {
+		plaintext = PackChunks(AnonymousPlaintext(s))
 	}
 	var salt [16]byte
 	for i, value := range s.Audit.Salt {
@@ -203,7 +287,107 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 		spptest.MustHashChain4(t, outputHashes),
 		new(big.Int).SetBytes(salt[:]),
 		disclosureHash,
+		spptest.AsBigInt(s.Audit.Anonymous),
 	}
+}
+
+// Anonymous slot widths, each zero padded to whole 31-byte chunks.
+const (
+	HeaderBytes = 62
+	InputBytes  = 93
+	OutputBytes = 248
+)
+
+// AnonymousPlaintext mirrors the anonymous slot layout of package base, a dummy slot is all zero.
+func AnonymousPlaintext(s Statement) []byte {
+	out := make([]byte, HeaderBytes, HeaderBytes+s.NIn*InputBytes+s.Count*OutputBytes)
+	copy(out, bytesOf(s.Audit.Sender[:]))
+	for _, input := range s.Inputs[:s.NIn] {
+		slot := make([]byte, InputBytes)
+		if isUtxo(input) {
+			v := spptest.AsBigInt
+			binary.BigEndian.PutUint16(slot, uint16(v(input.TreeID).Uint64()))
+			binary.BigEndian.PutUint64(slot[2:], v(input.Amount).Uint64())
+			v(input.Asset).FillBytes(slot[10:42])
+			v(input.Blinding).FillBytes(slot[42:74])
+		}
+		out = append(out, slot...)
+	}
+	for i, output := range s.Notes[:s.Count] {
+		slot := make([]byte, OutputBytes)
+		if isUtxo(output) {
+			v := spptest.AsBigInt
+			copy(slot, bytesOf(s.Audit.Recipients[i][:]))
+			copy(slot[33:], bytesOf(s.Audit.RecipientViewingKeys[i][:]))
+			v(output.NullifierPk).FillBytes(slot[66:98])
+			binary.BigEndian.PutUint64(slot[98:], v(output.Amount).Uint64())
+			v(output.Asset).FillBytes(slot[106:138])
+			v(output.Blinding).FillBytes(slot[138:170])
+			v(output.DataHash).FillBytes(slot[170:202])
+			v(output.RingDataHash).FillBytes(slot[202:234])
+			if v(output.RingProgramID).Sign() != 0 {
+				slot[234] = 1
+			}
+		}
+		out = append(out, slot...)
+	}
+	return out
+}
+
+// PackChunks reads every 31 bytes as one big-endian field.
+func PackChunks(plaintext []byte) []*big.Int {
+	fields := make([]*big.Int, 0, len(plaintext)/31)
+	for start := 0; start < len(plaintext); start += 31 {
+		fields = append(fields, new(big.Int).SetBytes(plaintext[start:min(start+31, len(plaintext))]))
+	}
+	return fields
+}
+
+// UtxoHash mirrors base.AuditUtxoWires.Hash.
+func UtxoHash(t testing.TB, w base.AuditUtxoWires) (*big.Int, bool) {
+	t.Helper()
+	v := spptest.AsBigInt
+	owner := big.NewInt(0)
+	if isUtxo(w) {
+		owner = spptest.MustOwnerHash(t, v(w.OwnerPkHash), v(w.NullifierPk))
+	}
+	return spptest.MustUtxoHash(t, protocol.Utxo{
+		Domain: v(w.Domain), Owner: owner, Asset: v(w.Asset), Amount: v(w.Amount),
+		Blinding: v(w.Blinding), DataHash: v(w.DataHash), RingDataHash: v(w.RingDataHash),
+		RingProgramID: v(w.RingProgramID),
+	}, v(w.TreeID)), isUtxo(w)
+}
+
+// Identity is the Ed25519 owner tag and a key of seed bytes, with its owner pk hash.
+func Identity(t testing.TB, seed byte) ([base.IdentityLen]byte, *big.Int) {
+	t.Helper()
+	var identity [base.IdentityLen]byte
+	identity[0] = protocol.SolanaOwnerTag
+	for i := 1; i < len(identity); i++ {
+		identity[i] = seed
+	}
+	hash, err := protocol.HashBytes(identity[:])
+	return identity, spptest.MustHash(t, hash, err)
+}
+
+func isUtxo(w base.AuditUtxoWires) bool {
+	return spptest.AsBigInt(w.Domain).Int64() == protocol.UtxoDomain
+}
+
+func zeroUtxo() base.AuditUtxoWires {
+	return base.AuditUtxoWires{
+		Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerPkHash: big.NewInt(0), NullifierPk: big.NewInt(0),
+		Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0), DataHash: big.NewInt(0),
+		RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
+	}
+}
+
+func bytesOf(values []frontend.Variable) []byte {
+	out := make([]byte, len(values))
+	for i, value := range values {
+		out[i] = byte(spptest.AsBigInt(value).Uint64())
+	}
+	return out
 }
 
 // DisclosurePad mirrors the base disclosure pad, a two-input Poseidon chain seeded by the key and salt.
@@ -310,4 +494,11 @@ func XPrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
 	}
 	return key
 }
-func Tagged(key []byte) [33]byte { var out [33]byte; out[0] = 4; copy(out[1:], key); return out }
+
+// Tagged is the 0x04 || u encoding of an X25519 key.
+func Tagged(key []byte) [33]byte {
+	var out [33]byte
+	out[0] = 4
+	copy(out[1:], key)
+	return out
+}

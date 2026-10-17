@@ -118,7 +118,8 @@ export async function createRingConfigInstruction(
     ringConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
-  const data = new Uint8Array(1 + 33 + 1);
+  // The final zero byte selects the supported non-anonymous ring mode.
+  const data = new Uint8Array(1 + 33 + 1 + 1);
   data[0] = RingProgramTag.createConfig;
   data.set(input.auditorPublicKey.toBytes(), 1);
   data[34] = input.hasPolicy ? 1 : 0;
@@ -412,7 +413,8 @@ export async function createRingPolicyInstruction(
 export async function setRingPolicyRulesInstruction(
   input: RingPolicyTableInput & Readonly<{ ringProgramId: Address; authority: SignerAccount }>,
 ): Promise<Instruction> {
-  const [policyConfig, programData, body] = await Promise.all([
+  const [config, policyConfig, programData, body] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
     ringPolicyConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
     policyTableBody(input),
@@ -421,6 +423,7 @@ export async function setRingPolicyRulesInstruction(
     programAddress: input.ringProgramId,
     accounts: [
       meta(input.authority, true, false),
+      meta(config, false, false),
       meta(policyConfig, false, true),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),

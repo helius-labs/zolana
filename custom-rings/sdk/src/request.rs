@@ -1,6 +1,8 @@
 //! Prover bodies. Field order is the wire order the golden files pin.
 
-use custom_ring_interface::MAX_RING_DEPOSIT_AUDIT_SLOTS;
+use custom_ring_interface::{
+    AUDIT_INPUT_SLOTS, MAX_RING_DEPOSIT_AUDIT_SLOTS, TAGGED_X25519_KEY_LEN,
+};
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
@@ -159,6 +161,36 @@ pub(crate) struct AuditSecrets {
     pub salt: [u8; 16],
 }
 
+/// An owner tag byte followed by the 32 key bytes.
+pub(crate) const IDENTITY_LEN: usize = 33;
+
+/// The hidden parties an anonymous statement binds, absent from the wire otherwise.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnonymousIdentities {
+    #[serde(rename = "anonymous")]
+    pub flag: AnonymousFlag,
+    #[serde(with = "fe")]
+    pub sender: [u8; IDENTITY_LEN],
+    #[serde(serialize_with = "fe::seq")]
+    pub recipients: [[u8; IDENTITY_LEN]; POLICY_OUTPUT_SLOTS],
+    #[serde(serialize_with = "fe::seq")]
+    pub recipient_viewing_keys: [[u8; TAGGED_X25519_KEY_LEN]; POLICY_OUTPUT_SLOTS],
+}
+
+/// The base circuit opens the SPP slots itself, the policy witness opens them otherwise.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnonymousBase {
+    #[serde(flatten)]
+    pub identities: AnonymousIdentities,
+    pub n_in: u8,
+    pub inputs: [CustomRingOpening; AUDIT_INPUT_SLOTS],
+    pub anonymous_outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
+    #[serde(with = "fe")]
+    pub private_tx_blinding: [u8; 32],
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BaseBody {
@@ -170,6 +202,8 @@ pub(crate) struct BaseBody {
     pub n_out: u8,
     #[serde(serialize_with = "audit_outputs")]
     pub outputs: Vec<ProofInputUtxo>,
+    #[serde(flatten)]
+    pub anonymous: Option<AnonymousBase>,
 }
 
 #[derive(Serialize)]
@@ -180,6 +214,8 @@ pub(crate) struct PolicyBody {
     pub public_input_hash: [u8; 32],
     #[serde(flatten)]
     pub audit: AuditSecrets,
+    #[serde(flatten)]
+    pub anonymous: Option<AnonymousIdentities>,
     #[serde(flatten)]
     pub witness: Box<CustomRingWitness>,
 }
@@ -201,8 +237,13 @@ pub(crate) struct DepositBody {
     #[serde(with = "fe")]
     pub context_hash: [u8; 32],
     pub count: u8,
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub anonymous: bool,
     #[serde(serialize_with = "fe::seq")]
     pub owner_pk_hashes: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+    /// The Ed25519 owner keys an anonymous ring discloses, absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "owner_keys")]
+    pub owner_keys: Option<[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]>,
     #[serde(serialize_with = "fe::seq")]
     pub nullifier_pks: [[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
     #[serde(serialize_with = "fe::zeroizing_seq")]
@@ -270,6 +311,26 @@ ring_bodies!(
     DepositBody,
     RegisterKeyBody
 );
+
+/// Always `true`, the anonymous fields travel only with their mode.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct AnonymousFlag;
+
+impl Serialize for AnonymousFlag {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(true)
+    }
+}
+
+fn owner_keys<S: Serializer>(
+    keys: &Option<[[u8; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match keys {
+        Some(keys) => fe::seq(keys, serializer),
+        None => serializer.serialize_none(),
+    }
+}
 
 fn audit_outputs<S: Serializer>(
     outputs: &[ProofInputUtxo],

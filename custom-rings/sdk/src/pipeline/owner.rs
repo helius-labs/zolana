@@ -1,3 +1,4 @@
+use custom_ring_interface::RingMode;
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use zolana_client::{AsyncRpc, ProofInputUtxo, SettlementAccountValidation};
@@ -16,7 +17,10 @@ use zolana_transaction::{
     Data, EncryptedScheme, ShieldedKeys, TransactionError,
 };
 
-use super::{pinned_policy, sealed, Rail, RailKind, RingTransfer, Staged, TransferAuthority};
+use super::{
+    anonymous::{anonymous_disclosure, check_anonymous_slots},
+    pinned_policy, sealed, Rail, RailKind, RingTransfer, Staged, TransferAuthority,
+};
 use crate::{
     escrow::KeyRegistry,
     heap::boxed,
@@ -26,9 +30,9 @@ use crate::{
 
 /// The sender's spends, it signs the assembled Solana transaction itself.
 pub struct Owner<'a> {
-    sender: &'a (dyn ShieldedKeys + Send + Sync),
+    pub(super) sender: &'a (dyn ShieldedKeys + Send + Sync),
     nullifier_key: Option<&'a NullifierKey>,
-    transaction: ConfidentialTransaction,
+    pub(super) transaction: ConfidentialTransaction,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
 }
 
@@ -98,12 +102,26 @@ pub(crate) fn transaction_key(
 }
 
 impl Owner<'_> {
-    /// The auditor ciphertext precedes every hash over the external data.
+    /// An anonymous ring admits only the hidden owner's proof.
     pub(super) async fn stage(
         &self,
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
         config: &CustomRingConfig,
+    ) -> Result<Box<Staged>, RingError> {
+        if config.mode == RingMode::Anonymous {
+            return Err(RingError::MissingAnonymousSigner);
+        }
+        self.stage_with(ring, client, config, false).await
+    }
+
+    /// The auditor ciphertext precedes every hash over the external data.
+    pub(super) async fn stage_with(
+        &self,
+        ring: CustomRing,
+        client: &(impl AsyncRpc + ?Sized),
+        config: &CustomRingConfig,
+        anonymous: bool,
     ) -> Result<Box<Staged>, RingError> {
         let sender = self.sender.address()?;
         let member = Member::from_bytes(sender.signing_pubkey.owner_proof_input_hash()?)?;
@@ -131,15 +149,23 @@ impl Owner<'_> {
         }
         .validate()?;
         let tx_viewing_key = transaction_key(self.sender, *transaction.first_nullifier())?;
-        let mut proof_inputs = transaction
-            .clone()
-            .encrypt_with_viewing_key(&sender, &tx_viewing_key)?;
+        let mut proof_inputs = match anonymous {
+            true => transaction
+                .clone()
+                .encrypt_anonymous_with_viewing_key(&sender, &tx_viewing_key)?,
+            false => transaction
+                .clone()
+                .encrypt_with_viewing_key(&sender, &tx_viewing_key)?,
+        };
         check_membership(
             program,
             &proof_inputs.input_utxos,
             &proof_inputs.output_utxos,
         )?;
-        proof_inputs.check_shape()?;
+        let shape = proof_inputs.check_shape()?;
+        if anonymous {
+            check_anonymous_slots(program, shape, &proof_inputs)?;
+        }
         let limits = match &limit {
             Limit::Unbounded => None,
             Limit::Bounded(identity, limits) => {
@@ -152,12 +178,19 @@ impl Owner<'_> {
                 Some(bound(limits, &outflows, *identity)?)
             }
         };
-        frame_dummy_outputs(
+        frame_dummies(
             &proof_inputs.output_utxos,
             &mut proof_inputs.external_data.outputs,
+            anonymous,
         )?;
+        if anonymous {
+            // The proof binds every hidden recipient, no published slot names an owner.
+            for output in &mut proof_inputs.output_utxos {
+                output.owner_tag = Some([0; 32]);
+            }
+        }
         let salt = proof_inputs.external_data.salt;
-        let EncryptedAudit { pending, message } = CustomRingProofParams {
+        let params = CustomRingProofParams {
             tx_viewing_key: tx_viewing_key.clone(),
             auditor_pk: config.auditor_pubkey,
             salt,
@@ -167,13 +200,19 @@ impl Owner<'_> {
                 .filter(|output| !output.is_compact())
                 .map(|output| ProofInputUtxo::try_from((output, proof_inputs.output_tree_id)))
                 .collect::<Result<_, _>>()?,
-        }
-        .encrypt()?;
+        };
+        let EncryptedAudit { pending, message } = match anonymous {
+            true => params.encrypt_anonymous(anonymous_disclosure(&sender, &proof_inputs)?)?,
+            false => params.encrypt()?,
+        };
         proof_inputs.external_data.messages = vec![message.to_message_data(&config.auditor_pubkey)];
         // The external data hash binds the instruction tag.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
         Ok(Box::new(Staged {
-            owner_signers: proof_inputs.owner_signer_pubkeys()?,
+            owner_signers: match anonymous {
+                true => Vec::new(),
+                false => proof_inputs.owner_signer_pubkeys()?,
+            },
             proof_inputs,
             pending,
             tx_viewing_key,
@@ -218,6 +257,15 @@ pub(crate) fn frame_dummy_outputs(
     outputs: &[SppProofOutputUtxo],
     encoded: &mut [TransactOutput],
 ) -> Result<(), RingError> {
+    frame_dummies(outputs, encoded, false)
+}
+
+/// An anonymous dummy carries no recipient key, like every anonymous slot.
+pub(super) fn frame_dummies(
+    outputs: &[SppProofOutputUtxo],
+    encoded: &mut [TransactOutput],
+    anonymous: bool,
+) -> Result<(), RingError> {
     let templates: Vec<(bool, usize)> = outputs
         .iter()
         .zip(encoded.iter())
@@ -237,13 +285,17 @@ pub(crate) fn frame_dummy_outputs(
         }
         let in_ring = output.ring_program_id.is_some();
         let key = ViewingKey::new().pubkey();
+        let key = match anonymous {
+            true => &[][..],
+            false => key.as_bytes(),
+        };
         let template = templates
             .iter()
             .find(|(ring, _)| *ring == in_ring)
             .or_else(|| templates.first());
         let ciphertext_len = match template {
             Some((_, len)) => len
-                .checked_sub(1 + 4 + 1 + key.as_bytes().len())
+                .checked_sub(1 + 4 + 1 + key.len())
                 .filter(|len| *len > 0)
                 .ok_or(RingError::InvalidDummyOutput)?,
             None => ConfidentialOutputPlaintext {
@@ -256,12 +308,13 @@ pub(crate) fn frame_dummy_outputs(
             .serialize()?
             .len(),
         };
-        let scheme = match in_ring {
-            true => EncryptedScheme::RingConfidential,
-            false => EncryptedScheme::Confidential,
+        let scheme = match (anonymous, in_ring) {
+            (true, _) => EncryptedScheme::RingAnonymous,
+            (false, true) => EncryptedScheme::RingConfidential,
+            (false, false) => EncryptedScheme::Confidential,
         };
         let mut body = vec![scheme.as_byte()];
-        body.extend_from_slice(key.as_bytes());
+        body.extend_from_slice(key);
         let start = body.len();
         body.resize(start + ciphertext_len, 0);
         OsRng.fill_bytes(&mut body[start..]);

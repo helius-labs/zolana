@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    CustomRingError, Delegate, KeyRegistryRoot, RingProgramConfig, DELEGATE,
+    CustomRingError, Delegate, KeyRegistryRoot, RingMode, RingProgramConfig, DELEGATE,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -45,11 +45,16 @@ pub fn process_set_delegate_ix(
     let bump = create_pda::<Delegate, 1>(program_id, payer, delegate_account, &[Delegate::SEED])?;
     // The delegate recovers nullifier secrets from the registry every output key enrolls in.
     let mut ring = load_mut::<RingProgramConfig>(program_id, config)?;
+    // An anonymous ring hides the owner a delegate would sign for.
+    match ring.mode().ok_or(CustomRingError::InvalidRingMode)? {
+        RingMode::Anonymous => return Err(CustomRingError::AnonymousRingRefused.into()),
+        RingMode::Off | RingMode::Registry => {}
+    }
     if ring.has_policy == 0 {
         return Err(CustomRingError::DelegateRequiresPolicy.into());
     }
     load::<KeyRegistryRoot>(program_id, key_registry_root)?;
-    ring.key_escrow = 1;
+    ring.mode = RingMode::Registry as u8;
     drop(ring);
     Init(&Delegate {
         discriminator: DELEGATE,

@@ -39,6 +39,7 @@ export {
   type Bytes32,
   type Bytes33,
   type Bytes64,
+  type Bytes96,
   type Bytes128,
   type RequestContext,
   type Signature,

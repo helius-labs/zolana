@@ -14,6 +14,7 @@ import (
 
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
@@ -71,33 +72,12 @@ func TestDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 		Ciphertext:     hexFields(t, ciphertext),
 		DisclosureHash: hexFields(t, []*big.Int{hash})[0],
 	}
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("source path unavailable")
-	}
-	path := filepath.Join(filepath.Dir(source), disclosureVectorPath)
-	if os.Getenv("WRITE_AUDIT_VECTORS") != "" {
-		encoded, err := json.MarshalIndent(want, "", "  ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var got disclosureVector
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
+	readVector(t, disclosureVectorPath, want, &got)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatal("the host mirror disagrees with test-vectors/audit-disclosure.json, rewrite it with WRITE_AUDIT_VECTORS=1")
 	}
 
-	// The circuit solves only when its disclosure hash is the pinned one.
 	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, key)
 	statement := keys.Statement(big.NewInt(0xabcdef))
 	statement.Count = base.AuditOutputSlots
@@ -111,18 +91,143 @@ func TestDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 			Blinding: f[5], DataHash: f[6], RingDataHash: f[7], RingProgramID: f[8],
 		}
 	}
+	solvePinned(t, keys, statement, got.DisclosureHash)
+}
+
+// solvePinned solves the circuit only when its disclosure hash is the pinned one.
+func solvePinned(t *testing.T, keys ringaudit.Keys, statement ringaudit.Statement, pinnedHex string) {
+	t.Helper()
 	elements := keys.ChainElementsFor(t, statement)
-	pinned, err := hex.DecodeString(got.DisclosureHash)
+	pinned, err := hex.DecodeString(pinnedHex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	elements[len(elements)-1] = new(big.Int).SetBytes(pinned)
-	solve(t, testConstraintSystem(t), &base.CustomRingBaseCircuit{
-		PublicInputHash: spptest.MustHashChain(t, elements),
-		Audit:           statement.Audit,
-		NOut:            statement.Count,
-		Outputs:         statement.Outputs,
-	})
+	elements[chainDisclosureHash] = new(big.Int).SetBytes(pinned)
+	circuit := keys.Circuit(t, statement)
+	circuit.PublicInputHash = spptest.MustHashChain(t, elements)
+	solve(t, testConstraintSystem(t), circuit)
+}
+
+const chainDisclosureHash = 10
+
+const anonymousVectorPath = "../../../../../test-vectors/audit-disclosure-anonymous.json"
+
+const anonymousVectorDescription = "Known-answer vector for the anonymous ring audit disclosure. " +
+	"key and salt are the ones of audit-disclosure.json and the pad is the same chain, so its first 36 entries are that vector's pad. " +
+	"plaintext is the published slots, the sender identity padded to 62 bytes, then n_in input slots of 93 bytes " +
+	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 248 bytes (recipient identity, recipient viewing pk, " +
+	"nullifier pk, amount u64, asset, blinding, data hash, ring data hash, ring note flag), all big-endian and a dummy slot all zero. " +
+	"fields[j] is plaintext[31j..31j+31] read big-endian, ciphertext[j] = (fields[j] + pad[j]) mod r and " +
+	"disclosure_hash = hash_chain_4(ciphertext) over the 2 + 3 n_in + 8 n_out published fields. " +
+	"Produced by prover/server/custom_rings/circuits/base/disclosure_test.go with WRITE_AUDIT_VECTORS=1."
+
+type anonymousVector struct {
+	Description    string   `json:"description"`
+	Key            string   `json:"key"`
+	Salt           string   `json:"salt"`
+	NIn            int      `json:"n_in"`
+	NOut           int      `json:"n_out"`
+	Plaintext      string   `json:"plaintext"`
+	Fields         []string `json:"fields"`
+	Pad            []string `json:"pad"`
+	Ciphertext     []string `json:"ciphertext"`
+	DisclosureHash string   `json:"disclosure_hash"`
+}
+
+// The anonymous vector publishes past the 36 legacy fields, with dummy slots, a ring note and a note leaving the ring.
+func anonymousVectorStatement(t *testing.T) (ringaudit.Keys, ringaudit.Statement) {
+	key, salt := vectorKey()
+	keys := ringaudit.DefaultKeys(t).WithTxScalar(t, key)
+	statement := keys.AnonymousStatement(t)
+	for i, b := range salt {
+		statement.Audit.Salt[i] = int(b)
+	}
+	spent := statement.Inputs[0]
+	spent.Amount, spent.Blinding, spent.TreeID = big.NewInt(250), big.NewInt(52), big.NewInt(4)
+	statement.Inputs[1].Domain = big.NewInt(protocol.DummyDomain)
+	statement.Inputs[2], statement.NIn = spent, 3
+
+	ring := statement.Notes[0]
+	ring.Amount = big.NewInt(150)
+	statement.Notes[1].Domain = big.NewInt(protocol.DummyDomain)
+	leaving := ring
+	leaving.Amount, leaving.Blinding, leaving.RingProgramID, leaving.RingDataHash = big.NewInt(100), big.NewInt(62), big.NewInt(0), big.NewInt(0)
+	other := append([]byte{0x50}, make32(0xd4)...)
+	hash, err := protocol.HashBytes(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaving.OwnerPkHash = hash
+	statement.Notes[2], statement.Notes[3] = leaving, ring
+	for i, b := range other {
+		statement.Audit.Recipients[2][i] = int(b)
+	}
+	statement.Audit.Recipients[3] = statement.Audit.Recipients[0]
+	statement.Audit.RecipientViewingKeys[2] = statement.Audit.RecipientViewingKeys[0]
+	statement.Audit.RecipientViewingKeys[3] = statement.Audit.RecipientViewingKeys[0]
+	statement.Count = base.AuditOutputSlots
+	statement.Rebind(t)
+	return keys, statement
+}
+
+func TestAnonymousDisclosureVectorPinsHostAndCircuit(t *testing.T) {
+	key, salt := vectorKey()
+	keys, statement := anonymousVectorStatement(t)
+	plaintext := ringaudit.AnonymousPlaintext(statement)
+	fields := ringaudit.PackChunks(plaintext)
+	ciphertext, hash := ringaudit.Disclose(t, key, salt, fields)
+	want := anonymousVector{
+		Description:    anonymousVectorDescription,
+		Key:            hex.EncodeToString(key[:]),
+		Salt:           hex.EncodeToString(salt[:]),
+		NIn:            statement.NIn,
+		NOut:           statement.Count,
+		Plaintext:      hex.EncodeToString(plaintext),
+		Fields:         hexFields(t, fields),
+		Pad:            hexFields(t, ringaudit.DisclosurePad(t, key, salt, len(fields))),
+		Ciphertext:     hexFields(t, ciphertext),
+		DisclosureHash: hexFields(t, []*big.Int{hash})[0],
+	}
+	if len(fields) != 2+3*statement.NIn+8*statement.Count {
+		t.Fatalf("%d published fields", len(fields))
+	}
+	var got anonymousVector
+	readVector(t, anonymousVectorPath, want, &got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("the host mirror disagrees with test-vectors/audit-disclosure-anonymous.json, rewrite it with WRITE_AUDIT_VECTORS=1")
+	}
+	var legacy disclosureVector
+	readVector(t, disclosureVectorPath, nil, &legacy)
+	if len(got.Pad) <= len(legacy.Pad) || !reflect.DeepEqual(got.Pad[:len(legacy.Pad)], legacy.Pad) {
+		t.Fatal("the anonymous pad does not extend the legacy pad")
+	}
+	solvePinned(t, keys, statement, got.DisclosureHash)
+}
+
+// readVector rewrites the file from want under WRITE_AUDIT_VECTORS=1, a nil want only reads.
+func readVector(t *testing.T, relative string, want, got any) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("source path unavailable")
+	}
+	path := filepath.Join(filepath.Dir(source), relative)
+	if want != nil && os.Getenv("WRITE_AUDIT_VECTORS") != "" {
+		encoded, err := json.MarshalIndent(want, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, got); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func hexFields(t *testing.T, values []*big.Int) []string {

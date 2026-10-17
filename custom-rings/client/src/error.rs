@@ -38,10 +38,14 @@ pub enum AuditError {
     MissingEventIndex,
     #[error("message view tag is not the auditor view tag")]
     ViewTagMismatch,
-    #[error("auditor message data must be {expected} bytes, got {0}", expected = crate::AUDITOR_MESSAGE_LEN)]
+    #[error("auditor message data of {0} bytes does not fit the disclosure shape")]
     MessageLength(usize),
     #[error("output disclosure contains a value at or above the field modulus")]
     DisclosureField,
+    #[error("disclosure shape does not match the transaction")]
+    DisclosureShape,
+    #[error("disclosure padding is not zero")]
+    DisclosurePadding,
     #[error("output count must be between one and four, got {0}")]
     OutputCount(usize),
     #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]

@@ -1,6 +1,6 @@
 use std::{future::Future, time::Duration};
 
-use custom_ring_interface::{ReadAccessRecord, RingAccount, RingProgramConfig};
+use custom_ring_interface::{ReadAccessRecord, RingAccount, RingMode, RingProgramConfig};
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
@@ -114,6 +114,7 @@ pub struct ReaderGrant {
 pub struct RingConfiguration {
     pub auditor_pubkey: X25519Pubkey,
     pub authority: Address,
+    pub mode: RingMode,
 }
 
 #[must_use]
@@ -313,11 +314,11 @@ fn configuration(
     bump: u8,
 ) -> Result<RingConfiguration, ClientError> {
     let config: RingProgramConfig = ring_account(account, &ring, bump, INVALID_CONFIG)?;
-    let auditor_pubkey = X25519Pubkey::from_bytes(config.auditor_pubkey)
-        .map_err(|_| ClientError::Rpc(INVALID_CONFIG.to_owned()))?;
+    let invalid = || ClientError::Rpc(INVALID_CONFIG.to_owned());
     Ok(RingConfiguration {
-        auditor_pubkey,
+        auditor_pubkey: X25519Pubkey::from_bytes(config.auditor_pubkey).map_err(|_| invalid())?,
         authority: config.authority,
+        mode: config.mode().ok_or_else(invalid)?,
     })
 }
 

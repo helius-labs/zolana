@@ -48,6 +48,8 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 		return p.request(payload)
 	case common.TransferP256RingCircuitType:
 		return p.p256Transfer(payload)
+	case common.TransferEd25519RingCircuitType:
+		return p.ed25519Transfer(payload)
 	}
 	return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", circuit))
 }
@@ -86,6 +88,23 @@ func (p circuitProver) p256Transfer(payload []byte) (*common.Proof, *Error) {
 		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
 	}
 	return proved(transfereddsaonly.P256Proof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
+}
+
+func (p circuitProver) ed25519Transfer(payload []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.Ed25519TransferParameters
+	if failure := p.decode(payload, &params); failure != nil {
+		return nil, failure
+	}
+	if failure := p.admission.admit(common.TransferKeyFile(common.TransferEd25519RingCircuitType, params.NInputs, params.NOutputs)); failure != nil {
+		return nil, failure
+	}
+	finishKeys := p.trace.Start("keys")
+	ps, err := p.keys.GetTransferSystem(common.TransferEd25519RingCircuitType, params.NInputs, params.NOutputs)
+	finishKeys()
+	if err != nil {
+		return nil, provingError(fmt.Errorf("transfer-ed25519: %w", err))
+	}
+	return proved(transfereddsaonly.Ed25519Proof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
 }
 
 func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {

@@ -15,10 +15,15 @@ import (
 
 type AuditParams struct {
 	PrivateTxHash Field `json:"privateTxHash"`
+	Anonymous     bool  `json:"anonymous,omitempty"`
 	TxViewingSk   Bytes `json:"txViewingSk"`
 	EphSk         Bytes `json:"ephSk"`
 	AuditorPk     Bytes `json:"auditorPk"`
 	Salt          Bytes `json:"salt"`
+	// Only an anonymous ring sends the identities, tag || key, and the tagged viewing keys.
+	Sender               *Bytes   `json:"sender,omitempty"`
+	Recipients           *[]Bytes `json:"recipients,omitempty"`
+	RecipientViewingKeys *[]Bytes `json:"recipientViewingKeys,omitempty"`
 }
 
 type AuditOpening struct {
@@ -33,12 +38,17 @@ type AuditOpening struct {
 	RingProgramID Field `json:"ringProgramId"`
 }
 
+// An anonymous ring opens private_tx_hash from Inputs and AnonymousOutputs, the other fields are absent outside it.
 type BaseParams struct {
 	CircuitType     string `json:"circuitType"`
 	PublicInputHash Field  `json:"publicInputHash"`
 	AuditParams
-	NOut    uint8          `json:"nOut"`
-	Outputs []AuditOpening `json:"outputs"`
+	NOut              uint8          `json:"nOut"`
+	Outputs           []AuditOpening `json:"outputs"`
+	NIn               uint8          `json:"nIn,omitempty"`
+	Inputs            *[]Opening     `json:"inputs,omitempty"`
+	AnonymousOutputs  *[]Opening     `json:"anonymousOutputs,omitempty"`
+	PrivateTxBlinding *Field         `json:"privateTxBlinding,omitempty"`
 }
 
 type Opening struct {
@@ -173,12 +183,15 @@ type UpdateMembersParams struct {
 	Items           []*MemberUpdate `json:"items"`
 }
 
+// OwnerKeys are the Ed25519 owner keys of an anonymous ring, absent or zero outside it.
 type DepositParams struct {
 	CircuitType        string           `json:"circuitType"`
 	PublicInputHash    Field            `json:"publicInputHash"`
 	ContextHash        Field            `json:"contextHash"`
 	Count              uint32           `json:"count"`
+	Anonymous          bool             `json:"anonymous,omitempty"`
 	OwnerPkHashes      []Field          `json:"ownerPkHashes"`
+	OwnerKeys          *[]Bytes         `json:"ownerKeys,omitempty"`
 	NullifierPks       []Field          `json:"nullifierPks"`
 	Blindings          []Field          `json:"blindings"`
 	CtHashes           []Field          `json:"ctHashes"`

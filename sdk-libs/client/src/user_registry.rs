@@ -7,15 +7,14 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_keypair::{
-    viewing_key::ViewTag, Curve, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair,
-    X25519Pubkey,
+    viewing_key::ViewTag, x25519::X25519_PUBKEY_LEN, Curve, P256Pubkey, PublicKey, ShieldedAddress,
+    ShieldedKeypair, X25519Pubkey,
 };
 use zolana_user_registry_interface::{
     instruction::{
         p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,
         update_keys, RegisterData, UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
     },
-    state::P256_PUBKEY_LEN,
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
@@ -457,7 +456,7 @@ pub async fn fetch_user_record_optional_checked_async<R: AsyncRpc>(
 /// Reads the whole registry. A record this version cannot decode is skipped.
 pub fn fetch_viewing_key_owners<R: Rpc>(
     rpc: &R,
-) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {
+) -> Result<HashMap<[u8; X25519_PUBKEY_LEN], Pubkey>, ClientError> {
     Ok(index_viewing_keys(rpc.get_program_accounts(
         Address::new_from_array(user_registry_program_id().to_bytes()),
     )?))
@@ -465,7 +464,7 @@ pub fn fetch_viewing_key_owners<R: Rpc>(
 
 pub async fn fetch_viewing_key_owners_async<R: AsyncRpc>(
     rpc: &R,
-) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {
+) -> Result<HashMap<[u8; X25519_PUBKEY_LEN], Pubkey>, ClientError> {
     Ok(index_viewing_keys(
         rpc.get_program_accounts(Address::new_from_array(
             user_registry_program_id().to_bytes(),
@@ -476,7 +475,7 @@ pub async fn fetch_viewing_key_owners_async<R: AsyncRpc>(
 
 fn index_viewing_keys(
     accounts: Vec<(Address, solana_account::Account)>,
-) -> HashMap<[u8; P256_PUBKEY_LEN], Pubkey> {
+) -> HashMap<[u8; X25519_PUBKEY_LEN], Pubkey> {
     accounts
         .iter()
         .filter_map(|(_, account)| decode_user_record_account(account).ok())
@@ -1428,7 +1427,10 @@ mod tests {
         }
     }
 
-    fn record_with_viewing_key(owner: Pubkey, viewing_pubkey: [u8; P256_PUBKEY_LEN]) -> UserRecord {
+    fn record_with_viewing_key(
+        owner: Pubkey,
+        viewing_pubkey: [u8; X25519_PUBKEY_LEN],
+    ) -> UserRecord {
         UserRecord {
             viewing_pubkey,
             ..user_record(owner, 254)

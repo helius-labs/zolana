@@ -302,6 +302,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// RequiresP256 header is retained as a consistency check for P256 keys.
 		ring := strings.Contains(name, "ring")
 		p256Ring := strings.Contains(name, "p256_ring")
+		ed25519Ring := strings.Contains(name, "ed25519_ring")
 		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "ring" case: the name contains both
 		// "transfer" (matched this branch) and "ring".
@@ -311,6 +312,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			ps.CircuitType = TransferRingAuthorityCircuitType
 		case p256Ring:
 			ps.CircuitType = TransferP256RingCircuitType
+		case ed25519Ring:
+			ps.CircuitType = TransferEd25519RingCircuitType
 		case ring:
 			ps.CircuitType = TransferRingCircuitType
 		default:

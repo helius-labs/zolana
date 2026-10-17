@@ -7,24 +7,29 @@
 //! the recomputed public-input hash path is reached.
 
 use custom_ring_interface::CustomRingError;
-use custom_ring_interface::{tag, CustomRingProof, PlainGroth16Proof, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{tag, CustomRingProof, DisclosureShape, PlainGroth16Proof};
 use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
-    event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
+    event::{
+        CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG,
+        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    },
     instruction::{
-        CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
-        TreeContext,
+        instruction_data::transact::InputUtxo, CircuitId, MessageData, OwnerTag, TransactIxData,
+        TransactOutput, TransactProof, TreeContext,
     },
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
 
 use crate::common::{
-    account, audit_ix_data, auditor_pubkey, authority, encode_transact, initialized_config_account,
-    policy_ix_data, setup_mollusk, transact_fixture, Fixture,
+    account, anonymous_config_account, audit_ix_data, auditor_message_len, auditor_pubkey,
+    authority, config_account_in_mode, disclosed_message_len, encode_transact,
+    initialized_config_account, legacy_auditor_pubkey, limit_policy_config_account, policy_ix_data,
+    setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -32,7 +37,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 }
 
 /// The auditor key this fixture's config account carries, and the view tag its
-/// messages must use: the compressed key minus its SEC1 prefix.
+/// messages must use: the key minus its tag byte.
 fn config_auditor_pubkey() -> [u8; 33] {
     auditor_pubkey(4)
 }
@@ -40,12 +45,12 @@ fn config_auditor_pubkey() -> [u8; 33] {
 fn auditor_view_tag() -> [u8; 32] {
     let key = config_auditor_pubkey();
     let mut view_tag = [0u8; 32];
-    view_tag.copy_from_slice(key.get(1..33).expect("compressed key x-coordinate"));
+    view_tag.copy_from_slice(key.get(1..33).expect("key u-coordinate"));
     view_tag
 }
 
 pub(crate) fn auditor_message(data_len: usize) -> MessageData {
-    let mut data = Vec::from(auditor_pubkey(3));
+    let mut data = Vec::from(auditor_pubkey(4));
     data.extend_from_slice(&[4u8; 32]);
     data.resize(data_len, 4);
     MessageData {
@@ -67,14 +72,14 @@ pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
         circuit: CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: auditor_pubkey(3),
+        tx_viewing_pk: auditor_pubkey(4),
         salt: [3; 16],
         proof: TransactProof::zeroed(),
         inputs: Vec::new(),
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
-        outputs: Vec::new(),
+        outputs: vec![encrypted_output(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG)],
         messages,
         tree_contexts: vec![TreeContext {
             utxo_tree_root_index: 0,
@@ -126,7 +131,7 @@ fn fixture_with_messages(messages: Vec<MessageData>) -> Fixture {
 #[test]
 fn truncated_instruction_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     let half = fixture.data_mut().len() / 2;
     fixture.data_mut().truncate(half);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
@@ -135,7 +140,7 @@ fn truncated_instruction_data_is_rejected_exactly() {
 #[test]
 fn garbage_instruction_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     *fixture.data_mut() = vec![tag::TRANSACT, 7, 7, 7, 7];
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
@@ -143,7 +148,7 @@ fn garbage_instruction_data_is_rejected_exactly() {
 #[test]
 fn trailing_instruction_data_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     fixture.data_mut().push(0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
@@ -155,7 +160,7 @@ fn uninitialized_config_is_rejected_exactly() {
         account(0),
         instruction_data(
             bogus_proof(),
-            transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]),
+            transact(vec![auditor_message(auditor_message_len(1))]),
         ),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
@@ -164,7 +169,7 @@ fn uninitialized_config_is_rejected_exactly() {
 #[test]
 fn non_canonical_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     // A foreign address holds no valid config, so the load fails before the
     // canonicality check.
     fixture.substitute("config", Pubkey::new_from_array([73; 32]));
@@ -185,7 +190,7 @@ fn a_foreign_owned_or_mistagged_config_is_rejected_exactly() {
             config,
             instruction_data(
                 bogus_proof(),
-                transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]),
+                transact(vec![auditor_message(auditor_message_len(1))]),
             ),
         );
         fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
@@ -195,7 +200,7 @@ fn a_foreign_owned_or_mistagged_config_is_rejected_exactly() {
 #[test]
 fn impostor_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     fixture.substitute("spp_program", Pubkey::new_from_array([81; 32]));
     fixture.expect_err(
         &mollusk,
@@ -226,7 +231,7 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
         CircuitId::RingAuthority(2, 2, slots),
         CircuitId::ConfidentialEddsa(2, 2, slots),
     ] {
-        let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+        let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.circuit = circuit;
         let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
         fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
@@ -236,7 +241,7 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
 #[test]
 fn an_unexecutable_spp_program_account_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     fixture.set_account("spp_program", account(1));
     fixture.expect_err(
         &mollusk,
@@ -247,7 +252,7 @@ fn an_unexecutable_spp_program_account_is_rejected_exactly() {
 #[test]
 fn missing_forwarded_accounts_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1))]);
     fixture.truncate(2);
     fixture.expect_err(
         &mollusk,
@@ -284,7 +289,7 @@ fn confidential_output(scheme: u8, key: [u8; 33], ciphertext: &[u8]) -> Transact
 #[test]
 fn anonymous_scheme_output_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     data.outputs = vec![
         encrypted_output(RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
         encrypted_output(1),
@@ -296,7 +301,7 @@ fn anonymous_scheme_output_is_rejected() {
 #[test]
 fn output_without_ciphertext_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     let mut output = encrypted_output(3);
     output.data = None;
     data.outputs = vec![output];
@@ -307,10 +312,29 @@ fn output_without_ciphertext_is_rejected() {
 #[test]
 fn confidential_output_with_an_invalid_key_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut low_order = [0u8; 33];
+    low_order[0] = 4;
+    let mut alias = auditor_pubkey(4);
+    alias[32] |= 0x80;
+    for key in [[0u8; 33], low_order, alias] {
+        let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
+        data.outputs = vec![confidential_output(
+            RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+            key,
+            &[9],
+        )];
+        let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
+        fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+    }
+}
+
+#[test]
+fn confidential_output_with_a_p256_key_tag_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     data.outputs = vec![confidential_output(
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-        [0u8; 33],
+        auditor_pubkey(2),
         &[9],
     )];
     let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
@@ -324,7 +348,7 @@ fn confidential_output_with_a_non_x25519_key_is_rejected() {
     let mut noncanonical = auditor_pubkey(4);
     noncanonical[32] |= 0x80;
     for key in [auditor_pubkey(2), auditor_pubkey(3), noncanonical] {
-        let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+        let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.outputs = vec![confidential_output(
             RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
             key,
@@ -338,7 +362,7 @@ fn confidential_output_with_a_non_x25519_key_is_rejected() {
 #[test]
 fn confidential_output_with_empty_ciphertext_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     data.outputs = vec![confidential_output(
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         auditor_pubkey(7),
@@ -351,7 +375,7 @@ fn confidential_output_with_empty_ciphertext_is_rejected() {
 #[test]
 fn confidential_outputs_reach_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut data = transact(vec![auditor_message(auditor_message_len(2))]);
     data.outputs = vec![
         encrypted_output(RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
         encrypted_output(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
@@ -377,14 +401,14 @@ fn message_without_the_auditor_view_tag_is_rejected_exactly() {
 #[test]
 fn short_auditor_message_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN - 1)]);
+    let fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1) - 1)]);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
 }
 
 #[test]
 fn long_auditor_message_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN + 1)]);
+    let fixture = fixture_with_messages(vec![auditor_message(auditor_message_len(1) + 1)]);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
 }
 
@@ -394,8 +418,8 @@ fn long_auditor_message_is_rejected_exactly() {
 fn two_auditor_messages_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let fixture = fixture_with_messages(vec![
-        auditor_message(AUDITOR_MESSAGE_LEN),
-        auditor_message(AUDITOR_MESSAGE_LEN),
+        auditor_message(auditor_message_len(1)),
+        auditor_message(auditor_message_len(1)),
     ]);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
 }
@@ -405,8 +429,10 @@ fn two_auditor_messages_are_rejected_exactly() {
 #[test]
 fn auditor_message_before_the_last_entry_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let fixture =
-        fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN), other_message()]);
+    let fixture = fixture_with_messages(vec![
+        auditor_message(auditor_message_len(1)),
+        other_message(),
+    ]);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
 }
 
@@ -416,8 +442,10 @@ fn auditor_message_before_the_last_entry_is_rejected_exactly() {
 #[test]
 fn unverifiable_proof_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let fixture =
-        fixture_with_messages(vec![other_message(), auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let fixture = fixture_with_messages(vec![
+        other_message(),
+        auditor_message(auditor_message_len(1)),
+    ]);
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
@@ -438,8 +466,161 @@ fn zeroed_proof_is_rejected_exactly() {
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },
-            transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]),
+            transact(vec![auditor_message(auditor_message_len(1))]),
         ),
     );
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn a_legacy_auditor_key_is_refused_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = transact_fixture(
+        initialized_config_account(authority(), legacy_auditor_pubkey()),
+        instruction_data(
+            bogus_proof(),
+            transact(vec![auditor_message(auditor_message_len(1))]),
+        ),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
+}
+
+#[test]
+fn an_unknown_ring_mode_is_refused_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = transact_fixture(
+        config_account_in_mode(3),
+        instruction_data(
+            bogus_proof(),
+            transact(vec![auditor_message(auditor_message_len(1))]),
+        ),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRingMode));
+}
+
+#[test]
+fn an_approval_flag_needs_amount_controls() {
+    let (mollusk, _) = setup_mollusk();
+    let mut ix = policy_ix_data(
+        bogus_proof(),
+        transact(vec![auditor_message(auditor_message_len(1))]),
+    );
+    ix.approval_required = true;
+    let fixture = transact_fixture(valid_config(), encode_transact(tag::TRANSACT, &ix));
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedApproval));
+}
+
+#[test]
+fn a_registry_index_without_key_escrow_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut ix = policy_ix_data(
+        bogus_proof(),
+        transact(vec![auditor_message(auditor_message_len(1))]),
+    );
+    ix.key_registry_root_index = 1;
+    let fixture = transact_fixture(valid_config(), encode_transact(tag::TRANSACT, &ix));
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedKeyRegistryRoot));
+}
+
+fn hidden_output() -> TransactOutput {
+    TransactOutput {
+        owner_tag: OwnerTag::Inline([0; 32]),
+        ..encrypted_output(RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG)
+    }
+}
+
+/// A hidden-owner transfer as an anonymous ring admits it.
+fn anonymous_transact(inputs: u8, outputs: u8) -> TransactIxData {
+    let shape = DisclosureShape {
+        anonymous: true,
+        inputs: usize::from(inputs),
+        outputs: usize::from(outputs),
+    };
+    let mut data = transact(vec![auditor_message(disclosed_message_len(shape))]);
+    data.circuit = CircuitId::RingEd25519(
+        inputs,
+        outputs,
+        N_PUBLIC_SLOTS as u8,
+        Bsb22Commitment {
+            commitment: [6; 32],
+            commitment_pok: [7; 32],
+        },
+    );
+    data.inputs = (0..inputs)
+        .map(|index| InputUtxo {
+            nullifier_hash: [index + 1; 32],
+            tree_index: 0,
+        })
+        .collect();
+    data.outputs = (0..outputs).map(|_| hidden_output()).collect();
+    data
+}
+
+fn anonymous_fixture(data: TransactIxData) -> Fixture {
+    transact_fixture(
+        anonymous_config_account(),
+        instruction_data(bogus_proof(), data),
+    )
+}
+
+#[test]
+fn anonymous_hidden_owner_transfers_reach_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    for (inputs, outputs) in [(2, 2), (2, 4), (3, 4), (4, 2)] {
+        anonymous_fixture(anonymous_transact(inputs, outputs))
+            .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    }
+}
+
+#[test]
+fn an_anonymous_ring_refuses_every_other_rail_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut eddsa = anonymous_transact(2, 2);
+    eddsa.circuit = CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
+    anonymous_fixture(eddsa).expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    anonymous_fixture(anonymous_transact(1, 2))
+        .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    let mut hidden = anonymous_transact(2, 2);
+    hidden.messages = vec![auditor_message(auditor_message_len(2))];
+    let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), hidden));
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+}
+
+#[test]
+fn an_anonymous_output_with_an_owner_tag_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut data = anonymous_transact(2, 2);
+    data.outputs[1].owner_tag = OwnerTag::Inline([5; 32]);
+    anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
+    let mut data = anonymous_transact(2, 2);
+    data.outputs[0].owner_tag = OwnerTag::Account(0);
+    anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
+}
+
+/// Any signer besides the payer would publish an owner the hidden rail hides.
+#[test]
+fn an_anonymous_transaction_with_another_signer_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut signed_tree = anonymous_fixture(anonymous_transact(2, 2));
+    signed_tree.sign("input_tree");
+    signed_tree.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousSigner));
+    let mut other_payer = anonymous_fixture(anonymous_transact(2, 2));
+    other_payer.substitute("spp_payer", Pubkey::new_from_array([78; 32]));
+    other_payer.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousSigner));
+}
+
+#[test]
+fn an_anonymous_disclosure_must_cover_the_inputs_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut data = anonymous_transact(2, 2);
+    data.messages = vec![auditor_message(auditor_message_len(2))];
+    anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
+}
+
+#[test]
+fn an_anonymous_ring_with_outflow_limits_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = anonymous_fixture(anonymous_transact(2, 2));
+    fixture.set_account("policy_config", limit_policy_config_account());
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }

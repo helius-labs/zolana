@@ -101,6 +101,8 @@ pub struct CreateConfigIxData {
     pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
     /// Selects a policy ring over an audit-only ring.
     pub has_policy: bool,
+    /// Selects an anonymous ring, fixed for the ring's life.
+    pub anonymous: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

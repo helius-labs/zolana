@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "000e5e06ce3cf0dbc798db98012a03c86346699fa7547224855374b84b24f25e",
+        fingerprint, "00c2d0af1cf7c7de96416c2135e7be69c13789e7560663dd59821d45198e2e38",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn base_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "0084fbffd504cebcb9be08e5c2fa3c9bd5abb138d0f8569f582c60fa319665a8",
+        fingerprint, "001a96f35b905515a51045acbf69d9d796b0dea966f0d20dd1baddb29cd58e44",
         "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -82,7 +82,7 @@ fn delegate_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "delegate_policy_verifying_key",
         &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
-        "001da036638161e921f2cc778a070f836fb5022cf4f93db48090d578205266df",
+        "00d04f3bb116924364b3fa5aa63aab1a356fd00bcbb7a8b7ada25c2d1fdb1346",
     );
 }
 
@@ -91,7 +91,7 @@ fn register_key_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "register_key_verifying_key",
         &custom_ring_interface::register_key_verifying_key::VERIFYINGKEY,
-        "00a24f96f28fafaa4821a477a392186e21e9328bd9adc872b2b8c6e160be310f",
+        "008e806b89fe5b28e5ea1fd481abfcf24404e08e75b3cf37d38c1e86c6ea59ab",
     );
 }
 
@@ -100,6 +100,6 @@ fn deposit_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "deposit_verifying_key",
         &custom_ring_interface::deposit_verifying_key::VERIFYINGKEY,
-        "00c0a9447c4e8e413b4c1b209bdfe0e6610f09fcd4d5cb8c078e382043f221d5",
+        "003e9449c60cb0a4f02174f89646f6a04ea356208286536a639a36c4cdef8fe9",
     );
 }

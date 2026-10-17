@@ -73,6 +73,11 @@ func variable(src any) (frontend.Variable, error) {
 		if v.Int != nil {
 			return v.Int, nil
 		}
+	case *Field:
+		if v == nil {
+			return 0, nil
+		}
+		return variable(*v)
 	case *big.Int:
 		if v != nil {
 			return v, nil

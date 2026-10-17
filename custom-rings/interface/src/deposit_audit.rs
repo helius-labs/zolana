@@ -2,7 +2,10 @@ use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
 
 pub const MAX_RING_DEPOSIT_AUDIT_SLOTS: usize = 8;
-pub const RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN: usize = 64;
+/// One opening is `owner_hash || blinding || owner_key`. The owner key is the
+/// Ed25519 key of an anonymous ring deposit and zero otherwise.
+pub const RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN: usize = 96;
+pub const RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET: usize = 64;
 pub const RING_DEPOSIT_AUDIT_PREFIX_LEN: usize = core::mem::size_of::<CapsuleHeader>();
 pub const RING_DEPOSIT_AUDIT_INFO: &[u8; 10] = b"CRING/dep1";
 
@@ -66,7 +69,7 @@ impl<'a> RingDepositAuditCapsule<'a> {
     }
 }
 
-const _: () = assert!(RING_DEPOSIT_AUDIT_PREFIX_LEN == 106);
+const _: () = assert!(RING_DEPOSIT_AUDIT_PREFIX_LEN == 138);
 
 #[cfg(test)]
 mod tests {
@@ -79,7 +82,7 @@ mod tests {
         let frame = RingDepositAuditCapsule {
             slot_index: 7,
             eph_pk: &[2; 33],
-            ciphertext: &[3; 64],
+            ciphertext: &[3; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
             recipient_ciphertext: &raw,
         }
         .encode();
@@ -87,7 +90,7 @@ mod tests {
         let capsule = RingDepositAuditCapsule::parse(&frame).unwrap().unwrap();
         assert_eq!(capsule.slot_index, 7);
         assert_eq!(capsule.eph_pk, &[2; 33]);
-        assert_eq!(capsule.ciphertext, &[3; 64]);
+        assert_eq!(capsule.ciphertext, &[3; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN]);
         assert_eq!(capsule.recipient_ciphertext, raw);
         for length in MAGIC.len()..RING_DEPOSIT_AUDIT_PREFIX_LEN {
             assert_eq!(

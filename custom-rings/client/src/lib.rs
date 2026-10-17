@@ -19,8 +19,9 @@ pub use crate::{
     decrypt::{recover_tx_viewing_key, TransactionAudit},
     deposit::{deposit_payload, ring_deposits_in, RingDeposit},
     encryption::{
-        auditor_view_tag, open_deposit, seal_deposits, AuditorEncryption, AuditorMessage,
-        DepositEncryption, DepositOpening, NullifierKeyEnvelope, SealedNullifierKey,
+        auditor_view_tag, open_deposit, seal_deposits, AnonymousDisclosure, AnonymousOutputOpening,
+        AuditInputOpening, AuditorEncryption, AuditorMessage, DepositEncryption, DepositOpening,
+        NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::AuditError,
     origin::{ring_event_origin_in, RingOrigin, RingWithdrawal, TransactionOrigin},

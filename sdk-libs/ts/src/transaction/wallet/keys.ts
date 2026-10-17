@@ -63,13 +63,10 @@ export type DeriveRequest =
  * secret, and every method takes a batch so a remote holder answers a sync or
  * a spend in one round trip per method.
  *
- * `decrypt` returns the transfer cipher's output, not the ECDH shared point:
- * the view root is itself an ECDH with a fixed point, and ECDH is linear, so a
- * chosen-point oracle over the viewing key would leak every per-transaction
- * key this wallet ever used. Keystream results do not compose that way. The
- * cipher is unauthenticated, so a ciphertext not addressed to this wallet
- * decrypts to noise rather than failing, and the caller detects it by the
- * commitment; a batch is rejected as a whole only for a malformed request.
+ * `decrypt` exposes only cipher output. Viewing role roots are derived from
+ * the canonical local secret and are never returned by this capability.
+ * Ciphertext is unauthenticated, so callers must verify decoded commitments
+ * before accepting an output. Malformed requests reject the whole batch.
  *
  * Proving is the one place the nullifier secret is consumed rather than
  * derived from; it lives on the client-layer `ProofAuthority`, next to the

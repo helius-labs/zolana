@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type exactGuardCircuit struct {
@@ -38,11 +38,11 @@ func (v *exactGuardCircuit) Define(api frontend.API) error {
 func TestExactSlopeGuard(t *testing.T) {
 	q, p := ecc.BN254.ScalarField(), prime()
 	for _, lay := range []emfield.Layout{
-		{NbLimbs: 7, LimbBits: 37, PieceBits: 10, Lookups: true},
-		{NbLimbs: 6, LimbBits: 43, PieceBits: 11, Lookups: true},
-		{NbLimbs: 8, LimbBits: 32, PieceBits: 8, Lookups: false},
+		{NbLimbs: 7, LimbBits: 37, PieceBits: 10},
+		{NbLimbs: 6, LimbBits: 43, PieceBits: 11},
+		{NbLimbs: 8, LimbBits: 32, PieceBits: 8},
 	} {
-		t.Run(fmt.Sprintf("%dx%d/lookup%v", lay.NbLimbs, lay.LimbBits, lay.Lookups), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%dx%d", lay.NbLimbs, lay.LimbBits), func(t *testing.T) {
 			blank := func(baseline bool) *exactGuardCircuit {
 				return &exactGuardCircuit{Mu: make([]frontend.Variable, lay.NbLimbs), Lambda: make([]frontend.Variable, lay.NbLimbs), Layout: lay, Baseline: baseline}
 			}

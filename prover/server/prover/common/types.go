@@ -19,6 +19,10 @@ const (
 	// P256 authorization shared by every P256-owned input.
 	TransferP256RingCircuitType CircuitType = "transfer-p256-ring"
 
+	// TransferEd25519RingCircuitType is the anonymous custom-ring transfer. An
+	// in-circuit Ed25519 signature authorizes a hidden ring owner.
+	TransferEd25519RingCircuitType CircuitType = "transfer-ed25519-ring"
+
 	// TransferRingAuthorityCircuitType is the anonymous policy-ring transfer used by
 	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so
 	// owners do not sign. Solana-only, no in-circuit signature, input owner

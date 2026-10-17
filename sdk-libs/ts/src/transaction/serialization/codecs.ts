@@ -51,6 +51,7 @@ export const EncryptedScheme = Object.freeze({
   merge: 6,
   plaintextTransfer: 7,
   ringDeposit: 8,
+  ringAnonymous: 9,
 } as const);
 export type EncryptedScheme = (typeof EncryptedScheme)[keyof typeof EncryptedScheme];
 export type OutputDataEncoding = "plaintext" | "encrypted" | "verifiable";
@@ -69,6 +70,7 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     case EncryptedScheme.merge:
     case EncryptedScheme.plaintextTransfer:
     case EncryptedScheme.ringDeposit:
+    case EncryptedScheme.ringAnonymous:
       return byte;
     default:
       throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });

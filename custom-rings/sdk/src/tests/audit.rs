@@ -120,6 +120,7 @@ fn finish_binds_the_public_input_the_program_recomputes() {
             output_hashes: &[outputs[0].hash().unwrap()],
             salt: &[3; 16],
             disclosure: message.disclosure(),
+            anonymous: false,
         },
         policy_hash: &policy_hash,
         tree_slots: &slots,
@@ -170,6 +171,7 @@ fn the_base_statement_binds_the_same_audit_fields() {
         output_hashes: &hashes,
         salt: &[3; 16],
         disclosure: message.disclosure(),
+        anonymous: false,
     }
     .hash()
     .unwrap();

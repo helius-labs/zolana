@@ -4,7 +4,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 	"math/big"
 	"testing"
 )
@@ -12,10 +12,10 @@ import (
 type distinctCircuit struct{ A, B [7]frontend.Variable }
 
 func (c *distinctCircuit) Define(api frontend.API) error {
-	lay := emfield.Layout{NbLimbs: 7, LimbBits: 37, PieceBits: 10, Lookups: true}
+	lay := emfield.Layout{NbLimbs: 7, LimbBits: 37, PieceBits: 10}
 	f := emfield.NewFor(api, prime(), lay)
 	cv := &curve{api: api, lay: lay, fp: f}
-	cv.assertDistinctX(f.FromLimbs(c.A[:]), f.FromLimbs(c.B[:]))
+	cv.assertDistinctX(fromLimbs(f, c.A[:]), fromLimbs(f, c.B[:]))
 	return nil
 }
 func TestDistinctAliases(t *testing.T) {

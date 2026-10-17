@@ -15,7 +15,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type hostileCircuit struct {
@@ -125,8 +125,8 @@ func hostileFlip(fn solver.Hint, index int) solver.Hint {
 }
 
 func TestShortCheckerAdversarialHints(t *testing.T) {
-	for _, lay := range []emfield.Layout{{NbLimbs: 7, LimbBits: 37, PieceBits: 10, Lookups: true}, emfield.PlainLayout} {
-		t.Run(fmt.Sprint(lay.Lookups), func(t *testing.T) { runTestShortCheckerAdversarialHints(t, lay) })
+	for _, lay := range []emfield.Layout{{NbLimbs: 7, LimbBits: 37, PieceBits: 10}, emfield.Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}} {
+		t.Run(fmt.Sprint(lay.LimbBits), func(t *testing.T) { runTestShortCheckerAdversarialHints(t, lay) })
 	}
 }
 func runTestShortCheckerAdversarialHints(t *testing.T, lay emfield.Layout) {
@@ -212,8 +212,8 @@ func runTestShortCheckerAdversarialHints(t *testing.T, lay emfield.Layout) {
 // These scalars have an even short-relation denominator. Without subgroup
 // membership this forgery satisfies the entire prime-order short relation.
 func TestShortCheckerRejectsTorsionShift(t *testing.T) {
-	for _, lay := range []emfield.Layout{{NbLimbs: 7, LimbBits: 37, PieceBits: 10, Lookups: true}, emfield.PlainLayout} {
-		t.Run(fmt.Sprint(lay.Lookups), func(t *testing.T) { runTestShortCheckerRejectsTorsionShift(t, lay) })
+	for _, lay := range []emfield.Layout{{NbLimbs: 7, LimbBits: 37, PieceBits: 10}, emfield.Layout{NbLimbs: 8, LimbBits: 32, PieceBits: 11}} {
+		t.Run(fmt.Sprint(lay.LimbBits), func(t *testing.T) { runTestShortCheckerRejectsTorsionShift(t, lay) })
 	}
 }
 func runTestShortCheckerRejectsTorsionShift(t *testing.T, lay emfield.Layout) {

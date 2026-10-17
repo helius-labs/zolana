@@ -1,3 +1,4 @@
+use custom_ring_interface::RingMode;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
@@ -29,7 +30,8 @@ use zolana_ring_client::{
         WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
         RING_STATUS,
     },
-    AuditError, AuditorEncryption, ReaderKey, RingOrigin, RingWithdrawal,
+    AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening, AuditorEncryption,
+    ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
     check_read, rpc_module, AuditRead, Clock, DepositHistory, DepositPage, Hub, OriginPolicy,
@@ -616,6 +618,7 @@ impl Fixture {
                 RingConfiguration {
                     auditor_pubkey: self.auditor.pubkey(),
                     authority: authority().pubkey(),
+                    mode: RingMode::Off,
                 },
             )]),
             by_tag: HashMap::new(),
@@ -727,6 +730,116 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
             ),
         ]
     );
+}
+
+#[tokio::test]
+async fn passkey_reader_opens_anonymous_spend_trace() {
+    let fixture = Fixture::new();
+    let tx_key = ViewingKey::new();
+    let sender = delegate().pubkey().to_bytes();
+    let mut outputs = Vec::new();
+    let mut slots = Vec::new();
+    for index in 0..2u32 {
+        let identity_key = [20 + index as u8; 32];
+        let nullifier_pk = [30 + index as u8; 32];
+        let owner = zolana_keypair::PublicKey::from_ed25519(&identity_key);
+        let owner_hash =
+            zolana_keypair::hash::owner_hash(&owner, &nullifier_pk).expect("owner hash");
+        let opening = ProofInputUtxo::new(
+            owner_hash,
+            &SOL_MINT,
+            500 + index as u64,
+            &[index as u8; 32],
+            TREE_ID,
+        )
+        .expect("output opening");
+        let encoded = Confidential::encode_ring_anonymous_plaintext(
+            &ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: 500 + index as u64,
+                blinding: [index as u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &ConfidentialEncode {
+                tx: tx_key.clone(),
+                recipient_pubkey: fixture.recipient,
+                salt: SALT,
+                slot_index: index,
+            },
+        )
+        .expect("anonymous output");
+        slots.push(OutputSlot {
+            view_tag: encoded.view_tag,
+            output_context: OutputContext {
+                hash: opening.hash().expect("commitment"),
+                tree_id: TREE_ID,
+                leaf_index: u64::from(index),
+            },
+            payload: encoded.data,
+        });
+        outputs.push(AnonymousOutputOpening {
+            identity_tag: 0x53,
+            identity_key,
+            viewing_pk: *fixture.recipient.as_bytes(),
+            nullifier_pk,
+            amount: 500 + index as u64,
+            asset: opening.asset,
+            blinding: opening.blinding,
+            data_hash: opening.data_hash,
+            ring_data_hash: opening.ring_data_hash,
+            ring_note: 0,
+        });
+    }
+    let disclosure = AnonymousDisclosure {
+        sender,
+        inputs: vec![
+            AuditInputOpening {
+                tree_id: TREE_ID,
+                amount: 900,
+                asset: outputs[0].asset,
+                blinding: [7; 32],
+            },
+            AuditInputOpening::default(),
+        ],
+        outputs,
+    };
+    let message = AuditorEncryption::new_with_anonymous(
+        &tx_key,
+        &fixture.auditor.pubkey(),
+        SALT,
+        &disclosure,
+    )
+    .expect("anonymous disclosure")
+    .message
+    .to_message_data(&fixture.auditor.pubkey());
+    let mut tx = transaction(70, &tx_key, slots, vec![message]);
+    tx.nullifiers.push([71; 32]);
+    let mut source = fixture.source().with_transactions(vec![tx]);
+    source.configs.get_mut(&RING).expect("config").mode = RingMode::Anonymous;
+    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
+    let response: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(signed_request(
+                &Passkey::new(46),
+                RING,
+                unix_now().expect("clock"),
+            )),
+        )
+        .await
+        .expect("passkey read");
+    let [item] = response.value.items.as_slice() else {
+        panic!("anonymous transaction must be readable")
+    };
+    let trace = item.anonymous.as_ref().expect("anonymous trace");
+    assert_eq!(trace.sender.0, Address::new_from_array(sender));
+    assert_eq!(trace.inputs.len(), 1);
+    assert_eq!(trace.inputs[0].amount, 900);
+    assert_eq!(trace.recipients.len(), 2);
+    assert_eq!(trace.recipients[1].amount, 501);
+    assert_eq!(item.outputs.len(), 2);
+    assert!(response.value.skipped.is_empty());
 }
 
 #[tokio::test]
@@ -863,6 +976,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
         RingConfiguration {
             auditor_pubkey: X25519Secret::new().pubkey(),
             authority: authority().pubkey(),
+            mode: RingMode::Off,
         },
     );
     let service = fixture.hub(source).service(None).expect("service");
@@ -1446,6 +1560,7 @@ async fn ring_status_reports_the_state_of_each_ring() {
         RingConfiguration {
             auditor_pubkey: fixture.auditor.pubkey(),
             authority: authority().pubkey(),
+            mode: RingMode::Off,
         },
     )]);
     let hub = Arc::new(
@@ -1462,6 +1577,7 @@ async fn ring_status_reports_the_state_of_each_ring() {
             RingConfiguration {
                 auditor_pubkey: derived,
                 authority: authority().pubkey(),
+                mode: RingMode::Off,
             },
         ),
         (
@@ -1469,6 +1585,7 @@ async fn ring_status_reports_the_state_of_each_ring() {
             RingConfiguration {
                 auditor_pubkey: fixture.auditor.pubkey(),
                 authority: authority().pubkey(),
+                mode: RingMode::Off,
             },
         ),
     ]);
@@ -1574,6 +1691,7 @@ async fn two_rings_read_only_their_own_transactions() {
             RingConfiguration {
                 auditor_pubkey: key_a,
                 authority: authority().pubkey(),
+                mode: RingMode::Off,
             },
         ),
         (
@@ -1581,6 +1699,7 @@ async fn two_rings_read_only_their_own_transactions() {
             RingConfiguration {
                 auditor_pubkey: key_b,
                 authority: authority().pubkey(),
+                mode: RingMode::Off,
             },
         ),
     ]);
@@ -1622,6 +1741,7 @@ async fn a_ring_registered_with_another_auditor_stays_closed() {
         RingConfiguration {
             auditor_pubkey: fixture.auditor.pubkey(),
             authority: authority().pubkey(),
+            mode: RingMode::Off,
         },
     )]);
     let hub = Hub::builder(source, GENESIS)

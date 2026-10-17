@@ -14,7 +14,8 @@ import (
 )
 
 // WRITE_RING_GOLDENS=1 rewrites testdata/*.json from the host builders, one
-// accepted statement per circuit and the policy sample the decoder tests tamper.
+// accepted statement per circuit, the anonymous base statement and the policy
+// sample the decoder tests tamper.
 func TestWriteGoldenRequests(t *testing.T) {
 	if os.Getenv("WRITE_RING_GOLDENS") == "" {
 		t.Skip("WRITE_RING_GOLDENS=1 rewrites the request fixtures")
@@ -30,6 +31,7 @@ func TestWriteGoldenRequests(t *testing.T) {
 		}
 	}
 	write(string(common.CustomRingBaseCircuitType), baseParams(t))
+	write(string(common.CustomRingBaseCircuitType)+"-anonymous", anonymousBaseParams(t))
 
 	member, _ := rulesFreeParams(t)
 	write(string(common.CustomRingPolicyCircuitType), member)

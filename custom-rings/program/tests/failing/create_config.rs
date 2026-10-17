@@ -1,5 +1,5 @@
 use custom_ring_interface::CustomRingError;
-use custom_ring_interface::{tag, RingProgramConfig, RING_PROGRAM_CONFIG};
+use custom_ring_interface::{tag, RingMode, RingProgramConfig, RING_PROGRAM_CONFIG};
 use mollusk_svm::result::ProgramResult;
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
@@ -8,7 +8,7 @@ use zolana_account_checks::AccountError;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, auditor_pubkey, authority, config_pda, create_config_data,
+    account, auditor_pubkey, authority, config_pda, create_config_data, create_config_data_with,
     create_config_data_with_tier, create_config_fixture, create_config_fixture_deployed_by,
     initialized_config_account, program_data_account, program_id, setup_mollusk,
 };
@@ -43,7 +43,7 @@ fn create_config_writes_the_config_account() {
             auditor_pubkey: auditor_pubkey(4),
             bump,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         }
     );
 }
@@ -306,7 +306,7 @@ fn create_config_stores_an_audit_only_tier() {
             auditor_pubkey: auditor_pubkey(4),
             bump,
             has_policy: 0,
-            key_escrow: 0,
+            mode: 0,
         }
     );
 }
@@ -324,4 +324,30 @@ fn noncanonical_x25519_auditor_keys_are_rejected_exactly() {
         create_config_fixture(key)
             .expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
     }
+}
+
+#[test]
+fn create_config_stores_an_anonymous_ring() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(4));
+    *fixture.data_mut() = create_config_data_with(auditor_pubkey(4), 1, 1);
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &config_pda().0)
+        .map(|(_, account)| account.clone())
+        .expect("config account in result");
+    let config = bytemuck::from_bytes::<RingProgramConfig>(&written.data);
+    assert_eq!(config.mode(), Some(RingMode::Anonymous));
+    assert!(!config.has_legacy_auditor_key());
+}
+
+#[test]
+fn an_anonymous_flag_above_one_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(4));
+    *fixture.data_mut() = create_config_data_with(auditor_pubkey(4), 1, 2);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }

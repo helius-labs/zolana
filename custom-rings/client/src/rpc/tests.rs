@@ -125,6 +125,7 @@ fn a_decrypted_page_keeps_its_wire_json() {
             data: Data::default(),
         }],
         output_openings: Vec::new(),
+        anonymous: None,
         undecryptable_slots: vec![2],
     };
     let withdrawal = RingWithdrawal {

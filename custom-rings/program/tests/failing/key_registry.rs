@@ -2,14 +2,16 @@
 
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
-    KeyRegistryRoot, KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY,
+    CustomRingProof, KeyRegistryRoot, KEY_REGISTRY_EMPTY_ROOT, KEY_REGISTRY_ROOT,
+    KEY_REGISTRY_ROOT_HISTORY,
 };
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    create_key_registry_root_fixture, custom, key_registry_root_account, key_registry_root_pda,
-    payer, register_key_fixture, setup_mollusk, stored,
+    anonymous_config_account, authority, create_key_registry_root_fixture, custom,
+    initialized_config_account, key_registry_root_account, key_registry_root_pda,
+    legacy_auditor_pubkey, payer, register_key_fixture, setup_mollusk, stored,
 };
 
 fn stored_root(result: &InstructionResult) -> KeyRegistryRoot {
@@ -89,4 +91,25 @@ fn a_register_key_with_a_wrong_cursor_is_rejected_exactly() {
     let root = key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 5);
     let fixture = register_key_fixture(root, payer());
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryCursor));
+}
+
+/// Offset of the ephemeral key in the register-key wire, after the tag byte.
+const EPH_PK: usize = 1 + CustomRingProof::SIZE + 32 + 32 + 8 + 32;
+
+#[test]
+fn a_register_key_needs_an_x25519_auditor_outside_an_anonymous_ring() {
+    let (mollusk, _) = setup_mollusk();
+    let fresh = || key_registry_root_account(KEY_REGISTRY_EMPTY_ROOT, 1);
+    let mut anonymous = register_key_fixture(fresh(), payer());
+    anonymous.set_account("config", anonymous_config_account());
+    anonymous.expect_err(&mollusk, custom(CustomRingError::AnonymousRingRefused));
+    let mut legacy = register_key_fixture(fresh(), payer());
+    legacy.set_account(
+        "config",
+        initialized_config_account(authority(), legacy_auditor_pubkey()),
+    );
+    legacy.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
+    let mut sec1 = register_key_fixture(fresh(), payer());
+    sec1.data_mut()[EPH_PK] = 2;
+    sec1.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));
 }

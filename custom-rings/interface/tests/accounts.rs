@@ -13,7 +13,7 @@ fn config() -> RingProgramConfig {
         auditor_pubkey: [2; 33],
         bump: 255,
         has_policy: 1,
-        key_escrow: 0,
+        mode: 0,
     }
 }
 

@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 	"testing"
 )
 
@@ -42,7 +42,7 @@ func (c *circuit) Define(api frontend.API) error {
 	return nil
 }
 func TestCandidate(t *testing.T) {
-	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 11, Lookups: true}, {NbLimbs: 8, LimbBits: 32, PieceBits: 11, Lookups: true}} {
+	for _, lay := range []emfield.Layout{{NbLimbs: 6, LimbBits: 43, PieceBits: 11}, {NbLimbs: 8, LimbBits: 32, PieceBits: 11}} {
 		t.Run(fmt.Sprint(lay), func(t *testing.T) {
 			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circuit{Lay: lay})
 			if err != nil {
@@ -74,4 +74,13 @@ func TestCandidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fromLimbs proves the test witness widths before attaching arithmetic bounds.
+func fromLimbs(f *emfield.Field, limbs []frontend.Variable) *emfield.Element {
+	widths := f.ReducedWidths()
+	for i, limb := range limbs {
+		f.RangeChecker().Check(limb, widths[i])
+	}
+	return f.Bounded(limbs, widths)
 }

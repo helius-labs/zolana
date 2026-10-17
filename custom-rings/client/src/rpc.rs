@@ -17,7 +17,10 @@ use zolana_secret_file::{
     create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
 };
 
-use crate::{AuditedTransaction, ReaderKey, ReaderKeyError, RingWithdrawal};
+use crate::{
+    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, ReaderKey, ReaderKeyError,
+    RingWithdrawal,
+};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
@@ -243,15 +246,45 @@ pub struct DecryptedTransactionsPage {
 pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
-    /// Canonical compressed P256 transaction key.
+    /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
     pub outputs: Vec<DecryptedOutput>,
+    /// Proven hidden sender and spent note metadata in an anonymous ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anonymous: Option<DecryptedAnonymousTrace>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
     /// Required signers, fee payer first. The sender matches an output owner tag.
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousTrace {
+    pub sender: SerializablePubkey,
+    pub inputs: Vec<DecryptedAnonymousInput>,
+    pub recipients: Vec<DecryptedAnonymousRecipient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousInput {
+    pub tree_id: u16,
+    pub amount: u64,
+    pub asset: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousRecipient {
+    pub slot_index: u32,
+    pub identity_tag: u8,
+    pub identity_key: Hash,
+    pub nullifier_pk: Hash,
+    pub amount: u64,
+    pub asset: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +423,7 @@ impl DecryptedTransaction {
             tx_signature: audited.tx_signature.into(),
             tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
             outputs: outputs.collect(),
+            anonymous: audited.anonymous.map(DecryptedAnonymousTrace::from),
             undecryptable_slots: audited.undecryptable_slots,
             nullifiers: nullifiers.into_iter().map(Into::into).collect(),
             signers: signers
@@ -397,6 +431,37 @@ impl DecryptedTransaction {
                 .map(|key| key.to_bytes().into())
                 .collect(),
             withdrawals: withdrawals.collect(),
+        }
+    }
+}
+
+/// Dummy inputs and recipients carry no note and stay out of the trace.
+impl From<AnonymousDisclosure> for DecryptedAnonymousTrace {
+    fn from(disclosure: AnonymousDisclosure) -> Self {
+        Self {
+            sender: Address::new_from_array(disclosure.sender).into(),
+            inputs: disclosure
+                .inputs
+                .into_iter()
+                .filter(|input| *input != AuditInputOpening::default())
+                .map(|input| DecryptedAnonymousInput {
+                    tree_id: input.tree_id,
+                    amount: input.amount,
+                    asset: input.asset.into(),
+                })
+                .collect(),
+            recipients: (0u32..)
+                .zip(disclosure.outputs)
+                .filter(|(_, output)| output.identity_tag != 0)
+                .map(|(slot_index, output)| DecryptedAnonymousRecipient {
+                    slot_index,
+                    identity_tag: output.identity_tag,
+                    identity_key: output.identity_key.into(),
+                    nullifier_pk: output.nullifier_pk.into(),
+                    amount: output.amount,
+                    asset: output.asset.into(),
+                })
+                .collect(),
         }
     }
 }

@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{error::CustomRingError, ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
+use crate::{error::CustomRingError, ReaderKeyBytes, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG};
 
 pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
 pub const KEY_REGISTRY_ROOT_HISTORY: usize = 32;
@@ -157,22 +157,34 @@ pub struct RingProgramConfig {
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.
     pub has_policy: u8,
-    pub key_escrow: u8,
+    /// [`RingMode`] byte.
+    pub mode: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum KeyEscrow {
-    Off,
-    Registry,
+#[repr(u8)]
+pub enum RingMode {
+    Off = 0,
+    /// Escrows every output nullifier key in the registry.
+    Registry = 1,
+    /// Hides the sender and discloses every opening to the auditor.
+    Anonymous = 2,
 }
 
 impl RingProgramConfig {
-    /// Any nonzero byte reads as on, escrow fails closed.
-    pub const fn key_escrow(&self) -> KeyEscrow {
-        match self.key_escrow {
-            0 => KeyEscrow::Off,
-            _ => KeyEscrow::Registry,
+    /// `None` for an unknown byte, which every caller refuses.
+    pub const fn mode(&self) -> Option<RingMode> {
+        match self.mode {
+            0 => Some(RingMode::Off),
+            1 => Some(RingMode::Registry),
+            2 => Some(RingMode::Anonymous),
+            _ => None,
         }
+    }
+
+    /// Only an X25519 auditor key can receive a proven disclosure.
+    pub const fn has_legacy_auditor_key(&self) -> bool {
+        self.auditor_pubkey[0] != VIEWING_PUBKEY_TAG
     }
 }
 

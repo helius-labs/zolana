@@ -111,3 +111,35 @@ fn envelope_key(s: &str) -> X25519Secret {
 fn envelope_pubkey(s: &str) -> X25519Pubkey {
     X25519Pubkey::from_bytes(hex_bytes::<33>(s)).unwrap()
 }
+
+/// The zero-disclosure base statement, the TypeScript SDK and the Go revocation vector pin it.
+#[test]
+fn base_public_input_includes_the_ring_mode() {
+    let statement = custom_ring_interface::CustomRingBasePublicInput {
+        private_tx_hash: &hex_bytes::<32>(
+            "0000000000000000000000000000000000000000000000000000000000abcdef",
+        ),
+        tx_viewing_pk: &hex_bytes::<33>(TX_PK),
+        auditor_pk: &hex_bytes::<33>(AUDITOR_PK),
+        eph_pk: &hex_bytes::<33>(EPH_PK),
+        ciphertext: &hex_bytes::<32>(CIPHERTEXT),
+        output_hashes: &[[0; 32]],
+        salt: &[0; 16],
+        disclosure: &[[0; 32]; custom_ring_interface::AUDIT_DISCLOSURE_FIELD_COUNT],
+        anonymous: false,
+    };
+    let hash = statement.hash().unwrap();
+    assert_eq!(
+        hash,
+        hex_bytes::<32>("12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f")
+    );
+    assert_ne!(
+        hash,
+        custom_ring_interface::CustomRingBasePublicInput {
+            anonymous: true,
+            ..statement
+        }
+        .hash()
+        .unwrap()
+    );
+}

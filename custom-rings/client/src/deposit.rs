@@ -73,7 +73,7 @@ mod tests {
         encrypted.ciphertext = RingDepositAuditCapsule {
             slot_index: 7,
             eph_pk: &[2; 33],
-            ciphertext: &[3; 64],
+            ciphertext: &[3; custom_ring_interface::RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
             recipient_ciphertext: &encrypted.ciphertext,
         }
         .encode();
@@ -83,6 +83,9 @@ mod tests {
             RingDepositPlaintext::decrypt(&encrypted, &recipient).unwrap(),
             plaintext
         );
-        assert!(deposit_payload(&wrapped[..105]).is_err());
+        assert!(deposit_payload(
+            &wrapped[..custom_ring_interface::RING_DEPOSIT_AUDIT_PREFIX_LEN - 1]
+        )
+        .is_err());
     }
 }

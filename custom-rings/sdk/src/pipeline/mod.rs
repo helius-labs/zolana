@@ -1,6 +1,7 @@
-//! One transfer pipeline for both rails. The owner signs its spends, the
-//! delegate moves notes on the ring-authority rail with the recovered key.
+//! One transfer pipeline for every rail. The owner signs its spends, the hidden owner of an
+//! anonymous ring signs inside its proof, the delegate moves notes with the recovered key.
 
+mod anonymous;
 mod delegate;
 mod owner;
 
@@ -8,6 +9,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
     attach_input_proofs, input_utxos_from_nullifiers,
+    prover::transact::{RingTransferEd25519Prover, TransferEd25519Inputs},
     prover::{
         indexed::{
             IndexedPolicyData, IndexedPolicyRequest, IndexedTransferPreparation,
@@ -30,6 +32,7 @@ use zolana_transaction::{
 };
 
 pub use self::{
+    anonymous::{Anonymous, AnonymousTransfer},
     delegate::{ring_authority_width, DelegateOutput, DelegateTransferInput, Delegated},
     owner::{CustomRingTransferInput, Owner},
 };
@@ -55,7 +58,7 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// Who authorizes the spends, the owner or the ring's delegate with the recovered key.
+/// Who authorizes the spends, the owner, the hidden owner or the delegate with the recovered key.
 pub trait Rail: sealed::Sealed + Send + Sync {
     #[doc(hidden)]
     fn kind(&self) -> RailKind<'_>;
@@ -64,6 +67,7 @@ pub trait Rail: sealed::Sealed + Send + Sync {
 #[doc(hidden)]
 pub enum RailKind<'a> {
     Owner(&'a Owner<'a>),
+    Anonymous(&'a Anonymous<'a>),
     Delegated(&'a Delegated<'a>),
 }
 
@@ -90,7 +94,7 @@ pub struct ProvenRingTransfer {
     pub approval_required: bool,
     /// Padding included.
     pub outputs: Vec<SppProofOutputUtxo>,
-    /// The eddsa owners of the spent UTXOs, empty on the delegate rail.
+    /// The eddsa owners of the spent UTXOs, empty on the delegate and anonymous rails.
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     payer: Address,
@@ -163,6 +167,9 @@ impl<R: Rail> RingTransfer<R> {
             .ok_or(RingError::MissingRingConfig)?;
         let staged = match self.rail.kind() {
             RailKind::Owner(owner) => boxed(|| owner.stage(self.ring, client, &config)).await?,
+            RailKind::Anonymous(rail) => {
+                boxed(|| rail.stage(self.ring, client, &config, self.cosigner)).await?
+            }
             RailKind::Delegated(delegated) => {
                 boxed(|| delegated.stage(self.ring, client, &config)).await?
             }
@@ -171,8 +178,9 @@ impl<R: Rail> RingTransfer<R> {
         let inputs = &staged.proof_inputs;
         // A missing or foreign tree fails before the indexer serves proofs against it.
         let trees = spend_trees(client, &inputs.input_utxos, inputs.output_tree_id).await?;
-        let indexed = client.indexed_prover().is_some();
-        let spp = Spp::witness(self, client, &staged, &trees).await?;
+        // The prover resolves no RingEd25519 witness, both statements read through the client.
+        let indexed = client.indexed_prover().is_some() && !staged.pending.is_anonymous();
+        let spp = Spp::witness(self, client, &staged, &trees, indexed).await?;
         let policy = match &staged.pinned {
             Some(pinned) => Some(boxed(|| self.policy(client, &staged, pinned, indexed)).await?),
             None => None,
@@ -187,7 +195,12 @@ impl<R: Rail> RingTransfer<R> {
         let private_tx_hash = spp.private_tx_hash();
         let tier = match policy {
             Some(policy) => Tier::Policy(Box::new(policy.finish(staged.pending, private_tx_hash)?)),
-            None => Tier::Base(Box::new(staged.pending.finish_base(private_tx_hash)?)),
+            None => Tier::Base(Box::new(match staged.pending.is_anonymous() {
+                true => staged
+                    .pending
+                    .finish_anonymous_base(private_tx_hash, &staged.proof_inputs)?,
+                false => staged.pending.finish_base(private_tx_hash)?,
+            })),
         };
         // Neither proof is an input to the other, the requests go out together.
         let ((data, outputs), (proof, policy, approval_required)) = futures::try_join!(
@@ -393,12 +406,27 @@ enum Spp {
 }
 
 struct CompleteSpp {
-    inputs: TransferInputs,
+    inputs: SppInputs,
     nullifiers: Vec<[u8; 32]>,
     input_tree_indexes: Vec<u8>,
     tree_contexts: Vec<TreeContext>,
     private_tx_hash: [u8; 32],
-    authority: bool,
+}
+
+enum SppInputs {
+    Ring(TransferInputs),
+    Authority(TransferInputs),
+    /// The hidden owner's key, signature and signed digest ride along.
+    Anonymous(Box<TransferEd25519Inputs>),
+}
+
+impl SppInputs {
+    fn transfer(&mut self) -> &mut TransferInputs {
+        match self {
+            Self::Ring(inputs) | Self::Authority(inputs) => inputs,
+            Self::Anonymous(inputs) => &mut inputs.transfer,
+        }
+    }
 }
 
 impl Spp {
@@ -407,11 +435,16 @@ impl Spp {
         client: &AsyncZolanaClient<P, I>,
         staged: &Staged,
         trees: &SpendTrees,
+        indexed: bool,
     ) -> Result<Self, RingError> {
         let inputs = &staged.proof_inputs;
         let program = transfer.ring.program_id();
         let authority = staged.delegate.is_some();
-        if client.indexed_prover().is_some() {
+        let hidden = match transfer.rail.kind() {
+            RailKind::Anonymous(rail) => Some(rail.signer),
+            RailKind::Owner(_) | RailKind::Delegated(_) => None,
+        };
+        if indexed {
             let rail = match authority {
                 true => IndexedTransferRail::RingAuthority(program),
                 false => IndexedTransferRail::Ring(program),
@@ -437,8 +470,34 @@ impl Spp {
             &witnesses.dummy_nullifier_proofs,
         )?;
         let shape = inputs.check_shape()?;
-        let mut complete = match authority {
-            false => {
+        let mut complete = match (authority, hidden) {
+            (false, Some(owner)) => {
+                let result = RingTransferEd25519Prover {
+                    inputs: spends,
+                    outputs: inputs.output_utxos.clone(),
+                    blinding_seed: inputs.blinding_seed,
+                    output_tree_id: inputs.output_tree_id,
+                    external_data: inputs.external_data.clone(),
+                    public_transfers: inputs.public_transfers()?,
+                    signer_pk_hashes: anonymous::anonymous_signers(
+                        inputs.payer,
+                        shape.signer_width(),
+                    )?,
+                    allow_dummy_inputs: trees.allow_dummy_inputs,
+                    owner,
+                    ring_program_id: Some(program),
+                    shape,
+                }
+                .build()?;
+                CompleteSpp {
+                    inputs: SppInputs::Anonymous(Box::new(result.inputs)),
+                    nullifiers: result.nullifiers,
+                    input_tree_indexes: result.input_tree_indexes,
+                    tree_contexts: result.tree_contexts,
+                    private_tx_hash: result.private_tx_hash,
+                }
+            }
+            (false, None) => {
                 let result = RingTransferProver {
                     inputs: spends,
                     outputs: inputs.output_utxos.clone(),
@@ -453,15 +512,14 @@ impl Spp {
                 }
                 .build()?;
                 CompleteSpp {
-                    inputs: result.inputs,
+                    inputs: SppInputs::Ring(result.inputs),
                     nullifiers: result.nullifiers,
                     input_tree_indexes: result.input_tree_indexes,
                     tree_contexts: result.tree_contexts,
                     private_tx_hash: result.private_tx_hash,
-                    authority,
                 }
             }
-            true => {
+            (true, _) => {
                 let result = RingAuthorityProver {
                     inputs: spends,
                     outputs: inputs.output_utxos.clone(),
@@ -476,18 +534,17 @@ impl Spp {
                 }
                 .build()?;
                 CompleteSpp {
-                    inputs: result.inputs,
+                    inputs: SppInputs::Authority(result.inputs),
                     nullifiers: result.nullifiers,
                     input_tree_indexes: result.input_tree_indexes,
                     tree_contexts: result.tree_contexts,
                     private_tx_hash: result.private_tx_hash,
-                    authority,
                 }
             }
         };
         staged
             .authority
-            .complete_inputs(&mut complete.inputs.inputs)?;
+            .complete_inputs(&mut complete.inputs.transfer().inputs)?;
         Ok(Self::Complete(Box::new(complete)))
     }
 
@@ -513,20 +570,43 @@ impl Spp {
             }
             Self::Complete(complete) => complete,
         };
-        let request = match complete.authority {
-            true => requests::ring_authority(&complete.inputs)?,
-            false => requests::transfer_ring(&complete.inputs)?,
+        let proof = match &complete.inputs {
+            SppInputs::Ring(inputs) => {
+                client
+                    .prove_request(&requests::transfer_ring(inputs)?)
+                    .await?
+            }
+            SppInputs::Authority(inputs) => {
+                client
+                    .prove_request(&requests::ring_authority(inputs)?)
+                    .await?
+            }
+            SppInputs::Anonymous(inputs) => client.prove_request(inputs.as_ref()).await?,
         };
-        let proof = client.prove_request(&request).await?;
+        let proof = ProofCompressed::try_from(proof)?;
         let shape = transaction.check_shape()?;
         let width = (
             shape.n_inputs() as u8,
             shape.n_outputs() as u8,
             N_PUBLIC_SLOTS as u8,
         );
-        let circuit = match complete.authority {
-            true => CircuitId::RingAuthority(width.0, width.1, width.2),
-            false => CircuitId::RingEddsa(width.0, width.1, width.2),
+        let (circuit, proof) = match &complete.inputs {
+            SppInputs::Ring(_) => (
+                CircuitId::RingEddsa(width.0, width.1, width.2),
+                proof.to_transact_proof(),
+            ),
+            SppInputs::Authority(_) => (
+                CircuitId::RingAuthority(width.0, width.1, width.2),
+                proof.to_transact_proof(),
+            ),
+            // The selector carries the emulated-field commitment the verifier checks.
+            SppInputs::Anonymous(_) => {
+                let (proof, commitment) = proof.into_ring_p256_transact_parts()?;
+                (
+                    CircuitId::RingEd25519(width.0, width.1, width.2, commitment),
+                    proof,
+                )
+            }
         };
         let inputs =
             input_utxos_from_nullifiers(&complete.nullifiers, &complete.input_tree_indexes)?;
@@ -535,7 +615,7 @@ impl Spp {
         }
         let external = &transaction.external_data;
         let data = TransactIxData {
-            proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
+            proof,
             expiry_unix_ts: external.expiry_unix_ts,
             private_tx_hash: complete.private_tx_hash,
             circuit,

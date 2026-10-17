@@ -7,6 +7,7 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
 };
 
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use zolana_client::{next_page, AsyncRpc, ClientError, IndexerRpcConfig};
 use zolana_keypair::{X25519Pubkey, X25519Secret};
@@ -66,6 +67,7 @@ const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 pub struct RingScan {
     ring_program_id: Address,
     auditor_key: X25519Pubkey,
+    mode: RingMode,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -77,11 +79,18 @@ impl RingScan {
         Self {
             ring_program_id,
             auditor_key,
+            mode: RingMode::Off,
             cursor: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
         }
+    }
+
+    /// The ring's mode selects the disclosure layout an audit parses.
+    pub fn with_mode(mut self, mode: RingMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
@@ -167,6 +176,7 @@ impl RingScan {
         assets: &AssetRegistry,
     ) -> Result<AuditedPage, AuditError> {
         self.auditor_key = auditor.pubkey();
+        let mode = self.mode;
         let page = self.run(indexer, origin).await?;
         Ok(ScanPage {
             transactions: page
@@ -178,7 +188,7 @@ impl RingScan {
                         transaction,
                         assets,
                     }
-                    .run()
+                    .run_with_mode(mode)
                 })
                 .collect::<Result<_, _>>()?,
             next_cursor: page.next_cursor,

@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    CreateConfigIxData, CustomRingError, RingProgramConfig, RING_PROGRAM_CONFIG,
+    CreateConfigIxData, CustomRingError, RingMode, RingProgramConfig, RING_PROGRAM_CONFIG,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -22,6 +22,7 @@ pub fn process_create_config_ix(
     let CreateConfigIxData {
         auditor_pubkey,
         has_policy,
+        anonymous,
     } = parse(data)?;
 
     let mut iter = AccountIterator::new(accounts);
@@ -46,7 +47,11 @@ pub fn process_create_config_ix(
         auditor_pubkey,
         bump,
         has_policy: u8::from(has_policy),
-        key_escrow: 0,
+        mode: if anonymous {
+            RingMode::Anonymous as u8
+        } else {
+            RingMode::Off as u8
+        },
     })
     .init(config)
 }

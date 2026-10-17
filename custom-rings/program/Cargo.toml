@@ -38,6 +38,7 @@ zolana-tree = { workspace = true }
 curve25519-dalek = "4.1"
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
+x25519-dalek = { workspace = true }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }
 solana-instruction = { workspace = true }

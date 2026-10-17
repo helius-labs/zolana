@@ -73,7 +73,8 @@ mod bodies {
         pipeline::PolicyRequest,
         prover::{RingCircuit, RingRequest},
         request::{
-            AuditSecrets, BaseBody, CustomRingOpening, DepositBody, Escrow, PolicyBody, RuleAnswer,
+            AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody,
+            CustomRingOpening, DepositBody, Escrow, PolicyBody, RuleAnswer, IDENTITY_LEN,
         },
         trees::TransactRoots,
         witness::{CustomRingWitness, PolicyTree},
@@ -104,6 +105,33 @@ mod bodies {
             ring_data_hash: field(seed + 8),
             ring_program_id: field(seed + 9),
             key,
+        }
+    }
+
+    /// Two Solana recipients, the trailing slots stay zero.
+    fn identities() -> AnonymousIdentities {
+        let identity = |seed: u8| {
+            let mut identity = [seed; IDENTITY_LEN];
+            identity[0] = zolana_hasher::primitives::SOLANA_OWNER_TAG;
+            identity
+        };
+        let viewing = |seed: u8| {
+            *X25519Secret::from_bytes(&[seed; 32])
+                .unwrap()
+                .pubkey()
+                .as_bytes()
+        };
+        AnonymousIdentities {
+            flag: AnonymousFlag,
+            sender: identity(0x41),
+            recipients: core::array::from_fn(|index| match index < 2 {
+                true => identity(0x42 + index as u8),
+                false => [0; IDENTITY_LEN],
+            }),
+            recipient_viewing_keys: core::array::from_fn(|index| match index < 2 {
+                true => viewing(0x44 + index as u8),
+                false => [0; IDENTITY_LEN],
+            }),
         }
     }
 
@@ -145,6 +173,10 @@ mod bodies {
     }
 
     fn policy() -> PolicyBody {
+        policy_with(None)
+    }
+
+    fn policy_with(anonymous: Option<AnonymousIdentities>) -> PolicyBody {
         let registry_key = RegistryKeyOpening {
             next: field(700),
             ct_hash: field(701),
@@ -156,6 +188,7 @@ mod bodies {
             circuit_type: RingCircuit::Policy,
             public_input_hash: field(1),
             audit: secrets(5),
+            anonymous,
             witness: Box::new(CustomRingWitness {
                 indexed: None,
                 indexed_registry: None,
@@ -235,14 +268,34 @@ mod bodies {
                 ring_program_id: field(38 + 10 * index),
             })
             .collect();
-        let base = BaseBody {
+        let mut base = BaseBody {
             circuit_type: RingCircuit::Base,
             public_input_hash: field(1),
             audit: secrets(7),
             n_out: 2,
             outputs,
+            anonymous: None,
         };
         assert_golden("custom-ring-base", &RingRequest(&base).body().unwrap());
+        base.anonymous = Some(AnonymousBase {
+            identities: identities(),
+            n_in: 2,
+            inputs: core::array::from_fn(|index| opening(1_000 + 16 * index as u64, None)),
+            anonymous_outputs: core::array::from_fn(|index| {
+                opening(1_100 + 16 * index as u64, None)
+            }),
+            private_tx_blinding: field(3),
+        });
+        assert_golden(
+            "custom-ring-base-anonymous",
+            &RingRequest(&base).body().unwrap(),
+        );
+        assert_golden(
+            "custom-ring-policy-anonymous",
+            &RingRequest(&policy_with(Some(identities())))
+                .body()
+                .unwrap(),
+        );
         assert_golden(
             "custom-ring-policy",
             &RingRequest(&policy()).body().unwrap(),
@@ -273,12 +326,14 @@ mod bodies {
                 path: core::array::from_fn(|level| field(100 * (index as u64 + 1) + level as u64)),
             });
         }
-        let body = DepositBody {
+        let mut body = DepositBody {
             circuit_type: RingCircuit::Deposit,
             public_input_hash: field(1),
             context_hash: field(2),
             count: 2,
+            anonymous: false,
             owner_pk_hashes: slots(10),
+            owner_keys: None,
             nullifier_pks: slots(20),
             blindings: Zeroizing::new(slots(30)),
             keys,
@@ -288,6 +343,16 @@ mod bodies {
             key_registry_root: field(9),
         };
         assert_golden("custom-ring-deposit", &RingRequest(&body).body().unwrap());
+        // An anonymous ring escrows no key, each opening discloses its Ed25519 owner.
+        body.anonymous = true;
+        body.owner_keys = Some(slots(50));
+        body.keys = [None; MAX_RING_DEPOSIT_AUDIT_SLOTS];
+        body.key_escrow = false;
+        body.key_registry_root = [0; 32];
+        assert_golden(
+            "custom-ring-deposit-anonymous",
+            &RingRequest(&body).body().unwrap(),
+        );
     }
 
     #[test]

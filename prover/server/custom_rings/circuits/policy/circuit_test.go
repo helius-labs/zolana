@@ -399,6 +399,16 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "legacy viewing key tag",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := defaultFixture()
+				f.keys = func(k ringaudit.Keys) ringaudit.Keys {
+					return k.WithLegacyTxTag()
+				}
+				return buildAssignment(t, f)
+			},
+		},
+		{
 			name: "inline rule carrying an alt mask",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
@@ -668,6 +678,10 @@ type statement struct {
 	publicInputHash   *big.Int
 
 	keys ringaudit.Keys
+	// anonymous discloses the sender and recipient keys, recipientKeys follow the outputs.
+	anonymous     bool
+	senderKey     [32]byte
+	recipientKeys [NOutputs][32]byte
 }
 
 // newStatement builds a ring whose registry lists the recipient on Allow, a
@@ -755,6 +769,8 @@ func newStatement(t *testing.T, f fixture) *statement {
 	if f.secondTransferred != [32]byte{} {
 		secondAsset = assetField(t, f.secondTransferred)
 	}
+	s.senderKey = senderKey
+	s.recipientKeys = [NOutputs][32]byte{f.recipient, f.recipient}
 	s.buildTransaction(t, pkField(t, f.recipient), s.sender, asset, secondAsset, f.amount, f.secondAmount)
 	if v := f.limits; v != nil {
 		s.shapeLimits(t, v, s.sender)
@@ -891,7 +907,7 @@ func (s *statement) assignment(t *testing.T) *CustomRingPolicyCircuit {
 	s.updateHashes(t)
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:    s.publicInputHash,
-		Audit:              s.keys.Statement(s.privateTxHash).Audit,
+		Audit:              s.auditStatement(t).Audit,
 		AddressChain:       s.addressChain,
 		PrivateTxBlinding:  s.privateTxBlinding,
 		AddressTreeID:      big.NewInt(addressTreeID),

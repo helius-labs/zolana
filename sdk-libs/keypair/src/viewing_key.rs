@@ -91,7 +91,9 @@ impl ViewingKey {
         self.secret.pubkey()
     }
 
-    /// ECDH with `counterparty`, rejecting noncontributory peers.
+    /// ECDH with `counterparty`, rejecting noncontributory peers. The result
+    /// yields every key-exchange PDA role and shared view tag for that peer,
+    /// never the view root, which is salted HKDF over the raw secret.
     pub fn ecdh(&self, counterparty: &X25519Pubkey) -> Result<[u8; 32], KeypairError> {
         Ok(*self.secret.ecdh(counterparty)?)
     }

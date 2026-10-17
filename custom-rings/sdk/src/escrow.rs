@@ -1,4 +1,4 @@
-use custom_ring_interface::{KeyEscrow, KEY_REGISTRY_HEIGHT};
+use custom_ring_interface::{RingMode, KEY_REGISTRY_HEIGHT};
 use futures::future::try_join_all;
 use serde::Serialize;
 use zolana_client::{AsyncRpc, ClientError};
@@ -43,7 +43,7 @@ pub(crate) struct EscrowedKeys {
 
 impl KeyRegistry {
     pub fn of(ring: CustomRing, config: &CustomRingConfig) -> Option<Self> {
-        (config.key_escrow == KeyEscrow::Registry).then_some(Self { ring })
+        (config.mode == RingMode::Registry).then_some(Self { ring })
     }
 
     async fn root(

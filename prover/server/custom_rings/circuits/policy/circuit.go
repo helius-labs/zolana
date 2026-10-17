@@ -80,17 +80,14 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	if rail == delegateRail {
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
+		// The delegate rail never serves an anonymous ring.
+		api.AssertIsEqual(c.Anonymous, 0)
 	} else {
 		c.constrainLimits(api, checked.limits, tx)
 	}
 	c.constrainEscrow(api, tx, subjects)
 
-	var openings [NOutputs]base.AuditOutputWires
-	var hashes [NOutputs]frontend.Variable
-	for i, output := range tx.outputs {
-		openings[i], hashes[i] = output.opening, output.hash
-	}
-	audit := c.Audit.Define(api, rc, openings, hashes, tx.nOut)
+	audit := c.Audit.Define(api, rc, c.auditTx(tx))
 	return append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.MemberRegistryRoot, c.ForeignRoot)
 }

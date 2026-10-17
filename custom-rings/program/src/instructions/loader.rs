@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    CustomRingError, DepositAudit, KeyEscrow, KeyRegistryRoot, PolicyConfig, RingAccount,
-    RingProgramConfig,
+    CustomRingError, DepositAudit, KeyRegistryRoot, PolicyConfig, RingAccount, RingMode,
+    RingProgramConfig, TAGGED_X25519_KEY_LEN,
 };
 use pinocchio::{
     account::{Ref, RefMut},
@@ -74,6 +74,31 @@ pub fn load_authorized_config<'a>(
     Ok(config)
 }
 
+/// The config of a ring whose auditor key can receive a proven disclosure, copied out.
+pub struct AuditedConfig {
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
+    pub has_policy: bool,
+    pub mode: RingMode,
+}
+
+/// Refuses an unknown mode and a legacy auditor key, which no circuit encrypts to.
+#[inline(always)]
+pub fn load_audited_config(
+    program_id: &Address,
+    account: &AccountView,
+) -> Result<AuditedConfig, ProgramError> {
+    let config = load::<RingProgramConfig>(program_id, account)?;
+    let mode = config.mode().ok_or(CustomRingError::InvalidRingMode)?;
+    if config.has_legacy_auditor_key() {
+        return Err(CustomRingError::LegacyAuditorKey.into());
+    }
+    Ok(AuditedConfig {
+        auditor_pubkey: config.auditor_pubkey,
+        has_policy: config.has_policy != 0,
+        mode,
+    })
+}
+
 /// A foreign-owned empty setting cannot switch the requirement off either.
 pub fn load_deposit_audit<'a>(
     program_id: &Address,
@@ -85,17 +110,19 @@ pub fn load_deposit_audit<'a>(
     load_optional(program_id, account, &[DepositAudit::SEED])
 }
 
-/// The registry root at `index` a statement binds, `None` with escrow off.
+/// The registry root at `index` a statement binds, `None` unless the ring escrows keys.
 pub fn load_escrow_root(
     program_id: &Address,
-    escrow: KeyEscrow,
+    mode: RingMode,
     index: u8,
     accounts: &mut AccountIterator<'_>,
 ) -> Result<Option<[u8; 32]>, ProgramError> {
-    match escrow {
-        KeyEscrow::Off if index != 0 => Err(CustomRingError::UnexpectedKeyRegistryRoot.into()),
-        KeyEscrow::Off => Ok(None),
-        KeyEscrow::Registry => {
+    match mode {
+        RingMode::Off | RingMode::Anonymous if index != 0 => {
+            Err(CustomRingError::UnexpectedKeyRegistryRoot.into())
+        }
+        RingMode::Off | RingMode::Anonymous => Ok(None),
+        RingMode::Registry => {
             let account = accounts.next_account("key_registry_root")?;
             load::<KeyRegistryRoot>(program_id, account)?
                 .root_at(index)

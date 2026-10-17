@@ -121,9 +121,9 @@ pub(crate) mod fe {
 
     const HEX: &[u8; 16] = b"0123456789abcdef";
 
-    /// A stack buffer, so a secret never lands in a heap string of its own.
+    /// A stack buffer, so a secret never lands in a heap string of its own. A tagged key takes 33 bytes.
     pub(crate) fn bytes<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        let mut buffer = [0u8; 2 + 2 * 32];
+        let mut buffer = [0u8; 2 + 2 * 33];
         let len = 2 + 2 * bytes.len();
         let out = buffer
             .get_mut(..len)

@@ -1,12 +1,14 @@
 import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
-import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
+import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
 
 import { poseidon } from "../src/keypair/poseidon.js";
+import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { inputTreeSlots, treeIdField, treeSlotsHashChain } from "../src/interface/tree-slot.js";
-import { addressBytes } from "../src/interface/internal.js";
+import { addressBytes, encodeBase58 } from "../src/interface/internal.js";
+import { treeAddress } from "../src/interface/pda/index.js";
 import { UTXO_DOMAIN } from "../src/interface/program.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
@@ -14,21 +16,32 @@ import {
   policyPublicInputHash,
   auditSharedSecret,
   AUDITOR_MESSAGE_LENGTH,
+  auditDisclosureLength,
   auditorMessageData,
+  decodeAnonymousAuditDisclosure,
   decryptTransactionViewingSecret,
+  encodeAnonymousAuditDisclosure,
   encryptTransactionViewingSecret,
   openAuditOutputDisclosure,
+  openAnonymousAuditDisclosure,
   parseAuditorMessage,
+  type AnonymousAuditDisclosure,
+  type AnonymousOutputOpening,
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
+import { recoverRingMemberNotes } from "../src/ring/recover.js";
+import { Utxo } from "../src/transaction/utxo.js";
+import { ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
 import { commitmentPoseidon, rightAlign, ZERO_32 } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
 import {
   EncryptedScheme,
+  encodeConfidential,
   encodeOutputData,
+  encryptAnonymous,
   encryptConfidential,
 } from "../src/transaction/serialization/codecs.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
@@ -60,7 +73,7 @@ const TX_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("1c26456bcdeb4de535d7e8ccf1db5ff70f6f2b527565dc004291f705b5e5b72e");
+const PUBLIC_INPUT_HASH = hex("12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 const PAD_KEY = Uint8Array.from({ length: 32 }, (_, index) => 0x40 ^ index) as Bytes32;
@@ -140,7 +153,7 @@ describe("ring audit encryption", () => {
         ...revocationTargets,
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "1ef22522e0d6233331b953baa067b2f821aaaf670c2313b5b27c5126956185d1",
+      "287fe8b5f9ae4740720aa0c80bb628572ec71a111acfa1156c866d774f4a9257",
     );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
@@ -301,4 +314,275 @@ function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
     commitmentPoseidon([opening.ringDataHash, opening.ringProgramId]),
     commitmentPoseidon([opening.ownerHash, opening.blinding]),
   ]);
+}
+
+describe("anonymous ring audit", () => {
+  const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+  const auditor = X25519Secret.generate();
+  const tx = ViewingKey.generate();
+  const member = ShieldedKeypair.generate();
+  const source = member.shieldedAddress();
+  const salt = new Uint8Array(16).fill(5) as Bytes16;
+  const blinding = filled(7, 0) as Bytes32;
+  const solAsset = hashBytes(addressBytes(SOL_MINT)) as Bytes32;
+  const utxo = new Utxo({
+    owner: source.signingPublicKey,
+    asset: SOL_MINT,
+    amount: 42n,
+    blinding,
+    ringProgramId: RING,
+  });
+  const commitment = utxo.hash(source.nullifierPublicKey, 0);
+  const recipient: AnonymousOutputOpening = Object.freeze({
+    identityTag: SOLANA_OWNER_TAG,
+    identityKey: source.confidentialViewTag() as Bytes32,
+    viewingPublicKey: source.viewingPublicKey.toBytes(),
+    nullifierPublicKey: source.nullifierPublicKey,
+    amount: 42n,
+    asset: solAsset,
+    blinding,
+    dataHash: ZERO_32,
+    ringDataHash: ZERO_32,
+    ringNote: true,
+  });
+  const dummy: AnonymousOutputOpening = Object.freeze({
+    identityTag: 0,
+    identityKey: ZERO_32,
+    viewingPublicKey: new Uint8Array(33) as Bytes33,
+    nullifierPublicKey: ZERO_32,
+    amount: 0n,
+    asset: ZERO_32,
+    blinding: ZERO_32,
+    dataHash: ZERO_32,
+    ringDataHash: ZERO_32,
+    ringNote: false,
+  });
+  const disclosure: AnonymousAuditDisclosure = Object.freeze({
+    sender: filled(3) as Bytes32,
+    inputs: [
+      { treeId: 4, amount: 9n, asset: solAsset, blinding: filled(6, 0) as Bytes32 },
+      { treeId: 0, amount: 0n, asset: ZERO_32, blinding: ZERO_32 },
+    ],
+    outputs: [recipient, dummy],
+  });
+  const shape = { anonymous: true, inputs: 2, outputs: 2 };
+
+  function transaction(): IndexedShieldedTransaction {
+    const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
+      salt,
+      anonymous: disclosure,
+    });
+    const body = encryptAnonymous(
+      tx,
+      source.viewingPublicKey,
+      encodeConfidential({
+        assetId: SOL_ASSET_ID,
+        amount: 42n,
+        blinding,
+        ringProgramId: RING,
+        data: new Data(),
+      }),
+      salt,
+      0,
+    );
+    return {
+      slot: 1n,
+      txSignature: "1".repeat(87) as Signature,
+      eventIndex: 0,
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      ringProgramId: RING,
+      outputSlots: [
+        {
+          viewTag: ZERO_32,
+          outputContext: { hash: commitment, tree: treeAddress(0), treeId: 0, leafIndex: 0n },
+          payload: encodeOutputData(EncryptedScheme.ringAnonymous, body, "encrypted"),
+        },
+        {
+          viewTag: ZERO_32,
+          outputContext: {
+            hash: filled(9) as Bytes32,
+            tree: treeAddress(0),
+            treeId: 0,
+            leafIndex: 1n,
+          },
+          payload: new Uint8Array(0),
+        },
+      ],
+      messages: [auditorMessageData(encrypted.message, auditor.publicKey())],
+      nullifiers: [filled(1) as Bytes32, filled(2) as Bytes32],
+      proofless: false,
+    };
+  }
+
+  it("seals a 2x2 disclosure into 833 bytes and opens it with the same stream", () => {
+    expect(auditDisclosureLength(shape)).toBe(24);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(43);
+    expect(auditDisclosureLength({ anonymous: false, inputs: 0, outputs: 1 })).toBe(36);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 0, outputs: 2 })).toBeUndefined();
+    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBeUndefined();
+    const message = transaction().messages[0]!;
+    expect(message.data).toHaveLength(65 + 32 * 24);
+    const parsed = parseAuditorMessage(message.data, shape);
+    expect(openAnonymousAuditDisclosure(tx.secretBytes(), salt, parsed.disclosure, shape)).toEqual(
+      disclosure,
+    );
+    // The fixed non-anonymous length and a neighbouring shape are both refused.
+    expect(() => parseAuditorMessage(message.data)).toThrow();
+    expect(() =>
+      parseAuditorMessage(message.data, { anonymous: true, inputs: 1, outputs: 2 }),
+    ).toThrow();
+    expect(() =>
+      openAnonymousAuditDisclosure(tx.secretBytes(), salt, parsed.disclosure, {
+        anonymous: true,
+        inputs: 1,
+        outputs: 2,
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      openAnonymousAuditDisclosure(tx.secretBytes(), salt, parsed.disclosure, {
+        ...shape,
+        anonymous: false,
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it("rejects nonzero slot padding, a foreign sender tag and a ring flag above one", () => {
+    const plaintext = encodeAnonymousAuditDisclosure(disclosure);
+    expect(plaintext).toHaveLength(62 + 2 * 93 + 2 * 248);
+    expect(decodeAnonymousAuditDisclosure(plaintext, shape)).toEqual(disclosure);
+    for (const [index, value] of [
+      [33, 1],
+      [0, 0x50],
+      [62 + 74, 1],
+      [62 + 2 * 93 + 234, 2],
+      [62 + 2 * 93 + 235, 1],
+    ] as const) {
+      const corrupted = plaintext.slice();
+      corrupted[index] = value;
+      expect(() => decodeAnonymousAuditDisclosure(corrupted, shape)).toThrow(RangeError);
+    }
+    expect(() => decodeAnonymousAuditDisclosure(plaintext.subarray(1), shape)).toThrow(RangeError);
+  });
+
+  it("audits the hidden sender, inputs and recipients and rebuilds the real commitment", () => {
+    const audited = auditRingTransaction({
+      auditor,
+      transaction: transaction(),
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+    });
+    expect(audited.anonymous).toEqual({
+      sender: encodeBase58(filled(3)),
+      inputs: [
+        { treeId: 4, amount: 9n, asset: solAsset },
+        { treeId: 0, amount: 0n, asset: ZERO_32 },
+      ],
+      recipients: [
+        {
+          slotIndex: 0,
+          identityTag: SOLANA_OWNER_TAG,
+          identityKey: source.confidentialViewTag(),
+          nullifierPk: source.nullifierPublicKey,
+          amount: 42n,
+          asset: solAsset,
+        },
+      ],
+    });
+    expect(audited.outputs).toHaveLength(1);
+    expect(audited.outputs[0]?.amount).toBe(42n);
+    expect(audited.outputs[0]?.ringProgramId).toBe(RING);
+    expect(audited.outputs[0]?.ownerTag).toEqual(source.confidentialViewTag());
+    expect(audited.outputs[0]?.recipientViewingPublicKey.equals(source.viewingPublicKey)).toBe(
+      true,
+    );
+    expect(audited.outputOpenings[0]?.ownerHash).toEqual(source.ownerHash());
+    expect(auditOpeningHash(audited.outputOpenings[0]!)).toEqual(commitment);
+    expect(audited.outputOpenings[1]?.ownerHash).toEqual(ZERO_32);
+    expect(audited.undecryptableSlots).toEqual([1]);
+  });
+
+  it("fails closed without the anonymous mode, on a wrong commitment and without a tree id", () => {
+    const valid = transaction();
+    const assets = new AssetRegistry();
+    expect(() => auditRingTransaction({ auditor, transaction: valid, assets })).toThrow(
+      "RING_AUDIT_MESSAGE",
+    );
+    const slot = valid.outputSlots[0]!;
+    const flipped = filled(0) as Bytes32;
+    flipped.set(commitment);
+    flipped[31] = (flipped[31] ?? 0) ^ 1;
+    expect(() =>
+      auditRingTransaction({
+        auditor,
+        assets,
+        mode: "anonymous",
+        transaction: {
+          ...valid,
+          outputSlots: [
+            { ...slot, outputContext: { ...slot.outputContext, hash: flipped } },
+            valid.outputSlots[1]!,
+          ],
+        },
+      }),
+    ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+    const { treeId: _, ...withoutTreeId } = slot.outputContext;
+    expect(() =>
+      auditRingTransaction({
+        auditor,
+        assets,
+        mode: "anonymous",
+        transaction: {
+          ...valid,
+          outputSlots: [{ ...slot, outputContext: withoutTreeId }, valid.outputSlots[1]!],
+        },
+      }),
+    ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+  });
+
+  it("recovers the member's note from an anonymous transaction", async () => {
+    const indexed = transaction();
+    const client = {
+      ...ringAuditReader({
+        getShieldedTransactionsByTags: async (input) =>
+          transactionsPage(input.ringProgramId === undefined ? { transactions: [indexed] } : {}),
+      }),
+      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+    };
+    const recovered = await recoverRingMemberNotes({
+      client,
+      ringProgramId: RING,
+      auditor,
+      source,
+      nullifierKey: member.nullifierKey(),
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      resolveTreeId: () => 0,
+      origin: { ringInvoked: async () => true },
+    });
+    expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([42n]);
+    expect(recovered.notes[0]?.outputContext.hash).toEqual(commitment);
+    expect(recovered.unopened).toEqual([]);
+    // Another member sees the transaction but owns none of its notes.
+    const other = ShieldedKeypair.generate();
+    const none = await recoverRingMemberNotes({
+      client,
+      ringProgramId: RING,
+      auditor,
+      source: other.shieldedAddress(),
+      nullifierKey: other.nullifierKey(),
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      resolveTreeId: () => 0,
+      origin: { ringInvoked: async () => true },
+    });
+    expect(none.notes).toEqual([]);
+    expect(none.unopened).toEqual([]);
+  });
+});
+
+function filled(byte: number, first = byte): Uint8Array {
+  const bytes = new Uint8Array(32).fill(byte);
+  bytes[0] = first;
+  return bytes;
 }

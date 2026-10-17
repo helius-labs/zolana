@@ -9,28 +9,28 @@
       "size": 73905435543
     },
     "custom_ring_base.key": {
-      "sha256": "58ea292fb55fe1efa1fe1e596e251a7b7dbcb720da72e4af7dc585af0e5ca513",
-      "size": 34472943,
+      "sha256": "a96822836acd5f8127bce8f1d23bf47a85421685327bf5f04a93e6d8e1d3692a",
+      "size": 45536988,
       "source": "release"
     },
     "custom_ring_delegate_policy.key": {
-      "sha256": "a731f737af2872a06922682458bc427f75e3f97a38b4be2c92ee6e518319433e",
-      "size": 135506392,
+      "sha256": "7a11b1f9af6ef394dcfc8e1c9a3ef0e1bd6172880fbe9cd93ed85d2559d2ea1b",
+      "size": 142601246,
       "source": "release"
     },
     "custom_ring_deposit.key": {
-      "sha256": "00369d9cd2ccc8e818071e1957cc4cd4cbcbaeb968f929afd2543b8cc995350d",
-      "size": 63086702,
+      "sha256": "85ca05e282b9b64bfda61aa73e63439396c42fdce100e34bc0ddac5a8329c418",
+      "size": 71285577,
       "source": "release"
     },
     "custom_ring_policy.key": {
-      "sha256": "ca5f9a81effa4588989d6533a1c08f9f6a1e2740e0d7342ccc512e304eee80a0",
-      "size": 138832269,
+      "sha256": "c6627c31c98b1e71df4195b34474c93035208efdd67b6d517ffc5d895052445f",
+      "size": 145824561,
       "source": "release"
     },
     "custom_ring_register_key.key": {
-      "sha256": "404b553ab83b2ca8a35967dc674da017664fc088182f9888eb5268fd92de5c08",
-      "size": 33194055,
+      "sha256": "049feeed5ebfb64276ab32aa0539e60a5cd7aeb5256efb6829383a90504d876c",
+      "size": 33193911,
       "source": "release"
     },
     "merge_24_1.key": {
@@ -208,6 +208,26 @@
     "transfer_confidential_8_8.key": {
       "sha256": "f8972d03f57baef87702aaddb87a3b831d2377723e930fb25675fe3e473d8aec",
       "size": 62007104
+    },
+    "transfer_ed25519_ring_2_2.key": {
+      "sha256": "a3bedbae74fff82c566787baed29a0132b895a553927a114cbc08aa7f71c6693",
+      "size": 99045231,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_2_4.key": {
+      "sha256": "fbe2a295f4041e380bdf5906414c64f4d010c7e3e81301120d3f7210bdca131d",
+      "size": 100169589,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_3_4.key": {
+      "sha256": "fb59ac91d4b5573f1d0d62f0773c4e1503eee5577911172761ae0e9d03c1adbf",
+      "size": 111126395,
+      "source": "release"
+    },
+    "transfer_ed25519_ring_4_2.key": {
+      "sha256": "7a271d8a88255f98a397082a57b64ea28bb0b19c73076ad71d8ffda2f2deb2a1",
+      "size": 116761377,
+      "source": "release"
     },
     "transfer_p256_ring_12_2.key": {
       "sha256": "5fbd495e2bb9708de6f698d18f2e43abc9cd9c93fa349f7aa98ec673b5c2f285",

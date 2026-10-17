@@ -2,26 +2,27 @@
 
 ## 0.5.0-alpha — unreleased
 
-Proofs go encrypted to an attested Nitro Enclave prover by default. A client
-given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
-pins, and any other remote prover must attest to that pin unless the caller
-opts out. One private transfer can pay several recipients. A ring policy
-bounds each transfer's outflow per mint, the windowed velocity records are
-gone, and ring submissions prove again over a replaced key registry root.
+Proofs go encrypted to an attested Nitro Enclave prover by default, and one
+private transfer can pay several recipients. Viewing keys and ring auditors
+move to X25519, and the auditor of an anonymous ring reads its hidden
+senders, inputs and recipients. A ring policy bounds each transfer's outflow
+per mint, the windowed velocity records are gone, and ring submissions prove
+again over a replaced key registry root.
 
 Breaking
 
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor
-  configuration with `X25519Secret`/`X25519PublicKey`; old auditor envelopes
-  are unsupported.
-- `ViewingKey` and shielded addresses use X25519 for every transfer and ring
-  deposit → migrate P-256 viewing keys and historical wallet data before using
-  this version.
+- `ViewingKey`, shielded addresses and custom-ring auditor envelopes use X25519
+  keys for every transfer and ring deposit, old auditor envelopes are
+  unsupported, and `DST_VIEW_ROOT_P_CONST` is no longer exported → create a new
+  auditor configuration with `X25519Secret`/`X25519PublicKey`, migrate P-256
+  viewing keys and historical wallet data, and drop the
+  `DST_VIEW_ROOT_P_CONST` import.
 - `encryptTransactionViewingSecret` and `openAuditOutputDisclosure` mask the
   auditor output disclosure with a new keystream, and `auditPublicInputHash`
-  and `policyPublicInputHash` commit to it with a new hash, so a ring proof or
-  auditor message of the previous release does not verify or open → prove and
-  audit with the ring program and prover of this release.
+  and `policyPublicInputHash` commit to it with a new hash and to the ring
+  mode, so a ring proof or auditor message of the previous release does not
+  verify or open → prove and audit with the ring program and prover of this
+  release.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`
@@ -30,10 +31,10 @@ Breaking
 - `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
   through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
   refuses `"prover"` → set `proverUrl` to keep another prover.
-- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys and drops
-  `custom_ring_compressed_policy.key`, so `ProverClient` rejects a ring proof
-  from a prover on the previous keys with `CLIENT_PROVING_KEY_MISMATCH` →
-  prove against the prover of this release.
+- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys and the RingEd25519
+  transfer keys and drops `custom_ring_compressed_policy.key`, so
+  `ProverClient` rejects a ring proof from a prover on the previous keys with
+  `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
 - `RingErrorCode` adds `RING_AUDIT_NONCANONICAL_KEY`, `RING_OUTFLOW_CAP_EXCEEDED`
   and `RING_OUTFLOW_OVERFLOW`, and loses `RING_VELOCITY_CAP_EXCEEDED`,
   `RING_VELOCITY_OVERFLOW`, `RING_VELOCITY_DISABLED`, `RING_SPEND_COUNTERS_UNKNOWN`,
@@ -59,36 +60,48 @@ Breaking
   `setRingSpendWindowInstruction`, `clearRingSpendWindowInstruction`,
   `fetchRingSpendWindow`, `decodeRingSpendWindow`, `ringSpendWindowAddress`,
   `ZolanaClient.getRingSpendRecord`, `proveCustomRingCompressedPolicy`, the
-  `SpendRecord` and `SpendCounters` codecs and the `spendRecords` field of
-  `AuditedRingTransaction` and `DecryptedRingTransaction` no longer exist → a
-  table's `limits` bound each transfer on its own, and the co-signer signs a
-  transfer above `cosignAbove`.
-- `RingTransactionSubmission` no longer takes `windowChanged`,
-  `RingSubmissionAttempt` no longer has `window`, and
-  `RingSubmissionWindowChanged` is gone → drop them.
+  `SpendRecord` and `SpendCounters` codecs, the `spendRecords` field of
+  `AuditedRingTransaction` and `DecryptedRingTransaction`,
+  `RingTransactionSubmission.windowChanged`, `RingSubmissionAttempt.window` and
+  `RingSubmissionWindowChanged` no longer exist → drop them, a table's `limits`
+  bound each transfer on its own, and the co-signer signs a transfer above
+  `cosignAbove`.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
+- Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte
+  opening that also discloses the Ed25519 owner key of an anonymous ring
+  deposit, `RingDepositOpening` takes it as `ownerKey` and
+  `openRingDepositOpening` returns it → re-prove audited deposits with this
+  version, a capsule sealed by an earlier version no longer decodes.
+- `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now
+  pass the ring config as the second account, which the ring program of this
+  release requires → rebuild the instruction with this version.
 
 Added
 
+- `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and
+  recipients in `anonymous` for authorized anonymous-ring audit readers, and
+  `openAnonymousAuditDisclosure`, `auditDisclosureLength`,
+  `anonymousAuditDisclosureShape` and `isDummyAnonymousOutput` open and size
+  the auditor disclosure of an anonymous ring.
+- `syncWallet` discovers anonymous ring deposits and transfers under the zero
+  view tag and verifies decrypted outputs against their committed UTXO hashes,
+  while transaction builders reject anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other
-  than the wallet owner like `buildTransferTransaction`.
-- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
-  `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
-  fifteen, or holds a malformed payment.
+  than the wallet owner like `buildTransferTransaction`, and `WalletErrorCode`
+  adds `WALLET_INVALID_PAYMENT_COUNT` and `WALLET_INVALID_PAYMENT` for a
+  payment list that is empty, longer than fifteen, or holds a malformed
+  payment.
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
-  client that names its prover.
-- `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
-  its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
-- `RingTransactPolicy.keyRegistryRoot`, `RingSubmissionAttempt.keyRegistryRoot`
-  and the `registry` reader of `RingTransactionSubmission` let a submission
-  check the registry slot its escrowed proof names.
+  client that names its prover, and `ProverClient.hasIndexedRoute` says
+  whether the prover reads proof data from its own indexer, false for the
+  Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
 - `RingProgramError` names `unexpectedKeyRegistryRoot`, `unexpectedApproval`,
   `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
-  `invalidDepositData` and `unexpectedRevocationTarget`, the ring program's
-  refusals of this release.
+  `invalidDepositData` and `unexpectedRevocationTarget`, and `ShieldedPoolError`
+  names `RingEd25519OutputOwnerTag`, the refusals of this release's programs.
 
 Changed
 
@@ -96,14 +109,20 @@ Changed
   its measurements and encryption key included, where it threw before.
 - Ring transfer, exit, withdrawal and delegate submissions treat a rejected
   proof as final unless later registrations replaced the key registry root at
-  the slot an escrowed proof names, which rebuilds it.
+  the slot an escrowed proof names, which rebuilds it, and
+  `RingTransactPolicy.keyRegistryRoot`, `RingSubmissionAttempt.keyRegistryRoot`
+  and the `registry` reader of `RingTransactionSubmission` let a submission
+  check that slot.
 
 Fixed
 
-- `recoverTransactionViewingKey`, `auditRingTransaction` and `auditRing`
-  accepted a recovered transaction viewing key at or above the P-256 group
-  order and read the output disclosures under another key, they now refuse a
-  key of zero or at or above the order with `RING_AUDIT_NONCANONICAL_KEY`.
+- `recoverTransactionViewingKey`, `auditRingTransaction`, `auditRing` and
+  `recoverRingMemberNotes` read output disclosures under an alias of the
+  recovered transaction viewing key and rejected the auditor message of an
+  anonymous ring, and `decodeRingProgramConfig` threw on one; an alias now
+  fails with `RING_AUDIT_NONCANONICAL_KEY`, the audit functions take
+  `mode: "anonymous"` and report hidden senders, inputs and recipients in
+  `anonymous`, and the config decodes with `mode`.
 
 ## 0.4.1-alpha — 2026-10-08
 

@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     tag, AuditedDepositPrefix, CustomRingProof, DepositContext, DepositPublicInput,
-    RingDepositAuditCapsule, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    RingDepositAuditCapsule, RingMode, MAX_RING_DEPOSIT_AUDIT_SLOTS,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -12,7 +12,7 @@ use zolana_client::{
     prover::indexed::{IndexedDepositRequest, IndexedRegistry},
     AsyncIndexer, AsyncRpc, AsyncZolanaClient, ComputeBudgetConfig,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, X25519Pubkey};
+use zolana_keypair::{random_blinding, Curve, ShieldedKeypair, X25519Pubkey};
 use zolana_program::instruction::{DepositAsset, DepositBuildError, RingAssetDeposit};
 use zolana_ring_client::{seal_deposits, DepositEncryption, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, Data, Mint, RingDepositPlaintext, Utxo};
@@ -59,6 +59,8 @@ pub struct PreparedRingDeposit {
 }
 
 struct DepositDisclosure {
+    /// The Ed25519 owner key an anonymous ring discloses, the proof binds it to the owner hash.
+    owner_key: Option<[u8; 32]>,
     context_hash: [u8; 32],
     owner_utxo_hash: [u8; 32],
     key: OutputKey,
@@ -94,11 +96,19 @@ impl RingDeposit<'_> {
             .config(rpc)
             .await?
             .ok_or(RingError::MissingRingConfig)?;
+        let anonymous = config.mode == RingMode::Anonymous;
+        // An anonymous ring spends only through the hidden Ed25519 proof.
+        if anonymous && self.recipient.signing_pubkey().curve()? != Curve::Ed25519 {
+            return Err(RingError::AnonymousRecipient);
+        }
         let blinding = random_blinding();
         let owner_hash = self.recipient.owner_hash()?;
         let mut deposit = RingAssetDeposit {
             asset: self.asset,
-            view_tag: self.recipient.recipient_bootstrap_view_tag(),
+            view_tag: match anonymous {
+                true => [0; 32],
+                false => self.recipient.recipient_bootstrap_view_tag(),
+            },
             owner_utxo_hash: owner_utxo_hash(&owner_hash, &blinding)?,
             amount: self.amount,
             ring_data_hash: [0; 32],
@@ -111,48 +121,54 @@ impl RingDeposit<'_> {
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
         let key_registry = KeyRegistry::of(self.ring, &config);
-        let disclosure = if key_registry.is_some() || self.ring.deposit_audit(rpc).await? {
-            let opening = DepositOpening {
-                owner_hash,
-                blinding: Zeroizing::new(blinding),
-            };
-            let encryption = seal_deposits(&[opening], &config.auditor_pubkey)?;
-            deposit.encrypted.ciphertext = RingDepositAuditCapsule {
-                slot_index: 0,
-                eph_pk: encryption.ephemeral_pk.as_bytes(),
-                ciphertext: &encryption.ciphertexts[0],
-                recipient_ciphertext: &deposit.encrypted.ciphertext,
-            }
-            .encode();
-            // The proof binds the ring, the tree and the exact forwarded SPP bytes.
-            let spp = zolana_program::instruction::RingDeposit {
-                tree: self.tree,
-                depositor: self.payer.pubkey(),
-                ring_program_id: self.ring.program_id(),
-                deposits: vec![deposit.clone()],
-            }
-            .instruction()?;
-            let address = self.recipient.shielded_address()?;
-            Some(DepositDisclosure {
-                context_hash: DepositContext {
-                    program_id: self.ring.program_id().as_array(),
-                    tree: self.tree.as_array(),
-                    spp_data: &spp.data,
+        let disclosure =
+            if anonymous || key_registry.is_some() || self.ring.deposit_audit(rpc).await? {
+                let address = self.recipient.shielded_address()?;
+                let owner_key = anonymous
+                    .then(|| address.signing_pubkey.as_ed25519())
+                    .transpose()?;
+                let opening = DepositOpening {
+                    owner_hash,
+                    blinding: Zeroizing::new(blinding),
+                    owner_key,
+                };
+                let encryption = seal_deposits(&[opening], &config.auditor_pubkey)?;
+                deposit.encrypted.ciphertext = RingDepositAuditCapsule {
+                    slot_index: 0,
+                    eph_pk: encryption.ephemeral_pk.as_bytes(),
+                    ciphertext: &encryption.ciphertexts[0],
+                    recipient_ciphertext: &deposit.encrypted.ciphertext,
                 }
-                .hash()?,
-                owner_utxo_hash: deposit.owner_utxo_hash,
-                key: OutputKey {
-                    owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
-                    nullifier_pk: address.nullifier_pubkey,
-                },
-                blinding: Zeroizing::new(blinding),
-                encryption,
-                auditor: config.auditor_pubkey,
-                key_registry,
-            })
-        } else {
-            None
-        };
+                .encode();
+                // The proof binds the ring, the tree and the exact forwarded SPP bytes.
+                let spp = zolana_program::instruction::RingDeposit {
+                    tree: self.tree,
+                    depositor: self.payer.pubkey(),
+                    ring_program_id: self.ring.program_id(),
+                    deposits: vec![deposit.clone()],
+                }
+                .instruction()?;
+                Some(DepositDisclosure {
+                    owner_key,
+                    context_hash: DepositContext {
+                        program_id: self.ring.program_id().as_array(),
+                        tree: self.tree.as_array(),
+                        spp_data: &spp.data,
+                    }
+                    .hash()?,
+                    owner_utxo_hash: deposit.owner_utxo_hash,
+                    key: OutputKey {
+                        owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
+                        nullifier_pk: address.nullifier_pubkey,
+                    },
+                    blinding: Zeroizing::new(blinding),
+                    encryption,
+                    auditor: config.auditor_pubkey,
+                    key_registry,
+                })
+            } else {
+                None
+            };
         Ok(PreparedRingDeposit {
             ring: self.ring,
             tree: self.tree,
@@ -276,6 +292,7 @@ impl DepositDisclosure {
         let root = escrow.map(|escrow| escrow.root.root);
         let public_input_hash = DepositPublicInput {
             context_hash: &self.context_hash,
+            anonymous: self.owner_key.is_some(),
             owner_utxo_hashes: &[self.owner_utxo_hash],
             ciphertexts: &self.encryption.ciphertexts,
             auditor_pk: self.auditor.as_bytes(),
@@ -297,7 +314,9 @@ impl DepositDisclosure {
             public_input_hash,
             context_hash: self.context_hash,
             count: 1,
+            anonymous: self.owner_key.is_some(),
             owner_pk_hashes: first(self.key.owner_pk_hash),
+            owner_keys: self.owner_key.map(first),
             nullifier_pks: first(self.key.nullifier_pk),
             blindings: Zeroizing::new(first(*self.blinding)),
             keys,

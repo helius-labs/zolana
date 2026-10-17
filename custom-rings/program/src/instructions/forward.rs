@@ -1,4 +1,4 @@
-use custom_ring_interface::{CoSignScope, CustomRingError, KeyEscrow, RingProgramConfig};
+use custom_ring_interface::{CoSignScope, CustomRingError, RingMode};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
@@ -6,7 +6,7 @@ use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataR
 use crate::instructions::{
     cosign::demanded_cosigner,
     deposit_audit::{verify_deposit_disclosure, AuditedDeposit},
-    loader::{load, load_deposit_audit, load_escrow_root, validate_spp_program},
+    loader::{load_audited_config, load_deposit_audit, load_escrow_root, validate_spp_program},
     public_legs::PublicLegs,
     shared::{cpi_spp, SppSigners},
     transact::Controls,
@@ -30,10 +30,14 @@ impl Forward {
     ) -> ProgramResult {
         let mut iter = AccountIterator::new(accounts);
         let controls = Controls::next(&mut iter)?;
-        let config = *load::<RingProgramConfig>(program_id, controls.config)?;
-        let escrow = config.key_escrow();
-        if matches!(self, Forward::Deposit) && escrow == KeyEscrow::Registry {
+        let config = load_audited_config(program_id, controls.config)?;
+        let anonymous = config.mode == RingMode::Anonymous;
+        if matches!(self, Forward::Deposit) && config.mode != RingMode::Off {
             return Err(CustomRingError::DepositAuditRequired.into());
+        }
+        // A merge has no auditor proof to disclose an anonymous balance change.
+        if matches!(self, Forward::Merge) && anonymous {
+            return Err(CustomRingError::InvalidMergeDisclosure.into());
         }
         let audited = match self {
             Forward::AuditedDeposit => Some(AuditedDeposit::parse(data)?),
@@ -49,7 +53,7 @@ impl Forward {
         let key_registry_root = match &audited {
             Some(audited) => load_escrow_root(
                 program_id,
-                escrow,
+                config.mode,
                 audited.key_registry_root_index,
                 &mut iter,
             )?,
@@ -64,6 +68,17 @@ impl Forward {
             Forward::Merge => None,
         };
         validate_spp_program(spp_accounts)?;
+        // Public deposit fields in an anonymous ring would name the recipient.
+        if anonymous
+            && deposit.as_ref().is_some_and(|deposit| {
+                deposit
+                    .deposits
+                    .iter()
+                    .any(|entry| entry.view_tag != &[0; 32] || entry.ring_data_hash != &[0; 32])
+            })
+        {
+            return Err(CustomRingError::InvalidAnonymousOutput.into());
+        }
 
         if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
             let tree = spp_accounts
@@ -72,7 +87,7 @@ impl Forward {
             verify_deposit_disclosure(
                 program_id,
                 tree.address(),
-                &config.auditor_pubkey,
+                &config,
                 key_registry_root.as_ref(),
                 audited,
                 deposit,

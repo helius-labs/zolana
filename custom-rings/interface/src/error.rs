@@ -97,6 +97,13 @@ ring_errors! {
     InvalidDepositData = 8180 => "forwarded deposit data is invalid",
     UnexpectedRevocationTarget = 8181 => "an audit-only statement takes no revocation target",
     // 8182 retired with the public spend windows.
+    LegacyAuditorKey = 8183 => "the ring's auditor key is a legacy P256 key",
+    InvalidRingMode = 8184 => "the ring mode is unknown",
+    AnonymousRingRefused = 8185 => "an anonymous ring refuses this operation",
+    InvalidAnonymousOutput = 8186 => "an anonymous ring output must carry a zero owner tag",
+    InvalidAnonymousSigner = 8187 => "an anonymous ring transaction takes no owner signer",
+    InvalidMergeDisclosure = 8188 =>
+        "the merge disclosure does not match the ring mode or the auditor key",
 }
 
 impl From<CustomRingError> for ProgramError {

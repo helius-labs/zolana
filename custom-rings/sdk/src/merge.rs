@@ -1,5 +1,6 @@
 //! The custom-ring binding of SPP's owner-preserving merge.
 
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
@@ -111,10 +112,15 @@ impl PreparedCustomRingMerge {
         input: MergeProofInput,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<ProvenCustomRingMerge, RingError> {
-        self.ring
+        let config = self
+            .ring
             .config(client)
             .await?
             .ok_or(RingError::MissingRingConfig)?;
+        // A merge carries no auditor proof, an anonymous ring would hide its balance change.
+        if config.mode == RingMode::Anonymous {
+            return Err(RingError::AnonymousRingRefused);
+        }
         let input_tree_id = tree_id(client, input.input_tree).await?;
         if self
             .inner

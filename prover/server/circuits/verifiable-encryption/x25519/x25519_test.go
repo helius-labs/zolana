@@ -15,7 +15,7 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 )
 
 type testCircuit struct {
@@ -142,7 +142,7 @@ func TestLayoutSweep(t *testing.T) {
 	}
 	for _, bits := range []int{32, 43, 51, 64, 85} {
 		t.Run(fmt.Sprint(bits), func(t *testing.T) {
-			lay := emfield.Layout{NbLimbs: (255 + bits - 1) / bits, LimbBits: bits, PieceBits: 11, Lookups: true}
+			lay := emfield.Layout{NbLimbs: (255 + bits - 1) / bits, LimbBits: bits, PieceBits: 11}
 			cs := compile(t, lay)
 			if err := solve(cs, assignment(s[:], p[:], want)); err != nil {
 				t.Fatal(err)
@@ -248,32 +248,5 @@ func TestLowOrder(t *testing.T) {
 				t.Fatalf("accepted low-order %d", i)
 			}
 		}
-	}
-}
-
-func TestWithoutLookups(t *testing.T) {
-	cs := compile(t, emfield.PlainLayout)
-	if commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments); ok && len(commitments) != 0 {
-		t.Fatal("plain mode added a lookup commitment")
-	}
-	for _, u := range []int64{2, 9} {
-		s := sha256.Sum256([]byte(fmt.Sprintf("plain mode %d", u)))
-		peer := littleEndian(big.NewInt(u))
-		want, err := host(s[:], peer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		w := assignment(s[:], peer, want)
-		if err := solve(cs, w); err != nil {
-			t.Fatal(err)
-		}
-		w.Shared[0] = byte(w.Shared[0].(byte) ^ 1)
-		if err := solve(cs, w); err == nil {
-			t.Fatal("accepted wrong result")
-		}
-	}
-	zero := make([]byte, 32)
-	if err := solve(cs, assignment(zero, zero, zero)); err == nil {
-		t.Fatal("accepted low-order peer")
 	}
 }

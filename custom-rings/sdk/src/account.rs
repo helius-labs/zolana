@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    CoSignScope, CoSigner, Delegate, DepositAudit, KeyEscrow, KeyRegistryRoot, PolicyConfig,
-    ReadAccessRecord, RingAccount, RingProgramConfig, KEY_REGISTRY_CAPACITY,
+    CoSignScope, CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
+    RingAccount, RingMode, RingProgramConfig, KEY_REGISTRY_CAPACITY,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -22,7 +22,8 @@ pub struct CustomRingConfig {
     pub auditor_pubkey: X25519Pubkey,
     /// A policy ring enforces its compiled rules, an audit-only ring proves only the audit statement.
     pub has_policy: bool,
-    pub key_escrow: KeyEscrow,
+    /// Fixed for the ring's life, selects the spend rail and the disclosure layout.
+    pub mode: RingMode,
 }
 
 /// SOL under the zero address, a mint without a row always needs the co-signer.
@@ -173,14 +174,15 @@ impl CustomRing {
         else {
             return Ok(None);
         };
-        let invalid = RingError::InvalidAccount {
+        let invalid = || RingError::InvalidAccount {
             address: self.config_pda(),
         };
         Ok(Some(CustomRingConfig {
             authority: config.authority,
-            auditor_pubkey: X25519Pubkey::from_bytes(config.auditor_pubkey).map_err(|_| invalid)?,
+            auditor_pubkey: X25519Pubkey::from_bytes(config.auditor_pubkey)
+                .map_err(|_| invalid())?,
             has_policy: config.has_policy != 0,
-            key_escrow: config.key_escrow(),
+            mode: config.mode().ok_or_else(invalid)?,
         }))
     }
 

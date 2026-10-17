@@ -157,7 +157,7 @@ fn policy_ring() -> Accounts {
         auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &program).1,
         has_policy: 1,
-        key_escrow: 0,
+        mode: 0,
     };
     let table = RuleTable::builder().build();
     Accounts::default()

@@ -200,6 +200,7 @@ impl std::ops::DerefMut for TestWallet {
 
 pub enum Tier {
     AuditOnly,
+    AnonymousAuditOnly,
     Policy {
         address_tree: Address,
         rules: &'static RuleTable,
@@ -251,13 +252,14 @@ impl<'a> RegisterRing<'a> {
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
         let has_policy = matches!(self.tier, Tier::Policy { .. });
-        send(
-            rpc,
-            self.payer,
-            &[self
-                .ring
-                .create_config(authority, authority, self.auditor_pubkey, has_policy)?],
-        )?;
+        let ring = self.ring;
+        let instruction = match self.tier {
+            Tier::AnonymousAuditOnly => {
+                ring.create_anonymous_config(authority, authority, self.auditor_pubkey, has_policy)?
+            }
+            _ => ring.create_config(authority, authority, self.auditor_pubkey, has_policy)?,
+        };
+        send(rpc, self.payer, &[instruction])?;
         Ok(ConfiguredRing {
             ring: self.ring,
             payer: self.payer,

@@ -1,0 +1,1283 @@
+[
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 3",
+    "number": 0,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 11",
+    "number": 1,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 7",
+    "number": 2,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 3",
+    "number": 3,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 7",
+    "number": 4,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000005e176f12cfb0d4e6eb6929b19ae4c998ef05c1c2cf628a9b1fa1c21312627108"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 3",
+    "number": 5,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000009472a69cd9a701a50d130ed52189e2455b23767db52cacb8716fb896ffeeac09"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 10",
+    "number": 6,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56bc02e2b9e63e385c058bf62b14b3a2b29ccefe8e38ddb536bc3f9865320a3d801"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors",
+    "number": 7,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56bbbfd00bd9c259d8d222d15e67a3d8228585050dbb9b9585be20d8fadc721da03"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 8",
+    "number": 8,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 6",
+    "number": 9,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 4",
+    "number": 10,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors",
+    "number": 11,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 7",
+    "number": 12,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 3",
+    "number": 14,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_R"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 10",
+    "number": 15,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 6",
+    "number": 16,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f1cb421dfbd92aa6c30d550bff53c81cf650ace6deb96a8ec22d2fef84dbbe20b"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_R"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 3",
+    "number": 17,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fad7a355469b5c87e550469f6b2de409ee723acd584bf35f86b80c384e8ceb702"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 7",
+    "number": 18,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f5e176f12cfb0d4e6eb6929b19ae4c998ef05c1c2cf628a9b1fa1c21312627108"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 3",
+    "number": 19,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f9472a69cd9a701a50d130ed52189e2455b23767db52cacb8716fb896ffeeac09"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 2",
+    "number": 20,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 15",
+    "number": 21,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 2",
+    "number": 29,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a94732d9e0279fe001d90327efa319816e3e4506b78432b8b4e1f2fdc4b960d700f"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_component_A",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 9",
+    "number": 35,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a9405ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 11",
+    "number": 44,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 5",
+    "number": 45,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors",
+    "number": 46,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 3",
+    "number": 47,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 13",
+    "number": 48,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000000edfd6f478b59eab2545cf8f3d48c6574d2b4e8abd948148da5c62479113b8d0f"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 4",
+    "number": 49,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000000879e8751046a31d163df68051bbd909e6d26c8414883ba3475bf00e17c1e7b04"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 5",
+    "number": 50,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350608f32d206a7c0b7efa9a59e66546e8f1f599ef843fb502c9cc3c4ae8b7c11e05"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_component_A",
+      "low_order_residue"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 3",
+    "number": 51,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a3506030b03796b78f7afeadfccaedc9d09ce6d487d1ece1f16b1ae2b59b7e5c40603"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 5",
+    "number": 52,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 1",
+    "number": 53,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 5",
+    "number": 54,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 6",
+    "number": 55,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors",
+    "number": 56,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "non_canonical_R"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 5",
+    "number": 58,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 1",
+    "number": 59,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A",
+      "non_canonical_R"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 2",
+    "number": 60,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000080c85efbb96e35e1b671722d5d8de687d4e148ea15ec566be6a1f3cfb8a10a9d06"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 29",
+    "number": 61,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000804b18627cef9707137b02358c8b73769381269bf7cac9c473483c83c46a615d09"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 13",
+    "number": 62,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000080edfd6f478b59eab2545cf8f3d48c6574d2b4e8abd948148da5c62479113b8d0f"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_A",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 13",
+    "number": 74,
+    "sig": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffedfd6f478b59eab2545cf8f3d48c6574d2b4e8abd948148da5c62479113b8d0f"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 11",
+    "number": 76,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_A",
+      "low_order_residue",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "msg": "ed25519vectors 4",
+    "number": 77,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "10eb7c3acfb2bed3e0d6ab89bf5a3d6afddd1176ce4812e38d9fd485058fdb1f",
+    "msg": "ed25519vectors 4",
+    "number": 117,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf9ecf8dc78bf5c647c714a00acf11719551952b488c2c9df967c7d48b479420e0e"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "dd1483c5304d412c1f29547640a5c2950222ee8931b7ed1c72602b7afa7024e0",
+    "msg": "ed25519vectors",
+    "number": 139,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b25e180a8f97db7419c7adb79f5063f045cb18fc6af517852e3687be84bd7e803"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "dd1483c5304d412c1f29547640a5c2950222ee8931b7ed1c72602b7afa7024e0",
+    "msg": "ed25519vectors 9",
+    "number": 161,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a9426c8d0de0953df46bc0049fed1261b7c06189e84e5c14985454485ba5a4fb501"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "dd1483c5304d412c1f29547640a5c2950222ee8931b7ed1c72602b7afa7024e0",
+    "msg": "ed25519vectors 14",
+    "number": 182,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a35063cb743a485cffaa684d0d66a5ae347d17a5638e90dc2be541023114a5961f805"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_A",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "msg": "ed25519vectors 15",
+    "number": 188,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "dd1483c5304d412c1f29547640a5c2950222ee8931b7ed1c72602b7afa7024e0",
+    "msg": "ed25519vectors 8",
+    "number": 249,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf96f525d28c69be17ff4c0922ec4de39da15d46baad32dde92e4c37201b5cbd103"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 3",
+    "number": 264,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 5",
+    "number": 265,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_residue"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors",
+    "number": 266,
+    "sig": "0000000000000000000000000000000000000000000000000000000000000000ef1195f0610612912016b3ee33054829bcea20ae4de1e9343b1c4e2e15649003"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_component_R",
+      "low_order_residue"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 3",
+    "number": 267,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b2d471882773a677af1e3824e757a33f8ddf7bbeaf3d28a09595eb8daa0d74a03"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors",
+    "number": 268,
+    "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 20",
+    "number": 269,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 5",
+    "number": 270,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b05ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 5",
+    "number": 277,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_R"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 2",
+    "number": 278,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fa83f56d4ca92da1f056c0bbaa0cc73cb350790210431ad647415c6a71242860c"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors",
+    "number": 279,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fef1195f0610612912016b3ee33054829bcea20ae4de1e9343b1c4e2e15649003"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "low_order_component_R",
+      "low_order_residue",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 2",
+    "number": 280,
+    "sig": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 23",
+    "number": 302,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 5",
+    "number": 303,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 7",
+    "number": 304,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000000330b30d6c1f07511e2208d233b6a34d4ed7109da2dea615bcd97daee3a842704"
+  },
+  {
+    "dalek_strict": true,
+    "flags": null,
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 5",
+    "number": 305,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350640657f1cb030f12543549bbabd848dc6403d354e7c99c4d0dcee9f63c9033b00"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "non_canonical_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 6",
+    "number": 306,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "non_canonical_A"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 1",
+    "number": 307,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_A",
+      "non_canonical_A",
+      "reencoded_k"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors 5",
+    "number": 308,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350605ba9a796274d80437afa36f1236563f2f3b0aa84cecddc3d20914615ba4fe02"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "non_canonical_R"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000000",
+    "msg": "ed25519vectors 4",
+    "number": 315,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "non_canonical_R"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 5",
+    "number": 316,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000802d32f9eeccaa31dba2ff4ab4e196b61e2ee1648073bbb5f599dcff4f7ea02900"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "non_canonical_R",
+      "reencoded_k"
+    ],
+    "key": "ef75b20e7540e3dff77404193652ba2bd13df99c1508eee1515e27ae25f28076",
+    "msg": "ed25519vectors 7",
+    "number": 317,
+    "sig": "0100000000000000000000000000000000000000000000000000000000000080330b30d6c1f07511e2208d233b6a34d4ed7109da2dea615bcd97daee3a842704"
+  },
+  {
+    "dalek_strict": false,
+    "flags": [
+      "low_order_R",
+      "low_order_A",
+      "non_canonical_A",
+      "non_canonical_R"
+    ],
+    "key": "0100000000000000000000000000000000000000000000000000000000000080",
+    "msg": "ed25519vectors",
+    "number": 324,
+    "sig": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 7",
+    "number": 411,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56bd79e8fd671739b78d219e13e1b578516549b9c90c988249f62d1d6a2b40ea606"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors",
+    "number": 425,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a94d205a702b93f4292e22186bd167770bfa3278f37a46264a735b31e757393e50f"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 4",
+    "number": 438,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350606eafe34c35b824e46e082060ca75777e699beb94810d8195d570395c050470f"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 2",
+    "number": 465,
+    "sig": "5ae36d433a7bd0efb150b6b04610d1986e3044c46b6ad69bae17aaf76b608d21ddfb80c3b500d19d9a01010fb34cf3c00c7bc6e972e7d672e19ec969bd5b1908"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 2",
+    "number": 473,
+    "sig": "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f116f03b9c47f23619e95184c7914c139f4a66906150bdc0635512421be6e282004"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 16",
+    "number": 481,
+    "sig": "f36121d8b0b7df104e6576f0745d2786e8ef5bcfc3110b512062223b17e5e0ee035953cc64888fcdb0e70de5779b546a4c56b2d8f579748b4ce963887eb36705"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 41",
+    "number": 489,
+    "sig": "931c92bcc5842f104eaf494fb9ef2e6791cfbb3b9495296451e85508949f72dec0096ae4cafa9e22026530dc5fd2efd3159c8b1e4bcbfee4bb18049c43a33a03"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "6718d0a3d58deaeaefa655eae3f119071deaa2cfebfd0ca28b670f879d657086",
+    "msg": "ed25519vectors 10",
+    "number": 497,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf9b452dd12a8b87cd3b6a527364a5e6f99eead5739469d5d120d95e50394681605"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 15",
+    "number": 511,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b097c3f79437cd87c6061fb032f792cd8cf46cbb4ce390b4decb9c1bf5e70ad0b"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 12",
+    "number": 525,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a9416e0b2ca09fe5b8ba05f5f8d3b4ab0e39b79b549775a9e136fd9d6fedf3b8609"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors",
+    "number": 538,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a350610dba6a8317cea9cda386e05f66eabb4248890064325c1d7a567a3443ce26606"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 6",
+    "number": 565,
+    "sig": "5ae36d433a7bd0efb150b6b04610d1986e3044c46b6ad69bae17aaf76b608d219c41f676f85cd5a5eee282112170365be8a4820e7cc4d13fdb88b1bf1f106c0b"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 4",
+    "number": 573,
+    "sig": "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f115f11918f318e44147d456b9e33399dd987efaa7fb06b2485e1dd2f2e0c1e4b04"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 2",
+    "number": 581,
+    "sig": "f36121d8b0b7df104e6576f0745d2786e8ef5bcfc3110b512062223b17e5e0ee40bdefba7a8c40c0580426e32719149f9600226b48f5e27dae52b6fbbdcf5805"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 11",
+    "number": 589,
+    "sig": "931c92bcc5842f104eaf494fb9ef2e6791cfbb3b9495296451e85508949f72de54af5f2d4dd8095dbea5873cc38d78ea426817d2fd61e9de5ec5165c93e62f09"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "eca00a6a1b1f522ff2217691059915b097b73bc69bef396c36ddcd559b79e2b0",
+    "msg": "ed25519vectors 2",
+    "number": 597,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf9e8df7d32a60fca528b0606d03f8bd6e57619183cb72e99da237d97f87213d301"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 5",
+    "number": 611,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b945fc1469dbba776f427c47e386524dc1916bf9aad21268232b7f49b15310c06"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 4",
+    "number": 625,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a948f8fa9222af828b040bcd86187c66d23faa97d1a51be5d5126bfd78688897b00"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 14",
+    "number": 638,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a3506104c833a1253a48cd66e54cab38543281b75e53c8bccb6a1dccd45eb251f1307"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 5",
+    "number": 665,
+    "sig": "5ae36d433a7bd0efb150b6b04610d1986e3044c46b6ad69bae17aaf76b608d2110ac576cd0481197776c0121a40caf560b3fc593fa0982e1e274007955fe530a"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 3",
+    "number": 673,
+    "sig": "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f119a4fca0c7482f8d9f37923d8702d104d07b549e08225193b2818a6380e9ab40f"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 1",
+    "number": 681,
+    "sig": "f36121d8b0b7df104e6576f0745d2786e8ef5bcfc3110b512062223b17e5e0eef282a24a316fe5449ea437d32470df2c968f2f27688653d1e026ad3d3bfb530c"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 7",
+    "number": 689,
+    "sig": "931c92bcc5842f104eaf494fb9ef2e6791cfbb3b9495296451e85508949f72de55ba20be6f48cddf9d90aef69958f1c53baa96226c0d788f25b13754d1a33207"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "015ff595e4e0add00dde896efa66ea4f6848c4396410c693c92232aa64861d4f",
+    "msg": "ed25519vectors 18",
+    "number": 697,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf9e97e9b1f47281ed688a320de5912618b62c9dac64d5971e2aab2d487038cc90b"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 9",
+    "number": 711,
+    "sig": "36684ea91032ba5b1dbab2d02f4debc74c3327f2b3802e2e4d371aa42b12b56b074fc0dd361fa65cf275443e324c504017fa8e80bba2a1c5ad46f116c3dac901"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors",
+    "number": 725,
+    "sig": "b797b156efcd45a4e2454d2fd0b21438b3ccd80d4c7fd1d1b2c8e55bd4ed4a94a69145f508ef4ce1a0fd25025d82516e06e492ef088de45da784f8a863ebe401"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 5",
+    "number": 738,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a3506bc1f0d2c7b653d5aaf07a71c130d8aff5bef8653d6984f2b223081ac24a62005"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 15",
+    "number": 765,
+    "sig": "5ae36d433a7bd0efb150b6b04610d1986e3044c46b6ad69bae17aaf76b608d214f406acc5ef89838ac824d84529e2557b738d678e3b9070634232af8e8a16d02"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 4",
+    "number": 773,
+    "sig": "fa9dde274f4820efb19a890f8ba2d8791710a4303ceef4aedf9dddc4e81a1f111a1ba75dc71a1c3275e4dd3115b1638f67d16f1440d16dcc2c0188bbb17d6206"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 5",
+    "number": 781,
+    "sig": "f36121d8b0b7df104e6576f0745d2786e8ef5bcfc3110b512062223b17e5e0ee3939ad4e3797f4d869b51cb36f6b937987df797d46b851c6abc76ef707c60503"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors",
+    "number": 789,
+    "sig": "931c92bcc5842f104eaf494fb9ef2e6791cfbb3b9495296451e85508949f72de83458650b497c3f7226cb93e9324df567b1adda39378e844230453b95aa8c801"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "86e72f5c2a7215151059aa151c0ee6f8e2155d301402f35d7498f078629a8f79",
+    "msg": "ed25519vectors 8",
+    "number": 797,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf904864848c5ff5361609e941b2136012ac88139a34707e12cadf6645dff0b1008"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_A"
+    ],
+    "key": "fe894df18abf1c20088bfbe6c9ad45d42ec20663eaf7111eaea1d851da0d7f89",
+    "msg": "ed25519vectors 23",
+    "number": 832,
+    "sig": "b62cf890de42c413b11b1411c9f01f1c4d77aa87ef182258d1251f69af2a3506ccbd210592f2a2b70a9c9ba91f97d642a2e51b9a67ec788188039228a24e0e09"
+  },
+  {
+    "dalek_strict": true,
+    "flags": [
+      "low_order_component_R",
+      "low_order_component_A"
+    ],
+    "key": "fe894df18abf1c20088bfbe6c9ad45d42ec20663eaf7111eaea1d851da0d7f89",
+    "msg": "ed25519vectors 3",
+    "number": 899,
+    "sig": "37d3076f21bd3bec4ee4ebee360fe0e3b288557810e7dda72edae09650d5caf9327f51a83cacea96d1f3fc6be0e2682f22ce35400ccb707aa30a7321ed6dff05"
+  }
+]

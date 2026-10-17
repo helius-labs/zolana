@@ -1,5 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
@@ -46,6 +47,8 @@ pub(crate) struct AuthorizedRead<'a, S> {
     service: &'a AuditService<S>,
     page: &'a Page,
     replay: ReplayCheck,
+    /// The config read at authorization selects the disclosure layout.
+    mode: RingMode,
     _reader: ReaderPermit<'a>,
 }
 
@@ -179,6 +182,7 @@ impl<S: TransactionSource> AuditService<S> {
                 timestamp: request.auth.timestamp,
                 now,
             },
+            mode: config.mode,
             _reader: permit,
         })
     }
@@ -187,18 +191,20 @@ impl<S: TransactionSource> AuditService<S> {
         &self,
         transaction: &zolana_client::ShieldedTransaction,
         assets: &AssetRegistry,
+        mode: RingMode,
     ) -> Result<AuditedTransaction, AuditError> {
         TransactionAudit {
             auditor: &self.auditor,
             transaction,
             assets,
         }
-        .run()
+        .run_with_mode(mode)
     }
 
     async fn decrypted_transactions(
         &self,
         page: &Page,
+        mode: RingMode,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         let source = &self.shared.source;
         let response = source
@@ -231,12 +237,12 @@ impl<S: TransactionSource> AuditService<S> {
             if !origin.ring_invoked {
                 continue;
             }
-            let mut result = self.audit(&tx, &assets);
+            let mut result = self.audit(&tx, &assets, mode);
             // One registry refresh per page covers a mint registered since the last one.
             if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed {
                 assets = self.shared.refresh_assets().await?;
                 refreshed = true;
-                result = self.audit(&tx, &assets);
+                result = self.audit(&tx, &assets, mode);
             }
             match result {
                 Ok(opened) => items.push(DecryptedTransaction::new(
@@ -272,7 +278,9 @@ impl<S: TransactionSource> AuditService<S> {
 impl<S: TransactionSource> AuthorizedRead<'_, S> {
     pub(crate) async fn execute(self) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         self.service.shared.replay.accept(self.replay)?;
-        self.service.decrypted_transactions(self.page).await
+        self.service
+            .decrypted_transactions(self.page, self.mode)
+            .await
     }
 }
 

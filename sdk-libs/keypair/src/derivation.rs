@@ -22,29 +22,17 @@ use crate::{
     x25519::{X25519Pubkey, X25519Secret},
 };
 
-pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
-
 pub(crate) const DST_X25519_VIEW_ROOT: &[u8] = b"TSPP/view_root/x25519/v1";
 
 pub(crate) const DST_X25519_PDA_ROOT: &[u8] = b"TSPP/pda_root/x25519/v1";
-
-pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC1;
 
 pub const DST_DERIVE_P_DERIVE: &[u8] = b"TSPP/nullifier/P_nullifier/v1";
 
 pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_DERIVE_SEC1;
 
-pub const DST_PDA_ROOT_P_PDA: &[u8] = b"TSPP/pda_root/P_pda/v1";
-
-pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_PDA_SEC1;
-
 pub const INFO_NF_KEY_ED25519: &[u8] = b"TSPP/nf_key/ed25519/v1";
 
 pub const INFO_NF_KEY_ECDH: &[u8] = b"TSPP/nf_key/ecdh/v1";
-
-pub const INFO_VIEW_KEY_ED25519: &[u8] = b"TSPP/view_key/ed25519/v1";
-
-pub const INFO_VIEW_KEY_ECDH: &[u8] = b"TSPP/view_key/ecdh/v1";
 
 pub const INFO_VIEW_KEY_ED25519_X25519: &[u8] = b"TSPP/view_key/ed25519/x25519/v1";
 
@@ -121,8 +109,6 @@ fn offchain_v0_payload(message: &[u8]) -> Option<&[u8]> {
 pub const INFO_SENDER_VIEW_TAG_SECRET: &[u8] = b"TSPP/sender_view_tag";
 
 pub const INFO_RECIPIENT_VIEW_TAG_SECRET: &[u8] = b"TSPP/recipient_view_tag";
-
-pub const INFO_TX_VIEWING: &[u8] = b"TSPP/tx_viewing";
 
 pub const INFO_TX_VIEWING_X25519: &[u8] = b"TSPP/tx_viewing/x25519/v1";
 

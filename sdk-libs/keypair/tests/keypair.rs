@@ -200,7 +200,6 @@ fn encrypted_slots_are_unique_and_recipient_bound() {
 #[test]
 fn pda_identities_derive_from_the_viewing_key_exchange() {
     let mut world = KeypairWorld::default();
-    cases::pda::p_pda_matches();
     cases::common::random_viewing_key(&mut world, "alice".into());
     cases::common::random_viewing_key(&mut world, "bob".into());
     cases::pda::both_parties_derive_the_same_identity(&mut world, "alice".into(), "bob".into());
@@ -251,7 +250,6 @@ fn viewing_keys_and_tags_match_protocol_vectors() {
     cases::viewing::shared_tag_per_index(&mut world, "alice".into(), "bob".into(), 0, 1);
     cases::viewing::bootstrap_tag(&mut world, "alice".into());
     cases::viewing::tx_key_deterministic(&mut world, "alice".into());
-    cases::viewing::p_const_matches();
     cases::common::viewing_key_from_scalar(&mut world, "k".into(), 1);
     cases::viewing::sender_view_tag_golden(
         &mut world,

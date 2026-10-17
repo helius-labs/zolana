@@ -10,7 +10,7 @@ use zolana_interface::{
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
-use zolana_keypair::Curve;
+use zolana_keypair::{Curve, PublicKey};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
@@ -154,6 +154,9 @@ pub(crate) enum OwnerMode {
     /// Ring authority (anonymous, pubkey-agnostic): every owner uses its own
     /// `owner_pk_field()` as a private witness, regardless of scheme.
     RingAuthority,
+    /// Anonymous ring rail. Inputs of this hidden Ed25519 owner contribute the
+    /// zero sentinel, P256-owned inputs are rejected and no input reads a cache.
+    RingEd25519(PublicKey),
 }
 
 /// One tree a set of padded inputs is spent from: the raw id its UTXOs are
@@ -323,7 +326,10 @@ pub(crate) fn assemble_inputs(
 ) -> Result<AssembledInputs, ClientError> {
     for (index, input) in input_utxos.iter().enumerate() {
         if input.utxo.cache_slot.is_some()
-            && matches!(owner_mode, OwnerMode::Merge | OwnerMode::RingAuthority)
+            && matches!(
+                owner_mode,
+                OwnerMode::Merge | OwnerMode::RingAuthority | OwnerMode::RingEd25519(_)
+            )
         {
             return Err(ClientError::CachedInputUnsupported { index });
         }
@@ -405,8 +411,11 @@ pub(crate) fn assemble_inputs(
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
             (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
-            (OwnerMode::ConfidentialEddsa, true) => {
+            (OwnerMode::ConfidentialEddsa | OwnerMode::RingEd25519(_), true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
+            }
+            (OwnerMode::RingEd25519(hidden), false) if input_utxo.utxo.utxo.owner == *hidden => {
+                [0u8; 32]
             }
             (OwnerMode::RingAuthority, true) => {
                 input_utxo.utxo.utxo.owner.owner_proof_input_hash()?

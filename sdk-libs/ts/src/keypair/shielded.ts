@@ -15,6 +15,7 @@ import {
   concatBytes,
   copyBytes,
 } from "./bytes.js";
+import { X25519_PUBLIC_KEY_LENGTH } from "./constants.js";
 import { type Rail, type RoleSecrets, roleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
@@ -34,9 +35,8 @@ const addressDecoder = getAddressDecoder();
 
 const SIGNING_LENGTH = 34;
 const NULLIFIER_LENGTH = 32;
-const VIEWING_LENGTH = 33;
 /** Mirrors Rust `SHIELDED_ADDRESS_LEN`. */
-export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + VIEWING_LENGTH;
+export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + X25519_PUBLIC_KEY_LENGTH;
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;

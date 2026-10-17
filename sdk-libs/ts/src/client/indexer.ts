@@ -576,6 +576,7 @@ function convertOutputSlot(
     outputContext: Object.freeze({
       hash: copyHash(slot.outputContext.hash),
       tree: slot.outputContext.tree,
+      treeId: slot.outputContext.treeId,
       leafIndex: slot.outputContext.leafIndex,
     }),
     payload: decodeBase64(slot.payload, "output_slot.payload"),

@@ -105,6 +105,27 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
     let decoded: CreateConfigIxData =
         wincode::deserialize_exact(body).expect("body is a complete CreateConfigIxData");
     assert_eq!(decoded.auditor_pubkey, *auditor_pubkey.as_bytes());
+    assert!(decoded.has_policy);
+    assert!(!decoded.anonymous);
+}
+
+#[test]
+fn an_anonymous_config_differs_only_in_its_mode_byte() {
+    let regular = ring()
+        .create_config(payer(), authority(), auditor_pubkey(), false)
+        .expect("instruction");
+    let anonymous = ring()
+        .create_anonymous_config(payer(), authority(), auditor_pubkey(), false)
+        .expect("instruction");
+    assert_eq!(anonymous.accounts, regular.accounts);
+    let (_, body) = split_tag(&anonymous);
+    let decoded: CreateConfigIxData =
+        wincode::deserialize_exact(body).expect("body is a complete CreateConfigIxData");
+    assert!(decoded.anonymous && !decoded.has_policy);
+    let (_, body) = split_tag(&regular);
+    let decoded: CreateConfigIxData =
+        wincode::deserialize_exact(body).expect("body is a complete CreateConfigIxData");
+    assert!(!decoded.anonymous);
 }
 
 #[test]
@@ -1076,6 +1097,7 @@ fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
         instruction.accounts,
         vec![
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(ring().program_id(), false),
             AccountMeta::new_readonly(ring().program_data_pda(), false),

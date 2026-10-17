@@ -8,13 +8,15 @@ use zolana_client::ProofInputUtxo;
 use zolana_keypair::X25519Pubkey;
 use zolana_transaction::Data;
 
+use crate::AnonymousDisclosure;
+
 /// One opened output slot, its asset id resolved to the mint.
 #[derive(PartialEq, Eq)]
 pub struct AuditedOutput {
     /// The slot index the ciphertext is bound to.
     pub slot_index: u32,
     pub recipient_viewing_pk: X25519Pubkey,
-    /// Bound by the circuit to the owner, an x-coordinate for a P256 owner.
+    /// Bound by the circuit to the owner. An anonymous ring takes it from the proved disclosure.
     pub owner_tag: [u8; 32],
     pub asset: Address,
     pub amount: u64,
@@ -47,6 +49,8 @@ pub struct AuditedTransaction {
     pub tx_viewing_pk: X25519Pubkey,
     pub outputs: Vec<AuditedOutput>,
     pub output_openings: Vec<ProofInputUtxo>,
+    /// The proven hidden sender, spent notes and recipients of an anonymous ring.
+    pub anonymous: Option<AnonymousDisclosure>,
     /// Dummies, foreign schemes and slots sealed to another key, every transfer pads with dummies.
     pub undecryptable_slots: Vec<u32>,
 }

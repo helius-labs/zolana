@@ -132,26 +132,11 @@ impl SppProofOutputUtxo {
         tx: &ViewingKey,
         salt: [u8; SALT_LEN],
     ) -> Result<MessageData, TransactionError> {
-        let address = self
-            .owner_address
-            .ok_or(TransactionError::OutputWithoutOwner {
-                slot_index: slot_index as usize,
-            })?;
+        let (address, plaintext, cx) = self.confidential_parts(slot_index, tx, salt)?;
         let mut message = Confidential::encode_plaintext(
-            &ConfidentialOutputPlaintext {
-                asset_id: self.asset.asset_id,
-                amount: self.amount,
-                blinding: self.blinding,
-                ring_program_id: self.ring_program_id,
-                data: self.data.clone(),
-            },
+            &plaintext,
             address.signing_pubkey.confidential_view_tag()?,
-            &ConfidentialEncode {
-                tx: tx.clone(),
-                recipient_pubkey: address.viewing_pubkey,
-                salt,
-                slot_index,
-            },
+            &cx,
         )?;
         if self.ring_program_id.is_some() {
             let decode = |error: std::io::Error| TransactionError::Deserialize(error.to_string());
@@ -167,6 +152,52 @@ impl SppProofOutputUtxo {
             message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).map_err(decode)?;
         }
         Ok(message)
+    }
+
+    /// The owner's message inside an anonymous ring. It publishes neither the
+    /// recipient viewing key nor a scan tag, the ring auditor learns both from its disclosure.
+    pub fn seal_ring_anonymous(
+        &self,
+        slot_index: u32,
+        tx: &ViewingKey,
+        salt: [u8; SALT_LEN],
+    ) -> Result<MessageData, TransactionError> {
+        let (_, plaintext, cx) = self.confidential_parts(slot_index, tx, salt)?;
+        Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)
+    }
+
+    fn confidential_parts(
+        &self,
+        slot_index: u32,
+        tx: &ViewingKey,
+        salt: [u8; SALT_LEN],
+    ) -> Result<
+        (
+            ShieldedAddress,
+            ConfidentialOutputPlaintext,
+            ConfidentialEncode,
+        ),
+        TransactionError,
+    > {
+        let address = self
+            .owner_address
+            .ok_or(TransactionError::OutputWithoutOwner {
+                slot_index: slot_index as usize,
+            })?;
+        let plaintext = ConfidentialOutputPlaintext {
+            asset_id: self.asset.asset_id,
+            amount: self.amount,
+            blinding: self.blinding,
+            ring_program_id: self.ring_program_id,
+            data: self.data.clone(),
+        };
+        let cx = ConfidentialEncode {
+            tx: tx.clone(),
+            recipient_pubkey: address.viewing_pubkey,
+            salt,
+            slot_index,
+        };
+        Ok((address, plaintext, cx))
     }
 
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {

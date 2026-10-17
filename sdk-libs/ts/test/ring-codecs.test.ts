@@ -341,7 +341,7 @@ describe("ring config", () => {
       [programData, AccountRole.READONLY],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      `01${Buffer.from(AUDITOR.toBytes()).toString("hex")}01`,
+      `01${Buffer.from(AUDITOR.toBytes()).toString("hex")}0100`,
     );
     expect(RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT).toBe(50_000);
   });
@@ -403,12 +403,19 @@ describe("ring config", () => {
     expect(config.auditorPublicKey.equals(AUDITOR)).toBe(true);
     expect(config.bump).toBe(254);
     expect(config.hasPolicy).toBe(true);
+    expect(config.mode).toBe("off");
     expect(config.keyEscrow).toBe(false);
-    // Rust `RingProgramConfig::key_escrow`, any nonzero byte reads as on.
-    for (const flag of [1, 2, 0xff]) {
-      expect(
-        decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), flag])).keyEscrow,
-      ).toBe(true);
+    const registry = decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 1]));
+    expect(registry.mode).toBe("registry");
+    expect(registry.keyEscrow).toBe(true);
+    // Readers decode an anonymous ring, only the builders refuse it.
+    const anonymous = decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), 2]));
+    expect(anonymous.mode).toBe("anonymous");
+    expect(anonymous.keyEscrow).toBe(false);
+    for (const mode of [3, 0xff]) {
+      expect(() =>
+        decodeRingProgramConfig(Uint8Array.from([...data.subarray(0, 68), mode])),
+      ).toThrow("RING_CONFIG_INVALID");
     }
     expect(() => decodeRingProgramConfig(data.subarray(0, 68))).toThrow("RING_CONFIG_INVALID");
     expect(() => decodeRingProgramConfig(data.subarray(1))).toThrow("RING_CONFIG_INVALID");
@@ -1805,7 +1812,7 @@ describe("ring read request", () => {
     expect(page.items[0]?.signers).toEqual([addressOf(11), addressOf(12)]);
   });
 
-  const withdrawalPage = (withdrawals: readonly Record<string, unknown>[]) =>
+  const withdrawalPage = (withdrawals: readonly Record<string, unknown>[], anonymous?: unknown) =>
     (async () =>
       new Response(
         JSON.stringify({
@@ -1824,6 +1831,7 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [],
                   withdrawals,
+                  ...(anonymous === undefined ? {} : { anonymous }),
                 },
               ],
               skipped: [],
@@ -1834,6 +1842,67 @@ describe("ring read request", () => {
       )) as typeof globalThis.fetch;
 
   const anyReader = async () => messageSignerReader(await generateKeyPairSigner());
+
+  const anonymousTrace = () => ({
+    sender: addressOf(21),
+    inputs: [{ treeId: 65535, amount: "18446744073709551615", asset: addressOf(22) }],
+    recipients: [
+      {
+        slotIndex: 1,
+        identityTag: 0x53,
+        identityKey: addressOf(23),
+        nullifierPk: addressOf(24),
+        amount: 7,
+        asset: addressOf(22),
+      },
+    ],
+  });
+
+  it.each([0x53, 0x50])(
+    "retains anonymous audit identities with tag %i and exact amounts",
+    async (identityTag) => {
+      const trace = anonymousTrace();
+      trace.recipients[0]!.identityTag = identityTag;
+      const page = await new RingRpc("http://ring.example", {
+        fetch: withdrawalPage([], trace),
+        allowInsecureHttp: true,
+      }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() });
+      expect(page.items[0]?.anonymous).toEqual({
+        sender: addressOf(21),
+        inputs: [{ treeId: 65535, amount: 18446744073709551615n, asset: filled(22, 32) }],
+        recipients: [
+          {
+            slotIndex: 1,
+            identityTag,
+            identityKey: filled(23, 32),
+            nullifierPk: filled(24, 32),
+            amount: 7n,
+            asset: filled(22, 32),
+          },
+        ],
+      });
+    },
+  );
+
+  it("rejects malformed anonymous traces instead of silently dropping them", async () => {
+    const trace = anonymousTrace();
+    const recipient = trace.recipients[0]!;
+    const input = trace.inputs[0]!;
+    for (const anonymous of [
+      { ...trace, inputs: [{ ...input, treeId: 65536 }] },
+      { ...trace, inputs: [{ ...input, amount: "18446744073709551616" }] },
+      { ...trace, recipients: [{ ...recipient, identityTag: 1 }] },
+      { ...trace, recipients: [recipient, recipient] },
+      { ...trace, recipients: [{ ...recipient, nullifierPk: "invalid" }] },
+    ]) {
+      await expect(
+        new RingRpc("http://ring.example", {
+          fetch: withdrawalPage([], anonymous),
+          allowInsecureHttp: true,
+        }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() }),
+      ).rejects.toMatchObject({ code: "RING_RPC" });
+    }
+  });
 
   it("reads the withdrawal asset of an SPL leg and a SOL leg", async () => {
     const solMint = address("So11111111111111111111111111111111111111112");

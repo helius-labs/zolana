@@ -104,7 +104,7 @@ function transferInputs(): ProverInputs {
   };
 }
 
-/** Canonical X25519 coordinate of the secret [4; 32]. */
+/** Canonical X25519 coordinate of a secret with every byte equal to 4. */
 const AUDITOR_PK_HEX = `0x${Buffer.from(x25519.getPublicKey(new Uint8Array(32).fill(4))).toString("hex")}`;
 
 function bytes(value: number): Bytes32 {

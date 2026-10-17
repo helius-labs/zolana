@@ -1,6 +1,6 @@
 {
   "circuitType": "custom-ring-deposit",
-  "publicInputHash": "0x1592cc7deb23c95fd1d89f83a56c5556749007880da3a686049837ef57d1ac3b",
+  "publicInputHash": "0x0e741f262c7a470c116d71c60b13513ea696e7f9857504e64e81abf339f8999b",
   "contextHash": "0x0000000000000000000000000000000000000000000000000000000000abcdef",
   "count": 2,
   "ownerPkHashes": [

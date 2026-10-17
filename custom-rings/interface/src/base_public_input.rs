@@ -5,7 +5,7 @@ use zolana_hasher::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, TAGGED_X25519_KEY_LEN};
+use crate::{AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
 
 /// The audit statement, each value from the forwarded SPP content, the ring
 /// config or the published message, so a proof binds only this transaction.
@@ -17,7 +17,10 @@ pub struct CustomRingBasePublicInput<'a> {
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
     pub output_hashes: &'a [[u8; 32]],
     pub salt: &'a [u8; 16],
+    /// The caller checks the field count against the ring mode and shape.
     pub disclosure: &'a [[u8; 32]],
+    /// Discloses the hidden sender and every input opening.
+    pub anonymous: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,16 +35,16 @@ impl CustomRingBasePublicInput<'_> {
     }
 
     /// The chain order of `prover/server/custom_rings/circuits/base/circuit.go`.
-    pub fn elements(&self) -> Result<[[u8; 32]; 11], HasherError> {
+    pub fn elements(&self) -> Result<[[u8; 32]; 12], HasherError> {
         let tx = pack_2fe(self.tx_viewing_pk);
         let auditor = pack_2fe(self.auditor_pk);
         let eph = pack_2fe(self.eph_pk);
-        if self.disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
-            return Err(HasherError::InvalidInputLength(
-                AUDIT_DISCLOSURE_FIELD_COUNT,
-                self.disclosure.len(),
-            ));
-        }
+        // The anonymous circuit chains its variable published prefix one chunk at a time.
+        let disclosure_hash = if self.anonymous {
+            create_hash_chain_from_slice(self.disclosure)?
+        } else {
+            create_hash_chain_4_from_slice(self.disclosure)?
+        };
         Ok([
             *self.private_tx_hash,
             tx.lo,
@@ -53,7 +56,8 @@ impl CustomRingBasePublicInput<'_> {
             ciphertext_hash(self.ciphertext)?,
             create_hash_chain_4_from_slice(self.output_hashes)?,
             right_align(self.salt),
-            create_hash_chain_4_from_slice(self.disclosure)?,
+            disclosure_hash,
+            right_align(&[u8::from(self.anonymous)]),
         ])
     }
 }

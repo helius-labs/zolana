@@ -42,6 +42,7 @@ type utxoView struct {
 type transaction struct {
 	inputs  [NInputs]utxoView
 	outputs [NOutputs]utxoView
+	nIn     base.Count
 	nOut    base.Count
 }
 
@@ -52,11 +53,10 @@ func (tx transaction) slots() []utxoView {
 
 // constrainTransaction binds the openings to the SPP transaction hash.
 func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc frontend.Rangechecker) transaction {
-	tx := transaction{nOut: base.SelectCount(api, c.NOut, 1, NOutputs)}
-	nIn := base.SelectCount(api, c.NIn, 1, NInputs)
+	tx := transaction{nIn: base.SelectCount(api, c.NIn, 1, NInputs), nOut: base.SelectCount(api, c.NOut, 1, NOutputs)}
 	inputHashes, outputHashes := make([]frontend.Variable, NInputs), make([]frontend.Variable, NOutputs)
 	for i, w := range c.Inputs {
-		tx.inputs[i] = w.check(api, rc, nIn.Active[i], true)
+		tx.inputs[i] = w.check(api, rc, tx.nIn.Active[i], true)
 		inputHashes[i] = api.Mul(tx.inputs[i].utxo, tx.inputs[i].hash)
 	}
 	for i, w := range c.Outputs {
@@ -66,7 +66,25 @@ func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc fron
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
 		gadget.NonZeroHashChain(api, inputHashes), gadget.NonZeroHashChain(api, outputHashes), c.AddressChain, c.PrivateTxBlinding,
 	}))
+	// The anonymous trace discloses no address slot, so its private_tx_hash opens under an empty address chain.
+	api.AssertIsEqual(api.Mul(c.Anonymous, c.AddressChain), 0)
 	return tx
+}
+
+// auditTx hands the audit block the openings an anonymous ring discloses, its count caps the inputs at AuditInputSlots.
+func (c *CustomRingPolicyCircuit) auditTx(tx transaction) base.AuditTx {
+	out := base.AuditTx{
+		NOut: tx.nOut,
+		NIn:  base.Count{OneHot: tx.nIn.OneHot[:base.AuditInputSlots], Active: tx.nIn.Active[:base.AuditInputSlots]},
+	}
+	for i, output := range tx.outputs {
+		out.Outputs[i], out.Hashes[i] = output.opening, output.hash
+		out.Notes[i] = base.AuditUtxoWires(c.Outputs[i].UtxoWires)
+	}
+	for i := range out.Inputs {
+		out.Inputs[i] = base.AuditUtxoWires(c.Inputs[i])
+	}
+	return out
 }
 
 // check admits UTXO and dummy slots, and address slots on inputs.

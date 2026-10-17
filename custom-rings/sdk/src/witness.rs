@@ -674,7 +674,7 @@ fn owner_member(output: &SppProofOutputUtxo) -> Result<Member, RingError> {
     )?)
 }
 
-fn input_opening(input: &SppProofInputUtxo) -> Result<CustomRingOpening, RingError> {
+pub(crate) fn input_opening(input: &SppProofInputUtxo) -> Result<CustomRingOpening, RingError> {
     if input.is_dummy() {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
@@ -697,7 +697,7 @@ fn input_opening(input: &SppProofInputUtxo) -> Result<CustomRingOpening, RingErr
     })
 }
 
-fn output_opening(
+pub(crate) fn output_opening(
     output: &SppProofOutputUtxo,
     tree_id: u16,
 ) -> Result<CustomRingOpening, RingError> {

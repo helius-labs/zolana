@@ -22,6 +22,7 @@ import { Utxo, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
 import { auditRing, type AuditedRingOutput, type RingAuditReader } from "./audit.js";
+import type { RingMode } from "./codecs.js";
 import { RingError } from "./error.js";
 import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
 import { memberOfTag } from "./policy.js";
@@ -38,6 +39,8 @@ export interface RingRecoveryParams {
   readonly source: ShieldedAddress;
   readonly nullifierKey: NullifierKey;
   readonly assets: AssetRegistry;
+  /** The ring's on-chain mode, `"off"` when omitted. An anonymous ring matches notes by the disclosed owner. */
+  readonly mode?: RingMode;
   /** The raw id a note's leaf is committed under. */
   readonly resolveTreeId: (tree: Address) => TreeId | Promise<TreeId>;
   /** Both hashes must reproduce the indexed commitment. */
@@ -89,6 +92,7 @@ export async function recoverRingMemberNotes(
       auditor: input.auditor,
       ringProgramId: input.ringProgramId,
       assets: input.assets,
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
       origin,
       ...(input.pageSize === undefined ? {} : { pageSize: input.pageSize }),
       ...(input.maxPages === undefined ? {} : { maxPages: input.maxPages }),
@@ -104,16 +108,22 @@ export async function recoverRingMemberNotes(
   const unopened: Bytes32[] = [];
   const unopenedNullifiers = new Map<string, Bytes32>();
   const seen = new Set(candidates.map((candidate) => bytesKey(candidate.outputContext.hash)));
+  const sourceOwnerHash = input.source.ownerHash();
   for (const transaction of page.transactions) {
     for (const output of transaction.outputs) {
       if (
         output.ringProgramId !== input.ringProgramId ||
-        !output.recipientViewingPublicKey.equals(input.source.viewingPublicKey) ||
-        !equal(memberOfTag(output.ownerTag), sourceMember)
+        !output.recipientViewingPublicKey.equals(input.source.viewingPublicKey)
       )
         continue;
       const { outputContext } = output;
       const opening = transaction.outputOpenings[output.slotIndex];
+      // An anonymous output's owner is proven by its rebuilt opening, a published tag names a confidential one.
+      const owned =
+        transaction.anonymous === undefined
+          ? equal(memberOfTag(output.ownerTag), sourceMember)
+          : opening !== undefined && equal(opening.ownerHash, sourceOwnerHash);
+      if (!owned) continue;
       if (opening === undefined) {
         unopened.push(outputContext.hash);
         continue;

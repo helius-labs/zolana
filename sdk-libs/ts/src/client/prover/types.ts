@@ -1,4 +1,4 @@
-export const RING_DEPOSIT_AUDIT_SLOTS = 8;
+export { RING_DEPOSIT_AUDIT_SLOTS } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
   Bytes16,

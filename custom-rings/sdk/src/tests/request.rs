@@ -180,7 +180,9 @@ fn deposit(key_registry_root: Option<[u8; 32]>) -> DepositBody {
         public_input_hash: [0; 32],
         context_hash: [1; 32],
         count: 1,
+        anonymous: false,
         owner_pk_hashes: owners,
+        owner_keys: None,
         nullifier_pks: owners,
         blindings: Zeroizing::new(owners),
         keys,
@@ -212,6 +214,19 @@ fn the_deposit_request_uses_fixed_slots_and_canonical_names() {
     assert_eq!(json["keyRegistryRoot"], hex(&[9; 32]));
     assert_eq!(json["auditorPk"].as_str().unwrap().len(), 66);
     assert_eq!(json["ephSk"], hex(&EPH_SK));
+    assert!(json.get("anonymous").is_none() && json.get("ownerKeys").is_none());
+}
+
+/// Only an anonymous deposit names its mode and the owner keys it discloses.
+#[test]
+fn an_anonymous_deposit_sends_its_owner_keys() {
+    let mut body = deposit(None);
+    body.anonymous = true;
+    body.owner_keys = Some([[4; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS]);
+    let json: Value = serde_json::from_str(&RingRequest(&body).body().unwrap()).unwrap();
+    assert_eq!(json["anonymous"], true);
+    assert_eq!(json["ownerKeys"].as_array().unwrap().len(), 8);
+    assert_eq!(json["ownerKeys"][7], hex(&[4; 32]));
 }
 
 #[test]

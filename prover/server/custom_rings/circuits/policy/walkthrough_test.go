@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -152,10 +153,10 @@ func (s *statement) policyChainElements(t *testing.T) []*big.Int {
 	)
 }
 
-// Chain positions after the eleven audit elements.
+// Chain positions after the twelve audit elements.
 const (
-	chainMemberRegistryRoot = 18
-	chainForeignRoot        = 19
+	chainMemberRegistryRoot = 19
+	chainForeignRoot        = 20
 )
 
 // rebind recomputes the statement over the roots the assignment carries, so only the openings can reject.
@@ -168,6 +169,12 @@ func (s *statement) rebind(t *testing.T, c *CustomRingPolicyCircuit) {
 }
 
 func (s *statement) auditChainElements(t *testing.T) []*big.Int {
+	t.Helper()
+	return s.keys.ChainElementsFor(t, s.auditStatement(t))
+}
+
+// auditStatement discloses the outputs, or in an anonymous ring every slot and its owner identity.
+func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 	t.Helper()
 	statement := s.keys.Statement(s.privateTxHash)
 	statement.Count = len(s.outputs)
@@ -184,7 +191,33 @@ func (s *statement) auditChainElements(t *testing.T) []*big.Int {
 			RingProgramID: output.RingProgramID,
 		}
 	}
-	return s.keys.ChainElementsFor(t, statement)
+	if !s.anonymous {
+		return statement
+	}
+	statement.Audit.Anonymous = 1
+	statement.NIn = len(s.inputs)
+	setIdentity(statement.Audit.Sender[:], s.senderKey)
+	for i, input := range s.inputs {
+		statement.Inputs[i] = base.AuditUtxoWires(input)
+	}
+	viewing := ringaudit.Tagged(ringaudit.XPrivateKey(t, ringaudit.Scalar(0x55)).PublicKey().Bytes())
+	for i, output := range s.outputs {
+		statement.Notes[i] = base.AuditUtxoWires(output)
+		if output.Domain.(*big.Int).Int64() == protocol.UtxoDomain {
+			setIdentity(statement.Audit.Recipients[i][:], s.recipientKeys[i])
+			for j, b := range viewing {
+				statement.Audit.RecipientViewingKeys[i][j] = int(b)
+			}
+		}
+	}
+	return statement
+}
+
+func setIdentity(dst []frontend.Variable, key [32]byte) {
+	dst[0] = protocol.SolanaOwnerTag
+	for i, b := range key {
+		dst[i+1] = int(b)
+	}
 }
 
 func rejectAssignment(t *testing.T, c *CustomRingPolicyCircuit) {

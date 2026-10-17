@@ -90,7 +90,7 @@ import {
   type Member,
   type RuleTable,
 } from "./policy.js";
-import { fetchRingCoSigner, fetchRingConfigs } from "./config.js";
+import { checkBuildableRingMode, fetchRingCoSigner, fetchRingConfigs } from "./config.js";
 import { TRANSFER_DEMAND, checkRingCoSigner, type CoSignDemand } from "./cosign.js";
 import { selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
@@ -666,6 +666,7 @@ async function proveRingTransferStatement(
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
+  checkBuildableRingMode(config, "transfer");
   // Mirrors the program's `DelegateRequiresPolicy` and escrow checks, before any prover round.
   if (flow.kind === "delegate" && !(configs.hasPolicy && config.keyEscrow)) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });

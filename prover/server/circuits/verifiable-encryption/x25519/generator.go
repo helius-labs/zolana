@@ -3,7 +3,7 @@ package x25519
 import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/internal/emfield"
+	"github.com/helius-labs/zolana/prover/server/circuits/internal/emfield"
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519/internal/shortchecker"
 )
 
@@ -11,13 +11,6 @@ import (
 // It constrains all input bytes and applies RFC 7748 clamping. It does not
 // prove that the private scalar was sampled randomly or kept secret.
 func ScalarMulGenerator(api frontend.API, scalar [32]frontend.Variable) [32]frontend.Variable {
-	return ScalarMulGeneratorFor(api, scalar, true)
-}
-
-// ScalarMulGeneratorFor selects the fixed-base arithmetic layout.
-// Both modes enforce the same byte bounds, clamping and canonical public key.
-// The fixed-base tables contain public constants and need no witness trust.
-func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, lookups bool) [32]frontend.Variable {
 	// 1. Require BN254 and choose the proven fixed-base limb layout.
 	if api.Compiler().Field().Cmp(ecc.BN254.ScalarField()) != 0 {
 		panic("x25519: BN254 native field required")
@@ -26,9 +19,6 @@ func ScalarMulGeneratorFor(api frontend.API, scalar [32]frontend.Variable, looku
 	// Fixed-base constant selection favors six 43-bit limbs. Keep the raw
 	// checker's piece width so both operations share one range-check table.
 	lay.NbLimbs, lay.LimbBits = 6, 43
-	if !lookups {
-		lay = emfield.PlainLayout
-	}
 	f := emfield.NewFor(api, prime(), lay)
 	// 2. Bound every input byte, including bits discarded by clamping.
 	var bits []frontend.Variable

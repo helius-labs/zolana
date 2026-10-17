@@ -73,6 +73,7 @@ export type {
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type {
   CustomRingBasePublicInput,
+  DecryptedAnonymousRingTrace,
   RingAuditReader,
   RingRpcOptions,
   RingTransferClient,
@@ -80,9 +81,6 @@ export type {
 export {
   buildRingDelegateTransferTransaction,
   createRingDelegateSubmission,
-  prepareRingSpendRegistration,
-  createRingSpendRegistrationSubmission,
-  buildRingSpendRegistrationTransaction,
   createRingTransferSubmission,
   createRingWithdrawalSubmission,
   createRingExitSubmission,
@@ -121,9 +119,6 @@ export type {
   RingDepositAudit,
   RingDepositOpening,
   RingDelegateTransferParams,
-  RingSpendRegistrationClient,
-  RingSpendRegistrationParams,
-  RingSpendRegistrationPreparation,
   RingTransactionSubmission,
   RingSubmissionResult,
   RingKeyRegistryRoot,

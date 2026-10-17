@@ -1,8 +1,9 @@
 //! A child of `pipeline`, both rails stage through private items.
 
-use custom_ring_interface::KeyEscrow;
+use custom_ring_interface::RingMode;
 use solana_address::Address;
 use zolana_client::Shape;
+use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
@@ -17,12 +18,13 @@ use zolana_transaction::{
     instructions::transact::ConfidentialTransaction,
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
-    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, SOL_MINT,
+    AssetRegistry, Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError, SOL_MINT,
 };
 
 use super::{
+    anonymous,
     delegate::{check_balance, pad},
-    owner::{check_membership, transaction_key},
+    owner::{self, check_membership, transaction_key},
     *,
 };
 use crate::{
@@ -39,14 +41,14 @@ fn audit_only() -> CustomRingConfig {
         authority: Address::new_from_array([3; 32]),
         auditor_pubkey: X25519Secret::new().pubkey(),
         has_policy: false,
-        key_escrow: KeyEscrow::Off,
+        mode: RingMode::Off,
     }
 }
 
 fn escrowed() -> CustomRingConfig {
     CustomRingConfig {
         has_policy: true,
-        key_escrow: KeyEscrow::Registry,
+        mode: RingMode::Registry,
         ..audit_only()
     }
 }
@@ -648,7 +650,7 @@ async fn the_delegate_rail_refuses_a_ring_it_cannot_serve() {
         Err(RingError::UnauthorizedDelegate(stored)) if stored == stranger
     ));
     let unescrowed = CustomRingConfig {
-        key_escrow: KeyEscrow::Off,
+        mode: RingMode::Off,
         ..escrowed()
     };
     assert!(matches!(
@@ -659,4 +661,176 @@ async fn the_delegate_rail_refuses_a_ring_it_cannot_serve() {
         stage(delegate_accounts(delegate), escrowed(), false).await,
         Err(RingError::MissingAssetRegistry)
     ));
+}
+
+fn anonymous() -> CustomRingConfig {
+    CustomRingConfig {
+        mode: RingMode::Anonymous,
+        ..audit_only()
+    }
+}
+
+fn owner_transfer(
+    sender: &ShieldedKeypair,
+    transaction: ConfidentialTransaction,
+) -> CustomRingTransfer<'_> {
+    CustomRingTransfer::new(CustomRingTransferInput {
+        ring: ring(),
+        sender,
+        nullifier_key: Some(&sender.nullifier_key),
+        transaction,
+    })
+}
+
+#[tokio::test]
+async fn an_anonymous_ring_refuses_a_public_owner() {
+    let (sender, prepared) = prepared_transfer(4);
+    let transfer = owner_transfer(&sender, prepared);
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous())
+            .await,
+        Err(RingError::MissingAnonymousSigner)
+    ));
+}
+
+#[tokio::test]
+async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
+    let (sender, prepared) = prepared_transfer(4);
+    let other = ShieldedKeypair::new_ed25519().unwrap();
+    let transfer = owner_transfer(&sender, prepared).with_anonymous_signer(&other.signing_key);
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await,
+        Err(RingError::AnonymousSignerMismatch)
+    ));
+    let (sender, prepared) = prepared_transfer(4);
+    let transfer = owner_transfer(&sender, prepared).with_anonymous_signer(&sender.signing_key);
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &audit_only(), None)
+            .await,
+        Err(RingError::NotAnonymousRing)
+    ));
+}
+
+/// A public signature by the hidden owner, as payer or co-signer, would name it.
+#[tokio::test]
+async fn the_hidden_owner_never_signs_in_public() {
+    for as_cosigner in [false, true] {
+        let (sender, prepared) = prepared_transfer(4);
+        let owner = solana_signer::Signer::pubkey(&sender);
+        let prepared = match as_cosigner {
+            true => {
+                let mut transaction = ConfidentialTransaction::new(
+                    prepared.inputs().to_vec(),
+                    Address::new_from_array([7; 32]),
+                )
+                .unwrap();
+                transaction
+                    .transfer_sol(&sender.shielded_address().unwrap(), 4)
+                    .unwrap();
+                transaction
+            }
+            false => prepared,
+        };
+        let mut transfer =
+            owner_transfer(&sender, prepared).with_anonymous_signer(&sender.signing_key);
+        if as_cosigner {
+            transfer = transfer.with_cosigner(owner);
+        }
+        assert!(matches!(
+            transfer
+                .rail
+                .stage(
+                    ring(),
+                    &Accounts::default(),
+                    &anonymous(),
+                    transfer.cosigner
+                )
+                .await,
+            Err(RingError::AnonymousPublicSignerLinksOwner)
+        ));
+    }
+}
+
+/// RingEd25519 keeps every note in the ring and refuses a slot it cannot prove.
+#[test]
+fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 10, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    transaction
+        .transfer_sol(&sender.shielded_address().unwrap(), 4)
+        .unwrap();
+    transaction
+        .pad_utxos(Shape::IN2_OUT2, &sender.shielded_address().unwrap())
+        .unwrap();
+    let key = transaction_key(&sender, *transaction.first_nullifier()).unwrap();
+    let address = sender.shielded_address().unwrap();
+    let inputs = transaction
+        .encrypt_anonymous_with_viewing_key(&address, &key)
+        .unwrap();
+    let shape = inputs.check_shape().unwrap();
+    anonymous::check_anonymous_slots(program(), shape, &inputs).unwrap();
+    assert!(matches!(
+        anonymous::check_anonymous_slots(program(), Shape::new(4, 4), &inputs),
+        Err(RingError::AnonymousShapeUnsupported)
+    ));
+    let mut foreign = inputs.clone();
+    foreign.output_utxos[0].ring_program_id = None;
+    assert!(matches!(
+        anonymous::check_anonymous_slots(program(), shape, &foreign),
+        Err(RingError::InvalidAnonymousSlot)
+    ));
+    let mut p256 = inputs;
+    p256.output_utxos[0].owner_address = Some(
+        ShieldedKeypair::new_p256()
+            .unwrap()
+            .shielded_address()
+            .unwrap(),
+    );
+    assert!(matches!(
+        anonymous::check_anonymous_slots(program(), shape, &p256),
+        Err(RingError::InvalidAnonymousSlot)
+    ));
+}
+
+/// Every anonymous dummy publishes the anonymous scheme without a recipient key.
+#[test]
+fn anonymous_dummies_frame_without_a_recipient_key() {
+    let real = SppProofOutputUtxo {
+        ring_program_id: Some(program()),
+        owner_address: Some(
+            ShieldedKeypair::new_ed25519()
+                .unwrap()
+                .shielded_address()
+                .unwrap(),
+        ),
+        ..Default::default()
+    };
+    let outputs = vec![real, SppProofOutputUtxo::default()];
+    let slot = |data| TransactOutput {
+        utxo_hash: [0; 32],
+        owner_tag: OwnerTag::Inline([0; 32]),
+        data,
+    };
+    let mut encoded = vec![slot(Some(vec![0; 120])), slot(None)];
+    owner::frame_dummies(&outputs, &mut encoded, true).unwrap();
+    let data = encoded[1].data.as_ref().unwrap();
+    assert_eq!(data.len(), 120);
+    let OutputDataEncoding::Encrypted(body) =
+        <OutputDataEncoding as borsh::BorshDeserialize>::try_from_slice(data).unwrap()
+    else {
+        panic!("a dummy publishes an encrypted body");
+    };
+    assert_eq!(body[0], EncryptedScheme::RingAnonymous.as_byte());
 }

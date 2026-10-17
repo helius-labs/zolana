@@ -38,9 +38,12 @@ pub fn process_create_policy_ix(
     let curators = iter.remaining_unchecked()?;
 
     check_system_program(system_program)?;
-    if load::<RingProgramConfig>(program_id, config)?.has_policy == 0 {
+    let ring = load::<RingProgramConfig>(program_id, config)?;
+    if ring.has_policy == 0 {
         return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
+    ring.mode().ok_or(CustomRingError::InvalidRingMode)?;
+    drop(ring);
     let address_tree_id = load_spp_tree_id(address_tree, CustomRingError::InvalidAddressTree)?;
     check_upgrade_authority(program_id, authority, program, program_data)?;
     let bump =

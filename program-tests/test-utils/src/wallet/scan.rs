@@ -83,6 +83,13 @@ impl TxIndex {
                             .push((t, slot_index));
                         classified = true;
                     }
+                    EncryptedScheme::RingAnonymous => {
+                        recipient_sites
+                            .entry([0; 32])
+                            .or_default()
+                            .push((t, slot_index));
+                        classified = true;
+                    }
                     EncryptedScheme::AnonymousSender => {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
@@ -788,8 +795,22 @@ impl SyncCtx<'_> {
                             }
                         }
                     }
-                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
-                        let Ok(plaintext) = Confidential::decode(body, &cx) else {
+                    EncryptedScheme::Confidential
+                    | EncryptedScheme::RingConfidential
+                    | EncryptedScheme::RingAnonymous => {
+                        let plaintext = if scheme == EncryptedScheme::RingAnonymous {
+                            let (Some(tx_viewing_pk), Some(salt)) = (cx.tx_viewing_pk, cx.salt)
+                            else {
+                                self.report.undecryptable_candidates += 1;
+                                return Ok(outcome);
+                            };
+                            key.decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)
+                                .map_err(TransactionError::from)
+                                .and_then(|bytes| Confidential::deserialize(&bytes))
+                        } else {
+                            Confidential::decode(body, &cx)
+                        };
+                        let Ok(plaintext) = plaintext else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
@@ -1097,6 +1118,13 @@ impl Wallet {
                     if let Some(sender) = outcome.sender {
                         known_senders.entry(sender).or_insert(0);
                     }
+                }
+            }
+            // A zero tag carries no routing information, so each held key
+            // tries every anonymous ring output and checks its commitment.
+            if let Some(sites) = index.recipient_sites.get(&[0; 32]) {
+                for site in sites {
+                    ctx.decode_slot(transactions, key, *site)?;
                 }
             }
             // Confidential default-ring outputs use the owner signing tag.

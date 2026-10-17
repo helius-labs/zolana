@@ -85,20 +85,28 @@ func sealDeposits(t *testing.T, p *DepositParams, owners []*big.Int) (depositVec
 	iv[15] = 2
 	plaintext := make([]byte, deposit.MaxDeposits*deposit.OpeningBytes)
 	for i := range owners {
-		owners[i].FillBytes(plaintext[i*64 : i*64+32])
-		p.Blindings[i].FillBytes(plaintext[i*64+32 : (i+1)*64])
+		opening := plaintext[i*deposit.OpeningBytes : (i+1)*deposit.OpeningBytes]
+		owners[i].FillBytes(opening[:32])
+		p.Blindings[i].FillBytes(opening[32:64])
+		if p.OwnerKeys != nil {
+			copy(opening[64:], (*p.OwnerKeys)[i])
+		}
 	}
 	ciphertext := make([]byte, len(plaintext))
 	cipher.NewCTR(block, iv).XORKeyStream(ciphertext, plaintext)
 	vector := depositVector{Params: p, AuditorPk: hex.EncodeToString(auditorPk), EphPk: hex.EncodeToString(ephemeralPk)}
-	chain := []*big.Int{new(big.Int).SetUint64(uint64(deposit.Domain)), p.ContextHash.Int, new(big.Int).SetUint64(uint64(p.Count))}
+	anonymous := big.NewInt(0)
+	if p.Anonymous {
+		anonymous.SetInt64(1)
+	}
+	chain := []*big.Int{new(big.Int).SetUint64(uint64(deposit.Domain)), p.ContextHash.Int, new(big.Int).SetUint64(uint64(p.Count)), anonymous}
 	for i := range owners {
 		if i >= int(p.Count) {
 			chain = append(chain, big.NewInt(0), big.NewInt(0))
 			continue
 		}
 		owner := spptest.MustPoseidon(t, 3, []*big.Int{owners[i], p.Blindings[i].Int})
-		ct := ciphertext[i*64 : (i+1)*64]
+		ct := ciphertext[i*deposit.OpeningBytes : (i+1)*deposit.OpeningBytes]
 		hash, err := protocol.HashBytes(ct)
 		if err != nil {
 			t.Fatal(err)
@@ -139,15 +147,15 @@ func TestDepositMatchesSharedHostVector(t *testing.T) {
 	}
 	vector, _ := sealDeposits(t, p, owners)
 	want := []string{
-		"006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba02684144",
-		"24ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf4588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a820",
+		"006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba0268414424ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf6",
+		"588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a826aaeab0368c456598c7641706ce6de7dcdbafa8c64f3eba9526b5012da75c1a4c4fb93b88049bc84e8589460c06610c931447f57d2d4a9955f6ec638727886729",
 	}
 	for i := range want {
 		if vector.Ciphertexts[i] != want[i] {
 			t.Errorf("ciphertext %d: got %s want %s", i, vector.Ciphertexts[i], want[i])
 		}
 	}
-	if common.ToHex(p.PublicInputHash.Int) != "0x0b0b034e07cb9b13f86c4e840d388aaeeb37cf3f6966f94bbc2f70646f056fef" {
+	if common.ToHex(p.PublicInputHash.Int) != "0x0313e323a3870bacb7042d78648a0d01d5f5b4ddfa56ee3024bcd26207ebe4f3" {
 		t.Fatalf("public hash %s differs from the Rust/TypeScript vector", common.ToHex(p.PublicInputHash.Int))
 	}
 }
@@ -193,11 +201,11 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 			case "ephemeral":
 				p.EphSk = testScalar(0x44)
 			case "ciphertext":
-				chain[4] = big.NewInt(99)
+				chain[5] = big.NewInt(99)
 				rebind()
 			case "order":
-				chain[3], chain[5] = chain[5], chain[3]
 				chain[4], chain[6] = chain[6], chain[4]
+				chain[5], chain[7] = chain[7], chain[5]
 				rebind()
 			case "key escrow":
 				chain[len(chain)-2] = big.NewInt(1)
@@ -215,6 +223,67 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 			}
 			if solveDeposit(t, p) == nil {
 				t.Fatal("tampered deposit solved")
+			}
+		})
+	}
+}
+
+// An anonymous ring deposit names the Ed25519 key behind each owner, other deposits name none.
+func TestAnonymousDepositDisclosesTheOwnerKey(t *testing.T) {
+	anonymousParams := func() *DepositParams {
+		p := depositParams(t, 1)
+		p.Anonymous = true
+		keys := make([]Bytes, deposit.MaxDeposits)
+		for i := range keys {
+			keys[i] = make(Bytes, 32)
+		}
+		for i := range keys[0] {
+			keys[0][i] = byte(i + 1)
+		}
+		p.OwnerKeys = &keys
+		owner, err := protocol.HashBytes(append([]byte{protocol.SolanaOwnerTag}, keys[0]...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.OwnerPkHashes[0] = fb(owner)
+		return p
+	}
+	p := anonymousParams()
+	encryptDepositVector(t, p)
+	if err := solveDeposit(t, p); err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]func(*DepositParams){
+		// The ciphertext must disclose the owner key, a zero slot is rejected.
+		"sealed without the key": func(p *DepositParams) {
+			key := (*p.OwnerKeys)[0]
+			(*p.OwnerKeys)[0] = make(Bytes, 32)
+			encryptDepositVector(t, p)
+			(*p.OwnerKeys)[0] = key
+		},
+		"another key": func(p *DepositParams) {
+			encryptDepositVector(t, p)
+			(*p.OwnerKeys)[0][0] ^= 1
+		},
+		"legacy ring with a key": func(p *DepositParams) {
+			p.Anonymous = false
+			encryptDepositVector(t, p)
+		},
+		"owner without the key": func(p *DepositParams) {
+			p.OwnerPkHashes[0] = fi(11)
+			encryptDepositVector(t, p)
+		},
+		"key in a padding slot": func(p *DepositParams) {
+			(*p.OwnerKeys)[1][0] = 1
+			encryptDepositVector(t, p)
+		},
+	}
+	for name, tamper := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := anonymousParams()
+			tamper(p)
+			if solveDeposit(t, p) == nil {
+				t.Fatal("tampered anonymous deposit solved")
 			}
 		})
 	}
@@ -286,7 +355,7 @@ func TestDepositProofVerifiesEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	statement := vector.Params.PublicInputHash
-	chain[4] = big.NewInt(99)
+	chain[5] = big.NewInt(99)
 	vector.Params.PublicInputHash = fb(spptest.MustHashChain(t, chain))
 	if verifyProof(ps, proof, decodeParams(t, common.CustomRingDepositCircuitType, vector.Params)) == nil {
 		t.Fatal("proof admitted under a different statement")

@@ -1,4 +1,4 @@
-# The custom-ring proving keys, the release assets the lockfile pins.
+# The release-backed proving keys the lockfile pins, never served from the object store.
 ring_keys=()
 while read -r key; do
     ring_keys+=("$key")

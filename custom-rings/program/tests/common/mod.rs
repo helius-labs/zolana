@@ -14,6 +14,7 @@ use custom_ring_interface::{
     N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
+use custom_ring_interface::{DisclosureShape, RingMode, AUDITOR_MESSAGE_PREFIX_LEN};
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
     Mollusk,
@@ -28,6 +29,8 @@ use zolana_interface::{
         deposit::{
             DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         },
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeProof, MergeTransactIxData},
         transact::{TransactIxData, TransactProof, TreeContext},
     },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
@@ -597,7 +600,7 @@ pub fn register_key_fixture(root: Account, member: Pubkey) -> Fixture {
             registry_new_root: [0x11; 32],
             registry_next_index: 1,
             nullifier_pk: [0x12; 32],
-            eph_pk: [0x02; 33],
+            eph_pk: auditor_pubkey(4),
             ciphertext: [0x44; 32],
         })
         .expect("register_key data"),
@@ -671,6 +674,28 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
         *first = prefix;
     }
     key
+}
+
+/// The auditor message of a transaction with `outputs` outputs outside an
+/// anonymous ring.
+pub fn auditor_message_len(outputs: usize) -> usize {
+    disclosed_message_len(DisclosureShape {
+        anonymous: false,
+        inputs: 0,
+        outputs,
+    })
+}
+
+pub fn disclosed_message_len(shape: DisclosureShape) -> usize {
+    AUDITOR_MESSAGE_PREFIX_LEN + 32 * shape.field_count().expect("disclosed shape")
+}
+
+/// A SEC1-compressed P256 key, the auditor key of a ring created before X25519.
+pub fn legacy_auditor_pubkey() -> [u8; 33] {
+    hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
+        .expect("valid hex")
+        .try_into()
+        .expect("compressed key")
 }
 
 pub fn policy_config_pda() -> (Pubkey, u8) {
@@ -1095,8 +1120,8 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     )
 }
 
-/// Green `set_policy_rules` fixture, `[authority(s), policy_config(w), program,
-/// program_data]`, curators trail.
+/// Green `set_policy_rules` fixture, `[authority(s), config, policy_config(w),
+/// program, program_data]`, curators trail.
 pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::SET_POLICY_RULES, table),
@@ -1105,6 +1130,11 @@ pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxDat
                 label: "authority",
                 meta: AccountMeta::new_readonly(authority(), true),
                 account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(4)),
             },
             Slot {
                 label: "policy_config",
@@ -1286,7 +1316,22 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
 
 /// A policy ring whose output nullifier keys are escrowed, as `set_delegate` leaves it.
 pub fn escrowed_config_account() -> Account {
-    config_account_with(authority(), auditor_pubkey(4), 1, 1)
+    config_account_with(authority(), auditor_pubkey(4), 1, RingMode::Registry as u8)
+}
+
+/// An anonymous policy ring as `create_config` writes it.
+pub fn anonymous_config_account() -> Account {
+    config_account_with(authority(), auditor_pubkey(4), 1, RingMode::Anonymous as u8)
+}
+
+/// An anonymous audit-only ring.
+pub fn anonymous_audit_only_config_account() -> Account {
+    config_account_with(authority(), auditor_pubkey(4), 0, RingMode::Anonymous as u8)
+}
+
+/// A policy ring with a raw mode byte.
+pub fn config_account_in_mode(mode: u8) -> Account {
+    config_account_with(authority(), auditor_pubkey(4), 1, mode)
 }
 
 /// An audit-only ring config, transact takes the lighter proof path.
@@ -1298,7 +1343,7 @@ fn config_account_with(
     authority: Pubkey,
     auditor_pubkey: [u8; 33],
     has_policy: u8,
-    key_escrow: u8,
+    mode: u8,
 ) -> Account {
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
@@ -1306,7 +1351,7 @@ fn config_account_with(
         auditor_pubkey,
         bump: config_pda().1,
         has_policy,
-        key_escrow,
+        mode,
     };
     Account {
         lamports: 1_000_000_000,
@@ -1321,17 +1366,23 @@ pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
     create_config_data_with_tier(auditor_pubkey, 1)
 }
 
-/// `has_policy` is the raw flag byte, a decoded bool admits 0 and 1 only.
 pub fn create_config_data_with_tier(auditor_pubkey: [u8; 33], has_policy: u8) -> Vec<u8> {
+    create_config_data_with(auditor_pubkey, has_policy, 0)
+}
+
+/// Both flags are raw bytes, a decoded bool admits 0 and 1 only.
+pub fn create_config_data_with(auditor_pubkey: [u8; 33], has_policy: u8, anonymous: u8) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
         &wincode::serialize(&CreateConfigIxData {
             auditor_pubkey,
             has_policy: false,
+            anonymous: false,
         })
         .expect("serialize create_config data"),
     );
-    *data.last_mut().expect("flag byte") = has_policy;
+    let flags = data.len() - 2;
+    data[flags..].copy_from_slice(&[has_policy, anonymous]);
     data
 }
 
@@ -1632,7 +1683,38 @@ pub fn deposit_fixture() -> Fixture {
 pub fn merge_fixture_with(config: Account) -> Fixture {
     let mut slots = forward_prefix(config);
     slots.extend(sol_merge_slots());
-    Fixture::new(vec![tag::MERGE], slots)
+    Fixture::new(merge_ring_data(None), slots)
+}
+
+/// A plain ring merge, or the audited layout that appends `recipient`, a proof
+/// commitment and an envelope.
+pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
+    let mut data = vec![tag::MERGE];
+    data.extend(
+        MergeRingIxData {
+            output_ring_data_hash: [8; 32],
+            merge: MergeTransactIxData {
+                expiry_unix_ts: u64::MAX,
+                proof: MergeProof::zeroed(),
+                output_utxo_hash: [1; 32],
+                eddsa_owner: true,
+                private_tx_hash: [3; 32],
+                nullifiers: vec![[5; 32]; 8],
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+                cache_slot: None,
+            },
+        }
+        .serialize()
+        .expect("serialize ring merge"),
+    );
+    if let Some(recipient) = recipient {
+        data.extend_from_slice(&recipient);
+        data.extend_from_slice(&[6; 64]);
+        data.extend_from_slice(&auditor_pubkey(4));
+        data.extend_from_slice(&[7; 113]);
+    }
+    data
 }
 
 pub fn merge_fixture() -> Fixture {

@@ -14,12 +14,14 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import { P256_OWNER_TAG, SOLANA_OWNER_TAG } from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 
+import type { DecryptedAnonymousRingTrace } from "./audit.js";
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
@@ -312,6 +314,7 @@ export interface DecryptedRingTransaction {
   readonly signature: Signature;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly outputs: readonly DecryptedRingOutput[];
+  readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. */
@@ -319,6 +322,8 @@ export interface DecryptedRingTransaction {
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
 }
+
+export type { DecryptedAnonymousRingTrace } from "./audit.js";
 
 /** Mirrors Rust `SkippedReason`. */
 export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";
@@ -645,6 +650,9 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
+    ...(wire["anonymous"] === undefined || wire["anonymous"] === null
+      ? {}
+      : { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
         decodeOutput(record(entry, `outputs[${index}]`)),
@@ -670,6 +678,58 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       }),
     ),
   });
+}
+
+/** Checks owner encodings and canonical recipient slot order before exposing a trace. */
+function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymousRingTrace {
+  // Decode bounded input openings without narrowing an unchecked integer.
+  const inputs = list(wire["inputs"], "anonymous.inputs").map((entry) => {
+    const input = record(entry, "anonymous.inputs");
+    const treeId = u32(input["treeId"], "anonymous.inputs.treeId");
+    if (treeId > 0xffff) throw invalid("anonymous.inputs.treeId");
+    return Object.freeze({
+      treeId,
+      amount: u64(input["amount"], "anonymous.inputs.amount"),
+      asset: hash(input["asset"], "anonymous.inputs.asset"),
+    });
+  });
+  // Real outputs retain their original slot indices after dummy slots are removed.
+  let previous = -1;
+  const recipients = list(wire["recipients"], "anonymous.recipients").map((entry) => {
+    const output = record(entry, "anonymous.recipients");
+    const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
+    if (slotIndex <= previous) throw invalid("anonymous.recipients.slotIndex");
+    const identityTag = output["identityTag"];
+    if (identityTag !== SOLANA_OWNER_TAG && identityTag !== P256_OWNER_TAG)
+      throw invalid("anonymous.recipients.identityTag");
+    previous = slotIndex;
+    return Object.freeze({
+      slotIndex,
+      identityTag,
+      identityKey: hash(output["identityKey"], "anonymous.recipients.identityKey"),
+      nullifierPk: hash(output["nullifierPk"], "anonymous.recipients.nullifierPk"),
+      amount: u64(output["amount"], "anonymous.recipients.amount"),
+      asset: hash(output["asset"], "anonymous.recipients.asset"),
+    });
+  });
+  return Object.freeze({
+    sender: address(wire["sender"], "anonymous.sender"),
+    inputs: Object.freeze(inputs),
+    recipients: Object.freeze(recipients),
+  });
+}
+
+/** A slot index, rejected outside the u32 range. */
+function u32(value: unknown, path: string): number {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffffn) throw invalid(path);
+  return Number(decoded);
+}
+
+function u64(value: unknown, path: string): bigint {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffff_ffff_ffffn) throw invalid(path);
+  return decoded;
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {

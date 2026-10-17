@@ -104,6 +104,47 @@ func baseParams(t *testing.T) *BaseParams {
 	return p
 }
 
+// anonymousBaseParams carries the ringaudit anonymous statement, one spent note and one ring note.
+func anonymousBaseParams(t *testing.T) *BaseParams {
+	t.Helper()
+	keys := ringaudit.DefaultKeys(t)
+	statement := keys.AnonymousStatement(t)
+	p := baseParams(t)
+	p.PrivateTxHash, p.Anonymous = fb(spptest.AsBigInt(statement.Audit.PrivateTxHash)), true
+	sender := wireBytes(statement.Audit.Sender[:])
+	recipients, viewing := make([]Bytes, base.AuditOutputSlots), make([]Bytes, base.AuditOutputSlots)
+	inputs, outputs := make([]Opening, base.AuditInputSlots), make([]Opening, base.AuditOutputSlots)
+	for i := range recipients {
+		recipients[i], viewing[i] = wireBytes(statement.Audit.Recipients[i][:]), wireBytes(statement.Audit.RecipientViewingKeys[i][:])
+		outputs[i] = wireOpening(statement.Notes[i])
+	}
+	for i := range inputs {
+		inputs[i] = wireOpening(statement.Inputs[i])
+	}
+	p.Sender, p.Recipients, p.RecipientViewingKeys = &sender, &recipients, &viewing
+	p.NIn, p.Inputs, p.AnonymousOutputs = uint8(statement.NIn), &inputs, &outputs
+	blinding := fb(statement.PrivateTxBlinding)
+	p.PrivateTxBlinding = &blinding
+	p.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)))
+	return p
+}
+
+func wireBytes(values []frontend.Variable) Bytes {
+	out := make(Bytes, len(values))
+	for i, value := range values {
+		out[i] = byte(spptest.AsBigInt(value).Uint64())
+	}
+	return out
+}
+
+func wireOpening(w base.AuditUtxoWires) Opening {
+	v := func(value frontend.Variable) Field { return fb(spptest.AsBigInt(value)) }
+	return Opening{
+		v(w.Domain), v(w.TreeID), v(w.OwnerPkHash), v(w.NullifierPk), v(w.Asset),
+		v(w.Amount), v(w.Blinding), v(w.DataHash), v(w.RingDataHash), v(w.RingProgramID),
+	}
+}
+
 // rulesFreeParams opens a one input one output transfer against a length zero
 // rule table, both owners absent from an otherwise listed registry.
 func rulesFreeParams(t *testing.T) (*PolicyParams, *spptest.MemberRegistry) {

@@ -1,23 +1,24 @@
 use custom_ring_interface::{
     base_verifying_key, delegate_policy_verifying_key, policy_verifying_key, AuditorMessage,
     CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
-    CustomRingTransactIxData, KeyEscrow, PolicyConfig, RingProgramConfig, TAGGED_X25519_KEY_LEN,
+    CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode, TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
+        confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
+        ring_confidential_encrypted_output_body, OwnerTag,
     },
-    tag, CircuitId, MessageData,
+    tag, CircuitId, MessageData, TransactIxData,
 };
 use zolana_ring_policy::ring_id_field;
 
 use crate::{
     instructions::{
         cosign::{approval_cosigner, demanded_cosigner},
-        loader::{load, load_escrow_root, validate_spp_program},
+        loader::{load, load_audited_config, load_escrow_root, validate_spp_program},
         policy_trees::{PolicyTrees, RevocationTargets},
         public_legs::PublicLegs,
         shared::{cpi_spp, parse, SppSigners},
@@ -90,16 +91,21 @@ impl Rail {
             tree_indexes: revocation_tree_indexes,
         };
 
-        let config = *load::<RingProgramConfig>(program_id, controls.config)?;
-        let policy = if config.has_policy != 0 {
+        let config = load_audited_config(program_id, controls.config)?;
+        let anonymous = config.mode == RingMode::Anonymous;
+        let policy = if config.has_policy {
             let binding = PolicyBinding::load(program_id, rest.next_account("policy_config")?)?;
             let trees = PolicyTrees::load(&mut rest, policy_trees)?;
-            let escrow = config.key_escrow();
-            if self == Rail::Delegate && escrow != KeyEscrow::Registry {
-                return Err(CustomRingError::InvalidKeyRegistryRoot.into());
+            if self == Rail::Delegate && config.mode != RingMode::Registry {
+                return Err(if anonymous {
+                    CustomRingError::AnonymousRingRefused
+                } else {
+                    CustomRingError::InvalidKeyRegistryRoot
+                }
+                .into());
             }
             let key_registry_root =
-                load_escrow_root(program_id, escrow, *key_registry_root_index, &mut rest)?;
+                load_escrow_root(program_id, config.mode, *key_registry_root_index, &mut rest)?;
             Some((binding, trees, key_registry_root))
         } else {
             if self == Rail::Delegate {
@@ -128,6 +134,9 @@ impl Rail {
 
         let spp_accounts = rest.remaining_mut()?;
         validate_spp_program(spp_accounts)?;
+        if anonymous {
+            check_anonymous_settlement(transact, spp_accounts)?;
+        }
         let settlement_len: usize = transact
             .interface_transfers
             .iter()
@@ -153,18 +162,23 @@ impl Rail {
             }
         }
 
-        if !self.accepts(transact.circuit) {
+        if !self.accepts(transact.circuit, config.mode) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
         if transact.outputs.iter().any(|output| {
             !output
                 .data
                 .as_deref()
-                .is_some_and(is_valid_confidential_output)
+                .is_some_and(|data| is_valid_confidential_output(data, anonymous))
         }) {
             return Err(CustomRingError::UnsupportedOutputScheme.into());
         }
-        let message = select_auditor_message(&transact.messages, &config.auditor_pubkey)?;
+        let shape = DisclosureShape {
+            anonymous,
+            inputs: transact.inputs.len(),
+            outputs: transact.outputs.len(),
+        };
+        let message = select_auditor_message(&transact.messages, &config.auditor_pubkey, shape)?;
         let output_hashes: Vec<[u8; 32]> = transact
             .outputs
             .iter()
@@ -174,11 +188,12 @@ impl Rail {
             private_tx_hash: &transact.private_tx_hash,
             tx_viewing_pk: &transact.tx_viewing_pk,
             auditor_pk: &config.auditor_pubkey,
-            eph_pk: &message.eph_pk,
-            ciphertext: &message.ciphertext,
+            eph_pk: message.eph_pk,
+            ciphertext: message.ciphertext,
             output_hashes: &output_hashes,
             salt: &transact.salt,
-            disclosure: &message.disclosure,
+            disclosure: message.disclosure,
+            anonymous,
         };
 
         let (public_input, verifying_key) = match policy {
@@ -220,10 +235,15 @@ impl Rail {
         )
     }
 
-    fn accepts(self, circuit: CircuitId) -> bool {
-        match self {
-            Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
-            Self::Delegate => matches!(circuit, CircuitId::RingAuthority(..)),
+    /// An anonymous ring admits only the hidden-owner rail.
+    fn accepts(self, circuit: CircuitId, mode: RingMode) -> bool {
+        match (self, mode) {
+            (Self::Member, RingMode::Anonymous) => {
+                matches!(circuit, CircuitId::RingEd25519(..)) && circuit.is_supported()
+            }
+            (Self::Member, _) => matches!(circuit, CircuitId::RingEddsa(..)),
+            (Self::Delegate, RingMode::Anonymous) => false,
+            (Self::Delegate, _) => matches!(circuit, CircuitId::RingAuthority(..)),
         }
     }
 
@@ -274,7 +294,8 @@ impl PolicyBinding {
 fn select_auditor_message<'a>(
     messages: &'a [MessageData],
     auditor_pubkey: &[u8; TAGGED_X25519_KEY_LEN],
-) -> Result<&'a AuditorMessage, CustomRingError> {
+    shape: DisclosureShape,
+) -> Result<AuditorMessage<'a>, CustomRingError> {
     let view_tag = &auditor_pubkey[1..];
     let (last, earlier) = messages
         .split_last()
@@ -282,24 +303,53 @@ fn select_auditor_message<'a>(
     let tagged_earlier = earlier.iter().any(|message| message.view_tag == view_tag);
     match (last.view_tag == view_tag, tagged_earlier) {
         (true, false) => {
-            bytemuck::try_from_bytes(&last.data).map_err(|_| CustomRingError::InvalidAuditorMessage)
+            AuditorMessage::parse(&last.data, shape).ok_or(CustomRingError::InvalidAuditorMessage)
         }
         (false, false) => Err(CustomRingError::MissingAuditorMessage),
         _ => Err(CustomRingError::InvalidAuditorMessage),
     }
 }
 
-fn is_valid_confidential_output(data: &[u8]) -> bool {
+fn is_valid_confidential_output(data: &[u8], anonymous: bool) -> bool {
+    if anonymous {
+        return ring_anonymous_encrypted_output_body(data).is_some_and(|body| !body.is_empty());
+    }
     confidential_encrypted_output_body(data)
         .or_else(|| ring_confidential_encrypted_output_body(data))
         .and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
         .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty())
 }
 
+/// The SPP payer is the only signer SPP sees, and no output names its owner.
+fn check_anonymous_settlement(
+    transact: &TransactIxData,
+    spp_accounts: &[AccountView],
+) -> Result<(), CustomRingError> {
+    let (payer, rest) = spp_accounts
+        .split_first()
+        .ok_or(CustomRingError::InvalidAnonymousSigner)?;
+    if rest
+        .iter()
+        .any(|account| account.is_signer() && account.address() != payer.address())
+    {
+        return Err(CustomRingError::InvalidAnonymousSigner);
+    }
+    if transact
+        .outputs
+        .iter()
+        .any(|output| output.owner_tag != OwnerTag::Inline([0; 32]))
+    {
+        return Err(CustomRingError::InvalidAnonymousOutput);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use custom_ring_interface::{pack_2fe, AUDITOR_MESSAGE_LEN, AUDIT_DISCLOSURE_FIELD_COUNT};
+    use custom_ring_interface::{
+        pack_2fe, AUDITOR_MESSAGE_PREFIX_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, VIEWING_PUBKEY_TAG,
+    };
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
@@ -325,7 +375,7 @@ mod tests {
     const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000eb63";
     const CT_HASH: &str = "1ceeed7a0df2acee11de3ba05f2c9e205cabd3adb067a1eaa9b6bc67149409f8";
     const PUBLIC_INPUT_HASH: &str =
-        "1c26456bcdeb4de535d7e8ccf1db5ff70f6f2b527565dc004291f705b5e5b72e";
+        "12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");
@@ -368,17 +418,29 @@ mod tests {
             output_hashes: &[[0u8; 32]],
             salt: &[0u8; 16],
             disclosure: &[[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
+            anonymous: false,
         }
         .hash()
         .expect("public input hash");
         assert_eq!(hash, bytes::<32>(PUBLIC_INPUT_HASH));
     }
 
+    const SHAPE: DisclosureShape = DisclosureShape {
+        anonymous: false,
+        inputs: 2,
+        outputs: 2,
+    };
+
+    fn message_len(shape: DisclosureShape) -> usize {
+        AUDITOR_MESSAGE_PREFIX_LEN + 32 * shape.field_count().expect("disclosed shape")
+    }
+
     fn message(view_tag: [u8; 32], len: usize) -> MessageData {
-        MessageData {
-            view_tag,
-            data: vec![9u8; len],
+        let mut data = vec![9u8; len];
+        if let Some(tag) = data.first_mut() {
+            *tag = VIEWING_PUBKEY_TAG;
         }
+        MessageData { view_tag, data }
     }
 
     fn auditor_view_tag() -> [u8; 32] {
@@ -388,42 +450,103 @@ mod tests {
         tag
     }
 
-    fn select_err(messages: &[MessageData]) -> CustomRingError {
-        select_auditor_message(messages, &bytes::<33>(AUDITOR_PK)).expect_err("selection must fail")
+    fn select_err(messages: &[MessageData], shape: DisclosureShape) -> CustomRingError {
+        select_auditor_message(messages, &bytes::<33>(AUDITOR_PK), shape)
+            .expect_err("selection must fail")
     }
 
     #[test]
     fn auditor_message_selection_enforces_unique_last_message() {
         let tag = auditor_view_tag();
         let other = [1u8; 32];
+        let len = message_len(SHAPE);
 
-        let valid = vec![message(other, 4), message(tag, AUDITOR_MESSAGE_LEN)];
-        let parts =
-            select_auditor_message(&valid, &bytes::<33>(AUDITOR_PK)).expect("valid selection");
-        assert_eq!(bytemuck::bytes_of(parts), valid[1].data.as_slice());
+        let valid = vec![message(other, 4), message(tag, len)];
+        let parts = select_auditor_message(&valid, &bytes::<33>(AUDITOR_PK), SHAPE)
+            .expect("valid selection");
+        assert_eq!(
+            parts.eph_pk.len() + parts.ciphertext.len() + core::mem::size_of_val(parts.disclosure),
+            len
+        );
 
         let missing = CustomRingError::MissingAuditorMessage;
         let invalid = CustomRingError::InvalidAuditorMessage;
-        assert_eq!(select_err(&[]), missing);
-        assert_eq!(select_err(&[message(other, AUDITOR_MESSAGE_LEN)]), missing);
+        assert_eq!(select_err(&[], SHAPE), missing);
+        assert_eq!(select_err(&[message(other, len)], SHAPE), missing);
         assert_eq!(
-            select_err(&[message(tag, AUDITOR_MESSAGE_LEN), message(other, 4)]),
+            select_err(&[message(tag, len), message(other, 4)], SHAPE),
             invalid
         );
         assert_eq!(
-            select_err(&[
-                message(tag, AUDITOR_MESSAGE_LEN),
-                message(tag, AUDITOR_MESSAGE_LEN)
-            ]),
+            select_err(&[message(tag, len), message(tag, len)], SHAPE),
+            invalid
+        );
+        assert_eq!(select_err(&[message(tag, len - 1)], SHAPE), invalid);
+        assert_eq!(select_err(&[message(tag, len + 32)], SHAPE), invalid);
+        let mut sec1 = message(tag, len);
+        sec1.data[0] = 2;
+        assert_eq!(select_err(&[sec1], SHAPE), invalid);
+    }
+
+    #[test]
+    fn disclosure_length_follows_the_ring_mode_and_the_published_slots() {
+        let tag = auditor_view_tag();
+        let anonymous = DisclosureShape {
+            anonymous: true,
+            ..SHAPE
+        };
+        let invalid = CustomRingError::InvalidAuditorMessage;
+        assert!(select_auditor_message(
+            &[message(tag, message_len(anonymous))],
+            &bytes::<33>(AUDITOR_PK),
+            anonymous
+        )
+        .is_ok());
+        assert_eq!(
+            select_err(&[message(tag, message_len(SHAPE))], anonymous),
             invalid
         );
         assert_eq!(
-            select_err(&[message(tag, AUDITOR_MESSAGE_LEN - 1)]),
+            select_err(&[message(tag, message_len(anonymous))], SHAPE),
             invalid
         );
+        let unsupported = DisclosureShape {
+            outputs: 5,
+            ..SHAPE
+        };
         assert_eq!(
-            select_err(&[message(tag, AUDITOR_MESSAGE_LEN + 1)]),
+            select_err(&[message(tag, message_len(SHAPE))], unsupported),
             invalid
         );
+    }
+
+    #[test]
+    fn the_rails_follow_the_ring_mode() {
+        let slots = zolana_interface::N_PUBLIC_SLOTS as u8;
+        let eddsa = CircuitId::RingEddsa(2, 2, slots);
+        let authority = CircuitId::RingAuthority(2, 2, slots);
+        let hidden = |n_in, n_out| {
+            CircuitId::RingEd25519(
+                n_in,
+                n_out,
+                slots,
+                zolana_interface::verifying_keys::Bsb22Commitment {
+                    commitment: [0; 32],
+                    commitment_pok: [0; 32],
+                },
+            )
+        };
+        for mode in [RingMode::Off, RingMode::Registry] {
+            assert!(Rail::Member.accepts(eddsa, mode));
+            assert!(!Rail::Member.accepts(hidden(2, 2), mode));
+            assert!(Rail::Delegate.accepts(authority, mode));
+        }
+        let anonymous = RingMode::Anonymous;
+        assert!(!Rail::Member.accepts(eddsa, anonymous));
+        assert!(!Rail::Delegate.accepts(authority, anonymous));
+        for (n_in, n_out) in [(2, 2), (2, 4), (3, 4), (4, 2)] {
+            assert!(Rail::Member.accepts(hidden(n_in, n_out), anonymous));
+        }
+        assert!(!Rail::Member.accepts(hidden(1, 2), anonymous));
     }
 }

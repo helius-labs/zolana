@@ -1,4 +1,3 @@
-import { X25519PublicKey } from "../../keypair/x25519.js";
 import { addressBytes } from "../../interface/internal.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { treeIdField } from "../../interface/tree-slot.js";
@@ -10,6 +9,8 @@ import {
   type AuditOutputOpening,
 } from "../../keypair/audit.js";
 import { bigIntToBytes, randomSalt } from "../../keypair/bytes.js";
+import { X25519_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { rightAlign, ZERO_32 } from "../internal.js";
@@ -31,8 +32,6 @@ import type { ProofOutputUtxo, TreeId } from "../utxo.js";
 import type { AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
-
-const TAGGED_VIEWING_KEY_LENGTH = 33;
 
 /**
  * Per-transaction encryption envelope: the ephemeral transaction viewing key
@@ -132,9 +131,9 @@ export function encryptCustomRingTransfer(
     checkDistinctSlots(outputs.length, callerMessages);
     const sealedMessages: readonly MessageData[] = callerMessages.map((message) => {
       const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
-      const body = new Uint8Array(TAGGED_VIEWING_KEY_LENGTH + ciphertext.length);
+      const body = new Uint8Array(X25519_PUBLIC_KEY_LENGTH + ciphertext.length);
       body.set(recipient.toBytes(), 0);
-      body.set(ciphertext, TAGGED_VIEWING_KEY_LENGTH);
+      body.set(ciphertext, X25519_PUBLIC_KEY_LENGTH);
       return { viewTag: message.viewTag, data: body };
     });
     const encrypted = {
@@ -195,9 +194,9 @@ export function openSealedMessage(
   input: Readonly<{ salt: Bytes16; slotIndex: number; data: Uint8Array }>,
 ): Uint8Array {
   const recipient = X25519PublicKey.fromBytes(
-    input.data.slice(0, TAGGED_VIEWING_KEY_LENGTH) as Bytes33,
+    input.data.slice(0, X25519_PUBLIC_KEY_LENGTH) as Bytes33,
   );
-  const ciphertext = input.data.slice(TAGGED_VIEWING_KEY_LENGTH);
+  const ciphertext = input.data.slice(X25519_PUBLIC_KEY_LENGTH);
   return tx.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
 }
 

@@ -285,10 +285,13 @@ impl OrderUtxo {
     pub fn destination_ciphertext(
         &self,
         destination_output: &SppProofOutputUtxo,
+        output_tree_id: u16,
     ) -> Result<Vec<u8>> {
+        let destination_output_hash = destination_output.hash(output_tree_id).map_err(err)?;
         Ok(
             crate::instructions::take_verifiable_encryption::destination_ciphertext_with_hash(
                 &self.blinding,
+                &destination_output_hash,
                 &self.terms.destination_mint,
                 self.terms.destination_amount,
                 &destination_output.blinding,

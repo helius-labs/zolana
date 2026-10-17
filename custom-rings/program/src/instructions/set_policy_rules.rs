@@ -1,9 +1,9 @@
-use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
+use custom_ring_interface::{CustomRingError, PolicyConfig, PolicyTableIxData, RingProgramConfig};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::instructions::{
-    loader::{check_upgrade_authority, load_mut},
+    loader::{check_upgrade_authority, load, load_mut},
     policy_shared::{bind_table, repin},
     shared::{namespace_address, parse},
 };
@@ -19,12 +19,17 @@ pub fn process_set_policy_rules_ix(
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
+    let config = iter.next_account("config")?;
     let policy_config = iter.next_mut("policy_config")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
     let curators = iter.remaining_unchecked()?;
 
     check_upgrade_authority(program_id, authority, program, program_data)?;
+    // Every table fits every known mode, an unknown mode fails closed.
+    load::<RingProgramConfig>(program_id, config)?
+        .mode()
+        .ok_or(CustomRingError::InvalidRingMode)?;
     let mut live = load_mut::<PolicyConfig>(program_id, policy_config)?;
     let namespace = namespace_address(program_id, live.namespace_bump);
     let bound = bind_table(&ix, curators, &namespace, &live.address_tree)?;

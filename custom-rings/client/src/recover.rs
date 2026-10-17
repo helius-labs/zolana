@@ -5,7 +5,7 @@ use std::{
     num::{NonZeroU32, NonZeroUsize},
 };
 
-use custom_ring_interface::RingDepositAuditCapsule;
+use custom_ring_interface::{RingDepositAuditCapsule, RingMode};
 use solana_address::Address;
 use zolana_client::{AsyncRpc, IndexerRpcConfig, RingHistoryOptions};
 use zolana_event::EncryptedRingDepositOutput;
@@ -35,6 +35,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
     auditor: &'a X25519Secret,
+    mode: RingMode,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -78,6 +79,7 @@ impl<'a> RingRecovery<'a> {
         Self {
             ring_program_id,
             auditor,
+            mode: RingMode::Off,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
@@ -86,6 +88,12 @@ impl<'a> RingRecovery<'a> {
 
     pub fn with_page_size(mut self, page_size: NonZeroU32) -> Self {
         self.page_size = page_size;
+        self
+    }
+
+    /// The ring's mode selects the disclosure layout the audit parses.
+    pub fn with_mode(mut self, mode: RingMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -233,7 +241,7 @@ impl<'a> MemberRecovery<'a> {
             transaction,
             assets,
         }
-        .run()?;
+        .run_with_mode(self.recovery.mode)?;
         for output in &audited.outputs {
             if output.recipient_viewing_pk != self.source.address.viewing_pubkey
                 || Member::owner_tag(&output.owner_tag)? != member

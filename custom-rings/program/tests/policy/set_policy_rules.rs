@@ -10,10 +10,10 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    account, address_tree, consumed, curator_policy_config_account_with, curator_slot,
-    curator_source_slots, initialized_curator_policy_config_account, largest_table, mixed_sources,
-    namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
-    program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
+    account, address_tree, anonymous_config_account, consumed, curator_policy_config_account_with,
+    curator_slot, curator_source_slots, initialized_curator_policy_config_account, largest_table,
+    mixed_sources, namespace_pda, own_source_slots, own_specs, policy_config_account_with,
+    policy_hash_for, program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
     specs_with_block_source, stored_policy_config, table_ix_data, LIMIT_RULES, PINNED_RULES,
     RELEASED_RULES, WARPED_SLOT,
 };
@@ -204,4 +204,23 @@ fn a_short_account_list_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
+}
+
+#[test]
+fn an_anonymous_ring_re_pins_outflow_limits() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&LIMIT_RULES, &own_specs(&LIMIT_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", anonymous_config_account());
+    let config = stored_policy_config(&mollusk, &fixture);
+    assert_eq!(config.rules, LIMIT_RULES.encode());
+}
+
+#[test]
+fn a_config_that_is_not_initialized_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
+    let mut fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.set_account("config", account(0));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }

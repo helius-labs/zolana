@@ -73,6 +73,12 @@ fn error_codes_are_stable() {
         (InvalidAuditedDeposit as u32, 8179),
         (InvalidDepositData as u32, 8180),
         (UnexpectedRevocationTarget as u32, 8181),
+        (LegacyAuditorKey as u32, 8183),
+        (InvalidRingMode as u32, 8184),
+        (AnonymousRingRefused as u32, 8185),
+        (InvalidAnonymousOutput as u32, 8186),
+        (InvalidAnonymousSigner as u32, 8187),
+        (InvalidMergeDisclosure as u32, 8188),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +158,12 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | TooManyPublicLegs
         | InvalidAuditedDeposit
         | InvalidDepositData
-        | UnexpectedRevocationTarget => {}
+        | UnexpectedRevocationTarget
+        | LegacyAuditorKey
+        | InvalidRingMode
+        | AnonymousRingRefused
+        | InvalidAnonymousOutput
+        | InvalidAnonymousSigner
+        | InvalidMergeDisclosure => {}
     }
 }

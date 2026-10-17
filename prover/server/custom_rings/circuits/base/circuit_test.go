@@ -147,6 +147,24 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "legacy envelope key tag",
 			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithLegacyEphTag() },
 		},
+		{
+			name: "legacy ring with a sender",
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
+				c.Sender[0] = 0x53
+			},
+		},
+		{
+			name: "legacy ring with an input count",
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
+				c.NIn = 1
+			},
+		},
+		{
+			name: "anonymous flag not boolean",
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
+				c.Anonymous = 2
+			},
+		},
 	}
 	// Every alias clamps onto the published key, only the clamped bytes may be the plaintext.
 	canonical := ringaudit.DefaultKeys(t).TxSk()
@@ -219,13 +237,7 @@ func validAssignment(t *testing.T) *base.CustomRingBaseCircuit {
 
 func buildAssignment(t *testing.T, keys ringaudit.Keys) *base.CustomRingBaseCircuit {
 	t.Helper()
-	statement := keys.Statement(big.NewInt(0xabcdef))
-	return &base.CustomRingBaseCircuit{
-		PublicInputHash: spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)),
-		Audit:           statement.Audit,
-		NOut:            statement.Count,
-		Outputs:         statement.Outputs,
-	}
+	return keys.Circuit(t, keys.Statement(big.NewInt(0xabcdef)))
 }
 
 // Clamping aliases of the ephemeral secret seal the same envelope, so no alias reaches another stream.

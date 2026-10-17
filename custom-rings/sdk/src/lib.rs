@@ -26,7 +26,7 @@ mod trees;
 mod witness;
 
 pub use custom_ring_interface::{
-    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, KeyEscrow, PolicyConfig,
+    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, PolicyConfig, RingMode,
 };
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 
@@ -49,9 +49,10 @@ pub use crate::{
         ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     pipeline::{
-        ring_authority_width, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
-        DelegateTransfer, DelegateTransferInput, Delegated, Owner, ProvenDelegateTransfer,
-        ProvenRingTransfer, ProvenTransfer, Rail, RailKind, RingTransfer,
+        ring_authority_width, Anonymous, AnonymousTransfer, CustomRingTransfer,
+        CustomRingTransferInput, DelegateOutput, DelegateTransfer, DelegateTransferInput,
+        Delegated, Owner, ProvenDelegateTransfer, ProvenRingTransfer, ProvenTransfer, Rail,
+        RailKind, RingTransfer,
     },
     prover::{to_instruction_proof, to_plain_proof},
     request::{OutflowLimitProofInput, RingIdentity},
