@@ -1,6 +1,6 @@
 Custom rings rely on SPP for ownership, inclusion, nullifiers and conservation. The extra proof checks policy and auditor disclosure for the same private transaction hash. Both proofs must pass before settlement.
 
-The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) gives the order of constraints and the account trust boundary. [Proof costs](proof-costs.md) separates the extra proof from SPP settlement. [The change overview](changes-overview.md) explains policy storage and migration. The [PR and Certora checklist](re-audit-checklist.md) records the current review, fixes and remaining artifact validation.
+The [circuit walkthrough](../prover/server/custom_rings/circuits/policy/doc.go) gives the order of constraints and the account trust boundary. [Proof costs](proof-costs.md) separates the extra proof from SPP settlement. [The change overview](changes-overview.md) explains policy storage and migration. The [code differential review](re-audit-checklist.md) assesses custom rings with PR #427 treated as merged.
 
 | Obligation | Enforcement | Regression coverage |
 |---|---|---|
@@ -44,6 +44,7 @@ PR #427 adds proof-bound merge output encryption. Recovery no longer needs every
 
 The accepted limits are explicit.
 
+- A merge in a non-escrow ring has owner-recovery encryption but no auditor-readable output opening. [The code differential review](re-audit-checklist.md) treats continuous auditor visibility across merges as unresolved.
 - Ordinary recipient ciphertext is outside the proof. Protocols that depend on delivery need their own recipient encryption proof.
 - The 32-root registry history permits older membership snapshots. A policy table edit takes effect immediately. A list edit does not promise immediate revocation.
 - Outflow caps apply per transfer. Delegates remain exempt from these caps and require separate authorization and escrow.
