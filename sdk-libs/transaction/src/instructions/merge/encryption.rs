@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     error::TransactionError,
-    keys::{DeriveRequest, ShieldedKeys, TransactionKeyRequest},
+    keys::{first_input_transaction_key, DeriveRequest, ShieldedKeys},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
@@ -23,11 +23,9 @@ impl MergeTransaction {
         shielded_keys: &K,
     ) -> Result<MergeProofInputs, TransactionError> {
         let sender = shielded_keys.address()?;
-        let first_nullifier = self
-            .inputs
-            .first()
-            .ok_or(TransactionError::NoInputs)?
-            .nullifier;
+        let first_input = self.inputs.first().ok_or(TransactionError::NoInputs)?;
+        let first_nullifier = first_input.nullifier;
+        let synced_tx_viewing_key = first_input.tx_viewing_key;
         let mut requests = vec![DeriveRequest::MergeOutputBlinding { first_nullifier }];
         for slot in self.inputs.len()..self.validated_inputs.padded_input_count {
             let slot_index = u8::try_from(slot).map_err(|_| TransactionError::TooManyInputs {
@@ -51,15 +49,12 @@ impl MergeTransaction {
         let output_blinding = derived
             .next()
             .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
-        let tx_viewing_keys = shielded_keys.transaction_keys(&[TransactionKeyRequest {
-            viewing_pubkey: sender.viewing_pubkey,
+        let tx_viewing_key = first_input_transaction_key(
+            shielded_keys,
+            sender.viewing_pubkey,
             first_nullifier,
-        }])?;
-        let got = tx_viewing_keys.len();
-        let tx_viewing_key = tx_viewing_keys
-            .into_iter()
-            .next()
-            .ok_or(TransactionError::IncompleteDerivation { got, want: 1 })?;
+            synced_tx_viewing_key,
+        )?;
         self.encrypt_with_viewing_key(
             &sender,
             &tx_viewing_key,

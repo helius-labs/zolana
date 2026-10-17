@@ -1,0 +1,51 @@
+[package]
+name = "zolana-zk-standalone-fixture"
+version = "0.1.0"
+description = "Circuits built on the zk DSL and gadgets alone, without zolana-program, and the Solana program verifying them: pins that the derives, the DSL paths and the build work for standalone circuits."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["insecure-test-setup"]
+# The committed verifying key comes from the deterministic test setup.
+insecure-test-setup = []
+# The circuits and their prover, on the host. `zolana zk compile` builds the
+# circuits with this feature plus `r1cs-export`.
+circuits = [
+    "dep:solana-address",
+    "dep:zolana-zk-gadgets",
+    "zolana-zk-dsl/client",
+    "zolana-zk-dsl/setup",
+    "zolana-zk-dsl/serde",
+]
+r1cs-export = ["circuits", "zolana-zk-dsl/r1cs-export"]
+# The wasm package `zolana zk compile` builds: `withdrawalProofInputs`, and
+# with the prover features the build adds, `WithdrawalProver`.
+wasm = ["circuits", "zolana-zk-dsl/wasm"]
+# The SBF program's entrypoint, for `zolana build-zk-program --sbf-features`.
+bpf-entrypoint = []
+
+[dependencies]
+pinocchio = { workspace = true }
+solana-address = { workspace = true, optional = true }
+zolana-zk-dsl = { workspace = true, features = ["verifier"] }
+zolana-zk-gadgets = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[[test]]
+name = "standalone"
+required-features = ["circuits"]
+
+[[test]]
+name = "parity"
+required-features = ["circuits"]
+
+[lints.clippy]
+disallowed_types = "allow"

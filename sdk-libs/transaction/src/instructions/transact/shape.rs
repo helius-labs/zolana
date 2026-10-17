@@ -15,8 +15,11 @@ pub fn auto_shapes() -> impl Iterator<Item = Shape> {
     SPP_SUPPORTED_SHAPES.into_iter()
 }
 
+/// The first supported shape that fits. The consolidation shape comes last, so
+/// it is selected only for more than five inputs.
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
-    auto_shapes()
+    SPP_SUPPORTED_SHAPES
+        .into_iter()
         .find(|s| n_in <= s.n_inputs() && n_out <= s.n_outputs())
         .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
 }

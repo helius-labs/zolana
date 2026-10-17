@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
 pub use zolana_event::{

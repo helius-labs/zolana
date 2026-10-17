@@ -1,4 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
@@ -7,7 +7,7 @@ use zolana_program::compression::{CompressedAccountData, CompressedAccountError}
 
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(SchemaRead, SchemaWrite, Clone, Debug, Default, PartialEq, Eq)]
 pub struct AccountState {
     pub address: [u8; 32],
     pub authority: [u8; 32],

@@ -26,6 +26,9 @@ pub use alloc::{string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 pub use std::{string::String, vec, vec::Vec};
 
+mod discriminator;
+pub use discriminator::state_discriminator;
+
 pub mod bigint;
 pub mod errors;
 pub mod hash_chain;

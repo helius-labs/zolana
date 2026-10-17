@@ -1,6 +1,9 @@
 use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
-use zolana_keypair::{shielded::ShieldedAddress, Curve};
+use zolana_keypair::{
+    shielded::{ShieldedAddress, ShieldedKeypair},
+    Curve,
+};
 
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
@@ -50,6 +53,14 @@ impl ConfidentialTransaction {
         Ok(self)
     }
 
+    pub fn add_empty_output_utxo(&mut self) -> Result<&mut Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.outputs.push(SppProofOutputUtxo::default());
+        Ok(self)
+    }
+
     /// Convert wallet inputs and pad all UTXOs without reordering existing slots.
     ///
     /// Steps:
@@ -67,6 +78,27 @@ impl ConfidentialTransaction {
         shape: Shape,
         sender: &ShieldedAddress,
     ) -> Result<&mut Self, TransactionError> {
+        self.pad(shape, sender, false)
+    }
+
+    /// Pad like [`Self::pad_utxos`] for a transaction whose outputs a circuit
+    /// fixes: no output is added beyond nonzero change, so a transaction
+    /// naming no participant tags its dummies for a keypair nobody holds
+    /// instead of keeping a zero-amount change.
+    pub fn pad_utxos_with_empty_outputs(
+        &mut self,
+        shape: Shape,
+        sender: &ShieldedAddress,
+    ) -> Result<&mut Self, TransactionError> {
+        self.pad(shape, sender, true)
+    }
+
+    fn pad(
+        &mut self,
+        shape: Shape,
+        sender: &ShieldedAddress,
+        fixed_outputs: bool,
+    ) -> Result<&mut Self, TransactionError> {
         // 1. Reject repeated padding and validate the shape and public transfers.
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
@@ -77,9 +109,9 @@ impl ConfidentialTransaction {
                 n_out: shape.n_outputs(),
             });
         }
-        if self.inputs.len() > shape.n_inputs() {
+        if self.inputs.len() + self.addresses.len() > shape.n_inputs() {
             return Err(TransactionError::TooManyInputs {
-                got: self.inputs.len(),
+                got: self.inputs.len() + self.addresses.len(),
                 max: shape.n_inputs(),
             });
         }
@@ -107,6 +139,12 @@ impl ConfidentialTransaction {
         // 4. Check output capacity, append dummy outputs and verify balance.
         let dummy_owner_tag = match self.dummy_owner_tag(&outputs, sender)? {
             Some(tag) => tag,
+            // A circuit fixes the outputs, so no change can carry the tag: take
+            // the tag of a keypair nobody holds, which reads as an unknown
+            // recipient's.
+            None if fixed_outputs => ShieldedKeypair::new_ed25519()?
+                .shielded_address()?
+                .confidential_view_tag()?,
             None => {
                 outputs.push(SppProofOutputUtxo {
                     owner_address: Some(*sender),
@@ -122,6 +160,13 @@ impl ConfidentialTransaction {
                 got: outputs.len(),
                 max: shape.n_outputs(),
             });
+        }
+        // Empty outputs added with `add_empty_output_utxo` publish the same tag
+        // as the padding after them.
+        for output in outputs.iter_mut() {
+            if output.is_dummy() && !output.compact && output.owner_tag.is_none() {
+                output.owner_tag = Some(dummy_owner_tag);
+            }
         }
         outputs.resize(
             shape.n_outputs(),
@@ -155,7 +200,12 @@ impl ConfidentialTransaction {
         }
 
         // 5. Convert wallet inputs, append dummy inputs and commit both vectors.
-        let mut inputs = self.inputs.iter().map(SppProofInputUtxo::from).collect();
+        let mut inputs = self
+            .addresses
+            .iter()
+            .cloned()
+            .chain(self.inputs.iter().map(SppProofInputUtxo::from))
+            .collect();
         pad_inputs(&mut inputs, shape, self.compact_padding)?;
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);

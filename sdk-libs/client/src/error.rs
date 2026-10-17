@@ -11,6 +11,8 @@ use crate::prover::tee::TeeError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("address input {index} requires the confidential EdDSA transaction rail")]
+    AddressInputUnsupported { index: usize },
     #[error("the ring key-registry indexer is catching up or recovering")]
     RingKeyRegistryOutOfSync,
     #[error("the ring key-registry root has changed")]

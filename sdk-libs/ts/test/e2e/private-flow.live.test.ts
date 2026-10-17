@@ -61,7 +61,9 @@ import {
 } from "./live-helpers.js";
 
 function unspent(owner: Actor, asset = SOL_MINT): readonly WalletUtxo[] {
-  return owner.wallet.utxos().filter((entry) => !entry.spent && entry.utxo.asset === asset);
+  return owner.wallet
+    .utxos()
+    .filter((entry) => !entry.spent && entry.utxo.amount > 0n && entry.utxo.asset === asset);
 }
 
 function assertSpent(owner: Actor, entries: readonly WalletUtxo[]): void {

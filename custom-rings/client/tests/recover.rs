@@ -92,11 +92,13 @@ impl Fixture {
             nullifier: utxo
                 .nullifier(&hash, &self.member.nullifier_key)
                 .expect("nullifier"),
+            tx_viewing_key: None,
             utxo,
             data_hash: output.data_hash,
             ring_data_hash: output.ring_data_hash,
             tree_id,
             leaf_index: u64::from(self.sequence.get()),
+            latest_tree_id: None,
             slot: u64::from(self.sequence.get()),
             tx_signature: Signature::from([0; 64]),
             slot_index: 0,

@@ -48,10 +48,12 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             nullifier_pubkey: nullifier_key.pubkey()?,
             utxo_hash: hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash: Some(data_hash),
             ring_data_hash: None,
             tree_id,
             leaf_index: indexed.output_slot.output_context.leaf_index,
+            latest_tree_id: None,
             slot: indexed.slot,
             tx_signature: indexed.tx_signature,
             slot_index: 0,
@@ -158,7 +160,7 @@ mod tests {
                     leaf_index,
                 },
                 payload: borsh::to_vec(&OutputDataEncoding::Plaintext(
-                    borsh::to_vec(state).unwrap(),
+                    wincode::serialize(state).unwrap(),
                 ))
                 .unwrap(),
             },

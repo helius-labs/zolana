@@ -1,0 +1,20 @@
+{
+  "name": "zolana-program-wasm-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --wasm-out web/pkg",
+    "build:test": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --verifier --wasm-out web/pkg",
+    "build:single": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --single-threaded --wasm-out web/pkg",
+    "build:inputs": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --no-prover --wasm-out web/pkg-inputs",
+    "check:dts": "node tools/check-dts.mjs",
+    "test": "playwright test --grep-invert @bench",
+    "bench": "playwright test --grep @bench --reporter=list",
+    "serve": "node tools/serve.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "snarkjs": "0.7.6"
+  }
+}

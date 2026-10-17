@@ -88,7 +88,7 @@ pub fn attach_input_proofs(
 ) -> Result<Vec<TransferInputUtxo>, ClientError> {
     let real_count = inputs
         .iter()
-        .filter(|input| !input.is_dummy() && input.cache_slot.is_none())
+        .filter(|input| input.requires_inclusion())
         .count();
     let dummy_count = inputs.len() - real_count;
     if proofs.len() != real_count || dummy_nullifier_proofs.len() != dummy_count {
@@ -103,7 +103,7 @@ pub fn attach_input_proofs(
     let mut real_index = 0;
     let mut dummy_index = 0;
     for input_utxo in inputs {
-        let (proof, nullifier_proof) = if input_utxo.is_dummy() || input_utxo.cache_slot.is_some() {
+        let (proof, nullifier_proof) = if !input_utxo.requires_inclusion() {
             let nullifier_proof = Some(
                 dummy_nullifier_proofs
                     .get(dummy_index)
@@ -298,10 +298,12 @@ mod tests {
             nullifier_pubkey,
             utxo_hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             tree_id,
             leaf_index: 0,
+            latest_tree_id: None,
             slot: 0,
             tx_signature: Default::default(),
             slot_index: 0,

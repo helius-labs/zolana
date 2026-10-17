@@ -20,6 +20,7 @@ pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + NULLIFIER_PUBKEY_LEN + 
 const NULLIFIER_PUBKEY_LEN: usize = 32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify), tsify(type = "Uint8Array"))]
 pub struct ShieldedAddress {
     pub signing_pubkey: PublicKey,
     pub nullifier_pubkey: [u8; 32],
@@ -302,5 +303,20 @@ impl ShieldedKeypair {
     ) -> Result<ViewingKey, KeypairError> {
         self.viewing_key
             .get_transaction_viewing_key(first_nullifier)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for ShieldedAddress {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::serialize(&self.to_bytes(), serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ShieldedAddress {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes: [u8; SHIELDED_ADDRESS_LEN] = serde_bytes::deserialize(deserializer)?;
+        Self::from_bytes(&bytes).map_err(serde::de::Error::custom)
     }
 }

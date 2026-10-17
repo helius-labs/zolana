@@ -982,7 +982,7 @@ describe("ring openings", () => {
     expect(vector[0]).toBe(signerIdentity(payer));
     expect(vector[1]).toBe(hashOf(owner.address.solanaAddress()));
     expect(vector.slice(2).every((entry) => entry === 0n)).toBe(true);
-    expect(ownerSignerAddresses(proofInputs.inputUtxos, payer)).toEqual([
+    expect(ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs, payer)).toEqual([
       owner.address.solanaAddress(),
     ]);
   });
@@ -1034,8 +1034,8 @@ describe("ring openings", () => {
         blinding: scalar(blinding),
       });
     const ownerAddress = owner.address.solanaAddress();
-    expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);
-    expect(ownerSignerAddresses([input(1), input(2)], ownerAddress)).toEqual([]);
+    expect(ownerSignerAddresses([input(1), input(2)], [], payer)).toEqual([ownerAddress]);
+    expect(ownerSignerAddresses([input(1), input(2)], [], ownerAddress)).toEqual([]);
   });
 
   it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {

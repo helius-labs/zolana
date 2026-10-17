@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 

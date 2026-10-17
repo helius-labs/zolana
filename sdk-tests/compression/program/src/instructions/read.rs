@@ -7,8 +7,9 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_program::compression::{
-    CompressedAccountData, CompressedAccountMeta, CompressedProof, DataUtxo, PdaOwner, ReadRoots,
+use zolana_program::{
+    compression::{CompressedAccountData, CompressedAccountMeta, DataUtxo, PdaOwner, ReadRoots},
+    CompressedProof,
 };
 
 use crate::{
@@ -113,9 +114,9 @@ pub fn process_read_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
 #[inline(never)]
 fn verify_read_proof(proof: &CompressedProof, public_input_hash: [u8; 32]) -> ProgramResult {
     let err = CompressionError::ProofVerificationFailed;
-    let proof_a = decompress_g1(&proof.proof_a).map_err(|_| err)?;
-    let proof_b = decompress_g2(&proof.proof_b).map_err(|_| err)?;
-    let proof_c = decompress_g1(&proof.proof_c).map_err(|_| err)?;
+    let proof_a = decompress_g1(&proof.a).map_err(|_| err)?;
+    let proof_b = decompress_g2(&proof.b).map_err(|_| err)?;
+    let proof_c = decompress_g1(&proof.c).map_err(|_| err)?;
     Groth16Verifier::new(
         &proof_a,
         &proof_b,

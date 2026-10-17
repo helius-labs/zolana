@@ -1,5 +1,4 @@
 use anyhow::Result;
-use borsh::BorshDeserialize;
 pub use compression_example_program::state::AccountState;
 use solana_address::Address;
 use zolana_keypair::{PublicKey, ShieldedAddress, ViewingKey};
@@ -9,7 +8,7 @@ use zolana_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
 use crate::{err, shared::zero_nullifier_key};
 
 pub fn decode_state(data: &[u8]) -> Result<AccountState> {
-    AccountState::try_from_slice(data).map_err(err)
+    wincode::deserialize_exact(data).map_err(err)
 }
 
 #[derive(Clone, Debug)]
@@ -27,7 +26,7 @@ impl AccountUtxo {
             blinding: self.state.blinding,
             ring_program_id: None,
             data: Data::new(vec![DataRecord::UtxoData(
-                borsh::to_vec(&self.state).map_err(err)?,
+                wincode::serialize(&self.state).map_err(err)?,
             )]),
         })
     }

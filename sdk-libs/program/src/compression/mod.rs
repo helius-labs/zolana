@@ -35,7 +35,6 @@ mod address;
 mod cpi;
 mod error;
 mod owner;
-mod proof;
 mod read;
 mod utxo;
 
@@ -43,7 +42,6 @@ pub use account::{CompressedAccount, CompressedAccountData, CompressedAccountMet
 pub use address::{AddressSeed, NewAddress};
 pub use cpi::{SppTransactCpi, ACCOUNT_BLINDING_SEED};
 pub use error::CompressedAccountError;
-pub use owner::{PdaOwner, ZERO_NULLIFIER_PUBKEY};
-pub use proof::CompressedProof;
+pub use owner::PdaOwner;
 pub use read::{load_tree_id, ReadRoots};
-pub use utxo::{DataUtxo, UtxoKey, NO_RING_HASH};
+pub use utxo::{DataUtxo, UtxoKey};

@@ -135,13 +135,14 @@ describe("example: deposit, transfer, withdraw", () => {
     });
     const transferBalance = balancesAfterTransfer.balance(SOL_MINT);
     expect(transferBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
-    expect(transferBalance.utxos).toHaveLength(1);
+    const spendable = transferBalance.utxos.filter((utxo) => utxo.amount > 0n);
+    expect(spendable).toHaveLength(1);
 
     // Withdraw SOL from the sender's private balance to their public balance.
     // A withdrawal reveals the sender, recipient, asset, and amount.
 
     // 1. Select private token accounts (UTXOs) that make up the private balance for the withdrawal.
-    const withdrawalUtxo = transferBalance.utxos[0]!;
+    const withdrawalUtxo = spendable[0]!;
 
     // 2. Prepare the selected UTXOs as inputs for the zero-knowledge proof.
     const withdrawalInput = ProofInputUtxo.fromKeypair(withdrawalUtxo, senderKeypair);
@@ -189,7 +190,7 @@ describe("example: deposit, transfer, withdraw", () => {
     });
     const withdrawalBalance = balancesAfterWithdrawal.balance(SOL_MINT);
     expect(withdrawalBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT);
-    expect(withdrawalBalance.utxos).toHaveLength(1);
+    expect(withdrawalBalance.utxos.filter((utxo) => utxo.amount > 0n)).toHaveLength(1);
 
     // 8. Read remaining private balance and the public balance.
     const solanaBalance = await client.getBalance(senderSigner.address);

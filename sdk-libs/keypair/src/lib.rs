@@ -38,6 +38,8 @@
 //!             └── decrypt_utxo  ←── scan view tags at the indexer
 //! ```
 
+#[cfg(feature = "circuit")]
+pub mod circuit;
 pub mod constants;
 pub mod derivation;
 pub(crate) mod encryption;
@@ -46,6 +48,8 @@ pub mod hash;
 pub mod nullifier_key;
 pub mod pda;
 pub mod pubkey;
+#[cfg(feature = "serde")]
+pub mod serde_helpers;
 pub mod shielded;
 pub mod signing_key;
 pub mod traits;

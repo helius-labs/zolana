@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use pinocchio::Address;
 use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
 use zolana_interface::{
@@ -30,7 +30,7 @@ const STATE_CONTEXT: TreeContext = TreeContext {
 };
 
 /// A state that stores its address and blinding, as the trait asks.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(wincode::SchemaWrite, wincode::SchemaRead, Clone, Debug, Default, PartialEq, Eq)]
 struct CounterState {
     address: [u8; 32],
     count: u8,
@@ -71,7 +71,8 @@ fn meta(tree_context: TreeContext) -> CompressedAccountMeta {
 }
 
 fn create(owner: &PdaOwner, count: u8) -> CompressedAccount<'_, CounterState> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), ADDRESS_TREE_ID).unwrap();
+    let address =
+        NewAddress::derive_with_tree_id(owner, AddressSeed::owner(owner), ADDRESS_TREE_ID).unwrap();
     let mut account: CompressedAccount<'_, CounterState> =
         CompressedAccount::new_init(owner, address, ADDRESS_CONTEXT);
     account.count = count;
@@ -146,7 +147,7 @@ fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
             else {
                 panic!("output data is not plaintext");
             };
-            CounterState::try_from_slice(&state).unwrap()
+            wincode::deserialize_exact(&state).unwrap()
         })
         .collect()
 }
@@ -154,7 +155,9 @@ fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
 #[test]
 fn new_init_starts_from_the_default_state_at_the_address() {
     let owner = owner(4);
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID).unwrap();
+    let address =
+        NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID)
+            .unwrap();
     let account: CompressedAccount<'_, CounterState> =
         CompressedAccount::new_init(&owner, address, ADDRESS_CONTEXT);
 
@@ -391,14 +394,6 @@ fn into_ix_data_rejects_invalid_account_sets() {
         (
             vec![
                 update(&first, STATE_CONTEXT, 9, 11),
-                create(&second, 12),
-                update(&second, STATE_CONTEXT, 9, 13),
-            ],
-            CompressedAccountError::InputTreesNotContiguous,
-        ),
-        (
-            vec![
-                update(&first, STATE_CONTEXT, 9, 11),
                 update(&second, other_context, 9, 12),
             ],
             CompressedAccountError::ConflictingTreeContexts,
@@ -444,4 +439,35 @@ fn new_mut_rejects_a_zero_current_data_hash() {
         .map(|account| *account.input_nullifier()),
         Err(CompressedAccountError::ZeroDataHash)
     );
+}
+
+#[test]
+fn account_inputs_can_return_to_an_earlier_tree() {
+    let (first, second) = (owner(4), owner(5));
+    let ix = build(vec![
+        update(&first, STATE_CONTEXT, 9, 11),
+        create(&second, 12),
+        update(&second, STATE_CONTEXT, 9, 13),
+    ])
+    .unwrap();
+    assert_eq!(
+        ix.inputs
+            .iter()
+            .map(|input| input.tree_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 0]
+    );
+    assert_eq!(ix.tree_contexts.len(), 2);
+    let conflicting = TreeContext {
+        utxo_tree_root_index: 1,
+        ..STATE_CONTEXT
+    };
+    assert!(matches!(
+        build(vec![
+            update(&first, STATE_CONTEXT, 9, 11),
+            create(&second, 12),
+            update(&second, conflicting, 9, 13),
+        ]),
+        Err(CompressedAccountError::ConflictingTreeContexts)
+    ));
 }

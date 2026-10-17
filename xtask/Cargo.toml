@@ -34,7 +34,7 @@ tar = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol"] }
+zolana-program = { workspace = true, features = ["protocol-instructions"] }
 zolana-tree = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-keypair = { workspace = true }

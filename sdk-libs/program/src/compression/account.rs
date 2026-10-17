@@ -1,20 +1,19 @@
 use core::ops::{Deref, DerefMut};
 
-use borsh::BorshSerialize;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
 
 use super::{CompressedAccountError, DataUtxo, NewAddress, PdaOwner, UtxoKey};
 
 /// Program state kept as a compressed account. The SDK publishes it as
-/// plaintext borsh and commits to it through [`Self::data_hash`].
+/// plaintext wincode and commits to it through [`Self::data_hash`].
 ///
 /// The state stores its address and the blinding of the UTXO it lives in, and
 /// its data hash commits to both. The SDK fills them in: the address from the
 /// meta or the new address, the blinding from the meta or the one the
 /// transaction derives for the new UTXO, so readers can spend the UTXO from
 /// the published state alone.
-pub trait CompressedAccountData: BorshSerialize {
+pub trait CompressedAccountData: SchemaWrite<wincode::config::DefaultConfig, Src = Self> {
     /// Commits to the state, a type tag and the address.
     fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError>;
     fn address_mut(&mut self) -> &mut [u8; 32];

@@ -31,6 +31,17 @@ prover
 - go prover server
 - rust prover client
 
+zk
+- generic zero-knowledge crates: the circuit DSL with its Groth16 prover, the
+  gadgets, and the core derives
+- know nothing of the zolana protocol: depend on no zolana crate except another
+  `zolana-zk-*` crate and `zolana-hasher` (`just check-deps` enforces it)
+- no crate depends on both `zolana-program` and a zk crate: ZK programs use the
+  `zolana-program` re-exports, standalone circuits use the zk crates with
+  `extern crate zolana_zk_dsl as zolana_program;` in their root
+- every gadget and DSL operation pins its R1CS digest in its crate's
+  `fingerprints` test; a changed digest changes proving keys, re-pin deliberately
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: the SPP Solana program.
@@ -42,6 +53,9 @@ prover
 - `forester`: compilable forester skeleton for future nullifier-tree
   maintenance work.
 - `prover`: proof client and prover server.
+- `zk`: the circuit DSL and prover (`zk/dsl`), gadgets (`zk/gadgets`), core
+  derives (`zk/macros`, `zk/macros-core`), the shared unit-test harness
+  (`zk/test-harness`) and a standalone circuit fixture (`zk/tests/standalone`).
 
 ## Project Structure
 
@@ -72,12 +86,36 @@ program-tests/
 sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
-  keypair/             -- shielded key material and hashes
-  program/             -- SBF-buildable SDK for programs: shielded-pool instruction
-                          builders and on-chain SPP derivations; features `cpi`
-                          (transact CPI) and `compression` (compressed accounts)
+  instruction/         -- SBF-buildable shielded-pool instruction builders and the
+                          SPP hash and blinding derivations programs recompute;
+                          feature `cpi` (transact CPI)
+  keypair/             -- shielded key material and hashes; feature `circuit`
+                          (owner circuit types, ShieldedAddress as proof input)
+  macros/              -- zolana-macros: the ZK program derives (UtxoState,
+                          ZkProgram, PublicInputs) over zk/macros-core
+  program/             -- SDK for programs: re-exports zolana-instruction and the
+                          zk crates; feature `compression` (compressed accounts,
+                          SBF-buildable) and the host-only ZK program features
+                          `circuit`, `client`, `setup`; no default features
   program-test/        -- reusable local test/indexer harness
-  transaction/         -- wallet, UTXO, encryption, and transaction logic
+  transaction/         -- wallet, UTXO, encryption, and transaction logic; feature
+                          `circuit` (asset and UTXO circuit types, Mint and
+                          WalletUtxo as proof inputs)
+
+zk/
+  dsl/                 -- zolana-zk-dsl: circuit DSL, proof input conversion,
+                          errors, Groth16 prover, CompressedProof (no_std without
+                          features); feature `verifier` (no_std on-chain
+                          verifier), `wasm`/`wasm-prover`/`wasm-threads`/
+                          `wasm-verify` (the wasm runtime), `build` (the
+                          circuit crate build `zolana zk` wraps)
+  gadgets/             -- zolana-zk-gadgets: poseidon, hash chains, membership,
+                          indexing, byte hashing
+  macros/              -- zolana-zk-macros: CircuitType, ProofInput, ErrorName
+  macros-core/         -- expansion logic shared with zolana-macros
+  test-harness/        -- unit-test harness, included by #[path] into test crates
+  tests/standalone/    -- circuits on the zk crates alone and the SBF program
+                          verifying them (litesvm test: sdk-tests/zk-tests)
 
 cli/                   -- root Zolana developer/operator CLI
 forester/              -- forester skeleton
@@ -341,12 +379,17 @@ pub enum ShieldedPoolError {
   be cfg-gated: use `Address::find_program_address` on Solana target and do not
   pretend host tests can derive it unless a host implementation exists.
 
-## Instruction Builder Pattern (zolana-program crate)
+## Instruction Builder Pattern (zolana-instruction crate)
 
-Builders live in `sdk-libs/program/src/instruction/`, not in the interface
+Builders live in `sdk-libs/instruction/src/instruction/`, not in the interface
 crate: the shielded-pool program links the interface and must not carry client
-surface. `zolana-program` is `no_std` and SBF-buildable, so programs that CPI
-into SPP use the same builders as clients. Reference: `create_spl_interface.rs`
+surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
+CPI into SPP use the same builders as clients. `zolana-transaction` depends on
+`zolana-instruction`. It cannot depend on `zolana-program`, which depends on
+`zolana-transaction` for its ZK program features. The circuit types and proof
+input impls of the wallet types sit in the `circuit` features of
+`zolana-keypair` and `zolana-transaction`, on top of the zk crates, because the
+orphan rule keeps them out of `zolana-program`. Reference: `create_spl_interface.rs`
 
 ```rust
 use alloc::vec;
@@ -377,13 +420,16 @@ impl CreateSplInterface {
 
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
-- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/program/src/instruction/mod.rs`
-- Builders are imported as `zolana_program::instruction::<builder>`
+- Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/instruction/src/instruction/mod.rs`
+- Builders are imported as `zolana_program::instruction::<builder>` (re-exported
+  from `zolana_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
   tree creation, ring activation, forester maintenance) go behind the
-  non-default `protocol` feature (`#[cfg(feature = "protocol")]` on the module
-  or item and its re-export). `CreateSplInterface` stays ungated: the protocol
-  config can open it to everyone, and users register their own mints.
+  non-default `protocol` feature of `zolana-instruction`
+  (`#[cfg(feature = "protocol")]` on the module or item and its re-export),
+  which `zolana-program` exposes as `protocol-instructions`.
+  `CreateSplInterface` stays ungated: the protocol config can open it to
+  everyone, and users register their own mints.
 
 ### Instruction data
 
@@ -425,6 +471,11 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 1. Loading proving keys for big circuits takes a lot of time
 2. tests should start a prover server if not started yet
 3. The prover server should be lazy: load no proving keys on startup, load a key when a proof for it is first requested, then keep it loaded
+4. arkworks proving keys are saved and loaded in the memory-image format
+   (`Groth16Keys::save_image` / `load_image` / `from_image_bytes`, or the
+   sha256-verifying `from_image_checked`): one memory copy per section, no
+   curve validation. Use the canonical format or a zkey only where
+   circom/snarkjs compatibility requires it.
 
 ## SPP Transaction Proving Keys & Verifying Keys
 

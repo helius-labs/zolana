@@ -526,6 +526,7 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
   }
   let total = 0n;
   prepared.inputs.forEach((input) => {
+    if (input.isAddress()) throw new ClientError("CLIENT_INVALID_MERGE");
     if (!input.isDummy()) {
       if (
         input.utxo.ringProgramId !== prepared.output.ringProgramId ||
