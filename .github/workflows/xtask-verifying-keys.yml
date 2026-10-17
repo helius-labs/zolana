@@ -1,72 +1,46 @@
-name: DvP PR 41 test artifacts
-
+name: DvP Photon migration probe
 on:
   workflow_dispatch:
-
 permissions:
-  contents: write
-
-concurrency:
-  group: dvp-pr-41-test-artifacts
-  cancel-in-progress: false
-
-env:
-  ZOLANA_REV: 48dd15086b75fa870f2fdc46934434e8bb54a05f
-  TEST_TAG: test-dvp-pr-41-20261017-48dd150
-  AGAVE_VERSION: v4.0.2
-  SBF_TOOLS_VERSION: v1.53
-  CARGO_INCREMENTAL: '0'
-
+  contents: read
 jobs:
-  artifacts:
+  migrations:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.ZOLANA_REV }}
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: prover/server/go.mod
-          cache-dependency-path: prover/server/go.sum
-      - uses: ./.github/actions/setup-rust
-        with:
-          shared-key: dvp-pr-41-test-artifacts
-          install-just: 'false'
-          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Install native build dependencies
+      - name: Fetch verified test Photon
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler cmake clang
-      - uses: ./.github/actions/install-anza
-        with:
-          version: ${{ env.AGAVE_VERSION }}
-      - uses: ./.github/actions/install-sbf-tools
-        with:
-          version: ${{ env.SBF_TOOLS_VERSION }}
-      - name: Build protocol programs from pinned source
+          curl -sSfL --retry 5 https://github.com/helius-labs/zolana/releases/download/test-dvp-pr-41-20261017-48dd150/photon-linux-x64-test-dvp-pr-41-20261017-48dd150 -o /tmp/photon
+          echo '9cf15bfded5bde72649b5b13d0fc74513da622e248b0c8dd0bba67283c7da052  /tmp/photon' | sha256sum --check
+          chmod +x /tmp/photon
+      - name: Probe isolated temporary database migrations
         run: |
-          mkdir -p target/deploy
-          cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --manifest-path programs/user-registry/Cargo.toml --sbf-out-dir target/deploy -- --locked --features bpf-entrypoint
-          cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --manifest-path programs/shielded-pool/Cargo.toml --sbf-out-dir target/deploy -- --locked --features bpf-entrypoint
-      - name: Fetch pinned smart account binary
-        run: |
-          curl -sSfL --retry 5 https://github.com/helius-labs/zolana/releases/download/v0.4.0-alpha/squads_smart_account_program-v0.4.0-alpha.so -o target/deploy/squads_smart_account_program.so
-          echo '1c95bd7be140589d2aec38a85d7ecfe70ec69639277f622c898f821ab1d636fa  target/deploy/squads_smart_account_program.so' | sha256sum --check
-      - name: Build test release assets
-        run: cargo run --locked -p xtask -- create-release --tag "$TEST_TAG" --prerelease
-      - name: Publish test prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp cli/release-artifacts.lock target/release-staging/release-artifacts.lock
-          printf '%s\n' "$ZOLANA_REV" > target/release-staging/SOURCE_COMMIT
-          (cd target/release-staging && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS)
-          mapfile -d '' assets < <(find target/release-staging -maxdepth 1 -type f -print0)
-          gh release create "$TEST_TAG" --target "$ZOLANA_REV" --prerelease --latest=false --title 'Test artifacts for DvP PR #41' --notes 'Temporary test artifacts for helius-labs/zolana-examples#41. Native sources are pinned in SOURCE_COMMIT; release-artifacts.lock and SHA256SUMS record the built assets. This is a test prerelease for that PR.' "${assets[@]}"
+          python3 - <<'PYTHON'
+          import json, os, signal, subprocess, tempfile
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          def attempt(index, connections):
+            with tempfile.TemporaryDirectory(prefix='photon-migration-') as directory:
+              process=subprocess.Popen(['/tmp/photon','--disable-api','--disable-indexing','--max-db-conn',str(connections)],env=dict(os.environ,TMPDIR=directory),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              lines=[]
+              for line in process.stdout:
+                lines.append(line)
+                if 'Starting API server' in line:
+                  process.send_signal(signal.SIGINT)
+                  process.wait(timeout=10)
+                  return None
+              process.wait(timeout=10)
+              return ''.join(lines)
+          results={}
+          for connections in (10,1):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+              failures=[output for output in pool.map(lambda index:attempt(index,connections),range(100)) if output is not None]
+            results[str(connections)]=failures
+            print(f'connections={connections}: {len(failures)} failures out of100')
+            if failures: print(failures[0])
+          Path('/tmp/migration-probe.json').write_text(json.dumps(results,indent=2))
+          PYTHON
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: dvp-pr-41-test-artifacts
-          path: target/release-staging/*
-          if-no-files-found: ignore
+          name: photon-migration-probe
+          path: /tmp/migration-probe.json
