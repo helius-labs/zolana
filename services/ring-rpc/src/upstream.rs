@@ -13,11 +13,13 @@ use solana_signature::Signature;
 use zolana_api::ZolanaApi;
 use zolana_client::{
     program_data, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
-    GetShieldedTransactionsByTagsResponse,
+    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction,
 };
 use zolana_interface::BPF_LOADER_UPGRADEABLE_ID;
 use zolana_keypair::X25519Pubkey;
-use zolana_ring_client::{ring_deposits_in, AuditError, ReaderKey, RingOrigin, TransactionOrigin};
+use zolana_ring_client::{
+    ring_deposits_in, AuditError, ConfirmedEventKind, ReaderKey, RingOrigin, TransactionOrigin,
+};
 use zolana_transaction::AssetRegistry;
 
 use zolana_ring_client::rpc::{DepositRecord, RingDepositsResponse};
@@ -210,25 +212,16 @@ impl TransactionSource for ChainSource {
                 continue;
             };
             oldest = Some((signature, entry.slot));
+            if entry.err.is_some() {
+                continue;
+            }
             let response = self
                 .indexer
                 .get_shielded_transactions_by_signature(signature, None)
                 .await?;
             for indexed in response.transactions {
-                let slots = indexed
-                    .transaction
-                    .output_slots
-                    .iter()
-                    .map(|slot| (slot.view_tag, slot.payload.clone()));
-                for found in ring_deposits_in(slots, ring) {
-                    deposits.push(DepositRecord {
-                        signature: signature.into(),
-                        slot: indexed.transaction.slot,
-                        depositor: found.depositor.into(),
-                        asset: found.asset.to_bytes().into(),
-                        amount: found.amount,
-                    });
-                }
+                deposits
+                    .extend(confirmed_deposit_records(&self.rpc, signature, ring, indexed).await?);
             }
         }
         Ok(DepositHistory {
@@ -293,6 +286,45 @@ impl TransactionSource for ChainSource {
     }
 }
 
+/// Public deposit metadata needs the same settlement binding as private recovery.
+async fn confirmed_deposit_records<O: TransactionOrigin>(
+    origin: &O,
+    signature: Signature,
+    ring: Address,
+    mut indexed: IndexedShieldedTransaction,
+) -> Result<Vec<DepositRecord>, ClientError> {
+    let transaction = &mut indexed.transaction;
+    let failure = |error: AuditError| ClientError::Rpc(format!("confirmed deposit event: {error}"));
+    if transaction.tx_signature != signature || transaction.event_index != Some(indexed.event_index)
+    {
+        return Err(failure(AuditError::ConfirmedEventMismatch));
+    }
+    let confirmed = origin
+        .origin(signature, indexed.event_index, ring)
+        .await
+        .map_err(failure)?;
+    if !confirmed.ring_invoked || confirmed.event.kind() != ConfirmedEventKind::Deposit {
+        return Ok(Vec::new());
+    }
+    confirmed
+        .bind_transaction(transaction, ring)
+        .map_err(failure)?;
+    let slots = transaction
+        .output_slots
+        .iter()
+        .map(|slot| (slot.view_tag, slot.payload.clone()));
+    Ok(ring_deposits_in(slots, ring)
+        .into_iter()
+        .map(|found| DepositRecord {
+            signature: signature.into(),
+            slot: transaction.slot,
+            depositor: found.depositor.into(),
+            asset: found.asset.to_bytes().into(),
+            amount: found.amount,
+        })
+        .collect())
+}
+
 const INVALID_CONFIG: &str = "custom ring config account is invalid";
 const INVALID_READER: &str = "custom ring reader account is invalid";
 
@@ -331,6 +363,10 @@ fn check_reader(account: &Account, grant: ReaderGrant) -> Result<(), ClientError
     let record: ReadAccessRecord = ring_account(account, &grant.ring, bump, INVALID_READER)?;
     (record.reader == reader).then_some(()).ok_or_else(invalid)
 }
+
+#[cfg(test)]
+#[path = "../../../custom-rings/client/tests/common/origin.rs"]
+mod origin_fixture;
 
 #[cfg(test)]
 mod tests {
@@ -434,5 +470,90 @@ mod tests {
                 assert!(check_reader(invalid, grant).is_err());
             }
         }
+    }
+
+    struct ConfirmedOrigin(RingOrigin);
+
+    impl TransactionOrigin for ConfirmedOrigin {
+        async fn origin(&self, _: Signature, _: u16, _: Address) -> Result<RingOrigin, AuditError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn public_deposit_history_rejects_forged_amount_asset_context_and_signature() {
+        use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../custom-rings/client/tests/fixtures/confirmed-deposit-event.json"
+        ))
+        .unwrap();
+        let ring: Address = fixture["ring"].as_str().unwrap().parse().unwrap();
+        let output = &fixture["expected"]["outputs"][0];
+        let bytes = |key: &str| hex::decode(output[key].as_str().unwrap()).unwrap();
+        let signature = Signature::from([7; 64]);
+        let indexed = IndexedShieldedTransaction {
+            event_index: 0,
+            transaction: ShieldedTransaction {
+                slot: 99,
+                tx_signature: signature,
+                event_index: Some(0),
+                tx_viewing_pk: None,
+                salt: None,
+                proofless: true,
+                ring_config: None,
+                ring_program_id: Some(ring),
+                messages: Vec::new(),
+                nullifiers: Vec::new(),
+                output_slots: vec![OutputSlot {
+                    view_tag: bytes("viewTagHex").try_into().unwrap(),
+                    output_context: OutputContext {
+                        hash: bytes("hashHex").try_into().unwrap(),
+                        tree_id: output["treeId"].as_u64().unwrap() as u16,
+                        leaf_index: output["leafIndex"].as_u64().unwrap(),
+                    },
+                    payload: bytes("payloadHex"),
+                }],
+            },
+        };
+        let origin = ConfirmedOrigin(RingOrigin {
+            ring_invoked: true,
+            event: super::origin_fixture::event(&indexed.transaction).with_slot(99),
+            signers: Vec::new(),
+            withdrawals: Vec::new(),
+            deposits: Vec::new(),
+        });
+        let records = confirmed_deposit_records(&origin, signature, ring, indexed.clone())
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].amount, 123);
+        type Mutation = fn(&mut IndexedShieldedTransaction);
+        let mutations: &[Mutation] = &[
+            |tx| tx.transaction.tx_signature = Signature::from([8; 64]),
+            |tx| tx.transaction.event_index = Some(1),
+            |tx| tx.transaction.slot += 1,
+            |tx| tx.transaction.proofless = false,
+            |tx| tx.transaction.output_slots[0].output_context.leaf_index += 1,
+            // Borsh outer tag + Vec length + scheme, then owner hash and asset.
+            |tx| tx.transaction.output_slots[0].payload[6 + 32] ^= 1,
+            |tx| tx.transaction.output_slots[0].payload[6 + 32 + 32] ^= 1,
+        ];
+        for mutate in mutations {
+            let mut forged = indexed.clone();
+            mutate(&mut forged);
+            assert!(confirmed_deposit_records(&origin, signature, ring, forged)
+                .await
+                .is_err());
+        }
+        let foreign = ConfirmedOrigin(RingOrigin {
+            ring_invoked: false,
+            ..origin.0
+        });
+        assert!(
+            confirmed_deposit_records(&foreign, signature, ring, indexed)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

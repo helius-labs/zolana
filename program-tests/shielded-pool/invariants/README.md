@@ -281,8 +281,7 @@ Status of the audit findings against the current (post-PR164) tree:
   a proof, so a UTXO with application data only comes from a proven
   transaction, whose circuit requires the owner to sign.
 
-Post-audit note: an attempted removal of `OutputDataEncoding::VerifiablyEncrypted`
-(dead after PR164's ciphertext-free merge) was **reverted** — the variant is
-reserved for upcoming auditor encryption flows (custom rings with auditor;
-PR #177 review, ananas-block). The spec entry on `docs/spec-pr171-catchup`
-documents it as reserved, not legacy.
+Custom rings now carry a dedicated auditor disclosure in their ring message.
+The custom-ring proof binds that disclosure to the committed notes. The
+recipient output encoding alone does not establish verifiable encryption.
+See [the audit boundary](../../../custom-rings/changes-overview.md).

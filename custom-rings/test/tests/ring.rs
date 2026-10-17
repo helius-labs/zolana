@@ -21,6 +21,9 @@
 //! boundary in both directions under the auditor and pins that a note of
 //! another ring is refused before proving.
 
+#[path = "ring_shapes.rs"]
+mod shapes;
+
 use std::{
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
@@ -133,7 +136,7 @@ const RECIPIENT_SLOT: u32 = 0;
 /// case tampers with.
 const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
 
-const CUSTOM_RING_TRANSACT_CU_LIMIT: u64 = 520_000;
+const CUSTOM_RING_TRANSACT_CU_LIMIT: u64 = 750_000;
 
 const DEFAULT_DEPOSIT: u64 = 4_000_000_000;
 const ENTRY_AMOUNT: u64 = 2_500_000_000;

@@ -377,15 +377,6 @@ impl PolicyStatement {
             let subtree = indexed.is_none() && body.witness.shared_subtree();
             body.witness
                 .reshape(self.shape.n_inputs(), self.shape.n_outputs())?;
-            if let Some(identities) = &mut body.anonymous {
-                identities
-                    .recipients
-                    .resize(self.shape.n_outputs(), [0; crate::request::IDENTITY_LEN]);
-                identities.recipient_viewing_keys.resize(
-                    self.shape.n_outputs(),
-                    [0; custom_ring_interface::TAGGED_X25519_KEY_LEN],
-                );
-            }
             RingCircuit::Shaped {
                 inputs: self.shape.n_inputs() as u8,
                 outputs: self.shape.n_outputs() as u8,
@@ -785,7 +776,14 @@ impl Spp {
         };
         let inputs =
             input_utxos_from_nullifiers(&complete.nullifiers, &complete.input_tree_indexes)?;
-        if inputs.len() != usize::from(circuit.num_inputs()) {
+        let published_inputs = transaction
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_compact())
+            .count();
+        if complete.nullifiers.len() != usize::from(circuit.num_inputs())
+            || inputs.len() != published_inputs
+        {
             return Err(RingError::IncompleteProofSet);
         }
         let external = &transaction.external_data;

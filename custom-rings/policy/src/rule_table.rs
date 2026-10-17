@@ -7,7 +7,7 @@ use crate::{field_u64, field_u8, ListId, ListSet, POLICY_TABLE_DOMAIN};
 
 /// Rule slots compiled into the circuit, a new value rotates the proving key.
 pub const MAX_RULES: usize = 16;
-/// Inline asset slots per table, a circuit width.
+/// Mint threshold slots per table, a circuit width. This is not a screening allowlist.
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
@@ -87,9 +87,9 @@ rule_errors! {
     ZeroThreshold => "a zero threshold is Guard::Always",
     DuplicateRule => "duplicate rule",
     PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
-    MissingAssetLimit => "every inline asset needs a nonzero limit",
+    MissingAssetLimit => "every mint threshold needs a nonzero limit",
     AssetLimitWithoutGuard => "asset limits need a per-asset guard",
-    DuplicateInlineAsset => "inline assets must be unique",
+    DuplicateInlineAsset => "mint thresholds must name distinct assets",
     UnknownSubject => "unknown subject",
     UnknownMode => "unknown mode",
     UnknownGuardTag => "unknown guard tag",

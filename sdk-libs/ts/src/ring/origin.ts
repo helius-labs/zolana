@@ -3,10 +3,14 @@ import { getBase58Encoder } from "@solana/kit";
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
 import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
-import { Reader, sha256 } from "../interface/internal.js";
+import { Reader, sha256, addressBytes, encodeBase58 } from "../interface/internal.js";
+import { treeAddress } from "../interface/pda/index.js";
+import { INPUT_TREES } from "../interface/tree-slot.js";
 import { decodeRingDepositInstructionData } from "../interface/codecs/index.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
 import { equal } from "../transaction/internal.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
+import { X25519PublicKey } from "../keypair/x25519.js";
 import {
   AUDITED_RING_DEPOSIT_TAG,
   encodeRingDepositCapsule,
@@ -22,7 +26,9 @@ import {
 } from "../interface/program.js";
 import type {
   Address,
+  Bytes16,
   Bytes32,
+  Bytes33,
   InterfaceTransfer,
   RequestContext,
   Signature,
@@ -41,6 +47,12 @@ export interface TransactionOrigin {
     ring: Address,
     context?: RequestContext,
   ): Promise<boolean>;
+  /** Binds indexed data to the exact confirmed transfer, deposit or merge. Other-ring events return undefined. */
+  confirmedTransaction(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<IndexedShieldedTransaction | undefined>;
 }
 
 /** Confirmed audited-deposit data, separate from a boolean ring-origin check. */
@@ -88,40 +100,16 @@ export class ConfirmedDeposit {
     if (record(wire["meta"], "meta")["err"] !== null) throw invalid("meta.err");
     const encoded = record(wire["transaction"], "transaction.transaction");
     if (list(encoded["signatures"], "signatures")[0] !== signature) throw invalid("signatures");
-    if (!Number.isInteger(eventIndex) || eventIndex < 0 || eventIndex > 0xffff)
-      throw invalid("eventIndex");
-    let index = 0;
-    for (const group of confirmedInstructionGroups(transaction)) {
-      const stack: OriginInstruction[] = [group.outer];
-      for (const instruction of group.inner) {
-        const height = instruction.stackHeight;
-        if (height === undefined || height < 2 || height > stack.length + 1)
-          throw invalid("stackHeight");
-        stack.length = height - 1;
-        const source = stack[height - 2];
-        const wrapper = stack[height - 3];
-        if (
-          instruction.programId === SHIELDED_POOL_PROGRAM_ID &&
-          instruction.data[0] === InstructionTag.emitEvent &&
-          source?.programId === SHIELDED_POOL_PROGRAM_ID &&
-          isEventSourceTag(source.data[0])
-        ) {
-          if (index++ === eventIndex) {
-            if (
-              source.data[0] !== InstructionTag.ringDeposit ||
-              wrapper?.programId !== ring ||
-              wrapper.data[0] !== AUDITED_RING_DEPOSIT_TAG
-            )
-              return [];
-            if (!equal(wrapper.data.subarray(CUSTOM_RING_PROOF_LENGTH + 2), source.data))
-              throw invalid("auditedDeposit");
-            return ConfirmedDeposit.#decode(source.data);
-          }
-        }
-        stack.push(instruction);
-      }
-    }
-    throw invalid("eventIndex");
+    const found = ringEventIn(confirmedInstructionGroups(transaction), eventIndex, ring);
+    if (
+      found === undefined ||
+      found.source.data[0] !== InstructionTag.ringDeposit ||
+      found.wrapper?.data[0] !== AUDITED_RING_DEPOSIT_TAG
+    )
+      return [];
+    if (!equal(found.wrapper.data.subarray(CUSTOM_RING_PROOF_LENGTH + 2), found.source.data))
+      throw invalid("auditedDeposit");
+    return ConfirmedDeposit.#decode(found.source.data);
   }
 
   /** The digest covers the entire capsule, including recipient ciphertext and slot. */
@@ -193,26 +181,14 @@ export function ringInstructionsIn(
   groups: readonly OriginInstructionGroup[],
   ring: Address,
 ): readonly OriginInstruction[] {
-  const found: OriginInstruction[] = [];
-  for (const group of groups) {
-    const callers: Address[] = [group.outer.programId];
-    for (const inner of group.inner) {
-      const height = inner.stackHeight;
-      if (height === undefined) {
-        throw new RingError("RING_ORIGIN_STACK", { details: { reason: "missing stack height" } });
-      }
-      const parentDepth = height - 2;
-      if (!Number.isInteger(parentDepth) || parentDepth < 0 || parentDepth >= callers.length) {
-        throw new RingError("RING_ORIGIN_STACK", { details: { reason: "no parent", height } });
-      }
-      if (inner.programId === SHIELDED_POOL_PROGRAM_ID && callers[parentDepth] === ring) {
-        found.push(inner);
-      }
-      callers.length = parentDepth + 1;
-      callers.push(inner.programId);
-    }
-  }
-  return Object.freeze(found);
+  return Object.freeze(
+    instructionAncestry(groups)
+      .filter(
+        ({ instruction, parent }) =>
+          instruction.programId === SHIELDED_POOL_PROGRAM_ID && parent?.programId === ring,
+      )
+      .map(({ instruction }) => instruction),
+  );
 }
 
 /** Mirrors Rust `ring_invoked_in`. */
@@ -226,50 +202,70 @@ export function ringEventInvokedIn(
   eventIndex: number,
   ring: Address,
 ): boolean {
-  if (!Number.isInteger(eventIndex) || eventIndex < 0 || eventIndex > 0xffff) {
-    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "eventIndex" } });
-  }
-  const source = trustedEventSources(groups)[eventIndex];
-  if (source === undefined) {
-    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "eventIndex" } });
-  }
-  return ringInstructionsIn(groups, ring).includes(source);
+  return ringEventIn(groups, eventIndex, ring) !== undefined;
 }
 
-function trustedEventSources(
+interface TrustedEvent {
+  readonly source: OriginInstruction;
+  readonly event: OriginInstruction;
+  readonly wrapper: OriginInstruction | undefined;
+}
+
+function ringEventIn(
   groups: readonly OriginInstructionGroup[],
-): readonly OriginInstruction[] {
-  const sources: OriginInstruction[] = [];
-  for (const group of groups) {
-    group.inner.forEach((instruction, index) => {
-      if (
-        instruction.programId !== SHIELDED_POOL_PROGRAM_ID ||
-        instruction.data[0] !== InstructionTag.emitEvent
-      ) {
-        return;
-      }
-      const parent = eventParent(group, index);
-      if (parent?.programId === SHIELDED_POOL_PROGRAM_ID && isEventSourceTag(parent.data[0])) {
-        sources.push(parent);
-      }
-    });
-  }
-  return sources;
+  eventIndex: number,
+  ring: Address,
+): TrustedEvent | undefined {
+  if (!Number.isInteger(eventIndex) || eventIndex < 0 || eventIndex > 0xffff)
+    throw invalid("eventIndex");
+  const found = trustedEvents(groups)[eventIndex];
+  if (found === undefined) throw invalid("eventIndex");
+  return found.wrapper?.programId === ring ? found : undefined;
 }
 
-function eventParent(
-  group: OriginInstructionGroup,
-  eventIndex: number,
-): OriginInstruction | undefined {
-  const event = group.inner[eventIndex];
-  const height = event?.stackHeight;
-  if (height === undefined || height < 2) return undefined;
-  const parentHeight = height - 1;
-  for (let index = eventIndex - 1; index >= 0; index--) {
-    const candidate = group.inner[index];
-    if (candidate?.stackHeight === parentHeight) return candidate;
+/** One checked execution stack owns direct caller and exact self-CPI event attribution. */
+function instructionAncestry(groups: readonly OriginInstructionGroup[]): readonly Readonly<{
+  instruction: OriginInstruction;
+  parent: OriginInstruction | undefined;
+  grandparent: OriginInstruction | undefined;
+}>[] {
+  const ancestry = [];
+  for (const group of groups) {
+    const stack = [group.outer];
+    for (const instruction of group.inner) {
+      const height = instruction.stackHeight;
+      if (height === undefined)
+        throw new RingError("RING_ORIGIN_STACK", {
+          details: { reason: "missing stack height" },
+        });
+      if (!Number.isInteger(height) || height < 2 || height > stack.length + 1)
+        throw new RingError("RING_ORIGIN_STACK", {
+          details: { reason: "no parent", height },
+        });
+      stack.length = height - 1;
+      ancestry.push({
+        instruction,
+        parent: stack[height - 2],
+        grandparent: stack[height - 3],
+      });
+      stack.push(instruction);
+    }
   }
-  return parentHeight === 1 ? group.outer : undefined;
+  return ancestry;
+}
+
+function trustedEvents(groups: readonly OriginInstructionGroup[]): readonly TrustedEvent[] {
+  const events: TrustedEvent[] = [];
+  for (const { instruction, parent, grandparent } of instructionAncestry(groups)) {
+    if (
+      instruction.programId === SHIELDED_POOL_PROGRAM_ID &&
+      instruction.data[0] === InstructionTag.emitEvent &&
+      parent?.programId === SHIELDED_POOL_PROGRAM_ID &&
+      isEventSourceTag(parent.data[0])
+    )
+      events.push({ source: parent, event: instruction, wrapper: grandparent });
+  }
+  return events;
 }
 
 function isEventSourceTag(value: number | undefined): boolean {
@@ -322,6 +318,7 @@ export function confirmedInstructionGroups(
   const encoded = record(wire["transaction"], "transaction.transaction");
   const message = record(encoded["message"], "transaction.transaction.message");
   const meta = record(wire["meta"], "transaction.meta");
+  if (meta["err"] !== null) throw invalid("meta.err");
   const accountKeys = addresses(message["accountKeys"], "message.accountKeys");
   const loaded = meta["loadedAddresses"];
   if (loaded !== undefined && loaded !== null) {
@@ -358,7 +355,10 @@ export function confirmedInstructionGroups(
     );
   });
   return groups.map((group) =>
-    Object.freeze({ outer: Object.freeze(group.outer), inner: Object.freeze(group.inner) }),
+    Object.freeze({
+      outer: Object.freeze(group.outer),
+      inner: Object.freeze(group.inner),
+    }),
   );
 }
 
@@ -418,6 +418,15 @@ export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSo
     );
   }
 
+  async confirmedTransaction(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<IndexedShieldedTransaction | undefined> {
+    const confirmed = await this.#transaction(transaction.txSignature, context);
+    return bindConfirmedTransaction(confirmed, transaction, ring);
+  }
+
   #transaction(signature: Signature, context?: RequestContext): Promise<unknown> {
     const known = this.#transactions.get(signature);
     if (known !== undefined) return known;
@@ -442,7 +451,12 @@ export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSo
       });
     }
     if (transaction === null || transaction === undefined)
-      throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { transactionId: signature } });
+      throw new RingError("RING_ORIGIN_UNAVAILABLE", {
+        details: { transactionId: signature },
+      });
+    const wire = record(transaction, "transaction");
+    const encoded = record(wire["transaction"], "transaction.transaction");
+    if (list(encoded["signatures"], "signatures")[0] !== signature) throw invalid("signatures");
     return transaction;
   }
 }
@@ -469,6 +483,212 @@ export class CachedTransactionOrigin implements TransactionOrigin {
     this.#known.set(key, invoked);
     return invoked;
   }
+
+  async confirmedTransaction(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<IndexedShieldedTransaction | undefined> {
+    // Recheck every supplied indexed record, even when its signature was seen before.
+    return this.#origin.confirmedTransaction(transaction, ring, context);
+  }
+}
+
+interface ConfirmedEventData extends Pick<
+  ConfirmedTransferData,
+  "outputs" | "messages" | "nullifiers"
+> {
+  readonly txViewingPk?: Bytes33;
+  readonly salt?: Bytes16;
+  readonly proofless: boolean;
+  readonly outputTree: Address;
+  readonly firstLeaf: bigint;
+}
+
+/** The compact transfer/merge events carry execution-assigned tree positions. */
+function readEventLocation(event: Reader): Readonly<{ outputTree: Address; firstLeaf: bigint }> {
+  const trees = event.u32("event.inputTrees.length");
+  if (trees < 1 || trees > INPUT_TREES) throw invalid("event.inputTrees.length");
+  event.bytes(trees * 40, "event.inputTrees");
+  return {
+    outputTree: encodeBase58(event.bytes(32, "event.outputTree")),
+    firstLeaf: event.u64("event.firstOutputLeafIndex"),
+  };
+}
+
+/** Mirrors zolana_event_parser::reconstruct_general_event without trusting indexer fields. */
+function readConfirmedEvent(
+  source: OriginInstruction,
+  emitted: OriginInstruction,
+): ConfirmedEventData | undefined {
+  const event = new Reader(emitted.data.slice(1));
+  const kind = event.u8("event.kind");
+  const tag = source.data[0];
+  if (tag === InstructionTag.ringTransact || tag === InstructionTag.ringAuthorityTransact) {
+    if (kind !== 2) throw invalid("event.kind");
+    const data = readTransferData(new Reader(source.data.slice(1)), source.accounts);
+    const location = readEventLocation(event);
+    event.done();
+    return { ...data, ...location, proofless: false };
+  }
+  if (tag === InstructionTag.ringMergeTransact) {
+    if (kind !== 3) throw invalid("event.kind");
+    const data = new Reader(source.data.slice(1));
+    const payload = data.bytes(32, "merge.ringDataHash");
+    data.u64("merge.expiry");
+    data.bytes(192, "merge.proof");
+    const hash = data.bytes(32, "merge.outputHash") as Bytes32;
+    data.bool("merge.eddsaOwner");
+    data.bytes(32, "merge.privateTxHash");
+    const nullifiers = Array.from(
+      { length: data.u8("merge.nullifiers.length") },
+      () => data.bytes(32, "merge.nullifier") as Bytes32,
+    );
+    data.bytes(4, "merge.rootIndexes");
+    data.option("merge.cacheSlot", (reader) => reader.u8("merge.cacheSlot"));
+    data.done();
+    const location = readEventLocation(event);
+    const viewTag = event.bytes(32, "merge.viewTag") as Bytes32;
+    event.done();
+    return {
+      ...location,
+      proofless: false,
+      nullifiers,
+      messages: [],
+      outputs: [{ hash, viewTag, payload }],
+    };
+  }
+  if (tag !== InstructionTag.ringDeposit) return undefined;
+  if (kind !== 1) throw invalid("event.kind");
+  // Deposit emits a complete Borsh GeneralEvent. Counts are bounded by the instruction's u8 vectors.
+  const count = (name: string): number => {
+    const length = event.u32(name);
+    if (length > 255) throw invalid(name);
+    return length;
+  };
+  const payload = (): Uint8Array => {
+    const length = event.u32("event.data.length");
+    if (length > 0xffff) throw invalid("event.data.length");
+    return event.bytes(length, "event.data");
+  };
+  const nullifiers = Array.from({ length: count("event.inputs.length") }, () => {
+    event.bytes(40, "event.inputTreeAndSequence");
+    return event.bytes(32, "event.nullifier") as Bytes32;
+  });
+  const outputs = Array.from({ length: count("event.outputs.length") }, () => ({
+    viewTag: event.bytes(32, "event.viewTag") as Bytes32,
+    hash: event.bytes(32, "event.outputHash") as Bytes32,
+    payload: payload(),
+  }));
+  const messages = Array.from({ length: count("event.messages.length") }, () => ({
+    viewTag: event.bytes(32, "event.messageTag") as Bytes32,
+    data: payload(),
+  }));
+  if (event.bytes(49, "event.zeroViewingKeyAndSalt").some((byte) => byte !== 0))
+    throw invalid("event.depositKey");
+  const firstLeaf = event.u64("event.firstOutputLeafIndex");
+  const outputTree = encodeBase58(event.bytes(32, "event.outputTree"));
+  for (let index = 0, length = count("event.transfers.length"); index < length; index++) {
+    event.bool("event.transfer.isDeposit");
+    event.u64("event.transfer.amount");
+    event.option("event.transfer.asset", (reader) => reader.bytes(32, "event.transfer.asset"));
+  }
+  event.done();
+  return {
+    proofless: true,
+    outputTree,
+    firstLeaf,
+    outputs,
+    messages,
+    nullifiers,
+  };
+}
+
+/** Reconstructs the exact indexed view from its successful SPP source and self-CPI event. */
+function bindConfirmedTransaction(
+  confirmed: unknown,
+  indexed: IndexedShieldedTransaction,
+  ring: Address,
+): IndexedShieldedTransaction | undefined {
+  if (indexed.eventIndex === undefined) throw invalid("eventIndex");
+  const found = ringEventIn(confirmedInstructionGroups(confirmed), indexed.eventIndex, ring);
+  if (found === undefined) return undefined;
+  try {
+    const data = readConfirmedEvent(found.source, found.event);
+    if (data === undefined) return undefined;
+    const { outputTree, firstLeaf } = data;
+    const rawSlot = record(confirmed, "transaction")["slot"];
+    // Solana Kit promotes RPC u64 values to bigint. Raw JSON fixtures use number/string.
+    const slot = typeof rawSlot === "bigint" ? rawSlot : integer(rawSlot, "slot");
+    if (slot < 0n || slot > 0xffff_ffff_ffff_ffffn) throw invalid("slot");
+    if (
+      indexed.slot !== slot ||
+      indexed.proofless !== data.proofless ||
+      indexed.ringProgramId !== ring ||
+      (data.txViewingPk === undefined
+        ? indexed.txViewingPublicKey !== undefined
+        : indexed.txViewingPublicKey === undefined ||
+          !equal(indexed.txViewingPublicKey.toBytes(), data.txViewingPk)) ||
+      (indexed.salt === undefined
+        ? data.salt?.some((byte) => byte !== 0) === true
+        : data.salt === undefined || !equal(indexed.salt, data.salt)) ||
+      indexed.nullifiers.length !== data.nullifiers.length ||
+      indexed.nullifiers.some((nullifier, index) => !equal(nullifier, data.nullifiers[index]!)) ||
+      indexed.messages.length !== data.messages.length ||
+      indexed.messages.some((message, index) => {
+        const expected = data.messages[index]!;
+        return !equal(message.viewTag, expected.viewTag) || !equal(message.data, expected.data);
+      }) ||
+      indexed.outputSlots.length !== data.outputs.length
+    )
+      throw invalid("indexedTransfer");
+    const outputSlots = data.outputs.map((output, index) => {
+      const published = indexed.outputSlots[index]!;
+      const treeId = published.outputContext.treeId;
+      const leafIndex = firstLeaf + BigInt(index);
+      if (
+        treeId === undefined ||
+        treeAddress(treeId) !== outputTree ||
+        leafIndex > 0xffff_ffff_ffff_ffffn ||
+        published.outputContext.tree !== outputTree ||
+        published.outputContext.leafIndex !== leafIndex ||
+        !equal(published.outputContext.hash, output.hash) ||
+        !equal(published.viewTag, output.viewTag) ||
+        !equal(published.payload, output.payload)
+      )
+        throw invalid("indexedTransfer.output");
+      return Object.freeze({
+        viewTag: output.viewTag,
+        payload: output.payload,
+        outputContext: Object.freeze({
+          tree: outputTree,
+          treeId,
+          leafIndex,
+          hash: output.hash,
+        }),
+      });
+    });
+    return Object.freeze({
+      slot,
+      txSignature: indexed.txSignature,
+      eventIndex: indexed.eventIndex,
+      ringProgramId: ring,
+      proofless: data.proofless,
+      ...(data.txViewingPk === undefined
+        ? {}
+        : { txViewingPublicKey: X25519PublicKey.fromBytes(data.txViewingPk) }),
+      ...(data.salt === undefined ? {} : { salt: data.salt }),
+      outputSlots: Object.freeze(outputSlots),
+      messages: Object.freeze(data.messages),
+      nullifiers: Object.freeze(data.nullifiers),
+    });
+  } catch (cause) {
+    if (cause instanceof RingError) throw cause;
+    throw new RingError("RING_ORIGIN_DECODE", {
+      details: { path: "confirmedTransaction" },
+      cause,
+    });
+  }
 }
 
 /** Mirrors Rust `settlement_width`, the accounts `append_interface_transfer_accounts` adds. */
@@ -484,7 +704,11 @@ function withdrawalLeg(
   if (transfer.kind === "solWithdrawal") {
     const recipient = group[1];
     if (group[0] !== SOL_INTERFACE || recipient === undefined) throw invalid("settlementAccounts");
-    return Object.freeze({ recipient, asset: SOL_MINT, amount: transfer.amount });
+    return Object.freeze({
+      recipient,
+      asset: SOL_MINT,
+      amount: transfer.amount,
+    });
   }
   if (transfer.kind === "splWithdrawal") {
     const asset = group[1];
@@ -507,42 +731,62 @@ function settlementDataOf(
 ): { transfers: readonly InterfaceTransfer[]; cacheAccountCount: number } | undefined {
   if (instruction.data[0] !== InstructionTag.ringTransact) return undefined;
   try {
-    return readSettlementData(new Reader(instruction.data.slice(1)));
+    return readTransferData(new Reader(instruction.data.slice(1)), instruction.accounts);
   } catch (cause) {
-    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "ringTransact" }, cause });
+    throw new RingError("RING_ORIGIN_DECODE", {
+      details: { path: "ringTransact" },
+      cause,
+    });
   }
 }
 
-function readSettlementData(reader: Reader): {
+interface ConfirmedTransferData {
   transfers: readonly InterfaceTransfer[];
   cacheAccountCount: number;
-} {
+  txViewingPk: Bytes33;
+  salt: Bytes16;
+  outputs: readonly Readonly<{
+    hash: Bytes32;
+    viewTag: Bytes32;
+    payload: Uint8Array;
+  }>[];
+  messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+  nullifiers: readonly Bytes32[];
+}
+
+/** One parser owns both settlement extraction and audited transfer authentication. */
+function readTransferData(reader: Reader, accounts: readonly Address[]): ConfirmedTransferData {
   reader.u64("expiryUnixTs");
-  reader.bytes(33, "txViewingPk");
-  reader.bytes(16, "salt");
+  const txViewingPk = reader.bytes(33, "txViewingPk") as Bytes33;
+  const salt = reader.bytes(16, "salt") as Bytes16;
   const count = reader.u8("interfaceTransfers.length");
   const transfers = Array.from({ length: count }, () => readInterfaceTransfer(reader));
   reader.option("dataHash", (input) => input.bytes(32, "dataHash"));
   reader.option("ringDataHash", (input) => input.bytes(32, "ringDataHash"));
-  const outputs = reader.u8("outputs.length");
-  for (let index = 0; index < outputs; index += 1) {
-    reader.bytes(32, "output.utxoHash");
+  const outputs = Array.from({ length: reader.u8("outputs.length") }, () => {
+    const hash = reader.bytes(32, "output.utxoHash") as Bytes32;
     const ownerKind = reader.u8("output.ownerTag.kind");
     if (ownerKind !== 0 && ownerKind !== 1) throw invalid("output.ownerTag.kind");
-    reader.bytes(ownerKind === 0 ? 32 : 1, "output.ownerTag");
-    reader.option("output.data", (input) =>
+    let viewTag: Bytes32;
+    if (ownerKind === 0) viewTag = reader.bytes(32, "output.ownerTag") as Bytes32;
+    else {
+      const account = accounts[reader.u8("output.ownerTag.index")];
+      if (account === undefined) throw invalid("output.ownerTag.account");
+      viewTag = addressBytes(account) as Bytes32;
+    }
+    const payload = reader.option("output.data", (input) =>
       input.bytes(input.u16("output.data.length"), "output.data"),
     );
-  }
-  const messages = reader.u8("messages.length");
-  for (let index = 0; index < messages; index += 1) {
-    reader.bytes(32, "message.viewTag");
-    reader.bytes(reader.u16("message.data.length"), "message.data");
-  }
+    return { hash, viewTag, payload: payload ?? new Uint8Array() };
+  });
+  const messages = Array.from({ length: reader.u8("messages.length") }, () => ({
+    viewTag: reader.bytes(32, "message.viewTag") as Bytes32,
+    data: reader.bytes(reader.u16("message.data.length"), "message.data"),
+  }));
   reader.bytes(32, "privateTxHash");
   // CircuitId's u16 tags and payloads match the Rust wire format.
   const circuit = reader.u16("circuit.kind");
-  if (circuit !== 1 && circuit !== 5) {
+  if (circuit !== 1 && circuit !== 2 && circuit !== 5) {
     throw invalid("circuit.kind");
   }
   reader.bytes(3, "circuit.shape");
@@ -556,10 +800,22 @@ function readSettlementData(reader: Reader): {
     cacheAccountCount = (reads === 0n ? 0 : 1) + (writes ? 2 : 0);
   }
   reader.bytes(192, "proof");
-  reader.bytes(reader.u8("inputs.length") * 33, "inputs");
+  const nullifiers = Array.from({ length: reader.u8("inputs.length") }, () => {
+    const nullifier = reader.bytes(32, "input.nullifier") as Bytes32;
+    reader.u8("input.treeIndex");
+    return nullifier;
+  });
   reader.bytes(reader.u8("treeContexts.length") * 4, "treeContexts");
   reader.done();
-  return { transfers, cacheAccountCount };
+  return {
+    transfers,
+    cacheAccountCount,
+    txViewingPk,
+    salt,
+    outputs,
+    messages,
+    nullifiers,
+  };
 }
 
 function readInterfaceTransfer(reader: Reader): InterfaceTransfer {
@@ -606,7 +862,10 @@ function bytes(fields: Record<string, unknown>, path: string): Uint8Array {
   try {
     return new Uint8Array(base58Encoder.encode(data));
   } catch (cause) {
-    throw new RingError("RING_ORIGIN_DECODE", { details: { path: `${path}.data` }, cause });
+    throw new RingError("RING_ORIGIN_DECODE", {
+      details: { path: `${path}.data` },
+      cause,
+    });
   }
 }
 
@@ -619,7 +878,9 @@ function programId(accountKeys: readonly Address[], instruction: unknown, path: 
 
 function stackHeight(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new RingError("RING_ORIGIN_STACK", { details: { reason: "invalid stack height" } });
+    throw new RingError("RING_ORIGIN_STACK", {
+      details: { reason: "invalid stack height" },
+    });
   }
   return value;
 }
@@ -632,4 +893,4 @@ function invalid(path: string): RingError {
   return new RingError("RING_ORIGIN_DECODE", { details: { path } });
 }
 
-const { record, list, address: decodeAddress } = wireDecoder(invalid);
+const { record, list, integer, address: decodeAddress } = wireDecoder(invalid);

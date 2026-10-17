@@ -15,7 +15,7 @@ cargo run -p zolana-ring-rpc -- serve \
   --ring-program-id <program-id>
 ```
 
-The command writes the secret with owner access only. It writes the compressed public key to `keys/auditor.key.pub`.
+The command writes the secret with owner access only. It writes the X25519 public key to `keys/auditor.key.pub`.
 
 Derived mode serves a stable key for each ring and cluster, for as many rings as ask. Generate a root secret with `keygen --kind root`. Protect one root as carefully as all keys derived from it. The key comes from the root, the cluster genesis hash and the ring program id, so a new ring needs no configuration, no restart, and nothing stored. Repointing the service at another cluster changes every derived key and orphans every ring already registered.
 
@@ -51,13 +51,19 @@ Accepted nonces are held in process memory for the timestamp window. Run one pro
 
 ## Audit result
 
-Each opened output includes the asset mint, amount, recipient viewing key, and ring field. Each transaction also includes public nullifiers and undecryptable output positions. Private input owners and blindings are not returned.
+`outputOpenings` carries the verified auditor disclosure for every output slot. Each entry contains its note fields and published tree context. The client checks their commitments. These openings remain available when recipient ciphertext is missing, corrupt or misleading.
 
-The released transfer proof does not prove that output ciphertext matches the committed UTXO. The ring program checks Confidential framing. Ring RPC reports output slots that it cannot decrypt. A decrypted value is not proof of the committed plaintext.
+`outputs` carries optional recipient metadata. `undecryptableSlots` names recipient payloads that could not be opened or disagreed with the proved note. Neither field replaces `outputOpenings`. Unknown asset fields stay in the verified openings. The service attempts to resolve them from the asset registry without dropping the disclosure when a refresh fails.
+
+Mandatory auditor encryption is proved against the committed notes. Ordinary recipient ciphertext is not proved. Anonymous disclosure also reveals the checked sender, spent notes and recipients to the auditor. A malformed mandatory disclosure is reported as a skipped transaction with a reason. It cannot be presented as a successfully opened payment.
 
 A transaction that carries the auditor view tag but did not run under this ring is not reported. It reaches neither the audited items nor the skipped rows, and the page cursor still advances past it, so an empty page is not the end of the history.
 
-Photon is an integrity boundary for transaction rows, slots, signatures, ciphertext, and nullifiers. It needs no ring support. Ring RPC reads the matched transactions by the auditor view tag, then fetches each one from Solana RPC and keeps it only when the shielded pool instruction has the ring program as its direct caller, the position that holds the `ring_auth` signer. It also checks the supported transaction shape. It does not verify the default transfer proof.
+Photon supplies transaction discovery. Ring RPC fetches each candidate from Solana RPC and requires successful execution with the ring as SPP's direct caller. It reconstructs the exact SPP event and checks the indexed commitments, ciphertext, viewing metadata, nullifiers and output positions against it. Recovery applies the same check to deposits, merges and spend-query responses. Transfer proofs are enforced by the confirmed on-chain execution.
+
+Clients of Ring RPC trust the configured service to perform these checks. Validating the returned opening commitments alone does not independently authenticate chain history.
+
+The chain RPC remains trusted for confirmed contents. Photon remains trusted for complete history. These checks detect changed contents, but cannot prove that an indexer omitted no transaction. Rows that fail event binding or disclosure checks appear in `skipped`. A failed chain lookup returns an error.
 
 ## Operation
 

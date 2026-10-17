@@ -310,6 +310,11 @@ ensure-custom-ring-live-keys: fetch-custom-ring-keys check-custom-ring-keys
 check-custom-ring-keys: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
+    python3 prover/server/scripts/generate_ring_keys.py --check
+    if [[ -z "${ZOLANA_XTASK_BIN:-}" ]]; then
+        cargo build -q -p xtask
+        export ZOLANA_XTASK_BIN="$PWD/target/debug/xtask"
+    fi
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
     for key in {{custom-ring-keys}}; do
@@ -320,7 +325,7 @@ check-custom-ring-keys: build-prover-server
             exit 1
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
+        tools/ci/xtask.sh bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
         sed '/^#\[rustfmt::skip\]$/d' "custom-rings/interface/src/$module" > "$export_dir/committed-$module"
         sed '/^#\[rustfmt::skip\]$/d' "$export_dir/$module" > "$export_dir/generated-$module"
         rustfmt --config-path rustfmt.toml "$export_dir/committed-$module" "$export_dir/generated-$module"
@@ -333,7 +338,7 @@ check-custom-ring-keys: build-prover-server
             exit 1
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
+        tools/ci/xtask.sh bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
         sed '/^#\[rustfmt::skip\]$/d' "program-libs/interface/src/verifying_keys/$module" > "$export_dir/committed-$module"
         sed '/^#\[rustfmt::skip\]$/d' "$export_dir/$module" > "$export_dir/generated-$module"
         rustfmt --config-path rustfmt.toml "$export_dir/committed-$module" "$export_dir/generated-$module"

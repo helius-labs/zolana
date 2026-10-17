@@ -1356,7 +1356,7 @@ export function ringOpenings(proofInputs: SppProofInputs, shape?: Shape): RingOp
     return output === undefined ? zeroOpening(0) : outputOpening(output, outputTreeId);
   });
   return Object.freeze({
-    nIn: proofInputs.inputUtxos.length,
+    nIn: proofInputs.inputUtxos.filter((input) => !input.isCompact()).length,
     nOut: proofInputs.outputs.filter((output) => !output.isCompact()).length,
     inputs: Object.freeze(inputs),
     outputs: Object.freeze(outputs),

@@ -29,7 +29,7 @@ use crate::{
 };
 use member_registry::MemberRecordRow;
 use storage::{
-    BlockJournal, BlockUndo, LeafWrite, PendingRing, PredecessorError, CustomRingCursor, RingRoot,
+    BlockJournal, BlockUndo, CustomRingCursor, LeafWrite, PendingRing, PredecessorError, RingRoot,
     RingStore, Undo,
 };
 
@@ -467,10 +467,7 @@ pub(crate) fn member_registry_root_pda(program: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[MemberRegistryRoot::SEED], program)
 }
 
-pub(crate) async fn load_root(
-    rpc: &RpcClient,
-    program: &Pubkey,
-) -> Result<ChainRoot, ApplyError> {
+pub(crate) async fn load_root(rpc: &RpcClient, program: &Pubkey) -> Result<ChainRoot, ApplyError> {
     let (address, bump) = member_registry_root_pda(program);
     let account = ring_account(rpc.get_account(&address).await)?;
     let root = MemberRegistryRoot::decode(&account.owner, program, &account.data)
@@ -593,9 +590,7 @@ impl BlockWork<'_> {
         let outcome = async { self.advance(&root, invocations.invocation(position)?).await }.await;
         match outcome {
             Ok(entry) => undo.extend(entry),
-            Err(ApplyError::Fault(reason)) => {
-                undo.push(store.quarantine_root(root, reason).await?)
-            }
+            Err(ApplyError::Fault(reason)) => undo.push(store.quarantine_root(root, reason).await?),
             Err(ApplyError::Retry(error)) => return Err(error),
         }
         Ok(())

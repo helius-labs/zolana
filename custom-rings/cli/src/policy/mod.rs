@@ -102,9 +102,7 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
             for (index, rule) in table.rules().iter().enumerate() {
                 line(&format!("rule {}", index + 1), describe(rule));
             }
-            if let count @ 1.. = table.inline_assets().len() {
-                line("assets", format_args!("{count} listed inline"));
-            }
+            print_amount_guards(&table);
             print_limits(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
@@ -177,6 +175,19 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
     Ok(())
 }
 
+fn print_amount_guards(table: &RuleTable) {
+    line(
+        "amount guards",
+        format_args!("{} mint thresholds", table.inline_assets().len()),
+    );
+    for (asset, threshold) in table.inline_assets().iter().zip(table.inline_limits()) {
+        line(
+            "guard",
+            format_args!("asset {} above {threshold}", hex::encode(asset)),
+        );
+    }
+}
+
 fn print_limits(table: &RuleTable) {
     for limit in table.limits() {
         line("limit", describe_limit(limit));
@@ -193,9 +204,8 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
             line(label, describe(rule));
         }
     }
-    if old.inline_assets() != new.inline_assets() {
-        let count = new.inline_assets().len();
-        line("assets", format_args!("{count} listed inline"));
+    if old.inline_assets() != new.inline_assets() || old.inline_limits() != new.inline_limits() {
+        print_amount_guards(new);
     }
     if old.limits() != new.limits() {
         print_limits(new);

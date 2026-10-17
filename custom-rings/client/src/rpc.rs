@@ -248,7 +248,10 @@ pub struct DecryptedTransaction {
     pub tx_signature: SerializableSignature,
     /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
+    /// Optional recipient payload metadata, never the authoritative inventory of notes.
     pub outputs: Vec<DecryptedOutput>,
+    /// Every verified dedicated opening and its published commitment, in slot order.
+    pub output_openings: Vec<DecryptedOutputOpening>,
     /// Proven hidden sender and spent note metadata in an anonymous ring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anonymous: Option<DecryptedAnonymousTrace>,
@@ -258,6 +261,61 @@ pub struct DecryptedTransaction {
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedOutputContext {
+    pub tree_id: u16,
+    pub leaf_index: u64,
+    pub hash: Hash,
+}
+
+/// Exact field encodings preserve unknown assets and dummy slots without trusting wallet data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedOutputOpening {
+    pub output_context: DecryptedOutputContext,
+    pub domain: Hash,
+    pub tree_id: Hash,
+    pub owner_hash: Hash,
+    pub asset: Hash,
+    pub amount: Hash,
+    pub blinding: Hash,
+    pub data_hash: Hash,
+    pub ring_data_hash: Hash,
+    pub ring_program_id: Hash,
+}
+
+impl
+    From<(
+        zolana_client::ProofInputUtxo,
+        zolana_transaction::OutputContext,
+    )> for DecryptedOutputOpening
+{
+    fn from(
+        (opening, context): (
+            zolana_client::ProofInputUtxo,
+            zolana_transaction::OutputContext,
+        ),
+    ) -> Self {
+        Self {
+            output_context: DecryptedOutputContext {
+                tree_id: context.tree_id,
+                leaf_index: context.leaf_index,
+                hash: context.hash.into(),
+            },
+            domain: opening.domain.into(),
+            tree_id: opening.tree_id.into(),
+            owner_hash: opening.owner_hash.into(),
+            asset: opening.asset.into(),
+            amount: opening.amount.into(),
+            blinding: opening.blinding.into(),
+            data_hash: opening.data_hash.into(),
+            ring_data_hash: opening.ring_data_hash.into(),
+            ring_program_id: opening.ring_program_id.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -423,6 +481,12 @@ impl DecryptedTransaction {
             tx_signature: audited.tx_signature.into(),
             tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
             outputs: outputs.collect(),
+            output_openings: audited
+                .output_openings
+                .into_iter()
+                .zip(audited.output_contexts)
+                .map(Into::into)
+                .collect(),
             anonymous: audited.anonymous.map(DecryptedAnonymousTrace::from),
             undecryptable_slots: audited.undecryptable_slots,
             nullifiers: nullifiers.into_iter().map(Into::into).collect(),

@@ -36,7 +36,7 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 		if batch != nil {
 			return batch.Resolve(api, o, active, member)
 		}
-		if c.compact() {
+		if c.specialized() {
 			return o.ResolveCompact(api, active, root, member)
 		}
 		return o.Resolve(api, active, root, member)
@@ -58,7 +58,7 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
 	for i, packed := range c.Rules {
 		var rule ruleFields
-		if c.compact() {
+		if c.specialized() {
 			rule = checked.rules[i]
 		} else {
 			rule = decodeRule(api, packed)

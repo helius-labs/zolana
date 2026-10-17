@@ -161,7 +161,7 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) (*PolicyParams, *spptest
 		NIn: 1, NOut: 1,
 		AddressChain: fi(0x77), PrivateTxBlinding: fi(0x5b1d),
 		Rules:        zeros(policy.NRules),
-		InlineAssets: zeros(policy.NInlineAssets), InlineLimits: zeros(policy.NInlineAssets),
+		InlineAssets: zeros(policy.NAmountGuards), InlineLimits: zeros(policy.NAmountGuards),
 		TreeSlots:     zeroTreeSlots(),
 		AddressTreeID: fi(0x0f), RingID: fi(0x5a), NamespaceOwnerHash: fi(0x99), ForeignRoot: fi(0),
 		Subjects: make([]*MemberOpening, policy.NSubjects), ForeignSubjects: make([]*MemberOpening, policy.NSubjects),

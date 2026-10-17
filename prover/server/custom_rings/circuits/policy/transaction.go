@@ -90,7 +90,7 @@ func (c *CustomRingPolicyCircuit) auditTx(tx transaction) base.AuditTx {
 	inputs, outputs, _, _ := c.wires()
 	inputCount := min(base.AuditInputSlots, len(tx.nIn.OneHot))
 	out := base.AuditTx{
-		Compact: c.compact(),
+		Compact: c.specialized(),
 		NOut:    tx.nOut,
 		NIn:     base.Count{OneHot: tx.nIn.OneHot[:inputCount], Active: tx.nIn.Active[:inputCount]},
 	}

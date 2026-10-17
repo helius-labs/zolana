@@ -33,7 +33,7 @@ func sumOutputs(api frontend.API, outputs []utxoView, liveOwner, liveAsset []fro
 }
 
 func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, asset frontend.Variable, enabled []frontend.Variable) assetLimit {
-	matches := make([]frontend.Variable, NInlineAssets)
+	matches := make([]frontend.Variable, NAmountGuards)
 	threshold := frontend.Variable(0)
 	for i, inline := range c.InlineAssets {
 		matches[i] = api.Mul(enabled[i], api.IsZero(api.Sub(inline, asset)))

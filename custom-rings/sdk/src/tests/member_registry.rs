@@ -299,42 +299,43 @@ fn a_registration_inserts_or_rewrites_as_the_reference_tree_does() {
     .hash()
     .unwrap();
     let secret = || Zeroizing::new(right_align(&nullifier_key.secret()));
-    let mut tree = MemberRegistryTree::new().unwrap();
-    listed(&mut tree, &[(member(3), 1), (member(12), 2)]);
-    // A listed member keeps its lists.
-    let listed_read = read(member(12))
-        .decode(current(&tree, 0), response(&tree, &member(12), 0, None))
-        .unwrap();
-    let (body, item) = register(
-        &envelope,
-        auditor.pubkey(),
-        secret(),
-        &tip(&tree, 0),
-        &listed_read.opening,
-    )
-    .unwrap();
-    let expected = tree
-        .register_item(member(12).as_bytes(), escrow_key)
-        .unwrap();
-    assert_eq!(item, expected);
-    assert_eq!(item.lists, 2);
-    tree.apply(&[item]).unwrap();
-    assert_eq!(body.registry_new_root, tree.root());
-    assert!(body.update.exists);
-    // An absent opening names no member, the registration takes the member's own record.
-    let absent = read(member(9))
-        .decode(current(&tree, 1), response(&tree, &member(9), 1, None))
-        .unwrap();
-    assert!(matches!(
-        register(
+    for (seeded, target, expected_lists) in [(false, 9, 0), (true, 9, 0), (true, 12, 2)] {
+        let mut tree = MemberRegistryTree::new().unwrap();
+        if seeded {
+            listed(&mut tree, &[(member(3), 1), (member(12), 2)]);
+        }
+        let record = read(member(target))
+            .decode(current(&tree, 0), response(&tree, &member(target), 0, None))
+            .unwrap();
+        let (body, item) = register(
             &envelope,
             auditor.pubkey(),
             secret(),
-            &tip(&tree, 1),
-            &absent.opening,
-        ),
-        Err(RingError::InvalidRecordOpening)
-    ));
+            &tip(&tree, 0),
+            &record,
+        )
+        .unwrap();
+        let expected = tree
+            .register_item(member(target).as_bytes(), escrow_key)
+            .unwrap();
+        assert_eq!(item, expected);
+        assert_eq!(item.lists, expected_lists);
+        assert_eq!(body.update.exists, expected_lists != 0);
+        tree.apply(&[item]).unwrap();
+        assert_eq!(body.registry_new_root, tree.root());
+        assert_eq!(body.member, *member(target).as_bytes());
+        // The authenticated read must be under the registry tip being rewritten.
+        assert!(matches!(
+            register(
+                &envelope,
+                auditor.pubkey(),
+                secret(),
+                &tip(&tree, 1),
+                &record
+            ),
+            Err(RingError::InvalidRecordOpening)
+        ));
+    }
 }
 
 #[test]
@@ -354,7 +355,7 @@ fn a_second_registration_is_refused_before_proving() {
             auditor.pubkey(),
             Zeroizing::new([0; 32]),
             &tip(&tree, 1),
-            &read.opening,
+            &read,
         ),
         Err(RingError::KeyAlreadyRegistered { .. })
     ));

@@ -10,6 +10,8 @@ per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
 
+- `RingRpc` requires commitment-checked `outputOpenings`, and `AuditedRingTransaction.outputContexts` identifies every disclosed slot → read authoritative values from openings and treat `outputs` as optional recipient delivery metadata. Recovery reads both data hashes from disclosure, so remove `resolveOutputHashes` from `RingRecoveryParams`.
+- `TransactionOrigin` requires `confirmedTransaction` → custom adapters must bind indexed ciphertext, commitments, nullifiers and output positions to the exact confirmed SPP transfer, deposit or merge. Only another ring's event returns no match. A transfer with missing mandatory auditor disclosure now fails explicitly.
 - Ring transfer builders select full-policy proofs for eighteen supported shapes with up to sixteen inputs and four outputs, use smaller proofs when registry records share an eight-leaf subtree, and check transaction size before proving → deploy the matching ring program and serve all keys from this release.
 - `CustomRingPolicyProofRequest.shape` sizes the input, output and subject witnesses, `registrySubtree` chooses shared paths, and `CustomRingTransferParams.transaction` includes extra signers and setup instructions in the size check → use `RING_POLICY_SUPPORTED_SHAPES` and pass all planned transaction additions before proving.
 - Auditor key envelopes use a two-hash Poseidon KDF. Previous envelope ciphertexts do not open with this release's auditor client → rotate the ring prover and auditor client together.
@@ -19,7 +21,7 @@ Breaking
 - `RingMemberRegistryReader` replaces key-registry reads with `getRingMemberRecord` and `getRingMemberRegistryRoot`, authenticated at height 20 with list bits and escrow keys → migrate custom indexer adapters and use this release's program, indexer and prover together.
 - `CustomRingPolicyProofRequest` uses thirteen `subjects`, thirteen `foreignSubjects`, an own `memberRegistryRoot` even with escrow off, and one `foreignRoot`, while deposit proofs use `members` and `ctHashes` → replace entry-answer witnesses and old key-only records in custom provers.
 - `RingPolicyConfig.sources` uses `registry` addresses, zero for the own registry and at most one curator registry, and asset rules read registry lists → re-pin policies under version 10 and replace curator namespace addresses.
-- `buildRingListWriteTransaction` now proves member-record updates and returns authenticated `records` when unchanged, while `createRingEntryInstruction`, `updateRingEntryInstruction` and entry-proof builders are removed → use `buildRingMemberUpdateTransaction` for batches of up to sixteen members and supply `proveCustomRingUpdateMembers`.
+- `buildRingListWriteTransaction` updates member records, and the old namespace list readers, entry codecs and entry-proof builders are removed → use `fetchRingMemberRecord` for authenticated list bits and `buildRingMemberUpdateTransaction` for batches of up to sixteen members.
 - Key-registry types, PDA helpers, constants and error names use `MemberRegistry`/`MEMBER_REGISTRY` naming and the PDA seed is `members` → migrate imports and initialize the new registry before registration, list writes or policy transfers.
 
 - `ViewingKey`, shielded addresses and custom-ring auditor envelopes use X25519
@@ -98,6 +100,7 @@ Breaking
 
 Added
 
+- `auditPublicInputHash` and `policyPublicInputHash` accept `anonymous: true` to bind anonymous statements, matching the Go and Rust transcripts.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and
   recipients in `anonymous` for authorized anonymous-ring audit readers, and
   `openAnonymousAuditDisclosure`, `auditDisclosureLength`,
@@ -124,19 +127,18 @@ Added
 
 Changed
 
+- `RingDelegateTransferParams.compactPadding` lets ordinary and recovered delegate builders omit unused public slots, revealing actual counts and allowing the exact 2×3 policy proof when the registry paths share a subtree, while the default keeps padded counts.
+
 - `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.
 
 - Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
-- Ring transfer, exit, withdrawal and delegate submissions treat a rejected
-  proof as final unless later registrations replaced the key registry root at
-  the slot an escrowed proof names, which rebuilds it, and
-  `RingTransactPolicy.memberRegistryRoot`, `RingSubmissionAttempt.memberRegistryRoot`
-  and the `registry` reader of `RingTransactionSubmission` let a submission
-  check that slot.
 
 Fixed
+
+- `recoverRingMemberNotes` reconstructs notes from proved auditor openings even when recipient ciphertext is missing, misleading or addressed to another viewing key, and unresolved assets remain explicit.
+- `RingTransactionSubmission` retries proofs invalidated by either the own or curator registry history and retains pending state when a registry read fails.
 
 - `recoverTransactionViewingKey`, `auditRingTransaction`, `auditRing` and
   `recoverRingMemberNotes` read output disclosures under an alias of the
@@ -146,11 +148,8 @@ Fixed
   `mode: "anonymous"` and report hidden senders, inputs and recipients in
   `anonymous`, and the config decodes with `mode`.
 
-Fixed
-
 - `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
-  differently from the sender's change, so an observer could tell them apart;
-  padding now uses the same encoding as change.
+  differently from the sender's change, so an observer could tell them apart, and padding now uses the same encoding as change.
 
 ## 0.4.1-alpha — 2026-10-08
 

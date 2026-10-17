@@ -48,7 +48,7 @@ func fullTwoByThreeStatement(t *testing.T, anonymous bool) *statement {
 	s.rules[15] = rule{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval, listBlock), guardTag: GuardAboveAmountByAsset}
 	s.inlineAssets, s.inlineLimits = nil, nil
 	s.limits = nil
-	for i := 0; i < NInlineAssets; i++ {
+	for i := 0; i < NAmountGuards; i++ {
 		asset := big.NewInt(int64(100 + i))
 		if i == 0 {
 			asset = spptest.AsBigInt(s.outputs[0].Asset)

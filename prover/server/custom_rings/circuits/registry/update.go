@@ -57,7 +57,9 @@ func (u RecordUpdate) Apply(api frontend.API, active, root frontend.Variable, be
 	return api.Select(active, updated, root)
 }
 
-// MemberUpdateWires is one batch item, the program authorizes the change from old to new.
+// MemberUpdateWires is one batch item. The program authorizes list changes and
+// requires an unchanged escrow commitment. This circuit authenticates the tree
+// transition. Encryption is a separate obligation enforced only by RegisterKey.
 type MemberUpdateWires struct {
 	Member       frontend.Variable
 	OldLists     frontend.Variable

@@ -484,7 +484,13 @@ impl<'a> WitnessInput<'a> {
                 root: root.root,
             },
             foreign,
-            n_in: self.inputs.len() as u8,
+            // Compact padding is a trailing dummy suffix. It contributes no
+            // note to SPP's NonZeroHashChain or to the policy statement.
+            n_in: self
+                .inputs
+                .iter()
+                .filter(|input| !input.is_compact())
+                .count() as u8,
             n_out: self.active_output_count() as u8,
             inputs,
             outputs,

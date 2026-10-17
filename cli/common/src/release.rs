@@ -90,6 +90,31 @@ pub fn verify(bytes: &[u8], asset: &Asset) -> Result<()> {
     Ok(())
 }
 
+/// Rejects a stale program/key pairing and every marked insecure setup.
+/// Setup markers identify the linked key generation. They do not certify program semantics.
+pub fn verify_program_keys<'a>(
+    binary: &[u8],
+    expected: impl IntoIterator<Item = (&'a str, [u8; 32])>,
+) -> Result<()> {
+    let markers = groth16_solana::vk::setup::find_setup_txts(binary)
+        .context("malformed program verifying-key setup marker")?;
+    ensure!(
+        !markers.is_empty(),
+        "program contains no verifying-key setup markers"
+    );
+    ensure!(
+        markers.iter().all(|marker| !marker.insecure_test_setup),
+        "program contains an insecure test setup"
+    );
+    for (name, hash) in expected {
+        ensure!(
+            markers.iter().any(|marker| marker.proving_key_sha256 == hash),
+            "program is missing the pinned verifier for {name}, rebuild the program and ship matching keys"
+        );
+    }
+    Ok(())
+}
+
 /// Reads at most one byte past `max_len`, so a longer body fails.
 pub fn download(url: &str, max_len: u64) -> Result<Vec<u8>> {
     let response = reqwest::blocking::Client::builder()
@@ -183,6 +208,41 @@ mod tests {
             name: "test".to_owned(),
             size: 5,
             sha256: sha256.to_owned(),
+        }
+    }
+
+    fn setup_marker(hash: [u8; 32], insecure: bool) -> Vec<u8> {
+        use groth16_solana::vk::setup::{SETUP_TXT_BEGIN, SETUP_TXT_END};
+        format!(
+            "{SETUP_TXT_BEGIN}name\0VERIFYINGKEY\0insecure_test_setup\0{insecure}\0proving_key_sha256\0{}\0{SETUP_TXT_END}",
+            hex::encode(hash)
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn program_requires_every_pinned_key_and_allows_other_linked_verifiers() {
+        let binary = [setup_marker([1; 32], false), setup_marker([2; 32], false)].concat();
+        verify_program_keys(&binary, [("policy", [1; 32])]).unwrap();
+        verify_program_keys(&binary, [("policy", [1; 32]), ("registry", [2; 32])]).unwrap();
+        let error =
+            verify_program_keys(&binary, [("policy", [1; 32]), ("audit", [3; 32])]).unwrap_err();
+        assert!(error.to_string().contains("pinned verifier for audit"));
+    }
+
+    #[test]
+    fn program_rejects_unmarked_malformed_and_insecure_setups() {
+        use groth16_solana::vk::setup::SETUP_TXT_BEGIN;
+        for (binary, reason) in [
+            (Vec::new(), "no verifying-key setup markers"),
+            (SETUP_TXT_BEGIN.as_bytes().to_vec(), "malformed program"),
+            (
+                [setup_marker([1; 32], false), setup_marker([2; 32], true)].concat(),
+                "insecure test setup",
+            ),
+        ] {
+            let error = verify_program_keys(&binary, [("policy", [1; 32])]).unwrap_err();
+            assert!(error.to_string().contains(reason), "{error}");
         }
     }
 

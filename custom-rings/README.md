@@ -19,6 +19,9 @@ proving keys and the ring RPC together, the CLI deploys the binary of the
 release it was built from. One released binary serves every ring, the rules
 are data `init` pins from `ring.toml`.
 
+See the [change overview](changes-overview.md), [proof costs](proof-costs.md) and
+[audit map](audit-readiness.md) for the current guarantees and their tests.
+
 ## Reading the proof boundary
 
 1. [`RuleTable`](policy/src/rule_table.rs) defines the obligations.
@@ -48,7 +51,9 @@ Membership lives separately. `MemberRegistryRoot` stores the last 32 Merkle
 roots and the next leaf index. Photon reconstructs each leaf as
 `[member | next member | 64-bit list bitmap | escrow commitment]`. One record holds
 all an owner's or mint's list memberships. List changes preserve its escrow
-commitment. Key registration preserves its list bits. The encrypted recovery
+commitment. The program rejects an escrow change in a list update before proof
+verification. Only proved key registration can set an empty escrow
+commitment. A registered key is final. Registration preserves the list bits. The encrypted recovery
 key travels in registration data and is indexed with the record.
 
 This replaces versioned SPP list notes and their revocation proofs. Transfers
@@ -359,7 +364,8 @@ count, up to 54.
 
 On devnet, configure the prover, indexer and ring RPC URLs in `ring.toml`.
 They must run the matching release, including its proving keys and Photon's
-member-registry projection. The CLI probes these services and does
+member-registry projection. Photon enables custom-ring indexing by default when
+built with its `custom-rings` feature. The CLI probes these services and does
 not start them. A healthy HTTP endpoint alone does not prove key compatibility.
 The hosted ring RPC derives one auditor key per
 ring from a root secret, so it serves any ring that asks and a new ring needs
@@ -382,7 +388,8 @@ amounts remain public. The default ring stays nonanonymous. Rust anonymous
 builders exclude delegates, merges, caches and direct outputs to the default
 ring. Outflow limits remain supported. Auditor and viewing keys use canonical
 X25519 encodings. P-256 ownership and historical viewing data require migration
-before upgrading.
+before upgrading. Deployment checks the existing config before uploading. It
+rejects a legacy auditor key layout and names the required migration.
 
 The dedicated auditor disclosure encrypts the note fields the circuit uses to
 compute commitments. Anonymous disclosure also binds the sender, spent notes
@@ -396,14 +403,29 @@ Ordinary rings without policy rules use `custom-ring-base-confidential` for
 two-output auditor disclosure and `custom-ring-base` for other output counts.
 Anonymous rings use `custom-ring-base`. The configured ring mode and settled
 output count select the verifying key. The optimized circuits require the
-matching program, proving keys and clients. New keys are generated locally
-and are not part of the historical release.
+matching program, proving keys and clients. One Go catalog drives the Rust
+release catalog and TypeScript pins. `just check-custom-ring-keys` checks those
+catalogs and every exported verifier against the pinned proving key. New keys
+are generated locally and are not part of the historical release. Release staging
+and deployment also compare every pinned key with the program's embedded
+verifier markers. Missing, stale or insecure setup markers reject the binary.
+The CLI
+rejects an embedded release with missing or incompatible keys before download
+or deployment. Workspace mode uses the locally built artifacts.
 
 Policy transfers support ordinary capacities of 1, 2, 3, 4, 5, 6, 8, 12 or
 16 inputs with 2 or 4 outputs. Anonymous capacities are 2×2, 2×4, 3×4 and
 4×2. Delegate capacities are 2×2 and 4×4. Each has a general registry proof
 and a smaller proof for records sharing an eight-leaf block. The exact 2×3
 optimization remains available.
+
+The exact keys require two published inputs, three published outputs and shared
+registry paths. Compact padding omits trailing dummy slots and reveals those
+counts. Delegate builders opt in with Rust's `.with_compact_padding()` or
+TypeScript's `compactPadding: true`. Defaults retain padded counts. Anonymous
+transfers allow a compact output suffix but reject compact inputs and caches.
+SPP still receives a full padded witness. All 51 policy keys pass live settlement
+and auditor recovery checks.
 
 The complete V1 transaction must fit 4,096 bytes and 64 accounts. Capacities
 with 8 or 16 outputs, or at least 24 inputs, are excluded. Even 16×4 can
@@ -461,16 +483,22 @@ escrows its nullifier key with `RegisterKey`. `ReadMemberRecord` supplies its
 `SealedKeyEntry`, which opens with the auditor key. `RingRecovery` rebuilds the
 member's notes from the audit view and `DelegateTransfer` moves them.
 
-Recovery follows merge successors and checks each opening against its tree's
-commitment. Verified audit disclosure supplies the application hashes. Older
-notes without those fields can use `with_data_hashes` (Rust) or
-`resolveOutputHashes` (TypeScript). A missing or incorrect opening is reported
-in `unopened`. Deposits with verified disclosure supply their opening to the
-auditor and can start a recovered merge chain. Deposits without disclosure
-encrypt their blinding only to the recipient. Recovery reports matching tags
-for those deposits as `unsupported_deposits`
+Recovery reads the verified auditor openings directly. It checks ownership,
+ring, amount and application hashes against the published commitments. Broken
+or misleading recipient ciphertext cannot hide a proved note or abort its audit
+page. The RPC returns these fields in `outputOpenings` with their tree contexts.
+`outputs` contains optional recipient metadata. `undecryptableSlots` reports
+missing or inconsistent recipient metadata, not missing auditor disclosure.
+
+Recovery follows merge successors and checks each successor commitment. An
+unknown proved asset stays in `unopened` until it is resolved or its note is
+confirmed spent. Deposits with verified disclosure can start a recovered merge
+chain. Deposits without disclosure encrypt their blinding only to the recipient.
+Matching tags for those deposits appear in `unsupported_deposits`
 (`unsupportedDeposits` in TypeScript), with ownership and spent status unknown.
 Recovered notes are not a complete balance when either list is nonempty.
+Missing mandatory disclosure fails recovery rather than returning a partial
+balance as complete.
 
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
 builds unsigned V1 transfers, withdrawals, exits, delegate moves and merges. Builders

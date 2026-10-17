@@ -14,7 +14,7 @@ use zolana_indexer_api::{
 
 use super::{
     load_root, member_registry_root_pda, proof,
-    storage::{self, PredecessorError, CustomRingCursor, RingRoot, RingStore},
+    storage::{self, CustomRingCursor, PredecessorError, RingRoot, RingStore},
     ChainRoot,
 };
 use crate::{

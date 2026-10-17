@@ -62,7 +62,7 @@ where
 pub(crate) const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
 const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 
-/// Every indexed transaction of the ring that carries a message tagged for `auditor_key`.
+/// Confirmed ring transfers in the auditor tag scan. Missing mandatory disclosure fails closed.
 #[must_use = "run or discard the scan explicitly"]
 pub struct RingScan {
     ring_program_id: Address,
@@ -137,29 +137,29 @@ impl RingScan {
             Ok((page.transactions, page.next_cursor, page.scanned_through))
         })
         .await?;
-        let mut invoked = HashMap::new();
+        let mut invoked = HashMap::<_, crate::RingOrigin>::new();
         let mut transactions = Vec::new();
-        for tx in page.transactions {
-            if tx.ring_program_id != Some(self.ring_program_id)
-                || !tx
-                    .messages
-                    .iter()
-                    .any(|message| message.view_tag == view_tag)
-            {
-                continue;
-            }
+        for mut tx in page.transactions {
             let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
             let key = (tx.tx_signature, event_index);
-            let ring_invoked = match invoked.get(&key) {
-                Some(known) => *known,
+            let confirmed: crate::RingOrigin = match invoked.get(&key) {
+                Some(known) => known.clone(),
                 None => {
                     let origin = origin
                         .origin(tx.tx_signature, event_index, self.ring_program_id)
                         .await?;
-                    *invoked.entry(key).or_insert(origin.ring_invoked)
+                    invoked.entry(key).or_insert(origin).clone()
                 }
             };
-            if ring_invoked {
+            if confirmed.requires_audit() {
+                confirmed.bind_transaction(&mut tx, self.ring_program_id)?;
+                if !tx
+                    .messages
+                    .iter()
+                    .any(|message| message.view_tag == view_tag)
+                {
+                    return Err(AuditError::MissingAuditorMessage);
+                }
                 transactions.push(tx);
             }
         }

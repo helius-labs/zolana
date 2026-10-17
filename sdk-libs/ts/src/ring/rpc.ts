@@ -14,14 +14,21 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { SOLANA_OWNER_TAG } from "../hasher/index.js";
+import {
+  BN254_SCALAR_ORDER,
+  SOLANA_OWNER_TAG,
+  hashBytes,
+  initializePoseidon,
+} from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 
-import type { DecryptedAnonymousRingTrace } from "./audit.js";
+import { auditOpeningHash, type DecryptedAnonymousRingTrace } from "./audit.js";
+import type { AuditOutputOpening } from "../keypair/audit.js";
+import { bytesToBigInt, equal, ZERO_32 } from "../transaction/internal.js";
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
@@ -313,7 +320,10 @@ export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
   readonly txViewingPublicKey: X25519PublicKey;
+  /** Optional recipient delivery metadata, never a complete accounting of disclosed notes. */
   readonly outputs: readonly DecryptedRingOutput[];
+  /** Authoritative disclosure in published slot order, independent of recipient encryption. */
+  readonly outputOpenings: readonly DecryptedRingOpening[];
   readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
@@ -321,6 +331,10 @@ export interface DecryptedRingTransaction {
   readonly signers: readonly Address[];
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
+}
+
+export interface DecryptedRingOpening extends AuditOutputOpening {
+  readonly outputContext: Readonly<{ treeId: number; leafIndex: bigint; hash: Bytes32 }>;
 }
 
 export type { DecryptedAnonymousRingTrace } from "./audit.js";
@@ -564,6 +578,7 @@ export class RingRpc {
     const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
     const cursor = value["cursor"];
+    await initializePoseidon();
     return Object.freeze({
       slot: integer(wireContext["slot"], "result.context.slot"),
       blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
@@ -646,23 +661,51 @@ async function signMessage(signer: MessagePartialSigner, message: Uint8Array): P
 }
 
 function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransaction {
+  const anonymous = wire["anonymous"] !== undefined && wire["anonymous"] !== null;
+  const outputOpenings = Object.freeze(
+    list(wire["outputOpenings"], "outputOpenings").map((entry) =>
+      decodeOpening(record(entry, "outputOpenings"), anonymous),
+    ),
+  );
+  const outputs = Object.freeze(
+    list(wire["outputs"], "outputs").map((entry, index) =>
+      decodeOutput(record(entry, `outputs[${index}]`)),
+    ),
+  );
+  const undecryptableSlots = Object.freeze(
+    list(wire["undecryptableSlots"], "undecryptableSlots").map((slot) =>
+      u32(slot, "undecryptableSlots"),
+    ),
+  );
+  const seen = new Set<number>();
+  for (const output of outputs) {
+    const opening = outputOpenings[output.slotIndex];
+    const ring =
+      output.ringProgramId === undefined ? ZERO_32 : hashBytes(addressBytes(output.ringProgramId));
+    if (
+      opening === undefined ||
+      seen.has(output.slotIndex) ||
+      !equal(hashBytes(addressBytes(output.asset)), opening.asset) ||
+      output.amount !== bytesToBigInt(opening.amount) ||
+      !equal(ring, opening.ringProgramId)
+    )
+      throw invalid("outputs.opening");
+    seen.add(output.slotIndex);
+  }
+  for (const index of undecryptableSlots) {
+    if (outputOpenings[index] === undefined || seen.has(index)) throw invalid("undecryptableSlots");
+    seen.add(index);
+  }
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
-    ...(wire["anonymous"] === undefined || wire["anonymous"] === null
-      ? {}
-      : { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }),
-    outputs: Object.freeze(
-      list(wire["outputs"], "outputs").map((entry, index) =>
-        decodeOutput(record(entry, `outputs[${index}]`)),
-      ),
-    ),
-    undecryptableSlots: Object.freeze(
-      list(wire["undecryptableSlots"], "undecryptableSlots").map((slot) =>
-        Number(integer(slot, "undecryptableSlots")),
-      ),
-    ),
+    ...(anonymous
+      ? { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }
+      : {}),
+    outputs,
+    outputOpenings,
+    undecryptableSlots,
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
@@ -678,6 +721,41 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       }),
     ),
   });
+}
+
+function decodeOpening(wire: Record<string, unknown>, anonymous: boolean): DecryptedRingOpening {
+  const field = (name: string): Bytes32 => {
+    const value = hash(wire[name], `outputOpenings.${name}`);
+    if (bytesToBigInt(value) >= BN254_SCALAR_ORDER) throw invalid(`outputOpenings.${name}`);
+    return value;
+  };
+  const opening: AuditOutputOpening = {
+    domain: field("domain"),
+    treeId: field("treeId"),
+    ownerHash: field("ownerHash"),
+    asset: field("asset"),
+    amount: field("amount"),
+    blinding: field("blinding"),
+    dataHash: field("dataHash"),
+    ringDataHash: field("ringDataHash"),
+    ringProgramId: field("ringProgramId"),
+  };
+  const context = record(wire["outputContext"], "outputOpenings.outputContext");
+  const treeId = u32(context["treeId"], "outputOpenings.outputContext.treeId");
+  if (treeId > 0xffff) throw invalid("outputOpenings.outputContext.treeId");
+  const outputContext = Object.freeze({
+    treeId,
+    leafIndex: u64(context["leafIndex"], "outputOpenings.outputContext.leafIndex"),
+    hash: hash(context["hash"], "outputOpenings.outputContext.hash"),
+  });
+  const dummy = anonymous && Object.values(opening).every((value) => equal(value, ZERO_32));
+  if (
+    !dummy &&
+    (!equal(auditOpeningHash(opening), outputContext.hash) ||
+      bytesToBigInt(opening.treeId) !== BigInt(treeId))
+  )
+    throw invalid("outputOpenings.commitment");
+  return Object.freeze({ ...opening, outputContext });
 }
 
 /** Checks owner encodings and canonical recipient slot order before exposing a trace. */
@@ -734,7 +812,7 @@ function u64(value: unknown, path: string): bigint {
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
   return Object.freeze({
-    slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
+    slotIndex: u32(output["slotIndex"], "slotIndex"),
     recipientViewingPublicKey: x25519Key(output["recipientViewingPk"], "recipientViewingPk"),
     ownerTag: hash(output["ownerTag"], "ownerTag"),
     asset: address(output["asset"], "asset"),

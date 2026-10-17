@@ -235,8 +235,8 @@ impl PendingCustomRingProof {
         let mut identities = AnonymousIdentities {
             flag: AnonymousFlag,
             sender,
-            recipients: vec![[0; IDENTITY_LEN]; POLICY_OUTPUT_SLOTS],
-            recipient_viewing_keys: vec![[0; TAGGED_X25519_KEY_LEN]; POLICY_OUTPUT_SLOTS],
+            recipients: [[0; IDENTITY_LEN]; POLICY_OUTPUT_SLOTS],
+            recipient_viewing_keys: [[0; TAGGED_X25519_KEY_LEN]; POLICY_OUTPUT_SLOTS],
         };
         for ((identity, viewing_key), output) in identities
             .recipients

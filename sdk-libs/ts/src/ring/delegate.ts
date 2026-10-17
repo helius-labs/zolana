@@ -65,6 +65,8 @@ export interface RingDelegateTransferParams {
     asset: Address;
     amount: bigint;
   }>[];
+  /** Omits padding and reveals actual counts. Allows the exact 2×3 policy key when records share a subtree. */
+  readonly compactPadding?: boolean;
   readonly priorityFeeLamports?: bigint;
 }
 
@@ -275,6 +277,7 @@ async function buildDelegateTransaction(
       payer: move.feePayer,
       ringProgramId: move.ringProgramId,
       outputTreeId: move.client.treeId,
+      ...(move.compactPadding === undefined ? {} : { compactPadding: move.compactPadding }),
     });
     if (source.kind === "keys") {
       const approval = await source.approve({

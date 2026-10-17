@@ -15,8 +15,12 @@ type ShapeWires struct {
 	ForeignSubjects []registry.MemberOpening
 }
 
-func (c *CustomRingPolicyCircuit) compact() bool { return c.FixedInputs != 0 || c.Dynamic != nil }
+// specialized enables bounded arithmetic and compile-time pruning. It does not
+// mean SPP compact padding, which controls omitted transaction slots on the wire.
+func (c *CustomRingPolicyCircuit) specialized() bool { return c.FixedInputs != 0 || c.Dynamic != nil }
 
+// wires presents one slot layout to all policy checks. Fixed arrays preserve
+// existing key layouts. Shape circuits supply capacity-sized slices instead.
 func (c *CustomRingPolicyCircuit) wires() ([]UtxoWires, []OutputWires, []registry.MemberOpening, []registry.MemberOpening) {
 	if c.Dynamic != nil {
 		return c.Dynamic.Inputs, c.Dynamic.Outputs, c.Dynamic.Subjects, c.Dynamic.ForeignSubjects

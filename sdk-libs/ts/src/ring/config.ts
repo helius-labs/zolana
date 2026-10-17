@@ -101,6 +101,21 @@ export async function fetchRingMemberRegistryRoot(
   return root;
 }
 
+/** Reads a source registry by account address and verifies its owning program's PDA. */
+export async function fetchCuratorRegistryRoot(
+  client: Pick<ChainReader, "getAccount">,
+  registry: Address,
+  context?: RequestContext,
+): Promise<Readonly<{ ringProgramId: Address; root: RingMemberRegistryRoot }>> {
+  const account = await client.getAccount(registry, context);
+  if (account === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+  const [expected, bump] = await ringMemberRegistryRootPda(account.owner);
+  const root = decodeRingMemberRegistryRoot(account.data);
+  if (registry !== expected || root.bump !== bump)
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+  return { ringProgramId: account.owner, root };
+}
+
 export async function createRingMemberRegistryRootInstruction(
   input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
 ): Promise<Instruction> {
@@ -121,7 +136,7 @@ export async function createRingMemberRegistryRootInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRing::namespace_pda`, the shielded owner of every policy entry. */
+/** The reserved namespace owner excluded from policy transfers. */
 export async function ringPolicyNamespaceAddress(ringProgramId: Address): Promise<Address> {
   const [address] = await getProgramDerivedAddress({
     programAddress: ringProgramId,
@@ -311,7 +326,7 @@ export async function fetchRingDelegate(
   return delegate;
 }
 
-/** Irreversible, it also turns key escrow on and needs a policy ring with a key registry. */
+/** Irreversible, it also turns key escrow on and needs a policy ring with a member registry. */
 export async function setRingDelegateInstruction(
   input: Readonly<{
     ringProgramId: Address;

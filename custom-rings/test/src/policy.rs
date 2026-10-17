@@ -15,7 +15,7 @@ use custom_ring_sdk::{
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, SolanaRpc, ZolanaClient};
+use zolana_client::{prover::indexed::ProofDataSource, ProverClient, SolanaRpc, ZolanaClient};
 use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_policy::{ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject};
@@ -115,13 +115,19 @@ pub struct RingNotes<'a> {
 
 impl RingNotes<'_> {
     pub fn deposit(self) -> Result<Vec<Utxo>> {
+        let payer = self.owner;
+        self.deposit_from(payer)
+    }
+
+    /// A separate depositor keeps an anonymous owner out of public signatures.
+    pub fn deposit_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
         let env = self.env;
         let indexer = env.client.indexer();
         (0..self.count)
             .map(|_| {
                 let deposit = RingDeposit {
                     ring: self.ring,
-                    payer: self.owner,
+                    payer,
                     recipient: self.owner,
                     tree: env.tree,
                     asset: DepositAsset::Sol,
@@ -194,9 +200,10 @@ impl PolicyTransfer<'_> {
 
     /// Refused before proving, the unreachable prover is never asked.
     pub fn expect_refusal(self) -> Result<()> {
-        let unreachable = self
-            .env
-            .client_with(ProverClient::new("http://127.0.0.1:1".to_string()));
+        let unreachable = self.env.client_with(
+            ProverClient::new("http://127.0.0.1:1".to_string())
+                .with_proof_data_source(ProofDataSource::Client),
+        );
         match self.prove(&unreachable) {
             Err(RingError::PolicyRuleUnsatisfied) => Ok(()),
             Err(other) => Err(anyhow!("expected PolicyRuleUnsatisfied, got {other}")),

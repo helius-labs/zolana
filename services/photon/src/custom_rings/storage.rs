@@ -166,11 +166,7 @@ pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRi
 }
 
 pub(crate) async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingRing>> {
-    read_all(
-        conn,
-        "SELECT state FROM custom_ring_pending ORDER BY slot",
-    )
-    .await
+    read_all(conn, "SELECT state FROM custom_ring_pending ORDER BY slot").await
 }
 
 pub(crate) async fn pending_ring<C: ConnectionTrait>(

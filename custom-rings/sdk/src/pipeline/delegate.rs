@@ -40,6 +40,7 @@ pub struct Delegated<'a> {
     outputs: Vec<DelegateOutput>,
     output_tree_id: Option<u16>,
     assets: Option<&'a AssetRegistry>,
+    compact_padding: bool,
 }
 
 pub struct DelegateTransferInput<'a> {
@@ -73,6 +74,7 @@ impl<'a> RingTransfer<Delegated<'a>> {
                 outputs: input.outputs,
                 output_tree_id: None,
                 assets: None,
+                compact_padding: false,
             },
             cosigner: None,
         }
@@ -88,6 +90,14 @@ impl<'a> RingTransfer<Delegated<'a>> {
     #[must_use = "use the updated move"]
     pub fn with_assets(mut self, assets: &'a AssetRegistry) -> Self {
         self.rail.assets = Some(assets);
+        self
+    }
+
+    /// Omit trailing dummy slots, revealing the actual public input and output counts.
+    /// Disabled by default, as in the ordinary transfer builder.
+    #[must_use = "use the updated move"]
+    pub fn with_compact_padding(mut self) -> Self {
+        self.rail.compact_padding = true;
         self
     }
 }
@@ -140,6 +150,14 @@ impl Delegated<'_> {
         check_balance(&self.inputs, &outputs)?;
         let mut inputs = self.inputs.clone();
         pad(&mut inputs, &mut outputs, program)?;
+        if self.compact_padding {
+            for input in &mut inputs[self.inputs.len()..] {
+                *input = SppProofInputUtxo::compact(input.tree_id)?;
+            }
+            for output in &mut outputs[self.outputs.len()..] {
+                output.compact = true;
+            }
+        }
         let tx_viewing_key = ViewingKey::new();
         let salt = random_salt();
         let blinding_seed = random_blinding();
@@ -152,6 +170,9 @@ impl Delegated<'_> {
             let slot = u32::try_from(slot).map_err(|_| TransactionError::TooManyOutputs)?;
             output.blinding =
                 derive_transact_output_blinding(&first_nullifier, &output_seed, slot)?;
+            if output.is_compact() {
+                continue;
+            }
             let (tag, data) = match output.owner_address {
                 Some(_) => {
                     let sealed = output.seal(slot, &tx_viewing_key, salt)?;
@@ -172,6 +193,7 @@ impl Delegated<'_> {
             salt,
             outputs: outputs
                 .iter()
+                .filter(|output| !output.is_compact())
                 .map(|output| ProofInputUtxo::try_from((output, output_tree_id)))
                 .collect::<Result<_, _>>()?,
         }

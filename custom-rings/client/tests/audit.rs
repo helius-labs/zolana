@@ -7,6 +7,9 @@
 //! transaction viewing key and returns the exact amounts, assets and blindings
 //! the sender encrypted.
 
+#[path = "common/origin.rs"]
+mod origin_fixture;
+
 use std::{
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
@@ -291,6 +294,11 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     data: Data::default(),
                 },
             ],
+            output_contexts: tx
+                .output_slots
+                .iter()
+                .map(|slot| slot.output_context.clone())
+                .collect(),
             output_openings: vec![proof_output(&sol_output, 0), proof_output(&token_output, 1),],
             anonymous: None,
             undecryptable_slots: vec![],
@@ -715,10 +723,9 @@ fn missing_transaction_key_material_is_rejected() {
     ));
 }
 
-/// A decrypted output whose asset the registry cannot resolve is a registry gap,
-/// not an undecryptable slot: dropping it would understate audited amounts.
+/// A missing asset preimage cannot hide the verified asset field and amount.
 #[test]
-fn unknown_asset_id_is_an_error() {
+fn unknown_asset_keeps_the_authoritative_opening() {
     let auditor = X25519Secret::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
@@ -731,10 +738,86 @@ fn unknown_asset_id_is_an_error() {
         vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
 
-    assert!(matches!(
-        TransactionAudit { auditor: &auditor, transaction: &tx, assets: &registry() }.run(),
-        Err(AuditError::UnknownAsset { asset_id, .. }) if asset_id == TOKEN_ASSET_ID + 1
-    ));
+    let audit = TransactionAudit {
+        auditor: &auditor,
+        transaction: &tx,
+        assets: &registry(),
+    }
+    .run()
+    .unwrap();
+    assert!(audit.outputs.is_empty());
+    assert_eq!(audit.output_openings, vec![proof_output(&output, 0)]);
+    assert_eq!(audit.undecryptable_slots, vec![0]);
+}
+
+#[test]
+fn recipient_delivery_cannot_erase_or_replace_verified_disclosure() {
+    let auditor = X25519Secret::new();
+    let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
+    let output = plaintext(SOL_ASSET_ID, 42, 0x31);
+    let slot = confidential_slot(&tx_key, &recipient.pubkey(), &output, 0);
+    let mut mismatches = Vec::new();
+    let mut corrupt = slot.clone();
+    *corrupt.payload.last_mut().unwrap() ^= 1;
+    mismatches.push(corrupt);
+    for changed in [
+        ConfidentialOutputPlaintext {
+            amount: 43,
+            ..output.clone()
+        },
+        ConfidentialOutputPlaintext {
+            asset_id: TOKEN_ASSET_ID + 1,
+            ..output.clone()
+        },
+        ConfidentialOutputPlaintext {
+            blinding: field(0x32),
+            ..output.clone()
+        },
+        ConfidentialOutputPlaintext {
+            ring_program_id: Some(TOKEN_MINT),
+            ..output.clone()
+        },
+    ] {
+        let mut changed = confidential_slot(&tx_key, &recipient.pubkey(), &changed, 0);
+        changed.output_context = slot.output_context.clone();
+        mismatches.push(changed);
+    }
+    for bad_slot in mismatches {
+        let second = confidential_slot(&tx_key, &recipient.pubkey(), &output, 1);
+        let good_slots = vec![slot.clone(), second.clone()];
+        let tx = transaction(
+            &tx_key,
+            vec![bad_slot, second],
+            vec![auditor_message_data(
+                &tx_key,
+                &auditor.pubkey(),
+                &good_slots,
+            )],
+        );
+        let audited = TransactionAudit {
+            auditor: &auditor,
+            transaction: &tx,
+            assets: &registry(),
+        }
+        .run()
+        .expect("recipient data is optional");
+        assert_eq!(
+            audited.output_openings,
+            vec![proof_output(&output, 0), proof_output(&output, 1)]
+        );
+        assert_eq!(audited.outputs.len(), 1);
+        assert_eq!(audited.outputs[0].slot_index, 1);
+        assert_eq!(audited.undecryptable_slots, vec![0]);
+        let wire =
+            zolana_ring_client::rpc::DecryptedTransaction::new(audited, vec![], vec![], vec![]);
+        assert_eq!(wire.output_openings.len(), 2);
+        assert_eq!(wire.output_openings[0].amount, field(42).into());
+        assert_eq!(
+            wire.output_openings[0].output_context.hash,
+            slot.output_context.hash.into()
+        );
+    }
 }
 
 /// Cursor paging plus the message-tag filter. Photon's tag filter is an OR over
@@ -778,6 +861,7 @@ impl AsyncRpc for PagedIndexer {
 struct KnownOrigins {
     ring: Address,
     origins: HashMap<Signature, bool>,
+    confirmed: HashMap<Signature, zolana_ring_client::ConfirmedEvent>,
     lookups: AtomicUsize,
 }
 
@@ -794,6 +878,11 @@ impl TransactionOrigin for KnownOrigins {
             .get(&signature)
             .copied()
             .map(|ring_invoked| RingOrigin {
+                event: self
+                    .confirmed
+                    .get(&signature)
+                    .expect("confirmed event")
+                    .clone(),
                 ring_invoked,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
@@ -854,8 +943,7 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
         ),
         2,
     );
-    // Matched on an output view tag, carries no auditor message, and is never
-    // looked up on chain.
+    // An output tag match must still be attributed before it can be excluded.
     let mut output_tag_match = with_signature(
         transaction(&tx_key_one, vec![], vec![free_form_message()]),
         3,
@@ -887,7 +975,14 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
             (first.tx_signature, true),
             (second.tx_signature, true),
             (foreign_ring.tx_signature, false),
+            (Signature::from([3; 64]), false),
         ]),
+        confirmed: indexer
+            .pages
+            .iter()
+            .flatten()
+            .map(|tx| (tx.tx_signature, origin_fixture::event(tx)))
+            .collect(),
         lookups: AtomicUsize::new(0),
     };
     assert_eq!(
@@ -901,7 +996,7 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
     );
     assert_eq!(
         origin.lookups.load(Ordering::Relaxed),
-        3,
+        4,
         "one lookup per signature"
     );
 
@@ -943,6 +1038,30 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
 }
 
 #[tokio::test]
+async fn a_confirmed_ring_match_without_mandatory_disclosure_is_incomplete() {
+    let ring = Address::new_from_array([9; 32]);
+    let auditor = X25519Secret::new();
+    let tx = transaction(&ViewingKey::new(), Vec::new(), Vec::new());
+    let origin = KnownOrigins {
+        ring,
+        origins: HashMap::from([(tx.tx_signature, true)]),
+        confirmed: HashMap::from([(tx.tx_signature, origin_fixture::event(&tx))]),
+        lookups: AtomicUsize::new(0),
+    };
+    let indexer = PagedIndexer {
+        expected_tag: auditor_view_tag(&auditor.pubkey()),
+        pages: vec![vec![tx]],
+        requested: Mutex::new(Vec::new()),
+    };
+    assert!(matches!(
+        RingScan::new(ring, auditor.pubkey())
+            .audit(&auditor, &indexer, &origin, &registry())
+            .await,
+        Err(AuditError::MissingAuditorMessage)
+    ));
+}
+
+#[tokio::test]
 async fn scan_fails_when_an_origin_is_unavailable() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor = X25519Secret::new();
@@ -960,6 +1079,7 @@ async fn scan_fails_when_an_origin_is_unavailable() {
     let origin = KnownOrigins {
         ring,
         origins: HashMap::new(),
+        confirmed: HashMap::new(),
         lookups: AtomicUsize::new(0),
     };
 
@@ -1001,6 +1121,11 @@ fn indexer(auditor_pk: &X25519Pubkey, pages: Vec<Vec<ShieldedTransaction>>) -> P
 fn ring_origins(ring: Address, pages: &[Vec<ShieldedTransaction>]) -> KnownOrigins {
     KnownOrigins {
         ring,
+        confirmed: pages
+            .iter()
+            .flatten()
+            .map(|tx| (tx.tx_signature, origin_fixture::event(tx)))
+            .collect(),
         origins: pages
             .iter()
             .flatten()

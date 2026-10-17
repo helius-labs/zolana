@@ -13,10 +13,11 @@ import (
 func init() { solver.RegisterHint(amountComparisonHint, shapedAmountComparisonHint) }
 
 // amountAtMost uses the same integer offset as outputTotalAtMost. The operands
-// are nonnegative and below 2^amountSumBits by the transaction and table checks.
+// are nonnegative. The width is 64 plus ceil(log2(maximum slot count)), so the
+// transaction's bounded amounts cannot overflow it, including wider shapes.
 // Only the top bit is consumed. Lookup range checks bound the remaining limb.
 func (c *CustomRingPolicyCircuit) amountAtMost(api frontend.API, total, threshold frontend.Variable) frontend.Variable {
-	if !c.compact() {
+	if !c.specialized() {
 		return outputTotalAtMost(api, total, threshold)
 	}
 	width, offset := amountSumBits, amountSumOffset

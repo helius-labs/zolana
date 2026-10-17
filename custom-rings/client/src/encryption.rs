@@ -30,6 +30,10 @@ const DISCLOSURE_DOMAIN: u64 = 0x4352_5f4f44;
 
 type Result<T> = core::result::Result<T, AuditError>;
 
+#[cfg(test)]
+#[path = "encryption/proof_statement_tests.rs"]
+mod proof_statement_tests;
+
 /// The auditor key's u-coordinate, the tag the auditor scans for.
 pub fn auditor_view_tag(pk: &X25519Pubkey) -> [u8; 32] {
     pk.u()

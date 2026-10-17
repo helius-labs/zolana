@@ -1,15 +1,23 @@
+import {
+  auditRingTransaction,
+  auditorMessage,
+  recoverTransactionViewingKey,
+} from "../src/ring/audit.js";
 import { emptyMemberRecord, emptyRegistryTip, registryFixture } from "./helpers/member-registry.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   address,
   getAddressDecoder,
+  getCompiledTransactionMessageDecoder,
+  decompileTransactionMessage,
   signTransactionWithSigners,
   type Address,
   type Signature,
 } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { prepareTransfer } from "../src/client/prover/assembly.js";
 import { ClientError } from "../src/client/error.js";
 import type { RingMemberRecordResponse } from "../src/client/ports.js";
 import type {
@@ -26,14 +34,7 @@ import {
   treeAddress,
 } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
-import type {
-  Bytes16,
-  Bytes31,
-  Bytes32,
-  Bytes33,
-  Bytes128,
-  TransactInstructionData,
-} from "../src/interface/types.js";
+import type { Bytes31, Bytes32, Bytes33, Bytes128 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
@@ -43,7 +44,11 @@ import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
-import { EncryptedScheme, encodeOutputData } from "../src/transaction/serialization/codecs.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encryptConfidential,
+} from "../src/transaction/serialization/codecs.js";
 import { createProofOutput, Utxo } from "../src/transaction/utxo.js";
 import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import type { WalletUtxo } from "../src/transaction/wallet/state.js";
@@ -302,7 +307,11 @@ describe("key registry root", () => {
     );
     expect(() =>
       decodeRingMemberRegistryRoot(
-        memberRegistryRootData({ root: MEMBER_REGISTRY_EMPTY_ROOT, nextIndex: 0n, bump: bump }),
+        memberRegistryRootData({
+          root: MEMBER_REGISTRY_EMPTY_ROOT,
+          nextIndex: 0n,
+          bump: bump,
+        }),
       ),
     ).toThrow("RING_MEMBER_REGISTRY_INVALID");
     const otherKind = new Uint8Array(data);
@@ -422,7 +431,11 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
       if (key === rootAddress)
         return ownedAccount(
           RING,
-          memberRegistryRootData({ root: root.root, nextIndex: root.nextIndex, bump: rootBump }),
+          memberRegistryRootData({
+            root: root.root,
+            nextIndex: root.nextIndex,
+            bump: rootBump,
+          }),
         );
       return undefined;
     },
@@ -431,7 +444,16 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
     getRingMemberRecord: async () => (input.registered ? entry : emptyMemberRecord()),
     proveCustomRingRegisterKey: prove,
   };
-  return { auditor, member, identity, client, prove, request: () => request, envelope, entry };
+  return {
+    auditor,
+    member,
+    identity,
+    client,
+    prove,
+    request: () => request,
+    envelope,
+    entry,
+  };
 }
 
 describe("key registration flow", () => {
@@ -450,7 +472,11 @@ describe("key registration flow", () => {
       getRingMemberRegistryRoot: async () => registry.tip,
     };
     await expect(
-      prepareRingKeyRegistration({ client, ringProgramId: RING, member: test.member.enrolment }),
+      prepareRingKeyRegistration({
+        client,
+        ringProgramId: RING,
+        member: test.member.enrolment,
+      }),
     ).resolves.toMatchObject({ kind: "pending" });
     const request = test.request();
     if (request === undefined) throw new Error("missing proof");
@@ -617,7 +643,10 @@ describe("key registration flow", () => {
       prepareRingKeyRegistration({
         client: test.client,
         ringProgramId: RING,
-        member: { address: test.member.address, nullifierKey: other.keypair.nullifierKey() },
+        member: {
+          address: test.member.address,
+          nullifierKey: other.keypair.nullifierKey(),
+        },
       }),
     ).rejects.toMatchObject({ code: "RING_NULLIFIER_KEY_MISMATCH" });
     expect(test.prove).not.toHaveBeenCalled();
@@ -647,7 +676,10 @@ describe("key registration flow", () => {
     expect(() => openRingSealedKey(entry, wrongKeyPassingPad(entry.sealed))).toThrow(
       "RING_MEMBER_REGISTRY_INVALID",
     );
-    const forged = { ...entry, proof: [filled(1) as Bytes32, ...entry.proof.slice(1)] };
+    const forged = {
+      ...entry,
+      proof: [filled(1) as Bytes32, ...entry.proof.slice(1)],
+    };
     expect(() => openRingSealedKey(forged, test.auditor)).toThrow("RING_MEMBER_REGISTRY_INVALID");
     await expect(
       fetchRingSealedKey({
@@ -667,8 +699,10 @@ function ringTransaction(
   input: Readonly<{
     auditor: X25519Secret;
     source: ReturnType<typeof actor>;
+    assets?: AssetRegistry;
     outputs: readonly Readonly<{
       amount: bigint;
+      asset?: Address;
       hash?: Bytes32;
       recipient?: ReturnType<typeof actor>;
       data?: Data;
@@ -682,7 +716,7 @@ function ringTransaction(
   const proofOutputs = input.outputs.map((output, index) =>
     createProofOutput({
       ownerAddress: (output.recipient ?? input.source).address,
-      asset: SOL_MINT,
+      asset: output.asset ?? SOL_MINT,
       amount: output.amount,
       blinding: blinding(50 + index),
       ringProgramId: RING,
@@ -706,7 +740,7 @@ function ringTransaction(
   }
   const encrypted = encryptCustomRingTransfer(tx, {
     outputs: proofOutputs,
-    assets: new AssetRegistry(),
+    assets: input.assets ?? new AssetRegistry(),
     auditorPublicKey: input.auditor.publicKey(),
     outputTreeId: 0,
   });
@@ -740,6 +774,148 @@ function ringTransaction(
 }
 
 describe("ring member recovery", () => {
+  it.each(["malformed", "wrongRecipient", "wrongAmount", "unknownAsset"] as const)(
+    "recovers proved openings despite %s recipient data",
+    async (corruption) => {
+      const auditor = X25519Secret.generate();
+      const source = actor(3);
+      const other = actor(4);
+      const original = ringTransaction({
+        auditor,
+        source,
+        outputs: [{ amount: 7n, dataHash: blinding(1) }],
+      });
+      const key = recoverTransactionViewingKey(
+        auditor,
+        auditorMessage(original, auditor.publicKey()),
+      );
+      let payload: Uint8Array;
+      try {
+        if (original.salt === undefined) throw new Error("salt");
+        payload =
+          corruption === "malformed"
+            ? Uint8Array.of(255)
+            : encodeOutputData(
+                EncryptedScheme.ringConfidential,
+                encryptConfidential(
+                  key,
+                  corruption === "wrongRecipient"
+                    ? other.address.viewingPublicKey
+                    : source.address.viewingPublicKey,
+                  {
+                    assetId: corruption === "unknownAsset" ? 999n : 1n,
+                    amount: corruption === "wrongAmount" ? 999n : 7n,
+                    blinding: blinding(50),
+                    data: new Data(),
+                    ringProgramId: RING,
+                  },
+                  original.salt,
+                  0,
+                ),
+                "encrypted",
+              );
+      } finally {
+        key.destroy();
+      }
+      const transaction = {
+        ...original,
+        outputSlots: original.outputSlots.map((slot) => ({ ...slot, payload })),
+      };
+      const audited = auditRingTransaction({
+        auditor,
+        transaction,
+        assets: new AssetRegistry(),
+      });
+      expect(audited.outputOpenings).toHaveLength(1);
+      expect(audited.outputContexts[0]).toEqual(transaction.outputSlots[0]?.outputContext);
+      expect(audited.undecryptableSlots).toEqual(corruption === "wrongRecipient" ? [] : [0]);
+      const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
+      const getShieldedTransactionsByNullifiers = vi.fn(async () => transactionsPage());
+      const recovered = await recoverRingMemberNotes({
+        client: {
+          ...ringAuditReader({
+            getShieldedTransactionsByTags: async () =>
+              transactionsPage({ transactions: [transaction] }),
+            solanaRpc: { getProgramAccounts },
+          }),
+          getShieldedTransactionsByNullifiers,
+        },
+        ringProgramId: RING,
+        auditor,
+        source: source.address,
+        nullifierKey: source.keypair.nullifierKey(),
+        assets: new AssetRegistry(),
+        resolveTreeId: () => 0,
+        origin: {
+          ringInvoked: async () => true,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
+      });
+      expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([7n]);
+      expect(recovered.notes[0]?.dataHash).toEqual(blinding(1));
+      expect(recovered.unopened).toEqual([]);
+      expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(1);
+      expect(getProgramAccounts).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains unresolved proved assets and still checks whether their nullifiers were spent", async () => {
+    const auditor = X25519Secret.generate();
+    const source = actor(3);
+    const asset = getAddressDecoder().decode(filled(9));
+    const transaction = ringTransaction({
+      auditor,
+      source,
+      assets: new AssetRegistry([[2n, asset]]),
+      outputs: [{ amount: 7n, asset }],
+    });
+    const slot = transaction.outputSlots[0];
+    if (slot === undefined) throw new Error("slot");
+    const nullifier = source.keypair
+      .nullifierKey()
+      .nullifier(slot.outputContext.hash, blinding(50));
+    for (const spent of [false, true]) {
+      const query = vi.fn(async (request: Readonly<{ nullifiers: readonly Bytes32[] }>) => {
+        expect(request.nullifiers).toEqual([nullifier]);
+        return transactionsPage({
+          transactions: spent
+            ? [
+                ringTransaction({
+                  auditor,
+                  source,
+                  outputs: [],
+                  nullifiers: [nullifier],
+                }),
+              ]
+            : [],
+        });
+      });
+      const recovered = await recoverRingMemberNotes({
+        client: {
+          ...ringAuditReader({
+            getShieldedTransactionsByTags: async () =>
+              transactionsPage({ transactions: [transaction] }),
+            solanaRpc: { getProgramAccounts: () => ({ send: async () => [] }) },
+          }),
+          getShieldedTransactionsByNullifiers: query,
+        },
+        ringProgramId: RING,
+        auditor,
+        source: source.address,
+        nullifierKey: source.keypair.nullifierKey(),
+        assets: new AssetRegistry(),
+        resolveTreeId: () => 0,
+        origin: {
+          ringInvoked: async () => true,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
+      });
+      expect(recovered.notes).toEqual([]);
+      expect(recovered.unopened).toEqual(spent ? [] : [slot.outputContext.hash]);
+      expect(query).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("rebuilds the member's unspent notes from the auditor's view", async () => {
     const auditor = X25519Secret.generate();
     const source = actor(3);
@@ -792,7 +968,10 @@ describe("ring member recovery", () => {
       nullifierKey,
       assets: new AssetRegistry(),
       resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([7n, 9n]);
     expect(recovered.notes[0]?.outputContext).toEqual(transaction.outputSlots[0]?.outputContext);
@@ -814,7 +993,10 @@ describe("ring member recovery", () => {
         client: {
           ...client,
           getShieldedTransactionsByTags: async () =>
-            transactionsPage({ transactions: [transaction], nextCursor: new Uint8Array(1) }),
+            transactionsPage({
+              transactions: [transaction],
+              nextCursor: new Uint8Array(1),
+            }),
         },
         ringProgramId: RING,
         auditor,
@@ -822,7 +1004,10 @@ describe("ring member recovery", () => {
         nullifierKey,
         assets: new AssetRegistry(),
         resolveTreeId: () => 0,
-        origin: { ringInvoked: async () => true },
+        origin: {
+          ringInvoked: async () => true,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
         maxPages: 1,
       }),
     ).rejects.toMatchObject({ code: "RING_RECOVERY_INCOMPLETE" });
@@ -955,7 +1140,10 @@ describe("recovery closure", () => {
     };
     const result = await recoverRingMemberNotes({
       ...input,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(result.notes).toEqual([]);
     expect(result.unopened).toEqual([]);
@@ -964,7 +1152,10 @@ describe("recovery closure", () => {
     expect(client.getShieldedTransactionsByNullifiers).not.toHaveBeenCalled();
     const foreign = await recoverRingMemberNotes({
       ...input,
-      origin: { ringInvoked: async () => false },
+      origin: {
+        ringInvoked: async () => false,
+        confirmedTransaction: async () => undefined,
+      },
     });
     expect(foreign.unsupportedDeposits).toEqual([]);
     key.destroy();
@@ -1032,7 +1223,10 @@ describe("recovery closure", () => {
       nullifierKey: key,
       assets: new AssetRegistry(),
       resolveTreeId: (tree) => (tree === TREE ? 0 : 1),
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(result.notes).toHaveLength(1);
     expect(result.notes[0]?.utxo.amount).toBe(9n);
@@ -1048,7 +1242,10 @@ describe("recovery closure", () => {
         nullifierKey: key,
         assets: new AssetRegistry(),
         resolveTreeId: (tree) => (tree === TREE ? 0 : 1),
-        origin: { ringInvoked: async () => true },
+        origin: {
+          ringInvoked: async () => true,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
         maxPages: 1,
       }),
     ).rejects.toMatchObject({ code: "RING_RECOVERY_INCOMPLETE" });
@@ -1061,7 +1258,10 @@ describe("recovery closure", () => {
       nullifierKey: key,
       assets: new AssetRegistry(),
       resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(incomplete.notes).toEqual([]);
     expect(incomplete.unopened).toEqual([second.note.outputContext.hash]);
@@ -1069,7 +1269,60 @@ describe("recovery closure", () => {
     auditor.destroy();
   });
 
-  it("recovers proof-bound data hashes without trusting a caller resolver", async () => {
+  it("authenticates spend responses before hiding a recovered note", async () => {
+    const source = actor(3);
+    const auditor = X25519Secret.generate();
+    const key = source.keypair.nullifierKey();
+    const seed = ringTransaction({
+      auditor,
+      source,
+      outputs: [{ amount: 7n }],
+    });
+    const authenticate = vi.fn(async (transaction: IndexedShieldedTransaction) => {
+      if (transaction !== seed) throw new RingError("RING_ORIGIN_DECODE");
+      return transaction;
+    });
+    const spendQuery = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
+      transactionsPage({
+        transactions: [{ ...seed, nullifiers: [...request.nullifiers] }],
+      }),
+    );
+    try {
+      await expect(
+        recoverRingMemberNotes({
+          client: {
+            ...ringAuditReader({
+              getShieldedTransactionsByTags: async (request) =>
+                transactionsPage({
+                  transactions: request.ringProgramId === undefined ? [seed] : [],
+                }),
+            }),
+            getShieldedTransactionsByNullifiers: spendQuery,
+          },
+          ringProgramId: RING,
+          auditor,
+          source: source.address,
+          nullifierKey: key,
+          assets: new AssetRegistry(),
+          resolveTreeId: () => 0,
+          origin: {
+            ringInvoked: async () => true,
+            confirmedTransaction: authenticate,
+          },
+        }),
+      ).rejects.toMatchObject({ code: "RING_ORIGIN_DECODE" });
+      expect(spendQuery).toHaveBeenCalledOnce();
+      expect(authenticate).toHaveBeenCalledTimes(2);
+      expect(authenticate.mock.calls[1]?.[0].nullifiers).toEqual(
+        spendQuery.mock.calls[0]?.[0].nullifiers,
+      );
+    } finally {
+      key.destroy();
+      auditor.destroy();
+    }
+  });
+
+  it("recovers data hashes from proof-bound disclosure", async () => {
     const source = actor(3);
     const auditor = X25519Secret.generate();
     const key = source.keypair.nullifierKey();
@@ -1098,24 +1351,15 @@ describe("recovery closure", () => {
       nullifierKey: key,
       assets: new AssetRegistry(),
       resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     };
     const disclosed = await recoverRingMemberNotes(input);
     expect(disclosed.notes[0]).toMatchObject({ dataHash, ringDataHash });
+    expect(disclosed.notes[0]?.utxo.data.records()).toEqual(data.records());
     expect(disclosed.unopened).toEqual([]);
-    const wrong = await recoverRingMemberNotes({
-      ...input,
-      resolveOutputHashes: () => ({ dataHash }),
-    });
-    expect(wrong.notes[0]).toMatchObject({ dataHash, ringDataHash });
-    expect(wrong.unopened).toEqual([]);
-    const restored = await recoverRingMemberNotes({
-      ...input,
-      resolveOutputHashes: () => ({ dataHash, ringDataHash }),
-    });
-    expect(restored.notes[0]).toMatchObject({ dataHash, ringDataHash });
-    expect(restored.notes[0]?.utxo.data.records()).toEqual(data.records());
-    expect(restored.unopened).toEqual([]);
     const spent = await recoverRingMemberNotes({
       ...input,
       client: {
@@ -1123,7 +1367,12 @@ describe("recovery closure", () => {
         getShieldedTransactionsByNullifiers: async (request) =>
           transactionsPage({
             transactions: [
-              { ...seed, outputSlots: [], messages: [], nullifiers: [...request.nullifiers] },
+              {
+                ...seed,
+                outputSlots: [],
+                messages: [],
+                nullifiers: [...request.nullifiers],
+              },
             ],
           }),
       },
@@ -1171,7 +1420,10 @@ describe("recovery closure", () => {
         nullifierKey: key,
         assets: new AssetRegistry(),
         resolveTreeId: () => 0,
-        origin: { ringInvoked: async () => true },
+        origin: {
+          ringInvoked: async () => true,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
       });
       expect(result.notes).toHaveLength(1004);
       expect(sizes).toEqual([1000, 4]);
@@ -1182,152 +1434,169 @@ describe("recovery closure", () => {
 });
 
 describe("recovered delegate move", () => {
-  it("builds an escrowed recovered move requiring the delegate signature without source approval", async () => {
-    const auditor = X25519Secret.generate();
-    const source = actor(3);
-    const delegate = getAddressDecoder().decode(filled(8));
-    const [config, configBump] = await ringConfigPda(RING);
-    const [delegatePda, delegateBump] = await ringDelegatePda(RING);
-    const [policyPda, policyBump] = await policyConfigPda(RING);
-    const [registryPda, registryBump] = await ringMemberRegistryRootPda(RING);
-    const namespace = await ringPolicyNamespaceAddress(RING);
-    const table = buildRuleTable({ rules: [] });
-    const registry = oneMemberRegistry({
-      member: memberOfTag(source.address.confidentialViewTag()),
-      nullifierKey: source.keypair.nullifierKey(),
-      auditor: auditor.publicKey(),
-    });
-    const utxo = new Utxo({
-      owner: source.keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 10n,
-      blinding: blinding(60),
-      ringProgramId: RING,
-    });
-    const hash = utxo.hash(source.address.nullifierPublicKey, 0);
-    const note: WalletUtxo = {
-      utxo,
-      outputContext: { hash, tree: TREE, leafIndex: 0n },
-      nullifier: utxo.nullifier(hash, source.keypair.nullifierKey()),
-      spent: false,
-    };
-    let policy: CustomRingPolicyProofRequest | undefined;
-    let owners: readonly string[] = [];
-    const data: TransactInstructionData = {
-      expiryUnixTs: 0n,
-      privateTxHash: filled(0) as Bytes32,
-      circuit: { kind: "ringAuthority", inputs: 2, outputs: 2, publicAssetSlots: 3 },
-      txViewingPk: new Uint8Array(33) as Bytes33,
-      salt: new Uint8Array(16) as Bytes16,
-      proof: {
-        a: new Uint8Array(32) as Bytes32,
-        b: new Uint8Array(128) as Bytes128,
-        c: new Uint8Array(32) as Bytes32,
-      },
-      inputs: [],
-      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
-      interfaceTransfers: [],
-      outputs: [],
-      messages: [],
-    };
-    const transaction = await buildRingDelegateRecoveredTransaction({
-      client: {
-        proofDataSource: "client",
-        tree: TREE,
-        treeId: 0,
-        commitment: "confirmed",
-        proofService: {
-          prove: () => Promise.reject(new Error("the fake authority rail proves inline")),
-          proveMerge: () => Promise.reject(new Error("no merge in a delegate move")),
+  it.each([false, true])(
+    "builds a recovered delegate move with compact padding %s",
+    async (compactPadding) => {
+      const auditor = X25519Secret.generate();
+      const source = actor(3);
+      const delegate = getAddressDecoder().decode(filled(8));
+      const [config, configBump] = await ringConfigPda(RING);
+      const [delegatePda, delegateBump] = await ringDelegatePda(RING);
+      const [policyPda, policyBump] = await policyConfigPda(RING);
+      const [registryPda, registryBump] = await ringMemberRegistryRootPda(RING);
+      const namespace = await ringPolicyNamespaceAddress(RING);
+      const table = buildRuleTable({ rules: [] });
+      const registry = oneMemberRegistry({
+        member: memberOfTag(source.address.confidentialViewTag()),
+        nullifierKey: source.keypair.nullifierKey(),
+        auditor: auditor.publicKey(),
+      });
+      const notes = [0, 1].map((index): WalletUtxo => {
+        const utxo = new Utxo({
+          owner: source.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 6n,
+          blinding: blinding(60 + index),
+          ringProgramId: RING,
+        });
+        const hash = utxo.hash(source.address.nullifierPublicKey, 0);
+        return {
+          utxo,
+          outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+          nullifier: utxo.nullifier(hash, source.keypair.nullifierKey()),
+          spent: false,
+        };
+      });
+      let policy: CustomRingPolicyProofRequest | undefined;
+      let owners: readonly string[] = [];
+      const transaction = await buildRingDelegateRecoveredTransaction({
+        client: {
+          proofDataSource: "client",
+          tree: TREE,
+          treeId: 0,
+          commitment: "confirmed",
+          proofService: {
+            prove: () => Promise.reject(new Error("the fake authority rail proves inline")),
+            proveMerge: () => Promise.reject(new Error("no merge in a delegate move")),
+          },
+          solanaRpc: {
+            getProgramAccounts: () => ({ send: async () => [] }),
+          } as never,
+          getLatestBlockhash: async () => BLOCKHASH,
+          getAccount: async (key: Address) => {
+            if (key === config)
+              return ownedAccount(
+                RING,
+                ringProgramConfigData({
+                  authority: delegate,
+                  auditorPublicKey: auditor.publicKey().toBytes(),
+                  bump: configBump,
+                  hasPolicy: true,
+                  keyEscrow: true,
+                }),
+              );
+            if (key === policyPda)
+              return ownedAccount(
+                RING,
+                ringPolicyConfigData({
+                  table,
+                  sources: ownSources(table, namespace),
+                  addressTree: TREE,
+                  bump: policyBump,
+                  namespaceOwnerHash: ringNamespaceOwnerHash(namespace),
+                }),
+              );
+            if (key === registryPda)
+              return ownedAccount(
+                RING,
+                memberRegistryRootData({
+                  root: registry.root,
+                  nextIndex: 2n,
+                  bump: registryBump,
+                  cursor: 1,
+                  history: [MEMBER_REGISTRY_EMPTY_ROOT],
+                }),
+              );
+            if (key === delegatePda)
+              return ownedAccount(RING, Uint8Array.of(6, ...addressBytes(delegate), delegateBump));
+            if (key === TREE)
+              return ownedAccount(
+                SHIELDED_POOL_PROGRAM_ID,
+                treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 4n }),
+              );
+            return undefined;
+          },
+          getRingMemberRecord: async () => registry.entry,
+          proveRingAuthorityTransact: async (inputs) => {
+            owners = inputs.inputUtxos
+              .filter((input) => !input.isDummy())
+              .map((input) => input.utxo.owner.toBytes().join(","));
+            return {
+              data: prepareTransfer(inputs, { kind: "ringAuthority", ring: RING })
+                .finish([
+                  {
+                    treeId: 0,
+                    slot: {
+                      id: 0,
+                      utxoRoot: blinding(92),
+                      nullifierRoot: blinding(93),
+                    },
+                    utxoRootIndex: 4,
+                    nullifierRootIndex: 3,
+                  },
+                ])
+                .withProof({
+                  a: filled(0) as Bytes32,
+                  b: new Uint8Array(128) as Bytes128,
+                  c: filled(0) as Bytes32,
+                }),
+              roots: {
+                stateRoot: blinding(92),
+                stateRootIndex: 4,
+                nullifierRoot: blinding(93),
+                nullifierRootIndex: 3,
+              },
+            };
+          },
+          proveCustomRingDelegatePolicy: async (request) => {
+            policy = request;
+            return new Uint8Array(192);
+          },
+          proveCustomRingBase: async () => {
+            throw new Error("a delegate move proves the policy");
+          },
         },
-        solanaRpc: { getProgramAccounts: () => ({ send: async () => [] }) } as never,
-        getLatestBlockhash: async () => BLOCKHASH,
-        getAccount: async (key: Address) => {
-          if (key === config)
-            return ownedAccount(
-              RING,
-              ringProgramConfigData({
-                authority: delegate,
-                auditorPublicKey: auditor.publicKey().toBytes(),
-                bump: configBump,
-                hasPolicy: true,
-                keyEscrow: true,
-              }),
-            );
-          if (key === policyPda)
-            return ownedAccount(
-              RING,
-              ringPolicyConfigData({
-                table,
-                sources: ownSources(table, namespace),
-                addressTree: TREE,
-                bump: policyBump,
-                namespaceOwnerHash: ringNamespaceOwnerHash(namespace),
-              }),
-            );
-          if (key === registryPda)
-            return ownedAccount(
-              RING,
-              memberRegistryRootData({
-                root: registry.root,
-                nextIndex: 2n,
-                bump: registryBump,
-                cursor: 1,
-                history: [MEMBER_REGISTRY_EMPTY_ROOT],
-              }),
-            );
-          if (key === delegatePda)
-            return ownedAccount(RING, Uint8Array.of(6, ...addressBytes(delegate), delegateBump));
-          if (key === TREE)
-            return ownedAccount(
-              SHIELDED_POOL_PROGRAM_ID,
-              treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 4n }),
-            );
-          return undefined;
-        },
-        getRingMemberRecord: async () => registry.entry,
-        proveRingAuthorityTransact: async (inputs) => {
-          owners = inputs.inputUtxos
-            .filter((input) => !input.isDummy())
-            .map((input) => input.utxo.owner.toBytes().join(","));
-          return {
-            data,
-            roots: {
-              stateRoot: filled(92) as Bytes32,
-              stateRootIndex: 4,
-              nullifierRoot: filled(93) as Bytes32,
-              nullifierRootIndex: 3,
-            },
-          };
-        },
-        proveCustomRingDelegatePolicy: async (request) => {
-          policy = request;
-          return new Uint8Array(192);
-        },
-        proveCustomRingBase: async () => {
-          throw new Error("a delegate move proves the policy");
-        },
-      },
-      ringProgramId: RING,
-      source: source.address,
-      nullifierKey: source.keypair.nullifierKey(),
-      notes: [note],
-      delegate,
-      feePayer: delegate,
-      outputs: [{ recipient: source.address, asset: SOL_MINT, amount: 4n }],
-    });
-    expect(Object.keys(transaction.signatures)).toEqual([delegate]);
-    expect(owners).toEqual([source.keypair.signingPublicKey().toBytes().join(",")]);
-    expect(policy?.auditorPublicKey).toEqual(auditor.publicKey().u());
-    expect(policy?.memberRegistryRoot).toEqual(registry.root);
-    expect(policy?.treeSlots).toHaveLength(1);
-    expect(
-      policy?.outputs.filter((output) => output.ctHash?.some((byte) => byte !== 0)),
-    ).toHaveLength(2);
-    expect(policy?.subjects?.find((subject) => subject?.present)).toMatchObject({
-      next: registry.entry.record!.next,
-      index: 1n,
-      path: registry.entry.path,
-    });
-  });
+        ringProgramId: RING,
+        source: source.address,
+        nullifierKey: source.keypair.nullifierKey(),
+        notes,
+        compactPadding,
+        delegate,
+        feePayer: delegate,
+        outputs: [4n, 5n].map((amount) => ({ recipient: source.address, asset: SOL_MINT, amount })),
+      });
+      expect(Object.keys(transaction.signatures)).toEqual([delegate]);
+      expect(owners).toEqual(Array(2).fill(source.keypair.signingPublicKey().toBytes().join(",")));
+      expect(policy?.twoByThree).toBe(compactPadding);
+      expect(policy?.nIn).toBe(compactPadding ? 2 : 4);
+      expect(policy?.nOut).toBe(compactPadding ? 3 : 4);
+      const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+      if (compiled.version !== 1) throw new Error("expected V1");
+      const instruction = decompileTransactionMessage(compiled, {
+        lastValidBlockHeight: 1n,
+      }).instructions.find((instruction) => instruction.programAddress === RING);
+      expect(instruction?.data?.[0]).toBe(compactPadding ? 34 : 38);
+      expect(policy?.auditorPublicKey).toEqual(auditor.publicKey().u());
+      expect(policy?.memberRegistryRoot).toEqual(registry.root);
+      expect(policy?.treeSlots).toHaveLength(1);
+      expect(
+        policy?.outputs.filter((output) => output.ctHash?.some((byte) => byte !== 0)),
+      ).toHaveLength(3);
+      expect(policy?.subjects?.find((subject) => subject?.present)).toMatchObject({
+        next: registry.entry.record!.next,
+        index: 1n,
+        path: registry.entry.path,
+      });
+    },
+  );
 });

@@ -616,6 +616,62 @@ async fn the_delegate_rail_stages_framed_padding_under_its_own_tag() {
 }
 
 #[tokio::test]
+async fn compact_delegate_padding_keeps_only_published_slots_in_the_payload_and_disclosure() {
+    let member = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let delegate = Address::new_from_array([47; 32]);
+    let assets = AssetRegistry::default();
+    let transfer = DelegateTransfer::new(DelegateTransferInput {
+        ring: ring(),
+        delegate,
+        payer: Address::new_from_array([9; 32]),
+        source_nullifier_key: &member.nullifier_key,
+        inputs: vec![member_note(&member, 5, 3), member_note(&member, 7, 3)],
+        outputs: vec![
+            DelegateOutput {
+                recipient: recipient.shielded_address().unwrap(),
+                asset: SOL_MINT,
+                amount: 4,
+            };
+            3
+        ],
+    })
+    .with_assets(&assets)
+    .with_compact_padding();
+    let staged = transfer
+        .rail
+        .stage(ring(), &delegate_accounts(delegate), &escrowed())
+        .await
+        .unwrap();
+    let inputs = &staged.proof_inputs;
+    assert_eq!(inputs.check_shape().unwrap(), Shape::IN4_OUT4);
+    assert!(inputs.input_utxos[..2]
+        .iter()
+        .all(|input| !input.is_dummy()));
+    assert!(inputs.input_utxos[2..]
+        .iter()
+        .all(SppProofInputUtxo::is_compact));
+    assert!(inputs.output_utxos[3].is_compact());
+    assert_eq!(inputs.external_data.outputs.len(), 3);
+    assert_eq!(inputs.external_data.resolved_owner_tags.len(), 3);
+    let mut misplaced = inputs.clone();
+    misplaced.output_utxos.swap(2, 3);
+    assert!(matches!(
+        misplaced.check_shape(),
+        Err(TransactionError::RealOutputAfterDummy { index: 3 })
+    ));
+    let mut misplaced = inputs.clone();
+    misplaced.input_utxos.swap(1, 2);
+    assert!(matches!(
+        misplaced.check_shape(),
+        Err(TransactionError::RealInputAfterDummy { index: 2 })
+    ));
+    let audit = staged.pending.finish_base([0; 32]).unwrap();
+    assert_eq!(audit.n_out, 3);
+    assert_eq!(audit.outputs.len(), 3);
+}
+
+#[tokio::test]
 async fn the_delegate_rail_refuses_a_ring_it_cannot_serve() {
     let member = ShieldedKeypair::new_ed25519().unwrap();
     let other = ShieldedKeypair::new_ed25519().unwrap();
@@ -778,6 +834,36 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         .unwrap();
     let shape = inputs.check_shape().unwrap();
     anonymous::check_anonymous_slots(program(), shape, &inputs).unwrap();
+    let mut compact = inputs.clone();
+    compact.output_utxos[1] = SppProofOutputUtxo {
+        compact: true,
+        ..Default::default()
+    };
+    compact.check_shape().unwrap();
+    anonymous::check_anonymous_slots(program(), shape, &compact).unwrap();
+    compact.output_utxos.swap(0, 1);
+    assert!(matches!(
+        compact.check_shape(),
+        Err(TransactionError::RealOutputAfterDummy { index: 1 })
+    ));
+    let mut compact_input = inputs.clone();
+    compact_input.input_utxos[1] = SppProofInputUtxo::compact(0).unwrap();
+    assert!(matches!(
+        anonymous::check_anonymous_slots(program(), shape, &compact_input),
+        Err(RingError::InvalidAnonymousSlot)
+    ));
+    for output_cache in [false, true] {
+        let mut cached = inputs.clone();
+        if output_cache {
+            cached.output_utxos[0].cache_slot = Some(0);
+        } else {
+            cached.input_utxos[0].cache_slot = Some(0);
+        }
+        assert!(matches!(
+            anonymous::check_anonymous_slots(program(), shape, &cached),
+            Err(RingError::InvalidAnonymousSlot)
+        ));
+    }
     assert!(matches!(
         anonymous::check_anonymous_slots(program(), Shape::new(4, 4), &inputs),
         Err(RingError::AnonymousShapeUnsupported)

@@ -5,6 +5,7 @@ mod decrypt;
 mod deposit;
 mod encryption;
 mod error;
+mod opening;
 mod origin;
 mod reader;
 mod recover;
@@ -25,15 +26,13 @@ pub use crate::{
     },
     error::AuditError,
     origin::{
-        ring_event_origin_in, ConfirmedDeposit, RingOrigin, RingWithdrawal, TransactionOrigin,
+        ring_event_origin_in, ConfirmedDeposit, ConfirmedEvent, ConfirmedEventKind, RingOrigin,
+        RingWithdrawal, TransactionOrigin,
     },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },
-    recover::{
-        MemberRecovery, NoteDataHashes, NoteHashResolver, RecoveredNotes, RingRecovery,
-        SourceMember,
-    },
+    recover::{MemberRecovery, RecoveredNotes, RingRecovery, SourceMember},
     scan::{AuditedPage, RingScan, RingScanPage, ScanPage},
     types::{AuditedOutput, AuditedTransaction},
 };

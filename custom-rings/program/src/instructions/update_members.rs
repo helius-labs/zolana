@@ -46,6 +46,11 @@ pub fn process_update_members_ix(
         if item.member == [0; 32] || !is_canonical_bn254_scalar_be(&item.member) {
             return Err(CustomRingError::InvalidPolicyMember.into());
         }
+        // Only RegisterKey proves that the auditor can recover this commitment's
+        // nullifier secret. List updates must preserve that verified binding.
+        if item.escrow_key != item.old_escrow_key {
+            return Err(CustomRingError::MemberRecordMismatch.into());
+        }
         signers.authorize(item)?;
         if item.inserts(next_index) {
             if item.index != next_index + inserts {
@@ -102,11 +107,20 @@ impl Signers {
         Ok(signers)
     }
 
-    /// A changed authority list needs the authority, a changed member list or key the member.
+    /// A changed authority list needs the authority, a changed member list the member.
     fn authorize(&self, item: &MemberUpdate) -> Result<(), CustomRingError> {
         let mut needs_authority = false;
-        let mut needs_member = item.escrow_key != item.old_escrow_key;
+        let mut needs_member = false;
         let mut changed = item.old_lists ^ item.lists;
+        let member_signed = self
+            .members
+            .iter()
+            .any(|member| member.as_bytes() == &item.member);
+        // Even an unchanged record consumes a root-history slot. An empty
+        // insertion also consumes registry capacity, so neither is permissionless.
+        if changed == 0 && !self.authority && !member_signed {
+            return Err(CustomRingError::UnauthorizedListWrite);
+        }
         while changed != 0 {
             let bit = changed.trailing_zeros();
             changed &= changed - 1;
@@ -119,12 +133,7 @@ impl Signers {
         if needs_authority && !self.authority {
             return Err(CustomRingError::UnauthorizedListWrite);
         }
-        if needs_member
-            && !self
-                .members
-                .iter()
-                .any(|member| member.as_bytes() == &item.member)
-        {
+        if needs_member && !member_signed {
             return Err(CustomRingError::UnauthorizedListWrite);
         }
         Ok(())

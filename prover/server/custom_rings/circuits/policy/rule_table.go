@@ -52,10 +52,10 @@ func decodeRule(api frontend.API, packed frontend.Variable) ruleFields {
 // checkPolicy binds evaluation to the committed rules, sources, inline assets and outflow limits.
 func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rangechecker) checkedPolicy {
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
-	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
+	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NAmountGuards+1)}
 	checked.sources = c.checkSources(api)
 	for i, packed := range c.Rules {
-		if c.compact() {
+		if c.specialized() {
 			checked.rules[i] = decodeRuleCompact(api, packed)
 		} else {
 			checked.rules[i] = decodeRule(api, packed)

@@ -66,7 +66,7 @@ impl Anonymous<'_> {
     }
 }
 
-/// RingEd25519 keeps its notes in this ring, owned by Ed25519 keys, uncached and unpadded.
+/// RingEd25519 keeps its notes in this ring and its owners hidden. Only outputs may use compact padding.
 pub(super) fn check_anonymous_slots(
     program: Address,
     shape: Shape,
@@ -80,8 +80,7 @@ pub(super) fn check_anonymous_slots(
         .iter()
         .any(|input| input.cache_slot.is_some() || input.is_compact());
     let output_open = inputs.output_utxos.iter().any(|output| {
-        output.is_compact()
-            || output.cache_slot.is_some()
+        output.cache_slot.is_some()
             || (!output.is_dummy()
                 && (output.ring_program_id != Some(program)
                     || output.owner_address.is_none_or(|address| {

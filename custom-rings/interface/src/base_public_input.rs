@@ -39,12 +39,7 @@ impl CustomRingBasePublicInput<'_> {
         let tx = pack_2fe(self.tx_viewing_pk);
         let auditor = pack_2fe(self.auditor_pk);
         let eph = pack_2fe(self.eph_pk);
-        // The anonymous circuit chains its variable published prefix one chunk at a time.
-        let disclosure_hash = if self.anonymous {
-            create_hash_chain_from_slice(self.disclosure)?
-        } else {
-            create_hash_chain_4_from_slice(self.disclosure)?
-        };
+        let disclosure_hash = create_hash_chain_4_from_slice(self.disclosure)?;
         Ok([
             *self.private_tx_hash,
             tx.lo,

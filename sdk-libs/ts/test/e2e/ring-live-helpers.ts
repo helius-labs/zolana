@@ -23,12 +23,9 @@ import {
 } from "../../src/index.js";
 import {
   ListId,
-  RingListNamespace,
   buildRingListWriteTransaction,
   memberOfTag,
-  readRingEntry,
-  ringTreeIdResolver,
-  ringPolicyNamespaceAddress,
+  fetchRingMemberRecord,
   type EntryState,
   type RingRpc,
   messageSignerReader,
@@ -114,7 +111,7 @@ export async function waitForAudited(
   throw new Error(`transaction ${signature} did not reach the ring view`);
 }
 
-/** Lands one list write and returns once the indexer serves the entry and its proof. */
+/** Lands one list write and authenticates the updated list bit against the on-chain registry root. */
 export async function writeList(
   client: ZolanaClient,
   ringProgramId: Address,
@@ -133,26 +130,11 @@ export async function writeList(
   if (write.kind === "transaction") {
     await signSendAndConfirm(client, write.transaction, [authority]);
   }
-  const namespace = await ringPolicyNamespaceAddress(ringProgramId);
-  const addressTree = { tree: client.tree, treeId: client.treeId };
-  const deadline = Date.now() + 120_000;
-  for (;;) {
-    const live = await readRingEntry({
-      indexer: client,
-      addressTreeId: addressTree.treeId,
-      resolveTreeId: ringTreeIdResolver(client, [addressTree]),
-      namespace,
-      listId: input.listId,
-      member,
-    });
-    if (live !== undefined && live.entry.state === input.state) {
-      const { proofs } = await client.getMerkleProofs(live.tree, [live.utxoHash]);
-      if (proofs.length === 1) return write;
-    }
-    if (Date.now() > deadline)
-      throw new Error(`${input.state} ${String(input.listId)} entry not indexed`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
+  const record = await fetchRingMemberRecord({ client, ringProgramId, member });
+  const lists = record.opening.present ? record.opening.record.lists : 0n;
+  const present = (lists & (1n << BigInt(input.listId - 1))) !== 0n;
+  if (present !== (input.state === "active")) throw new Error("member list update not indexed");
+  return write;
 }
 
 export async function enrolInAllow(
@@ -169,5 +151,3 @@ export async function enrolInAllow(
     });
   }
 }
-
-export { RingListNamespace };

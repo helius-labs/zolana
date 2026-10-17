@@ -29,7 +29,7 @@ import {
 } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 import { assertVersion1Transaction } from "../flows/compile.js";
-import { fetchRingMemberRegistryRoot } from "./config.js";
+import { fetchCuratorRegistryRoot, fetchRingMemberRegistryRoot } from "./config.js";
 import type { RingTransactPolicy } from "./instructions.js";
 import { RingError, RingProgramError } from "./error.js";
 
@@ -39,8 +39,10 @@ export interface RingSubmissionAttempt {
   readonly lastValidBlockHeight: bigint;
   readonly intentHash: Bytes32;
   readonly ringInstructionIndex: number;
-  /** The registry history slot an escrowed statement names and the root its proof binds. */
+  /** The own registry history slot and root bound by the policy proof. */
   readonly memberRegistryRoot?: Readonly<{ ringProgramId: Address; index: number; root: Bytes32 }>;
+  /** The curator history slot bound by the same policy proof. */
+  readonly foreignRegistryRoot?: Readonly<{ registry: Address; index: number; root: Bytes32 }>;
 }
 
 export type RingSubmissionResult =
@@ -95,7 +97,7 @@ export class RingTransactionSubmission {
       first: RingSubmissionAttempt;
       build: RingSubmissionBuild;
       reservation?: ReservationHold;
-      /** Reads the key registry when an escrowed proof fails. */
+      /** Reads own and curator member registries when a policy proof fails. */
       registry?: Pick<ChainReader, "getAccount">;
       wallet?: Wallet;
       reservationId?: string;
@@ -192,15 +194,19 @@ export class RingTransactionSubmission {
 
   /** Later registrations wrapped the history over the slot, so the program read another root. */
   async #rootReplaced(context?: RequestContext): Promise<boolean> {
-    const bound = this.#attempt.memberRegistryRoot;
-    if (bound === undefined || this.#registry === undefined) return false;
-    const registry = await fetchRingMemberRegistryRoot(
-      this.#registry,
-      bound.ringProgramId,
-      context,
-    );
-    const held = registry.history[bound.index];
-    return held === undefined || !equalBytes(held, bound.root);
+    if (this.#registry === undefined) return false;
+    const own = this.#attempt.memberRegistryRoot;
+    const foreign = this.#attempt.foreignRegistryRoot;
+    for (const bound of [own, foreign]) {
+      if (bound === undefined) continue;
+      const registry =
+        "registry" in bound
+          ? (await fetchCuratorRegistryRoot(this.#registry, bound.registry, context)).root
+          : await fetchRingMemberRegistryRoot(this.#registry, bound.ringProgramId, context);
+      const held = registry.history[bound.index];
+      if (held === undefined || !equalBytes(held, bound.root)) return true;
+    }
+    return false;
   }
 
   async #settleFailed(): Promise<void> {
@@ -369,11 +375,11 @@ function failedSubmission(
   };
 }
 
-/** @internal The registry slot and root an escrowed statement binds. */
+/** @internal The own and curator registry slots and roots bound by the policy statement. */
 export function boundRegistryRoot(
   ringProgramId: Address,
   policy: RingTransactPolicy | undefined,
-): Pick<RingSubmissionAttempt, "memberRegistryRoot"> {
+): Pick<RingSubmissionAttempt, "memberRegistryRoot" | "foreignRegistryRoot"> {
   if (policy?.memberRegistryRootIndex === undefined || policy.memberRegistryRoot === undefined)
     return {};
   return {
@@ -382,6 +388,17 @@ export function boundRegistryRoot(
       index: policy.memberRegistryRootIndex,
       root: policy.memberRegistryRoot,
     },
+    ...(policy.foreignRegistry === undefined ||
+    policy.foreignRootIndex === undefined ||
+    policy.foreignRoot === undefined
+      ? {}
+      : {
+          foreignRegistryRoot: {
+            registry: policy.foreignRegistry,
+            index: policy.foreignRootIndex,
+            root: policy.foreignRoot,
+          },
+        }),
   };
 }
 

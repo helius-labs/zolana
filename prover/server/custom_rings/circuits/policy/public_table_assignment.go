@@ -58,7 +58,7 @@ func AssignPublicTable(p *CustomRingPolicyCircuit, anonymous, delegate bool) (*P
 	if err != nil {
 		return nil, err
 	}
-	inlineCount, err := count(p.InlineCount, NInlineAssets)
+	inlineCount, err := count(p.InlineCount, NAmountGuards)
 	if err != nil {
 		return nil, err
 	}

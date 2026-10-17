@@ -4,6 +4,7 @@
 //! parties and transacts under them.
 
 use std::{
+    collections::BTreeSet,
     net::{Ipv4Addr, TcpListener},
     sync::Arc,
     time::Duration,
@@ -21,6 +22,7 @@ use custom_ring_test_validator::{
 };
 use solana_address::Address;
 use solana_signer::Signer;
+use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_keypair::{ShieldedKeypair, X25519Secret};
 use zolana_ring_client::{AuditedTransaction, RingScan};
 use zolana_ring_policy::{ListId, Member};
@@ -297,6 +299,22 @@ impl<'a> DemoRing<'a> {
     }
 
     fn refused_transact(&self) -> Result<()> {
+        let sender = self.project.demo_sender()?;
+        let unspent = || -> Result<BTreeSet<[u8; 32]>> {
+            Ok(UtxoScan::new(&sender, &self.env.assets)
+                .with_ring_deposit_payload(
+                    self.ring.program_id(),
+                    zolana_ring_client::deposit_payload,
+                )
+                .with_indexer_config(IndexerRpcConfig::at_slot(self.env.client.rpc().get_slot()?))
+                .fetch(self.env.client.indexer())?
+                .spendable
+                .utxos()
+                .map(|note| note.nullifier)
+                .collect())
+        };
+        let before = unspent()?;
+        let audited_before = self.audited()?.len();
         let refused = self.project.output(&["transact"])?;
         assert!(
             !refused.status.success(),
@@ -304,9 +322,16 @@ impl<'a> DemoRing<'a> {
         );
         let text = merged(&refused);
         assert!(
-            text.contains("a policy rule refuses the transfer"),
+            text.contains("a policy rule refuses the transfer")
+                || text.contains("indexed proof request failed"),
             "{text}"
         );
+        // The demo deposits two fresh notes before requesting its transfer proof.
+        // A refused transfer leaves those and every previously held note unspent.
+        let after = unspent()?;
+        assert!(before.is_subset(&after));
+        assert_eq!(after.len(), before.len() + 2);
+        assert_eq!(self.audited()?.len(), audited_before);
         Ok(())
     }
 }

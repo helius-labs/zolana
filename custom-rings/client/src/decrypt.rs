@@ -1,6 +1,5 @@
-//! Every confidential slot of a transact is sealed under the per-transaction viewing key,
-//! so the one key the auditor message carries opens the whole transaction. A regular slot
-//! carries its recipient key, an anonymous ring keeps it in the proved disclosure.
+//! Dedicated disclosure supplies the verified note openings. Recipient ciphertexts
+//! supply optional delivery metadata and cannot erase those openings when malformed.
 
 use custom_ring_interface::{DisclosureShape, RingMode, AUDIT_OUTPUT_SLOTS};
 use solana_address::Address;
@@ -20,11 +19,14 @@ use zolana_transaction::{
 
 use crate::{
     encryption::{auditor_view_tag, AnonymousOutputOpening, AuditorMessage},
+    opening::NoteOpening,
     types::{AuditedOutput, AuditedTransaction},
     AuditError,
 };
 
 #[must_use]
+/// Checks disclosure against the supplied commitments. [`crate::RingScan::audit`]
+/// also authenticates those commitments against confirmed settlement.
 pub struct TransactionAudit<'a> {
     pub auditor: &'a X25519Secret,
     pub transaction: &'a ShieldedTransaction,
@@ -78,6 +80,11 @@ impl TransactionAudit<'_> {
             slot: tx.slot,
             tx_viewing_pk,
             outputs: Vec::new(),
+            output_contexts: tx
+                .output_slots
+                .iter()
+                .map(|slot| slot.output_context.clone())
+                .collect(),
             output_openings: Vec::new(),
             anonymous: None,
             undecryptable_slots: Vec::new(),
@@ -229,20 +236,18 @@ impl OutputAudit<'_> {
         let Some((recipient_viewing_pk, plaintext, owner_tag)) = opened else {
             return Ok(None);
         };
-        let opening = self.opening;
-        let asset =
-            self.assets
-                .resolve(plaintext.asset_id)
-                .map_err(|source| AuditError::UnknownAsset {
-                    asset_id: plaintext.asset_id,
-                    source,
-                })?;
-        if hash_bytes(asset.asset.as_array())? != opening.asset
-            || right_align(&plaintext.amount.to_be_bytes()) != opening.amount
-            || plaintext.blinding != opening.blinding
-            || program_id_proof_input_hash(&plaintext.ring_program_id)? != opening.ring_program_id
+        let Some(opening) = NoteOpening::new(self.opening) else {
+            return Ok(None);
+        };
+        let Some(asset) = opening.mint(self.assets)? else {
+            return Ok(None);
+        };
+        if asset.asset_id != plaintext.asset_id
+            || plaintext.amount != opening.amount
+            || plaintext.blinding != opening.fields.blinding
+            || !opening.belongs_to_ring(plaintext.ring_program_id)?
         {
-            return Err(AuditError::OutputPlaintextMismatch(self.slot_index));
+            return Ok(None);
         }
         Ok(Some(AuditedOutput {
             slot_index: self.slot_index,

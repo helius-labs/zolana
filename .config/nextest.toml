@@ -52,6 +52,14 @@ fixture-localnet = { max-threads = 2 }
 # override retries, since these are the suites exposed to localnet/prover
 # flakiness.
 [[profile.default.overrides]]
+filter = "package(custom-ring-test-validator) & test(shapes::every_shipped_policy_shape_settles_with_general_and_subtree_proofs)"
+slow-timeout = { period = "60s", terminate-after = 30 }
+
+[[profile.ci.overrides]]
+filter = "package(custom-ring-test-validator) & test(shapes::every_shipped_policy_shape_settles_with_general_and_subtree_proofs)"
+slow-timeout = { period = "60s", terminate-after = 30 }
+
+[[profile.default.overrides]]
 filter = "package(spp-test-validator) | package(ring-test-program) | package(custom-ring-test-validator) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
 

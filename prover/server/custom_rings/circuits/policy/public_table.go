@@ -13,7 +13,7 @@ type PublicTable struct {
 	Sources                    [NSources]SourceWires
 	Rules                      [NRules]frontend.Variable
 	PolicyLen                  frontend.Variable
-	InlineAssets, InlineLimits [NInlineAssets]frontend.Variable
+	InlineAssets, InlineLimits [NAmountGuards]frontend.Variable
 	InlineCount                frontend.Variable
 	Limits                     [NOutflowLimits]OutflowLimitWires
 	LimitCount                 frontend.Variable

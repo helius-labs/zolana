@@ -1,4 +1,6 @@
 import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { readFileSync } from "node:fs";
+import { wireDecoder } from "../src/interface/decode.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
@@ -180,6 +182,73 @@ describe("ring audit encryption", () => {
     );
   });
 
+  it("reconstructs the public statement of the real Go anonymous 3x4 proof", () => {
+    const decoder = wireDecoder((path) => new Error(`invalid fixture ${path}`));
+    const wire = decoder.record(
+      JSON.parse(
+        readFileSync(
+          new URL(
+            "../../../custom-rings/client/tests/fixtures/anonymous-statement.json",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ),
+      "statement",
+    );
+    const bytes = (value: unknown, length: number): Uint8Array => {
+      const valueHex = decoder.string(value, "hex");
+      if (!/^0x(?:[0-9a-f]{2})+$/u.test(valueHex)) throw new Error("invalid fixture hex");
+      const decoded = hex(valueHex.slice(2));
+      if (decoded.length !== length) throw new Error("invalid fixture byte length");
+      return decoded;
+    };
+    const field = (value: unknown): Bytes32 => bytes(value, 32) as Bytes32;
+    const u16 = (value: unknown): number => {
+      const integer = BigInt(decoder.string(value, "u16"));
+      if (integer < 0n || integer > 0xffffn) throw new Error("invalid fixture u16");
+      return Number(integer);
+    };
+    const input = {
+      privateTxHash: field(wire["privateTxHash"]),
+      txViewingPublicKey: X25519PublicKey.fromBytes(bytes(wire["txViewingPk"], 33)),
+      auditorPublicKey: X25519PublicKey.fromBytes(bytes(wire["auditorPk"], 33)),
+      message: {
+        ephemeralPublicKey: X25519PublicKey.fromBytes(bytes(wire["ephPk"], 33)),
+        ciphertext: field(wire["ciphertext"]),
+        disclosure: decoder.list(wire["disclosure"], "disclosure").map(field),
+      },
+      outputHashes: decoder.list(wire["outputHashes"], "outputHashes").map(field),
+      salt: bytes(wire["salt"], 16) as Bytes16,
+      anonymous: decoder.boolean(wire["anonymous"], "anonymous"),
+      policyHash: field(wire["policyHash"]),
+      treeSlots: decoder.list(wire["treeSlots"], "treeSlots").map((value) => {
+        const slot = decoder.record(value, "slot");
+        return {
+          id: u16(slot["id"]),
+          utxoRoot: field(slot["utxoRoot"]),
+          nullifierRoot: field(slot["nullifierRoot"]),
+        };
+      }),
+      addressTreeId: u16(wire["addressTreeId"]),
+      ringId: field(wire["ringId"]),
+      namespaceOwnerHash: field(wire["namespaceOwnerHash"]),
+      approvalRequired: decoder.boolean(wire["approvalRequired"], "approvalRequired"),
+      keyEscrow: decoder.boolean(wire["keyEscrow"], "keyEscrow"),
+      memberRegistryRoot: field(wire["memberRegistryRoot"]),
+      foreignRoot: field(wire["foreignRoot"]),
+    };
+    const expected = field(wire["publicInputHash"]);
+    expect(policyPublicInputHash(input)).toEqual(expected);
+    expect(policyPublicInputHash({ ...input, anonymous: false })).not.toEqual(expected);
+    expect(
+      policyPublicInputHash({
+        ...input,
+        message: { ...input.message, disclosure: [...input.message.disclosure, ZERO_32] },
+      }),
+    ).not.toEqual(expected);
+  });
+
   it("masks each disclosure field with the chained two-input Poseidon pad", () => {
     const auditor = X25519Secret.generate();
     const zero = new Uint8Array(32) as Bytes32;
@@ -274,10 +343,11 @@ describe("ring audit outputs", () => {
     expect(audited.undecryptableSlots).toHaveLength(0);
   });
 
-  it("rejects recipient plaintext that disagrees with the proof-bound output", () => {
-    expect(() => audit(transaction({ amount: 5n, committedAmount: 0n }))).toThrow(
-      "RING_AUDIT_OUTPUT_MISMATCH",
-    );
+  it("retains verified disclosure when recipient plaintext disagrees", () => {
+    const audited = audit(transaction({ amount: 5n, committedAmount: 0n }));
+    expect(audited.outputs).toEqual([]);
+    expect(audited.undecryptableSlots).toEqual([0]);
+    expect(audited.outputOpenings[0]?.amount).toEqual(ZERO_32);
   });
 });
 
@@ -562,7 +632,10 @@ describe("anonymous ring audit", () => {
       assets: new AssetRegistry(),
       mode: "anonymous",
       resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([42n]);
     expect(recovered.notes[0]?.outputContext.hash).toEqual(commitment);
@@ -578,7 +651,10 @@ describe("anonymous ring audit", () => {
       assets: new AssetRegistry(),
       mode: "anonymous",
       resolveTreeId: () => 0,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
     expect(none.notes).toEqual([]);
     expect(none.unopened).toEqual([]);

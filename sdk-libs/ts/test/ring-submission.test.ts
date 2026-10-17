@@ -8,6 +8,7 @@ import { RingProgramError } from "../src/ring/error.js";
 import {
   createKitRingSubmissionTransport,
   RingTransactionSubmission,
+  boundRegistryRoot,
   type RingSubmissionAttempt,
 } from "../src/ring/submission.js";
 import { ringMemberRegistryRootPda } from "../src/interface/pda/index.js";
@@ -200,6 +201,79 @@ describe("ring submission ownership", () => {
       });
       expect(result).toMatchObject({ kind: "failed", attempts });
       expect(registry.getAccount).toHaveBeenCalledTimes(attempts);
+    }
+  });
+
+  it("rebuilds on curator rollover and keeps a failed curator read pending", async () => {
+    const ringProgramId = address("Ring111111111111111111111111111111111111111");
+    const curatorProgram = MEMO;
+    const [ownAddress, ownBump] = await ringMemberRegistryRootPda(ringProgramId);
+    const [curator, curatorBump] = await ringMemberRegistryRootPda(curatorProgram);
+    const bound = new Uint8Array(32).fill(7) as Bytes32;
+    const replaced = new Uint8Array(32).fill(8) as Bytes32;
+    for (const [held, expectedAttempts] of [
+      [bound, 1],
+      [replaced, 3],
+    ] as const) {
+      const bindings = boundRegistryRoot(ringProgramId, {
+        trees: [],
+        treeContexts: [],
+        memberRegistryRootIndex: 3,
+        memberRegistryRoot: bound,
+        foreignRegistry: curator,
+        foreignRootIndex: 3,
+        foreignRoot: bound,
+      });
+      expect(bindings.foreignRegistryRoot).toEqual({ registry: curator, index: 3, root: bound });
+      const f = await fixture(bindings.memberRegistryRoot);
+      const build = async () => ({ ...(await f.build()), ...bindings });
+      let missing = true;
+      const registry = {
+        getAccount: vi.fn(async (account: typeof ownAddress) => {
+          if (account === curator && missing)
+            throw new ClientError("CLIENT_RPC", { details: { reason: "unavailable" } });
+          const own = account === ownAddress;
+          expect(own || account === curator).toBe(true);
+          const root = own ? bound : held;
+          const history = Array.from({ length: 32 }, () => HASH);
+          history[3] = root;
+          return ownedAccount(
+            own ? ringProgramId : curatorProgram,
+            memberRegistryRootData({
+              root,
+              nextIndex: 40n,
+              bump: own ? ownBump : curatorBump,
+              cursor: 3,
+              history,
+            }),
+          );
+        }),
+      };
+      const submission = new RingTransactionSubmission({
+        first: await build(),
+        build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const transport = {
+        sign: f.sign,
+        send: f.send,
+        status: async (): Promise<RingSubmissionStatus> => ({
+          kind: "failed",
+          instructionIndex: 0,
+          customCode: RingProgramError.proofVerificationFailed,
+        }),
+      };
+      await expect(submission.send(transport)).rejects.toMatchObject({ code: "CLIENT_RPC" });
+      expect(f.send).toHaveBeenCalledTimes(1);
+      expect(f.release).not.toHaveBeenCalled();
+      missing = false;
+      expect(await submission.send(transport)).toMatchObject({
+        kind: "failed",
+        attempts: expectedAttempts,
+      });
+      expect(f.send).toHaveBeenCalledTimes(expectedAttempts);
+      expect(f.release).toHaveBeenCalledTimes(1);
     }
   });
 

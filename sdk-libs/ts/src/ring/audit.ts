@@ -28,8 +28,13 @@ import { clampViewingSecret } from "../keypair/derivation.js";
 import { ownerHash } from "../keypair/hash.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
-import { TransactionError } from "../transaction/error.js";
-import { commitmentPoseidon, equal, rightAlign, ZERO_32 } from "../transaction/internal.js";
+import {
+  bytesToBigInt,
+  commitmentPoseidon,
+  equal,
+  rightAlign,
+  ZERO_32,
+} from "../transaction/internal.js";
 import { addressBytes, encodeBase58 } from "../interface/internal.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
@@ -68,7 +73,7 @@ export interface DecryptedAnonymousRingTrace {
   }>[];
 }
 
-/** Mirrors Rust `AuditedOutput`. */
+/** Optional recipient delivery metadata, checked against the authoritative output opening. */
 export interface AuditedRingOutput {
   readonly slotIndex: number;
   readonly outputContext: OutputContext;
@@ -82,14 +87,17 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
-/** Mirrors Rust `AuditedTransaction`. Dummy slots and foreign schemes land in `undecryptableSlots`. */
+/** Verified disclosure survives missing or invalid recipient delivery metadata. */
 export interface AuditedRingTransaction {
   readonly signature: Signature;
   readonly slot: bigint;
   readonly txViewingPublicKey: X25519PublicKey;
+  /** Recipient delivery metadata only, absent for unreadable or mismatching ciphertext. */
   readonly outputs: readonly AuditedRingOutput[];
   /** One per output slot, a dummy slot of an anonymous ring opens to zero. */
   readonly outputOpenings: readonly AuditOutputOpening[];
+  /** Same slot order as `outputOpenings`, including dummy slots. */
+  readonly outputContexts: readonly OutputContext[];
   /** Present exactly for a transaction audited as `"anonymous"`. */
   readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly undecryptableSlots: readonly number[];
@@ -269,6 +277,7 @@ export function auditRingTransaction(
       txViewingPublicKey,
       outputs: Object.freeze(outputs),
       outputOpenings: Object.freeze(outputOpenings),
+      outputContexts: Object.freeze(transaction.outputSlots.map((slot) => slot.outputContext)),
       ...(trace === undefined ? {} : { anonymous: trace }),
       undecryptableSlots: Object.freeze(undecryptableSlots),
     });
@@ -281,9 +290,10 @@ export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTra
 
 /**
  * Mirrors Rust `RingAudit`. The indexer knows no rings, each tagged transaction
- * is attributed through its confirmed call stack, and the tag match is
- * re-applied because the indexer matches output tags too. An unknown SPL asset
- * id refreshes `assets` once from the chain registry.
+ * is attributed through its confirmed call stack. Deposits and merges are excluded
+ * by their confirmed instruction kind because the indexer also matches output tags.
+ * A confirmed transfer must carry its auditor message. An unresolved proved asset
+ * refreshes `assets` once from the chain registry, while the opening remains available.
  */
 export async function auditRing(
   input: Readonly<{
@@ -324,34 +334,39 @@ export async function auditRing(
       if (transaction.eventIndex === undefined) {
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       }
-      if (transaction.ringProgramId !== input.ringProgramId) continue;
-      if (!transaction.messages.some((message) => equal(message.viewTag, viewTag))) continue;
+      const confirmed = await origin.confirmedTransaction(
+        transaction,
+        input.ringProgramId,
+        context,
+      );
       if (
-        !(await origin.ringInvoked(
-          transaction.txSignature,
-          transaction.eventIndex,
-          input.ringProgramId,
-          context,
-        ))
-      ) {
+        confirmed === undefined ||
+        confirmed.proofless ||
+        confirmed.txViewingPublicKey === undefined
+      )
         continue;
-      }
       const audit = {
         auditor: input.auditor,
-        transaction,
+        transaction: confirmed,
         assets: input.assets,
         ...(input.mode === undefined ? {} : { mode: input.mode }),
       };
-      try {
-        transactions.push(auditRingTransaction(audit));
-      } catch (error) {
-        if (assetsRefreshed || !isUnknownAsset(error)) throw error;
+      let audited = auditRingTransaction(audit);
+      if (
+        !assetsRefreshed &&
+        audited.outputOpenings.some(
+          (opening) =>
+            bytesToBigInt(opening.domain) === BigInt(UTXO_DOMAIN) &&
+            input.assets.addressForField(opening.asset) === undefined,
+        )
+      ) {
         assetsRefreshed = true;
         for (const { assetId, mint } of await fetchSplAssetRegistrations(input.client, context)) {
           input.assets.register(assetId, mint);
         }
-        transactions.push(auditRingTransaction(audit));
+        audited = auditRingTransaction(audit);
       }
+      transactions.push(audited);
     }
     const next = response.nextCursor;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
@@ -364,10 +379,6 @@ export async function auditRing(
     transactions: Object.freeze(transactions),
     ...(cursor === undefined ? {} : { nextCursor: cursor }),
   });
-}
-
-function isUnknownAsset(error: unknown): boolean {
-  return error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET";
 }
 
 /**
@@ -410,7 +421,9 @@ function auditOutput(
   } catch {
     return undefined;
   }
-  const asset = assets.resolve(plaintext.assetId);
+  // The proved asset selects the mint. An unproved asset id cannot make the audit fail.
+  const asset = assets.addressForField(opening.asset);
+  if (asset === undefined || assets.assetId(asset) !== plaintext.assetId) return undefined;
   const ringProgramId =
     plaintext.ringProgramId === undefined
       ? ZERO_32
@@ -421,9 +434,7 @@ function auditOutput(
     !equal(plaintext.blinding, opening.blinding) ||
     !equal(ringProgramId, opening.ringProgramId)
   ) {
-    throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
-      details: { reason: "plaintext", slotIndex },
-    });
+    return undefined;
   }
   return Object.freeze({
     slotIndex,
@@ -541,7 +552,7 @@ function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymou
 }
 
 /** Reconstructs the exact SPP output commitment the custom-ring proof binds. */
-function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
+export function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
   return commitmentPoseidon([
     opening.domain,
     opening.treeId,

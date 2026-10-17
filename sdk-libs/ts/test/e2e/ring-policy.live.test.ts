@@ -4,12 +4,13 @@ import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { createZolanaClient } from "../../src/index.js";
-import { decodeTreeHeadRoots } from "../../src/interface/index.js";
 import {
   ListId,
+  memberOfTag,
   buildRingDepositTransaction,
   buildRingTransferTransaction,
   fetchRingPolicyConfig,
+  fetchRingMemberRegistryRoot,
 } from "../../src/ring/index.js";
 import { signSendAndConfirm } from "./live-helpers.js";
 import {
@@ -30,6 +31,7 @@ describe("ring policy", () => {
       indexerUrl: requiredEnv("ZOLANA_INDEXER_URL"),
       proverUrl: requiredEnv("ZOLANA_PROVER_URL"),
       tree: address(requiredEnv("ZOLANA_TREE")),
+      proofDataSource: "client",
     });
     const authority = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const policy = await fetchRingPolicyConfig(client, ringProgramId);
@@ -76,13 +78,16 @@ describe("ring policy", () => {
     await enrolInAllow(client, ringProgramId, authority, [sender, recipient]);
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
-    // A frozen sender is refused, the cleared entry admits again through the cleared branch.
+    // A frozen sender is refused until its frozen-list bit is cleared.
     const frozen = await writeList(client, ringProgramId, authority, {
       listId: ListId.frozen,
       tag: senderTag,
       state: "active",
     });
-    expect(frozen).toMatchObject({ kind: "transaction", change: "claimed" });
+    expect(frozen).toMatchObject({
+      kind: "transaction",
+      items: [{ member: memberOfTag(senderTag) }],
+    });
     await refused();
     const unfrozen = await writeList(client, ringProgramId, authority, {
       listId: ListId.frozen,
@@ -91,8 +96,7 @@ describe("ring policy", () => {
     });
     expect(unfrozen).toMatchObject({
       kind: "transaction",
-      change: "moved",
-      entry: { version: 1n },
+      items: [{ member: memberOfTag(senderTag) }],
     });
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
@@ -110,7 +114,7 @@ describe("ring policy", () => {
     });
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
-    // A write the entry already carries makes no transaction.
+    // Setting an existing membership bit makes no transaction.
     const again = await writeList(client, ringProgramId, authority, {
       listId: ListId.allow,
       tag: recipientTag,
@@ -118,12 +122,11 @@ describe("ring policy", () => {
     });
     expect(again.kind).toBe("unchanged");
 
-    // The head the SDK reads off the account is the root the indexer proves the latest entry against.
-    const account = await client.getAccount(client.tree);
-    if (account === undefined) throw new Error("address tree missing");
-    const heads = decodeTreeHeadRoots(account.data);
+    // The member proof authenticates the same root the ring account currently stores.
+    const root = await fetchRingMemberRegistryRoot(client, ringProgramId);
     if (again.kind !== "unchanged") throw new Error("unreachable");
     expect(again.records[0]?.opening.present).toBe(true);
-    expect(heads.stateRootIndex).toBeGreaterThanOrEqual(0);
+    expect(again.records[0]?.registry.root).toEqual(root.root);
+    expect(again.records[0]?.registry.nextIndex).toBe(root.nextIndex);
   }, 900_000);
 });

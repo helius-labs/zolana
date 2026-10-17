@@ -1,8 +1,6 @@
-import type { Address, Signature } from "@solana/kit";
+import type { Address } from "@solana/kit";
 
-import { ClientError } from "../client/error.js";
 import { ownerHash } from "../keypair/hash.js";
-import type { IndexerReader } from "../client/ports.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
@@ -13,15 +11,8 @@ import {
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
-import { ADDRESS_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
-import { treeIdField } from "../interface/tree-slot.js";
 import type { TreeId } from "../transaction/utxo.js";
-import type { Bytes32, RequestContext } from "../interface/types.js";
-import { SOL_MINT } from "../transaction/asset.js";
-import type {
-  IndexedShieldedTransaction,
-  OutputSlot,
-} from "../transaction/instructions/transact.js";
+import type { Bytes32 } from "../interface/types.js";
 import {
   ZERO_32,
   bigIntBytes,
@@ -477,20 +468,6 @@ function checkedMember(bytes: Bytes32): Member {
 
 export type EntryState = "active" | "cleared";
 
-const ENTRY_STATES: readonly EntryState[] = ["active", "cleared"];
-
-/** Mirrors Rust `ListEntry`, the published SPP output blinding rebuilds the leaf. */
-export interface ListEntry {
-  readonly listId: ListId;
-  readonly member: Member;
-  readonly state: EntryState;
-  readonly version: bigint;
-  readonly contentHash: Bytes32;
-  readonly blinding: Bytes32;
-}
-
-const LIST_ENTRY_LEN = 106;
-
 export type ListWriter = "authority" | "member";
 
 /** Mirrors Rust `ListId::writer`. */
@@ -509,50 +486,10 @@ export function listWriter(listId: ListId): ListWriter {
   }
 }
 
-/** Mirrors Rust `ListEntry::to_output_data`. */
-export function encodeListEntry(entry: ListEntry): Uint8Array {
-  return new Writer()
-    .u8(0, "tag")
-    .u32(LIST_ENTRY_LEN, "length")
-    .u8(entry.listId, "listId")
-    .bytes(entry.member, 32, "member")
-    .u8(ENTRY_STATES.indexOf(entry.state) + 1, "state")
-    .u64(entry.version, "version")
-    .bytes(entry.contentHash, 32, "contentHash")
-    .bytes(entry.blinding, 32, "blinding")
-    .finish();
-}
-
-/** Mirrors Rust `ListEntry::from_entry_bytes` over the plaintext output-data envelope. */
-export function decodeListEntry(outputData: Uint8Array): ListEntry {
-  const reader = new Reader(outputData);
-  if (reader.u8("tag") !== 0) throw entryInvalid("encoding");
-  if (reader.u32("length") !== LIST_ENTRY_LEN) throw entryInvalid("length");
-  const listId = listIdFromByte(reader.u8("listId"));
-  if (listId === undefined) throw entryInvalid("listId");
-  const member = checkedMember(reader.bytes(32, "member") as Bytes32);
-  const state = ENTRY_STATES[reader.u8("state") - 1];
-  if (state === undefined) throw entryInvalid("state");
-  const version = reader.u64("version");
-  const contentHash = reader.bytes(32, "contentHash") as Bytes32;
-  const blinding = reader.bytes(32, "blinding") as Bytes32;
-  reader.done();
-  return Object.freeze({ listId, member, state, version, contentHash, blinding });
-}
-
 function entryInvalid(reason: string): RingError {
   return new RingError("RING_ENTRY_INVALID", { details: { reason } });
 }
 
-export interface EntryHashes {
-  readonly address: Bytes32;
-  readonly dataHash: Bytes32;
-  readonly utxoHash: Bytes32;
-  readonly nullifier: Bytes32;
-}
-
-const POLICY_ADDRESS_DOMAIN = packedAscii("zolana:ring-policy:address:v1");
-const POLICY_RECORD_DOMAIN = packedAscii("zolana:ring-policy:record:v1");
 const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
 /** @internal Mirrors Rust `ZERO_NULLIFIER_PK`, `Poseidon(0)`, the nullifier public key of the zero secret. */
 export const ZERO_NULLIFIER_PK = Uint8Array.from([
@@ -560,7 +497,7 @@ export const ZERO_NULLIFIER_PK = Uint8Array.from([
   0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
 ]) as Bytes32;
 
-/** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
+/** Reserved namespace owner hash, excluded from transfers by the policy circuit. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
   return ownerHash(
     solanaOwnerIdentity(addressBytes(namespacePda, "namespacePda")) as Bytes32,
@@ -568,100 +505,8 @@ export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
   ) as Bytes32;
 }
 
-/** Mirrors Rust `ListNamespace`, addresses hash under the address tree, leaves under the tree holding them. */
-export class RingListNamespace {
-  readonly address: Address;
-  readonly ownerHash: Bytes32;
-  readonly addressTreeId: TreeId;
-
-  private constructor(address: Address, ownerHash: Bytes32, addressTreeId: TreeId) {
-    this.address = address;
-    this.ownerHash = ownerHash;
-    this.addressTreeId = addressTreeId;
-  }
-
-  static of(namespace: Address, addressTreeId: TreeId): RingListNamespace {
-    return new RingListNamespace(namespace, ringNamespaceOwnerHash(namespace), addressTreeId);
-  }
-
-  /** One address lineage per `(listId, member)` pair under one namespace. */
-  entryAddress(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
-    const seed = entrySeed(input);
-    return entryNullifier(this.addressSlotHash(seed), seed);
-  }
-
-  entryHashes(entry: ListEntry, treeId: TreeId): EntryHashes {
-    const address = this.entryAddress(entry);
-    const dataHash = poseidon([
-      POLICY_RECORD_DOMAIN,
-      address,
-      fieldU8(entry.listId),
-      entry.member,
-      fieldU8(ENTRY_STATES.indexOf(entry.state) + 1),
-      fieldU64(entry.version),
-      entry.contentHash,
-    ]);
-    const utxoHash = this.leafHash(dataHash, entry.blinding, treeId);
-    return Object.freeze({
-      address,
-      dataHash,
-      utxoHash,
-      nullifier: entryNullifier(utxoHash, entry.blinding),
-    });
-  }
-
-  /** Mirrors Rust `ListNamespace::leaf_hash`, a zero-amount SOL data leaf in the default ring. */
-  leafHash(dataHash: Bytes32, blinding: Bytes32, treeId: TreeId): Bytes32 {
-    return poseidon([
-      fieldU16(UTXO_DOMAIN),
-      treeIdField(treeId),
-      solAssetField(),
-      ZERO_32,
-      dataHash,
-      ringHash(),
-      poseidon([this.ownerHash, blinding]),
-    ]);
-  }
-
-  /** The address slot commitment, its blinding is the entry seed. */
-  addressSlotHash(seed: Bytes32): Bytes32 {
-    return poseidon([
-      fieldU16(ADDRESS_DOMAIN),
-      treeIdField(this.addressTreeId),
-      ZERO_32,
-      ZERO_32,
-      ZERO_32,
-      ringHash(),
-      poseidon([this.ownerHash, seed]),
-    ]);
-  }
-}
-
-/** Rust `SOL_ASSET_FIELD`, the asset every entry note carries. */
-export function solAssetField(): Bytes32 {
-  return hashBytes(decodeAddress(SOL_MINT)) as Bytes32;
-}
-
-/** Mirrors Rust `entry_seed`. */
-export function entrySeed(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
-  return poseidon([POLICY_ADDRESS_DOMAIN, fieldU8(checkedListId(input.listId)), input.member]);
-}
-
-/** The nullifier secret is zero for every entry. */
-function entryNullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
-  return poseidon([utxoHash, blinding, ZERO_32]);
-}
-
-function ringHash(): Bytes32 {
-  return poseidon([ZERO_32, ZERO_32]);
-}
-
 function fieldU8(value: number): Bytes32 {
   return rightAlign(Uint8Array.of(value));
-}
-
-function fieldU16(value: number): Bytes32 {
-  return rightAlign(Uint8Array.of(value >> 8, value & 0xff));
 }
 
 function fieldU64(value: bigint): Bytes32 {
@@ -673,266 +518,8 @@ function packedAscii(text: string): Bytes32 {
   return rightAlign(new TextEncoder().encode(text));
 }
 
-/** The leaf's tree, a lineage moves between trees while its address stays in the address tree. */
+/** A pool tree and its committed protocol id. */
 export interface LeafTree {
   readonly tree: Address;
   readonly treeId: TreeId;
-}
-
-/** The unspent version of a lineage. */
-export interface LiveEntry extends LeafTree {
-  readonly entry: ListEntry;
-  readonly utxoHash: Bytes32;
-  readonly nullifier: Bytes32;
-  readonly txSignature: Signature;
-  readonly slot: bigint;
-}
-
-export type EntryIndexer = Pick<
-  IndexerReader,
-  "getEncryptedUtxosByTags" | "getShieldedTransactionsByNullifiers"
->;
-
-/** Where namespace records hash, a successor leaf is trusted only under its own tree id. */
-export interface RingRecordTrees {
-  readonly addressTreeId: TreeId;
-  readonly resolveTreeId: (tree: Address) => TreeId | Promise<TreeId>;
-}
-
-export interface ReadRingEntryInput extends RingRecordTrees {
-  readonly indexer: EntryIndexer;
-  readonly namespace: Address;
-  readonly listId: ListId;
-  readonly member: Member;
-}
-
-/** Mirrors Rust `ReadEntry::read`, undefined when never claimed, a cleared entry still reads back. */
-export async function readRingEntry(
-  input: ReadRingEntryInput,
-  context?: RequestContext,
-): Promise<LiveEntry | undefined> {
-  const [live] = await readRingEntryLineages(
-    {
-      indexer: input.indexer,
-      addressTreeId: input.addressTreeId,
-      resolveTreeId: input.resolveTreeId,
-      lookups: [{ namespace: input.namespace, listId: input.listId, member: input.member }],
-    },
-    context,
-  );
-  return live;
-}
-
-export interface ReadRingEntriesInput extends RingRecordTrees {
-  readonly indexer: EntryIndexer;
-  readonly namespace: Address;
-  readonly pageLimit?: number;
-}
-
-/** The owner tag of an output is unauthenticated, the tag scan only names candidate pairs. */
-export async function readRingEntries(
-  input: ReadRingEntriesInput,
-  context?: RequestContext,
-): Promise<readonly LiveEntry[]> {
-  const tag = decodeAddress(input.namespace);
-  const pairs = new Map<string, EntryPair>();
-  await collectPages(
-    "getEncryptedUtxosByTags",
-    (cursor) =>
-      input.indexer.getEncryptedUtxosByTags(
-        {
-          tags: [tag],
-          ...(cursor === undefined ? {} : { cursor }),
-          ...(input.pageLimit === undefined ? {} : { limit: input.pageLimit }),
-        },
-        undefined,
-        context,
-      ),
-    (page) => {
-      for (const match of page.matches) {
-        const entry = tryDecodeListEntry(match.outputSlot.payload);
-        if (entry === undefined) continue;
-        pairs.set(pairKey(entry), { listId: entry.listId, member: entry.member });
-      }
-    },
-  );
-  const lineages = await readRingEntryLineages(
-    {
-      indexer: input.indexer,
-      addressTreeId: input.addressTreeId,
-      resolveTreeId: input.resolveTreeId,
-      lookups: [...pairs.values()].map((pair) => ({ ...pair, namespace: input.namespace })),
-    },
-    context,
-  );
-  return Object.freeze(lineages.filter((live) => live !== undefined));
-}
-
-type EntryPair = Readonly<{ listId: ListId; member: Member }>;
-
-function pairKey(pair: EntryPair): string {
-  return `${pair.listId}:${bytesKey(pair.member)}`;
-}
-
-function tryDecodeListEntry(outputData: Uint8Array): ListEntry | undefined {
-  try {
-    return decodeListEntry(outputData);
-  } catch {
-    return undefined;
-  }
-}
-
-interface Head {
-  readonly namespace: RingListNamespace;
-  readonly pair: EntryPair;
-  readonly address: Bytes32;
-  live: LiveEntry | undefined;
-  nullifier: Bytes32;
-  ended: boolean;
-}
-
-export interface RingEntryLookup extends EntryPair {
-  readonly namespace: Address;
-}
-
-export interface ReadRingEntryLineagesInput extends RingRecordTrees {
-  readonly indexer: EntryIndexer;
-  readonly lookups: readonly RingEntryLookup[];
-}
-
-/** Mirrors Rust `Lineages::fetch`, one walk for every lookup, a head nobody spent is live. */
-export async function readRingEntryLineages(
-  input: ReadRingEntryLineagesInput,
-  context?: RequestContext,
-): Promise<readonly (LiveEntry | undefined)[]> {
-  const namespaces = new Map<Address, RingListNamespace>();
-  const heads: Head[] = input.lookups.map((lookup) => {
-    const namespace =
-      namespaces.get(lookup.namespace) ??
-      RingListNamespace.of(lookup.namespace, input.addressTreeId);
-    namespaces.set(lookup.namespace, namespace);
-    const address = namespace.entryAddress(lookup);
-    return { namespace, pair: lookup, address, live: undefined, nullifier: address, ended: false };
-  });
-  for (;;) {
-    const open = heads.filter((head) => !head.ended);
-    if (open.length === 0) break;
-    const spenders = await fetchSpenders(
-      input.indexer,
-      open.map((head) => head.nullifier),
-      context,
-    );
-    for (const head of open) {
-      const spender = spenderOf(spenders, head.nullifier);
-      if (spender === undefined) {
-        head.ended = true;
-        continue;
-      }
-      const successor = await successorIn(spender, (slot) =>
-        decodeSuccessor({ head, slot, resolveTreeId: input.resolveTreeId }),
-      );
-      if (successor === undefined) {
-        throw new RingError("RING_ENTRY_LINEAGE_BROKEN", {
-          details: {
-            listId: head.pair.listId,
-            member: bytesKey(head.pair.member),
-            version: head.live === undefined ? 0n : head.live.entry.version + 1n,
-          },
-        });
-      }
-      head.nullifier = successor.nullifier;
-      head.live = { ...successor, txSignature: spender.txSignature, slot: spender.slot };
-    }
-  }
-  return heads.map((head) => head.live);
-}
-
-async function fetchSpenders(
-  indexer: EntryIndexer,
-  nullifiers: readonly Bytes32[],
-  context: RequestContext | undefined,
-): Promise<readonly IndexedShieldedTransaction[]> {
-  const spenders: IndexedShieldedTransaction[] = [];
-  await collectPages(
-    "getShieldedTransactionsByNullifiers",
-    (cursor) =>
-      indexer.getShieldedTransactionsByNullifiers(
-        { nullifiers, ...(cursor === undefined ? {} : { cursor }) },
-        undefined,
-        context,
-      ),
-    (page) => spenders.push(...page.transactions),
-  );
-  return spenders;
-}
-
-function spenderOf(
-  spenders: readonly IndexedShieldedTransaction[],
-  nullifier: Bytes32,
-): IndexedShieldedTransaction | undefined {
-  return spenders.find((transaction) =>
-    transaction.nullifiers.some((candidate) => equalBytes(candidate, nullifier)),
-  );
-}
-
-/** The first output in any tree `decode` accepts. */
-async function successorIn<T>(
-  spender: IndexedShieldedTransaction,
-  decode: (slot: OutputSlot) => Promise<T | undefined>,
-): Promise<T | undefined> {
-  for (const slot of spender.outputSlots) {
-    const candidate = await decode(slot);
-    if (candidate !== undefined) return candidate;
-  }
-  return undefined;
-}
-
-/** Content is trusted only after it reproduces the on-chain commitment. */
-async function decodeSuccessor(
-  input: Readonly<{
-    head: Head;
-    slot: OutputSlot;
-    resolveTreeId: RingRecordTrees["resolveTreeId"];
-  }>,
-): Promise<Omit<LiveEntry, "txSignature" | "slot"> | undefined> {
-  const { head, slot } = input;
-  const entry = tryDecodeListEntry(slot.payload);
-  if (entry === undefined) return undefined;
-  if (entry.listId !== head.pair.listId || !equalBytes(entry.member, head.pair.member)) {
-    return undefined;
-  }
-  const tree = slot.outputContext.tree;
-  const treeId = await input.resolveTreeId(tree);
-  const hashes = head.namespace.entryHashes(entry, treeId);
-  if (!equalBytes(hashes.utxoHash, slot.outputContext.hash)) return undefined;
-  return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
-}
-
-interface CursorPage {
-  readonly nextCursor?: Uint8Array | undefined;
-  readonly scannedThrough?: Uint8Array | undefined;
-}
-
-/** A terminal page still names a cursor, only `scannedThrough` ends the round. */
-async function collectPages<P extends CursorPage>(
-  method: string,
-  request: (cursor: Uint8Array | undefined) => Promise<P>,
-  absorb: (page: P) => void,
-): Promise<void> {
-  const seen = new Set<string>();
-  let cursor: Uint8Array | undefined;
-  for (;;) {
-    const page = await request(cursor);
-    absorb(page);
-    const next = page.scannedThrough === undefined ? page.nextCursor : undefined;
-    if (next === undefined) return;
-    const key = bytesKey(next);
-    if (seen.has(key)) {
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.nextCursor" },
-      });
-    }
-    seen.add(key);
-    cursor = next;
-  }
 }

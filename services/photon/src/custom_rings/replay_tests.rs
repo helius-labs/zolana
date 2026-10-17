@@ -568,9 +568,8 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             expected_root: Hash(root.root),
             expected_next_index: 1,
         };
-        let read = |request| {
-            member_registry::member_record(indexer.db.as_ref(), &indexer.rpc, request)
-        };
+        let read =
+            |request| member_registry::member_record(indexer.db.as_ref(), &indexer.rpc, request);
         assert!(read(request(&healthy)).await.is_ok());
         assert!(read(request(&faulty)).await.is_err());
         assert!(read(request(&ahead)).await.is_err());

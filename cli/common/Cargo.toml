@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 hex = { workspace = true }
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }

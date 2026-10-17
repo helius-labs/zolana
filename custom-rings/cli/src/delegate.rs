@@ -153,6 +153,10 @@ fn select(
 }
 
 #[cfg(test)]
+#[path = "../../client/tests/common/origin.rs"]
+mod origin_fixture;
+
+#[cfg(test)]
 mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
@@ -516,16 +520,22 @@ mod tests {
         }
     }
 
-    struct AllRingInvoked;
+    struct AllRingInvoked<'a>(&'a [ShieldedTransaction]);
 
-    impl TransactionOrigin for AllRingInvoked {
+    impl TransactionOrigin for AllRingInvoked<'_> {
         async fn origin(
             &self,
-            _signature: Signature,
+            signature: Signature,
             _event_index: u16,
             _ring: Address,
         ) -> Result<RingOrigin, AuditError> {
             Ok(RingOrigin {
+                event: super::origin_fixture::event(
+                    self.0
+                        .iter()
+                        .find(|tx| tx.tx_signature == signature)
+                        .expect("confirmed event"),
+                ),
                 ring_invoked: true,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
@@ -546,7 +556,11 @@ mod tests {
         let recovery = RingRecovery::new(ring().program_id(), auditor).for_member(source);
         let assets = AssetRegistry::default();
         zolana
-            .block_on(recovery.run(zolana.as_async().indexer(), &AllRingInvoked, &assets))
+            .block_on(recovery.run(
+                zolana.as_async().indexer(),
+                &AllRingInvoked(&indexer.transactions),
+                &assets,
+            ))
             .map(|recovered| recovered.utxos)
     }
 

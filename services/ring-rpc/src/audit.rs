@@ -219,10 +219,7 @@ impl<S: TransactionSource> AuditService<S> {
         let mut items = Vec::new();
         let mut skipped = Vec::new();
         let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
-        for tx in response.transactions {
-            if tx.ring_program_id != Some(self.ring) {
-                continue;
-            }
+        for mut tx in response.transactions {
             let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
             let origin = match origins.get(&(tx.tx_signature, event_index)) {
                 Some(known) => known.clone(),
@@ -234,15 +231,23 @@ impl<S: TransactionSource> AuditService<S> {
                     found
                 }
             };
-            if !origin.ring_invoked {
+            if !origin.requires_audit() {
                 continue;
             }
-            let mut result = self.audit(&tx, &assets, mode);
-            // One registry refresh per page covers a mint registered since the last one.
-            if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed {
-                assets = self.shared.refresh_assets().await?;
+            let mut result = origin
+                .bind_transaction(&mut tx, self.ring)
+                .and_then(|()| self.audit(&tx, &assets, mode));
+            let missing_asset = match &result {
+                Ok(opened) => opened.has_unknown_assets(&assets)?,
+                Err(_) => false,
+            };
+            // Missing mint preimages affect optional metadata, never verified disclosure.
+            if missing_asset && !refreshed {
                 refreshed = true;
-                result = self.audit(&tx, &assets, mode);
+                if let Ok(updated) = self.shared.refresh_assets().await {
+                    assets = updated;
+                    result = self.audit(&tx, &assets, mode);
+                }
             }
             match result {
                 Ok(opened) => items.push(DecryptedTransaction::new(

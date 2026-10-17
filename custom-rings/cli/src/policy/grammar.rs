@@ -119,7 +119,7 @@ pub enum PolicyError {
     EmptyAny,
     #[error("{count} rules exceed the {MAX_RULES} rows of the table")]
     TooManyRules { count: usize },
-    #[error("{count} inline assets exceed the {MAX_INLINE_ASSETS} slots of the table")]
+    #[error("{count} mint thresholds exceed the {MAX_INLINE_ASSETS} slots of the table")]
     TooManyAssets { count: usize },
     #[error("the {} source {list} serves no rule", cluster.as_str())]
     UnreferencedSource { list: ListName, cluster: Target },
@@ -131,7 +131,7 @@ pub enum PolicyError {
     EmptyLimits { rule: usize },
     #[error("rule {} takes per-asset limits only for an output-owner list rule", rule + 1)]
     PerAssetGuard { rule: usize },
-    #[error("rule {} defines a different inline asset map", rule + 1)]
+    #[error("rule {} defines a different mint threshold map", rule + 1)]
     ConflictingAssetMap { rule: usize },
     #[error("rule {} threshold {amount} exceeds what a toml integer holds", rule + 1)]
     ThresholdTooLarge { rule: usize, amount: u64 },
@@ -370,7 +370,7 @@ impl SourceSpec {
 }
 
 impl RuleSpec {
-    /// The row of `index`, its inline members and limits merged into `assets` and `limits`.
+    /// The row of `index`, its mint thresholds merged into `assets` and `limits`.
     pub fn rule(
         &self,
         index: usize,

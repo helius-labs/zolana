@@ -7,6 +7,7 @@ pub mod deposit_audit;
 pub mod disclosure;
 pub mod error;
 pub mod instruction;
+pub mod key_catalog;
 pub mod member_registry;
 pub mod policy_public_input;
 pub mod public_table;
@@ -14,31 +15,17 @@ pub mod public_table;
 pub mod shaped_verifying_keys;
 pub mod state;
 
-macro_rules! verifying_keys {
-    ($($module:ident => $key:literal,)*) => {
-        $(
-            #[cfg(feature = "verifying-keys")]
-            pub mod $module;
-        )*
+// Included at the crate root so the generated modules retain their public paths.
+#[cfg(feature = "verifying-keys")]
+include!("verifying_keys.rs");
 
-        /// Proving key file name in proving-keys.lock and the sha256 its verifying key pins.
-        #[cfg(feature = "verifying-keys")]
-        pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] =
-            &[$(($key, $module::VERIFYINGKEY_PROVING_KEY_SHA256),)*];
-    };
-}
-
-verifying_keys! {
-    base_verifying_key => "custom_ring_base.key",
-    base_confidential_verifying_key => "custom_ring_base_confidential.key",
-    delegate_policy_verifying_key => "custom_ring_delegate_policy.key",
-    delegate_policy_2x3_verifying_key => "custom_ring_delegate_policy_2x3.key",
-    deposit_verifying_key => "custom_ring_deposit.key",
-    policy_verifying_key => "custom_ring_policy.key",
-    policy_2x3_verifying_key => "custom_ring_policy_2x3.key",
-    policy_2x3_anonymous_verifying_key => "custom_ring_policy_2x3_anonymous.key",
-    register_key_verifying_key => "custom_ring_register_key.key",
-    update_members_verifying_key => "custom_ring_update_members.key",
+/// The complete key generation shared by deployment, release staging and proving clients.
+#[cfg(feature = "verifying-keys")]
+pub fn proving_key_hashes() -> impl Iterator<Item = (&'static str, [u8; 32])> {
+    PROVING_KEY_SHA256S
+        .iter()
+        .chain(shaped_verifying_keys::SHAPED_PROVING_KEY_SHA256S)
+        .copied()
 }
 
 pub use base_public_input::*;

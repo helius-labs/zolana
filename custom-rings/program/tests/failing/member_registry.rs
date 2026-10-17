@@ -168,7 +168,7 @@ fn a_batch_without_the_authority_signature_is_rejected_exactly() {
 }
 
 #[test]
-fn a_member_list_needs_the_member_and_a_key_change_too() {
+fn a_member_list_needs_the_member() {
     let (mollusk, _) = setup_mollusk();
     let recovery = MemberUpdate {
         lists: ListId::Recovery.record_bit(),
@@ -178,13 +178,69 @@ fn a_member_list_needs_the_member_and_a_key_change_too() {
         .expect_err(&mollusk, custom(CustomRingError::UnauthorizedListWrite));
     update_members_fixture(fresh_root(), vec![recovery], &[payer()])
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-    let key = MemberUpdate {
-        lists: 0,
+}
+
+#[test]
+fn list_updates_cannot_establish_replace_or_clear_escrow_even_with_all_signers() {
+    let (mollusk, _) = setup_mollusk();
+    for (old, new) in [([0; 32], [7; 32]), ([7; 32], [8; 32]), ([7; 32], [0; 32])] {
+        let item = MemberUpdate {
+            member: owner_tag(&payer()),
+            old_escrow_key: old,
+            escrow_key: new,
+            index: 1,
+            ..MemberUpdate::default()
+        };
+        let root = member_registry_root_account(MEMBER_REGISTRY_EMPTY_ROOT, 2);
+        let fixture = update_members_fixture(root.clone(), vec![item], &[payer(), authority()]);
+        let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+        assert_eq!(
+            result.program_result,
+            ProgramResult::Failure(custom(CustomRingError::MemberRecordMismatch))
+        );
+        assert_eq!(bytemuck::bytes_of(&stored_root(&result)), root.data);
+    }
+}
+
+#[test]
+fn list_updates_preserving_an_escrow_commitment_reach_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let item = MemberUpdate {
+        old_escrow_key: [7; 32],
         escrow_key: [7; 32],
         ..allow(&payer(), 1)
     };
-    update_members_fixture(fresh_root(), vec![key], &[authority()])
-        .expect_err(&mollusk, custom(CustomRingError::UnauthorizedListWrite));
+    let root = member_registry_root_account(MEMBER_REGISTRY_EMPTY_ROOT, 2);
+    update_members_fixture(root, vec![item], &[authority()])
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn empty_inserts_and_unchanged_rewrites_need_authorization_and_fail_atomically() {
+    let (mollusk, _) = setup_mollusk();
+    for (next_index, lists) in [(1, 0), (2, ListId::Allow.record_bit())] {
+        let item = MemberUpdate {
+            member: owner_tag(&payer()),
+            old_lists: lists,
+            lists,
+            index: 1,
+            ..MemberUpdate::default()
+        };
+        let root = member_registry_root_account(MEMBER_REGISTRY_EMPTY_ROOT, next_index);
+        for signers in [vec![], vec![Pubkey::new_from_array([88; 32])]] {
+            let fixture = update_members_fixture(root.clone(), vec![item], &signers);
+            let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+            assert_eq!(
+                result.program_result,
+                ProgramResult::Failure(custom(CustomRingError::UnauthorizedListWrite))
+            );
+            assert_eq!(bytemuck::bytes_of(&stored_root(&result)), root.data);
+        }
+        for signer in [authority(), payer()] {
+            update_members_fixture(root.clone(), vec![item], &[signer])
+                .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+        }
+    }
 }
 
 #[test]

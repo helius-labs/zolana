@@ -1,13 +1,9 @@
 import { hashBytes } from "../src/hasher/index.js";
-import { getAddressDecoder, type Address, type Signature } from "@solana/kit";
-import { describe, expect, it, vi } from "vitest";
+import { getAddressDecoder, type Address } from "@solana/kit";
+import { describe, expect, it } from "vitest";
 
 import { initializePoseidon } from "../src/hasher/index.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import type {
-  IndexedShieldedTransaction,
-  OutputSlot,
-} from "../src/transaction/instructions/transact.js";
 import { readFileSync } from "node:fs";
 
 import type { CustomRingSourceOwner } from "../src/client/prover/types.js";
@@ -15,35 +11,25 @@ import { decodeRingPolicyConfig } from "../src/ring/codecs.js";
 import {
   LIST_IDS,
   ListId,
-  RingListNamespace,
   buildRuleTable,
-  decodeListEntry,
   decodeRule,
   decodeRuleTable,
-  encodeListEntry,
   encodeRule,
   encodeRuleTable,
-  entrySeed,
   listSet,
   listWriter,
   memberOfAsset,
   memberOfTag,
   policySourceOwners,
-  readRingEntries,
-  readRingEntry,
   referencedLists,
   ringNamespaceOwnerHash,
   ringPolicyHash,
   ruleAlternatives,
   verifiedRuleTable,
-  type ListEntry,
-  type Member,
   type Rule,
   type RuleGuard,
 } from "../src/ring/policy.js";
 import { RingError } from "../src/ring/error.js";
-
-import { matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
 
 await initializePoseidon();
 
@@ -320,306 +306,6 @@ describe("rule tables", () => {
 /** `custom-rings/sdk/tests/go_policy_vectors.rs`. */
 const RECORDS_PDA = addressOf(filled(0x11));
 const CURATOR_PDA = addressOf(filled(0x12));
-const RECIPIENT_TAG = filled(0xa1);
-const SENDER_TAG = filled(0xb2);
-const BLOCKED_TAG = filled(0xc3);
-
-/** The Go fixture hashes its entries under tree 7 with small blindings. */
-const FIXTURE_TREE_ID = 7;
-const ALLOW_PRESENT = {
-  seed: "148b5ac42f444aa51bec37ae98ee6a26c6af968bf968e0eb50e749f3ef0eab04",
-  address: "004fe1ffd9574dfaf0d8ab04f3db3602cc1fb8db8d10c8ebba62cf3923998abf",
-  dataHash: "09c053bd16ca781e84e64bb353549e6dd9fbcc6e072e0a34e50c59fc3b6c9d2d",
-  utxoHash: "03409e610c10c6e82bead86f12d0f79872c66e8ca3a51d796de1726aeed137ab",
-  nullifier: "0a4a91cd454e7f8acb5bc0df7bc826570caa1d22914a0cc8aa62db94a978af6d",
-  blinding: 1,
-};
-const BLOCK_CLEARED = {
-  address: "110828bc9145be37cd119865f66113d3858a8df6436fa6427eba07d152d7e654",
-  dataHash: "145f4e2f25f4b57eefc76e760c8adfb06b48e7ea17f022c62c692d6530d9d9f3",
-  utxoHash: "0e5cc81efe63454ebd769c706d697141626499d60889f5207cd823a0dc23a461",
-  nullifier: "03440de6febefc54740d90e51412d74ee76abd757d713ac3636d33e8b34068f2",
-  blinding: 3,
-};
-const FROZEN_ADDRESS = "30036588ff59652a8d248e3c5927aaf96e08d59f40b3291c1eec8af8f7fd1687";
-function entry(
-  listId: ListId,
-  member: Member,
-  state: ListEntry["state"],
-  version: bigint,
-  blinding = 1,
-): ListEntry {
-  return { listId, member, state, version, contentHash: filled(0), blinding: fieldOf(blinding) };
-}
-
-function fieldOf(value: number): Bytes32 {
-  const bytes = new Uint8Array(32);
-  bytes[31] = value;
-  return bytes as Bytes32;
-}
-
-/** Rust `ListEntry::to_output_data`. */
-function outputData(value: ListEntry): Uint8Array {
-  const bytes = new Uint8Array(111);
-  bytes[1] = 106;
-  bytes[5] = value.listId;
-  bytes.set(value.member, 6);
-  bytes[38] = value.state === "active" ? 1 : 2;
-  let version = value.version;
-  for (let index = 39; index < 47; index += 1) {
-    bytes[index] = Number(version & 0xffn);
-    version >>= 8n;
-  }
-  bytes.set(value.contentHash, 47);
-  bytes.set(value.blinding, 79);
-  return bytes;
-}
-
-describe("entries", () => {
-  const owner = RingListNamespace.of(RECORDS_PDA, FIXTURE_TREE_ID);
-
-  it("derives the owner hash the Go policy fixture pins", () => {
-    expect(owner.ownerHash).toEqual(RECORDS_OWNER_HASH);
-  });
-
-  it("hashes an active entry as the Go fixture does", () => {
-    const active = entry(
-      ListId.allow,
-      memberOfTag(RECIPIENT_TAG),
-      "active",
-      0n,
-      ALLOW_PRESENT.blinding,
-    );
-    expect(owner.entryHashes(active, FIXTURE_TREE_ID)).toEqual({
-      address: hex(ALLOW_PRESENT.address),
-      dataHash: hex(ALLOW_PRESENT.dataHash),
-      utxoHash: hex(ALLOW_PRESENT.utxoHash),
-      nullifier: hex(ALLOW_PRESENT.nullifier),
-    });
-  });
-
-  it("hashes a cleared entry as the Go fixture does", () => {
-    const cleared = entry(
-      ListId.block,
-      memberOfTag(BLOCKED_TAG),
-      "cleared",
-      1n,
-      BLOCK_CLEARED.blinding,
-    );
-    expect(owner.entryHashes(cleared, FIXTURE_TREE_ID)).toEqual({
-      address: hex(BLOCK_CLEARED.address),
-      dataHash: hex(BLOCK_CLEARED.dataHash),
-      utxoHash: hex(BLOCK_CLEARED.utxoHash),
-      nullifier: hex(BLOCK_CLEARED.nullifier),
-    });
-  });
-
-  it("derives a curator owned address", () => {
-    const sender = memberOfTag(SENDER_TAG);
-    expect(
-      RingListNamespace.of(CURATOR_PDA, FIXTURE_TREE_ID).entryAddress({
-        listId: ListId.frozen,
-        member: sender,
-      }),
-    ).toEqual(hex(FROZEN_ADDRESS));
-    expect(memberOfAsset(addressOf(filled(0xd4)))).toEqual(
-      hex("14a6b5092f941bd4336fe2a25fc617a9515b457e027e0cf5e4867c0858855ec1"),
-    );
-  });
-
-  it("round trips the published envelope", () => {
-    const value = entry(ListId.frozen, memberOfTag(filled(5)), "cleared", 7n);
-    expect(decodeListEntry(outputData(value))).toEqual(value);
-    const cases: readonly [string, (bytes: Uint8Array) => void][] = [
-      ["encoding", (bytes) => (bytes[0] = 1)],
-      ["length", (bytes) => (bytes[1] = 73)],
-      ["listId", (bytes) => (bytes[5] = 9)],
-      ["zeroMember", (bytes) => bytes.fill(0, 6, 38)],
-      ["state", (bytes) => (bytes[38] = 3)],
-    ];
-    for (const [expected, corrupt] of cases) {
-      const bytes = outputData(value);
-      corrupt(bytes);
-      expect(reason(() => decodeListEntry(bytes))).toBe(expected);
-    }
-    expect(() => decodeListEntry(outputData(value).subarray(0, 78))).toThrow();
-    expect(reason(() => memberOfTag(new Uint8Array(31)))).toBe("tagLength");
-  });
-});
-
-describe("lineage walk", () => {
-  const ADDRESS_TREE = addressOf(filled(0x77));
-  const OTHER_TREE = addressOf(filled(0x78));
-  const OTHER_TREE_ID = 8;
-  const treeIdOf = (tree: Address): number =>
-    tree === ADDRESS_TREE ? FIXTURE_TREE_ID : OTHER_TREE_ID;
-  const owner = RingListNamespace.of(RECORDS_PDA, FIXTURE_TREE_ID);
-  const member = memberOfTag(RECIPIENT_TAG);
-  const v0 = entry(ListId.allow, member, "active", 0n);
-  const v1 = entry(ListId.allow, member, "cleared", 1n);
-  const signature = (text: string): Signature => text as Signature;
-
-  /** `leafTreeId` hashes the leaf, a wrong one forges a successor. */
-  function slot(value: ListEntry, tree = ADDRESS_TREE, leafTreeId = treeIdOf(tree)): OutputSlot {
-    return {
-      viewTag: filled(0),
-      outputContext: { hash: owner.entryHashes(value, leafTreeId).utxoHash, tree, leafIndex: 0n },
-      payload: outputData(value),
-    };
-  }
-
-  function spender(
-    nullifier: Bytes32,
-    slots: readonly OutputSlot[],
-    text: string,
-  ): IndexedShieldedTransaction {
-    return {
-      slot: 5n,
-      txSignature: signature(text),
-      outputSlots: slots,
-      messages: [],
-      nullifiers: [nullifier],
-      proofless: false,
-    };
-  }
-
-  function indexerOf(transactions: readonly IndexedShieldedTransaction[]) {
-    const byNullifiers = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
-      transactionsPage({
-        transactions: transactions.filter((transaction) =>
-          transaction.nullifiers.some((spent) =>
-            request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
-          ),
-        ),
-        scannedThrough: new Uint8Array([1]),
-      }),
-    );
-    return {
-      indexer: syncReads({ getShieldedTransactionsByNullifiers: byNullifiers }),
-      byNullifiers,
-    };
-  }
-
-  const read = (indexer: ReturnType<typeof syncReads>) =>
-    readRingEntry({
-      indexer,
-      addressTreeId: FIXTURE_TREE_ID,
-      resolveTreeId: treeIdOf,
-      namespace: RECORDS_PDA,
-      listId: ListId.allow,
-      member,
-    });
-
-  it("reads undefined for a pair nobody claimed", async () => {
-    const { indexer, byNullifiers } = indexerOf([]);
-    await expect(read(indexer)).resolves.toBeUndefined();
-    expect(byNullifiers).toHaveBeenCalledTimes(1);
-  });
-
-  it("reads the claimed version and then its update", async () => {
-    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
-    const { indexer } = indexerOf([claim]);
-    await expect(read(indexer)).resolves.toEqual({
-      entry: v0,
-      utxoHash: hex(ALLOW_PRESENT.utxoHash),
-      nullifier: hex(ALLOW_PRESENT.nullifier),
-      tree: ADDRESS_TREE,
-      treeId: FIXTURE_TREE_ID,
-      txSignature: signature("claim"),
-      slot: 5n,
-    });
-    const update = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).nullifier, [slot(v1)], "update");
-    const walked = indexerOf([claim, update]);
-    await expect(read(walked.indexer)).resolves.toMatchObject({ entry: v1, txSignature: "update" });
-    expect(walked.byNullifiers).toHaveBeenCalledTimes(3);
-  });
-
-  it("follows a version that moved out of the address tree under its own tree id", async () => {
-    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
-    const moved = spender(
-      owner.entryHashes(v0, FIXTURE_TREE_ID).nullifier,
-      [slot(v1, OTHER_TREE)],
-      "moved",
-    );
-    const { indexer } = indexerOf([claim, moved]);
-    const live = await read(indexer);
-    expect(live).toMatchObject({ entry: v1, tree: OTHER_TREE, treeId: OTHER_TREE_ID });
-    expect(live?.nullifier).toEqual(owner.entryHashes(v1, OTHER_TREE_ID).nullifier);
-  });
-
-  it("refuses a spender whose next version hashes under another tree than its own", async () => {
-    const { indexer } = indexerOf([
-      spender(
-        owner.entryHashes(v0, FIXTURE_TREE_ID).address,
-        [slot(v0, OTHER_TREE, FIXTURE_TREE_ID)],
-        "x",
-      ),
-    ]);
-    await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
-  });
-
-  it("refuses a successor whose bytes do not reproduce the leaf", async () => {
-    const forged = { ...slot(v0), payload: outputData({ ...v0, version: 3n }) };
-    const { indexer } = indexerOf([
-      spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [forged], "x"),
-    ]);
-    await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
-  });
-
-  it("keeps paging until a page carries scannedThrough", async () => {
-    const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
-    const pages = [
-      transactionsPage({ nextCursor: new Uint8Array([1]) }),
-      transactionsPage({
-        transactions: [claim],
-        nextCursor: new Uint8Array([2]),
-        scannedThrough: new Uint8Array([2]),
-      }),
-      transactionsPage({ scannedThrough: new Uint8Array([3]) }),
-    ];
-    const byNullifiers = vi.fn(
-      async () => pages.shift() ?? transactionsPage({ scannedThrough: new Uint8Array([9]) }),
-    );
-    const indexer = syncReads({ getShieldedTransactionsByNullifiers: byNullifiers });
-    await expect(read(indexer)).resolves.toMatchObject({ entry: v0 });
-    expect(byNullifiers).toHaveBeenCalledTimes(3);
-  });
-
-  it("lists every live entry a tag scan names and drops a stray", async () => {
-    const blocked = entry(ListId.block, memberOfTag(BLOCKED_TAG), "active", 0n);
-    const stray = entry(ListId.frozen, memberOfTag(SENDER_TAG), "active", 0n);
-    const claims = [
-      spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "allow"),
-      spender(owner.entryHashes(blocked, FIXTURE_TREE_ID).address, [slot(blocked)], "block"),
-    ];
-    const { indexer: walker } = indexerOf(claims);
-    const match = (value: ListEntry, tree = ADDRESS_TREE) => ({
-      slot: 5n,
-      txSignature: signature("any"),
-      outputSlot: slot(value, tree),
-    });
-    const byTags = vi.fn(async () =>
-      matchesPage({ matches: [match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)] }),
-    );
-    const live = await readRingEntries({
-      indexer: syncReads({ ...walker, getEncryptedUtxosByTags: byTags }),
-      addressTreeId: FIXTURE_TREE_ID,
-      resolveTreeId: treeIdOf,
-      namespace: RECORDS_PDA,
-    });
-    expect(live.map((item) => [item.entry.listId, item.txSignature])).toEqual([
-      [ListId.allow, "allow"],
-      [ListId.block, "block"],
-    ]);
-    expect(byTags).toHaveBeenCalledWith(
-      expect.objectContaining({ tags: [filled(0x11)] }),
-      undefined,
-      undefined,
-    );
-  });
-});
-
-/** Rust `Rule::any_of`, `require`, `forbid` and the guard combinators. */
 function rule(
   subject: Rule["subject"],
   present: readonly ListId[],
@@ -956,16 +642,7 @@ describe("policy hash", () => {
   });
 });
 
-describe("list entry encoding", () => {
-  it("writes the plaintext envelope Rust `to_output_data` writes", () => {
-    const active = entry(ListId.allow, memberOfTag(RECIPIENT_TAG), "active", 0n);
-    const cleared = entry(ListId.block, memberOfTag(BLOCKED_TAG), "cleared", 0x0102_0304_0506n);
-    expect(encodeListEntry(active)).toEqual(outputData(active));
-    expect(encodeListEntry(cleared)).toEqual(outputData(cleared));
-    expect(encodeListEntry(cleared)).toHaveLength(111);
-    expect(decodeListEntry(encodeListEntry(cleared))).toEqual(cleared);
-  });
-
+describe("list authorization", () => {
   it("names the writer of every list", () => {
     expect(LIST_IDS.map(listWriter)).toEqual([
       "authority",
@@ -979,7 +656,7 @@ describe("list entry encoding", () => {
     ]);
   });
 
-  it("refuses a list id outside the table before a mask, a seed or a writer", () => {
+  it("refuses a list id outside the table before a mask or a writer", () => {
     const unknown = 33 as ListId;
     const refused = expect.objectContaining({
       code: "RING_RULE_TABLE_INVALID",
@@ -994,8 +671,14 @@ describe("list entry encoding", () => {
     expect(() => ruleAlternatives(rule)).toThrow(refused);
     expect(() => buildRuleTable({ rules: [rule] })).toThrow(refused);
     expect(() => listWriter(unknown)).toThrow(refused);
-    expect(() => entrySeed({ listId: unknown, member: memberOfAsset(ASSET_MINT) })).toThrow(
-      refused,
-    );
   });
+});
+
+// Namespace exclusion remains part of the policy statement after list storage moves.
+it("preserves namespace owner and asset member encodings", () => {
+  expect(ringNamespaceOwnerHash(RECORDS_PDA)).toEqual(RECORDS_OWNER_HASH);
+  expect(memberOfAsset(ASSET_MINT)).toEqual(
+    hex("14a6b5092f941bd4336fe2a25fc617a9515b457e027e0cf5e4867c0858855ec1"),
+  );
+  expect(reason(() => memberOfTag(new Uint8Array(31)))).toBe("tagLength");
 });

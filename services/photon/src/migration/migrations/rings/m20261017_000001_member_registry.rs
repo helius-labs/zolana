@@ -72,7 +72,10 @@ async fn reset_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         "ring_projection"
     };
     for suffix in ["pending", "blocks", "cursor"] {
-        manager.get_connection().execute_unprepared(&format!("DELETE FROM {prefix}_{suffix}")).await?;
+        manager
+            .get_connection()
+            .execute_unprepared(&format!("DELETE FROM {prefix}_{suffix}"))
+            .await?;
     }
     Ok(())
 }

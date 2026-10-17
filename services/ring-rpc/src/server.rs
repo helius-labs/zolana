@@ -336,11 +336,9 @@ mod tests {
             _event_index: u16,
             _ring: Address,
         ) -> Result<RingOrigin, AuditError> {
-            Ok(RingOrigin {
-                ring_invoked: false,
-                signers: Vec::new(),
-                withdrawals: Vec::new(),
-                deposits: Vec::new(),
+            Err(AuditError::Unavailable {
+                signature: _signature,
+                message: "unused source".to_owned(),
             })
         }
 

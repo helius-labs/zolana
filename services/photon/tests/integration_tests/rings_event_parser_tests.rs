@@ -171,6 +171,30 @@ fn parses_a_transact_spending_two_input_trees() {
 }
 
 #[test]
+fn preserves_a_zero_salt_for_an_encrypted_transfer() {
+    let transaction = transact_transaction_info(
+        4,
+        GeneralEvent {
+            inputs: vec![test_input(4, 25), test_input(5, 26)],
+            outputs: vec![
+                test_output(8, 18, verifiably_encrypted(vec![1, 2, 3])),
+                test_output(9, 19, verifiably_encrypted(vec![4, 5, 6])),
+            ],
+            messages: Vec::new(),
+            tx_viewing_pk: [5; 33],
+            salt: [0; 16],
+            first_output_leaf_index: 2,
+            output_tree: TEST_TREE,
+            spl_transfers: Vec::new(),
+        },
+        Vec::new(),
+    );
+    let update = parse_rings_update(transaction, ENCRYPTED_TRANSFER_SLOT);
+    let transaction = only(&update.rings_transactions, "encrypted transfer");
+    assert_eq!(transaction.salt, Some(vec![0; 16]));
+}
+
+#[test]
 fn parses_encrypted_transfer_event_with_photon_parser() {
     let state_update = parse_rings_update(
         encrypted_transfer_transaction_info(),

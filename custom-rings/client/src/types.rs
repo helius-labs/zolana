@@ -6,9 +6,9 @@ use std::fmt;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::X25519Pubkey;
-use zolana_transaction::Data;
+use zolana_transaction::{AssetRegistry, Data, OutputContext};
 
-use crate::AnonymousDisclosure;
+use crate::{opening::NoteOpening, AnonymousDisclosure, AuditError};
 
 /// One opened output slot, its asset id resolved to the mint.
 #[derive(PartialEq, Eq)]
@@ -16,7 +16,8 @@ pub struct AuditedOutput {
     /// The slot index the ciphertext is bound to.
     pub slot_index: u32,
     pub recipient_viewing_pk: X25519Pubkey,
-    /// Bound by the circuit to the owner. An anonymous ring takes it from the proved disclosure.
+    /// Published recipient tag, or the disclosed owner identity in anonymous mode.
+    /// The authoritative ownership commitment is in `output_openings`.
     pub owner_tag: [u8; 32],
     pub asset: Address,
     pub amount: u64,
@@ -47,10 +48,25 @@ pub struct AuditedTransaction {
     pub slot: u64,
     /// Checked against the key the auditor message carries.
     pub tx_viewing_pk: X25519Pubkey,
+    /// Optional recipient metadata. Dedicated openings remain authoritative when delivery fails.
     pub outputs: Vec<AuditedOutput>,
+    /// Published contexts aligned with the verified openings, including dummy slots.
+    pub output_contexts: Vec<OutputContext>,
     pub output_openings: Vec<ProofInputUtxo>,
     /// The proven hidden sender, spent notes and recipients of an anonymous ring.
     pub anonymous: Option<AnonymousDisclosure>,
-    /// Dummies, foreign schemes and slots sealed to another key, every transfer pads with dummies.
+    /// Slots whose optional recipient payload is unavailable or disagrees with the disclosure.
     pub undecryptable_slots: Vec<u32>,
+}
+
+impl AuditedTransaction {
+    /// Asset refresh follows proved mint fields, never unproved recipient asset IDs.
+    pub fn has_unknown_assets(&self, assets: &AssetRegistry) -> Result<bool, AuditError> {
+        for opening in self.output_openings.iter().filter_map(NoteOpening::new) {
+            if opening.mint(assets)?.is_none() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }

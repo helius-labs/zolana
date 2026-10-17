@@ -20,7 +20,7 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 	}
 	totals := sumOutputs(api, tx.outputs, liveOwner, liveAsset)
 	assetExemptions := make([]frontend.Variable, len(tx.outputs))
-	if c.compact() {
+	if c.specialized() {
 		for o := range tx.outputs {
 			assetExemptions[o] = api.Mul(limits[o].found, c.amountAtMost(api, totals[o].byOwnerAndAsset, limits[o].threshold))
 		}
@@ -41,7 +41,7 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 			shared.AssertWhen(api, api.Mul(enabled, rule.assetGuard), limits[o].found)
 			subjectTotal := api.Select(rule.onAsset, totals[o].byAsset, totals[o].byOwner)
 			var exempt frontend.Variable
-			if c.compact() {
+			if c.specialized() {
 				scalar := api.Mul(rule.scalarGuard, c.amountAtMost(api, subjectTotal, rule.threshold))
 				exempt = api.Or(scalar, api.Mul(rule.assetGuard, assetExemptions[o]))
 			} else {

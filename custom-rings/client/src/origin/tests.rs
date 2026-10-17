@@ -51,13 +51,53 @@ fn group(outer: Address, inner: &[(Address, u32)]) -> InstructionGroup {
 }
 
 fn event_data() -> String {
-    bs58::encode([tag::EMIT_EVENT]).into_string()
+    let event = zolana_event::TransactEvent {
+        input_trees: vec![zolana_event::InputTreeSequence {
+            tree: zolana_interface::pda::tree(0).to_bytes(),
+            first_input_queue_seq: 0,
+        }],
+        output_tree: zolana_interface::pda::tree(0).to_bytes(),
+        first_output_leaf_index: 0,
+    };
+    bs58::encode(
+        [
+            vec![tag::EMIT_EVENT, zolana_event::EventKind::Transact as u8],
+            borsh::to_vec(&event).unwrap(),
+        ]
+        .concat(),
+    )
+    .into_string()
 }
 
 #[test]
 fn pool_directly_under_the_ring_is_attributed() {
     let groups = [group(RING, &[(POOL, 2), (OTHER, 3)])];
     assert!(ring_invoked_in(&groups, RING).expect("walk"));
+}
+
+#[test]
+fn only_confirmed_ring_transfer_events_require_auditor_messages() {
+    for kind in [tag::RING_TRANSACT, tag::RING_AUTHORITY_TRANSACT] {
+        let mut source = instruction(POOL, 2);
+        source.data = ring_transact_bytes(Vec::new());
+        source.data[0] = kind;
+        let mut event = instruction(POOL, 3);
+        event.data = bs58::decode(event_data()).into_vec().unwrap();
+        let origin = ring_event_origin_in(
+            &[InstructionGroup {
+                outer: instruction(RING, 1),
+                inner: vec![source, event],
+            }],
+            0,
+            RING,
+        )
+        .unwrap();
+        assert!(origin.ring_invoked);
+        assert_eq!(
+            origin.requires_audit(),
+            matches!(kind, tag::RING_TRANSACT | tag::RING_AUTHORITY_TRANSACT)
+        );
+    }
 }
 
 #[test]
@@ -648,7 +688,7 @@ fn shaped_policy_outer_tags_preserve_confirmed_ring_origin() {
         source.data = ring_transact_bytes(Vec::new());
         source.data[0] = inner_tag;
         let mut event = instruction(POOL, 3);
-        event.data = vec![tag::EMIT_EVENT];
+        event.data = bs58::decode(event_data()).into_vec().unwrap();
         let groups = [InstructionGroup {
             outer,
             inner: vec![source, event],
@@ -660,4 +700,329 @@ fn shaped_policy_outer_tags_preserve_confirmed_ring_origin() {
                 .ring_invoked
         );
     }
+}
+
+fn confirmed_transfer_fixture() -> (InstructionGroup, ShieldedTransaction) {
+    use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, TransactEvent};
+    use zolana_transaction::{OutputContext, OutputSlot};
+
+    let key = zolana_keypair::X25519Secret::from_bytes(&[7; 32])
+        .unwrap()
+        .pubkey();
+    let mut data = TransactIxData::deserialize(&ring_transact_bytes(Vec::new())[1..]).unwrap();
+    data.tx_viewing_pk = *key.as_bytes();
+    data.salt = [0; 16];
+    data.inputs = vec![
+        InputUtxo {
+            nullifier_hash: [20; 32],
+            tree_index: 0,
+        },
+        InputUtxo {
+            nullifier_hash: [21; 32],
+            tree_index: 0,
+        },
+    ];
+    data.outputs = vec![
+        TransactOutput {
+            utxo_hash: [6; 32],
+            owner_tag: OwnerTag::Inline([7; 32]),
+            data: Some(vec![8, 9]),
+        },
+        TransactOutput {
+            utxo_hash: [10; 32],
+            owner_tag: OwnerTag::Account(1),
+            data: None,
+        },
+    ];
+    data.messages = vec![MessageData {
+        view_tag: [11; 32],
+        data: vec![12, 13, 14],
+    }];
+    let event = TransactEvent {
+        input_trees: vec![InputTreeSequence {
+            tree: zolana_interface::pda::tree(1).to_bytes(),
+            first_input_queue_seq: 5,
+        }],
+        output_tree: zolana_interface::pda::tree(3).to_bytes(),
+        first_output_leaf_index: 42,
+    };
+    let group = InstructionGroup {
+        outer: instruction(RING, 1),
+        inner: vec![
+            ParsedInstruction::new(
+                POOL,
+                vec![RING, RECIPIENT],
+                [vec![tag::RING_TRANSACT], data.serialize().unwrap()].concat(),
+                2,
+            ),
+            ParsedInstruction::new(
+                POOL,
+                vec![],
+                encode_event_instruction(EventKind::Transact, &event),
+                3,
+            ),
+        ],
+    };
+    let indexed = ShieldedTransaction {
+        slot: 99,
+        tx_signature: Signature::from([6; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: Some(key),
+        salt: None,
+        output_slots: vec![
+            OutputSlot {
+                view_tag: [7; 32],
+                output_context: OutputContext {
+                    hash: [6; 32],
+                    tree_id: 3,
+                    leaf_index: 42,
+                },
+                payload: vec![8, 9],
+            },
+            OutputSlot {
+                view_tag: RECIPIENT.to_bytes(),
+                output_context: OutputContext {
+                    hash: [10; 32],
+                    tree_id: 3,
+                    leaf_index: 43,
+                },
+                payload: vec![],
+            },
+        ],
+        messages: data.messages,
+        nullifiers: vec![[20; 32], [21; 32]],
+        proofless: false,
+        ring_config: None,
+        ring_program_id: Some(RING),
+    };
+    (group, indexed)
+}
+
+#[test]
+fn confirmed_event_binds_every_indexed_audit_and_recovery_field() {
+    let (group, indexed) = confirmed_transfer_fixture();
+    let origin = ring_event_origin_in(&[group], 0, RING).unwrap();
+    let mut valid = indexed.clone();
+    origin.bind_transaction(&mut valid, RING).unwrap();
+    assert_eq!(
+        valid.salt,
+        Some([0; 16]),
+        "normalize only the confirmed zero salt"
+    );
+    type Mutation = (&'static str, fn(&mut ShieldedTransaction));
+    let mutations: &[Mutation] = &[
+        ("kind", |tx| tx.proofless = true),
+        ("viewing key", |tx| tx.tx_viewing_pk = None),
+        ("salt", |tx| tx.salt = Some([1; 16])),
+        ("missing message", |tx| tx.messages.clear()),
+        ("message tag", |tx| tx.messages[0].view_tag[0] ^= 1),
+        ("message data", |tx| tx.messages[0].data[0] ^= 1),
+        ("nullifier", |tx| tx.nullifiers[0][0] ^= 1),
+        ("nullifier order", |tx| tx.nullifiers.swap(0, 1)),
+        ("nullifier count", |tx| tx.nullifiers.push([22; 32])),
+        ("output count", |tx| {
+            tx.output_slots.pop();
+        }),
+        ("output tag", |tx| tx.output_slots[0].view_tag[0] ^= 1),
+        ("output commitment", |tx| {
+            tx.output_slots[0].output_context.hash[0] ^= 1
+        }),
+        ("output payload", |tx| tx.output_slots[0].payload[0] ^= 1),
+        ("output tree", |tx| {
+            tx.output_slots[0].output_context.tree_id += 1
+        }),
+        ("output position", |tx| {
+            tx.output_slots[1].output_context.leaf_index += 1
+        }),
+        ("ring", |tx| tx.ring_program_id = Some(OTHER)),
+    ];
+    for (name, mutate) in mutations {
+        let mut forged = indexed.clone();
+        mutate(&mut forged);
+        assert!(
+            matches!(
+                origin.bind_transaction(&mut forged, RING),
+                Err(AuditError::ConfirmedEventMismatch)
+            ),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn confirmed_event_wire_fixture_matches_the_shared_parser() {
+    let (group, indexed) = confirmed_transfer_fixture();
+    check_event_wire_fixture("confirmed-event", group, indexed);
+    let (group, indexed) = confirmed_deposit_fixture();
+    check_event_wire_fixture("confirmed-deposit-event", group, indexed);
+    let (group, indexed) = confirmed_merge_fixture();
+    check_event_wire_fixture("confirmed-merge-event", group, indexed);
+}
+
+fn check_event_wire_fixture(name: &str, group: InstructionGroup, mut indexed: ShieldedTransaction) {
+    let origin = ring_event_origin_in(std::slice::from_ref(&group), 0, RING).unwrap();
+    origin.bind_transaction(&mut indexed, RING).unwrap();
+    let fixture = serde_json::json!({
+        "ring": RING.to_string(),
+        "source": {
+            "programId": POOL.to_string(),
+            "accounts": group.inner[0].accounts.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "dataHex": hex::encode(&group.inner[0].data),
+        },
+        "eventDataHex": hex::encode(&group.inner[1].data),
+        "expected": {
+            "viewingKeyHex": hex::encode(origin.event.event.tx_viewing_pk),
+            "saltHex": hex::encode(origin.event.event.salt),
+            "nullifiersHex": indexed.nullifiers.iter().map(hex::encode).collect::<Vec<_>>(),
+            "messages": indexed.messages.iter().map(|message| serde_json::json!({"viewTagHex": hex::encode(message.view_tag), "dataHex": hex::encode(&message.data)})).collect::<Vec<_>>(),
+            "outputs": indexed.output_slots.iter().map(|slot| serde_json::json!({
+                "viewTagHex": hex::encode(slot.view_tag), "hashHex": hex::encode(slot.output_context.hash),
+                "payloadHex": hex::encode(&slot.payload), "treeId": slot.output_context.tree_id, "leafIndex": slot.output_context.leaf_index,
+            })).collect::<Vec<_>>(),
+        },
+    });
+    let path = format!("{}/tests/fixtures/{name}.json", env!("CARGO_MANIFEST_DIR"));
+    if std::env::var_os("WRITE_RING_EVENT_FIXTURE").is_some() {
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&fixture).unwrap()),
+        )
+        .unwrap();
+    }
+    let pinned: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(fixture, pinned);
+}
+
+fn confirmed_deposit_fixture() -> (InstructionGroup, ShieldedTransaction) {
+    use zolana_event::{
+        encode_encrypted_ring_deposit_output, encode_event_instruction, EncryptedRingDepositData,
+        EncryptedRingDepositOutput, EventKind, GeneralEvent, OutputUtxo, SplTransfer,
+    };
+    use zolana_interface::instruction::instruction_data::deposit::{
+        DepositAssetKind, RingDepositEntry,
+    };
+    let (mut group, mut indexed) = confirmed_transfer_fixture();
+    indexed.proofless = true;
+    indexed.tx_viewing_pk = None;
+    indexed.salt = None;
+    indexed.nullifiers.clear();
+    indexed.messages.clear();
+    indexed.output_slots.truncate(1);
+    let encrypted = EncryptedRingDepositData {
+        tx_viewing_pk: *zolana_keypair::X25519Secret::from_bytes(&[7; 32])
+            .unwrap()
+            .pubkey()
+            .as_bytes(),
+        salt: [8; 16],
+        ciphertext: vec![99, 100],
+    };
+    let deposit = RingDepositIxData {
+        assets: vec![DepositAssetKind::Sol],
+        deposits: vec![RingDepositEntry {
+            asset_index: 0,
+            view_tag: [7; 32],
+            owner_utxo_hash: [12; 32],
+            amount: 123,
+            ring_data_hash: [13; 32],
+            encrypted: encrypted.clone(),
+        }],
+    };
+    indexed.output_slots[0].payload =
+        encode_encrypted_ring_deposit_output(EncryptedRingDepositOutput {
+            owner_utxo_hash: [12; 32],
+            asset: SOL_MINT.to_bytes(),
+            amount: 123,
+            data_hash: None,
+            ring_program_id: RING.to_bytes(),
+            ring_data_hash: [13; 32],
+            encrypted,
+        });
+    let event = GeneralEvent {
+        inputs: Vec::new(),
+        outputs: vec![OutputUtxo {
+            view_tag: [7; 32],
+            utxo_hash: [6; 32],
+            data: indexed.output_slots[0].payload.clone(),
+        }],
+        messages: Vec::new(),
+        tx_viewing_pk: [0; 33],
+        salt: [0; 16],
+        first_output_leaf_index: 42,
+        output_tree: zolana_interface::pda::tree(3).to_bytes(),
+        spl_transfers: vec![SplTransfer {
+            is_deposit: true,
+            amount: 123,
+            asset: None,
+        }],
+    };
+    group.inner[0].data = [vec![tag::RING_DEPOSIT], deposit.serialize().unwrap()].concat();
+    group.inner[1].data = encode_event_instruction(EventKind::Deposit, &event);
+    (group, indexed)
+}
+
+fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
+    use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
+    use zolana_interface::instruction::instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeProof, MergeTransactIxData},
+    };
+    let (mut group, mut indexed) = confirmed_transfer_fixture();
+    indexed.tx_viewing_pk = None;
+    indexed.salt = None;
+    indexed.messages.clear();
+    indexed.output_slots.truncate(1);
+    indexed.output_slots[0].view_tag = [20; 32];
+    indexed.output_slots[0].payload = vec![13; 32];
+    let data = MergeRingIxData {
+        output_ring_data_hash: [13; 32],
+        merge: MergeTransactIxData {
+            expiry_unix_ts: u64::MAX,
+            proof: MergeProof::zeroed(),
+            output_utxo_hash: [6; 32],
+            eddsa_owner: true,
+            private_tx_hash: [0; 32],
+            nullifiers: indexed.nullifiers.clone(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+            cache_slot: None,
+        },
+    };
+    let event = MergeEvent {
+        input_trees: vec![InputTreeSequence {
+            tree: zolana_interface::pda::tree(1).to_bytes(),
+            first_input_queue_seq: 5,
+        }],
+        output_tree: zolana_interface::pda::tree(3).to_bytes(),
+        output_leaf_index: 42,
+        output_view_tag: [20; 32],
+    };
+    group.inner[0].data = [vec![tag::RING_MERGE_TRANSACT], data.serialize().unwrap()].concat();
+    group.inner[1].data = encode_event_instruction(EventKind::Merge, &event);
+    (group, indexed)
+}
+
+#[test]
+fn rpc_origin_binds_the_confirmed_slot() {
+    let origin =
+        confirmed_origin(withdrawing_transaction(Vec::new(), Vec::new()), 0, RING).unwrap();
+    let mut indexed = ShieldedTransaction {
+        slot: 7,
+        tx_signature: Signature::from([6; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: Vec::new(),
+        messages: Vec::new(),
+        nullifiers: Vec::new(),
+        proofless: false,
+        ring_config: None,
+        ring_program_id: Some(RING),
+    };
+    origin.bind_transaction(&mut indexed, RING).unwrap();
+    indexed.slot = 8;
+    assert!(matches!(
+        origin.bind_transaction(&mut indexed, RING),
+        Err(AuditError::ConfirmedEventMismatch)
+    ));
 }

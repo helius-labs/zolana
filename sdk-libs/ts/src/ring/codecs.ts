@@ -54,9 +54,9 @@ export interface RingPolicySource {
 /** Mirrors Rust `PolicyConfig`. */
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
-  /** Every entry address is claimed in this tree. */
+  /** Pool tree retained in the policy public statement. */
   readonly addressTree: Address;
-  /** Raw id of `addressTree`, every entry address hashes under it. */
+  /** Raw id of `addressTree`. */
   readonly addressTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;

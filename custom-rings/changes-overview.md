@@ -14,7 +14,7 @@ Now:      committed notes → proof checks encrypted disclosure → auditor
           committed notes → wallet encrypts payment data     → recipient
 ```
 
-Auditor disclosure is now verifiable against the committed notes. Settlement requires the proof. A sender cannot settle a transfer while substituting a false audit record.
+Auditor disclosure is now verifiable against the committed notes. Settlement requires the proof. A sender cannot settle a transfer while substituting a false audit record. Auditor recovery reads that proved record directly. Broken or misleading recipient data cannot hide it. Audit scans and recovery compare indexed transfer, deposit and merge data with the exact confirmed SPP event. A fabricated indexer row cannot invent an audited payment or mark a note spent.
 
 Ordinary recipient encryption stays wallet-side. The proof does not guarantee that a recipient can recover the payment. A sender can already send their own funds to the wrong address or burn them. This does not bypass SPP's conservation or double-spend checks.
 
@@ -56,7 +56,7 @@ PolicyConfig PDA                 MemberRegistryRoot PDA
                      [member | next | list bits | escrow]
 ```
 
-List updates change bits and preserve the escrow commitment. Key registration changes the escrow commitment and preserves the bits. Transfers no longer need list entry history or revocation proofs. They read a registry snapshot without changing it.
+List updates change bits and preserve the escrow commitment. The program rejects any attempt to change escrow through a list update. Only key registration can set an empty escrow commitment. Its proof binds the recovery ciphertext to the member's nullifier key. A registered key is final. Registration preserves the list bits. Transfers no longer need list entry history or revocation proofs. They read a registry snapshot without changing it.
 
 A policy edit validates the new table, replaces its hash and increments its generation. A membership edit publishes a new registry root. These have different effects. A proof for different rules no longer matches the current table. An older registry root can still be accepted until it leaves the 32-root history. Membership records are public. Anonymous transfers hide which records they use.
 
@@ -76,7 +76,7 @@ X25519 replaces P-256 for viewing and auditor encryption. The curve change alone
 
 Registry mode keeps key escrow for recovery and a separately authorized delegate. Anonymous mode uses Ed25519 owners and discloses their identities to the auditor. It disallows delegation. The auditor key alone never grants spending authority.
 
-Programs, proving keys, SDKs and indexer layouts must agree. Existing list notes need migration into the registry.
+Programs, proving keys, SDKs and indexer layouts must agree. Existing list notes need migration into the registry. Deployment rejects legacy auditor configs before uploading. Photon indexes the member registry by default. Its migrations handle both old table names and databases already upgraded by main.
 
 The full policy and auditor proof now fits below 100k constraints for two inputs and three outputs. All rule capacity, curator lists and escrow remain. The savings preserve the same policy and auditor checks.
 
@@ -111,6 +111,8 @@ The shared-path proof requires queried records to share one aligned eight-leaf b
 
 The new keys cover the default ring's shapes that fit the current ring transaction format. These are proof capacities. Smaller live counts use the same padding rules as settlement. The dedicated 2×3 optimization remains available.
 
+Exact 2×3 means two published inputs and three published outputs. Compact padding removes the trailing dummy slots and reveals those counts. It is opt-in. Delegate builders now support it in Rust and TypeScript. Anonymous transfers allow compact outputs while keeping their inputs padded. The settlement witness still fills every circuit slot.
+
 | Transfer mode | New proof capacities |
 |---|---|
 | Ordinary | 1, 2, 3, 4, 5, 6, 8, 12 or 16 inputs, each with 2 or 4 outputs |
@@ -119,7 +121,7 @@ The new keys cover the default ring's shapes that fit the current ring transacti
 
 Each capacity has a general key and a shared-path key. That adds 48 keys without changing the policy account or auditor ciphertext format. Larger shapes cost more. For example, 1×2 uses 87,884 constraints with shared paths. 16×4 uses 145,405. The sub-100k result is not a promise for every shape.
 
-Rust builds all three transfer modes. TypeScript builds ordinary and delegate transfers. Its audit reader supports anonymous transfers, but it has no anonymous transfer builder.
+Rust builds all three transfer modes. TypeScript builds ordinary and delegate transfers. Its audit reader supports anonymous transfers. The default ring remains nonanonymous.
 
 Transaction size is the other limit. A V1 transaction has 4,096 bytes. With ordinary recipient ciphertexts, auditor disclosure, one owner who also pays and one policy tree, the Rust serializer measures:
 
@@ -132,10 +134,12 @@ Transaction size is the other limit. A V1 transaction has 4,096 bytes. With ordi
 | 1×8 | 4,970 | Excluded |
 | 1×16 | 8,786 | Excluded |
 
-These measurements include the priority-fee header and use the current SDK encoding. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
+These serializer measurements include the priority-fee header and use the current SDK encoding. They use inline output owner tags and no extra instructions. They are not a bound for every transaction. A curator, co-signer and extra policy tree bring 16×4 to 4,314 bytes. That transaction is rejected. The SDK checks the core transfer size before proving. Final assembly checks the complete transaction again. No policy rule is waived to make it fit.
+
+All 51 policy keys now pass full live settlement and auditor checks. This covers the 48 capacity keys and three exact 2×3 keys. Those fixtures consume 678k–757k CU across both verifiers and SPP settlement. [Proof costs](proof-costs.md) separates the rails and records the tested byte sizes.
 
 The 8-output, 16-output and 24-input-or-larger capacities are excluded. No keys are generated for them. More signers, extra data or extra instructions can also make a supported capacity too large. The 64-account limit still applies. Anonymous and delegate shape sets also remain bounded by their settlement rails.
 
 Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The combined time adds the two proof times. It is not transaction latency.
 
-The existing one-input, two-output audit-only transfer remains 89,632 constraints across both proofs. It has no policy rules. [Proof costs and security checks](proof-costs.md) give the bounds, fallback and reproduction commands. New keys are generated locally. The matching program, keys and clients still need deployment together.
+The existing one-input, two-output audit-only transfer remains 89,632 constraints across both proofs. It has no policy rules. [Proof costs and security checks](proof-costs.md) give the bounds, fallback and reproduction commands. One catalog now drives all 58 ring keys in the CLI, release tools and TypeScript pins. Generation updates these together. Release loading rejects missing or mismatched keys. Deployment also checks the verifier markers embedded in the program, so stale binaries cannot be paired with current keys. New keys are generated locally. The matching program, keys and clients still need deployment together. The [audit map](audit-readiness.md) links the guarantees to source and tests.

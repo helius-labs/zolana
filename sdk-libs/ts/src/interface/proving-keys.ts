@@ -1,4 +1,4 @@
-import { SHAPED_PROVING_KEY_SHA256S } from "./shaped-proving-keys.js";
+import { RING_PROVING_KEY_SHA256S } from "./ring-proving-keys.js";
 import { validateRingPolicyShape, type Shape } from "./shape.js";
 import { InterfaceError } from "./errors.js";
 
@@ -12,27 +12,11 @@ import { InterfaceError } from "./errors.js";
  * rotation updates this table in the same change.
  */
 export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
-  ...SHAPED_PROVING_KEY_SHA256S,
-  "custom_ring_delegate_policy_2x3.key":
-    "06f5e0babd78b420fcbc66e26a1f897287b0ae7fa6d839634d6e2f80b19951da",
-  "custom_ring_policy_2x3_anonymous.key":
-    "d9035b123e917aea6e54b28448d9bdf71d94c2fd0691c364c802b890fa3e8fcf",
-  "custom_ring_policy_2x3.key": "9f945e64ba36b8642910d176635ffe1b07c12d722d4108bc2527ef2bec31ce33",
+  ...RING_PROVING_KEY_SHA256S,
   "batch_address-append_40_10.key":
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "custom_ring_base_confidential.key":
-    "993ae54cb67e6d3b7ca2c12948606f5754fa4b8db8d14ed8dc6a8d0f2cd61b23",
-  "custom_ring_delegate_policy.key":
-    "49f34bb653e2e05c071ef6dcfb449eca7a1d34e39a155343e8744fd3a48c1053",
-  "custom_ring_base.key": "b08248b70ac4ec29e5473e2ca9d8ddda3eccadbd301caf7cecbc431bc743b6bc",
-  "custom_ring_deposit.key": "7018092f0fa02d11adc6aadc7b083d7d5ae32936c91877252125377ef51b263b",
-  "custom_ring_policy.key": "993b7d8c9490ec42cb468f3e7e8145627e5a23234b6c65bd81ee824dd88fdee7",
-  "custom_ring_register_key.key":
-    "cdad9dddf838db7899fe6bd958ec3b6846d4c7ffa12502d388d8dd831574b14f",
-  "custom_ring_update_members.key":
-    "2c0e0db132c455d5096f891b6a9b9a5a7b842b18c3ccafa1bf0817f2dff036d0",
   "merge_24_1.key": "a0dfaa1e73d2d9e1159d2ebab82baa6d0602482d75f24dcbff596322dc389c88",
   "merge_54_1.key": "951ec83dc53d112a46a1eb9cd308e6abd933291eb3109647a479e2321fce7423",
   "merge_8_1.key": "f59571876452541eaf20cfc583a082b9b6cc788bf85719bd337398b2d962ad23",

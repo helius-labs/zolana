@@ -1,3 +1,6 @@
+#[path = "../../../custom-rings/client/tests/common/origin.rs"]
+mod origin_fixture;
+
 use custom_ring_interface::RingMode;
 use std::{
     collections::{HashMap, HashSet},
@@ -284,6 +287,8 @@ fn passkeys_require_canonical_same_origin_assertions() {
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<(Signature, u16), bool>,
+    /// Confirmed deposits and merges do not carry transfer auditor messages.
+    confirmed_events: HashMap<(Signature, u16), zolana_ring_client::ConfirmedEvent>,
     next_cursor: Option<Vec<u8>>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
@@ -361,6 +366,22 @@ impl TransactionSource for StaticSource {
             .get(&(signature, event_index))
             .copied()
             .map(|ring_invoked| RingOrigin {
+                event: self
+                    .confirmed_events
+                    .get(&(signature, event_index))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        origin_fixture::event(
+                            self.transactions
+                                .iter()
+                                .chain(self.by_tag.values().flatten())
+                                .find(|tx| {
+                                    tx.tx_signature == signature
+                                        && tx.event_index == Some(event_index)
+                                })
+                                .expect("confirmed event"),
+                        )
+                    }),
                 ring_invoked,
                 signers: vec![SENDER],
                 deposits: Vec::new(),
@@ -615,6 +636,7 @@ impl Fixture {
         let source = StaticSource {
             transactions: Vec::new(),
             origins: HashMap::new(),
+            confirmed_events: HashMap::new(),
             next_cursor: Some(vec![7, 7]),
             configs: HashMap::from([(
                 RING,
@@ -846,6 +868,88 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
 }
 
 #[tokio::test]
+async fn confirmed_deposit_and_merge_tag_collisions_do_not_poison_an_audit_page() {
+    let fixture = Fixture::new();
+    let mut deposit = fixture.missing_message.clone();
+    deposit.tx_signature = Signature::from([11; 64]);
+    deposit.proofless = true;
+    deposit.tx_viewing_pk = None;
+    deposit.nullifiers.clear();
+    let mut merge = fixture.missing_message.clone();
+    merge.tx_signature = Signature::from([12; 64]);
+    merge.tx_viewing_pk = None;
+    let source = fixture
+        .source()
+        .with_transactions(vec![fixture.audited.clone(), deposit, merge]);
+    let service = fixture.hub(source).service(None).unwrap();
+    let response = service
+        .read(AuditRead {
+            auth: &auth(&delegate()),
+            page: &page(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.value.items.len(), 1);
+    assert_eq!(
+        response.value.items[0].tx_signature,
+        fixture.audited.tx_signature.into()
+    );
+    assert!(response.value.skipped.is_empty());
+}
+
+#[tokio::test]
+async fn recipient_metadata_cannot_poison_an_audit_page_or_trigger_registry_refresh() {
+    let fixture = Fixture::new();
+    let key = ViewingKey::new();
+    let opening = proof_output(SOL_ASSET_ID, 42, 0);
+    let slot = confidential_slot(&key, &fixture.recipient, 42, 0);
+    let message = auditor_message(
+        &key,
+        &fixture.auditor.pubkey(),
+        std::slice::from_ref(&opening),
+    );
+    let mut corrupted = slot.clone();
+    *corrupted.payload.last_mut().unwrap() ^= 1;
+    let mut false_asset = confidential_asset_slot(&key, &fixture.recipient, 99, 42, 0);
+    false_asset.output_context = slot.output_context.clone();
+    let mut invalid_disclosure = transaction(10, &key, vec![slot], vec![message.clone()]);
+    // Corrupt the first published opening, past the 33-byte key and 32-byte envelope.
+    invalid_disclosure.messages[0].data[65 + 31] ^= 1;
+    let mut source = fixture.source().with_transactions(vec![
+        transaction(8, &key, vec![corrupted], vec![message.clone()]),
+        transaction(9, &key, vec![false_asset], vec![message]),
+        invalid_disclosure,
+    ]);
+    source.assets = None;
+    let reads = source.asset_reads.clone();
+    let service = fixture.hub(source).service(None).unwrap();
+    let response = service
+        .read(AuditRead {
+            auth: &auth(&delegate()),
+            page: &page(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.value.items.len(), 2);
+    for item in response.value.items {
+        assert!(item.outputs.is_empty());
+        assert_eq!(item.output_openings.len(), 1);
+        assert_eq!(item.output_openings[0].amount, opening.amount.into());
+        assert_eq!(
+            item.output_openings[0].owner_hash,
+            opening.owner_hash.into()
+        );
+        assert_eq!(item.undecryptable_slots, vec![0]);
+    }
+    assert_eq!(response.value.skipped.len(), 1);
+    assert_eq!(
+        response.value.skipped[0].reason,
+        SkippedReason::InvalidAuditData
+    );
+    assert_eq!(reads.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
 async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     const ASSET_ID: u64 = 2;
     let fixture = Fixture::new();
@@ -899,21 +1003,26 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
     let first = auth(&delegate());
-    assert!(service
+    let response = service
         .read(AuditRead {
             auth: &first,
             page: &page,
         })
         .await
-        .is_err());
+        .unwrap();
+    assert_eq!(response.value.items[0].output_openings.len(), 1);
+    assert!(response.value.items[0].outputs.is_empty());
+    assert!(response.value.skipped.is_empty());
     let second = auth(&Passkey::new(46));
-    assert!(service
+    let response = service
         .read(AuditRead {
             auth: &second,
             page: &page,
         })
         .await
-        .is_err());
+        .unwrap();
+    assert_eq!(response.value.items[0].output_openings.len(), 1);
+    assert!(response.value.skipped.is_empty());
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
     let mut source = fixture.source().with_transactions(unknown_transactions);
@@ -931,13 +1040,15 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     .await
     .is_err());
     let second = auth(&Passkey::new(46));
-    assert!(service
+    let response = service
         .read(AuditRead {
             auth: &second,
             page: &page,
         })
         .await
-        .is_err());
+        .unwrap();
+    assert_eq!(response.value.items[0].output_openings.len(), 1);
+    assert!(response.value.skipped.is_empty());
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 }
 
@@ -1844,4 +1955,33 @@ async fn derived_keys_are_ring_and_cluster_specific() {
         created.service_pubkey.0.as_ref(),
         &auditor_key_attestation(&ring_a, created.auditor_pubkey.as_key())
     ));
+}
+
+#[tokio::test]
+async fn an_indexer_forgery_is_reported_without_hiding_other_verified_outputs() {
+    let fixture = Fixture::new();
+    let confirmed = fixture.audited.clone();
+    let mut forged = confirmed.clone();
+    forged.output_slots[0].output_context.leaf_index += 1;
+    let mut valid = confirmed.clone();
+    valid.tx_signature = Signature::from([44; 64]);
+    let mut source = fixture.source().with_transactions(vec![forged, valid]);
+    source.confirmed_events.insert(
+        (confirmed.tx_signature, confirmed.event_index.unwrap()),
+        origin_fixture::event(&confirmed),
+    );
+    let service = fixture.hub(source).service(None).unwrap();
+    let response = service
+        .read(AuditRead {
+            auth: &auth(&delegate()),
+            page: &page(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.value.items.len(), 1);
+    assert_eq!(response.value.skipped.len(), 1);
+    assert_eq!(
+        response.value.skipped[0].reason,
+        zolana_ring_client::rpc::SkippedReason::InvalidAuditData
+    );
 }

@@ -16,7 +16,7 @@ use zolana_ring_member_registry::RegistryOverlay;
 use zolana_ring_policy::Member;
 
 use crate::{
-    member_registry::{ReadMemberRecord, RecordOpening, RegistryTip},
+    member_registry::{verify, MemberRecordRead, ReadMemberRecord, RecordOpening, RegistryTip},
     projection::retry_projection_lag,
     prover::{RingCircuit, RingRequest},
     request::{RecordUpdate, RegisterKeyBody},
@@ -73,7 +73,7 @@ impl RegisterKey<'_> {
             let record = read.read_at(client, tip.root).await?;
             let envelope = NullifierKeyEnvelope::new(nullifier_key, &auditor)?;
             let secret = Zeroizing::new(right_align(&nullifier_key.secret()));
-            let (body, item) = register(&envelope, auditor, secret, &tip, &record.opening)?;
+            let (body, item) = register(&envelope, auditor, secret, &tip, &record)?;
             Ok((envelope, body, item, tip.root))
         })
         .await?;
@@ -96,9 +96,16 @@ pub(crate) fn register(
     auditor: X25519Pubkey,
     secret: Zeroizing<[u8; 32]>,
     tip: &RegistryTip,
-    opening: &RecordOpening,
+    record: &MemberRecordRead,
 ) -> Result<(RegisterKeyBody, MemberUpdate), RingError> {
-    let member = envelope_member(opening)?;
+    // An absence proof names its predecessor, so retain the queried member
+    // separately and authenticate the opening before constructing its record.
+    let member = record.member;
+    if record.root != tip.root {
+        return Err(RingError::InvalidRecordOpening);
+    }
+    let opening = &record.opening;
+    verify(opening, &tip.root.root, member.as_bytes())?;
     let escrow_key = EscrowKey {
         nullifier_pk: &envelope.nullifier_pk,
         ciphertext: &envelope.sealed.ciphertext,
@@ -200,14 +207,6 @@ pub(crate) fn register(
         auditor_pk: auditor,
     };
     Ok((body, item))
-}
-
-/// The opening was read for one member, which only its record or its low record names.
-fn envelope_member(opening: &RecordOpening) -> Result<Member, RingError> {
-    match opening {
-        RecordOpening::Present { record, .. } => Ok(Member::from_bytes(record.member)?),
-        RecordOpening::Absent { .. } => Err(RingError::InvalidRecordOpening),
-    }
 }
 
 impl ProvenKeyRegistration {

@@ -645,7 +645,10 @@ describe("deposit recovery", () => {
           nullifierKey: key,
           assets: new AssetRegistry(),
           resolveTreeId: () => 0,
-          origin: { ringInvoked: async () => true },
+          origin: {
+            ringInvoked: async () => true,
+            confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+          },
           maxPages: 1,
         }),
       ).rejects.toMatchObject({ code: "RING_RECOVERY_INCOMPLETE" });
@@ -737,7 +740,10 @@ describe("deposit recovery", () => {
       nullifierKey: key,
       assets: new AssetRegistry(),
       resolveTreeId: (tree: typeof TREE) => (tree === TREE ? 0 : 1),
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
       depositSource: {
         confirmedDeposits: async () =>
           ConfirmedDeposit.fromTransaction(
@@ -813,8 +819,12 @@ describe("deposit recovery", () => {
       expect(successor.unopened).toEqual([]);
       expect(successor.unsupportedDeposits).toEqual([]);
       expect(
-        (await recoverRingMemberNotes({ ...params, origin: { ringInvoked: async () => false } }))
-          .notes,
+        (
+          await recoverRingMemberNotes({
+            ...params,
+            origin: { ringInvoked: async () => false, confirmedTransaction: async () => undefined },
+          })
+        ).notes,
       ).toEqual([]);
       const slot = deposit.outputSlots[0];
       if (slot === undefined) throw new Error("missing deposit");

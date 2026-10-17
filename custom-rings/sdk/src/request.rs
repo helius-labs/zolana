@@ -307,9 +307,10 @@ pub(crate) struct AnonymousIdentities {
     #[serde(with = "fe")]
     pub sender: [u8; IDENTITY_LEN],
     #[serde(serialize_with = "fe::seq")]
-    pub recipients: Vec<[u8; IDENTITY_LEN]>,
+    // The audit component has four identity slots even when policy outputs have fewer.
+    pub recipients: [[u8; IDENTITY_LEN]; POLICY_OUTPUT_SLOTS],
     #[serde(serialize_with = "fe::seq")]
-    pub recipient_viewing_keys: Vec<[u8; TAGGED_X25519_KEY_LEN]>,
+    pub recipient_viewing_keys: [[u8; TAGGED_X25519_KEY_LEN]; POLICY_OUTPUT_SLOTS],
 }
 
 /// The base circuit opens the SPP slots itself, the policy witness opens them otherwise.

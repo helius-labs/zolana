@@ -1119,18 +1119,66 @@ describe("ring audit", () => {
     expect(auditorViewTag(auditor.publicKey())).toEqual(message.viewTag);
   });
 
-  it("resolves an SPL output through the registry and refuses an unknown id", async () => {
+  it("preserves proved SPL openings before the asset registry resolves the mint", async () => {
     const auditor = X25519Secret.generate();
     const mint = getAddressDecoder().decode(scalar(41));
     const registry = new AssetRegistry([[2n, mint]]);
     const { proofInputs } = await auditedProofInputs(4n, auditor, [], [], RING, mint, registry);
     const transaction = indexed(proofInputs);
-    expect(() =>
-      auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() }),
-    ).toThrow("TRANSACTION_UNKNOWN_ASSET");
+    const unresolved = auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
+    expect(unresolved.outputs).toEqual([]);
+    expect(unresolved.outputOpenings).toHaveLength(transaction.outputSlots.length);
     const audited = auditRingTransaction({ auditor, transaction, assets: registry });
     expect(audited.outputs.length).toBeGreaterThan(0);
     expect(audited.outputs.every((output) => output.asset === mint)).toBe(true);
+  });
+
+  it("ignores confirmed non-transfer tag collisions and requires disclosure for transfers", async () => {
+    const auditor = X25519Secret.generate();
+    const { proofInputs } = await auditedProofInputs(4n, auditor);
+    const transaction = indexed(proofInputs);
+    const collision = {
+      ...transaction,
+      eventIndex: 1,
+      messages: [],
+      outputSlots: transaction.outputSlots.map((slot) => ({
+        ...slot,
+        viewTag: auditorViewTag(auditor.publicKey()),
+        payload: Uint8Array.of(255),
+      })),
+    };
+    const ringInvoked = vi.fn(async () => true);
+    const confirmedTransaction = vi.fn(async (indexed: IndexedShieldedTransaction) =>
+      indexed.eventIndex === 0 ? indexed : undefined,
+    );
+    const client = ringAuditReader({
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ transactions: [collision, transaction] }),
+    });
+    const page = await auditRing({
+      client,
+      auditor,
+      ringProgramId: RING,
+      assets: new AssetRegistry(),
+      origin: { ringInvoked, confirmedTransaction },
+    });
+    expect(page.transactions).toHaveLength(1);
+    expect(page.transactions[0]?.outputOpenings).toHaveLength(transaction.outputSlots.length);
+    expect(confirmedTransaction).toHaveBeenCalledTimes(2);
+    expect(ringInvoked).not.toHaveBeenCalled();
+    await expect(
+      auditRing({
+        client,
+        auditor,
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+        origin: {
+          ringInvoked,
+          confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+        },
+      }),
+    ).rejects.toMatchObject({ code: "RING_AUDIT_MESSAGE" });
+    auditor.destroy();
   });
 
   it("refreshes the registry once from the chain on an unknown asset id", async () => {
@@ -1173,7 +1221,10 @@ describe("ring audit", () => {
       auditor,
       ringProgramId: RING,
       assets,
-      origin: { ringInvoked: async () => true },
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
     });
 
     expect(page.transactions).toHaveLength(2);
@@ -1185,7 +1236,7 @@ describe("ring audit", () => {
     expect(assets.resolve(2n)).toBe(mint);
   });
 
-  it("throws after one refresh when the chain does not know the id either", async () => {
+  it("preserves disclosure after one refresh when the chain does not resolve the asset", async () => {
     const auditor = X25519Secret.generate();
     const mint = getAddressDecoder().decode(scalar(41));
     const { proofInputs } = await auditedProofInputs(
@@ -1205,15 +1256,18 @@ describe("ring audit", () => {
       commitment: "confirmed",
     });
 
-    await expect(
-      auditRing({
-        client,
-        auditor,
-        ringProgramId: RING,
-        assets: new AssetRegistry(),
-        origin: { ringInvoked: async () => true },
-      }),
-    ).rejects.toThrow("TRANSACTION_UNKNOWN_ASSET");
+    const page = await auditRing({
+      client,
+      auditor,
+      ringProgramId: RING,
+      assets: new AssetRegistry(),
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
+    });
+    expect(page.transactions[0]?.outputOpenings).toHaveLength(transaction.outputSlots.length);
+    expect(page.transactions[0]?.outputs).toEqual([]);
     expect(getProgramAccounts).toHaveBeenCalledTimes(1);
   });
 
@@ -1381,7 +1435,7 @@ describe("ring proof folded fields", () => {
         assets: new AssetRegistry(),
         tree: ACTIVE_TREE,
       });
-      expect(captured?.nIn).toBe(2);
+      expect(captured?.nIn).toBe(publishedInputs);
       expect(captured?.nOut).toBe(3);
       expect(captured?.twoByThree).toBe(publishedInputs === 2);
       expect(proven.twoByThree).toBe(publishedInputs === 2);

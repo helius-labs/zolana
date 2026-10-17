@@ -210,16 +210,12 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     };
     assert!(matches!(
         member_registry::member_record(&db, &indexer.rpc, request(faulty.program)).await,
-        Err(PhotonApiError::CustomRing(
-            CustomRingError::OutOfSync(_)
-        ))
+        Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
     ));
     // The healthy ring serves the read up to the chain confirmation at the dead RPC.
     assert!(matches!(
         member_registry::member_record(&db, &indexer.rpc, request(healthy.program)).await,
-        Err(PhotonApiError::CustomRing(
-            CustomRingError::OutOfSync(_)
-        ))
+        Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
     ));
 
     let mut restarted = storage::cursor(&db).await.unwrap().unwrap();

@@ -4,6 +4,8 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createKeyPairSignerFromBytes,
   generateKeyPairSigner,
+  getCompiledTransactionMessageDecoder,
+  decompileTransactionMessage,
   type KeyPairSigner,
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
@@ -112,9 +114,9 @@ async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
   }
 }
 
-describe("fresh ring controls", () => {
-  it("escrows member keys, bounds and co-signs outflow, and delegates existing and recovered notes", async () => {
-    const harness = await liveHarness();
+describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) => {
+  it("escrows keys, enforces policy and recovers notes", async () => {
+    const harness = await liveHarness(proofDataSource);
     if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(harness.rpcUrl).hostname))
       throw new Error("controls fixture runs on a local validator only");
     const { client } = harness;
@@ -174,9 +176,21 @@ describe("fresh ring controls", () => {
               },
             ],
             limits: [
-              { asset: memberOfAsset(SOL_MINT), cap: 500_000_000n, cosignAbove: 300_000_000n },
-              { asset: memberOfAsset(harness.mint), cap: 300n, cosignAbove: 90n },
-              { asset: memberOfAsset(harness.token2022Mint), cap: 500n, cosignAbove: 190n },
+              {
+                asset: memberOfAsset(SOL_MINT),
+                cap: 500_000_000n,
+                cosignAbove: 300_000_000n,
+              },
+              {
+                asset: memberOfAsset(harness.mint),
+                cap: 300n,
+                cosignAbove: 90n,
+              },
+              {
+                asset: memberOfAsset(harness.token2022Mint),
+                cap: 500n,
+                cosignAbove: 190n,
+              },
             ],
           }),
         }),
@@ -246,6 +260,9 @@ describe("fresh ring controls", () => {
       await airdrop(client, sender.signer.address);
       await airdrop(client, recipient.signer.address);
       await enrolInAllow(client, ringProgramId, authority, [sender, recipient, unregistered]);
+      const listedRoot = await fetchRingMemberRegistryRoot(client, ringProgramId);
+      // The sentinel and all three listed members already occupy registry leaves.
+      expect(listedRoot.nextIndex).toBe(4n);
       // Key escrow is on, every note owner registers before receiving.
       for (const member of [sender, recipient]) {
         const nullifierKey = member.keypair.nullifierKey();
@@ -254,7 +271,10 @@ describe("fresh ring controls", () => {
             prepareRingKeyRegistration({
               client,
               ringProgramId,
-              member: { address: member.keypair.shieldedAddress(), nullifierKey },
+              member: {
+                address: member.keypair.shieldedAddress(),
+                nullifierKey,
+              },
             }),
           );
           if (enrolment.kind !== "pending") throw new Error("fresh member already enrolled");
@@ -263,7 +283,10 @@ describe("fresh ring controls", () => {
           nullifierKey.destroy();
         }
       }
-      expect((await fetchRingMemberRegistryRoot(client, ringProgramId)).nextIndex).toBe(3n);
+      // Registering keys updates existing list records without allocating new leaves.
+      expect((await fetchRingMemberRegistryRoot(client, ringProgramId)).nextIndex).toBe(
+        listedRoot.nextIndex,
+      );
       const registered = recipient.keypair.shieldedAddress();
       const zeroKey = ShieldedAddress.fromPublicKeys(
         registered.signingPublicKey,
@@ -417,7 +440,10 @@ describe("fresh ring controls", () => {
       );
       await sync(client, sender);
       await expect(indexedKeys(() => buildRingTransferTransaction(transfer))).rejects.toMatchObject(
-        { code: "RING_BUILD_TRANSFER", causeCode: "RING_COSIGNER_REQUIRED" },
+        {
+          code: "RING_BUILD_TRANSFER",
+          causeCode: "RING_COSIGNER_REQUIRED",
+        },
       );
       await settle(
         await indexedKeys(() => createRingTransferSubmission({ ...transfer, cosigner })),
@@ -445,7 +471,11 @@ describe("fresh ring controls", () => {
       // A single transfer above the SOL cap is refused before any proof.
       await expect(
         indexedKeys(() =>
-          buildRingTransferTransaction({ ...transfer, amount: 600_000_000n, cosigner }),
+          buildRingTransferTransaction({
+            ...transfer,
+            amount: 600_000_000n,
+            cosigner,
+          }),
         ),
       ).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
@@ -457,7 +487,12 @@ describe("fresh ring controls", () => {
       ] as const) {
         await settle(
           await indexedKeys(() =>
-            createRingTransferSubmission({ ...transfer, asset, amount, cosigner }),
+            createRingTransferSubmission({
+              ...transfer,
+              asset,
+              amount,
+              cosigner,
+            }),
           ),
           client,
           [sender.signer, cosigner],
@@ -465,7 +500,12 @@ describe("fresh ring controls", () => {
         await sync(client, sender);
         await expect(
           indexedKeys(() =>
-            buildRingTransferTransaction({ ...transfer, asset, amount: rejected, cosigner }),
+            buildRingTransferTransaction({
+              ...transfer,
+              asset,
+              amount: rejected,
+              cosigner,
+            }),
           ),
         ).rejects.toMatchObject({
           code: "RING_BUILD_TRANSFER",
@@ -492,7 +532,11 @@ describe("fresh ring controls", () => {
         delegate,
         feePayer: delegate.address,
         outputs: [
-          { recipient: recipient.keypair.shieldedAddress(), asset: SOL_MINT, amount: 700_000_000n },
+          {
+            recipient: recipient.keypair.shieldedAddress(),
+            asset: SOL_MINT,
+            amount: 700_000_000n,
+          },
         ],
       };
       await expect(buildRingDelegateTransferTransaction(move)).rejects.toMatchObject({
@@ -504,34 +548,45 @@ describe("fresh ring controls", () => {
         cosigner,
       ]);
       await sync(client, sender);
-      await settle(
-        await createRingDelegateSubmission({
-          ...move,
-          cosigner,
-          outputs: [
-            { recipient: recipient.keypair.shieldedAddress(), asset: harness.mint, amount: 400n },
-            {
-              recipient: recipient.keypair.shieldedAddress(),
-              asset: harness.token2022Mint,
-              amount: 600n,
-            },
-          ],
-        }),
-        client,
-        [delegate, cosigner],
-      );
+      const compactMove = await createRingDelegateSubmission({
+        ...move,
+        cosigner,
+        compactPadding: true,
+        outputs: [
+          { recipient: recipient.keypair.shieldedAddress(), asset: harness.mint, amount: 900n },
+          {
+            recipient: recipient.keypair.shieldedAddress(),
+            asset: harness.token2022Mint,
+            amount: 600n,
+          },
+        ],
+      });
+      const compactTransport = createKitRingSubmissionTransport(client, [delegate, cosigner]);
+      await settleWithTransport(compactMove, {
+        ...compactTransport,
+        sign: async (transaction, context) => {
+          const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+          if (compiled.version !== 1) throw new Error("expected V1");
+          const instruction = decompileTransactionMessage(compiled, {
+            lastValidBlockHeight: 1n,
+          }).instructions.find((instruction) => instruction.programAddress === ringProgramId);
+          // Client paths select the exact2×3 key. Indexed paths use the general4×4 key.
+          expect(instruction?.data?.[0]).toBe(proofDataSource === "client" ? 34 : 36);
+          return compactTransport.sign(transaction, context);
+        },
+      });
       await sync(client, sender);
       await sync(client, recipient);
       for (const [asset, sourceAmount, recipientAmount] of [
         [SOL_MINT, 800_000_000n, 1_100_000_000n],
-        [harness.mint, 500n, 500n],
+        [harness.mint, 0n, 1000n],
         [harness.token2022Mint, 200n, 800n],
       ] as const) {
         expect(
           sender.wallet
             .ringBalances()
             .find((ring) => ring.ringProgramId === ringProgramId)
-            ?.assets.find((balance) => balance.mint === asset)?.amount,
+            ?.assets.find((balance) => balance.mint === asset)?.amount ?? 0n,
         ).toBe(sourceAmount);
         expect(
           recipient.wallet
@@ -644,7 +699,8 @@ describe("fresh ring controls", () => {
         }),
       ).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        causeCode: "RING_POLICY_RULE_UNSATISFIED",
+        causeCode:
+          proofDataSource === "client" ? "RING_POLICY_RULE_UNSATISFIED" : "CLIENT_PROVER_HTTP",
       });
       await sendInstruction(
         client,

@@ -17,11 +17,10 @@ import { bytesKey, equalBytes } from "../wallet/internal.js";
 import { ZERO_32 } from "../transaction/internal.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
-import { ringMemberRegistryRootAddress } from "../interface/pda/index.js";
 import { waitForProjection } from "../client/retry.js";
 import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
-import { type RingPolicyConfig, decodeRingMemberRegistryRoot } from "./codecs.js";
-import { fetchRingMemberRegistryRoot } from "./config.js";
+import { type RingPolicyConfig } from "./codecs.js";
+import { fetchCuratorRegistryRoot, fetchRingMemberRegistryRoot } from "./config.js";
 import { readRingMemberRecord, type MemberRecordRead } from "./member-record.js";
 import type { MemberOpening } from "./member-registry-tree.js";
 import { registeredKeyHash } from "./member-registry.js";
@@ -120,15 +119,13 @@ async function proveAtRoots(
     (slot) => slot.listId !== 0 && !equalBytes(addressBytes(slot.registry), ZERO_32),
   )?.registry;
   if (curator !== undefined) {
-    const account = await input.client.getAccount(curator, context);
-    if (account === undefined || (await ringMemberRegistryRootAddress(account.owner)) !== curator)
-      throw new RingError("RING_MEMBER_REGISTRY_INVALID");
-    foreignRoot = decodeRingMemberRegistryRoot(account.data);
+    const loaded = await fetchCuratorRegistryRoot(input.client, curator, context);
+    foreignRoot = loaded.root;
     foreign = {
       registry: curator,
       rootIndex: foreignRoot.historyCursor,
       indexed: {
-        ringProgramId: account.owner,
+        ringProgramId: loaded.ringProgramId,
         root: foreignRoot.root,
         nextIndex: foreignRoot.nextIndex,
       },

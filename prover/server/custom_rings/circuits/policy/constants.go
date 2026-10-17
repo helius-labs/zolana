@@ -10,7 +10,7 @@ const (
 	NInputs        = 5
 	NOutputs       = 4
 	NRules         = 16
-	NInlineAssets  = 8
+	NAmountGuards  = 8
 	NSources       = 8
 	NOutflowLimits = 8
 	// NSubjects opens input owners, output owners, then output assets.

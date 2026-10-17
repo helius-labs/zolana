@@ -8,7 +8,7 @@ The full 2-input, 3-output policy and auditor proof is below 100k constraints. N
 
 These are exact compiled R1CS counts. The new keys retain sixteen rules, eight list sources, eight per-mint amount thresholds, eight outflow rows, curator lists and key escrow. Each rail keeps its existing semantics. The delegate still requires authorization and escrow and remains exempt from outflow limits.
 
-The 100k budget covers the custom-ring proof. SPP settlement is separate. Three published outputs use its padded 2×4 circuit. Ordinary custom settlement adds 57,680 constraints, giving **153,623** across both proofs. The default-ring settlement circuit has 57,554 constraints at that shape.
+The 100k budget covers the custom-ring proof. SPP settlement is separate. An ordinary three-output payment uses SPP's padded 2×4 circuit. Ordinary custom settlement adds 57,680 constraints, giving **153,623** across both proofs. The default-ring settlement circuit has 57,554 constraints at that shape.
 
 The same optimizations now cover eighteen ordinary settlement capacities. Each has a general registry path and a shared-subtree path. The table below counts the complete policy and auditor proof. It excludes SPP settlement. Smaller live counts can use a capacity through settlement's normal padding.
 
@@ -34,6 +34,8 @@ The same optimizations now cover eighteen ordinary settlement capacities. Each h
 | Delegate | 4×4 | 211,195 | 107,603 |
 
 This adds 48 keys. The dedicated 2×3 keys remain available and keep their smaller exact-shape costs above. The new capacity keys also support smaller live prefixes, so their counts are not identical to the exact 2×3 keys.
+
+The exact keys require two published inputs and three published outputs, plus eligible shared registry paths. Compact padding omits the trailing dummy slots from the public transaction. It reveals the actual input and output counts. The SDK defaults keep those slots padded. Delegate callers opt in with Rust's `.with_compact_padding()` or TypeScript's `compactPadding: true`. Anonymous transfers permit compact outputs but still reject compact inputs and cached slots. SPP retains its full witness capacity, 2×4 for ordinary and anonymous transfers and 4×4 for delegates.
 
 Transaction limits exclude every 8-output and 16-output capacity and every capacity with 24 or more inputs. The serialized V1 transaction must fit 4,096 bytes and 64 accounts. Even 16×4 is conditional on the account set and payload. The [ring overview](changes-overview.md) gives measured byte sizes and the policy storage layout. Core transfer size is checked before proving. Final assembly checks the complete transaction again.
 
@@ -65,7 +67,23 @@ Security checks cover forged hint outputs, modulus wraparound, limb carries, out
 
 All 48 new keys generated and verified real proofs. Full-capacity fixtures exercise the last input, last recipient and last asset. They also reject policy violations after recomputing the transaction statement, so a stale hash cannot explain rejection. The ten existing keys still match their serialized circuits.
 
-The SBF verifier tests use 488,137 CU for 2×3 and about 488,784 CU for 16×4 through the 78 public inputs and Groth16 pairing. Their deliberately invalid proofs stop before the commitment pairing and SPP CPI. These are not complete transaction CU measurements. Full valid proofs pass native Rust verification. A live end-to-end transfer was not run.
+All 48 capacity keys also passed [live settlement](test/tests/ring_shapes.rs) on the final SBF programs. Each case proves policy and auditor disclosure, settles through SPP, checks note and nullifier updates, then decrypts the settled outputs. Both general and shared-subtree paths run at every supported capacity.
+
+| Live transfer mode | Keys exercised | Transaction bytes | Complete transaction CU |
+|---|---:|---:|---:|
+| Ordinary | 36 | 2,612–3,980 | 678,407–735,252 |
+| Anonymous | 8 | 2,323–3,309 | 736,921–756,662 |
+| Delegate | 4 | 2,839–3,349 | 679,298–688,433 |
+
+The three exact 2×3 keys passed the same settlement and auditor checks. That brings live coverage to all 51 policy keys. The TypeScript delegate path also settled with the exact key.
+
+| Exact 2×3 mode | Instruction tag | Transaction bytes | Complete transaction CU |
+|---|---:|---:|---:|
+| Ordinary | 33 | 2,867 | 683,173 |
+| Anonymous | 33 | 2,735 | 745,650 |
+| Delegate | 34 | 3,028 | 679,041 |
+
+These measurements include both proof verifiers and the SPP state transition. They are fixture measurements, not worst-case bounds. Accounts, owner-tag encoding and fee settings affect size. The 16×4 ordinary fixture settles at 3,980 bytes. Adding a separate payer and co-signer makes it 4,204 bytes. The SDK rejects that case before contacting the prover and leaves the input tree unchanged.
 
 Fresh ephemeral keys and a fresh viewing-key/salt pair remain necessary. Reuse repeats the encryption stream. Both SDKs generate fresh ephemeral keys.
 

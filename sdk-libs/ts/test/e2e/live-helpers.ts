@@ -27,6 +27,7 @@ import {
   type Bytes32,
 } from "../../src/index.js";
 import type { ZolanaClient } from "../../src/client/client.js";
+import type { ProofDataSource } from "../../src/client/ports.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
 import type { SyncWalletConfig } from "../../src/wallet/sync.js";
 
@@ -95,7 +96,7 @@ export async function signerFromWalletFile(path: string): Promise<KeyPairSigner>
   }
 }
 
-export async function liveHarness(): Promise<LiveHarness> {
+export async function liveHarness(proofDataSource?: ProofDataSource): Promise<LiveHarness> {
   const rpcUrl = requiredEnv("ZOLANA_LOCALNET_URL");
   const indexerUrl = requiredEnv("ZOLANA_INDEXER_URL");
   const proverUrl = requiredEnv("ZOLANA_PROVER_URL");
@@ -110,6 +111,7 @@ export async function liveHarness(): Promise<LiveHarness> {
     indexerUrl,
     proverUrl,
     tree,
+    ...(proofDataSource === undefined ? {} : { proofDataSource }),
     indexerConfig: {
       poll: { numRetries: 120, delayMs: 250n, maxDelayMs: 2_000n },
     },

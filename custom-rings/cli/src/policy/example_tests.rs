@@ -94,7 +94,10 @@ fn every_example_loads_and_compiles_on_both_clusters() {
     assert!(forms.require, "an example requires a list");
     assert!(forms.forbid, "an example forbids a list");
     assert!(forms.any, "an example names alternatives");
-    assert!(forms.assets, "an example lists assets inline");
+    assert!(
+        forms.assets,
+        "an example screens assets or configures mint thresholds"
+    );
     assert!(forms.above, "an example guards by amount");
     assert!(
         forms.per_cluster_source,

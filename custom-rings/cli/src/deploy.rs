@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context as _, Result};
+use custom_ring_interface::RingProgramConfig;
 use custom_ring_sdk::PolicyConfig;
 use sha2::{Digest, Sha256};
 use solana_account::Account;
@@ -78,7 +79,7 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
     Ok(())
 }
 
-/// The first deploy reads the program keypair, an upgrade checks the policy config it keeps.
+/// The first deploy reads the program keypair, an upgrade checks the configs it keeps.
 fn upload(
     ctx: &Context,
     authority: &Keypair,
@@ -94,6 +95,8 @@ fn upload(
             if binary.deployed_sha256(ctx)? == Some(binary.sha256) {
                 return Ok("present");
             }
+            let ring_config = ctx.rpc().get_account(ctx.ring.config_pda())?;
+            ensure_ring_config_compatible(program, ring_config.as_ref())?;
             let policy_config = ctx.rpc().get_account(ctx.ring.policy_config_pda())?;
             ensure_policy_config_compatible(program, policy_config.as_ref())?;
         }
@@ -185,7 +188,12 @@ impl ProgramBinary {
     pub(crate) fn read(path: &Path) -> Result<Self> {
         let bytes =
             std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        Self::parse(&bytes)
+        let binary = Self::parse(&bytes)?;
+        zolana_cli_common::release::verify_program_keys(
+            &bytes,
+            custom_ring_interface::proving_key_hashes(),
+        )?;
+        Ok(binary)
     }
 
     fn parse(bytes: &[u8]) -> Result<Self> {
@@ -227,6 +235,29 @@ impl ProgramBinary {
         );
         Ok(())
     }
+}
+
+/// An upgrade must not strand notes behind an auditor key the new program rejects.
+fn ensure_ring_config_compatible(program: Address, account: Option<&Account>) -> Result<()> {
+    let Some(account) = account.filter(|account| !account.data.is_empty()) else {
+        return Ok(());
+    };
+    let config = bytemuck::try_from_bytes::<RingProgramConfig>(&account.data).ok();
+    ensure!(
+        account.owner == program && config.is_some_and(|config| {
+            config.discriminator == custom_ring_interface::RING_PROGRAM_CONFIG
+                && config.mode().is_some()
+                && config.has_policy <= 1
+        }),
+        "program {program} has an incompatible ring config, migrate its notes before deploying a fresh ring"
+    );
+    ensure!(
+        !config
+            .expect("validated ring config")
+            .has_legacy_auditor_key(),
+        "program {program} keeps a legacy auditor key, migrate its notes before upgrading"
+    );
+    Ok(())
 }
 
 /// The current schema must reproduce the pinned policy hash.
@@ -414,6 +445,43 @@ mod tests {
         assert!(immutable
             .to_string()
             .ends_with("is immutable, it cannot be upgraded"));
+    }
+
+    #[test]
+    fn upgrades_require_a_compatible_ring_config_even_without_policy() {
+        use bytemuck::Zeroable;
+        let program = Address::from([7u8; 32]);
+        let mut config = RingProgramConfig::zeroed();
+        config.discriminator = custom_ring_interface::RING_PROGRAM_CONFIG;
+        config.auditor_pubkey[0] = custom_ring_interface::VIEWING_PUBKEY_TAG;
+        let account = |config: &RingProgramConfig| Account {
+            owner: program,
+            data: bytemuck::bytes_of(config).to_vec(),
+            ..Default::default()
+        };
+        assert!(ensure_ring_config_compatible(program, None).is_ok());
+        for mode in 0..=2 {
+            config.mode = mode;
+            assert!(ensure_ring_config_compatible(program, Some(&account(&config))).is_ok());
+        }
+        config.mode = 0;
+        // Historical audit-only rings have no policy account to reject their upgrade.
+        for tag in [2, 3] {
+            config.auditor_pubkey[0] = tag;
+            let error =
+                ensure_ring_config_compatible(program, Some(&account(&config))).unwrap_err();
+            assert!(error.to_string().contains("legacy auditor key"));
+        }
+        config.auditor_pubkey[0] = custom_ring_interface::VIEWING_PUBKEY_TAG;
+        config.mode = 3;
+        assert!(ensure_ring_config_compatible(program, Some(&account(&config))).is_err());
+        config.mode = 0;
+        let mut wrong_owner = account(&config);
+        wrong_owner.owner = Address::from([9u8; 32]);
+        assert!(ensure_ring_config_compatible(program, Some(&wrong_owner)).is_err());
+        let mut wrong_layout = account(&config);
+        wrong_layout.data.pop();
+        assert!(ensure_ring_config_compatible(program, Some(&wrong_layout)).is_err());
     }
 
     #[test]

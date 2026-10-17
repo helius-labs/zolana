@@ -91,6 +91,7 @@ type AuditTx struct {
 
 // Define returns the chain elements in CustomRingBasePublicInput order.
 func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [12]frontend.Variable {
+	// 1. Bind one canonical viewing secret to its public key and auditor envelope.
 	api.AssertIsBoolean(a.Anonymous)
 	CheckBytes(rc, a.Salt[:])
 	// The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
@@ -100,6 +101,8 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
 
+	// 2. Serialize committed note fields. Only a compile-time ordinary mode may
+	// omit the anonymous identity and input branches.
 	legacy := api.Sub(1, a.Anonymous)
 	// A circuit with a fixed ordinary mode need not prove the anonymous
 	// serialization or encrypt its longer padding. Witness-controlled modes
@@ -151,7 +154,8 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 		plaintext, live = plaintext[:length], live[:length]
 	}
 
-	// Published fields are the live prefix, the zero tail pads the final HashChain4 group.
+	// 3. Encrypt the live prefix and hash exactly the published fields. The zero
+	// tail pads HashChain4 and must not consume an encryption pad.
 	padCount := len(plaintext)
 	if ordinary {
 		// The last HashChain4 element is a permanent zero. Its pad is unused.
@@ -186,6 +190,7 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 		disclosure = api.Add(disclosure, api.Mul(shape.selected, states[chainGroups(shape.length)]))
 	}
 
+	// 4. Bind the same ordered output commitments the program passes to SPP.
 	var outputHash frontend.Variable
 	if tx.Compact {
 		selectedCount := -1

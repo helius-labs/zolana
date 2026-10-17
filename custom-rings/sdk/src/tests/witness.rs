@@ -322,6 +322,34 @@ async fn live_slots_open_their_records_in_circuit_order() {
 }
 
 #[tokio::test]
+async fn compact_padding_does_not_change_the_exact_policy_shape() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let (_, recipient) = recipient();
+    let inputs = [
+        input(&sender, 5, 0, None),
+        input(&sender, 7, 0, None),
+        SppProofInputUtxo::compact(0).unwrap(),
+        SppProofInputUtxo::compact(0).unwrap(),
+    ];
+    let mut outputs = vec![output(recipient.shielded_address().unwrap(), 4); 3];
+    outputs.push(SppProofOutputUtxo {
+        compact: true,
+        ..Default::default()
+    });
+    let policy = policy(&EMPTY);
+    let rpc = RegistryRpc::new(MemberRegistryTree::new().unwrap(), None);
+    let built = witness(&policy, &inputs, &outputs)
+        .build(&rpc, false)
+        .await
+        .unwrap();
+    assert_eq!((built.n_in, built.n_out), (2, 3));
+    assert!(built.supports_two_by_three());
+    assert!(built.subjects[2..POLICY_INPUT_SLOTS]
+        .iter()
+        .all(Option::is_none));
+}
+
+#[tokio::test]
 async fn a_blocked_recipient_is_refused_before_proving() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
     let (member, recipient) = recipient();

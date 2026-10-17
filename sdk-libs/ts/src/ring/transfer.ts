@@ -961,11 +961,7 @@ async function proveRingTransferStatement(
           subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
         ),
       );
-    const twoByThree =
-      registrySubtree &&
-      openings.nIn === 2 &&
-      openings.nOut === 3 &&
-      proofInputs.inputUtxos.filter((spend) => !spend.isCompact()).length === 2;
+    const twoByThree = registrySubtree && openings.nIn === 2 && openings.nOut === 3;
     const requestOpenings = twoByThree ? ringOpenings(proofInputs) : openings;
     const requestSubjects = (subjects: readonly (CustomRingSubjectWitness | undefined)[]) =>
       twoByThree && shape !== undefined ? legacyPolicySubjects(subjects, shape) : subjects;

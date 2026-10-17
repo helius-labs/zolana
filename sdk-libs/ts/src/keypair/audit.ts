@@ -286,9 +286,11 @@ export interface CustomRingBasePublicInput {
   readonly message: AuditorMessage;
   readonly outputHashes: readonly Bytes32[];
   readonly salt: Bytes16;
+  /** Binds an anonymous statement when true. Ordinary rings are the default. */
+  readonly anonymous?: boolean;
 }
 
-/** The twelve-element prefix binds the supported non-anonymous ring mode. */
+/** The twelve-element prefix binds the disclosure and the ring mode. */
 function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
@@ -305,7 +307,7 @@ function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[
     hashChain4(input.outputHashes),
     rightAlign(input.salt),
     hashChain4(input.message.disclosure),
-    u64Field(0n),
+    u64Field(input.anonymous === true ? 1n : 0n),
   ];
 }
 

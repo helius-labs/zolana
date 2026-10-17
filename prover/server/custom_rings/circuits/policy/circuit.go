@@ -1,4 +1,3 @@
-// Package policy proves that a ring transaction satisfies the policy the ring commits to.
 package policy
 
 import (
@@ -40,9 +39,11 @@ type CustomRingPolicyCircuit struct {
 	Sources   [NSources]SourceWires
 	PolicyLen frontend.Variable
 	// Each rule packs its fields as ring_policy::Rule::encoded does.
-	Rules        [NRules]frontend.Variable
-	InlineAssets [NInlineAssets]frontend.Variable
-	InlineLimits [NInlineAssets]frontend.Variable
+	Rules [NRules]frontend.Variable
+	// Historical wire names for mint-specific amount guards. Asset screening
+	// uses member-registry lists, never this threshold table.
+	InlineAssets [NAmountGuards]frontend.Variable
+	InlineLimits [NAmountGuards]frontend.Variable
 	InlineCount  frontend.Variable
 	Limits       [NOutflowLimits]OutflowLimitWires
 	LimitCount   frontend.Variable
@@ -82,6 +83,7 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 // The compiled circuit fixes the rail, no witness selects it.
 func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) []frontend.Variable {
 	rc := rangecheck.New(api)
+	// 1. Pin the statement variant before pruning constant branches.
 	if c.FixedInputs != 0 {
 		api.AssertIsEqual(c.NIn, c.FixedInputs)
 	}
@@ -94,11 +96,14 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 		api.AssertIsEqual(c.Anonymous, mode)
 		auditWitness.Anonymous = mode
 	}
+	// 2. Decode rules once. Reopen the same private transaction hash as SPP.
 	checked := c.checkPolicy(api, rc)
 	tx := c.constrainTransaction(api, rc)
 	c.constrainNamespace(api, tx)
+	// 3. Authenticate subjects before applying list rules and amount guards.
 	subjects := c.resolveSubjects(api, tx, checked)
 	c.constrainRules(api, tx, subjects, checked)
+	// 4. The key fixes the rail. A witness cannot select the delegate exemption.
 	if rail == delegateRail {
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 		api.AssertIsEqual(c.KeyEscrow, 1)
@@ -109,6 +114,7 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	}
 	c.constrainEscrow(api, tx, subjects)
 
+	// 5. Disclose the checked openings and bind every configuration dependency.
 	audit := auditWitness.Define(api, rc, c.auditTx(tx))
 	treeHash := c.PublicTreeHash
 	if treeHash == nil {

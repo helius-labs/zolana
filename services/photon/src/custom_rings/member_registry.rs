@@ -6,7 +6,7 @@ use sea_orm::DatabaseTransaction;
 use super::{
     fault, instruction_view, proof,
     storage::{LeafWrite, MemberRestore, PredecessorError, RingRoot, RingStore, Undo},
-    Invocation, ApplyError,
+    ApplyError, Invocation,
 };
 
 pub(crate) use super::api::{member_record, registry_root};
@@ -177,13 +177,13 @@ impl Rows {
 mod tests {
     use super::*;
     use crate::{
-        api::error::{PhotonApiError, CustomRingError},
-        ingester::typedefs::block_info::BlockMetadata,
+        api::error::{CustomRingError, PhotonApiError},
         custom_rings::{
             proof,
             storage::{self, BlockJournal, BlockUndo},
             tests::{field, fixture, member},
         },
+        ingester::typedefs::block_info::BlockMetadata,
         rpc::RpcClient,
     };
     use custom_ring_interface::{EscrowKey, MemberUpdate};
@@ -233,7 +233,11 @@ mod tests {
             .await
             .unwrap();
             tx.commit().await.unwrap();
-            root = RingStore::new(&db, root.program).root().await.unwrap().unwrap();
+            root = RingStore::new(&db, root.program)
+                .root()
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(root.root, reference.root());
             assert_eq!(root.next_index, reference.next_index());
         }
@@ -373,9 +377,7 @@ mod tests {
         };
         assert!(matches!(
             member_record(&db, &rpc, request.clone()).await,
-            Err(PhotonApiError::CustomRing(
-                CustomRingError::OutOfSync(_)
-            ))
+            Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
         ));
         cursor.resume(&db).await.unwrap();
         let mut stale = request.clone();
@@ -387,9 +389,7 @@ mod tests {
         // The read succeeds up to the chain confirmation, which the dead RPC refuses.
         assert!(matches!(
             member_record(&db, &rpc, request).await,
-            Err(PhotonApiError::CustomRing(
-                CustomRingError::OutOfSync(_)
-            ))
+            Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
         ));
     }
 }

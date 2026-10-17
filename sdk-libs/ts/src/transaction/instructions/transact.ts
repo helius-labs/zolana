@@ -1186,8 +1186,12 @@ export function prepareRingAuthorityTransfer(
     payer: Address;
     ringProgramId: Address;
     outputTreeId: TreeId;
+    /** Omits unused public slots, revealing the actual input and output counts. Defaults to false. */
+    compactPadding?: boolean;
   }>,
 ): PreparedTransfer {
+  if (input.compactPadding !== undefined && typeof input.compactPadding !== "boolean")
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { reason: "compactPadding" });
   if (
     input.inputs.length < 1 ||
     input.inputs.length > RING_AUTHORITY_MAX_WIDTH ||
@@ -1263,6 +1267,7 @@ export function prepareRingAuthorityTransfer(
   return preparedTransfer({
     owner: input.owner,
     ownerMode: "opaque",
+    ...(input.compactPadding === true ? { compactPadding: true } : {}),
     inputs: Object.freeze([...input.inputs]),
     outputs: Object.freeze(outputs),
     firstNullifier,

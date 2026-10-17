@@ -4,7 +4,8 @@ use std::{
     process::{Command, Output},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
+use custom_ring_interface::key_catalog::RingKey;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use zolana_program_test::fixture::write_protocol_snapshot;
@@ -156,79 +157,6 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
 const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
 const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
 
-struct RingKeySource {
-    section: &'static str,
-    prover_file: &'static str,
-    asset_stem: &'static str,
-}
-
-impl RingKeySource {
-    fn asset(&self, tag: &str) -> String {
-        format!("{}-{tag}.key", self.asset_stem)
-    }
-}
-
-const RING_KEY_SOURCES: [RingKeySource; 10] = [
-    RingKeySource {
-        section: "proving_key",
-        prover_file: "custom_ring_policy.key",
-        asset_stem: "custom-ring-policy-key",
-    },
-    RingKeySource {
-        section: "audit_key",
-        prover_file: "custom_ring_base.key",
-        asset_stem: "custom-ring-base-key",
-    },
-    RingKeySource {
-        section: "delegate_policy_key",
-        prover_file: "custom_ring_delegate_policy.key",
-        asset_stem: "custom-ring-delegate-policy-key",
-    },
-    RingKeySource {
-        section: "register_key",
-        prover_file: "custom_ring_register_key.key",
-        asset_stem: "custom-ring-register-key",
-    },
-    RingKeySource {
-        section: "deposit_key",
-        prover_file: "custom_ring_deposit.key",
-        asset_stem: "custom-ring-deposit-key",
-    },
-    RingKeySource {
-        section: "confidential_audit_key",
-        prover_file: "custom_ring_base_confidential.key",
-        asset_stem: "custom-ring-base-confidential-key",
-    },
-    RingKeySource {
-        section: "policy_2x3_key",
-        prover_file: "custom_ring_policy_2x3.key",
-        asset_stem: "custom-ring-policy-2x3-key",
-    },
-    RingKeySource {
-        section: "anonymous_policy_2x3_key",
-        prover_file: "custom_ring_policy_2x3_anonymous.key",
-        asset_stem: "custom-ring-policy-2x3-anonymous-key",
-    },
-    RingKeySource {
-        section: "delegate_policy_2x3_key",
-        prover_file: "custom_ring_delegate_policy_2x3.key",
-        asset_stem: "custom-ring-delegate-policy-2x3-key",
-    },
-    RingKeySource {
-        section: "update_members_key",
-        prover_file: "custom_ring_update_members.key",
-        asset_stem: "custom-ring-update-members-key",
-    },
-];
-
-const SHAPED_RING_KEY_SOURCES: &[RingKeySource] = include!("shaped_ring_keys.rs");
-
-fn ring_key_sources() -> impl Iterator<Item = &'static RingKeySource> {
-    RING_KEY_SOURCES
-        .iter()
-        .chain(SHAPED_RING_KEY_SOURCES.iter())
-}
-
 /// Deployed per ring under its own id, shipped by the custom-rings set alone.
 const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
     role: "ring_program",
@@ -332,22 +260,28 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
+    zolana_cli_common::release::verify_program_keys(
+        &fs::read(&path)?,
+        custom_ring_interface::proving_key_hashes(),
+    )?;
     let repo = repo_root()?;
+    let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
+    validate_ring_key_pins(&prover_lock)?;
     let mut lock = json!({
         "release_tag": options.tag,
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
     });
-    let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
-    for source in ring_key_sources() {
-        let key_source = repo.join(PROVING_KEYS_DIR).join(source.prover_file);
+    for source in RingKey::ALL.into_iter() {
+        let file_name = source.file_name();
+        let key_source = repo.join(PROVING_KEYS_DIR).join(&file_name);
         require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
         let asset = source.asset(&options.tag);
         let staged = stage_file(&key_source, &staging.join(&asset))?;
-        let pinned = pinned_sha256(&prover_lock, source.prover_file)?;
+        let pinned = pinned_sha256(&prover_lock, &file_name)?;
         if staged.sha256 != pinned {
             bail!(
                 "{} hashes to {}, {PROVING_KEYS_LOCK} pins {pinned}, run `just regen-custom-ring-keys` to rotate both",
-                source.prover_file,
+                file_name,
                 staged.sha256
             );
         }
@@ -372,6 +306,28 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
     }
     lock["binaries"] = json!(binaries);
     Ok(lock)
+}
+
+/// A stale release tool must not pair its old SBF with a newly rotated lock.
+/// Check the exact key set too, so newly added shapes cannot disappear silently.
+fn validate_ring_key_pins(prover_lock: &Value) -> Result<()> {
+    let keys = prover_lock["keys"]
+        .as_object()
+        .context("proving-key lock has no keys")?;
+    ensure!(
+        keys.keys()
+            .filter(|name| name.starts_with("custom_ring_"))
+            .count()
+            == RingKey::ALL.len(),
+        "ring key catalog differs from this release tool, rebuild xtask"
+    );
+    for (file, hash) in custom_ring_interface::proving_key_hashes() {
+        ensure!(
+            pinned_sha256(prover_lock, file)? == hex::encode(hash),
+            "{file} differs from this release tool's compiled verifier, rebuild xtask and the program"
+        );
+    }
+    Ok(())
 }
 
 fn read_json(path: &Path) -> Result<Value> {
@@ -657,7 +613,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
         names.extend(programs.iter().filter_map(asset_name));
     }
     for key in std::iter::once("ring_program")
-        .chain(ring_key_sources().map(|source| source.section))
+        .chain(RingKey::ALL.into_iter().map(|source| source.section))
         .chain(std::iter::once("accounts"))
     {
         if let Some(name) = lock.get(key).and_then(asset_name) {
@@ -901,14 +857,14 @@ fn print_help() {
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
-    println!("With --custom-rings the set is the ring program, its two prover keys, the ring");
+    println!("With --custom-rings the set is the ring program, all ring proving keys, the ring");
     println!("rpc and the zolana-ring cli.");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
     println!(
-        "  --custom-rings          Release the ring program, its two prover keys, the ring rpc"
+        "  --custom-rings          Release the ring program, all ring proving keys, the ring rpc"
     );
     println!("                          and the zolana-ring cli only,");
     println!("                          regenerating custom-rings/cli/release-artifacts.lock");
@@ -924,6 +880,27 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ring_key_lock_requires_the_complete_compiled_generation() {
+        let mut lock = json!({"keys": {}});
+        for (file, hash) in custom_ring_interface::proving_key_hashes() {
+            lock["keys"][file] = json!({"sha256": hex::encode(hash)});
+        }
+        validate_ring_key_pins(&lock).unwrap();
+        let file = RingKey::CONFIDENTIAL_AUDIT.file_name();
+        let original = lock["keys"][&file].clone();
+        lock["keys"][&file]["sha256"] = json!("00".repeat(32));
+        assert!(validate_ring_key_pins(&lock)
+            .unwrap_err()
+            .to_string()
+            .contains("compiled verifier"));
+        lock["keys"].as_object_mut().unwrap().remove(&file);
+        assert!(validate_ring_key_pins(&lock).is_err());
+        lock["keys"][&file] = original;
+        lock["keys"]["custom_ring_new_shape.key"] = json!({"sha256": "00".repeat(32)});
+        assert!(validate_ring_key_pins(&lock).is_err());
+    }
 
     #[test]
     fn release_upload_preserves_the_other_bundle_and_existing_assets() {
@@ -1089,15 +1066,13 @@ mod tests {
         let mut lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-            "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
-            "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for source in ring_key_sources() {
+        for source in RingKey::ALL.into_iter() {
             lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
         }
-        for section in
-            std::iter::once("ring_program").chain(ring_key_sources().map(|source| source.section))
+        for section in std::iter::once("ring_program")
+            .chain(RingKey::ALL.into_iter().map(|source| source.section))
         {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
@@ -1112,14 +1087,14 @@ mod tests {
             .unwrap()
             .keys()
             .filter(|file| file.starts_with("custom_ring_"))
-            .map(String::as_str)
+            .cloned()
             .collect();
-        let sources: Vec<_> = ring_key_sources().collect();
+        let sources: Vec<_> = RingKey::ALL.into_iter().collect();
         assert_eq!(sources.len(), 58);
         assert_eq!(
             sources
                 .iter()
-                .map(|source| source.prover_file)
+                .map(|source| source.file_name())
                 .collect::<std::collections::BTreeSet<_>>(),
             pinned_files
         );

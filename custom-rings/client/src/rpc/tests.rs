@@ -110,12 +110,27 @@ fn a_deposits_cursor_is_exactly_one_signature() {
 #[test]
 fn a_decrypted_page_keeps_its_wire_json() {
     let viewing = ViewingKey::from_bytes(&[3; 32]).expect("key").pubkey();
+    let opening = zolana_client::ProofInputUtxo::new(
+        [2; 32],
+        &Address::new_from_array([4; 32]),
+        9,
+        &[5; 32],
+        4,
+    )
+    .unwrap()
+    .with_ring([0; 32], &Some(Address::new_from_array([7; 32])))
+    .unwrap();
+    let context = zolana_transaction::OutputContext {
+        hash: opening.hash().unwrap(),
+        tree_id: 4,
+        leaf_index: 1,
+    };
     let audited = AuditedTransaction {
         tx_signature: Signature::from([1; 64]),
         slot: 42,
         tx_viewing_pk: viewing,
         outputs: vec![AuditedOutput {
-            slot_index: 1,
+            slot_index: 0,
             recipient_viewing_pk: viewing,
             owner_tag: [2; 32],
             asset: Address::new_from_array([4; 32]),
@@ -124,9 +139,10 @@ fn a_decrypted_page_keeps_its_wire_json() {
             ring_program_id: Some(Address::new_from_array([7; 32])),
             data: Data::default(),
         }],
-        output_openings: Vec::new(),
+        output_contexts: vec![context],
+        output_openings: vec![opening],
         anonymous: None,
-        undecryptable_slots: vec![2],
+        undecryptable_slots: Vec::new(),
     };
     let withdrawal = RingWithdrawal {
         recipient: Address::new_from_array([10; 32]),

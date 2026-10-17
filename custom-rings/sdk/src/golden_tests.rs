@@ -124,18 +124,14 @@ mod bodies {
         AnonymousIdentities {
             flag: AnonymousFlag,
             sender: identity(0x41),
-            recipients: (0..4)
-                .map(|index| match index < 2 {
-                    true => identity(0x42 + index as u8),
-                    false => [0; IDENTITY_LEN],
-                })
-                .collect(),
-            recipient_viewing_keys: (0..4)
-                .map(|index| match index < 2 {
-                    true => viewing(0x44 + index as u8),
-                    false => [0; IDENTITY_LEN],
-                })
-                .collect(),
+            recipients: std::array::from_fn(|index| match index < 2 {
+                true => identity(0x42 + index as u8),
+                false => [0; IDENTITY_LEN],
+            }),
+            recipient_viewing_keys: std::array::from_fn(|index| match index < 2 {
+                true => viewing(0x44 + index as u8),
+                false => [0; IDENTITY_LEN],
+            }),
         }
     }
 
@@ -249,6 +245,28 @@ mod bodies {
             circuit,
         };
         request.request().unwrap().body().unwrap().to_string()
+    }
+
+    #[test]
+    fn a_four_by_two_anonymous_request_keeps_four_audit_identity_slots() {
+        let mut body = policy_with(Some(identities()));
+        body.witness.n_in = 4;
+        body.witness.n_out = 2;
+        body.witness.reshape(4, 2).unwrap();
+        body.circuit_type = RingCircuit::Shaped {
+            inputs: 4,
+            outputs: 2,
+            anonymous: true,
+            delegate: false,
+            subtree: false,
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&RingRequest(&body).body().unwrap()).unwrap();
+        assert_eq!(value["inputs"].as_array().unwrap().len(), 4);
+        assert_eq!(value["outputs"].as_array().unwrap().len(), 2);
+        assert_eq!(value["subjects"].as_array().unwrap().len(), 8);
+        assert_eq!(value["recipients"].as_array().unwrap().len(), 4);
+        assert_eq!(value["recipientViewingKeys"].as_array().unwrap().len(), 4);
     }
 
     #[test]
@@ -390,14 +408,9 @@ mod bodies {
         let secret = Zeroizing::new(zolana_hasher::primitives::right_align(
             &nullifier_key.secret(),
         ));
-        let (body, item) = crate::register_key::register(
-            &envelope,
-            auditor(),
-            secret,
-            &tip(&tree, 2),
-            &read.opening,
-        )
-        .unwrap();
+        let (body, item) =
+            crate::register_key::register(&envelope, auditor(), secret, &tip(&tree, 2), &read)
+                .unwrap();
         let escrow_key = EscrowKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,

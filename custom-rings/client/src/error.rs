@@ -27,13 +27,6 @@ pub enum AuditError {
     OutputDisclosureCount(usize),
     #[error("proof-bound opening does not match output commitment at slot {0}")]
     OutputCommitmentMismatch(u32),
-    #[error("recipient ciphertext disagrees with the proof-bound opening at slot {0}")]
-    OutputPlaintextMismatch(u32),
-    #[error("decrypted output references unknown asset id {asset_id}")]
-    UnknownAsset {
-        asset_id: u64,
-        source: TransactionError,
-    },
     #[error("ring transaction event index is unavailable")]
     MissingEventIndex,
     #[error("message view tag is not the auditor view tag")]
@@ -77,6 +70,10 @@ pub enum AuditError {
     SettlementAccounts,
     #[error("trusted event index {0} is unavailable")]
     InvalidEventIndex(u16),
+    #[error("confirmed SPP event cannot be reconstructed {0}")]
+    InvalidConfirmedEvent(String),
+    #[error("indexed event does not match the confirmed SPP instruction and event")]
+    ConfirmedEventMismatch,
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]

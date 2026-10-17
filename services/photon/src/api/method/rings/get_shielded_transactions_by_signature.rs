@@ -23,8 +23,7 @@ pub async fn get_shielded_transactions_by_signature(
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
     let signature = request.tx_signature.0.into();
-    let matched_txs =
-        fetch_rings_transactions_by_signature(&tx, signature).await?;
+    let matched_txs = fetch_rings_transactions_by_signature(&tx, signature).await?;
     let transactions = hydrate_shielded_transactions(&tx, matched_txs).await?;
     tx.commit().await?;
 
