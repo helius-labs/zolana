@@ -69,6 +69,7 @@ pub(super) fn indexer(db: &DatabaseConnection, start: StartSlot) -> CustomRingIn
         db: Arc::new(db.clone()),
         rpc: Arc::new(RpcClient::new("http://127.0.0.1:1".into())),
         start,
+        block_fetches: 4,
     }
 }
 
@@ -114,10 +115,12 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
         .unwrap();
     let handle = server.start(module);
     let rpc = RpcClient::new(format!("http://{address}"));
-    let first = block_batch(&rpc, 1..=5100).await.unwrap();
+    let first = block_batch(&rpc, 1..=5100, MIN_BLOCK_BATCH).await.unwrap();
     assert_eq!(first.slots, (5000..=5031).collect::<Vec<_>>());
     assert_eq!(first.scanned_slot, 5031);
-    let second = block_batch(&rpc, 5032..=5100).await.unwrap();
+    let second = block_batch(&rpc, 5032..=5100, MIN_BLOCK_BATCH)
+        .await
+        .unwrap();
     assert_eq!(second.slots, (5032..=5040).collect::<Vec<_>>());
     assert_eq!(second.scanned_slot, 5100);
     handle.stop().unwrap();

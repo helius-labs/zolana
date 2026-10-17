@@ -418,6 +418,18 @@ async fn main() -> Result<()> {
             },
         };
 
+        // For localnet we can safely use a large batch size to speed up indexing.
+        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
+            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
+            None => {
+                if is_rpc_node_local {
+                    200
+                } else {
+                    20
+                }
+            }
+        };
+
         #[cfg(feature = "custom-rings")]
         let custom_rings_handle = if args.index_custom_rings {
             // Blocks before an explicit index start are not linkable.
@@ -431,6 +443,7 @@ async fn main() -> Result<()> {
                     db: db_conn.clone(),
                     rpc: rpc_client.clone(),
                     start: custom_rings_start,
+                    block_fetches: max_concurrent_block_fetches,
                 }
                 .spawn(),
             )
@@ -456,18 +469,6 @@ async fn main() -> Result<()> {
         } else {
             info!("Tree metadata sync completed successfully");
         }
-
-        // For localnet we can safely use a large batch size to speed up indexing.
-        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
-            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
-            None => {
-                if is_rpc_node_local {
-                    200
-                } else {
-                    20
-                }
-            }
-        };
 
         let block_stream_config = BlockStreamConfig {
             rpc_client: rpc_client.clone(),

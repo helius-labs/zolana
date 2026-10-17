@@ -249,6 +249,7 @@ async fn late_ring() -> (
         db: Arc::new(db),
         rpc,
         start: StartSlot::Explicit(0),
+        block_fetches: 4,
     };
     assert!(matches!(
         indexer.synchronize().await.unwrap(),
@@ -295,6 +296,7 @@ async fn replay_resumes_after_a_committed_initialization_and_restart() {
         db: indexer.db.clone(),
         rpc: indexer.rpc.clone(),
         start: StartSlot::Explicit(0),
+        block_fetches: 4,
     };
     for _ in 0..2 {
         assert!(matches!(
@@ -523,6 +525,7 @@ async fn post_init_root_faults_are_local_and_ahead_roots_are_not_quarantined() {
             db: Arc::new(db),
             rpc,
             start: StartSlot::Explicit(0),
+            block_fetches: 4,
         };
         storage::save_cursor(indexer.db.as_ref(), &cursor)
             .await

@@ -37,9 +37,9 @@ use storage::{
 };
 
 const MAX_RETRY_DELAY_SECS: u64 = 15;
-const BLOCK_FETCH_CONCURRENCY: usize = 4;
 const GET_BLOCKS_PAGE: u64 = 4096;
-const BLOCK_BATCH: usize = 32;
+/// Blocks fetched before a batch is applied, at least this many.
+const MIN_BLOCK_BATCH: usize = 32;
 const ACCOUNTS_PER_REQUEST: usize = 100;
 /// Journal rows older than the deepest confirmed fork are pruned.
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
@@ -66,6 +66,8 @@ pub struct CustomRingIndexer {
     pub db: Arc<DatabaseConnection>,
     pub rpc: Arc<RpcClient>,
     pub start: StartSlot,
+    /// Concurrent `getBlock` requests, photon's `--max-concurrent-block-fetches`.
+    pub block_fetches: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -75,6 +77,12 @@ enum Progress {
 }
 
 impl CustomRingIndexer {
+    /// Two rounds of fetches per batch: enough to keep the fetch overhead
+    /// small, few enough blocks to hold in memory at a backfill setting.
+    fn batch_len(&self) -> usize {
+        MIN_BLOCK_BATCH.max(self.block_fetches.saturating_mul(2))
+    }
+
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut delay = 1;
@@ -117,7 +125,12 @@ impl CustomRingIndexer {
         let target = self.rpc.get_slot().await?;
         if cursor.scanned_slot < target {
             cursor.suspend(db).await?;
-            let batch = block_batch(&self.rpc, cursor.scanned_slot + 1..=target).await?;
+            let batch = block_batch(
+                &self.rpc,
+                cursor.scanned_slot + 1..=target,
+                self.batch_len(),
+            )
+            .await?;
             for block in self.fetch_blocks(batch.slots).await {
                 let block = block?;
                 if cursor
@@ -255,7 +268,7 @@ impl CustomRingIndexer {
             if candidate.replayed_tip.is_none() && page.first() != Some(&candidate.slot) {
                 bail!("ring initialization is missing from archive history");
             }
-            for chunk in page.chunks(BLOCK_BATCH) {
+            for chunk in page.chunks(self.batch_len()) {
                 for block in self.fetch_blocks(chunk.to_vec()).await {
                     let block = block?;
                     if candidate.replayed_tip.is_none()
@@ -308,7 +321,7 @@ impl CustomRingIndexer {
                 let block = self.rpc.get_block(slot, TransactionDetails::Full).await?;
                 Ok(parse_ui_confirmed_blocked(block, slot)?)
             })
-            .buffered(BLOCK_FETCH_CONCURRENCY)
+            .buffered(self.block_fetches.max(1))
             .collect()
             .await
     }
@@ -878,14 +891,18 @@ struct BlockBatch {
     scanned_slot: u64,
 }
 
-async fn block_batch(rpc: &RpcClient, slots: RangeInclusive<u64>) -> Result<BlockBatch> {
+async fn block_batch(
+    rpc: &RpcClient,
+    slots: RangeInclusive<u64>,
+    batch_len: usize,
+) -> Result<BlockBatch> {
     let mut start = *slots.start();
     let target = *slots.end();
     let mut batch = Vec::new();
     loop {
         let end = target.min(start.saturating_add(GET_BLOCKS_PAGE - 1));
         let page = confirmed_page(rpc, start..=end).await?;
-        let available = BLOCK_BATCH - batch.len();
+        let available = batch_len - batch.len();
         if page.len() > available {
             batch.extend(page.into_iter().take(available));
             let scanned = *batch.last().context("empty block batch")?;
@@ -895,7 +912,7 @@ async fn block_batch(rpc: &RpcClient, slots: RangeInclusive<u64>) -> Result<Bloc
             });
         }
         batch.extend(page);
-        if end == target || batch.len() == BLOCK_BATCH {
+        if end == target || batch.len() == batch_len {
             return Ok(BlockBatch {
                 slots: batch,
                 scanned_slot: end,

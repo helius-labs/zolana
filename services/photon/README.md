@@ -114,12 +114,13 @@ previous record. A stale answer cannot move funds, SPP refuses a spent record.
 program, member, and the exact root and append index read from the ring's
 key-registry PDA.
 
-One custom ring indexer serves spend records and the key registry. It runs alongside
-SPP indexing with its own durable cursor and undo journal and applies confirmed
-blocks in order. On a fork it suspends lookups, rewinds its own rows, and
-replays canonical blocks. SPP tables stay untouched. An SPP indexer fork or
-archive gap can still prevent an ordinary SPP proof from being obtained. A spend
-record lookup also needs the SPP indexer to hold the record's transaction.
+One custom ring indexer serves spend records and the key registry. It runs
+alongside SPP indexing with its own durable cursor and undo journal, fetches
+blocks with `--max-concurrent-block-fetches`, and applies confirmed blocks in
+order. On a fork it suspends lookups, rewinds its own rows, and replays
+canonical blocks. SPP tables stay untouched. An SPP indexer fork or archive gap
+can still prevent an ordinary SPP proof from being obtained. A spend record
+lookup also needs the SPP indexer to hold the record's transaction.
 
 A ring whose instruction fails validation, or whose root or policy account is
 missing, is quarantined. Its lookups stay unavailable, every other ring keeps
