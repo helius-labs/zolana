@@ -18,6 +18,10 @@ import (
 type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 	base.Audit
+	// Compile-time capacities for a specialized key. Zero retains the general circuit.
+	FixedInputs, FixedOutputs int `gnark:"-"`
+	// FixedMode is 0 for a witnessed mode, 1 for ordinary, 2 for anonymous.
+	FixedMode int `gnark:"-"`
 
 	NIn               frontend.Variable
 	NOut              frontend.Variable
@@ -72,6 +76,18 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 // The compiled circuit fixes the rail, no witness selects it.
 func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) []frontend.Variable {
 	rc := rangecheck.New(api)
+	if c.FixedInputs != 0 {
+		api.AssertIsEqual(c.NIn, c.FixedInputs)
+	}
+	if c.FixedOutputs != 0 {
+		api.AssertIsEqual(c.NOut, c.FixedOutputs)
+	}
+	auditWitness := c.Audit
+	if c.FixedMode != 0 {
+		mode := c.FixedMode - 1
+		api.AssertIsEqual(c.Anonymous, mode)
+		auditWitness.Anonymous = mode
+	}
 	checked := c.checkPolicy(api, rc)
 	tx := c.constrainTransaction(api, rc)
 	c.constrainNamespace(api, tx)
@@ -87,7 +103,7 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	}
 	c.constrainEscrow(api, tx, subjects)
 
-	audit := c.Audit.Define(api, rc, c.auditTx(tx))
+	audit := auditWitness.Define(api, rc, c.auditTx(tx))
 	return append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.MemberRegistryRoot, c.ForeignRoot)
 }

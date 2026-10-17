@@ -53,7 +53,14 @@ func (tx transaction) slots() []utxoView {
 
 // constrainTransaction binds the openings to the SPP transaction hash.
 func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc frontend.Rangechecker) transaction {
-	tx := transaction{nIn: base.SelectCount(api, c.NIn, 1, NInputs), nOut: base.SelectCount(api, c.NOut, 1, NOutputs)}
+	nIn, nOut := c.NIn, c.NOut
+	if c.FixedInputs != 0 {
+		nIn = c.FixedInputs
+	}
+	if c.FixedOutputs != 0 {
+		nOut = c.FixedOutputs
+	}
+	tx := transaction{nIn: base.SelectCount(api, nIn, 1, NInputs), nOut: base.SelectCount(api, nOut, 1, NOutputs)}
 	inputHashes, outputHashes := make([]frontend.Variable, NInputs), make([]frontend.Variable, NOutputs)
 	for i, w := range c.Inputs {
 		tx.inputs[i] = w.check(api, rc, tx.nIn.Active[i], true)

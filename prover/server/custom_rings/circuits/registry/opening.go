@@ -46,6 +46,12 @@ type MemberOpening struct {
 // Resolve returns the member's lists and escrow key, zero unless cond is set, and
 // binds the opening to root while cond is set.
 func (o MemberOpening) Resolve(api frontend.API, cond, root, member frontend.Variable) (lists, escrowKey frontend.Variable) {
+	// A fixed-shape circuit has no obligation for slots outside its capacity.
+	// This branch is compile-time only. Witness-controlled conditions still
+	// authenticate the opening even when their witness value is zero.
+	if constant, ok := api.Compiler().ConstantValue(cond); ok && constant.Sign() == 0 {
+		return 0, 0
+	}
 	api.AssertIsBoolean(o.Present)
 	present := Record{Member: member, Next: o.Next, Lists: o.Lists, EscrowKey: o.EscrowKey}.Hash(api)
 	low := Record{Member: o.LowMember, Next: o.LowNext, Lists: o.LowLists, EscrowKey: o.LowEscrow}.Hash(api)

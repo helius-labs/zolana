@@ -1,5 +1,19 @@
 Ordinary payments prove auditor disclosure against the committed outputs. Recipient encryption remains wallet-side.
 
+## Full-policy 2-input, 3-output probe
+
+A fixed 2×3 policy circuit preserves the current policy and audit statements. It pins the input count, output count and ring mode in the verifying key. The existing general circuits and keys remain available. This probe is not wired into production key selection because it misses the 100k custom-proof target.
+
+| Policy and audit proof | General key | Fixed 2×3 probe |
+|---|---:|---:|
+| Ordinary | 326,293 | 235,600 |
+| Anonymous | 326,293 | 245,661 |
+| Delegate | 324,033 | 233,421 |
+
+For the ordinary probe, cumulative compile differences attribute about 123,448 constraints to registry openings and 54,191 to audit. Policy table checks add 22,451, transaction checks add 11,153 and rule and limit checks add 17,291. The attribution test omits part of the final statement hash, so its component sum is not the exact production count. All three full counts above are exact compiled R1CS sizes.
+
+The existing 20-level member registry authenticates each owner or asset against the ring registry and, when configured, a curator registry. The 2×3 circuit still supports eight subject slots and up to sixteen authenticated openings. Even deleting registry verification entirely from the attribution circuit leaves over 100k constraints after the audit and other policy checks. A batch Merkle proof alone cannot meet the target. A safe sub-100k design needs measured savings in audit, policy evaluation and registry authentication together. Until one passes the full gate, the current proving path stays in service.
+
 | Circuit | Before optimization | Now |
 |---|---:|---:|
 | Ordinary auditor disclosure, two outputs | 95,610 | 58,645 |

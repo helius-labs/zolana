@@ -27,6 +27,9 @@ func fill(dst, src reflect.Value, path string) []error {
 	case reflect.Struct:
 		for i := range dst.NumField() {
 			field := dst.Type().Field(i)
+			if field.Tag.Get("gnark") == "-" {
+				continue
+			}
 			if field.Anonymous {
 				errs = append(errs, fill(dst.Field(i), src, path)...)
 				continue
