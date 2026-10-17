@@ -16,8 +16,10 @@ import {
   type ViewingKey,
 } from "@heliuslabs/zolana/keypair";
 import {
+  EncryptedScheme,
   LocalShieldedKeys,
   ProgramOwner,
+  TransactionError,
   Wallet,
   decodeConfidential,
   decodeOutputData,
@@ -218,6 +220,7 @@ export function escrowUtxos(
   treeId: number,
 ): readonly DataUtxo<EscrowTerms>[] {
   const ownerTag = hex(authority.ownerTag());
+  const recipient = hex(viewingKey.publicKey().toBytes());
   const owner = authority.publicKey().toBytes();
   const nullifierPubkey = ProgramOwner.nullifierPublicKey();
   const nullifierKey = ProgramOwner.nullifierKey();
@@ -229,7 +232,27 @@ export function escrowUtxos(
       if (txViewingPublicKey === undefined || salt === undefined) continue;
       tx.outputSlots.forEach((slot, slotIndex) => {
         if (hex(slot.viewTag) !== ownerTag) return;
-        const body = decodeOutputData(slot.payload).body;
+        // Padding reuses the owner's tag and publishes random bytes.
+        let frame: ReturnType<typeof decodeOutputData>;
+        try {
+          frame = decodeOutputData(slot.payload);
+        } catch (error) {
+          if (
+            error instanceof TransactionError &&
+            [
+              "TRANSACTION_DESERIALIZE",
+              "TRANSACTION_TRAILING_BYTES",
+              "TRANSACTION_BAD_DISCRIMINATOR",
+              "TRANSACTION_INVALID_LENGTH",
+            ].includes(error.code)
+          ) {
+            return;
+          }
+          throw error;
+        }
+        if (frame.encoding !== "encrypted" || frame.scheme !== EncryptedScheme.confidential) return;
+        const { body } = frame;
+        if (hex(body.slice(0, P256_PUBLIC_KEY_LENGTH)) !== recipient) return;
         const plaintext = decodeConfidential(
           viewingKey.decryptUtxo(
             body.slice(P256_PUBLIC_KEY_LENGTH),

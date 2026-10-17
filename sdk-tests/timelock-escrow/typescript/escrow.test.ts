@@ -3,7 +3,12 @@
 import { createZolanaClient, initializePoseidon } from "@heliuslabs/zolana";
 import { LocalKeys, NullifierKeyProofAuthority } from "@heliuslabs/zolana/client";
 import { DepositAsset, depositInstruction } from "@heliuslabs/zolana/interface";
-import { SOLANA_OWNER_TAG, randomBlinding, solanaOwnerIdentity } from "@heliuslabs/zolana/keypair";
+import {
+  SOLANA_OWNER_TAG,
+  bytes32,
+  randomBlinding,
+  solanaOwnerIdentity,
+} from "@heliuslabs/zolana/keypair";
 import {
   AssetRegistry,
   ProgramOwner,
@@ -156,6 +161,43 @@ describe("timelock escrow", () => {
           },
         ],
       });
+
+      // Padding may reuse the escrow tag; a decoded state must still match its commitment.
+      const stateHash = escrowTransaction.finalizedTx.outputHashes[ESCROW_OUTPUT_SLOT];
+      if (stateHash === undefined) throw new Error("the escrow transaction has no state hash");
+      const indexedEscrow = afterEscrow.find((transaction) =>
+        transaction.outputSlots.some((slot) =>
+          Buffer.from(slot.outputContext.hash).equals(stateHash),
+        ),
+      );
+      const stateSlot = indexedEscrow?.outputSlots[ESCROW_OUTPUT_SLOT];
+      if (indexedEscrow === undefined || stateSlot === undefined)
+        throw new Error("the escrow transaction is missing its state output");
+      const padding = {
+        ...indexedEscrow,
+        outputSlots: indexedEscrow.outputSlots.map((slot, index) =>
+          index === ESCROW_OUTPUT_SLOT
+            ? { ...slot, payload: new Uint8Array(slot.payload.length).fill(255) }
+            : slot,
+        ),
+      };
+      expect(escrowUtxos(timings, viewingKey, [padding], authority, assets, client.treeId)).toEqual(
+        [],
+      );
+      const wrongCommitment = {
+        ...indexedEscrow,
+        outputSlots: indexedEscrow.outputSlots.map((slot, index) =>
+          index === ESCROW_OUTPUT_SLOT
+            ? {
+                ...slot,
+                outputContext: { ...slot.outputContext, hash: bytes32(new Uint8Array(32)) },
+              }
+            : slot,
+        ),
+      };
+      expect(() =>
+        escrowUtxos(timings, viewingKey, [wrongCommitment], authority, assets, client.treeId),
+      ).toThrowError(expect.objectContaining({ name: "ClientError.DataHashMismatch" }));
 
       const [escrow] = escrows;
       if (escrow === undefined) throw new Error("the creator has no open escrow");
