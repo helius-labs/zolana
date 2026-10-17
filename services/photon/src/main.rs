@@ -26,6 +26,8 @@ use photon_indexer::migration::{
 use photon_indexer::custom_rings::{CustomRingIndexer, StartSlot};
 use photon_indexer::monitor::continuously_monitor_photon;
 use photon_indexer::rpc::{BlockHeaders, RpcClient};
+#[cfg(feature = "custom-rings")]
+use photon_indexer::snapshot::SnapshotReader;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
 };
@@ -443,12 +445,30 @@ async fn main() -> Result<()> {
                 Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
                 None => StartSlot::Derived(last_indexed_slot),
             };
+            // Only a rebuild gives the indexer a snapshot location.
+            let snapshot = match snapshot_directory_adapter(&args).await? {
+                Some(adapter) => {
+                    let reader = SnapshotReader::open_for_custom_rings(adapter).await?;
+                    match &reader {
+                        Some(reader) => info!(
+                            "Custom rings rebuild from the snapshot through slot {}",
+                            reader.end_slot()
+                        ),
+                        None => warn!(
+                            "The snapshot has not kept custom rings since its first slot; custom rings are indexed from RPC"
+                        ),
+                    }
+                    reader
+                }
+                None => None,
+            };
             Some(
                 CustomRingIndexer {
                     db: db_conn.clone(),
                     rpc: rpc_client.clone(),
                     start: custom_rings_start,
                     block_fetches: max_concurrent_block_fetches,
+                    snapshot: tokio::sync::Mutex::new(snapshot),
                 }
                 .spawn(),
             )
