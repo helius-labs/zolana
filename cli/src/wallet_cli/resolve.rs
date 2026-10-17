@@ -14,6 +14,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct ResolvedSyncOptions {
     pub(crate) keypair_path: PathBuf,
+    pub(crate) fee_payer: Option<String>,
     pub(crate) rpc_url: String,
     pub(crate) indexer_url: String,
 }
@@ -38,6 +39,7 @@ pub(crate) fn resolve_sync_with_config(
 ) -> Result<ResolvedSyncOptions> {
     Ok(ResolvedSyncOptions {
         keypair_path: resolve_keypair_path(opts.keypair.keypair.as_deref(), config),
+        fee_payer: opts.fee_payer.clone(),
         rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), config),
         indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), config),
     })
@@ -104,6 +106,7 @@ mod tests {
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
+                fee_payer: None,
                 keypair: WalletKeypairOptions { keypair: None },
                 rpc_url: None,
                 indexer_url: None,
@@ -124,6 +127,7 @@ mod tests {
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
+                fee_payer: None,
                 keypair: WalletKeypairOptions { keypair: None },
                 rpc_url: None,
                 indexer_url: None,
@@ -147,6 +151,7 @@ mod tests {
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
+                fee_payer: None,
                 keypair: WalletKeypairOptions { keypair: None },
                 rpc_url: None,
                 indexer_url: None,

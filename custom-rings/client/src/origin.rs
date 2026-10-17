@@ -2,11 +2,13 @@
 
 use core::future::Future;
 
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_event::tag;
 use zolana_event_parser::{event_parent, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
+    instruction::instruction_data::deposit::RingDepositIxData,
     instruction::{settlement_accounts, InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
@@ -21,6 +23,33 @@ pub struct RingOrigin {
     /// Fee payer first, every real input owner signs.
     pub signers: Vec<Address>,
     pub withdrawals: Vec<RingWithdrawal>,
+    /// Capsule bindings from this event's confirmed audited deposit instruction.
+    pub deposits: Vec<ConfirmedDeposit>,
+}
+
+/// An opening authenticated by successful execution of the ring's deposit proof.
+/// Only the confirmed instruction parser constructs this binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedDeposit {
+    slot_index: u8,
+    owner_utxo_hash: [u8; 32],
+    capsule_hash: [u8; 32],
+}
+
+impl ConfirmedDeposit {
+    pub fn slot_index(&self) -> u8 {
+        self.slot_index
+    }
+
+    pub(crate) fn matches(
+        &self,
+        capsule: custom_ring_interface::RingDepositAuditCapsule<'_>,
+        owner_utxo_hash: &[u8; 32],
+    ) -> bool {
+        self.slot_index == capsule.slot_index
+            && &self.owner_utxo_hash == owner_utxo_hash
+            && self.capsule_hash == <[u8; 32]>::from(Sha256::digest(capsule.encode()))
+    }
 }
 
 /// One public settlement leg out of the ring.
@@ -62,7 +91,58 @@ pub fn ring_event_origin_in(
             true => ring_withdrawals_of(&[source])?,
             false => Vec::new(),
         },
+        deposits: confirmed_deposits(groups, source, ring)?,
     })
+}
+
+/// Bind only capsules whose proof ran in the direct caller of this exact event.
+/// A plain deposit may carry arbitrary capsule bytes and grants no binding.
+fn confirmed_deposits(
+    groups: &[InstructionGroup],
+    source: &ParsedInstruction,
+    ring: Address,
+) -> Result<Vec<ConfirmedDeposit>, AuditError> {
+    if source.data.first() != Some(&tag::RING_DEPOSIT) {
+        return Ok(Vec::new());
+    }
+    let caller = groups.iter().find_map(|group| {
+        let index = group
+            .inner
+            .iter()
+            .position(|inner| core::ptr::eq(inner, source))?;
+        event_parent(group, index)
+    });
+    if !caller.is_some_and(|caller| {
+        caller.program_id == ring
+            && caller.data.first() == Some(&custom_ring_interface::tag::AUDITED_DEPOSIT)
+            && caller
+                .data
+                .get(2 + custom_ring_interface::CustomRingProof::SIZE..)
+                == Some(source.data.as_slice())
+    }) {
+        return Ok(Vec::new());
+    }
+    let deposit = RingDepositIxData::deserialize(&source.data[1..])
+        .map_err(|error| AuditError::InvalidDepositData(error.to_string()))?;
+    deposit
+        .deposits
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let capsule =
+                custom_ring_interface::RingDepositAuditCapsule::parse(&entry.encrypted.ciphertext)
+                    .map_err(|error| AuditError::InvalidDepositData(error.to_string()))?
+                    .filter(|capsule| usize::from(capsule.slot_index) == index)
+                    .ok_or_else(|| {
+                        AuditError::InvalidDepositData("missing or misplaced capsule".into())
+                    })?;
+            Ok(ConfirmedDeposit {
+                slot_index: capsule.slot_index,
+                owner_utxo_hash: entry.owner_utxo_hash,
+                capsule_hash: Sha256::digest(&entry.encrypted.ciphertext).into(),
+            })
+        })
+        .collect()
 }
 
 /// `ring_transact` needs the ring's `ring_auth` signer, so only the ring's direct callees count.
@@ -175,6 +255,8 @@ fn ring_withdrawals_of(
     Ok(withdrawals)
 }
 
+#[cfg(all(test, feature = "solana-rpc"))]
+use rpc::confirmed_origin_for;
 #[cfg(feature = "solana-rpc")]
 pub use rpc::{confirmed_origin, ORIGIN_TRANSACTION_CONFIG};
 
@@ -212,6 +294,24 @@ mod rpc {
             signers,
             ..ring_event_origin_in(&groups.groups, event_index, ring)?
         })
+    }
+
+    pub fn confirmed_origin_for(
+        signature: Signature,
+        transaction: EncodedConfirmedTransactionWithStatusMeta,
+        event_index: u16,
+        ring: Address,
+    ) -> Result<RingOrigin, AuditError> {
+        if !matches!(&transaction.transaction.transaction,
+            EncodedTransaction::Json(ui)
+                if ui.signatures.first().is_some_and(|value| value == &signature.to_string()))
+        {
+            return Err(unavailable(
+                signature,
+                "confirmed transaction signature does not match the request",
+            ));
+        }
+        confirmed_origin(transaction, event_index, ring)
     }
 
     /// The first `num_required_signatures` keys, an unknown encoding names no signer.
@@ -258,7 +358,7 @@ mod rpc {
                 .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
                 .await
                 .map_err(|error| unavailable(signature, error))?;
-            confirmed_origin(transaction, event_index, ring)
+            confirmed_origin_for(signature, transaction, event_index, ring)
         }
     }
 
@@ -279,7 +379,7 @@ mod rpc {
             .await
             .map_err(|error| unavailable(signature, error))?
             .map_err(|error| unavailable(signature, error))?;
-            confirmed_origin(transaction, event_index, ring)
+            confirmed_origin_for(signature, transaction, event_index, ring)
         }
     }
 }

@@ -54,7 +54,7 @@ pub(crate) fn transact_data() -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
-        circuit: CircuitId::RingEddsa(1, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEd25519(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(4),
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),

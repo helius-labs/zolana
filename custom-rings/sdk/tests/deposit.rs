@@ -117,10 +117,10 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
 }
 
 #[test]
-fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
+fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
     let ring = CustomRing::new(Address::new_from_array([42; 32]));
     let payer = ShieldedKeypair::new_ed25519().unwrap();
-    let recipient = ShieldedKeypair::new_p256().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: payer.pubkey(),
@@ -141,7 +141,7 @@ fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
     let client = client(rpc, ProverClient::new("http://127.0.0.1:1".to_owned()));
     let deposit = RingDeposit {
         ring,
-        payer: &payer,
+        payer: &recipient,
         recipient: &recipient,
         tree: Address::new_from_array([8; 32]),
         asset: DepositAsset::Sol,
@@ -150,8 +150,19 @@ fn anonymous_deposit_refuses_a_p256_recipient_before_building_the_note() {
     };
     assert!(matches!(
         client.block_on(deposit.prepare(client.as_async())),
-        Err(RingError::AnonymousRecipient)
+        Err(RingError::AnonymousPublicSignerLinksOwner)
     ));
+    let deposit = RingDeposit {
+        payer: &payer,
+        ..deposit
+    };
+    let prepared = client.block_on(deposit.prepare(client.as_async())).unwrap();
+    let mut submission = custom_ring_sdk::RingSubmission::new(prepared);
+    assert!(matches!(
+        client.block_on(submission.send(client.as_async(), &recipient, &[&payer])),
+        Err(RingError::AnonymousPublicSignerLinksOwner)
+    ));
+    assert_eq!(submission.attempts(), 0);
 }
 
 /// Answers config and registry reads, every member is unregistered.

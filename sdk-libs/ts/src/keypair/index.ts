@@ -1,15 +1,12 @@
 export {
-  P256_OWNER_TAG,
   SOLANA_OWNER_TAG,
   initializePoseidon,
   isPoseidonInitialized,
-  p256OwnerIdentity,
   solanaOwnerIdentity,
 } from "../hasher/index.js";
 
 export { randomBlinding, randomSalt } from "./bytes.js";
 export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes34, Bytes64 } from "./bytes.js";
-export type { EcdsaSignature } from "./signing-key.js";
 export type { SignatureType, ViewTag } from "./public-key.js";
 export type { Salt } from "./viewing-key.js";
 export {
@@ -22,7 +19,6 @@ export {
 // half of the `zolana_keypair::derivation` registry.
 export {
   BLINDING_LENGTH,
-  P256_PUBLIC_KEY_LENGTH,
   SALT_LENGTH,
   SHIELDED_PUBLIC_KEY_LENGTH,
   VIEW_TAG_LENGTH,
@@ -32,10 +28,6 @@ export {
   ED25519_SEED_LEN,
   DERIVATION_PAYLOAD_PREFIX,
   OFFCHAIN_MESSAGE_MAGIC,
-  P256_SEED_LEN,
-  P_CONST_SEC1,
-  P_DERIVE_SEC1,
-  P_PDA_SEC1,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
   ed25519DerivationPayload,
@@ -69,7 +61,7 @@ export type {
   AuditorMessage,
   CustomRingBasePublicInput,
 } from "./audit.js";
-export { P256PublicKey, ShieldedPublicKey } from "./public-key.js";
+export { ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";
 export { ViewingKey } from "./viewing-key.js";
@@ -77,12 +69,11 @@ export {
   CompressedShieldedAddress,
   ShieldedAddress,
   ShieldedKeypair,
-  type P256Signature,
   type ShieldedKeypairLike,
   type ViewingKeyLike,
 } from "./shielded.js";
 
-/** Mirrors Rust's `Signature` / `ECDSASignature` aliases: 64 raw bytes. */
+/** Mirrors Rust's `Signature` alias: 64 raw bytes. */
 export type Signature = import("./bytes.js").Bytes64;
 export type { ErrorEnvelope } from "../errors/internal.js";
 

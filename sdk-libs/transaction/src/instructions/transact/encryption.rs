@@ -207,8 +207,7 @@ impl ConfidentialTransaction {
         &self,
         sender: &PublicKey,
     ) -> Result<ResolvedOwnerTag, TransactionError> {
-        let (tag, resolved) =
-            sender_owner_tag(sender, &self.payer, self.ring_program_id.is_some())?;
+        let (tag, resolved) = sender_owner_tag(sender, &self.payer)?;
         Ok(ResolvedOwnerTag { tag, resolved })
     }
 

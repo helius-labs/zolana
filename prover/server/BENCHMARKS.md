@@ -2,9 +2,9 @@
 
 Results appended by `scripts/bench_spp.sh` (`just prover bench-spp`), which
 runs `BenchmarkProveByShape` over every supported shape of the custom-ring
-EdDSA-only transact circuit (`NewCustomRingEddsaOnlyCircuit`), up to the
+EdDSA-only transact circuit (`NewCustomRingConfidentialEd25519Circuit`), up to the
 49x2 shape. The 2026-06-12 sections below predate that circuit
-and cover the solana and p256 ownership rails. Times are proving only; circuit
+and cover the Solana ownership rail. Times are proving only; circuit
 compilation and Groth16 setup are excluded.
 
 The sections are a record of the shapes and circuits supported on their date.
@@ -13,7 +13,7 @@ The 2026-10-05 shape grid (2, 4, 8 and 16 outputs; up to 49 inputs; see
 so their rows below no longer correspond to a key. No run over the current grid
 is recorded yet.
 
-## 2026-06-12 — 32e4fac (spp/1-circuit) — Apple M5 Pro — benchtime 5x (solana rail only, pre-p256 bench)
+## 2026-06-12 — 32e4fac (spp/1-circuit) — Apple M5 Pro — benchtime 5x
 
 | Rail / shape | Proving time (ms/op) | Constraints | MB/op | allocs/op |
 |---|---|---|---|---|
@@ -32,11 +32,6 @@ is recorded yet.
 | solana/inputs_3_outputs_3 | 130.6 | 68498 | 128.2 | 5246 |
 | solana/inputs_5_outputs_3 | 181.0 | 110419 | 172.7 | 6442 |
 | solana/inputs_1_outputs_8 | 67.7 | 32776 | 56.3 | 3941 |
-| p256/inputs_1_outputs_2 | 317.4 | 182721 | 460.5 | 706358 |
-| p256/inputs_2_outputs_2 | 379.1 | 203648 | 464.8 | 708615 |
-| p256/inputs_3_outputs_3 | 372.3 | 225811 | 496.2 | 749527 |
-| p256/inputs_5_outputs_3 | 492.6 | 267732 | 595.7 | 664499 |
-| p256/inputs_1_outputs_8 | 339.7 | 190089 | 462.0 | 706574 |
 
 ## 2026-06-12 21:34 UTC — 32e4fac (spp/1-circuit) — Apple M5 Pro — benchtime 5x
 
@@ -47,8 +42,3 @@ is recorded yet.
 | solana/inputs_3_outputs_3 | 141.9 | 68498 | 128.2 | 5214 |
 | solana/inputs_5_outputs_3 | 188.3 | 110419 | 172.7 | 6242 |
 | solana/inputs_1_outputs_8 | 75.4 | 32776 | 56.3 | 4016 |
-| p256/inputs_1_outputs_2 | 353.0 | 182721 | 464.3 | 791414 |
-| p256/inputs_2_outputs_2 | 394.6 | 203648 | 462.9 | 666143 |
-| p256/inputs_3_outputs_3 | 380.0 | 225811 | 498.1 | 792005 |
-| p256/inputs_5_outputs_3 | 483.9 | 267732 | 597.6 | 706690 |
-| p256/inputs_1_outputs_8 | 333.1 | 190089 | 465.8 | 791955 |

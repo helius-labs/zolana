@@ -428,8 +428,8 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
-The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
-rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
+The runtime-authorized transfer and anonymous Ed25519 ownership
+circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
 duplicated in places that MUST stay in sync: Rust
 `program-libs/interface/src/shape.rs` (`SPP_SUPPORTED_SHAPES`, cost-ordered,
@@ -450,10 +450,10 @@ merge widths (8, 24 and 54) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 prover/server/scripts/generate_keys_transfer.sh
 
 # One shape directly (--circuit flag = transfer-confidential | transfer-ring |
-# transfer-p256-ring | transfer-ring-authority). Key files mirror the vk modules.
+# transfer-ed25519-ring | transfer-ring-authority). Key files mirror the vk modules.
 cd prover/server && go build -o light-prover .
-./light-prover setup-transfer --circuit transfer-p256-ring --n-inputs 2 --n-outputs 2 \
-    --output proving-keys/transfer_p256_ring_2_2.key
+./light-prover setup-transfer --circuit transfer-ed25519-ring --n-inputs 2 --n-outputs 2 \
+    --output proving-keys/transfer_ed25519_ring_2_2.key
 ```
 
 `setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`
@@ -562,7 +562,7 @@ key set fails before a transaction is built instead of on-chain:
 
 ### BSB22 commitments (the two rails differ on purpose)
 
-- **transfer_p256 (P256):** the emulated-P256 gadget adds one BSB22 commitment over
+- **transfer_ed25519_ring:** the signature gadget adds one BSB22 commitment over
   private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
   public_inputs + 2`. Proofs include `proofCommitment` + `proofCommitmentPok`.
   Verify with `Groth16Verifier::new_with_commitment`.
@@ -574,7 +574,7 @@ Both verify in one binary built with the `bsb22` feature: `verify_common` runs
 the standard Groth16 pairing for every proof and only adds the Pedersen PoK
 pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
 (or the rail). The Go prover marshals `proofCommitment` as `omitempty`, so it is
-absent for the eddsa rail and present for the P256 rail.
+absent for the eddsa rail and present for the anonymous Ed25519 rail.
 
 NOTE: the parser/verifier support a single commitment over **private** wires
 only (empty `committed_wires`). Committing a **public** input (e.g.

@@ -21,7 +21,7 @@ fn fixture_ciphertext() -> [u8; 32] {
     hex_bytes::<32>("03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354")
 }
 
-/// One public input plus the emulated-P256 gadget's BSB22 commitment, `vk_ic`
+/// One public input plus the lookup argument's BSB22 commitment, `vk_ic`
 /// carries `public_inputs + 2`.
 #[test]
 fn the_committed_verifying_key_carries_a_bsb22_commitment() {

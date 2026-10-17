@@ -30,7 +30,7 @@ use crate::{
     },
 };
 
-pub struct RingTransferEd25519Prover<'a> {
+pub struct AnonymousRingEd25519Prover<'a> {
     pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. See
@@ -49,8 +49,8 @@ pub struct RingTransferEd25519Prover<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct RingTransferEd25519ProofResult {
-    pub inputs: TransferEd25519Inputs,
+pub struct AnonymousRingEd25519ProofResult {
+    pub inputs: AnonymousEd25519TransferInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
@@ -65,15 +65,15 @@ pub struct RingTransferEd25519ProofResult {
 /// The Solana-only proof inputs plus the hidden owner's key, its signature and
 /// the signed digest. The rail publishes no output owner.
 #[derive(Debug, Clone)]
-pub struct TransferEd25519Inputs {
+pub struct AnonymousEd25519TransferInputs {
     pub transfer: TransferInputs,
     pub owner_public_key: [u8; 32],
     pub owner_signature: [u8; 64],
     pub message_digest: [u8; 32],
 }
 
-impl RingTransferEd25519Prover<'_> {
-    pub fn build(self) -> Result<RingTransferEd25519ProofResult, ClientError> {
+impl AnonymousRingEd25519Prover<'_> {
+    pub fn build(self) -> Result<AnonymousRingEd25519ProofResult, ClientError> {
         let shape = self.shape;
         validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
@@ -112,7 +112,7 @@ impl RingTransferEd25519Prover<'_> {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::RingEd25519(owner),
+            &OwnerMode::AnonymousEd25519(owner),
             self.allow_dummy_inputs,
         )?;
         // The circuit commits zero owners, so a marked output fails the proof here
@@ -157,8 +157,8 @@ impl RingTransferEd25519Prover<'_> {
             public_input_hash: be(&public_input),
         };
 
-        Ok(RingTransferEd25519ProofResult {
-            inputs: TransferEd25519Inputs {
+        Ok(AnonymousRingEd25519ProofResult {
+            inputs: AnonymousEd25519TransferInputs {
                 transfer,
                 owner_public_key,
                 owner_signature,
@@ -174,33 +174,26 @@ impl RingTransferEd25519Prover<'_> {
     }
 }
 
-impl ProveRequest for TransferEd25519Inputs {
+impl ProveRequest for AnonymousEd25519TransferInputs {
     /// The Solana-only wire form with the circuit type and the owner fields of
-    /// the prover's `Ed25519TransferParametersJSON`.
+    /// the prover's `AnonymousEd25519TransferParametersJSON`.
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let mut body: Map<String, Value> = serde_json::from_str(&to_json_ring(&self.transfer)?)
             .expect("the transfer request is a JSON object");
-        let (high, low) = self.message_digest.split_at(16);
-        for (key, value) in [
-            ("circuitType", "transfer-ed25519-ring".to_string()),
-            (
-                "ownerPublicKey",
-                format!("0x{}", hex::encode(self.owner_public_key)),
-            ),
-            (
-                "ownerSignature",
-                format!("0x{}", hex::encode(self.owner_signature)),
-            ),
-            ("messageHashLow", format!("0x{}", hex::encode(low))),
-            ("messageHashHigh", format!("0x{}", hex::encode(high))),
-        ] {
-            body.insert(key.to_string(), Value::String(value));
-        }
+        body.insert(
+            "circuitType".to_string(),
+            Value::String("transfer-ed25519-ring".to_string()),
+        );
+        body.extend(owner_fields(
+            &self.owner_public_key,
+            &self.owner_signature,
+            &self.message_digest,
+        ));
         Ok(Zeroizing::new(Value::Object(body).to_string()))
     }
 
     fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
-        ExpectedProvingKey::transfer_ed25519_ring(
+        ExpectedProvingKey::transfer_anonymous_ring_ed25519(
             self.transfer.inputs.len(),
             self.transfer.outputs.len(),
         )
@@ -211,6 +204,24 @@ impl ProveRequest for TransferEd25519Inputs {
     }
 }
 
+/// Encodes the same owner authorization for complete and indexed witnesses.
+pub(crate) fn owner_fields(
+    public_key: &[u8; 32],
+    signature: &[u8; 64],
+    digest: &[u8; 32],
+) -> Map<String, Value> {
+    let (high, low) = digest.split_at(16);
+    [
+        ("ownerPublicKey", hex::encode(public_key)),
+        ("ownerSignature", hex::encode(signature)),
+        ("messageHashLow", hex::encode(low)),
+        ("messageHashHigh", hex::encode(high)),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_string(), Value::String(format!("0x{value}"))))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,7 +230,7 @@ mod tests {
     /// of the committed Go request.
     #[test]
     fn body_carries_the_prover_owner_fields() {
-        let inputs = TransferEd25519Inputs {
+        let inputs = AnonymousEd25519TransferInputs {
             transfer: TransferInputs {
                 inputs: Vec::new(),
                 outputs: Vec::new(),

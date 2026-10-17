@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"crypto/elliptic"
 	"encoding/json"
 	"math/big"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/internal/p256key"
 )
 
 func fe(v int64) *big.Int {
@@ -179,8 +177,7 @@ func TestOwnerHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-// A Solana owner identity is tagged: the same 32 bytes read as a P256
-// x-coordinate or as an untagged viewing commitment must land elsewhere.
+// A Solana owner identity is distinct from the same untagged asset bytes.
 func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 	var pubkey [32]byte
 	for i := range pubkey {
@@ -194,40 +191,7 @@ func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 	if untagged := mustHashBytes(t, pubkey[:]); got.Cmp(untagged) == 0 {
 		t.Fatal("solana owner identity equals the untagged byte hash")
 	}
-	if p256Tagged := mustHashBytes(t, append([]byte{P256OwnerTag}, pubkey[:]...)); got.Cmp(p256Tagged) == 0 {
-		t.Fatal("solana owner identity equals the P256-tagged byte hash")
-	}
-}
 
-// The P256 owner identity drops the parity byte and tags the x-coordinate, so
-// it cannot collide with a Solana key of the same bytes nor with the untagged
-// viewing-key commitment over the same x.
-func TestOwnerPkFieldIsTaggedP256X(t *testing.T) {
-	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(11))
-	if err != nil {
-		t.Fatal(err)
-	}
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
-	got, err := OwnerPkField(compressed)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var x [32]byte
-	priv.PublicKey.X.FillBytes(x[:])
-	want := mustHashBytes(t, append([]byte{P256OwnerTag}, x[:]...))
-	if got.Cmp(want) != 0 {
-		t.Fatalf("P256 owner identity mismatch: got %s want %s", got, want)
-	}
-	if untagged := mustHashBytes(t, x[:]); got.Cmp(untagged) == 0 {
-		t.Fatal("P256 owner identity equals the untagged x hash")
-	}
-	if solanaTagged := mustHashBytes(t, append([]byte{SolanaOwnerTag}, x[:]...)); got.Cmp(solanaTagged) == 0 {
-		t.Fatal("P256 owner identity equals the Solana-tagged x hash")
-	}
-	if got.Cmp(mustSolanaPkField(t, x)) == 0 {
-		t.Fatal("P256 owner identity equals the Solana identity of the same bytes")
-	}
 }
 
 // An asset is not an identity: mints stay untagged, so the asset field of a
@@ -254,29 +218,6 @@ func TestAssetFieldIsUntagged(t *testing.T) {
 	}
 	if SolAsset().Cmp(zeroAsset) != 0 {
 		t.Fatalf("SolAsset mismatch: got %s want %s", SolAsset(), zeroAsset)
-	}
-}
-
-func TestP256PkFieldMatchesSpecFormula(t *testing.T) {
-	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(11))
-	if err != nil {
-		t.Fatal(err)
-	}
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
-	got, err := P256PkField(compressed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var xBytes [32]byte
-	priv.PublicKey.X.FillBytes(xBytes[:])
-	xHashValue, xHashErr := HashBytes(xBytes[:])
-	xHash := mustHash(t, xHashValue, xHashErr)
-	want := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetUint64(uint64(compressed[0] & 1)),
-		xHash,
-	})
-	if got.Cmp(want) != 0 {
-		t.Fatalf("P256 owner key hash mismatch: got %s want %s", got, want)
 	}
 }
 

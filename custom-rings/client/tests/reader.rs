@@ -4,7 +4,6 @@
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use solana_address::Address;
-use zolana_keypair::SigningKey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 fn ed25519_address() -> Address {
@@ -15,10 +14,13 @@ fn ed25519_address() -> Address {
 fn tagged_reader_keys_round_trip_through_their_bytes() {
     let ed25519 = ReaderKey::ed25519(ed25519_address()).expect("Ed25519 reader");
     let p256 = ReaderKey::p256(
-        SigningKey::new_p256()
-            .pubkey()
-            .as_p256()
-            .expect("P256 signing key"),
+        zolana_ring_client::P256ReaderKey::from_bytes(
+            hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap(),
     )
     .expect("P256 reader");
 
@@ -62,4 +64,13 @@ fn a_reader_key_body_that_is_not_a_point_is_rejected() {
         ReaderKey::from_bytes(small_order),
         Err(ReaderKeyError::Body)
     );
+}
+
+#[test]
+fn reserved_passkey_points_are_rejected() {
+    let bytes = hex::decode("038a31d53c5ad20d1cd7ee1fbb9927bd0cdfb61b1b89f6b2c5a94a5f081fe16b5b")
+        .unwrap()
+        .try_into()
+        .unwrap();
+    assert!(zolana_ring_client::P256ReaderKey::from_bytes(bytes).is_err());
 }

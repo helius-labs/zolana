@@ -247,7 +247,7 @@ pub fn new_transact_ix_data(
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
-    let circuit = CircuitId::ConfidentialEddsa(
+    let circuit = CircuitId::ConfidentialEd25519(
         inputs.len() as u8,
         outputs.len() as u8,
         N_PUBLIC_SLOTS as u8,
@@ -501,7 +501,7 @@ pub fn prove_and_verify_transfer(
     public_input_hash: [u8; 32],
     label: &str,
 ) -> Result<TransactProof> {
-    let circuit = CircuitId::ConfidentialEddsa(
+    let circuit = CircuitId::ConfidentialEd25519(
         u8::try_from(prover_inputs.inputs.len())?,
         u8::try_from(prover_inputs.outputs.len())?,
         N_PUBLIC_SLOTS as u8,
@@ -522,7 +522,7 @@ pub fn prove_and_verify_transfer(
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
-/// P256 point works and a constant keeps the run deterministic.
+/// X25519 key works and a constant keeps the run deterministic.
 fn test_viewing_pubkey() -> X25519Pubkey {
     ViewingKey::from_bytes(&[5u8; 32])
         .expect("viewing key")
@@ -600,7 +600,7 @@ pub fn change_and_dummy_outputs(
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
 /// non-inclusion for every slot). Returns the input and its nullifier — SPP
 /// inserts dummy nullifiers exactly like real ones. The dummy's `ownerPkHash`
-/// is pinned to zero: PR172's signer resolution (`AuthorizedEddsaInputOwners`)
+/// is pinned to zero: PR172's signer resolution (`AuthorizedEd25519InputOwners`)
 /// rejects any non-zero owner identity on a content-less slot.
 pub fn dummy_input(
     blinding: &[u8; 31],

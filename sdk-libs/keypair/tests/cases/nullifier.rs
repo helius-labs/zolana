@@ -1,9 +1,7 @@
 use zolana_keypair::{
     constants::BLINDING_LEN,
-    derivation::{
-        ed25519_derivation_message, DST_DERIVE_P_DERIVE, ED25519_DERIVATION_MSG, P_DERIVE_SEC1,
-    },
-    KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
+    derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
+    KeypairError, NullifierKey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::KeypairWorld;
@@ -39,42 +37,7 @@ pub(crate) fn expand_viewing_pubkey(seed: &[u8], info: &[u8]) -> X25519Pubkey {
     ViewingKey::from_bytes(&okm).unwrap().pubkey()
 }
 
-fn p256_ecdh_x(secret: &[u8; 32], point_sec1: &[u8]) -> [u8; 32] {
-    let sk = p256::SecretKey::from_slice(secret).unwrap();
-    let pk = p256::PublicKey::from_sec1_bytes(point_sec1).unwrap();
-    let shared = p256::ecdh::diffie_hellman(sk.to_nonzero_scalar(), pk.as_affine());
-    let mut x = [0u8; 32];
-    x.copy_from_slice(shared.raw_secret_bytes());
-    x
-}
-
-/// Regenerates P_derive, the point that roots signing-key roles, from its
-/// domain string.
-pub(crate) fn committed_points_match_dsts() {
-    use p256::{
-        elliptic_curve::{
-            hash2curve::{ExpandMsgXmd, GroupDigest},
-            sec1::ToEncodedPoint,
-        },
-        NistP256,
-    };
-    use sha2::Sha256;
-
-    let point =
-        NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_DERIVE_P_DERIVE]).unwrap();
-    assert_eq!(
-        point.to_affine().to_encoded_point(true).as_bytes(),
-        P_DERIVE_SEC1,
-        "P_derive does not match its DST",
-    );
-}
-
-pub(crate) fn derivation_seed_matches_rail_primitives(world: &mut KeypairWorld, key: String) {
-    let sk = world.sig_key(&key);
-    assert_eq!(
-        sk.derivation_seed().unwrap().as_slice(),
-        p256_ecdh_x(&sk.secret_bytes(), &P_DERIVE_SEC1)
-    );
+pub(crate) fn derivation_seed_matches_rail_primitives() {
     let ed = SigningKey::from_ed25519_bytes(&[7u8; 32]);
     assert_eq!(
         ed.derivation_seed().unwrap().as_slice(),
@@ -84,14 +47,6 @@ pub(crate) fn derivation_seed_matches_rail_primitives(world: &mut KeypairWorld, 
         ed.derivation_seed().unwrap().as_slice(),
         dalek_sign(&[7u8; 32], ED25519_DERIVATION_MSG)
     );
-}
-
-pub(crate) fn p256_rail_matches_ecdh_entry_point(world: &mut KeypairWorld, key: String) {
-    let sk = world.sig_key(&key);
-    let shared_x = p256_ecdh_x(&sk.secret_bytes(), &P_DERIVE_SEC1);
-    let device_secret = expand_nullifier_secret(&shared_x, b"TSPP/nf_key/ecdh/v1");
-    let software = ShieldedKeypair::from_keypair(sk.clone()).unwrap();
-    assert_eq!(device_secret, *software.nullifier_key.secret());
 }
 
 pub(crate) fn ed25519_rail_matches_signature_entry_point() {
@@ -132,24 +87,7 @@ pub(crate) fn ed25519_keypair_derives_both_keys_from_one_signature() {
     );
 }
 
-pub(crate) fn rails_differ_for_identical_root_bytes() {
-    let root = [7u8; 32];
-    let p256 = ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&root).unwrap()).unwrap();
-    let ed25519 = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&root)).unwrap();
-    assert_ne!(
-        *p256.nullifier_key.secret(),
-        *ed25519.nullifier_key.secret()
-    );
-    assert_ne!(p256.viewing_key.pubkey(), ed25519.viewing_key.pubkey());
-}
-
-pub(crate) fn ed25519_ecdh_is_not_p256() {
-    let ed25519 = SigningKey::from_ed25519_bytes(&[7u8; 32]);
-    let counterparty = SigningKey::new_p256().pubkey().as_p256().unwrap();
-    assert_eq!(ed25519.ecdh(&counterparty), Err(KeypairError::NotP256));
-}
-
-pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key: String) {
+pub(crate) fn primitives_refuse_derivation_inputs() {
     let ed = SigningKey::from_ed25519_bytes(&[7u8; 32]);
     assert_eq!(
         ed.sign_message(ED25519_DERIVATION_MSG),
@@ -164,28 +102,6 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
         Err(KeypairError::DerivationInput)
     );
     assert!(ed.sign_message(b"benign message").is_ok());
-
-    let sk = world.sig_key(&key);
-    let p_derive = P256Pubkey::from_bytes(P_DERIVE_SEC1).unwrap();
-    assert_eq!(sk.ecdh(&p_derive), Err(KeypairError::DerivationInput));
-    assert_eq!(
-        sk.sign_message(ED25519_DERIVATION_MSG),
-        Err(KeypairError::DerivationInput)
-    );
-    let mut prefixed_digest = [0u8; 32];
-    prefixed_digest[..12].copy_from_slice(b"TSPP/derive/");
-    assert_eq!(
-        sk.sign_hash(&prefixed_digest),
-        Err(KeypairError::DerivationInput)
-    );
-    let benign = SigningKey::new_p256().pubkey().as_p256().unwrap();
-    assert!(sk.ecdh(&benign).is_ok());
-
-    let p_pda = P256Pubkey::from_bytes(zolana_hasher::p256::P_PDA_SEC1).unwrap();
-    assert_eq!(sk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
-
-    let p_const = P256Pubkey::from_bytes(zolana_hasher::p256::P_CONST_SEC1).unwrap();
-    assert_eq!(sk.ecdh(&p_const), Err(KeypairError::DerivationInput));
 
     let vk = zolana_keypair::ViewingKey::new();
     assert!(vk.ecdh(&ViewingKey::new().pubkey()).is_ok());

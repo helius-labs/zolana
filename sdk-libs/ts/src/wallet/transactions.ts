@@ -37,10 +37,10 @@ export interface PrivateTransactionParams {
   /** The wallet's privacy roles, in-process (`LocalKeys`) or behind a remote holder. */
   readonly keys: WalletKeys;
   /**
-   * Pays the fee. When it is not the shielded owner, the owner's Ed25519 key
+   * Defaults to the shielded owner. When a different account pays, the owner's Ed25519 key
    * is a required signer of the built transaction as well.
    */
-  readonly feePayer: Address;
+  readonly feePayer?: Address;
   /** Approves the intent before proving; unattended when absent. */
   readonly approve?: ApprovalHandler;
 }
@@ -77,10 +77,11 @@ export interface SplitTransactionParams extends PrivateTransactionParams {
 }
 
 export async function buildTransferTransaction(
-  input: TransferTransactionParams,
+  params: TransferTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const input = withFeePayer(params);
     const created = await createTransfer(
       {
         client: input.client,
@@ -106,10 +107,11 @@ export async function buildTransferTransaction(
  * wider proof allows fail with `WALLET_TOO_MANY_INPUTS`; merge first.
  */
 export async function buildMultiTransferTransaction(
-  input: MultiTransferTransactionParams,
+  params: MultiTransferTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const input = withFeePayer(params);
     const created = await createMultiTransfer(
       {
         client: input.client,
@@ -127,10 +129,11 @@ export async function buildMultiTransferTransaction(
 }
 
 export async function buildWithdrawalTransaction(
-  input: WithdrawalTransactionParams,
+  params: WithdrawalTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const input = withFeePayer(params);
     const asset = input.asset ?? SOL_MINT;
     const setupInstructions = await withdrawalSetupInstructions({
       payer: input.feePayer,
@@ -153,10 +156,11 @@ export async function buildWithdrawalTransaction(
 }
 
 export async function buildSplitTransaction(
-  input: SplitTransactionParams,
+  params: SplitTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const input = withFeePayer(params);
     const created = createSplit({
       wallet: input.wallet,
       payer: input.feePayer,
@@ -170,8 +174,15 @@ export async function buildSplitTransaction(
   }
 }
 
+/** Resolves the payer before selection, approval and proving bind the transaction. */
+function withFeePayer<T extends PrivateTransactionParams>(
+  input: T,
+): T & { readonly feePayer: Address } {
+  return { ...input, feePayer: input.feePayer ?? input.keys.address().solanaAddress() };
+}
+
 async function buildAuthorizedTransaction(
-  input: PrivateTransactionParams,
+  input: PrivateTransactionParams & { readonly feePayer: Address },
   transaction: Parameters<typeof authorizePrivateTransaction>[0],
   setupInstructions: readonly Instruction[],
   context: RequestContext | undefined,

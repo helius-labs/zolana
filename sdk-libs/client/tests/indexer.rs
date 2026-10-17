@@ -22,7 +22,7 @@ use zolana_client::{
     },
     ClientError,
 };
-use zolana_keypair::{constants::P256_PUBKEY_LEN, ViewingKey, X25519Pubkey};
+use zolana_keypair::{x25519::X25519_PUBKEY_LEN, ViewingKey, X25519Pubkey};
 use zolana_user_registry_interface::user_record_pda;
 
 #[test]
@@ -632,17 +632,15 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
         "records": [
             {
                 "owner": encode_pubkey_string(owners[0]),
-                "ownerP256": STANDARD.encode([7; P256_PUBKEY_LEN]),
                 "nullifierPubkey": encode_hash_string(bytes32(3)),
-                "viewingPubkey": STANDARD.encode([4; P256_PUBKEY_LEN]),
+                "viewingPubkey": STANDARD.encode([4; X25519_PUBKEY_LEN]),
                 "mergingEnabled": true,
             },
             null,
             {
                 "owner": encode_pubkey_string(owners[2]),
-                "ownerP256": null,
                 "nullifierPubkey": encode_hash_string(bytes32(5)),
-                "viewingPubkey": STANDARD.encode([6; P256_PUBKEY_LEN]),
+                "viewingPubkey": STANDARD.encode([6; X25519_PUBKEY_LEN]),
                 "mergingEnabled": false,
             },
         ],
@@ -670,18 +668,18 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 Some(UserRecord {
                     owner: owners[0],
                     bump: user_record_pda(&owners[0]).1,
-                    owner_p256: Some([7; P256_PUBKEY_LEN]),
+                    reserved_owner: Default::default(),
                     nullifier_pubkey: bytes32(3),
-                    viewing_pubkey: [4; P256_PUBKEY_LEN],
+                    viewing_pubkey: [4; X25519_PUBKEY_LEN],
                     merging_enabled: true,
                 }),
                 None,
                 Some(UserRecord {
                     owner: owners[2],
                     bump: user_record_pda(&owners[2]).1,
-                    owner_p256: None,
+                    reserved_owner: Default::default(),
                     nullifier_pubkey: bytes32(5),
-                    viewing_pubkey: [6; P256_PUBKEY_LEN],
+                    viewing_pubkey: [6; X25519_PUBKEY_LEN],
                     merging_enabled: false,
                 }),
             ],
@@ -696,7 +694,6 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
         "context": { "blockTime": 42, "slot": 77 },
         "records": [{
             "owner": encode_pubkey_string(owner),
-            "ownerP256": null,
             "nullifierPubkey": encode_hash_string(bytes32(3)),
             "viewingPubkey": STANDARD.encode([4; 32]),
             "mergingEnabled": false,

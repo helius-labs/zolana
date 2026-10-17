@@ -14,7 +14,7 @@ import (
 )
 
 // bytes32FromBitsCircuit hashes the reassembled bytes untagged, the way the
-// P256 message digest enters the public input hash.
+// Ed25519 message digest enters the public input hash.
 type bytes32FromBitsCircuit struct {
 	Bits     [256]frontend.Variable
 	Expected frontend.Variable
@@ -48,8 +48,8 @@ func TestBytes32FromBitsMatchesProtocolByteOrder(t *testing.T) {
 		t.Fatal("test vector does not distinguish big-endian from reversed byte order")
 	}
 
-	// fp.ToBitsCanonical yields little-endian bits; the helper must restore
-	// big-endian bytes from them.
+	// The circuit decomposes the two digest limbs into little-endian bits;
+	// the helper must restore the original big-endian digest bytes.
 	value := new(big.Int).SetBytes(digest[:])
 	assignment := bytes32FromBitsCircuit{Expected: expected}
 	for i := range assignment.Bits {

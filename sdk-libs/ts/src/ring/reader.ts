@@ -1,3 +1,4 @@
+import { p256 } from "@noble/curves/nist.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import {
@@ -12,14 +13,65 @@ import type { ChainReader } from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes, encodeBase58, Reader, sha256 } from "../interface/internal.js";
 import type { Bytes32, Bytes33, RequestContext } from "../interface/types.js";
-import { isDerivationPoint } from "../keypair/derivation.js";
-import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
 import { equal } from "../transaction/internal.js";
 
 import { ringConfigAddress } from "../interface/pda/index.js";
 import { RingError } from "./error.js";
+import { checkedBytes, copyBytes } from "../keypair/bytes.js";
+import { wrapKeypairError } from "../keypair/error.js";
 
 const encoder = new TextEncoder();
+
+/** Passkey public key for ring-rpc audit access. */
+export class P256ReaderKey {
+  readonly #bytes: Uint8Array;
+
+  private constructor(bytes: Uint8Array) {
+    this.#bytes = bytes;
+  }
+
+  static fromBytes(bytes: Bytes33): P256ReaderKey {
+    const owned = checkedBytes<Bytes33>(bytes, 33, "P256 public key");
+    try {
+      p256.Point.fromBytes(owned);
+    } catch (error) {
+      throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
+    }
+    return new P256ReaderKey(owned);
+  }
+
+  /** A 65-byte `0x04 || x || y` point, what WebAuthn and SPKI carry. */
+  static fromUncompressed(bytes: Uint8Array): P256ReaderKey {
+    try {
+      return P256ReaderKey.fromBytes(p256.Point.fromBytes(bytes).toBytes(true) as Bytes33);
+    } catch (error) {
+      throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
+    }
+  }
+
+  toBytes(): Bytes33 {
+    return copyBytes(this.#bytes) as Bytes33;
+  }
+
+  toUncompressed(): Uint8Array {
+    return p256.Point.fromBytes(this.#bytes).toBytes(false);
+  }
+
+  /** Compares canonical compressed passkey encodings. */
+  equals(other: P256ReaderKey): boolean {
+    const left = this.#bytes;
+    const right = other.#bytes;
+    return left.length === right.length && left.every((byte, index) => byte === right[index]);
+  }
+}
+
+/** Legacy derivation points remain excluded from passkey access. */
+export const RESERVED_READER_KEY_HEX = Object.freeze([
+  "030e4df946bce14b95292f13e133d2b0c64e898b5644f620a5bed25a061a42fcdb",
+  "039ef16592429da1403eaa29058eb7d9d5ad15a2ea557174f7b01ff7fe484eeeaf",
+  "038a31d53c5ad20d1cd7ee1fbb9927bd0cdfb61b1b89f6b2c5a94a5f081fe16b5b",
+]);
 
 /** Rust `tag::GRANT_READ_ACCESS` and `tag::REVOKE_READ_ACCESS`. */
 const GRANT_READ_ACCESS_TAG = 4;
@@ -29,7 +81,7 @@ const READER_KEY_P256 = 0x00;
 const READER_KEY_ED25519 = 0x01;
 
 /** Mirrors Rust `ReaderKey`. */
-export type ReaderKey = Address | P256PublicKey;
+export type ReaderKey = Address | P256ReaderKey;
 
 /** Mirrors Rust `ReadAccessRecord`. */
 export interface ReadAccessRecord {
@@ -54,7 +106,7 @@ export function checkedReaderKey(reader: ReaderKey): ReaderKey {
     if (!canonical) throw new RingError("RING_READER_KEY", { details: { reader } });
     return reader;
   }
-  if (isDerivationPoint(reader)) {
+  if (RESERVED_READER_KEY_HEX.includes(bytesToHex(reader.toBytes()))) {
     throw new RingError("RING_READER_KEY", { details: { reader: readerKeyToString(reader) } });
   }
   return reader;
@@ -62,9 +114,12 @@ export function checkedReaderKey(reader: ReaderKey): ReaderKey {
 
 /** The program's 34-byte scheme-tagged layout. */
 export function readerKeyBytes(reader: ReaderKey): Uint8Array {
-  return typeof reader === "string"
-    ? ShieldedPublicKey.fromEd25519(addressBytes(reader, "reader") as Bytes32).toBytes()
-    : ShieldedPublicKey.fromP256(reader).toBytes();
+  if (typeof reader === "string") {
+    return ShieldedPublicKey.fromEd25519(addressBytes(reader, "reader") as Bytes32).toBytes();
+  }
+  const bytes = new Uint8Array(34);
+  bytes.set(reader.toBytes(), 1);
+  return bytes;
 }
 
 /** Mirrors Rust `ReaderKey::from_bytes`. */
@@ -77,7 +132,7 @@ export function readerKeyFromBytes(bytes: Uint8Array): ReaderKey {
       if (bytes[33] !== 0) throw new RingError("RING_READER_KEY", { details: { scheme: 1 } });
       return checkedReaderKey(encodeBase58(bytes.subarray(1, 33)));
     case READER_KEY_P256:
-      return checkedReaderKey(P256PublicKey.fromBytes(bytes.subarray(1) as Bytes33));
+      return checkedReaderKey(P256ReaderKey.fromBytes(bytes.subarray(1) as Bytes33));
     default:
       throw new RingError("RING_READER_KEY", { details: { scheme: bytes[0] } });
   }
@@ -96,9 +151,9 @@ export function parseReaderKey(text: string): ReaderKey {
   if (!/^[0-9a-fA-F]{66}$/.test(trimmed)) {
     throw new RingError("RING_READER_KEY", { details: { text: trimmed } });
   }
-  let key: P256PublicKey;
+  let key: P256ReaderKey;
   try {
-    key = P256PublicKey.fromBytes(hexToBytes(trimmed) as Bytes33);
+    key = P256ReaderKey.fromBytes(hexToBytes(trimmed) as Bytes33);
   } catch (cause) {
     throw new RingError("RING_READER_KEY", { details: { text: trimmed }, cause });
   }

@@ -273,7 +273,7 @@ impl Harness {
     }
 
     fn check(&self, at: i64) -> Result<(), TestCaseError> {
-        let signing = SigningKey::from_p256_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
+        let signing = SigningKey::from_ed25519_bytes(&self.alice.signing_key.secret_bytes());
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::with_viewing_key(signing, viewing).unwrap();
         let mut wallet =
@@ -347,7 +347,7 @@ impl Harness {
         report: &SyncReport,
         at: i64,
     ) -> Result<(), TestCaseError> {
-        let signing = SigningKey::from_p256_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
+        let signing = SigningKey::from_ed25519_bytes(&self.alice.signing_key.secret_bytes());
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::with_viewing_key(signing, viewing).unwrap();
         let mut wallet =

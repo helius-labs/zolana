@@ -6,8 +6,7 @@ use custom_ring_interface::{
 };
 use solana_account::Account;
 use solana_address::Address;
-use zolana_interface::P_DERIVE_SEC1;
-use zolana_keypair::{SigningKey, X25519Secret};
+use zolana_keypair::X25519Secret;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
     ListId, ListSet, PolicyHashError, Rule, RuleTable, RuleTableError, Subject, MAX_RULES,
@@ -137,7 +136,7 @@ async fn config_read_accepts_only_canonical_typed_state() {
         ("wrong discriminator", |value| value.discriminator = 0),
         ("wrong bump", |value| value.bump ^= 1),
         ("invalid key", |value| value.auditor_pubkey = [0; 33]),
-        ("P-256 key", |value| value.auditor_pubkey = P_DERIVE_SEC1),
+        ("P-256 key", |value| value.auditor_pubkey = [2; 33]),
     ];
     let mut invalid = vec![
         (
@@ -159,7 +158,16 @@ async fn config_read_accepts_only_canonical_typed_state() {
 
 #[tokio::test]
 async fn reader_read_rejects_substituted_state() {
-    let reader = ReaderKey::p256(SigningKey::new_p256().pubkey().as_p256().unwrap()).unwrap();
+    let reader = ReaderKey::p256(
+        zolana_ring_client::P256ReaderKey::from_bytes(
+            hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let address = ring().read_access_record_pda(&reader);
     let bytes = reader.to_bytes();
     let seed_hash = ReadAccessRecord::seed_hash(&bytes).unwrap();

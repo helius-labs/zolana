@@ -269,8 +269,7 @@ impl LifecycleHarness {
             })
             .collect();
 
-        // All actors are eddsa-owned since the P256 rail was removed: the owner
-        // authorizes the spend by signing the transaction.
+        // The Ed25519 owner authorizes the spend by signing the transaction.
         let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
         let ix_data = assembled.with_proof(proof);

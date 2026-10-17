@@ -5,8 +5,8 @@ use zolana_interface::{
         instruction_data::transact::{
             fetch_tag, validate_input_tree_contexts, validate_interface_transfers, Bsb22Commitment,
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
-            RingP256ProofData, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
-            TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
+            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            MAX_EXTERNAL_DATA_HASH_SLICES,
         },
         tag,
     },
@@ -19,8 +19,8 @@ use zolana_interface::{
 #[test]
 fn circuit_id_wire_layout_and_unknown_rejection() {
     let vanilla_ids = [
-        CircuitId::ConfidentialEddsa(1, 2, 3),
-        CircuitId::RingEddsa(2, 3, 3),
+        CircuitId::ConfidentialEd25519(1, 2, 3),
+        CircuitId::ConfidentialRingEd25519(2, 3, 3),
         CircuitId::RingAuthority(4, 4, 3),
     ];
     for (value, id) in vanilla_ids.into_iter().enumerate() {
@@ -39,47 +39,22 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
         commitment: [4u8; 32],
         commitment_pok: [5u8; 32],
     };
-    let proof_data = RingP256ProofData {
-        bsb22_commitment: commitment,
-        default_owner_tag: None,
-    };
-    let p256 = CircuitId::RingP256(2, 3, 3, proof_data);
-    let bytes = wincode::serialize(&p256).unwrap();
-    let mut expected = 3u16.to_le_bytes().to_vec();
+    let ed25519 = CircuitId::AnonymousRingEd25519(2, 3, 3, commitment);
+    let bytes = wincode::serialize(&ed25519).unwrap();
+    let mut expected = 7u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[2, 3, 3]);
     expected.extend_from_slice(&commitment.commitment);
     expected.extend_from_slice(&commitment.commitment_pok);
-    expected.push(0);
-    expected.extend_from_slice(&[0u8; 32]);
     assert_eq!(bytes, expected);
     assert_eq!(
         wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(),
-        p256
+        ed25519
     );
-
-    let tagged = CircuitId::RingP256(
-        2,
-        3,
-        3,
-        RingP256ProofData {
-            bsb22_commitment: commitment,
-            default_owner_tag: Some([7u8; 32]),
-        },
-    );
-    let tagged_bytes = wincode::serialize(&tagged).unwrap();
-    assert_eq!(tagged_bytes[tagged_bytes.len() - 33], 1);
-    assert_eq!(&tagged_bytes[tagged_bytes.len() - 32..], &[7u8; 32]);
-    assert_eq!(
-        wincode::deserialize_exact::<CircuitId>(&tagged_bytes).unwrap(),
-        tagged
-    );
-
-    let mut noncanonical_none = bytes;
-    *noncanonical_none.last_mut().unwrap() = 1;
-    assert!(wincode::deserialize_exact::<CircuitId>(&noncanonical_none).is_err());
-
-    let unknown = 4u16.to_le_bytes();
-    assert!(wincode::deserialize_exact::<CircuitId>(&unknown).is_err());
+    for tag in [3u16, 6, 8] {
+        let mut retired = vec![0u8; 150];
+        retired[..2].copy_from_slice(&tag.to_le_bytes());
+        assert!(wincode::deserialize_exact::<CircuitId>(&retired).is_err());
+    }
 }
 
 /// A cached selector appends its `CacheAccess`: the little-endian read bitmap,
@@ -98,7 +73,7 @@ fn cached_circuit_id_carries_one_write_pair_per_output() {
         read_bitmap: 0b101,
         write_slots,
     };
-    let cached = CircuitId::ConfidentialEddsaCached(8, 16, 3, cache);
+    let cached = CircuitId::ConfidentialEd25519Cached(8, 16, 3, cache);
     let bytes = wincode::serialize(&cached).unwrap();
     let mut expected = 4u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[8, 16, 3]);
@@ -163,7 +138,7 @@ fn ix_data(proof: TransactProof) -> TransactIxData {
         proof,
         expiry_unix_ts: 7,
         private_tx_hash: [9u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
+        circuit: CircuitId::ConfidentialEd25519(1, 3, 3),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
             tree_index: 0,

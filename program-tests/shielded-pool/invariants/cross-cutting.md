@@ -125,14 +125,10 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors` + program-tests integration
 
 - [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
-  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
-  - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed P256 proof under the RingEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the RingP256 selector can carry no valid BSB22 commitment (a zeroed one decodes as the point at infinity, so the graft fails at pairing, 7008; garbage bytes fail at encoding, 7007); a wrong selector FAMILY under any tag is rejected pre-account with 7035 (INV-TRANSACT-34).
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, selector-keyed verifying key + commitment leg), `transact/processor.rs:139-151` (`fn validate_circuit_type`)
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidTransactProofEncoding = 7007` / `MismatchedCircuitType = 7035`
+  - Statement: the selector chooses the verifying key and commitment handling. A wrong selector family is rejected before account parsing. Retired P-256 selector tags 3 and 6 fail decoding.
+  - Covered by: `program-libs/interface/tests/circuit.rs` and `program-tests/shielded-pool/tests/transact/validate_circuit.rs`.
+  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects a valid hidden-owner proof relabeled as ConfidentialRingEd25519 and verifies the tree is unchanged.
   - Severity: Critical (cross-rail grafting)
-  - Suggested test: negative both graft directions (exists); harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_proof_points_that_fail_decompression`
@@ -325,22 +321,13 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Medium
   - Suggested test: positive (table test incl. the 7004 leg); harness: mollusk unit
 
-- [x] **INV-XC-32: retired wire formats fail closed at decode, new wire formats are fixed-width**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` units `rejects_retired_field_bearing_payload`, `rejects_retired_owner_tag_discriminant`
-  - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly one field (the 32-byte nullifier hash; the root-index pair sits once per instruction after `inputs`) and `RingP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs` (decoder tests), `program-libs/interface/src/verifying_keys/circuit.rs` (`RingP256ProofData`, `FixedOptionOwnerTag`)
+- [x] **INV-XC-32: retired wire formats fail closed at decode**
+  - Covered by: `program-libs/interface/tests/circuit.rs` and `program-libs/interface/tests/transact.rs`.
+  - Statement: retired selector tags 3 and 6, retired owner-tag discriminants and obsolete field-bearing payloads fail deserialization. Supported selectors retain their tags and fixed-width payloads.
   - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
   - Severity: Medium
-  - Suggested test: negative (exists); harness: `cargo test -p zolana-interface`
 
-- [x] **INV-XC-33: RingP256ProofData is canonical and bound**
-  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` (`p256_ring_transfer_updates_recipient_wallet` bad-commitment leg, `default_ring_p256_input_exposes_and_binds_owner_tag` wrong-tag leg)
-  - Kind: precondition
-  - Affects: RingTransact (RingP256 selector)
-  - Statement: the proof-specific payload travels inside the `CircuitId::RingP256` selector, not in `TransactProof`/`TransactIxData`, so the non-P256 layouts need no proof-specific fields and every selector stays statically sized; the embedded BSB22 commitment must verify against the proof (7007 otherwise), and `default_owner_tag` — when `Some` — is `hash_bytes`-bound into the public input (a wrong tag fails pairing, 7008).
-  - Location: `program-libs/interface/src/verifying_keys/circuit.rs` (`RingP256ProofData`, `FixedOptionOwnerTag`), `programs/shielded-pool/src/instructions/transact/verify.rs` (commitment + `default_p256_owner_tag` legs)
-  - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
+- [x] **INV-XC-33: anonymous commitment payload has a fixed wire layout**
+  - Covered by: `program-libs/interface/tests/circuit.rs` `circuit_id_tags_are_stable`.
+  - Statement: `CircuitId::AnonymousRingEd25519` retains tag 7 and carries exactly one BSB22 commitment and its proof of knowledge. It has no optional owner-tag payload.
   - Severity: High
-  - Suggested test: negative both legs (exist); harness: program-tests integration (`cargo test-sbf`)

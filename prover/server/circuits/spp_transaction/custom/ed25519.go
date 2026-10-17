@@ -15,7 +15,7 @@ import (
 // owners, and a default-ring output would have to publish its owner, so the
 // only one provable under zero would be the unspendable zero identity.
 
-type CustomRingEd25519Public struct {
+type CustomRingAnonymousEd25519Public struct {
 	Nullifiers       []frontend.Variable
 	OutputHashes     []frontend.Variable
 	TreeSlots        []shared.TreeSlot
@@ -32,7 +32,7 @@ type CustomRingEd25519Public struct {
 	PublicInputHash  frontend.Variable `gnark:",public"`
 }
 
-type CustomRingEd25519Private struct {
+type CustomRingAnonymousEd25519Private struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
@@ -43,29 +43,29 @@ type CustomRingEd25519Private struct {
 	OwnerSignature      [64]frontend.Variable
 }
 
-type CustomRingEd25519Circuit struct {
+type CustomRingAnonymousEd25519Circuit struct {
 	CachedInputs shared.CachedInputs
 
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomRingEd25519Public
-	Private CustomRingEd25519Private
+	Public  CustomRingAnonymousEd25519Public
+	Private CustomRingAnonymousEd25519Private
 }
 
-// NewCustomRingEd25519Circuit allocates only a supported transaction shape.
-func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit, error) {
+// NewCustomRingAnonymousEd25519Circuit allocates only a supported transaction shape.
+func NewCustomRingAnonymousEd25519Circuit(shape shared.Shape) (*CustomRingAnonymousEd25519Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomRingEd25519Circuit{
+	return &CustomRingAnonymousEd25519Circuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
-		Public: CustomRingEd25519Public{
+		Public: CustomRingAnonymousEd25519Public{
 			Nullifiers:     make([]frontend.Variable, shape.NInputs),
 			OutputHashes:   make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:      shared.NewTreeSlots(),
 			SignerPkHashes: make([]frontend.Variable, shape.SignerWidth()),
 		},
-		Private: CustomRingEd25519Private{
+		Private: CustomRingAnonymousEd25519Private{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -75,9 +75,9 @@ func NewCustomRingEd25519Circuit(shape shared.Shape) (*CustomRingEd25519Circuit,
 	}, nil
 }
 
-// transaction commits the RingP256 preimage with a zero default owner and zero
-// published output owners, so the program assembles both rails alike.
-func (c *CustomRingEd25519Circuit) transaction(
+// transaction commits the signed ring preimage with a zero default owner and
+// zero published output owners to preserve the anonymous statement.
+func (c *CustomRingAnonymousEd25519Circuit) transaction(
 	api frontend.API,
 	messageHash frontend.Variable,
 	publishedOutputOwners []frontend.Variable,
@@ -113,11 +113,11 @@ func (c *CustomRingEd25519Circuit) transaction(
 
 // Define authenticates a private Ed25519 owner and binds its spends to the
 // existing ring transaction statement without publishing that owner.
-func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
+func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 	// 1. Verify the exact public spend digest under the hidden owner key.
 	messageBits := append(
-		api.ToBinary(c.Public.MessageHashLow, p256MessageLimbBits),
-		api.ToBinary(c.Public.MessageHashHigh, p256MessageLimbBits)...,
+		api.ToBinary(c.Public.MessageHashLow, messageLimbBits),
+		api.ToBinary(c.Public.MessageHashHigh, messageLimbBits)...,
 	)
 	message := bytes32FromBits(api, messageBits)
 	key := ed25519.Verify(api, ed25519.Inputs{
@@ -161,8 +161,21 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	// 4. Authorize input owners and prevent address or cache metadata leaks.
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
 	// The zero-tag resolver is algorithm independent, and ed25519.Verify already asserts the signature.
-	inputOwners := shared.HiddenOwnerSigners(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner, 1)
-	shared.AssertHiddenRingOwner(api, tx.Inputs, c.Private.InputOwnerPkHashes, authorizedEddsa, hiddenOwner)
+	inputOwners := shared.HiddenOwnerSigners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorizedEddsa,
+		hiddenOwner,
+		1,
+	)
+	shared.AssertHiddenRingOwner(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorizedEddsa,
+		hiddenOwner,
+	)
 	// A cache read publishes the commitment of the note it spends.
 	api.AssertIsEqual(c.CachedInputs.TreeID, 0)
 	for i := range c.CachedInputs.IsCached {
@@ -184,4 +197,16 @@ func (c *CustomRingEd25519Circuit) Define(api frontend.API) error {
 	}
 
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
+}
+
+const messageLimbBits = 128
+
+// bytes32FromBits adapts a 256-bit little-endian bit decomposition to the
+// big-endian byte order the byte-oriented hash gadgets expect.
+func bytes32FromBits(api frontend.API, bits []frontend.Variable) [32]frontend.Variable {
+	var bytes [32]frontend.Variable
+	for i := range bytes {
+		bytes[len(bytes)-1-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
+	}
+	return bytes
 }

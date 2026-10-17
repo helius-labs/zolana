@@ -119,8 +119,8 @@ deposit is refused with
 `DepositAuditRequired`, the audited deposit carries the check in its proof. A
 merge keeps the key of its inputs. Notes created before the delegate is set
 carry no check, so members register first. The SDKs refuse an unregistered
-output key before proving, `UnregisteredOutputKey` in Rust. A P-256 owner
-cannot sign `register_key` and cannot receive on an escrowed ring. A PDA owner
+output key before proving, `UnregisteredOutputKey` in Rust. Ed25519 owners
+sign registration directly. A PDA owner
 registers only through a signed CPI from its program. A transact or an audited
 deposit names the history slot of the registry root its proof binds, and a slot
 no root was written to fails as `StaleKeyRegistryRoot`. `register_key` needs no
@@ -348,10 +348,12 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 
 ## Limits
 
-Senders are not anonymous and deposits are public. Supported SDK paths accept
-validated X25519 auditor keys. Raw config data is checked only for its tag
-and the canonical coordinate. An invalid auditor point makes its ring unable
-to transact.
+Anonymous mode hides Ed25519 owners and discloses them to the auditor. Deposit
+amounts remain public. The default ring stays nonanonymous. Rust anonymous
+builders exclude delegates, merges, caches and direct outputs to the default
+ring. Outflow limits remain supported. Auditor and viewing keys use canonical
+X25519 encodings. P-256 ownership and historical viewing data require migration
+before upgrading.
 
 The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its

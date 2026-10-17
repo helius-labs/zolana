@@ -109,7 +109,7 @@ export function ownerSignerAddresses(
   const seen = new Set<string>();
   const signers: Address[] = [];
   for (const input of inputs) {
-    if (input.isDummy() || input.utxo.owner.signatureType() === "p256") continue;
+    if (input.isDummy()) continue;
     const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
     if (address === payer || seen.has(address)) continue;
     seen.add(address);

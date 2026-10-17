@@ -225,7 +225,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         &address,
         &keypair.nullifier_key,
     )
-    .send_sync(&client, &ctx.material.funding)?;
+    .send_sync(&client, &ctx.material.fee_payer)?;
 
     println!(
         "ok merge inputs={} amount={} mint={} signature={}",
@@ -277,7 +277,7 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
 }
 
 fn payer(ctx: &SyncContext) -> Address {
-    Address::new_from_array(ctx.material.funding.pubkey().to_bytes())
+    Address::new_from_array(ctx.material.fee_payer.pubkey().to_bytes())
 }
 
 /// The token program of an SPL `asset`; `None` for SOL.
@@ -300,7 +300,7 @@ pub(super) fn maybe_airdrop(
     let Some(lamports) = lamports else {
         return Ok(());
     };
-    let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
+    let signature = rpc.airdrop(&material.fee_payer.pubkey(), lamports)?;
     println!("ok airdrop signature={signature}");
     Ok(())
 }

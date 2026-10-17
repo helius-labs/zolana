@@ -180,17 +180,17 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 }
 
 func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
-	requiresP256 := uint32(0)
-	if ps.RequiresP256 {
-		requiresP256 = 1
+	hasCommitment := uint32(0)
+	if ps.HasCommitment {
+		hasCommitment = 1
 	}
-	return writeSystem(w, []uint32{ps.NInputs, ps.NOutputs, requiresP256}, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
+	return writeSystem(w, []uint32{ps.NInputs, ps.NOutputs, hasCommitment}, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
 }
 
 func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
-	var requiresP256 uint32
-	read, err := readSystem(r, []*uint32{&ps.NInputs, &ps.NOutputs, &requiresP256}, &ps.ProvingKey, &ps.VerifyingKey, &ps.ConstraintSystem)
-	ps.RequiresP256 = requiresP256 != 0
+	var hasCommitment uint32
+	read, err := readSystem(r, []*uint32{&ps.NInputs, &ps.NOutputs, &hasCommitment}, &ps.ProvingKey, &ps.VerifyingKey, &ps.ConstraintSystem)
+	ps.HasCommitment = hasCommitment != 0
 	return read, err
 }
 
@@ -281,6 +281,9 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 func ReadSystemFromFile(path string) (interface{}, error) {
 	// Classify by file name only, a parent directory name must not pick the rail.
 	name := strings.ToLower(filepath.Base(path))
+	if strings.Contains(name, "p256") {
+		return nil, fmt.Errorf("unsupported proving key %q", filepath.Base(path))
+	}
 	if circuitType, ok := ringCircuitOfKeyFile(name); ok {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,
@@ -299,9 +302,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.ProvingKeySha256 = digest
 		// Transfer variants are resolved from canonical key filenames. The
-		// RequiresP256 header is retained as a consistency check for P256 keys.
+		// HasCommitment header is retained as a consistency check for P256 keys.
 		ring := strings.Contains(name, "ring")
-		p256Ring := strings.Contains(name, "p256_ring")
 		ed25519Ring := strings.Contains(name, "ed25519_ring")
 		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "ring" case: the name contains both
@@ -310,10 +312,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		switch {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
-		case p256Ring:
-			ps.CircuitType = TransferP256RingCircuitType
 		case ed25519Ring:
-			ps.CircuitType = TransferEd25519RingCircuitType
+			ps.CircuitType = TransferAnonymousRingEd25519CircuitType
 		case ring:
 			ps.CircuitType = TransferRingCircuitType
 		default:

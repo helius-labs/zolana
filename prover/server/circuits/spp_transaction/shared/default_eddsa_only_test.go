@@ -16,8 +16,8 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewDefaultRingEddsaOnlyCircuit(shape Shape) *defaultring.DefaultRingEddsaOnlyCircuit {
-	circuit, err := defaultring.NewDefaultRingEddsaOnlyCircuit(shape)
+func MustNewDefaultRingConfidentialEd25519Circuit(shape Shape) *defaultring.DefaultRingConfidentialEd25519Circuit {
+	circuit, err := defaultring.NewDefaultRingConfidentialEd25519Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -67,13 +67,13 @@ func emptyOutputUtxo() protocol.Utxo {
 	}
 }
 
-func buildDefaultRingEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
+func buildDefaultRingConfidentialEd25519Assignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	inputs, outputs := defaultBalancedUtxos(t, shape)
-	return buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	return buildDefaultRingConfidentialEd25519AssignmentFromUtxos(t, shape, inputs, outputs)
 }
 
-func buildDefaultRingEddsaOnlyAssignmentFromUtxos(
+func buildDefaultRingConfidentialEd25519AssignmentFromUtxos(
 	t testing.TB,
 	shape protocol.Shape,
 	inputUtxos []protocol.Utxo,
@@ -87,33 +87,33 @@ func buildDefaultRingEddsaOnlyAssignmentFromUtxos(
 
 // The Solana-only default-ring circuit binds every output owner to its public
 // pk_field tag and proves end to end.
-func TestDefaultRingEddsaOnlySolves(t *testing.T) {
+func TestDefaultRingConfidentialEd25519Solves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
 
-	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
 		circuit,
-		asDefaultRingEddsaOnly(assignment),
+		asDefaultRingConfidentialEd25519(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
 	)
 }
 
-func TestDefaultRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
+func TestDefaultRingConfidentialEd25519PublicInputHashBindsEveryField(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
 	refreshHash := func() { refreshDefaultRingPublicInputHash(t, assignment) }
 
 	assertPublicInputHashBindsEveryField(
 		t,
 		circuit,
 		assignment,
-		func() frontend.Circuit { return asDefaultRingEddsaOnly(assignment) },
+		func() frontend.Circuit { return asDefaultRingConfidentialEd25519(assignment) },
 		refreshHash,
 		publicInputHashBindingOptions{
 			includeOutputOwnerPkHashes: true,
@@ -124,35 +124,35 @@ func TestDefaultRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
 
 // A mistagged output owner (OwnerPkHash that does not recompute the output
 // owner_hash) fails the default-ring binding even with a consistent public hash.
-func TestDefaultRingEddsaOnlyRejectsMistaggedOutput(t *testing.T) {
+func TestDefaultRingConfidentialEd25519RejectsMistaggedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
 	assignment.Outputs[0].OwnerPkHash = spptest.Fe(424242)
 	refreshDefaultRingPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output whose public owner tag is one of the signers solves:
 // the signer array holds the input owner tags, and output 0 carries the same one.
-func TestDefaultRingEddsaOnlyAcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
+func TestDefaultRingConfidentialEd25519AcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
-	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingConfidentialEd25519AssignmentFromUtxos(t, shape, inputs, outputs)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The data check is on the signing key, not on the full owner identity: a
 // data-carrying output owned by the signer under a different nullifier pubkey
 // (a different derived identity of the same signer) solves.
-func TestDefaultRingEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
+func TestDefaultRingConfidentialEd25519AcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -162,18 +162,18 @@ func TestDefaultRingEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifie
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = spptest.MustOwnerHash(t, pkField, otherNullifierPk)
-	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingConfidentialEd25519AssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.Outputs[0].NullifierPk = otherNullifierPk
 	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output owned by a key that did not sign must not solve, even
 // though its public owner tag correctly recomputes the output owner_hash: the
 // tag is not in the signer array.
-func TestDefaultRingEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T) {
+func TestDefaultRingConfidentialEd25519RejectsDataHashOnNonSignerOwnedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -183,18 +183,18 @@ func TestDefaultRingEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T)
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = spptest.MustOwnerHash(t, otherPkField, nullifierPk)
-	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingConfidentialEd25519AssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.Outputs[0].OwnerPkHash = otherPkField
 	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A dummy output skips the owner binding, but its public tag must still name
 // a transaction participant (AssertDummyTags): a third party's pk_field would
 // read as a payment to someone uninvolved in the transaction.
-func TestDefaultRingEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
+func TestDefaultRingConfidentialEd25519RejectsDummyOutputThirdPartyTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -204,13 +204,13 @@ func TestDefaultRingEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The same dummy output solves when tagged with a signer: the pad then reads as
 // a change output, attributing the transaction only to a participant.
-func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
+func TestDefaultRingConfidentialEd25519DummyOutputSignerTagSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -220,13 +220,13 @@ func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The payer signs but is not a nameable dummy identity: a fee payer must not
 // be shown as a recipient by a transaction it only paid for.
-func TestDefaultRingEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
+func TestDefaultRingConfidentialEd25519RejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -234,13 +234,13 @@ func TestDefaultRingEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
 	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
 	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A self-paying owner reappears through its own change output: once a real
 // output publishes the payer identity, a dummy may repeat it.
-func TestDefaultRingEddsaOnlyAcceptsDummyOutputPayerTagPublishedByChange(t *testing.T) {
+func TestDefaultRingConfidentialEd25519AcceptsDummyOutputPayerTagPublishedByChange(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -250,8 +250,8 @@ func TestDefaultRingEddsaOnlyAcceptsDummyOutputPayerTagPublishedByChange(t *test
 	tagDummyOutput(t, assignment, payer)
 	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // tagDummyOutput sets the dummy slot's public tag of a dummyOutputAssignment

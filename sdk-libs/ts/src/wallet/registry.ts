@@ -6,7 +6,6 @@ import {
   getAddressEncoder,
   getBooleanEncoder,
   getBytesEncoder,
-  getNullableEncoder,
   getProgramDerivedAddress,
   getStructEncoder,
   getU8Encoder,
@@ -34,7 +33,7 @@ import {
   type RequestContext,
   type Transaction,
 } from "../interface/types.js";
-import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
@@ -60,7 +59,7 @@ function checkedBytesEncoder(size: number, name: string) {
 
 const registryKeysDataEncoder = getStructEncoder([
   ["discriminator", getU8Encoder()],
-  ["ownerP256", getNullableEncoder(checkedBytesEncoder(33, "ownerP256"))],
+  ["reservedOwner", getU8Encoder()],
   ["nullifierPublicKey", checkedBytesEncoder(32, "nullifierPublicKey")],
   ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
 ]);
@@ -78,7 +77,6 @@ export interface ResolvedAddress {
 
 export interface UserRecord {
   readonly owner: Address;
-  readonly ownerP256?: Bytes33;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
   readonly mergingEnabled: boolean;
@@ -127,7 +125,6 @@ export async function internalUserRecordPda(
 export interface MergeRecord {
   readonly recordAddress: Address;
   readonly mergingEnabled: boolean;
-  readonly ownerP256?: Bytes33;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
 }
@@ -170,13 +167,6 @@ class Reader {
   u8(): number {
     return this.bytes(1)[0] ?? 0;
   }
-
-  option(length: number): Uint8Array | undefined {
-    const variant = this.u8();
-    if (variant === 0) return undefined;
-    if (variant !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
-    return this.bytes(length);
-  }
 }
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
@@ -184,14 +174,13 @@ function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));
   const bump = reader.u8();
-  const ownerP256 = reader.option(33) as Bytes33 | undefined;
+  if (reader.u8() !== 0) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const nullifierPublicKey = reader.bytes(32) as Bytes32;
   const viewingPublicKey = reader.bytes(33) as Bytes33;
   const mergingEnabled = reader.u8();
   if (mergingEnabled > 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   return Object.freeze({
     owner,
-    ...(ownerP256 === undefined ? {} : { ownerP256 }),
     nullifierPublicKey,
     viewingPublicKey,
     bump,
@@ -249,7 +238,6 @@ export async function fetchUserRecord(
     if (record === undefined) return undefined;
     return Object.freeze({
       owner: record.owner,
-      ...(record.ownerP256 === undefined ? {} : { ownerP256: record.ownerP256 }),
       nullifierPublicKey: record.nullifierPublicKey,
       viewingPublicKey: record.viewingPublicKey,
       mergingEnabled: record.mergingEnabled,
@@ -280,10 +268,8 @@ export async function isWalletRegistered(
   return (await fetchUserRecord(input, context)) !== undefined;
 }
 
-function signingPublicKeyFromRecord(owner: Address, record: UserRecord): ShieldedPublicKey {
-  return record.ownerP256 === undefined
-    ? ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32)
-    : ShieldedPublicKey.fromP256(P256PublicKey.fromBytes(record.ownerP256));
+function signingPublicKeyFromRecord(owner: Address): ShieldedPublicKey {
+  return ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32);
 }
 
 /** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
@@ -294,8 +280,8 @@ export function viewingKeyIndex(viewingPublicKey: Uint8Array | X25519PublicKey):
 }
 
 /**
- * Reads the whole registry in one call. Records this version cannot decode are
- * skipped.
+ * Best-effort discovery index of valid current keys. Multiple owners may register
+ * the same viewing key, so the selected owner is not authenticated attribution.
  */
 export async function fetchViewingKeyOwners(
   input: Readonly<{ rpc: ProgramAccountReader }>,
@@ -304,19 +290,21 @@ export async function fetchViewingKeyOwners(
   const accounts = await input.rpc.getProgramAccounts(USER_REGISTRY_PROGRAM_ID, context);
   const owners = new Map<string, Address>();
   for (const { account } of accounts) {
-    let record: UserRecord;
+    if (account.data[0] !== 1) continue;
     try {
-      record = decodeUserRecordAccount(account);
+      const record = decodeUserRecordAccount(account);
+      const viewing = X25519PublicKey.fromBytes(record.viewingPublicKey);
+      owners.set(viewingKeyIndex(viewing), record.owner);
     } catch {
+      // Anyone can register invalid metadata. One row must not disable the index.
       continue;
     }
-    owners.set(viewingKeyIndex(record.viewingPublicKey), record.owner);
   }
   return owners;
 }
 
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {
-  const signingPublicKey = signingPublicKeyFromRecord(owner, record);
+  const signingPublicKey = signingPublicKeyFromRecord(owner);
   const viewingPublicKey = X25519PublicKey.fromBytes(record.viewingPublicKey);
   const address = ShieldedAddress.fromPublicKeys(
     signingPublicKey,
@@ -367,16 +355,13 @@ export async function validateRegisteredKeypair(
   input: Readonly<{ rpc: AccountReader; owner: Address; keypair: ShieldedKeypair }>,
   context?: RequestContext,
 ): Promise<void> {
+  if (input.keypair.shieldedAddress().solanaAddress() !== input.owner) {
+    throw new WalletError("WALLET_REGISTERED_KEYPAIR_MISMATCH", {
+      details: { owner: input.owner },
+    });
+  }
   const record = await fetchUserRecordChecked({ rpc: input.rpc, owner: input.owner }, context);
-  const signingPublicKey = input.keypair.signingPublicKey();
-  const expectedOwnerP256 =
-    signingPublicKey.signatureType() === "p256" ? signingPublicKey.p256().toBytes() : undefined;
-  const ownerP256Matches =
-    expectedOwnerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, expectedOwnerP256);
   if (
-    !ownerP256Matches ||
     !equalBytes(record.nullifierPublicKey, input.keypair.nullifierPublicKey()) ||
     !equalBytes(record.viewingPublicKey, input.keypair.viewingPublicKey().toBytes())
   ) {
@@ -397,25 +382,15 @@ export async function recipientConfidentialViewTag(
 ): Promise<Bytes32> {
   const record = await fetchUserRecord({ rpc: input.rpc, owner: input.recipient }, context);
   if (record === undefined) return new Uint8Array(32) as Bytes32;
-  return signingPublicKeyFromRecord(input.recipient, record).confidentialViewTag();
+  return signingPublicKeyFromRecord(input.recipient).confidentialViewTag();
 }
 
 /**
- * The three published fields the registry keys a record by. A record matching
- * all three needs no transaction; one differing in any of them is an identity
- * change, which only the rotating path may write.
+ * Matching privacy keys need no transaction. Changing them requires the
+ * explicit update path, after the caller binds the signing owner.
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
-  const ownerP256 =
-    address.signingPublicKey.signatureType() === "p256"
-      ? address.signingPublicKey.p256().toBytes()
-      : undefined;
-  const ownerMatches =
-    ownerP256 === undefined
-      ? record.ownerP256 === undefined
-      : record.ownerP256 !== undefined && equalBytes(record.ownerP256, ownerP256);
   return (
-    ownerMatches &&
     equalBytes(record.nullifierPublicKey, address.nullifierPublicKey) &&
     equalBytes(record.viewingPublicKey, address.viewingPublicKey.toBytes())
   );
@@ -438,9 +413,10 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.signingPublicKey.signatureType() === "p256") {
-      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
-    }
+    if (input.address.solanaAddress() !== input.owner)
+      throw new WalletError("WALLET_USER_RECORD_KEYS_MISMATCH", {
+        details: { owner: input.owner },
+      });
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -480,9 +456,10 @@ export async function buildKeyUpdateTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.signingPublicKey.signatureType() === "p256") {
-      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
-    }
+    if (input.address.solanaAddress() !== input.owner)
+      throw new WalletError("WALLET_USER_RECORD_KEYS_MISMATCH", {
+        details: { owner: input.owner },
+      });
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -506,6 +483,7 @@ export async function buildSetMergingEnabledTransaction(
   input: Readonly<{
     client: BlockhashProvider;
     owner: Address;
+    payer?: Address;
     enabled: boolean;
   }>,
   context?: RequestContext,
@@ -516,7 +494,7 @@ export async function buildSetMergingEnabledTransaction(
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
-      feePayer: input.owner,
+      feePayer: input.payer ?? input.owner,
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [instruction],
@@ -580,7 +558,7 @@ export async function registerInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: REGISTER,
-      ownerP256: null,
+      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),
@@ -620,7 +598,7 @@ async function updateKeysInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: UPDATE_KEYS,
-      ownerP256: null,
+      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),

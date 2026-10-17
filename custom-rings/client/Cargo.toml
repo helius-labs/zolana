@@ -25,6 +25,7 @@ rpc = [
 
 [dependencies]
 base64 = { workspace = true, optional = true }
+p256 = { workspace = true }
 hex = { workspace = true }
 num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }

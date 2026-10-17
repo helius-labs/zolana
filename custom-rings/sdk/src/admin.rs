@@ -290,6 +290,7 @@ impl CustomRing {
     ) -> Result<Instruction, RingError> {
         let mut accounts = vec![
             AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(self.config_pda(), false),
             AccountMeta::new(self.policy_config_pda(), false),
         ];
         accounts.extend(self.upgrade_metas());

@@ -1,13 +1,12 @@
 import { sha256 } from "../interface/internal.js";
-import { P256PublicKey } from "../keypair/public-key.js";
 
 import { RingError } from "./error.js";
-import { checkedReaderKey, readerKeyBytes } from "./reader.js";
+import { P256ReaderKey, checkedReaderKey, readerKeyBytes } from "./reader.js";
 import type { RingReadSigner, WebAuthnSignature } from "./rpc.js";
 
 export interface Passkey {
   readonly credentialId: Uint8Array;
-  readonly publicKey: P256PublicKey;
+  readonly publicKey: P256ReaderKey;
 }
 
 const ES256 = -7;
@@ -38,7 +37,7 @@ export async function createPasskey(
   const point = new Uint8Array(spki).slice(-UNCOMPRESSED_POINT_LENGTH);
   return Object.freeze({
     credentialId: new Uint8Array(credential.rawId),
-    publicKey: P256PublicKey.fromUncompressed(point),
+    publicKey: P256ReaderKey.fromUncompressed(point),
   });
 }
 

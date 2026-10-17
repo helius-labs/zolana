@@ -12,8 +12,8 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
-// This test-only boundary permits a like-for-like arithmetic comparison with
-// the prehashed P-256 benchmark. The public API always computes SHA-512.
+// This test-only boundary measures curve arithmetic apart from SHA-512.
+// The public API always hashes the signed message.
 type arithmeticBenchmarkCircuit struct {
 	PublicKey [32]frontend.Variable `gnark:",public"`
 	Signature [64]frontend.Variable

@@ -6,7 +6,7 @@
 //! derives the change outputs and pads both inputs and outputs to a declared or
 //! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs, and [`transact_message_hash`] the digest a P256
+//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous Ed25519
 //! owner signs over it and the external data hash.
 
 mod cache;
@@ -33,7 +33,6 @@ pub use encryption::ResolvedOwnerTag;
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
-pub use ring::inputs_require_p256;
 pub use settlement::{
     asset_field, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
     SettlementTarget, BN254_MODULUS_DEC,

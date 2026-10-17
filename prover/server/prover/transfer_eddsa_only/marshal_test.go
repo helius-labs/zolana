@@ -358,7 +358,7 @@ func countedFieldElements(n int, value int64) []*big.Int {
 }
 
 func TestEd25519TransferKeepsRingWitnessPrivate(t *testing.T) {
-	params := Ed25519TransferParameters{
+	params := AnonymousEd25519TransferParameters{
 		TransferParameters: *sampleTransferParams(ConfidentialVariant),
 		MessageHashLow:     big.NewInt(7), MessageHashHigh: big.NewInt(9),
 	}
@@ -367,14 +367,14 @@ func TestEd25519TransferKeepsRingWitnessPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded Ed25519TransferParameters
+	var decoded AnonymousEd25519TransferParameters
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Variant != RingVariant || decoded.MessageHashLow.Cmp(params.MessageHashLow) != 0 || decoded.OwnerPublicKey != params.OwnerPublicKey || decoded.OwnerSignature != params.OwnerSignature {
 		t.Fatal("Ed25519 request lost its ring binding or owner witness")
 	}
-	var wire Ed25519TransferParametersJSON
+	var wire AnonymousEd25519TransferParametersJSON
 	if err := json.Unmarshal(data, &wire); err != nil {
 		t.Fatal(err)
 	}

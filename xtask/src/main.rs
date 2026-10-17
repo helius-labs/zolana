@@ -576,7 +576,7 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(
+            circuit: CircuitId::ConfidentialEd25519(
                 n as u8,
                 outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
@@ -851,7 +851,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit =
-            CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
+            CircuitId::ConfidentialEd25519(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
         zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
@@ -884,22 +884,8 @@ fn tx_size(args: Vec<String>) {
         .instruction()
     };
     let slots = N_PUBLIC_SLOTS as u8;
-    let ring_eddsa = |n: usize, m: usize| CircuitId::RingEddsa(n as u8, m as u8, slots);
-    let ring_p256 = |n: usize, m: usize| {
-        use zolana_interface::verifying_keys::{Bsb22Commitment, RingP256ProofData};
-        CircuitId::RingP256(
-            n as u8,
-            m as u8,
-            slots,
-            RingP256ProofData {
-                bsb22_commitment: Bsb22Commitment {
-                    commitment: [0u8; 32],
-                    commitment_pok: [0u8; 32],
-                },
-                default_owner_tag: None,
-            },
-        )
-    };
+    let ring_eddsa =
+        |n: usize, m: usize| CircuitId::ConfidentialRingEd25519(n as u8, m as u8, slots);
     // The widest shape of every output count: 49x2, 24x4, 16x8 and 8x16.
     for (n, m) in [
         (2usize, 4usize),
@@ -929,32 +915,21 @@ fn tx_size(args: Vec<String>) {
             format!("ring transact eddsa {n} in {m} out"),
             ring_transact_ix(n, m, ring_eddsa(n, m)),
         );
-        transact_row(
-            format!("ring transact p256 {n} in {m} out"),
-            ring_transact_ix(n, m, ring_p256(n, m)),
-        );
     }
-    // Every 49x2 slot fits as a real input on the confidential rail; the ring
-    // rails send fewer with compact padding, each row the most real inputs
-    // that still fit both ceilings.
+    // Every 49x2 slot fits as a real input on the confidential rail. Ring
+    // transactions need compact padding to fit both ceilings.
     let most_inputs_that_fit = |build: &dyn Fn(usize) -> Instruction| -> usize {
         (1..=MAX_TRANSACT_INPUTS)
             .rev()
             .find(|&n| v1_tx_size(&[build(n)]).fits())
             .expect("one real input fits")
     };
-    let widest: [(&str, &dyn Fn(usize) -> Instruction); 2] = [
-        ("ring transact eddsa", &|n| {
-            ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2))
-        }),
-        ("ring transact p256", &|n| {
-            ring_transact_ix(n, 2, ring_p256(MAX_TRANSACT_INPUTS, 2))
-        }),
-    ];
-    for (label, build) in widest {
-        let n = most_inputs_that_fit(build);
-        transact_row(format!("{label} {n} in 2 out, 49x2 compact"), build(n));
-    }
+    let build = |n| ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2));
+    let n = most_inputs_that_fit(&build);
+    transact_row(
+        format!("ring transact eddsa {n} in 2 out, 49x2 compact"),
+        build(n),
+    );
     // A count below its circuit width is a merge with compact padding. A ring
     // merge of every widest slot misses the limit; one input fewer fits.
     for input_count in

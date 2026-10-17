@@ -615,12 +615,16 @@ fn seal_deposits_with(
     })
 }
 
-/// Opens one capsule at its offset in the batch stream, authenticated by the owner commitment.
+/// Opens a capsule only after binding every ciphertext byte to its confirmed deposit proof.
 pub fn open_deposit(
     capsule: &RingDepositAuditCapsule<'_>,
     auditor: &X25519Secret,
     owner_utxo_hash: &[u8; 32],
+    confirmed: &crate::ConfirmedDeposit,
 ) -> Result<DepositOpening> {
+    if !confirmed.matches(*capsule, owner_utxo_hash) {
+        return Err(AuditError::DepositOpeningMismatch);
+    }
     let slot = usize::from(capsule.slot_index);
     if slot >= MAX_RING_DEPOSIT_AUDIT_SLOTS {
         return Err(AuditError::DepositSlot(slot));
@@ -666,6 +670,12 @@ mod tests {
     use zolana_ring_policy::Member;
 
     use super::*;
+    mod deposit_fixture {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/common/deposit.rs"
+        ));
+    }
 
     fn bytes<const N: usize>(value: &str) -> [u8; N] {
         let decoded = hex::decode(value).expect("hex");
@@ -960,7 +970,30 @@ mod tests {
                 &openings[index].blinding,
             )
             .unwrap();
-            let opened = open_deposit(&capsule, &auditor, &owner).unwrap();
+            let ring = solana_address::Address::new_from_array([9; 32]);
+            let deposits = (0..=index)
+                .map(|slot| {
+                    let capsule = RingDepositAuditCapsule {
+                        slot_index: slot as u8,
+                        ..capsule
+                    };
+                    (owner, capsule.encode())
+                })
+                .collect();
+            let group = deposit_fixture::group(ring, true, deposits);
+            let origin = crate::ring_event_origin_in(&[group], 0, ring).unwrap();
+            let binding = &origin.deposits[index];
+            let opened = open_deposit(&capsule, &auditor, &owner, binding).unwrap();
+            let mut corrupted = *capsule.ciphertext;
+            corrupted[RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET] ^= 1;
+            let altered = RingDepositAuditCapsule {
+                ciphertext: &corrupted,
+                ..capsule
+            };
+            assert!(matches!(
+                open_deposit(&altered, &auditor, &owner, binding),
+                Err(AuditError::DepositOpeningMismatch)
+            ));
             assert_eq!(opened.owner_hash, openings[index].owner_hash);
             assert_eq!(*opened.blinding, *openings[index].blinding);
             assert_eq!(opened.owner_key, openings[index].owner_key);

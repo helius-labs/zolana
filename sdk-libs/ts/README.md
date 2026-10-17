@@ -86,7 +86,7 @@ await syncWallet({
 
 const deposit = await buildDepositTransaction({
   client,
-  feePayer: feePayer.address,
+  depositor: feePayer.address,
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
@@ -189,7 +189,7 @@ depositor's source token account:
 ```ts
 const deposit = await buildDepositTransaction({
   client,
-  feePayer: feePayer.address,
+  depositor: feePayer.address,
   recipient: keypair.shieldedAddress(),
   asset: mint,
   splTokenAccount: sourceTokenAccount,
@@ -486,8 +486,10 @@ Pages URLs remain available as the backing origin.
 
 - Ed25519 is the supported owner scheme for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing keys use P256; this is separate from unsupported P256 owner
-  registration or spending.
+- Viewing and auditor keys use X25519. Existing P-256-owned notes, registry
+  records, viewing keys and wallet snapshots require migration before upgrading.
+- Passkey access to ring audit traces uses `P256ReaderKey` from
+  `@heliuslabs/zolana/ring`.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, UTXOs, or keys.

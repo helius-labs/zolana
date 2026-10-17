@@ -17,13 +17,11 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 
 	tests := map[string]string{
 		"transfer ring eddsa": manager.determineTransferKeyPath(TransferRingCircuitType, 49, 2),
-		"transfer ring p256":  manager.determineTransferKeyPath(TransferP256RingCircuitType, 8, 16),
 	}
 
 	expected := map[string]string{
 		// Key filenames mirror the verifying-key modules.
 		"transfer ring eddsa": filepath.Join(keysDir, "transfer_ring_49_2.key"),
-		"transfer ring p256":  filepath.Join(keysDir, "transfer_p256_ring_8_16.key"),
 	}
 
 	for name, got := range tests {
@@ -78,7 +76,7 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"transfer 6x6":          TransferKeyFile(TransferConfidentialCircuitType, 6, 6),
 		"removed transfer 1x1":  TransferKeyFile(TransferConfidentialCircuitType, 1, 1),
 		"removed transfer 2x3":  TransferKeyFile(TransferRingCircuitType, 2, 3),
-		"removed transfer 36x2": TransferKeyFile(TransferP256RingCircuitType, 36, 2),
+		"removed transfer 36x2": TransferKeyFile(TransferRingCircuitType, 36, 2),
 		"ring authority 2x4":    TransferKeyFile(TransferRingAuthorityCircuitType, 2, 4),
 		"ring authority 1x1":    TransferKeyFile(TransferRingAuthorityCircuitType, 1, 1),
 		"ring authority 3x3":    TransferKeyFile(TransferRingAuthorityCircuitType, 3, 3),

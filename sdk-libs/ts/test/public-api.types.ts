@@ -29,3 +29,11 @@ export const rawEcdh = keys.ecdh;
 export const signer = walletKeys.signTransaction;
 // @ts-expect-error -- proving lives on the client-layer WalletKeys, not on ShieldedKeys.
 export const proveOnShieldedKeys = keys.prove;
+
+import { SigningKey, ShieldedPublicKey, ShieldedKeypair } from "../src/keypair/index.js";
+// @ts-expect-error -- P-256 owner constructors are removed, audit passkeys are public keys only.
+export const obsoleteOwnerConstructor = SigningKey.fromP256Bytes;
+// @ts-expect-error -- reserved P-256 keys cannot construct shielded owners.
+export const obsoleteOwnerKey = ShieldedPublicKey.fromP256;
+// @ts-expect-error -- spending signatures use Ed25519.
+export const obsoleteSpendSigner = ShieldedKeypair.prototype.signP256;

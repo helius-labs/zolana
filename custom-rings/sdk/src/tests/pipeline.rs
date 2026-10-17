@@ -791,15 +791,14 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         anonymous::check_anonymous_slots(program(), shape, &foreign),
         Err(RingError::InvalidAnonymousSlot)
     ));
-    let mut p256 = inputs;
-    p256.output_utxos[0].owner_address = Some(
-        ShieldedKeypair::new_p256()
-            .unwrap()
-            .shielded_address()
-            .unwrap(),
-    );
+    let mut pda = inputs;
+    pda.output_utxos[0]
+        .owner_address
+        .as_mut()
+        .unwrap()
+        .signing_pubkey = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([9; 32]));
     assert!(matches!(
-        anonymous::check_anonymous_slots(program(), shape, &p256),
+        anonymous::check_anonymous_slots(program(), shape, &pda),
         Err(RingError::InvalidAnonymousSlot)
     ));
 }

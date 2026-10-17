@@ -21,7 +21,7 @@ use zolana_interface::{
         instruction_data::transact::InputUtxo, CircuitId, MessageData, OwnerTag, TransactIxData,
         TransactOutput, TransactProof, TreeContext,
     },
-    verifying_keys::{Bsb22Commitment, RingP256ProofData},
+    verifying_keys::Bsb22Commitment,
     N_PUBLIC_SLOTS,
 };
 
@@ -66,12 +66,12 @@ fn other_message() -> MessageData {
     }
 }
 
-/// Wire-valid `RingEddsa` content; callers override the fields they attack.
+/// Wire-valid `ConfidentialRingEd25519` content; callers override the fields they attack.
 pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
-        circuit: CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(4),
         salt: [3; 16],
         proof: TransactProof::zeroed(),
@@ -214,22 +214,19 @@ fn impostor_shielded_pool_program_is_rejected_exactly() {
 fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let slots = N_PUBLIC_SLOTS as u8;
-    let p256 = CircuitId::RingP256(
+    let anonymous = CircuitId::AnonymousRingEd25519(
         2,
         2,
         slots,
-        RingP256ProofData {
-            bsb22_commitment: Bsb22Commitment {
-                commitment: [6; 32],
-                commitment_pok: [7; 32],
-            },
-            default_owner_tag: None,
+        Bsb22Commitment {
+            commitment: [6; 32],
+            commitment_pok: [7; 32],
         },
     );
     for circuit in [
-        p256,
+        anonymous,
         CircuitId::RingAuthority(2, 2, slots),
-        CircuitId::ConfidentialEddsa(2, 2, slots),
+        CircuitId::ConfidentialEd25519(2, 2, slots),
     ] {
         let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.circuit = circuit;
@@ -329,7 +326,7 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
 }
 
 #[test]
-fn confidential_output_with_a_p256_key_tag_is_rejected() {
+fn confidential_output_with_a_reserved_key_tag_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
     data.outputs = vec![confidential_output(
@@ -537,7 +534,7 @@ fn anonymous_transact(inputs: u8, outputs: u8) -> TransactIxData {
         outputs: usize::from(outputs),
     };
     let mut data = transact(vec![auditor_message(disclosed_message_len(shape))]);
-    data.circuit = CircuitId::RingEd25519(
+    data.circuit = CircuitId::AnonymousRingEd25519(
         inputs,
         outputs,
         N_PUBLIC_SLOTS as u8,
@@ -576,7 +573,7 @@ fn anonymous_hidden_owner_transfers_reach_the_proof() {
 fn an_anonymous_ring_refuses_every_other_rail_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut eddsa = anonymous_transact(2, 2);
-    eddsa.circuit = CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
+    eddsa.circuit = CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8);
     anonymous_fixture(eddsa).expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     anonymous_fixture(anonymous_transact(1, 2))
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));

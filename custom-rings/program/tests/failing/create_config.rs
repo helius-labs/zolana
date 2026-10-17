@@ -138,11 +138,7 @@ fn zero_prefix_auditor_pubkey_is_rejected_exactly() {
 
 #[test]
 fn reserved_auditor_keys_are_rejected_exactly() {
-    for key in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
+    for key in [[2; 33], [3; 33], [0; 33]] {
         let (mollusk, _) = setup_mollusk();
         let fixture = create_config_fixture(key);
         fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));

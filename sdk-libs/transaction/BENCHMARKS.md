@@ -1,5 +1,8 @@
 # Wallet Sync Benchmarks
 
+Historical measurements from the retired P-256 viewing-key implementation.
+They do not describe the current X25519 path.
+
 Benchmarks of the wallet sync primitives, composed decrypt operations, and
 a full first-time sync scenario. Regenerate the operation benches with
 `cargo bench -p zolana-transaction --bench wallet_ops` and the scenario with

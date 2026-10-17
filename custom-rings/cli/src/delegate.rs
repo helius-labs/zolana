@@ -529,6 +529,7 @@ mod tests {
                 ring_invoked: true,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
+                deposits: Vec::new(),
             })
         }
     }

@@ -3,14 +3,30 @@ import { getBase58Encoder } from "@solana/kit";
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
 import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
-import { Reader } from "../interface/internal.js";
+import { Reader, sha256 } from "../interface/internal.js";
+import { decodeRingDepositInstructionData } from "../interface/codecs/index.js";
+import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
+import { equal } from "../transaction/internal.js";
+import {
+  AUDITED_RING_DEPOSIT_TAG,
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  type RingDepositCapsule,
+} from "./deposit-capsule.js";
 import {
   InstructionTag,
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
 } from "../interface/program.js";
-import type { Address, InterfaceTransfer, RequestContext, Signature } from "../interface/types.js";
+import type {
+  Address,
+  Bytes32,
+  InterfaceTransfer,
+  RequestContext,
+  Signature,
+} from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
 import { RingError } from "./error.js";
@@ -25,6 +41,114 @@ export interface TransactionOrigin {
     ring: Address,
     context?: RequestContext,
   ): Promise<boolean>;
+}
+
+/** Confirmed audited-deposit data, separate from a boolean ring-origin check. */
+export interface AuditedDepositSource {
+  confirmedDeposits(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<readonly ConfirmedDeposit[]>;
+}
+
+const CONFIRMED_DEPOSIT = Symbol("confirmed audited deposit");
+
+/** Authenticates one capsule against the successful audited deposit that published it. */
+export class ConfirmedDeposit {
+  readonly #ownerCommitment: Bytes32;
+  readonly #capsuleHash: Uint8Array;
+  private constructor(
+    token: symbol,
+    readonly slotIndex: number,
+    ownerCommitment: Uint8Array,
+    capsule: Uint8Array,
+  ) {
+    if (token !== CONFIRMED_DEPOSIT) throw invalid("confirmedDeposit");
+    if (ownerCommitment.length !== 32) throw invalid("ownerCommitment");
+    this.#ownerCommitment = ownerCommitment.slice() as Bytes32;
+    this.#capsuleHash = sha256(capsule);
+    Object.freeze(this);
+  }
+
+  /** Checks the private runtime brand, which a copied prototype cannot supply. */
+  static is(value: unknown): value is ConfirmedDeposit {
+    return typeof value === "object" && value !== null && #ownerCommitment in value;
+  }
+
+  /** Only exact successful event ancestry can mint a binding, never an indexed capsule alone. */
+  static fromTransaction(
+    transaction: unknown,
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+  ): readonly ConfirmedDeposit[] {
+    const wire = record(transaction, "transaction");
+    if (record(wire["meta"], "meta")["err"] !== null) throw invalid("meta.err");
+    const encoded = record(wire["transaction"], "transaction.transaction");
+    if (list(encoded["signatures"], "signatures")[0] !== signature) throw invalid("signatures");
+    if (!Number.isInteger(eventIndex) || eventIndex < 0 || eventIndex > 0xffff)
+      throw invalid("eventIndex");
+    let index = 0;
+    for (const group of confirmedInstructionGroups(transaction)) {
+      const stack: OriginInstruction[] = [group.outer];
+      for (const instruction of group.inner) {
+        const height = instruction.stackHeight;
+        if (height === undefined || height < 2 || height > stack.length + 1)
+          throw invalid("stackHeight");
+        stack.length = height - 1;
+        const source = stack[height - 2];
+        const wrapper = stack[height - 3];
+        if (
+          instruction.programId === SHIELDED_POOL_PROGRAM_ID &&
+          instruction.data[0] === InstructionTag.emitEvent &&
+          source?.programId === SHIELDED_POOL_PROGRAM_ID &&
+          isEventSourceTag(source.data[0])
+        ) {
+          if (index++ === eventIndex) {
+            if (
+              source.data[0] !== InstructionTag.ringDeposit ||
+              wrapper?.programId !== ring ||
+              wrapper.data[0] !== AUDITED_RING_DEPOSIT_TAG
+            )
+              return [];
+            if (!equal(wrapper.data.subarray(CUSTOM_RING_PROOF_LENGTH + 2), source.data))
+              throw invalid("auditedDeposit");
+            return ConfirmedDeposit.#decode(source.data);
+          }
+        }
+        stack.push(instruction);
+      }
+    }
+    throw invalid("eventIndex");
+  }
+
+  /** The digest covers the entire capsule, including recipient ciphertext and slot. */
+  authenticate(capsule: RingDepositCapsule, ownerCommitment: Bytes32): void {
+    if (
+      capsule.slotIndex !== this.slotIndex ||
+      !equal(ownerCommitment, this.#ownerCommitment) ||
+      !equal(sha256(encodeRingDepositCapsule(capsule)), this.#capsuleHash)
+    ) {
+      throw new RingError("RING_AUDIT_MESSAGE", {
+        details: { reason: "unconfirmed deposit capsule" },
+      });
+    }
+  }
+
+  static #decode(data: Uint8Array): readonly ConfirmedDeposit[] {
+    const decoded = decodeRingDepositInstructionData(data.subarray(1));
+    if (decoded.deposits.length < 1 || decoded.deposits.length > RING_DEPOSIT_AUDIT_SLOTS)
+      throw invalid("deposits.length");
+    const deposits = decoded.deposits.map((deposit, slot) => {
+      const ciphertext = deposit.encrypted.ciphertext;
+      const capsule = readRingDepositCapsule(ciphertext);
+      if (capsule === undefined || capsule.slotIndex !== slot) throw invalid("deposit capsule");
+      return new ConfirmedDeposit(CONFIRMED_DEPOSIT, slot, deposit.ownerUtxoHash, ciphertext);
+    });
+    return Object.freeze(deposits);
+  }
 }
 
 export interface OriginInstruction {
@@ -259,8 +383,9 @@ export function senderOf(
 }
 
 /** Mirrors the Rust `TransactionOrigin` impl for `SolanaRpc`. */
-export class RpcTransactionOrigin implements TransactionOrigin {
+export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSource {
   readonly #rpc: SolanaRpc;
+  readonly #transactions = new Map<Signature, Promise<unknown>>();
 
   constructor(rpc: SolanaRpc) {
     this.#rpc = rpc;
@@ -272,6 +397,39 @@ export class RpcTransactionOrigin implements TransactionOrigin {
     ring: Address,
     context?: RequestContext,
   ): Promise<boolean> {
+    return ringEventInvokedIn(
+      confirmedInstructionGroups(await this.#transaction(signature, context)),
+      eventIndex,
+      ring,
+    );
+  }
+
+  async confirmedDeposits(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<readonly ConfirmedDeposit[]> {
+    return ConfirmedDeposit.fromTransaction(
+      await this.#transaction(signature, context),
+      signature,
+      eventIndex,
+      ring,
+    );
+  }
+
+  #transaction(signature: Signature, context?: RequestContext): Promise<unknown> {
+    const known = this.#transactions.get(signature);
+    if (known !== undefined) return known;
+    const pending = this.#fetch(signature, context).catch((error: unknown) => {
+      this.#transactions.delete(signature);
+      throw error;
+    });
+    this.#transactions.set(signature, pending);
+    return pending;
+  }
+
+  async #fetch(signature: Signature, context?: RequestContext): Promise<unknown> {
     let transaction: unknown;
     try {
       transaction = await runKitRpc("getTransaction", context, (abortSignal) =>
@@ -283,10 +441,9 @@ export class RpcTransactionOrigin implements TransactionOrigin {
         cause,
       });
     }
-    if (transaction === null || transaction === undefined) {
+    if (transaction === null || transaction === undefined)
       throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { transactionId: signature } });
-    }
-    return ringEventInvokedIn(confirmedInstructionGroups(transaction), eventIndex, ring);
+    return transaction;
   }
 }
 
@@ -385,17 +542,11 @@ function readSettlementData(reader: Reader): {
   reader.bytes(32, "privateTxHash");
   // CircuitId's u16 tags and payloads match the Rust wire format.
   const circuit = reader.u16("circuit.kind");
-  if (circuit !== 1 && circuit !== 3 && circuit !== 5 && circuit !== 6) {
+  if (circuit !== 1 && circuit !== 5) {
     throw invalid("circuit.kind");
   }
   reader.bytes(3, "circuit.shape");
-  if (circuit === 3 || circuit === 6) {
-    reader.bytes(64, "circuit.bsb22Commitment");
-    const present = reader.bool("circuit.defaultOwnerTag.present");
-    const tag = reader.bytes(32, "circuit.defaultOwnerTag");
-    if (!present && tag.some((byte) => byte !== 0)) throw invalid("circuit.defaultOwnerTag");
-  }
-  const hasCache = circuit === 5 || circuit === 6;
+  const hasCache = circuit === 5;
   let cacheAccountCount = 0;
   if (hasCache) {
     const reads = reader.u64("circuit.cacheAccess.readBitmap");

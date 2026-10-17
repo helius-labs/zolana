@@ -6,7 +6,7 @@ use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey};
+use zolana_keypair::{KeypairError, PublicKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ReaderKey {
@@ -18,7 +18,7 @@ pub enum ReaderKey {
 pub struct Ed25519ReaderKey(Address);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct P256ReaderKey(P256Pubkey);
+pub struct P256ReaderKey([u8; 33]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ReaderKeyError {
@@ -41,22 +41,32 @@ impl ReaderKey {
         Ed25519ReaderKey::try_from(address).map(Self::Ed25519)
     }
 
-    pub fn p256(key: P256Pubkey) -> Result<Self, ReaderKeyError> {
-        P256ReaderKey::try_from(key).map(Self::P256)
+    pub fn p256(key: P256ReaderKey) -> Result<Self, ReaderKeyError> {
+        Ok(Self::P256(key))
     }
 
     pub fn to_bytes(self) -> [u8; 34] {
         match self {
             Self::Ed25519(key) => *PublicKey::from_ed25519(key.address().as_array()).as_bytes(),
-            Self::P256(key) => *PublicKey::from_p256(&key.pubkey()).as_bytes(),
+            Self::P256(key) => {
+                let mut bytes = [0; 34];
+                bytes[0] = READER_KEY_P256;
+                bytes[1..].copy_from_slice(key.as_bytes());
+                bytes
+            }
         }
     }
 
     pub fn from_bytes(bytes: [u8; 34]) -> Result<Self, ReaderKeyError> {
-        let key = PublicKey::from_bytes(bytes)?;
         match bytes[0] {
-            READER_KEY_ED25519 => Self::ed25519(Address::new_from_array(key.as_ed25519()?)),
-            READER_KEY_P256 => Self::p256(key.as_p256()?),
+            READER_KEY_ED25519 => {
+                let key = PublicKey::from_bytes(bytes).map_err(|_| ReaderKeyError::Body)?;
+                let body = key.as_ed25519().map_err(|_| ReaderKeyError::Body)?;
+                Self::ed25519(Address::new_from_array(body))
+            }
+            READER_KEY_P256 => Self::p256(P256ReaderKey::from_bytes(
+                bytes[1..].try_into().map_err(|_| ReaderKeyError::Body)?,
+            )?),
             _ => Err(ReaderKeyError::Scheme),
         }
     }
@@ -91,18 +101,17 @@ impl TryFrom<Address> for Ed25519ReaderKey {
 }
 
 impl P256ReaderKey {
-    pub fn pubkey(self) -> P256Pubkey {
-        self.0
+    /// Validates a passkey's compressed SEC1 key independently of owner encodings.
+    pub fn from_bytes(bytes: [u8; 33]) -> Result<Self, ReaderKeyError> {
+        if custom_ring_interface::is_reserved_reader_key(&bytes) {
+            return Err(ReaderKeyError::Body);
+        }
+        p256::PublicKey::from_sec1_bytes(&bytes).map_err(|_| ReaderKeyError::Body)?;
+        Ok(Self(bytes))
     }
-}
 
-impl TryFrom<P256Pubkey> for P256ReaderKey {
-    type Error = ReaderKeyError;
-
-    fn try_from(key: P256Pubkey) -> Result<Self, Self::Error> {
-        (!zolana_interface::is_reserved_p256_derivation_point(key.as_bytes()))
-            .then_some(Self(key))
-            .ok_or(ReaderKeyError::Body)
+    pub fn as_bytes(&self) -> &[u8; 33] {
+        &self.0
     }
 }
 
@@ -111,14 +120,15 @@ impl FromStr for ReaderKey {
 
     /// Base58 text is an Ed25519 key, never a hex fallback.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let key = match text.parse::<Address>() {
-            Ok(address) => Self::ed25519(address).ok(),
-            Err(_) => hex::decode(text)
-                .ok()
-                .and_then(|bytes| P256Pubkey::from_bytes(bytes.try_into().ok()?).ok())
-                .and_then(|key| Self::p256(key).ok()),
-        };
-        key.ok_or(ReaderKeyError::Text)
+        if let Ok(address) = text.parse::<Address>() {
+            return Self::ed25519(address).map_err(|_| ReaderKeyError::Text);
+        }
+        let bytes: [u8; 33] = hex::decode(text)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(ReaderKeyError::Text)?;
+        let key = P256ReaderKey::from_bytes(bytes).map_err(|_| ReaderKeyError::Text)?;
+        Self::p256(key).map_err(|_| ReaderKeyError::Text)
     }
 }
 
@@ -126,7 +136,7 @@ impl fmt::Display for ReaderKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ed25519(key) => key.address().fmt(formatter),
-            Self::P256(key) => formatter.write_str(&hex::encode(key.pubkey().as_bytes())),
+            Self::P256(key) => formatter.write_str(&hex::encode(key.as_bytes())),
         }
     }
 }

@@ -71,6 +71,8 @@ pub enum AuditError {
     InvalidStackHeight(u32),
     #[error("ring transact instruction data is undecodable {0}")]
     InvalidTransactData(String),
+    #[error("confirmed audited deposit data is undecodable {0}")]
+    InvalidDepositData(String),
     #[error("ring transact settlement accounts do not match its interface transfers")]
     SettlementAccounts,
     #[error("trusted event index {0} is unavailable")]

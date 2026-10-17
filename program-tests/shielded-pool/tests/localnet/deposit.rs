@@ -56,7 +56,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?,
     );
 
-    let direct_keypair = ShieldedKeypair::new_p256()?;
+    let direct_keypair = ShieldedKeypair::new_ed25519()?;
     let mut direct_recipient =
         Wallet::new(direct_keypair.shielded_address()?, AssetRegistry::default())?;
     let direct_data =
@@ -133,7 +133,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     print_signature("create_ring_config", &create_ring_config_tx.signature);
 
-    let ring_keypair = ShieldedKeypair::new_p256()?;
+    let ring_keypair = ShieldedKeypair::new_ed25519()?;
     let mut ring_recipient =
         Wallet::new(ring_keypair.shielded_address()?, AssetRegistry::default())?;
     // Ring deposits have no input nullifier; use a fixture for the shared derivations.

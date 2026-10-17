@@ -145,7 +145,7 @@ mod tests {
                 proof: TransactProof::zeroed(),
                 expiry_unix_ts: u64::MAX,
                 private_tx_hash: [0u8; 32],
-                circuit: CircuitId::RingEddsa(0, 0, 3),
+                circuit: CircuitId::ConfidentialRingEd25519(0, 0, 3),
                 tx_viewing_pk: [0u8; 33],
                 salt: [0u8; 16],
                 inputs: Vec::new(),

@@ -106,22 +106,22 @@ func TestUtxoHashCircuitBindsTreeID(t *testing.T) {
 func TestCircuitRejectsInputClaimingOtherSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(1)
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A slot index outside the published slots selects no tree and is rejected.
 func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(InputTrees)
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // Publishing another output tree id changes the output hash preimage, so the
@@ -129,10 +129,10 @@ func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
 func TestCircuitRejectsOutputTreeIDMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.OutputTreeID = spptest.Fe(testInputTreeID)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }

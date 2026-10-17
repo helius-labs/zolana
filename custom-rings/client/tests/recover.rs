@@ -1,3 +1,6 @@
+#[path = "common/deposit.rs"]
+mod deposit_fixture;
+
 use custom_ring_interface::RingDepositAuditCapsule;
 use std::{cell::Cell, sync::Mutex};
 
@@ -29,6 +32,7 @@ struct Fixture {
     address: ShieldedAddress,
     auditor: X25519Secret,
     sequence: Cell<u8>,
+    confirmed: Mutex<Vec<(Signature, Vec<zolana_ring_client::ConfirmedDeposit>)>>,
 }
 
 impl Fixture {
@@ -39,6 +43,7 @@ impl Fixture {
             member,
             auditor: X25519Secret::new(),
             sequence: Cell::new(0),
+            confirmed: Mutex::new(Vec::new()),
         }
     }
 
@@ -60,6 +65,7 @@ impl Fixture {
         recovery: MemberRecovery<'_>,
         history: &History,
     ) -> Result<RecoveredNotes, AuditError> {
+        *history.confirmed.lock().unwrap() = self.confirmed.lock().unwrap().clone();
         recovery
             .run(history, history, &AssetRegistry::default())
             .await
@@ -229,6 +235,16 @@ impl Fixture {
             recipient_ciphertext: &encrypted.ciphertext,
         }
         .encode();
+        let group = deposit_fixture::group(
+            RING,
+            true,
+            vec![(owner_utxo_hash, encrypted.ciphertext.clone())],
+        );
+        let origin = zolana_ring_client::ring_event_origin_in(&[group], 0, RING).unwrap();
+        self.confirmed
+            .lock()
+            .unwrap()
+            .push((transaction.tx_signature, origin.deposits));
         transaction.proofless = true;
         transaction.tx_viewing_pk = None;
         transaction.salt = None;
@@ -260,6 +276,7 @@ fn output_context(note: &WalletUtxo) -> OutputContext {
 struct History {
     transactions: Vec<ShieldedTransaction>,
     queried: Mutex<Vec<Vec<[u8; 32]>>>,
+    confirmed: Mutex<Vec<(Signature, Vec<zolana_ring_client::ConfirmedDeposit>)>>,
     foreign: Vec<Signature>,
     required_slots: Mutex<Vec<Option<u64>>>,
 }
@@ -376,6 +393,14 @@ impl TransactionOrigin for History {
             ring_invoked: !self.foreign.contains(&signature),
             signers: Vec::new(),
             withdrawals: Vec::new(),
+            deposits: self
+                .confirmed
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(key, _)| *key == signature)
+                .map(|(_, bindings)| bindings.clone())
+                .unwrap_or_default(),
         })
     }
 }
@@ -710,7 +735,7 @@ async fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
 }
 
 #[tokio::test]
-async fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
+async fn invalid_confirmed_deposit_openings_and_forged_owned_leaves_fail() {
     let fixture = Fixture::new();
     let (_, transaction) = fixture.deposit(fixture.output(9), 7);
     let mut wrong_leaf = transaction.clone();
@@ -729,20 +754,55 @@ async fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails()
         fixture.run(fixture.recovery(), &history).await,
         Err(AuditError::DepositOpeningMismatch)
     ));
-    let commitment = wrong_ciphertext.output_slots[0].output_context.hash;
     let history = History {
         transactions: vec![wrong_ciphertext.clone()],
         ..Default::default()
     };
-    let result = fixture.run(fixture.recovery(), &history).await.unwrap();
-    assert!(result.utxos.is_empty());
-    assert_eq!(result.unsupported_deposits, vec![commitment]);
+    assert!(matches!(
+        fixture.run(fixture.recovery(), &history).await,
+        Err(AuditError::DepositOpeningMismatch)
+    ));
     wrong_ciphertext.output_slots[0].view_tag = [99; 32];
     let history = History {
         transactions: vec![wrong_ciphertext],
         ..Default::default()
     };
-    let result = fixture.run(fixture.recovery(), &history).await.unwrap();
-    assert!(result.utxos.is_empty());
-    assert!(result.unsupported_deposits.is_empty());
+    assert!(matches!(
+        fixture.run(fixture.recovery(), &history).await,
+        Err(AuditError::DepositOpeningMismatch)
+    ));
+}
+
+#[tokio::test]
+async fn an_unconfirmed_anonymous_deposit_remains_explicitly_unsupported() {
+    let fixture = Fixture::new();
+    let (held, mut indexed) = fixture.deposit(fixture.output(9), 7);
+    indexed.output_slots[0].view_tag = [0; 32];
+    fixture.confirmed.lock().unwrap().clear();
+    let history = History {
+        transactions: vec![indexed],
+        ..Default::default()
+    };
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert!(recovered.utxos.is_empty());
+    assert_eq!(recovered.unsupported_deposits, vec![held.utxo_hash]);
+}
+
+#[tokio::test]
+async fn indexed_owner_key_tampering_is_rejected_against_confirmed_deposit() {
+    let fixture = Fixture::new();
+    let (_, mut indexed) = fixture.deposit(fixture.output(9), 7);
+    let slot = &mut indexed.output_slots[0];
+    let mut output =
+        zolana_event_parser::decode_encrypted_ring_deposit_output_data(&slot.payload).unwrap();
+    output.encrypted.ciphertext[42 + 64] ^= 1;
+    slot.payload = encode_encrypted_ring_deposit_output(output);
+    let history = History {
+        transactions: vec![indexed],
+        ..Default::default()
+    };
+    assert!(matches!(
+        fixture.run(fixture.recovery(), &history).await,
+        Err(AuditError::DepositOpeningMismatch)
+    ));
 }

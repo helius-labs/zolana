@@ -9,7 +9,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
     attach_input_proofs, input_utxos_from_nullifiers,
-    prover::transact::{RingTransferEd25519Prover, TransferEd25519Inputs},
+    prover::transact::{AnonymousEd25519TransferInputs, AnonymousRingEd25519Prover},
     prover::{
         indexed::{
             IndexedPolicyData, IndexedPolicyRequest, IndexedTransferPreparation,
@@ -178,8 +178,7 @@ impl<R: Rail> RingTransfer<R> {
         let inputs = &staged.proof_inputs;
         // A missing or foreign tree fails before the indexer serves proofs against it.
         let trees = spend_trees(client, &inputs.input_utxos, inputs.output_tree_id).await?;
-        // The prover resolves no RingEd25519 witness, both statements read through the client.
-        let indexed = client.indexed_prover().is_some() && !staged.pending.is_anonymous();
+        let indexed = client.indexed_prover().is_some();
         let spp = Spp::witness(self, client, &staged, &trees, indexed).await?;
         let policy = match &staged.pinned {
             Some(pinned) => Some(boxed(|| self.policy(client, &staged, pinned, indexed)).await?),
@@ -417,7 +416,7 @@ enum SppInputs {
     Ring(TransferInputs),
     Authority(TransferInputs),
     /// The hidden owner's key, signature and signed digest ride along.
-    Anonymous(Box<TransferEd25519Inputs>),
+    Anonymous(Box<AnonymousEd25519TransferInputs>),
 }
 
 impl SppInputs {
@@ -445,9 +444,13 @@ impl Spp {
             RailKind::Owner(_) | RailKind::Delegated(_) => None,
         };
         if indexed {
-            let rail = match authority {
-                true => IndexedTransferRail::RingAuthority(program),
-                false => IndexedTransferRail::Ring(program),
+            let rail = match (authority, hidden) {
+                (false, Some(owner)) => IndexedTransferRail::AnonymousRingEd25519 {
+                    ring: program,
+                    owner,
+                },
+                (true, _) => IndexedTransferRail::RingAuthority(program),
+                (false, None) => IndexedTransferRail::Ring(program),
             };
             let prepared = IndexedTransferPreparation {
                 transaction: inputs.clone(),
@@ -472,7 +475,7 @@ impl Spp {
         let shape = inputs.check_shape()?;
         let mut complete = match (authority, hidden) {
             (false, Some(owner)) => {
-                let result = RingTransferEd25519Prover {
+                let result = AnonymousRingEd25519Prover {
                     inputs: spends,
                     outputs: inputs.output_utxos.clone(),
                     blinding_seed: inputs.blinding_seed,
@@ -592,7 +595,7 @@ impl Spp {
         );
         let (circuit, proof) = match &complete.inputs {
             SppInputs::Ring(_) => (
-                CircuitId::RingEddsa(width.0, width.1, width.2),
+                CircuitId::ConfidentialRingEd25519(width.0, width.1, width.2),
                 proof.to_transact_proof(),
             ),
             SppInputs::Authority(_) => (
@@ -601,9 +604,9 @@ impl Spp {
             ),
             // The selector carries the emulated-field commitment the verifier checks.
             SppInputs::Anonymous(_) => {
-                let (proof, commitment) = proof.into_ring_p256_transact_parts()?;
+                let (proof, commitment) = proof.into_committed_transact_parts()?;
                 (
-                    CircuitId::RingEd25519(width.0, width.1, width.2, commitment),
+                    CircuitId::AnonymousRingEd25519(width.0, width.1, width.2, commitment),
                     proof,
                 )
             }

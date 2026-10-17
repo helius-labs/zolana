@@ -16,8 +16,8 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewCustomRingEddsaOnlyCircuit(shape Shape) *customring.CustomRingEddsaOnlyCircuit {
-	circuit, err := customring.NewCustomRingEddsaOnlyCircuit(shape)
+func MustNewCustomRingConfidentialEd25519Circuit(shape Shape) *customring.CustomRingConfidentialEd25519Circuit {
+	circuit, err := customring.NewCustomRingConfidentialEd25519Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -25,26 +25,26 @@ func MustNewCustomRingEddsaOnlyCircuit(shape Shape) *customring.CustomRingEddsaO
 }
 
 // The Solana-only custom-ring circuit proves a Solana-owned transaction.
-func TestCustomRingEddsaOnlySolves(t *testing.T) {
+func TestCustomRingConfidentialEd25519Solves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
 		circuit,
-		asCustomRingEddsaOnly(assignment),
+		asCustomRingConfidentialEd25519(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
 	)
 }
 
-func TestCustomRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
+func TestCustomRingConfidentialEd25519PublicInputHashBindsEveryField(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	refreshHash := func() { refreshPublicInputHash(t, assignment) }
 	refreshHash()
@@ -53,7 +53,7 @@ func TestCustomRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
 		t,
 		circuit,
 		assignment,
-		func() frontend.Circuit { return asCustomRingEddsaOnly(assignment) },
+		func() frontend.Circuit { return asCustomRingConfidentialEd25519(assignment) },
 		refreshHash,
 		publicInputHashBindingOptions{
 			includeRingProgramID:       true,
@@ -64,13 +64,13 @@ func TestCustomRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
 }
 
 // Soundness guard: the Solana-only variant must reject a content slot whose
-// public owner tag is the 0 sentinel (the dropped P256 rail's routing mark),
+// public owner tag is the 0 sentinel for a hidden owner,
 // since it has no signature gadget to authorize it. Otherwise a UTXO owned by
 // OwnerHash(0, nullifier_pk) could be spent with no signature.
-func TestCustomRingEddsaOnlyRejectsZeroOwnerTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519RejectsZeroOwnerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	nullifierSecret := spptest.AsBigInt(assignment.Inputs[0].NullifierSecret)
@@ -83,7 +83,7 @@ func TestCustomRingEddsaOnlyRejectsZeroOwnerTag(t *testing.T) {
 	assignment.Inputs[0].OwnerPkHash = spptest.Fe(0)
 	rebuildAfterOwnerChange(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // outsideRecipient is a recipient pk_field that is not a signer of the shared
@@ -95,20 +95,20 @@ func outsideRecipient(t testing.TB) *big.Int {
 
 // The wallet's default for an anonymous ring transaction: a dummy publishes
 // zero and hides among policy-ring outputs.
-func TestCustomRingEddsaOnlyAcceptsZeroDummyOutputTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519AcceptsZeroDummyOutputTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 	tagDummyOutput(t, assignment, 0)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The payer signs but is not a dummy marker: a fee payer must not
 // be shown as a ring recipient by a transaction it only paid for.
-func TestCustomRingEddsaOnlyRejectsDummyOutputPayerTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519RejectsDummyOutputPayerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -116,13 +116,13 @@ func TestCustomRingEddsaOnlyRejectsDummyOutputPayerTag(t *testing.T) {
 	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An owner signer other than the payer is public in the signer vector, so a
 // dummy may repeat it even when no output publishes it.
-func TestCustomRingEddsaOnlyAcceptsDummyOutputOwnerSignerTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519AcceptsDummyOutputOwnerSignerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -130,13 +130,13 @@ func TestCustomRingEddsaOnlyAcceptsDummyOutputOwnerSignerTag(t *testing.T) {
 	tagDummyOutput(t, assignment, assignment.Inputs[0].OwnerPkHash)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A default-ring recipient is published by their real output, so a dummy may
 // pose as a second payment to them.
-func TestCustomRingEddsaOnlyAcceptsDummyOutputPublishedRecipientTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519AcceptsDummyOutputPublishedRecipientTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -145,27 +145,27 @@ func TestCustomRingEddsaOnlyAcceptsDummyOutputPublishedRecipientTag(t *testing.T
 	tagDummyOutput(t, assignment, recipient)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A policy-ring recipient publishes zero and stays private; a dummy that names
 // them would copy the private identity into public data.
-func TestCustomRingEddsaOnlyRejectsDummyOutputPolicyRingRecipientTag(t *testing.T) {
+func TestCustomRingConfidentialEd25519RejectsDummyOutputPolicyRingRecipientTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 	assignment.Outputs[0].Utxo.RingProgramID = assignment.RingProgramID
 	recipient := outsideRecipient(t)
 	retagRealOutput(t, assignment, recipient)
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
 
 	// Control: the same ring payment solves with an anonymous dummy.
 	tagDummyOutput(t, assignment, 0)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 
 	tagDummyOutput(t, assignment, recipient)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
 }

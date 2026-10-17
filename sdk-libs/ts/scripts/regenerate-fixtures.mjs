@@ -2,6 +2,7 @@
 // with the current library and rewrites fixtures/manifest.json. Run after a
 // build: `npm run build && node scripts/regenerate-fixtures.mjs`.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import {
@@ -63,7 +64,7 @@ function hex(value) {
 }
 
 function keypairFromInputs(inputs) {
-  const signing = SigningKey.fromP256Bytes(bytes(inputs.signingSecretBytes));
+  const signing = SigningKey.fromEd25519Bytes(bytes(inputs.signingSecretBytes));
   const viewing = ViewingKey.fromBytes(bytes(inputs.viewingSecretBytes));
   return { keypair: ShieldedKeypair.withViewingKey(signing, viewing), signing };
 }
@@ -90,6 +91,15 @@ const authority = readJson("transaction/authority-v1.json");
 {
   const { keypair, signing } = keypairFromInputs(authority.inputs);
   const nullifierPubkey = hex(keypair.nullifierPublicKey());
+  authority.expected.authority.shieldedAddress.signingPubkeyBytes = hex(
+    keypair.signingPublicKey().toBytes(),
+  );
+  authority.expected.ed25519Signature ??= {};
+  delete authority.expected.p256Signature;
+  authority.expected.ed25519Signature.pubkeyBytes = hex(keypair.signingPublicKey().ed25519());
+  authority.expected.ed25519Signature.verified = true;
+  authority.responsibility =
+    "authority material, approval input, deterministic Ed25519 signature, and envelope fields";
   authority.expected.authority.nullifierPubkeyBytes = nullifierPubkey;
   authority.expected.authority.shieldedAddress.nullifierPubkeyBytes = nullifierPubkey;
   authority.expected.authority.shieldedAddress.viewingPubkeyBytes = hex(
@@ -99,8 +109,8 @@ const authority = readJson("transaction/authority-v1.json");
     ViewingKey.fromBytes(bytes(authority.inputs.txViewingSecretBytes)).publicKey().toBytes(),
   );
   const signature = signing.sign(bytes(authority.inputs.messageHashBytes));
-  authority.expected.p256Signature.rBytes = hex(signature.slice(0, 32));
-  authority.expected.p256Signature.sBytes = hex(signature.slice(32));
+  authority.expected.ed25519Signature.rBytes = hex(signature.slice(0, 32));
+  authority.expected.ed25519Signature.sBytes = hex(signature.slice(32));
   writeJson("transaction/authority-v1.json", authority);
 }
 
@@ -109,6 +119,7 @@ const walletState = readJson("transaction/wallet-state-v1.json");
   const { keypair } = keypairFromInputs(walletState.inputs);
   const nullifierKey = keypair.nullifierKey();
   for (const row of walletState.inputs.walletUtxos) {
+    row.utxo.ownerBytes = hex(keypair.signingPublicKey().toBytes());
     row.nullifierBytes = hex(
       nullifierKey.nullifier(bytes(row.hashBytes), bytes(row.utxo.blindingBytes)),
     );
@@ -136,7 +147,7 @@ const serialization = readJson("transaction/serialization-v1.json");
   const { keypair } = keypairFromInputs(inputs);
   const recipientViewing = ViewingKey.fromBytes(bytes(inputs.recipientViewingSecretBytes));
   const recipient = ShieldedKeypair.withViewingKey(
-    SigningKey.fromP256Bytes(bytes(inputs.recipientSigningSecretBytes)),
+    SigningKey.fromEd25519Bytes(bytes(inputs.recipientSigningSecretBytes)),
     recipientViewing,
   );
   const tx = ViewingKey.fromBytes(bytes(inputs.txViewingSecretBytes));
@@ -319,6 +330,12 @@ const walletSync = readJson("transaction/wallet-sync-v1.json");
   viewing.destroy();
   writeJson("transaction/wallet-sync-v1.json", walletSync);
 }
+
+// Hash the formatted files so format checks cannot invalidate the manifest.
+execFileSync("npx", ["--no-install", "oxfmt", "--write", "fixtures"], {
+  cwd: new URL("..", import.meta.url),
+  stdio: "inherit",
+});
 
 const manifest = readJson("manifest.json");
 for (const entry of manifest.files) {

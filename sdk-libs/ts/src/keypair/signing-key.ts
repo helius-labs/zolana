@@ -1,5 +1,4 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { p256 } from "@noble/curves/nist.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 
 import {
@@ -10,11 +9,9 @@ import {
   copyBytes,
   randomBytes,
 } from "./bytes.js";
-import { ecdhX, ed25519DerivationMessage, isDerivationInput, pDerive } from "./derivation.js";
+import { ed25519DerivationMessage, isDerivationInput } from "./derivation.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
-import { P256PublicKey, ShieldedPublicKey, type SignatureType } from "./public-key.js";
-
-export type EcdsaSignature = Bytes64;
+import { ShieldedPublicKey, type SignatureType } from "./public-key.js";
 
 const ED25519_ORDER = ed25519.Point.Fn.ORDER;
 
@@ -52,56 +49,32 @@ function verifyEd25519Strict(
 
 export class SigningKey {
   #secret: Uint8Array;
-  readonly #type: SignatureType;
   #destroyed = false;
 
-  private constructor(secret: Uint8Array, type: SignatureType) {
+  private constructor(secret: Uint8Array) {
     this.#secret = secret;
-    this.#type = type;
   }
 
-  static generate(type: SignatureType = "p256"): SigningKey {
-    switch (type) {
-      case "ed25519":
-        return new SigningKey(randomBytes(32), type);
-      case "p256": {
-        let secret: Uint8Array;
-        do secret = randomBytes(32);
-        while (!p256.utils.isValidSecretKey(secret));
-        return new SigningKey(secret, type);
-      }
-      default:
-        throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type });
-    }
-  }
-
-  static fromP256Bytes(bytes: Bytes32): SigningKey {
-    const secret = checkedBytes<Bytes32>(bytes, 32, "P256 signing secret");
-    if (!p256.utils.isValidSecretKey(secret)) {
-      secret.fill(0);
-      throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { type: "p256" });
-    }
-    return new SigningKey(secret, "p256");
+  static generate(type: SignatureType = "ed25519"): SigningKey {
+    if (type !== "ed25519") throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type });
+    return new SigningKey(randomBytes(32));
   }
 
   static fromEd25519Bytes(bytes: Bytes32): SigningKey {
-    return new SigningKey(checkedBytes<Bytes32>(bytes, 32, "Ed25519 signing secret"), "ed25519");
+    return new SigningKey(checkedBytes<Bytes32>(bytes, 32, "Ed25519 signing secret"));
   }
 
   /** Mirrors `SigningKey::is_ed25519`: which rail this key signs on. */
   isEd25519(): boolean {
-    return this.#type === "ed25519";
+    return true;
   }
 
   signatureType(): SignatureType {
-    return this.#type;
+    return "ed25519";
   }
 
   publicKey(): ShieldedPublicKey {
     this.#assertUsable();
-    if (this.#type === "p256") {
-      return ShieldedPublicKey.fromP256(P256PublicKey.fromSecret(this.#secret));
-    }
     return ShieldedPublicKey.fromEd25519(ed25519.getPublicKey(this.#secret) as Bytes32);
   }
 
@@ -111,55 +84,23 @@ export class SigningKey {
       throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
     }
     try {
-      if (this.#type === "p256") {
-        if (message.length !== 32) {
-          throw new KeypairError("KEYPAIR_INVALID_PREHASH_LENGTH", {
-            expected: 32,
-            actual: message.length,
-          });
-        }
-        // Low-S like Rust's `normalize_s`: it makes a signature byte-identical
-        // across software, KMS, and YubiKey backends over the same digest.
-        return p256.sign(message, this.#secret, {
-          prehash: false,
-          format: "compact",
-          lowS: true,
-        }) as Bytes64;
-      }
       return ed25519.sign(message, this.#secret) as Bytes64;
     } catch (error) {
       throw wrapKeypairError("KEYPAIR_INVALID_SECRET_KEY", error);
     }
   }
 
-  /**
-   * The rail seed both role keys expand from: the deterministic RFC 8032
-   * signature over the off-chain derivation message on the ed25519 rail, or
-   * `ECDH(signing_sk, P_derive)` on the P-256 rail.
-   */
+  /** Deterministic off-chain signature that seeds the nullifier and viewing roles. */
   derivationSeed(): Uint8Array {
     this.#assertUsable();
-    if (this.#type === "ed25519") {
-      const message = ed25519DerivationMessage(ed25519.getPublicKey(this.#secret) as Bytes32);
-      return ed25519.sign(message, this.#secret);
-    }
-    return ecdhX(this.#secret, pDerive());
+    const message = ed25519DerivationMessage(ed25519.getPublicKey(this.#secret) as Bytes32);
+    return ed25519.sign(message, this.#secret);
   }
 
   verify(message: Uint8Array, signature: Bytes64): boolean {
     this.#assertUsable();
     if (!(signature instanceof Uint8Array) || signature.length !== 64) return false;
     try {
-      if (this.#type === "p256") {
-        if (message.length !== 32) return false;
-        // The circuit accepts s above n/2, so refusing it here would reject
-        // signatures the protocol treats as valid.
-        return p256.verify(signature, message, this.publicKey().p256().toBytes(), {
-          prehash: false,
-          format: "compact",
-          lowS: false,
-        });
-      }
       return verifyEd25519Strict(signature, message, this.publicKey().ed25519());
     } catch {
       return false;

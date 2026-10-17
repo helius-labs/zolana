@@ -24,7 +24,9 @@ pub use crate::{
         NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::AuditError,
-    origin::{ring_event_origin_in, RingOrigin, RingWithdrawal, TransactionOrigin},
+    origin::{
+        ring_event_origin_in, ConfirmedDeposit, RingOrigin, RingWithdrawal, TransactionOrigin,
+    },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },

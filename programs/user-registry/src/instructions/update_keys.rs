@@ -1,10 +1,7 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_user_registry_interface::instruction::UpdateKeysData;
 
-use super::{
-    common::{check_record_pda_with_bump, read_record, write_record},
-    p256_proof::verify_p256_key_binding,
-};
+use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
 /// Updates the shielded keys stored in an existing user record.
@@ -32,17 +29,11 @@ pub fn process_update_keys(
     // The nullifier pubkey is wallet-wide and part of the published owner hash,
     // so rotating it in place would replace the record's shielded identity while
     // every UTXO already addressed to the old one stays behind. Rejecting before
-    // the proof check leaves the record untouched.
+    // writing leaves the record untouched.
     if data.nullifier_pubkey != state.nullifier_pubkey {
         return Err(fail(UserRegistryError::NullifierPubkeyRotation));
     }
 
-    if let Some(owner_p256) = &data.owner_p256 {
-        let instructions = tail.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        verify_p256_key_binding(instructions, record.address(), owner.address(), owner_p256)?;
-    }
-
-    state.owner_p256 = data.owner_p256;
     state.viewing_pubkey = data.viewing_pubkey;
     write_record(record, &state)
 }

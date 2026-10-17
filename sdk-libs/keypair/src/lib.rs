@@ -9,8 +9,7 @@
 //! ```
 //!
 //! # Keys
-//! - [`SigningKey`] — Ed25519 or P-256 spend-authorizing key. The P-256 owner
-//!   path signs `private_tx_hash`, which its SPP proof checks.
+//! - [`SigningKey`] — Ed25519 spend-authorizing key.
 //! - [`NullifierKey`] — derives `nullifier_pk` and the per-UTXO nullifiers that
 //!   prevent double-spends.
 //! - [`ViewingKey`] — X25519 key for HPKE-style UTXO encryption and labelled
@@ -21,7 +20,7 @@
 //! # Addresses
 //! - [`ShieldedKeypair`] — bundles the three keys and builds the
 //!   [`ShieldedAddress`] and compressed [`CompressedShieldedAddress`].
-//! - [`PublicKey`], [`P256Pubkey`], [`Curve`] — scheme-tagged owner signing
+//! - [`PublicKey`], [`Curve`] — scheme-tagged owner signing
 //!   keys. [`X25519Pubkey`] identifies a viewing key separately.
 //!
 //! # Hashing
@@ -56,7 +55,7 @@ pub use encryption::symmetric_apply;
 pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
-pub use pubkey::{Curve, P256Pubkey, PublicKey};
+pub use pubkey::{Curve, PublicKey};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
 };
@@ -65,8 +64,6 @@ pub use traits::{ShieldedKeypairTrait, ViewingKeyTrait};
 pub use viewing_key::{random_blinding, random_salt, ViewingKey};
 
 pub type Signature = [u8; 64];
-
-pub type ECDSASignature = [u8; 64];
 
 pub mod x25519;
 pub use x25519::{X25519Pubkey, X25519Secret};

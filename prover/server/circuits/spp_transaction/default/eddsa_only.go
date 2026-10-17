@@ -15,7 +15,7 @@ import (
 // 5. Dummy slots are indistinguishable from real UTXO and address slots.
 // 6. Input nullifiers are distinct and balances are preserved.
 
-type DefaultRingEddsaOnlyPublic struct {
+type DefaultRingConfidentialEd25519Public struct {
 	// Nullifiers for UTXO, address, and dummy input slots.
 	Nullifiers []frontend.Variable
 	// New output UTXO hashes.
@@ -48,7 +48,7 @@ type DefaultRingEddsaOnlyPublic struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-type DefaultRingEddsaOnlyPrivate struct {
+type DefaultRingConfidentialEd25519Private struct {
 	Inputs             []shared.Input
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
@@ -57,29 +57,29 @@ type DefaultRingEddsaOnlyPrivate struct {
 	BlindingSeed frontend.Variable
 }
 
-type DefaultRingEddsaOnlyCircuit struct {
+type DefaultRingConfidentialEd25519Circuit struct {
 	CachedInputs shared.CachedInputs
 
 	Shape   shared.Shape `gnark:"-"`
-	Public  DefaultRingEddsaOnlyPublic
-	Private DefaultRingEddsaOnlyPrivate
+	Public  DefaultRingConfidentialEd25519Public
+	Private DefaultRingConfidentialEd25519Private
 }
 
-func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCircuit, error) {
+func NewDefaultRingConfidentialEd25519Circuit(shape shared.Shape) (*DefaultRingConfidentialEd25519Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &DefaultRingEddsaOnlyCircuit{
+	return &DefaultRingConfidentialEd25519Circuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
-		Public: DefaultRingEddsaOnlyPublic{
+		Public: DefaultRingConfidentialEd25519Public{
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:           shared.NewTreeSlots(),
 			SignerPkHashes:      make([]frontend.Variable, shape.SignerWidth()),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: DefaultRingEddsaOnlyPrivate{
+		Private: DefaultRingConfidentialEd25519Private{
 			Inputs:             shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -88,7 +88,7 @@ func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCi
 	}, nil
 }
 
-func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
+func (c *DefaultRingConfidentialEd25519Circuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		CachedInputs:      &c.CachedInputs,
 		Shape:             c.Shape,
@@ -114,7 +114,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 	}
 }
 
-func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *DefaultRingConfidentialEd25519Circuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
@@ -134,7 +134,7 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 
 	// 1.
 	authorized := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners := shared.AuthorizedEddsaInputOwners(
+	inputOwners := shared.AuthorizedEd25519InputOwners(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,

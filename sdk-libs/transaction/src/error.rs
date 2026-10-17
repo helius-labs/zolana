@@ -207,7 +207,7 @@ pub enum TransactionError {
     TooManyAssets { got: usize, max: usize },
 
     #[error("default transact supports Ed25519 owners only")]
-    P256TransactUnsupported,
+    UnsupportedOwnerType,
 
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
@@ -244,9 +244,6 @@ pub enum TransactionError {
 
     #[error("merge input {index} carries program or ring data, which is not supported")]
     MergeInputHasData { index: usize },
-
-    #[error("p256 error: {0}")]
-    P256(String),
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),

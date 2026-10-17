@@ -149,9 +149,9 @@ describe("user records wire", () => {
         null,
       ],
     });
-    expect(
-      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }).records[0],
-    ).toMatchObject({ ownerP256: P256 });
+    expect(() =>
+      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }),
+    ).toThrow("Invalid value at $.records[0].ownerP256");
     for (const changed of [
       { records: [{ ...record, bump: 1 }] },
       { records: [{ ...record, mergingEnabled: "yes" }] },
@@ -196,7 +196,6 @@ describe("user records wire", () => {
     expect(requests).toEqual([{ owners: [RING, OTHER] }]);
     expect(lookup.context).toEqual({ slot: 77n, blockTime: 2n });
     expect(lookup.records[0]).toMatchObject({ owner: RING, mergingEnabled: true });
-    expect(lookup.records[0]?.ownerP256).toBeUndefined();
     expect(lookup.records[0]?.nullifierPublicKey).toEqual(new Uint8Array(32));
     expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x04);
     expect(lookup.records[1]).toBeNull();

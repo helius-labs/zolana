@@ -169,8 +169,8 @@ func TestCRTSquareFrontendDifferential(t *testing.T) {
 
 func TestCRTQuadraticSquaresMatchFold(t *testing.T) {
 	q := ecc.BN254.ScalarField()
-	p256P, _ := new(big.Int).SetString("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16)
-	f := &Field{layout: projectionLayout, mod: p256P}
+	modulus := projectionTestModulus()
+	f := &Field{layout: projectionLayout, mod: modulus}
 	s := newArithmeticState(f)
 	f.arithmetic = s
 	b := s.crtBasis(f, q)

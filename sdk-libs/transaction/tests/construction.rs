@@ -10,13 +10,13 @@ use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
-    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
+    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey,
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, inputs_require_p256, pad_input_utxos, resolve_shape,
-        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
+        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
+        PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -79,7 +79,6 @@ struct Snapshot {
     first: [u8; 32],
     trees: Vec<u16>,
     output_tree: u16,
-    p256: bool,
 }
 fn snapshot(tx: &ConfidentialTransaction) -> Snapshot {
     Snapshot {
@@ -91,7 +90,6 @@ fn snapshot(tx: &ConfidentialTransaction) -> Snapshot {
         first: *tx.first_nullifier(),
         trees: tx.input_tree_ids().to_vec(),
         output_tree: tx.output_tree_id(),
-        p256: tx.requires_p256_owner().unwrap(),
     }
 }
 fn unchanged_failure(
@@ -1190,74 +1188,6 @@ fn compact_padding_is_left_out_of_the_instruction() {
         dummy_after_compact.check_shape(),
         E::OutputAfterCompactPadding { index: 2 },
     );
-}
-
-#[test]
-fn p256_requires_custom_sender_ring_and_cannot_use_transfer_convenience_apis() {
-    let owner = keypair(1);
-    let p256 =
-        ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[3; 32]).unwrap()).unwrap();
-    let sender = p256.shielded_address().unwrap();
-    let input = wallet_utxo(&p256, Mint::SOL, 10, 7, 1);
-    let tx = ConfidentialTransaction::new(vec![input.clone()], payer(&owner)).unwrap();
-    assert!(tx.requires_p256_owner().unwrap());
-    error(tx.encrypt(&p256), E::P256TransactUnsupported);
-    let key = p256
-        .viewing_key
-        .get_transaction_viewing_key(&input.nullifier)
-        .unwrap();
-    let ring = Address::new_from_array([42; 32]);
-    let proof = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring)
-        .unwrap()
-        .encrypt(&p256)
-        .unwrap();
-    assert_eq!(
-        proof.external_data.outputs.first().unwrap().owner_tag,
-        OwnerTag::Inline(sender.confidential_view_tag().unwrap())
-    );
-    assert_recovery(
-        &proof,
-        &key,
-        &[&p256],
-        &[(Mint::SOL, 10, sender, Some(ring), Data::default())],
-    );
-    let mut tx =
-        ConfidentialTransaction::new(vec![wallet_utxo(&owner, mint(2), 10, 7, 1)], payer(&owner))
-            .unwrap();
-    let before = snapshot(&tx);
-    error(tx.transfer_sol(&sender, 1), E::P256TransactUnsupported);
-    error(
-        tx.transfer(&sender, mint(2).asset, 1),
-        E::P256TransactUnsupported,
-    );
-    error(
-        tx.transfer_with_ring(&sender, Mint::SOL, 1, Some(ring)),
-        E::P256TransactUnsupported,
-    );
-    assert_eq!(snapshot(&tx), before);
-    assert!(!inputs_require_p256(&[]).unwrap());
-    assert!(!inputs_require_p256(&[SppProofInputUtxo::dummy(7).unwrap()]).unwrap());
-    for first_p256 in [true, false] {
-        let p = SppProofInputUtxo::from(wallet_utxo(&p256, Mint::SOL, 1, 7, 2));
-        let ed = SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, 7, 1));
-        assert!(inputs_require_p256(&if first_p256 { vec![p, ed] } else { vec![ed, p] }).unwrap());
-        let notes = if first_p256 {
-            vec![
-                wallet_utxo(&p256, Mint::SOL, 1, 7, 2),
-                wallet_utxo(&owner, Mint::SOL, 1, 7, 1),
-            ]
-        } else {
-            vec![
-                wallet_utxo(&owner, Mint::SOL, 1, 7, 1),
-                wallet_utxo(&p256, Mint::SOL, 1, 7, 2),
-            ]
-        };
-        assert!(ConfidentialTransaction::new(notes, payer(&owner))
-            .unwrap()
-            .requires_p256_owner()
-            .unwrap());
-    }
-    assert!(!builder(&owner, 1).requires_p256_owner().unwrap());
 }
 
 struct RecordingKeys {

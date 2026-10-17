@@ -26,7 +26,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{P256Pubkey, SigningKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{SigningKey, X25519Pubkey, X25519Secret};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -130,11 +130,7 @@ fn an_anonymous_config_differs_only_in_its_mode_byte() {
 
 #[test]
 fn reserved_p256_points_are_not_auditor_keys() {
-    for bytes in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
+    for bytes in [[2; 33], [3; 33], [0; 33]] {
         assert!(X25519Pubkey::from_bytes(bytes).is_err());
     }
 }
@@ -206,10 +202,13 @@ fn reader() -> ReaderKey {
 
 fn p256_reader() -> ReaderKey {
     ReaderKey::p256(
-        SigningKey::new_p256()
-            .pubkey()
-            .as_p256()
-            .expect("P256 signing key"),
+        zolana_ring_client::P256ReaderKey::from_bytes(
+            hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap(),
     )
     .expect("reader key")
 }
@@ -278,18 +277,6 @@ fn mixed_torsion_ed25519_reader_key_is_rejected() {
         .compress()
         .to_bytes();
     assert!(ReaderKey::ed25519(Address::new_from_array(mixed)).is_err());
-}
-
-#[test]
-fn reserved_p256_reader_key_is_rejected() {
-    for bytes in [
-        zolana_interface::P_CONST_SEC1,
-        zolana_interface::P_DERIVE_SEC1,
-        zolana_interface::P_PDA_SEC1,
-    ] {
-        let reserved = P256Pubkey::from_bytes(bytes).expect("reserved point");
-        assert!(ReaderKey::p256(reserved).is_err());
-    }
 }
 
 #[test]
@@ -729,14 +716,14 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// Representative confidential `RingEddsa` content carrying the auditor message
+/// Representative confidential `ConfidentialRingEd25519` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [61; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEd25519(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [62; 33],
         salt: [63; 16],
         inputs: Vec::new(),

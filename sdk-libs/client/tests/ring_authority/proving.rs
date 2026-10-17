@@ -40,7 +40,7 @@ impl RingAuthorityHarness {
         match mode {
             Mode::ShapeSweep => prove_and_verify(shape_sweep(n_in), n_in, n_out),
             Mode::MultiReal => prove_and_verify(multi_real(), 4, 4),
-            Mode::P256Input => prove_and_verify(p256_input(), 2, 2),
+            Mode::IndependentInput => prove_and_verify(independent_input(), 2, 2),
             Mode::MixedOwners => prove_and_verify(mixed_owners(), 2, 2),
         }
     }
@@ -79,11 +79,11 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
     (assemble_prover(inputs, outputs, 4, 4), keys)
 }
 
-/// #3: one real P256-owned ring input + dummy input and outputs (shape 2x2).
+/// #3: one real independent Ed25519 ring input + dummy input and outputs (shape 2x2).
 /// Exercises the pubkey-agnostic owner mode (no signature).
-fn p256_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
+fn independent_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(p256_keypair(), 0)]);
+    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(independent_keypair(), 0)]);
     inputs.push(dummy_input());
     (
         assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
@@ -91,11 +91,13 @@ fn p256_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
     )
 }
 
-/// #4: one Solana-owned and one P256-owned real input, dummy outputs (shape 2x2).
+/// #4: one Solana-owned and one independent Ed25519 real input, dummy outputs (shape 2x2).
 fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let (inputs, keys) =
-        build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (p256_keypair(), 0)]);
+    let (inputs, keys) = build_real_inputs(
+        &mut indexer,
+        &[(eddsa_keypair(), 0), (independent_keypair(), 0)],
+    );
     (
         assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
         keys,
@@ -276,8 +278,8 @@ fn eddsa_keypair() -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("eddsa keypair")
 }
 
-fn p256_keypair() -> ShieldedKeypair {
-    ShieldedKeypair::new_p256().expect("p256 keypair")
+fn independent_keypair() -> ShieldedKeypair {
+    ShieldedKeypair::new_ed25519().expect("independent keypair")
 }
 
 fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {

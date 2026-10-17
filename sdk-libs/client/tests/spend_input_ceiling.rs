@@ -97,7 +97,7 @@ fn widest_wallet_spend(published_inputs: usize) -> TransactionSize {
             outputs,
             messages: Vec::new(),
             private_tx_hash: [5u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(
+            circuit: CircuitId::ConfidentialEd25519(
                 u8::try_from(published_inputs).expect("inputs fit u8"),
                 u8::try_from(OUTPUTS).expect("outputs fit u8"),
                 N_PUBLIC_SLOTS as u8,

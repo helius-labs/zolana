@@ -1,9 +1,6 @@
 use borsh::BorshDeserialize;
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, SALT_LEN},
-    ViewingKey,
-};
+use zolana_keypair::{constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::*, Data, DecodeCx, EncryptedScheme, TransactionError,
     UtxoSerialization, SOL_ASSET_ID,
@@ -81,7 +78,7 @@ fn embedded_viewing_pk_is_the_recipient_pk() {
 fn short_body_fails_with_invalid_length() {
     let short = [1u8; 10];
     let expected = TransactionError::InvalidLength {
-        expected: P256_PUBKEY_LEN,
+        expected: X25519_PUBKEY_LEN,
         actual: short.len(),
     };
     let tx = ViewingKey::new();

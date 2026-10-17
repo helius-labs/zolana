@@ -4,9 +4,7 @@
 use custom_ring_interface::RingMode;
 use solana_address::Address;
 use zolana_client::{AsyncRpc, Shape};
-use zolana_hasher::primitives::{
-    hash_bytes, solana_owner_identity, P256_OWNER_TAG, SOLANA_OWNER_TAG,
-};
+use zolana_hasher::primitives::{hash_bytes, solana_owner_identity, SOLANA_OWNER_TAG};
 use zolana_keypair::{Curve, ShieldedAddress, SigningKey};
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_transaction::instructions::transact::SppProofInputs;
@@ -75,7 +73,7 @@ pub(super) fn check_anonymous_slots(
     shape: Shape,
     inputs: &SppProofInputs,
 ) -> Result<(), RingError> {
-    if !shape.is_ring_ed25519() {
+    if !shape.is_anonymous_ring_ed25519() {
         return Err(RingError::AnonymousShapeUnsupported);
     }
     let input_open = inputs
@@ -124,10 +122,7 @@ pub(crate) fn anonymous_disclosure(
             let Some(owner) = output.owner_address else {
                 return Ok(AnonymousOutputOpening::default());
             };
-            let identity_tag = match owner.signing_pubkey.curve()? {
-                Curve::P256 => P256_OWNER_TAG,
-                Curve::Ed25519 | Curve::Pda => SOLANA_OWNER_TAG,
-            };
+            let identity_tag = SOLANA_OWNER_TAG;
             Ok(AnonymousOutputOpening {
                 identity_tag,
                 identity_key: owner.signing_pubkey.confidential_view_tag()?,

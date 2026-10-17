@@ -21,12 +21,14 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let material = load_sender_from_resolved_sync(&sync)?;
     let mut rpc = SolanaRpc::new(sync.rpc_url);
     if opts.airdrop_lamports > 0 {
-        let signature = rpc.airdrop(&material.funding.pubkey(), opts.airdrop_lamports)?;
+        let signature = rpc.airdrop(&material.fee_payer.pubkey(), opts.airdrop_lamports)?;
         println!("ok airdrop signature={signature}");
     }
 
-    let authority = material.funding.pubkey();
+    let authority = material.owner_pubkey();
     let authority_address = Address::new_from_array(authority.to_bytes());
+    let payer = material.fee_payer.pubkey();
+    let payer_address = Address::new_from_array(payer.to_bytes());
     let protocol_config = match fetch_protocol_config(&rpc)? {
         Some(config) => config,
         None => {
@@ -43,7 +45,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
                 .map(Keypair::pubkey)
                 .unwrap_or(authority);
             let instructions = [CreateProtocolConfig {
-                fee_payer: authority,
+                fee_payer: payer,
                 initialization_authority,
                 protocol_authority: authority_address,
                 tree_creation_authority: authority_address,
@@ -55,16 +57,15 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
                 spl_interface_creation_is_permissionless: false,
             }
             .instruction()];
-            let mut signers: Vec<&dyn Signer> = vec![&material.funding];
-            if let Some(initialization_keypair) = &initialization_keypair {
-                if initialization_keypair.pubkey() != authority {
-                    signers.push(initialization_keypair);
-                }
-            }
+            let initializer: &dyn Signer = initialization_keypair
+                .as_ref()
+                .map(|key| key as &dyn Signer)
+                .unwrap_or(&material.keypair);
+            let signers: &[&dyn Signer] = &[&material.fee_payer, initializer];
             let signature = rpc.create_and_send_transaction(
                 &instructions,
-                authority_address,
-                &signers,
+                payer_address,
+                signers,
                 ComputeBudgetConfig::for_instruction_count(instructions.len()),
             )?;
             println!("ok create_protocol_config signature={signature}");
@@ -74,7 +75,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     };
 
     let create = CreateTree {
-        payer: authority,
+        payer,
         authority,
         tree_id: protocol_config.next_tree_id,
         nullifier_params: nullifier_tree_params(),
@@ -85,8 +86,8 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let instructions = create.instructions();
     let signature = rpc.create_and_send_transaction(
         &instructions,
-        authority_address,
-        &[&material.funding],
+        payer_address,
+        &[&material.fee_payer, &material.keypair],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok create_tree signature={signature}");
@@ -103,7 +104,7 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
     let tree = resolve_tree(opts.tree.as_deref(), &config)?;
     let material = load_sender_from_resolved_sync(&sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url);
-    let authority = material.funding.pubkey();
+    let authority = material.owner_pubkey();
     let fees = TreeFeeSchedule {
         fee_per_nullifier: opts.fee_per_nullifier,
         append_reimbursement: opts.append_reimbursement,
@@ -118,8 +119,8 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
     .instruction()];
     let signature = rpc.create_and_send_transaction(
         &instructions,
-        Address::new_from_array(authority.to_bytes()),
-        &[&material.funding],
+        Address::new_from_array(material.fee_payer.pubkey().to_bytes()),
+        &[&material.fee_payer, &material.keypair],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok set_tree_fees signature={signature}");

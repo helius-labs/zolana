@@ -31,7 +31,7 @@ func PackHalves(api frontend.API, lay emfield.Layout, e *emfield.Element) (lo, h
 // equal modulo p differ by 0 or +/-p, and a low-half borrow would need a high
 // difference of +/-2^(255-cut), so three packed pairs cover every alias. The
 // nonzero hint keeps the caller's registered name so stored constraint
-// systems keep resolving it; PackedNonzero is its body.
+// systems keep resolving it. PackedNonzero is its body.
 func AssertDistinct(api frontend.API, f *emfield.Field, a, b *emfield.Element, nonzero solver.Hint) {
 	widths := f.ReducedWidths()
 	if !a.IsReduced(widths) || !b.IsReduced(widths) {

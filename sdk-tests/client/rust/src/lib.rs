@@ -244,7 +244,7 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
                 sender.pubkey(),
                 sender.pubkey(),
                 RegisterData {
-                    owner_p256: None,
+                    reserved_owner: Default::default(),
                     nullifier_pubkey: sender.nullifier_key.pubkey()?,
                     viewing_pubkey: *sender.viewing_pubkey().as_bytes(),
                 },

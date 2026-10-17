@@ -101,6 +101,14 @@ impl RingDeposit<'_> {
         if anonymous && self.recipient.signing_pubkey().curve()? != Curve::Ed25519 {
             return Err(RingError::AnonymousRecipient);
         }
+        if anonymous {
+            let owner = self.recipient.pubkey();
+            if self.payer.pubkey() == owner
+                || self.cosigner.is_some_and(|signer| signer.pubkey() == owner)
+            {
+                return Err(RingError::AnonymousPublicSignerLinksOwner);
+            }
+        }
         let blinding = random_blinding();
         let owner_hash = self.recipient.owner_hash()?;
         let mut deposit = RingAssetDeposit {
@@ -192,11 +200,20 @@ impl RingDeposit<'_> {
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<RingDepositReceipt, RingError> {
+        self.send_with_fee_payer(client, self.payer).await
+    }
+
+    /// Sponsors transaction fees while the deposit source still authorizes its funds.
+    pub async fn send_with_fee_payer<R: AsyncRpc, I: AsyncIndexer>(
+        &self,
+        client: &AsyncZolanaClient<R, I>,
+        fee_payer: &(dyn Signer + Sync),
+    ) -> Result<RingDepositReceipt, RingError> {
         let prepared = self.prepare(client).await?;
         let utxo = prepared.utxo.clone();
-        let signers: Vec<_> = self.cosigner.into_iter().collect();
+        let signers: Vec<_> = core::iter::once(self.payer).chain(self.cosigner).collect();
         match RingSubmission::new(prepared)
-            .send_until_settled(client, self.payer, &signers)
+            .send_until_settled(client, fee_payer, &signers)
             .await?
         {
             SettledSubmission::Confirmed { signature, .. } => {
@@ -210,6 +227,22 @@ impl RingDeposit<'_> {
 }
 
 impl PreparedRingDeposit {
+    pub(crate) fn check_public_signers(
+        &self,
+        signers: impl IntoIterator<Item = Address>,
+    ) -> Result<(), RingError> {
+        if let Some(owner) = self
+            .disclosure
+            .as_ref()
+            .and_then(|disclosure| disclosure.owner_key)
+        {
+            if signers.into_iter().any(|signer| signer.to_bytes() == owner) {
+                return Err(RingError::AnonymousPublicSignerLinksOwner);
+            }
+        }
+        Ok(())
+    }
+
     pub fn utxo(&self) -> &Utxo {
         &self.utxo
     }

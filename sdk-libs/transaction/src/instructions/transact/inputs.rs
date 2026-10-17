@@ -101,7 +101,9 @@ impl SppProofInputs {
             .filter(|input_utxo| !input_utxo.is_dummy())
         {
             let address = match input_utxo.utxo.owner.curve()? {
-                Curve::P256 => continue,
+                Curve::P256 => {
+                    return Err(zolana_keypair::KeypairError::InvalidSignatureType(0).into())
+                }
                 Curve::Ed25519 | Curve::Pda => {
                     Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?)
                 }

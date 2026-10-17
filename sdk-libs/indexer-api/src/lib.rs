@@ -886,9 +886,6 @@ pub struct GetUserRecordsRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct UserRecord {
     pub owner: SerializablePubkey,
-    /// SEC1-compressed P256 signing pubkey (33 bytes). `null` for Solana-only
-    /// owners, whose signing key is the Ed25519 key `owner` encodes.
-    pub owner_p256: Option<Base64String>,
     /// Wallet-wide nullifier pubkey. Never rotates.
     pub nullifier_pubkey: Hash,
     /// Tagged X25519 viewing pubkey (0x04 followed by a canonical 32-byte u-coordinate).
@@ -942,7 +939,6 @@ mod tests {
                 null,
                 {
                     "owner": SerializablePubkey::from([5; 32]).to_string(),
-                    "ownerP256": null,
                     "nullifierPubkey": Hash::from([6; 32]).to_base58(),
                     "viewingPubkey": "AQID",
                     "mergingEnabled": true,
@@ -953,14 +949,13 @@ mod tests {
         assert_eq!(response.records[0], None);
         let record = response.records[1].as_ref().unwrap();
         assert_eq!(record.owner, SerializablePubkey::from([5; 32]));
-        assert_eq!(record.owner_p256, None);
         assert_eq!(record.viewing_pubkey, Base64String(vec![1, 2, 3]));
         assert!(record.merging_enabled);
 
-        // A Solana-only owner is sent as an explicit null, as the spec allows.
+        // Unregistered slots remain explicit null values.
         let value = serde_json::to_value(&response).unwrap();
         assert!(value["records"][0].is_null());
-        assert!(value["records"][1]["ownerP256"].is_null());
+        assert!(value["records"][1].get("ownerP256").is_none());
     }
 
     #[test]

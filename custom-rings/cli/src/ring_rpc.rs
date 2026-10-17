@@ -253,6 +253,7 @@ mod tests {
 
     fn opened(signature: Signature) -> DecryptedTransaction {
         DecryptedTransaction {
+            anonymous: None,
             slot: 1,
             tx_signature: signature.into(),
             tx_viewing_pk: Vec::new().into(),

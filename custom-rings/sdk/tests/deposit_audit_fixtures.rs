@@ -149,11 +149,12 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         "ownerPkHashes": owner_pk_hashes.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
         "nullifierPks": nullifier_pks.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
         "blindings": blindings.iter().map(|value| hex0x(value)).collect::<Vec<_>>(),
-        "keys": vec![Value::Null; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+        "members": vec![Value::Null; MAX_RING_DEPOSIT_AUDIT_SLOTS],
+        "ctHashes": vec![hex0x(&[0; 32]); MAX_RING_DEPOSIT_AUDIT_SLOTS],
         "ephSk": hex0x(encryption.ephemeral_sk.as_slice()),
         "auditorPk": hex0x(&auditor.u()),
         "keyEscrow": false,
-        "keyRegistryRoot": hex0x(&[0; 32]),
+        "memberRegistryRoot": hex0x(&[0; 32]),
     }));
     let proof = prover.prove(&request).expect("deposit proof");
     // 3. Wrap the SPP bytes with the SDK, the root index stays zero without escrow.

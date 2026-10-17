@@ -184,6 +184,12 @@ impl<'a> RingSubmission<'a> {
         payer: &(dyn Signer + Sync),
         signers: &[&(dyn Signer + Sync)],
     ) -> Result<SubmissionStatus, RingError> {
+        if let RingOperation::Deposit(deposit) = &self.operation {
+            deposit.check_public_signers(
+                core::iter::once(payer.pubkey())
+                    .chain(signers.iter().map(|signer| signer.pubkey())),
+            )?;
+        }
         if let Some(terminal) = &self.terminal {
             return Ok(terminal.clone());
         }

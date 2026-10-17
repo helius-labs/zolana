@@ -166,12 +166,6 @@ impl Signer for ShieldedKeypair {
 }
 
 impl ShieldedKeypair {
-    /// A fresh random keypair on the P-256 rail: both role keys expand from
-    /// `ECDH(signing_sk, P_derive)`.
-    pub fn new_p256() -> Result<Self, KeypairError> {
-        Self::from_keypair(SigningKey::new_p256())
-    }
-
     /// A fresh random keypair on the ed25519 rail: both role keys expand from
     /// the deterministic signature over the derivation message, and the owner
     /// has a Solana address.
@@ -239,10 +233,6 @@ impl ShieldedKeypair {
 
     pub fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
         self.signing_key.sign_message(message)
-    }
-
-    pub fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        self.signing_key.sign_hash(hash)
     }
 
     pub fn nullifier(

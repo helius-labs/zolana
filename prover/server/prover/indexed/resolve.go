@@ -70,7 +70,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	switch request.CircuitType {
 	case common.TransferRingAuthorityCircuitType:
 		expected = 14
-	case common.TransferP256RingCircuitType, common.TransferEd25519RingCircuitType:
+	case common.TransferAnonymousRingEd25519CircuitType:
 		expected = 19
 	case common.MergeCircuitType:
 		expected = 8

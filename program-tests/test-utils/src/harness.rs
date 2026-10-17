@@ -91,8 +91,7 @@ pub struct Actor<D> {
     pub last_deposit: Option<DepositRecord<D>>,
     /// The ed25519 keypair that authorizes this actor's eddsa spends: the eddsa
     /// rail binds the payer (signer-run slot 0), so the actor pays and signs its
-    /// own transfers/withdrawals with this key. `None` for P256 actors, which
-    /// prove ownership inside the proof and let the harness payer fund the spend.
+    /// own transfers and withdrawals with this key.
     pub solana_signer: Option<Keypair>,
 }
 
@@ -113,22 +112,6 @@ impl<D> Actor<D> {
             expected: Vec::new(),
             last_deposit: None,
             solana_signer: Some(signer),
-        })
-    }
-
-    /// A P256-rail actor with a fresh P256 shielded signing key. Spend
-    /// authorization is proved inside RingP256; the harness payer funds and
-    /// signs its transactions.
-    pub fn p256() -> Result<Self> {
-        let keypair = ShieldedKeypair::new_p256()?;
-        let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
-        Ok(Self {
-            keypair,
-            wallet,
-            spendable: Vec::new(),
-            expected: Vec::new(),
-            last_deposit: None,
-            solana_signer: None,
         })
     }
 }
@@ -415,13 +398,6 @@ impl<D> LocalnetHarness<D> {
     pub fn make_payer_actor(&mut self, name: &str) -> Result<()> {
         let actor = Actor::eddsa(self.payer.insecure_clone())?;
         self.actors.insert(name.to_string(), actor);
-        Ok(())
-    }
-
-    /// Create `name` with a P256 shielded signing key. Its Solana transaction is
-    /// paid by the harness payer; spend authorization is proved inside RingP256.
-    pub fn make_p256_actor(&mut self, name: &str) -> Result<()> {
-        self.actors.insert(name.to_string(), Actor::p256()?);
         Ok(())
     }
 

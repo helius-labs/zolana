@@ -117,7 +117,7 @@ func (c *curve) scalarMulChecked(q *point, s *frElement) *point {
 // on the curve and in the subgroup. A nonzero bounded reconstruction
 // denominator and the final target equality bind R uniquely to [s]Q.
 // Completeness holds up to a negligible set of scalars whose lazy-step
-// accumulator is the identity. It depends only on s, so the host resamples.
+// accumulator is the identity. It depends only on s, so callers can resample.
 func (c *curve) scalarMulLadder(q *point, s *frElement) *point {
 	// 1. Obtain and bound signed reconstruction halves from an untrusted hint.
 	fr, fp, api := c.fr, c.fp, c.api

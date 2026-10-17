@@ -27,8 +27,7 @@ pub trait ShieldedKeypairTrait {
 
     fn viewing_pubkey(&self) -> X25519Pubkey;
 
-    /// The signing curve / scheme of this keypair (P-256 shielded owner vs
-    /// Ed25519 Solana-only owner), which selects the transfer rail.
+    /// The owner scheme selects signature or PDA authority checks.
     fn curve(&self) -> Curve;
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError>;
@@ -40,15 +39,8 @@ pub trait ShieldedKeypairTrait {
     // --- signing ---
 
     /// The scheme's native message signature: ed25519 over the raw bytes
-    /// (RFC 8032), P256 as ECDSA over `SHA-256(message)` normalized to low-S,
-    /// matching Solana's secp256r1 precompile. PDA owners cannot sign.
+    /// (RFC 8032). PDA owners cannot sign.
     fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError>;
-
-    /// ECDSA over a caller-supplied digest, the proof path. P-256 rail only;
-    /// ed25519 owners sign digest bytes with [`Self::sign_message`]. Both
-    /// signing methods normalize to low-S, so a backend returns the same bytes
-    /// a software key would for the same digest.
-    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError>;
 
     // --- nullifiers ---
 
@@ -96,10 +88,6 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
 
     fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
         self.sign_message(message)
-    }
-
-    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        self.sign_hash(hash)
     }
 
     fn nullifier(

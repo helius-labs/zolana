@@ -298,7 +298,7 @@ describe("cached ring settlement wire vectors", () => {
           TOKEN_ACCOUNT,
           TOKEN_PROGRAM,
           OTHER,
-          ...(index >= 2 ? [OTHER, OTHER] : []),
+          ...(index >= 1 ? [OTHER, OTHER] : []),
         ],
         data,
       };

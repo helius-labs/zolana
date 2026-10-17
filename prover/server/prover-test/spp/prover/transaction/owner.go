@@ -12,7 +12,6 @@ import (
 type ownerKey struct {
 	keyHash     *big.Int
 	nullifierPk *big.Int
-	isP256      bool
 }
 
 type ownerFields struct {
@@ -21,12 +20,15 @@ type ownerFields struct {
 }
 
 func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFields, error) {
+	if strings.TrimSpace(input.OwnerP256Pubkey) != "" {
+		return ownerFields{}, fmt.Errorf("owner_p256_pubkey is unsupported")
+	}
 	if input.Owner != "" {
 		owner, err := parse.Field(input.Owner)
 		if err != nil {
 			return ownerFields{}, fmt.Errorf("owner: %w", err)
 		}
-		if input.OwnerSolanaPubkey == "" && input.OwnerP256Pubkey == "" {
+		if input.OwnerSolanaPubkey == "" {
 			return ownerFields{owner: owner, ownerKey: ownerKey{keyHash: big.NewInt(0), nullifierPk: big.NewInt(0)}}, nil
 		}
 		key, err := ownerComponents(input, inputNullifierSecret)
@@ -57,36 +59,19 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 }
 
 func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerKey, error) {
-	hasSolana := strings.TrimSpace(input.OwnerSolanaPubkey) != ""
-	hasP256 := strings.TrimSpace(input.OwnerP256Pubkey) != ""
-	if hasSolana == hasP256 {
-		return ownerKey{}, fmt.Errorf("exactly one owner_solana_pubkey or owner_p256_pubkey is required when owner components are needed")
+	if strings.TrimSpace(input.OwnerP256Pubkey) != "" {
+		return ownerKey{}, fmt.Errorf("owner_p256_pubkey is unsupported")
 	}
-
-	var keyHash *big.Int
-	var err error
-	isP256 := false
-	if hasSolana {
-		var pubkey [32]byte
-		pubkey, err = parse.Hex32(input.OwnerSolanaPubkey)
-		if err != nil {
-			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
-		}
-		keyHash, err = protocol.SolanaPkField(pubkey)
-		if err != nil {
-			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
-		}
-	} else {
-		var pubkey []byte
-		pubkey, err = parse.HexBytes(input.OwnerP256Pubkey)
-		if err != nil {
-			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
-		}
-		keyHash, err = protocol.OwnerPkField(pubkey)
-		if err != nil {
-			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
-		}
-		isP256 = true
+	if strings.TrimSpace(input.OwnerSolanaPubkey) == "" {
+		return ownerKey{}, fmt.Errorf("owner_solana_pubkey is required when owner components are needed")
+	}
+	pubkey, err := parse.Hex32(input.OwnerSolanaPubkey)
+	if err != nil {
+		return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
+	}
+	keyHash, err := protocol.SolanaPkField(pubkey)
+	if err != nil {
+		return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
 	}
 
 	nullifierSecret := inputNullifierSecret
@@ -103,5 +88,5 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 	if err != nil {
 		return ownerKey{}, err
 	}
-	return ownerKey{keyHash: keyHash, nullifierPk: nullifierPk, isP256: isP256}, nil
+	return ownerKey{keyHash: keyHash, nullifierPk: nullifierPk}, nil
 }

@@ -3,7 +3,6 @@ package transaction
 import (
 	"fmt"
 	"math/big"
-	"strings"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
@@ -13,18 +12,6 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 )
-
-// TransactionRequiresP256 reports whether a transaction uses the removed P256
-// ownership rail (any input is P256-owned). Such transactions can no longer be
-// proven; callers should reject them.
-func TransactionRequiresP256(tx ProofTransactionRequest) bool {
-	for i := range tx.Inputs {
-		if strings.TrimSpace(tx.Inputs[i].Utxo.OwnerP256Pubkey) != "" {
-			return true
-		}
-	}
-	return false
-}
 
 type proofBuildOptions struct {
 }
@@ -143,11 +130,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	// The P256 ownership rail is removed; only Solana-owned inputs can be
-	// proven.
-	if inputs.requiresP256OwnerWitness {
-		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
-	}
+
 	publicInputs, err := buildPublicInputs(shape, payerHash, inputs, outputs, external, privateTxHash, trees)
 	if err != nil {
 		return proofAssignment{}, err
@@ -202,9 +185,9 @@ func customRingWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
-	return &customring.CustomRingEddsaOnlyCircuit{
+	return &customring.CustomRingConfidentialEd25519Circuit{
 		CachedInputs: uncachedInputs(publicInputs.PreimageTail, len(publicInputs.Nullifiers)),
-		Public: customring.CustomRingEddsaOnlyPublic{
+		Public: customring.CustomRingConfidentialEd25519Public{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
 			TreeSlots:                    treeSlotVariables(publicInputs.TreeSlots),
@@ -219,7 +202,7 @@ func customRingWitness(
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
 		},
-		Private: customring.CustomRingEddsaOnlyPrivate{
+		Private: customring.CustomRingConfidentialEd25519Private{
 			Inputs:              inputs.inputs,
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,

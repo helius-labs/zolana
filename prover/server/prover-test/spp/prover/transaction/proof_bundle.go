@@ -70,9 +70,10 @@ type ProofInputRequest struct {
 }
 
 type ProofUtxoRequest struct {
-	Domain               string `json:"domain"`
-	Owner                string `json:"owner"`
-	OwnerSolanaPubkey    string `json:"owner_solana_pubkey"`
+	Domain            string `json:"domain"`
+	Owner             string `json:"owner"`
+	OwnerSolanaPubkey string `json:"owner_solana_pubkey"`
+	// Reserved legacy field, rejected before any owner or witness is accepted.
 	OwnerP256Pubkey      string `json:"owner_p256_pubkey,omitempty"`
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
 	Asset                string `json:"asset"`
@@ -237,9 +238,7 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
-	if TransactionRequiresP256(tx) {
-		return ProofTransaction{}, fmt.Errorf("spp: transaction %q uses the removed P256 ownership rail", tx.Name)
-	}
+
 	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err

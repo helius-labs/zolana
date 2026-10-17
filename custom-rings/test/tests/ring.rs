@@ -1009,18 +1009,23 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         true => &env.payer,
         false => &env.sender.keypair,
     };
+    let deposit_source = env.funded_keypair()?;
+    env.fund(deposit_source.pubkey(), RING_DEPOSIT_A + RING_DEPOSIT_B)?;
+    assert_ne!(deposit_source.pubkey(), payer.pubkey());
+    assert_ne!(deposit_source.pubkey(), env.sender.keypair.pubkey());
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
         let deposit = RingDeposit {
             ring,
-            payer,
+            payer: &deposit_source,
             recipient: &env.sender.keypair,
             tree: env.tree,
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
         };
-        let RingDepositReceipt { utxo, .. } = env.run(deposit.send(env.client.as_async()))?;
+        let RingDepositReceipt { utxo, .. } =
+            env.run(deposit.send_with_fee_payer(env.client.as_async(), payer))?;
         spendable.push(utxo);
     }
 
@@ -1046,13 +1051,13 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         transfer
     };
 
-    let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
+    let transfer = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
     });
-    let proven = match anonymous {
+    let mut proven = match anonymous {
         true => {
             let transfer = transfer.with_anonymous_signer(&env.sender.keypair.signing_key);
             env.run(transfer.prove(env.client.as_async()))?
@@ -1061,12 +1066,48 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     };
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
     if anonymous {
+        use zolana_interface::instruction::instruction_data::transact::CircuitId;
+
         assert_ne!(payer.pubkey(), env.sender.keypair.pubkey());
         assert!(proven.owner_signers.is_empty());
-        assert!(matches!(
-            proven.data.circuit,
-            zolana_interface::instruction::instruction_data::transact::CircuitId::RingEd25519(..)
-        ));
+        let valid_circuit = proven.data.circuit;
+        let CircuitId::AnonymousRingEd25519(inputs, outputs, slots, commitment) = valid_circuit
+        else {
+            panic!("anonymous transfer must prove its hidden Ed25519 owner");
+        };
+        let mut malformed_commitment = commitment;
+        malformed_commitment.commitment = [0xff; 32];
+        let mut malformed_pok = commitment;
+        malformed_pok.commitment_pok = [0xff; 32];
+        let mut invalid_pok = commitment;
+        invalid_pok.commitment_pok = commitment.commitment;
+
+        // Keep both valid proofs fixed while corrupting the inner commitment or its selector.
+        let tree_before = fetch_account(rpc, &env.tree)?;
+        for (circuit, error) in [
+            (
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, malformed_commitment),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, malformed_pok),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                CircuitId::AnonymousRingEd25519(inputs, outputs, slots, invalid_pok),
+                ShieldedPoolError::TransactProofVerificationFailed as u32,
+            ),
+            (
+                CircuitId::ConfidentialRingEd25519(inputs, outputs, slots),
+                CustomRingError::UnsupportedCircuit as u32,
+            ),
+        ] {
+            proven.data.circuit = circuit;
+            let rejection = send_expecting_rejection(rpc, payer, proven.instruction()?)?;
+            Rejection::custom(error).at(0).assert_client(&rejection);
+            assert_account_unchanged(rpc, &env.tree, &tree_before)?;
+        }
+        proven.data.circuit = valid_circuit;
     }
     let signature = land(&env, proven.instruction()?, payer, &[])?;
 
@@ -1387,7 +1428,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     //    input, is refused before the unreachable prover is asked.
     let unreachable = env.client_with(ProverClient::new("http://127.0.0.1:1".to_string()));
     let prove = |prepared: ConfidentialTransaction| {
-        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender,
             nullifier_key: Some(&sender.nullifier_key),
@@ -2239,7 +2280,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     );
     let prover = env.client_with(ProverClient::local());
     let refused = |to: &ShieldedAddress, client: &ZolanaClient<SolanaRpc>| -> Result<Member> {
-        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring,
             sender: member,
             nullifier_key: Some(&member.nullifier_key),
@@ -2787,7 +2828,7 @@ impl AsyncHopParity<'_> {
             AsyncProverClient::local(),
         );
         let runtime = tokio::runtime::Runtime::new()?;
-        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
             nullifier_key: Some(&self.sender.nullifier_key),

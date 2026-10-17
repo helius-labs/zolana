@@ -72,7 +72,7 @@ fn self_consistent_deposit(
 
 #[test]
 fn sync_discovers_and_spends_proofless_deposit() {
-    let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+    let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
     let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
     let mut wallet = Wallet::new(
         keypair.shielded_address().expect("shielded address"),
@@ -152,7 +152,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
 #[test]
 fn sync_discovers_a_deposit_in_a_tree_other_than_zero() {
     const OTHER_TREE_ID: u16 = 3;
-    let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
+    let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
     let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
     let mut wallet = Wallet::new(
         keypair.shielded_address().expect("shielded address"),

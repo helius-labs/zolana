@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 x25519-dalek = { workspace = true }
-p256 = { workspace = true }
 bs58 = { workspace = true }
 ed25519-dalek = { workspace = true }
 aes = { workspace = true }

@@ -86,7 +86,9 @@ pub enum IndexedCircuit {
     TransferConfidential,
     TransferRing,
     TransferRingAuthority,
-    TransferP256Ring,
+    // Preserve the prover protocol identifier while naming the privacy mode.
+    #[serde(rename = "transfer-ed25519-ring")]
+    TransferAnonymousRingEd25519,
     Merge,
     MergeRing,
 }
@@ -235,6 +237,7 @@ impl IndexedProofRequest {
                     || matches!(
                         metadata.circuit_type,
                         IndexedCircuit::TransferRingAuthority
+                            | IndexedCircuit::TransferAnonymousRingEd25519
                             | IndexedCircuit::Merge
                             | IndexedCircuit::MergeRing
                     ))
@@ -273,8 +276,8 @@ impl IndexedProofRequest {
             IndexedCircuit::TransferRingAuthority => {
                 ExpectedProvingKey::transfer_ring_authority(n_inputs, n_outputs)?
             }
-            IndexedCircuit::TransferP256Ring => {
-                ExpectedProvingKey::transfer_p256_ring(n_inputs, n_outputs)?
+            IndexedCircuit::TransferAnonymousRingEd25519 => {
+                ExpectedProvingKey::transfer_anonymous_ring_ed25519(n_inputs, n_outputs)?
             }
             IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
             IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
@@ -424,7 +427,7 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferP256Ring => 19,
+            Self::TransferAnonymousRingEd25519 => 19,
             Self::Merge => 8,
             Self::MergeRing => 8,
         }
@@ -567,6 +570,17 @@ fn invalid_resolution() -> ClientError {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn anonymous_transfer_keeps_existing_wire_identifier() {
+        let circuit = IndexedCircuit::TransferAnonymousRingEd25519;
+        let encoded = serde_json::to_string(&circuit).unwrap();
+        assert_eq!(encoded, "\"transfer-ed25519-ring\"");
+        assert_eq!(
+            serde_json::from_str::<IndexedCircuit>(&encoded).unwrap(),
+            circuit
+        );
+    }
 
     #[test]
     fn shared_transcript_vector() {

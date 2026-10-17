@@ -167,10 +167,16 @@ function userRecord(value: unknown, path: string): UserRecord {
     "viewingPubkey",
     "mergingEnabled",
   ]);
-  const ownerP256 = optional(record["ownerP256"], `${path}.ownerP256`, checkedBase64);
+  if (record["ownerP256"] !== undefined && record["ownerP256"] !== null) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TYPE",
+      `${path}.ownerP256`,
+      "null",
+      record["ownerP256"],
+    );
+  }
   return {
     owner: checkedAddress(record["owner"], `${path}.owner`),
-    ...(ownerP256 === undefined ? {} : { ownerP256 }),
     nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),
     viewingPubkey: checkedBase64(record["viewingPubkey"], `${path}.viewingPubkey`),
     mergingEnabled: boolean(record["mergingEnabled"], `${path}.mergingEnabled`),

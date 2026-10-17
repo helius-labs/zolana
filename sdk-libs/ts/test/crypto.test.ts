@@ -16,12 +16,14 @@ import {
   KeypairError,
   X25519PublicKey,
   ShieldedKeypair,
+  ShieldedPublicKey,
   SigningKey,
   ViewingKey,
   ed25519DerivationMessage,
   symmetricApply,
   type Bytes16,
   type Bytes32,
+  type Bytes34,
 } from "../src/keypair/index.js";
 import {
   DST_X25519_VIEW_ROOT,
@@ -75,7 +77,7 @@ describe("Poseidon parity with Rust", () => {
 });
 
 describe("shielded key material", () => {
-  it.each(["p256", "ed25519"] as const)("signs and verifies on the %s rail", (rail) => {
+  it.each(["ed25519"] as const)("signs and verifies on the %s rail", (rail) => {
     const key = SigningKey.generate(rail);
     const message = new Uint8Array(32).fill(7);
     const signature = key.sign(message);
@@ -90,7 +92,20 @@ describe("shielded key material", () => {
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(X25519PublicKey);
-    expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
+    expect(() => ShieldedKeypair.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    expect(() => SigningKey.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+  });
+
+  it("rejects the reserved owner tag without changing Ed25519 or PDA encodings", () => {
+    const ed = SigningKey.generate().publicKey();
+    const encoded = ed.toBytes();
+    const reserved = encoded.slice() as Bytes34;
+    reserved[0] = 0;
+    expect(() => ShieldedPublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    expect(ShieldedPublicKey.fromBytes(encoded).ed25519()).toEqual(ed.ed25519());
+    const pda = ShieldedPublicKey.fromPda(ed.ed25519());
+    expect(pda.toBytes()[0]).toBe(2);
+    expect(ShieldedPublicKey.fromBytes(pda.toBytes()).pda()).toEqual(ed.ed25519());
   });
 
   it("wipes role secrets when the expansion callback settles or throws", () => {
@@ -131,8 +146,8 @@ describe("shielded key material", () => {
     expect(symmetricApply(sharedSecret, MERGE_INFO, ciphertext)).toEqual(plaintext);
   });
 
-  it("refuses to sign derivation inputs on both rails", () => {
-    for (const rail of ["p256", "ed25519"] as const) {
+  it("refuses to sign derivation inputs", () => {
+    for (const rail of ["ed25519"] as const) {
       const key = SigningKey.generate(rail);
       const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
       expect(() => key.sign(payload)).toThrow(KeypairError);

@@ -203,7 +203,7 @@ impl ConfidentialTransaction {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
         if recipient.address.signing_pubkey.curve()? == Curve::P256 {
-            return Err(TransactionError::P256TransactUnsupported);
+            return Err(TransactionError::UnsupportedOwnerType);
         }
         self.outputs.push(SppProofOutputUtxo {
             owner_address: Some(recipient.address),

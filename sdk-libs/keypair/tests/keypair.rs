@@ -2,17 +2,13 @@ mod cases;
 
 use std::collections::HashMap;
 
-use zolana_keypair::{
-    KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
-};
+use zolana_keypair::{KeypairError, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 
 #[derive(Default)]
 pub struct KeypairWorld {
     pub viewing: HashMap<String, ViewingKey>,
     pub shielded: HashMap<String, ShieldedKeypair>,
     pub signing: HashMap<String, SigningKey>,
-    pub pubkeys: HashMap<String, P256Pubkey>,
-    pub parsed_pubkey: Option<P256Pubkey>,
     pub tagged: HashMap<String, PublicKey>,
     pub sigs: HashMap<String, [u8; 64]>,
     pub last_error: Option<KeypairError>,
@@ -31,10 +27,6 @@ impl KeypairWorld {
         self.signing.get(name).expect("signing key not set")
     }
 
-    pub fn pubkey(&self, name: &str) -> P256Pubkey {
-        *self.pubkeys.get(name).expect("p256 pubkey not set")
-    }
-
     pub fn tag(&self, name: &str) -> PublicKey {
         *self.tagged.get(name).expect("tagged pubkey not set")
     }
@@ -51,28 +43,31 @@ fn hash_and_owner_vectors_are_stable() {
     let mut world = KeypairWorld::default();
     cases::hashing::sha256_be_matches("abc".into());
     cases::hashing::sha256_full_matches("abc".into());
-    cases::common::p256_signing_key_from_scalar(&mut world, "g".into(), 1);
+    cases::common::signing_key_from_seed(&mut world, "g".into(), 1);
     cases::hashing::pubkey_field_golden(
         &mut world,
         "g".into(),
-        // Re-pinned to the algorithm-tagged owner identity
-        // `p256_owner_identity(x) = hash_bytes_33(0x50 || x)`.
-        "0bc5d9feb792a3d6e0639ff0123b4e12f379fcbfeab4afd3d16c4c87c16dd8ce".into(),
+        serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../test-vectors/key_derivation.json"
+        ))
+        .unwrap()["owner"]["owner_proof_input_hash"]
+            .as_str()
+            .unwrap()
+            .into(),
     );
     cases::hashing::pubkey_field_stable(&mut world, "g".into());
     cases::common::random_shielded_keypair(&mut world, "alice".into());
     cases::hashing::owner_hash_stable(&mut world, "alice".into());
     cases::hashing::owner_hash_binds_nullifier(&mut world, "alice".into());
-    cases::hashing::p256_ed25519_owner_hash_differ();
 }
 
 #[test]
 fn nullifiers_bind_every_input_and_match_the_golden_vector() {
     let mut world = KeypairWorld::default();
-    cases::common::random_p256_signing_key(&mut world, "k".into());
+    cases::common::random_signing_key(&mut world, "k".into());
     cases::nullifier::nullifier_deterministic(&mut world, "k".into());
-    cases::common::random_p256_signing_key(&mut world, "a".into());
-    cases::common::random_p256_signing_key(&mut world, "b".into());
+    cases::common::random_signing_key(&mut world, "a".into());
+    cases::common::random_signing_key(&mut world, "b".into());
     cases::nullifier::distinct_nullifier_secrets(&mut world, "a".into(), "b".into());
     cases::nullifier::nullifier_binds_inputs();
     cases::nullifier::nullifier_pubkey_golden(
@@ -82,39 +77,25 @@ fn nullifiers_bind_every_input_and_match_the_golden_vector() {
 }
 
 #[test]
-fn nullifier_rails_are_hsm_derivable() {
-    let mut world = KeypairWorld::default();
-    cases::nullifier::committed_points_match_dsts();
-    cases::common::random_p256_signing_key(&mut world, "k".into());
-    cases::nullifier::derivation_seed_matches_rail_primitives(&mut world, "k".into());
-    cases::nullifier::p256_rail_matches_ecdh_entry_point(&mut world, "k".into());
+fn nullifier_roles_are_hsm_derivable() {
+    cases::nullifier::derivation_seed_matches_rail_primitives();
     cases::nullifier::ed25519_rail_matches_signature_entry_point();
     cases::nullifier::ed25519_keypair_derives_both_keys_from_one_signature();
     cases::nullifier::solana_keypair_matches_ed25519_rail();
-    cases::nullifier::rails_differ_for_identical_root_bytes();
-    cases::nullifier::ed25519_ecdh_is_not_p256();
-    cases::nullifier::primitives_refuse_derivation_inputs(&mut world, "k".into());
+    cases::nullifier::primitives_refuse_derivation_inputs();
 }
 
 #[test]
 fn public_key_encodings_are_typed_and_canonical() {
     let mut world = KeypairWorld::default();
-    cases::pubkey::random_p256_public_key(&mut world, "k".into());
-    cases::pubkey::parse_p256_bytes(&mut world, "k".into());
-    cases::pubkey::parse_succeeds(&mut world);
-    cases::pubkey::parsed_equals(&mut world, "k".into());
-    cases::pubkey::parse_p256_bad_prefix(&mut world, 7);
-    cases::pubkey::parse_fails(&mut world);
-
-    cases::pubkey::tag_p256(&mut world, "k".into(), "p256".into());
-    cases::pubkey::scheme_is_p256(&mut world, "p256".into());
-    cases::pubkey::reads_back_as_p256(&mut world, "p256".into(), "k".into());
-    cases::pubkey::read_as_ed25519_fails(&mut world, "p256".into());
-
     cases::pubkey::tag_ed25519(&mut world, 7, "eddsa".into());
     cases::pubkey::scheme_is_ed25519(&mut world, "eddsa".into());
     cases::pubkey::last_byte_zero(&mut world, "eddsa".into());
-    cases::pubkey::read_as_p256_fails(&mut world, "eddsa".into());
+    let key = world.tag("eddsa");
+    assert_eq!(key.as_ed25519().unwrap(), [7u8; 32]);
+    assert_eq!(PublicKey::from_bytes(*key.as_bytes()).unwrap(), key);
+    cases::pubkey::parse_public_key_bad_prefix(&mut world, 0);
+    cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidSignatureType(0));
     cases::pubkey::parse_public_key_bad_prefix(&mut world, 9);
     cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidSignatureType(9));
     cases::pubkey::parse_ed25519_nonzero_pad(&mut world);
@@ -126,10 +107,9 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     let mut world = KeypairWorld::default();
     cases::common::random_shielded_keypair(&mut world, "alice".into());
     cases::shielded::address_consistent(&mut world, "alice".into());
-    cases::shielded::p256_owner_has_no_solana_address(&mut world, "alice".into());
     cases::shielded::facade_sign_nullifier(&mut world, "alice".into());
 
-    cases::common::random_p256_signing_key(&mut world, "signing".into());
+    cases::common::random_signing_key(&mut world, "signing".into());
     cases::common::random_viewing_key(&mut world, "viewing".into());
     cases::shielded::from_parts_keeps_detached_viewing_key(
         &mut world,
@@ -151,10 +131,10 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
 }
 
 #[test]
-fn p256_signatures_are_deterministic_and_reject_tampering() {
+fn ed25519_signatures_are_deterministic_and_reject_tampering() {
     let mut world = KeypairWorld::default();
-    cases::common::random_p256_signing_key(&mut world, "k".into());
-    cases::signing::sign_hash(
+    cases::common::random_signing_key(&mut world, "k".into());
+    cases::signing::sign_message(
         &mut world,
         "k".into(),
         "private_tx_hash".into(),
@@ -166,16 +146,13 @@ fn p256_signatures_are_deterministic_and_reject_tampering() {
         "sig".into(),
         "private_tx_hash".into(),
     );
-    cases::signing::signing_scheme_p256(&mut world, "k".into());
-    cases::signing::sign_hash(&mut world, "k".into(), "a".into(), "a-sig".into());
+    cases::signing::signing_scheme_ed25519(&mut world, "k".into());
+    cases::signing::sign_message(&mut world, "k".into(), "a".into(), "a-sig".into());
     cases::signing::does_not_verify(&mut world, "k".into(), "a-sig".into(), "b".into());
     cases::signing::does_not_verify_tampered(&mut world, "k".into(), "a-sig".into(), "a".into());
     cases::signing::signs_identically(&mut world, "k".into(), "same".into());
-    cases::signing::p256_secret_roundtrip(&mut world, "k".into());
+    cases::signing::secret_roundtrip(&mut world, "k".into());
     cases::signing::new_ed25519_is_a_working_ed25519_key();
-    cases::signing::p256_message_signature_is_sha256_and_low_s();
-    cases::signing::ed25519_cannot_sign_hash();
-    cases::signing::ed25519_signature_does_not_verify_as_hash();
 }
 
 #[test]

@@ -7,7 +7,7 @@ use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSp
 use zolana_transaction::Address;
 
 use super::{
-    material::load_sender_from_resolved_sync,
+    material::{load_owner_keypair, load_sender_from_resolved_sync},
     resolve::get_network_with_config,
     sync::wait_for_indexed_utxo,
     transaction::maybe_airdrop,
@@ -28,13 +28,22 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
     maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
+    let source = opts
+        .asset_source
+        .as_deref()
+        .map(|path| load_owner_keypair(std::path::Path::new(path)))
+        .transpose()?;
+    let depositor: &dyn Signer = source
+        .as_ref()
+        .map(|key| key as &dyn Signer)
+        .unwrap_or(&material.keypair);
     let tree = network.tree;
     let recipient_pubkey = opts
         .to
         .as_deref()
         .map(parse_pubkey)
         .transpose()?
-        .unwrap_or_else(|| material.funding.pubkey());
+        .unwrap_or_else(|| material.owner_pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
     let deposit_asset = if asset == zolana_transaction::SOL_MINT {
         DepositAsset::Sol
@@ -51,7 +60,7 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let view_tag = recipient.address.viewing_pubkey.u();
     let deposit = Deposit {
         tree,
-        depositor: material.funding.pubkey(),
+        depositor: depositor.pubkey(),
         deposits: vec![AssetDeposit {
             asset: deposit_asset,
             view_tag,
@@ -63,8 +72,8 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     .instruction()?;
     let signature = rpc.create_and_send_transaction(
         &[deposit],
-        Address::new_from_array(material.funding.pubkey().to_bytes()),
-        &[&material.funding],
+        Address::new_from_array(material.fee_payer.pubkey().to_bytes()),
+        &[&material.fee_payer, depositor],
         ComputeBudgetConfig::for_instruction_count(1),
     )?;
     let indexed = wait_for_indexed_utxo(&indexer, view_tag, signature)?;

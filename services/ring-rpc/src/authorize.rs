@@ -71,7 +71,7 @@ pub fn check_read(
         (ReaderKey::P256(_), None) => return Err(Unauthorized::PasskeyNeedsAssertion),
         (ReaderKey::Ed25519(key), None) => verify_ed25519(key.address(), signature, attestation)?,
         (ReaderKey::P256(key), Some(assertion)) => {
-            webauthn::verify(assertion, signature, &key.pubkey(), attestation, origins)?
+            webauthn::verify(assertion, signature, &key, attestation, origins)?
         }
     }
     Ok(reader)
@@ -122,7 +122,6 @@ mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::SigningKey;
 
     use zolana_ring_client::rpc::{unix_now, GetDecryptedTransactionsRequest, ReadAttestation};
 
@@ -186,10 +185,13 @@ mod tests {
     fn the_signature_scheme_must_match_the_declared_reader_key() {
         let mut passkey_tag = signed_auth();
         passkey_tag.reader = ReaderKey::p256(
-            SigningKey::new_p256()
-                .pubkey()
-                .as_p256()
-                .expect("P256 signing key"),
+            zolana_ring_client::P256ReaderKey::from_bytes(
+                hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .expect("passkey reader")
         .to_bytes()

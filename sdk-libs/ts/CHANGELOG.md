@@ -23,6 +23,14 @@ Breaking
   mode, so a ring proof or auditor message of the previous release does not
   verify or open → prove and audit with the ring program and prover of this
   release.
+- `ShieldedPoolError.RingEd25519OutputOwnerTag` is renamed → use `ShieldedPoolError.AnonymousRingEd25519OutputOwnerTag`, which retains error code 7085.
+- `buildDepositTransaction` and `buildRingDepositTransaction` require `depositor` → pass the asset source explicitly and omit `feePayer` when it also pays fees.
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
+
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
+- `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, so a self-hosted plaintext prover fails attestation → pass `tee: false`
@@ -105,6 +113,7 @@ Added
 
 Changed
 
+- Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
 - Ring transfer, exit, withdrawal and delegate submissions treat a rejected

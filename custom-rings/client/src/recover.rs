@@ -294,7 +294,7 @@ impl<'a> MemberRecovery<'a> {
         &self,
         indexer: &I,
         origin: &O,
-    ) -> Result<Vec<ShieldedTransaction>, AuditError> {
+    ) -> Result<Vec<(ShieldedTransaction, Vec<crate::ConfirmedDeposit>)>, AuditError> {
         let RingRecovery {
             ring_program_id,
             page_size,
@@ -330,12 +330,11 @@ impl<'a> MemberRecovery<'a> {
             let event_index = transaction
                 .event_index
                 .ok_or(AuditError::MissingEventIndex)?;
-            if origin
+            let confirmed = origin
                 .origin(transaction.tx_signature, event_index, ring_program_id)
-                .await?
-                .ring_invoked
-            {
-                deposits.push(transaction);
+                .await?;
+            if confirmed.ring_invoked {
+                deposits.push((transaction, confirmed.deposits));
             }
         }
         Ok(deposits)
@@ -344,16 +343,15 @@ impl<'a> MemberRecovery<'a> {
     /// Disclosed deposits are found without trusting their recipient view tags.
     fn deposited_notes(
         &self,
-        deposits: &[ShieldedTransaction],
+        deposits: &[(ShieldedTransaction, Vec<crate::ConfirmedDeposit>)],
         assets: &AssetRegistry,
         found: &mut Found,
     ) -> Result<Vec<[u8; 32]>, AuditError> {
         let ring = self.recovery.ring_program_id;
         let owner_hash = self.source.address.owner_hash()?;
-        let bootstrap_tag = self.source.address.viewing_pubkey.u();
         let mut processed = HashSet::new();
         let mut unsupported = Vec::new();
-        for transaction in deposits {
+        for (transaction, confirmed) in deposits {
             for (slot_index, slot) in transaction.output_slots.iter().enumerate() {
                 let Some(output) = deposit_output(slot, ring) else {
                     continue;
@@ -362,18 +360,22 @@ impl<'a> MemberRecovery<'a> {
                 if !processed.insert(context.hash) || found.seen.contains(&context.hash) {
                     continue;
                 }
-                let opening = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
-                    .ok()
-                    .flatten()
-                    .and_then(|capsule| {
-                        open_deposit(&capsule, self.recovery.auditor, &output.owner_utxo_hash).ok()
-                    });
-                let Some(opening) = opening else {
-                    if slot.view_tag == bootstrap_tag {
-                        unsupported.push(context.hash);
-                    }
+                let Some(binding) = confirmed
+                    .iter()
+                    .find(|binding| usize::from(binding.slot_index()) == slot_index)
+                else {
+                    unsupported.push(context.hash);
                     continue;
                 };
+                let capsule = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
+                    .map_err(|_| AuditError::DepositOpeningMismatch)?
+                    .ok_or(AuditError::DepositOpeningMismatch)?;
+                let opening = open_deposit(
+                    &capsule,
+                    self.recovery.auditor,
+                    &output.owner_utxo_hash,
+                    binding,
+                )?;
                 if opening.owner_hash != owner_hash {
                     continue;
                 }

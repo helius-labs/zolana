@@ -14,7 +14,7 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { P256_OWNER_TAG, SOLANA_OWNER_TAG } from "../hasher/index.js";
+import { SOLANA_OWNER_TAG } from "../hasher/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
@@ -700,8 +700,7 @@ function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymous
     const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
     if (slotIndex <= previous) throw invalid("anonymous.recipients.slotIndex");
     const identityTag = output["identityTag"];
-    if (identityTag !== SOLANA_OWNER_TAG && identityTag !== P256_OWNER_TAG)
-      throw invalid("anonymous.recipients.identityTag");
+    if (identityTag !== SOLANA_OWNER_TAG) throw invalid("anonymous.recipients.identityTag");
     previous = slotIndex;
     return Object.freeze({
       slotIndex,

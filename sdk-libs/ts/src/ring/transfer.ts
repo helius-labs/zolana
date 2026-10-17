@@ -132,7 +132,8 @@ export interface RingTransferTransactionParams {
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  readonly feePayer: Address;
+  /** Defaults to the owner for the supported non-anonymous flow. */
+  readonly feePayer?: Address;
   readonly approve?: ApprovalHandler;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
@@ -157,7 +158,8 @@ export interface RingWithdrawalTransactionParams {
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  readonly feePayer: Address;
+  /** Defaults to the owner for the supported non-anonymous flow. */
+  readonly feePayer?: Address;
   readonly approve?: ApprovalHandler;
   /** Any Solana account. It needs no registry record and need not exist yet. */
   readonly recipient: Address;
@@ -250,7 +252,7 @@ export async function createRingExitSubmission(
   input: Omit<RingTransferTransactionParams, "inputs">,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
-  const params: RingTransferTransactionParams = {
+  const params: WithFeePayer<RingTransferTransactionParams> = {
     ...normalizeRingTransferBase(input),
     recipient: input.recipient,
     inputs: "ring",
@@ -333,7 +335,7 @@ export async function buildRingExitTransaction(
 
 async function buildRingSend(
   input: Readonly<{
-    params: RingTransferTransactionParams;
+    params: WithFeePayer<RingTransferTransactionParams>;
     destination: "ring" | "default";
     retry: RingSubmissionBuildState;
   }>,
@@ -427,7 +429,7 @@ interface RingSpendStrategy<R> {
 
 async function buildRingSpend<R>(
   input: Readonly<{
-    params: RingSpendParams;
+    params: WithFeePayer<RingSpendParams>;
     strategy: RingSpendStrategy<R>;
     retry: RingSubmissionBuildState;
   }>,
@@ -555,7 +557,10 @@ export async function buildRingWithdrawalTransaction(
 }
 
 async function buildRingWithdrawal(
-  input: Readonly<{ params: RingWithdrawalTransactionParams; retry: RingSubmissionBuildState }>,
+  input: Readonly<{
+    params: WithFeePayer<RingWithdrawalTransactionParams>;
+    retry: RingSubmissionBuildState;
+  }>,
   context?: RequestContext,
 ): Promise<RingSubmissionAttempt> {
   const { params } = input;
@@ -1105,7 +1110,9 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
   });
 }
 
-function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
+type WithFeePayer<T> = T & { readonly feePayer: Address };
+
+function normalizeRingTransferBase(input: RingSpendParams): WithFeePayer<RingSpendParams> {
   const asset = input.asset;
   const outputTree = input.outputTree;
   const cosigner = input.cosigner;
@@ -1116,7 +1123,7 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     ringProgramId: input.ringProgramId,
     wallet: input.wallet,
     keys: input.keys,
-    feePayer: input.feePayer,
+    feePayer: input.feePayer ?? input.keys.address().solanaAddress(),
     ...(input.approve === undefined ? {} : { approve: input.approve }),
     amount: input.amount,
     ...(asset === undefined ? {} : { asset }),
@@ -1129,7 +1136,7 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
 
 function normalizeRingTransferParams(
   input: RingTransferTransactionParams,
-): RingTransferTransactionParams {
+): WithFeePayer<RingTransferTransactionParams> {
   const base = normalizeRingTransferBase(input);
   const inputs = input.inputs;
   return Object.freeze({
@@ -1139,13 +1146,15 @@ function normalizeRingTransferParams(
   });
 }
 
-function normalizeRingEntryParams(input: RingEntryTransactionParams): RingEntryTransactionParams {
+function normalizeRingEntryParams(
+  input: RingEntryTransactionParams,
+): WithFeePayer<RingEntryTransactionParams> {
   return normalizeRingTransferBase(input);
 }
 
 function normalizeRingWithdrawalParams(
   input: RingWithdrawalTransactionParams,
-): RingWithdrawalTransactionParams {
+): WithFeePayer<RingWithdrawalTransactionParams> {
   const base = normalizeRingTransferBase(input);
   const splTokenProgram = input.splTokenProgram;
   return Object.freeze({
