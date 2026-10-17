@@ -92,10 +92,6 @@ fn rule_table(spec: &RuleSpec, rule: usize) -> Result<Table, PolicyError> {
             });
             ("any", value(any.collect::<Array>()))
         }
-        SourceSpec::Assets(mints) => (
-            "assets",
-            value(mints.iter().map(ToString::to_string).collect::<Array>()),
-        ),
     };
     table.insert(key, source);
     if let Some(amount) = spec.above {
@@ -138,7 +134,6 @@ mod tests {
     use crate::config::Target;
 
     const CURATOR: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
-    const MINT: &str = "So11111111111111111111111111111111111111112";
 
     fn document(spec: &PolicySpec) -> String {
         let mut document = toml_edit::DocumentMut::new();
@@ -161,7 +156,7 @@ any = [{{ forbid = "block" }}, {{ require = "approval" }}]
 
 [[rules]]
 subject = "asset"
-assets = ["{MINT}"]
+require = "allow"
 
 [[rules]]
 subject = "output-owner"
@@ -175,7 +170,7 @@ above = 1000000
             "# every policy transfer binds the named address tree\naddress_tree = ",
             "[policy.sources.devnet]\n# the block list reads the member registry of the named curator ring\nblock = ",
             "# each output owner must be on the approval list or must not be on the block list\n[[policy.rules]]\nsubject = \"output-owner\"\nany = [{ forbid = \"block\" }, { require = \"approval\" }]\n",
-            "# each asset must be one of the listed assets\n[[policy.rules]]\nsubject = \"asset\"\nassets = [",
+            "# each asset must be on the allow list\n[[policy.rules]]\nsubject = \"asset\"\nrequire = \"allow\"",
             "when the amount is above 1000000\n[[policy.rules]]\nsubject = \"output-owner\"\nrequire = \"allow\"\nabove = 1000000\n",
         ] {
             assert!(text.contains(expected), "{expected:?} in\n{text}");

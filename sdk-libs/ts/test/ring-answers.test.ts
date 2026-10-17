@@ -40,7 +40,7 @@ const forbid = (id: ListId): Rule => ({
 });
 const inline: Rule = {
   subject: "asset",
-  source: { kind: "inlineAssets" },
+  source: { kind: "lists", present: [ListId.allow], absent: [] },
   guard: { kind: "always" },
 };
 function output(amount = 1n, asset = ASSET): ProofOutputUtxo {
@@ -55,12 +55,28 @@ const member = (out: ProofOutputUtxo) => {
   if (out.ownerAddress === undefined) throw new Error("missing owner");
   return memberOfIdentity(out.ownerAddress.signingPublicKey.ownerProofInputHash());
 };
-async function fixture(table: RuleTable, outputs: readonly ProofOutputUtxo[], lists = 0n) {
+async function fixture(
+  table: RuleTable,
+  outputs: readonly ProofOutputUtxo[],
+  lists = 0n,
+  assetLists = 1n,
+) {
   const [root, bump] = await ringMemberRegistryRootPda(RING);
   const unique = new Map(
     outputs.map((out) => [Buffer.from(member(out)).toString("hex"), member(out)]),
   );
-  const registry = registryFixture([...unique.values()].map((member) => ({ member, lists })));
+  const assets = new Map(
+    outputs.map((out) => [
+      Buffer.from(memberOfAsset(out.asset)).toString("hex"),
+      memberOfAsset(out.asset),
+    ]),
+  );
+  const registry = registryFixture([
+    ...[...unique.values()].map((member) => ({ member, lists })),
+    ...(table.rules.some((rule) => rule.subject === "asset")
+      ? [...assets.values()].map((member) => ({ member, lists: assetLists }))
+      : []),
+  ]);
   const read = vi.fn(
     async (request: Parameters<RingPolicyAnswerClient["getRingMemberRecord"]>[0]) =>
       registry.read(request.member),
@@ -149,16 +165,39 @@ describe("member policy witnesses", () => {
     expect(client.getRingMemberRecord).not.toHaveBeenCalled();
   });
 
-  it("rejects list-backed asset rules", () =>
-    expect(() =>
-      buildRuleTable({ rules: [{ ...requireList(ListId.allow), subject: "asset" }] }),
-    ).toThrow("RING_RULE_TABLE_INVALID"));
+  it("screens authenticated mint records independently of approved owners", async () => {
+    const table = buildRuleTable({ rules: [inline] });
+    const out = output();
+    const allowed = await fixture(table, [out, out], 0n, 1n);
+    const answers = await allowed.prove();
+    expect(answers.subjects[9]?.lists).toBe(1n);
+    expect(answers.subjects[9]).toEqual(answers.subjects[10]);
+    expect(allowed.read).toHaveBeenCalledTimes(2);
+    await expect((await fixture(table, [out], 1n, 0n)).prove()).rejects.toMatchObject({
+      code: "RING_POLICY_RULE_UNSATISFIED",
+    });
+    allowed.read.mockImplementation(async () => allowed.registry.read(member(out)));
+    await expect(allowed.prove()).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_INVALID" });
+  });
+  it("supports asset blocklists and rejects mixed mints under a scalar owner guard", async () => {
+    const table = buildRuleTable({ rules: [{ ...forbid(ListId.block), subject: "asset" }] });
+    await expect((await fixture(table, [output()], 0n, 0n)).prove()).resolves.toBeDefined();
+    await expect((await fixture(table, [output()], 0n, 2n)).prove()).rejects.toMatchObject({
+      code: "RING_POLICY_RULE_UNSATISFIED",
+    });
+    const guard = buildRuleTable({
+      rules: [{ ...requireList(ListId.allow), guard: { kind: "aboveAmount", amount: 5n } }],
+    });
+    await expect(
+      (await fixture(guard, [output(1n), output(1n, address(8))], 1n)).prove(),
+    ).rejects.toMatchObject({ code: "RING_POLICY_RULE_UNSATISFIED" });
+  });
   it("deduplicates a recipient while filling both output slots", async () => {
     const out = output(),
       test = await fixture(buildRuleTable({ rules: [requireList(ListId.allow)] }), [out, out], 1n);
     const result = await test.prove();
     expect(test.read).toHaveBeenCalledTimes(1);
-    expect(result.subjects).toHaveLength(9);
+    expect(result.subjects).toHaveLength(13);
     expect(result.subjects[5]).toEqual(result.subjects[6]);
     expect(result.subjects[5]?.lists).toBe(1n);
     expect(result.registry.root).toEqual(test.registry.root);
@@ -197,11 +236,7 @@ describe("member policy witnesses", () => {
   it("aggregates guarded amounts across recipient outputs", async () => {
     const out = output(3n),
       table = buildRuleTable({
-        rules: [
-          { ...requireList(ListId.allow), guard: { kind: "aboveAmount", amount: 5n } },
-          inline,
-        ],
-        inlineAssets: [memberOfAsset(ASSET)],
+        rules: [{ ...requireList(ListId.allow), guard: { kind: "aboveAmount", amount: 5n } }],
       });
     await expect((await fixture(table, [out])).prove()).resolves.toBeDefined();
     await expect((await fixture(table, [out, out])).prove()).rejects.toMatchObject({
@@ -216,9 +251,7 @@ describe("member policy witnesses", () => {
             ...requireList(ListId.allow),
             guard: { kind: "aboveAmount", amount: (1n << 64n) - 1n },
           },
-          inline,
         ],
-        inlineAssets: [memberOfAsset(ASSET)],
       });
     await expect((await fixture(table, [out, out])).prove()).rejects.toMatchObject({
       code: "RING_POLICY_RULE_UNSATISFIED",
@@ -226,7 +259,7 @@ describe("member policy witnesses", () => {
   });
   it("applies per-asset thresholds and refuses unknown mints", async () => {
     const table = buildRuleTable({
-      rules: [{ ...requireList(ListId.allow), guard: { kind: "aboveAmountByAsset" } }, inline],
+      rules: [{ ...requireList(ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
       inlineAssets: [memberOfAsset(ASSET)],
       inlineLimits: [5n],
     });

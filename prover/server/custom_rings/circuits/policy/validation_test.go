@@ -33,10 +33,7 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.rules[1].guardTag = GuardAboveAmount
 			s.rules[1].threshold = 2000
 		}},
-		{"owner threshold without enforced asset", func(s *statement) {
-			s.rules[2].guardTag = GuardAboveAmount
-			s.rules[2].threshold = 2000
-		}},
+		{"legacy inline rule", func(s *statement) { s.rules[2].mask = 0 }},
 		{"owner threshold with several assets", func(s *statement) {
 			s.inlineAssets = append(s.inlineAssets, big.NewInt(17))
 		}},
@@ -49,7 +46,7 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 		{"duplicate assets under per-asset guard", func(s *statement) {
 			s.rules[3].guardTag = GuardAboveAmountByAsset
 			s.rules[3].threshold = 0
-			s.inlineAssets = append(s.inlineAssets, s.inlineAssets[0])
+			s.inlineAssets = []*big.Int{assetField(t, defaultFixture().transferred), assetField(t, defaultFixture().transferred)}
 			s.inlineLimits = []uint64{1000, 1000}
 		}},
 		{"zero limit with a listed recipient", func(s *statement) {
@@ -60,12 +57,12 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.rules = nil
 			s.inlineAssets = []*big.Int{big.NewInt(0)}
 		}},
-		{"asset list rule", func(s *statement) {
-			s.rules[2].mask = listMask(listAllow)
+		{"asset rule uses unconfigured list", func(s *statement) {
+			s.rules[2].mask = listMask(8)
 		}},
 		{"absent asset rule", func(s *statement) {
 			s.rules[2].mode = ModeAbsent
-			s.rules[2].mask = listMask(listBlock)
+			s.rules[2].mask = listMask(listAllow)
 		}},
 	}
 	for _, test := range tests {

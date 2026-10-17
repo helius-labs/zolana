@@ -20,7 +20,7 @@ pub const POLICY_INPUT_SLOTS: usize = 5;
 /// Output slots the policy opens per transfer, a circuit width.
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 9;
+pub const POLICY_VERSION: u8 = 10;
 
 /// One list and the registry serving it, zero for the ring's own, list id 0 marks an empty slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,19 +77,15 @@ macro_rules! rule_errors {
 
 rule_errors! {
     TooManyRules => "policy table is full",
-    TooManyInlineAssets => "inline asset list exceeds the circuit width",
+    TooManyInlineAssets => "asset thresholds exceed the circuit width",
     ZeroInlineAsset => "zero is the padding value, never a member",
-    InlineNotAsset => "inline members serve asset rules only",
-    InlineAbsent => "inline members express an allowlist only",
-    InlineWithoutPool => "inline asset list is empty",
-    PoolWithoutInlineRule => "inline assets without a rule consuming them",
+    PoolWithoutInlineRule => "asset thresholds without a per-asset guard",
     EmptyLists => "a group names no list",
     ListInBothSets => "a list is both required and forbidden",
     SenderGuard => "sender rules take no amount guard",
     ExitDestination => "exit destinations are enforced by no plane yet",
     ZeroThreshold => "a zero threshold is Guard::Always",
     DuplicateRule => "duplicate rule",
-    OwnerGuardWithoutInlineAsset => "an owner amount guard needs a single unguarded inline asset",
     PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
     MissingAssetLimit => "every inline asset needs a nonzero limit",
     AssetLimitWithoutGuard => "asset limits need a per-asset guard",
@@ -100,13 +96,11 @@ rule_errors! {
     ThresholdWithoutGuard => "a threshold without a guard",
     ReservedBytes => "reserved row bytes are not zero",
     NonCanonicalAlternative => "an alternative beside an absent primary",
-    InlineWithAlternative => "an inline rule with an alternative",
     NonZeroPadding => "padding past the counts is not zero",
     TooManyOutflowLimits => "outflow limits exceed the circuit width",
     ZeroLimitAsset => "an outflow limit names no mint",
     DuplicateLimitAsset => "outflow limit mints must be unique",
     LimitWithoutBound => "an outflow limit needs a cap or a cosign threshold",
-    AssetListRule => "asset rules take the inline source only",
 }
 
 impl SourceMap {
@@ -199,11 +193,10 @@ pub enum Guard {
     AboveAmountByAsset,
 }
 
-/// A disjunction over entry lists, or the assets the table carries inline.
+/// A disjunction over registry lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleSource {
     Lists { present: ListSet, absent: ListSet },
-    InlineAssets,
 }
 
 /// One obligation, packed into a single field element for the hash.
@@ -259,15 +252,6 @@ impl Rule {
         }
     }
 
-    /// Restricts assets to the members the table carries, no entries involved.
-    pub const fn allow_only_assets() -> Self {
-        Self {
-            subject: Subject::Asset,
-            source: RuleSource::InlineAssets,
-            guard: Guard::Always,
-        }
-    }
-
     /// The rule passes below the threshold without a membership check.
     #[must_use]
     pub const fn above(self, amount: u64) -> Self {
@@ -288,15 +272,14 @@ impl Rule {
     pub const fn primary_mode(&self) -> Mode {
         match self.source {
             RuleSource::Lists { present, .. } if present.is_empty() => Mode::Absent,
-            RuleSource::Lists { .. } | RuleSource::InlineAssets => Mode::Present,
+            RuleSource::Lists { .. } => Mode::Present,
         }
     }
 
-    /// The lists the rule consults, empty for the inline source.
+    /// The registry lists the rule consults.
     pub const fn referenced(&self) -> ListSet {
         match self.source {
             RuleSource::Lists { present, absent } => present.union(absent),
-            RuleSource::InlineAssets => ListSet::EMPTY,
         }
     }
 
@@ -304,7 +287,6 @@ impl Rule {
     pub fn alternatives(&self) -> impl Iterator<Item = (ListId, Mode)> {
         let (present, absent) = match self.source {
             RuleSource::Lists { present, absent } => (present, absent),
-            RuleSource::InlineAssets => (ListSet::EMPTY, ListSet::EMPTY),
         };
         present
             .iter()
@@ -314,7 +296,6 @@ impl Rule {
 
     pub fn encoded(&self) -> [u8; 32] {
         let (mask, alternative) = match self.source {
-            RuleSource::InlineAssets => (ListSet::EMPTY, ListSet::EMPTY),
             RuleSource::Lists { present, absent } => match self.primary_mode() {
                 Mode::Present => (present, absent),
                 Mode::Absent => (absent, ListSet::EMPTY),
@@ -356,28 +337,21 @@ impl Rule {
         };
         let mask = ListSet::from_bits(row.mask);
         let alternative = ListSet::from_bits(row.alternative);
-        let source = if mask.is_empty() {
-            if !alternative.is_empty() {
-                return Err(RuleTableError::InlineWithAlternative);
+        if mask.is_empty() {
+            return Err(RuleTableError::EmptyLists);
+        }
+        let source = match mode {
+            Mode::Present => RuleSource::Lists {
+                present: mask,
+                absent: alternative,
+            },
+            Mode::Absent if !alternative.is_empty() => {
+                return Err(RuleTableError::NonCanonicalAlternative)
             }
-            if matches!(mode, Mode::Absent) {
-                return Err(RuleTableError::InlineAbsent);
-            }
-            RuleSource::InlineAssets
-        } else {
-            match mode {
-                Mode::Present => RuleSource::Lists {
-                    present: mask,
-                    absent: alternative,
-                },
-                Mode::Absent if !alternative.is_empty() => {
-                    return Err(RuleTableError::NonCanonicalAlternative)
-                }
-                Mode::Absent => RuleSource::Lists {
-                    present: ListSet::EMPTY,
-                    absent: mask,
-                },
-            }
+            Mode::Absent => RuleSource::Lists {
+                present: ListSet::EMPTY,
+                absent: mask,
+            },
         };
         let threshold = u64::from_be_bytes(row.threshold);
         let guard = match row.guard_tag {
@@ -407,13 +381,7 @@ impl Rule {
             RuleSource::Lists { present, absent } if present.intersects(absent) => {
                 return Err(RuleTableError::ListInBothSets)
             }
-            RuleSource::InlineAssets if !matches!(self.subject, Subject::Asset) => {
-                return Err(RuleTableError::InlineNotAsset)
-            }
-            RuleSource::Lists { .. } if matches!(self.subject, Subject::Asset) => {
-                return Err(RuleTableError::AssetListRule)
-            }
-            RuleSource::Lists { .. } | RuleSource::InlineAssets => {}
+            RuleSource::Lists { .. } => {}
         }
         match self.guard {
             Guard::AboveAmount(_) if matches!(self.subject, Subject::Sender) => {
@@ -423,9 +391,6 @@ impl Rule {
             Guard::AboveAmountByAsset if !matches!(self.subject, Subject::OutputOwner) => {
                 Err(RuleTableError::PerAssetGuardNotOwner)
             }
-            Guard::AboveAmountByAsset if matches!(self.source, RuleSource::InlineAssets) => {
-                Err(RuleTableError::PerAssetGuardNotOwner)
-            }
             Guard::Always | Guard::AboveAmount(_) | Guard::AboveAmountByAsset => Ok(()),
         }
     }
@@ -433,7 +398,6 @@ impl Rule {
     const fn signature(&self) -> u32 {
         let (present, absent) = match self.source {
             RuleSource::Lists { present, absent } => (present.bits(), absent.bits()),
-            RuleSource::InlineAssets => (0, 0),
         };
         ((self.subject as u32) << 16) | ((present as u32) << 8) | absent as u32
     }
@@ -611,10 +575,7 @@ impl RuleTableBuilder {
             }
             m += 1;
         }
-        let mut owner_guard = false;
         let mut per_asset_guard = false;
-        let mut inline_rule = false;
-        let mut unguarded_inline = false;
         let mut i = 0;
         while i < self.rule_count {
             let rule = table.rules[i];
@@ -628,29 +589,15 @@ impl RuleTableBuilder {
                 }
                 j += 1;
             }
-            if matches!(rule.source, RuleSource::InlineAssets) {
-                inline_rule = true;
-                unguarded_inline = matches!(rule.guard, Guard::Always);
-            }
-            if matches!(rule.subject, Subject::OutputOwner)
-                && matches!(rule.guard, Guard::AboveAmount(_))
-            {
-                owner_guard = true;
-            }
             if matches!(rule.guard, Guard::AboveAmountByAsset) {
                 per_asset_guard = true;
             }
             i += 1;
         }
-        if inline_rule && self.member_count == 0 {
-            return Err(RuleTableError::InlineWithoutPool);
-        }
-        if !inline_rule && !per_asset_guard && self.member_count > 0 {
+        if !per_asset_guard && self.member_count > 0 {
             return Err(RuleTableError::PoolWithoutInlineRule);
         }
-        if owner_guard && !(unguarded_inline && self.member_count == 1) {
-            return Err(RuleTableError::OwnerGuardWithoutInlineAsset);
-        }
+
         if per_asset_guard {
             if self.member_count == 0 || self.limit_count != self.member_count {
                 return Err(RuleTableError::MissingAssetLimit);
@@ -934,8 +881,7 @@ mod tests {
     const TABLE: RuleTable = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
         .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .rule(Rule::allow_only_assets())
-        .inline_assets(ASSETS)
+        .rule(Rule::require(Subject::Asset, ListId::Allow))
         .build();
 
     const EMPTY: RuleTable = RuleTable::builder().build();
@@ -1032,8 +978,8 @@ mod tests {
         assert_eq!(rules.len(), 3);
         assert_eq!(rules[0].subject, Subject::OutputOwner);
         assert_eq!(rules[1].primary_mode(), Mode::Absent);
-        assert_eq!(rules[2].source, RuleSource::InlineAssets);
-        assert_eq!(TABLE.inline_assets(), ASSETS);
+        assert_eq!(rules[2], Rule::require(Subject::Asset, ListId::Allow));
+        assert!(TABLE.inline_assets().is_empty());
         assert_eq!(RuleTable::empty(), EMPTY);
         assert!(EMPTY.is_empty());
         assert_eq!(EMPTY.encode(), EncodedRuleTable::default());
@@ -1079,8 +1025,8 @@ mod tests {
             packed([1, 0b0100_0000, 1, 1], 2000, 0)
         );
         assert_eq!(
-            Rule::allow_only_assets().encoded(),
-            packed([0, 0, 1, 4], 0, 0)
+            Rule::require(Subject::Asset, ListId::Allow).encoded(),
+            packed([0, 1, 1, 4], 0, 0)
         );
         assert_eq!(
             Rule::any_of(
@@ -1136,7 +1082,10 @@ mod tests {
             .bits(),
             0b0000_0110
         );
-        assert!(Rule::allow_only_assets().referenced().is_empty());
+        assert_eq!(
+            Rule::require(Subject::Asset, ListId::Allow).referenced(),
+            ListSet::single(ListId::Allow)
+        );
         assert_eq!(
             TABLE.referenced(),
             ListSet::of(&[ListId::Allow, ListId::Frozen])
@@ -1162,9 +1111,9 @@ mod tests {
                 ListSet::single(ListId::Allow),
                 ListSet::single(ListId::Block),
             ),
-            Rule::allow_only_assets(),
+            Rule::require(Subject::Asset, ListId::Allow),
             Rule::require(Subject::OutputOwner, ListId::Approval).above(2000),
-            Rule::allow_only_assets().above(u64::MAX),
+            Rule::require(Subject::Asset, ListId::Allow).above(u64::MAX),
         ];
         for rule in rules {
             assert_eq!(Rule::decode(&rule.encoded()), Ok(rule));
@@ -1197,16 +1146,16 @@ mod tests {
                     row[29] = 0;
                     row[19] = 0b0000_0010;
                 },
-                RuleTableError::InlineWithAlternative,
+                RuleTableError::EmptyLists,
             ),
             (
                 |row| {
                     row[29] = 0;
                     row[30] = 2;
                 },
-                RuleTableError::InlineAbsent,
+                RuleTableError::EmptyLists,
             ),
-            (|row| row[29] = 0, RuleTableError::InlineNotAsset),
+            (|row| row[29] = 0, RuleTableError::EmptyLists),
             (|row| row[28] = 3, RuleTableError::UnknownGuardTag),
             (|row| row[27] = 1, RuleTableError::ThresholdWithoutGuard),
             (|row| row[28] = 1, RuleTableError::ZeroThreshold),
@@ -1249,7 +1198,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(ListId::Frozen, Mode::Absent)]
         );
-        assert_eq!(Rule::allow_only_assets().alternatives().count(), 0);
+        assert_eq!(
+            Rule::require(Subject::Asset, ListId::Allow)
+                .alternatives()
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1286,7 +1240,7 @@ mod tests {
             ),
             Rule::require(Subject::OutputOwner, ListId::Allow).above(5),
             Rule::require(Subject::OutputOwner, ListId::Allow).above(6),
-            Rule::allow_only_assets(),
+            Rule::require(Subject::Asset, ListId::Allow),
         ];
         for (i, a) in variants.iter().enumerate() {
             for b in variants.iter().skip(i + 1) {
@@ -1310,15 +1264,13 @@ mod tests {
         const REORDERED: RuleTable = RuleTable::builder()
             .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .build();
         assert_ne!(baseline, REORDERED.hash(&map).unwrap());
         const OTHER_ASSETS: RuleTable = RuleTable::builder()
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
             .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(&[[6u8; 32]])
+            .rule(Rule::forbid(Subject::Asset, ListId::Frozen))
             .build();
         assert_ne!(baseline, OTHER_ASSETS.hash(&map).unwrap());
     }
@@ -1401,8 +1353,9 @@ mod tests {
     fn a_full_image_round_trips() {
         let table = with_rules(
             RuleTable::builder()
-                .rule(Rule::allow_only_assets())
-                .inline_assets(&POOL),
+                .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+                .inline_assets(&POOL)
+                .inline_limits(&[1; MAX_INLINE_ASSETS]),
             sender_rules().take(MAX_RULES - 1),
         )
         .build();
@@ -1412,7 +1365,10 @@ mod tests {
         assert_eq!(encoded.decode(), Ok(table));
         assert_eq!(encoded.referenced(), ListSet::from_bits(u8::MAX));
         let rows: Vec<[u8; 32]> = table.rules().iter().map(Rule::encoded).collect();
-        assert_eq!(from_parts(&rows, &POOL), Ok(encoded));
+        assert_eq!(
+            from_parts_with_limits(&rows, &POOL, &[1; MAX_INLINE_ASSETS]),
+            Ok(encoded)
+        );
         let seventeen: Vec<[u8; 32]> = rows.iter().chain(&rows[..1]).copied().collect();
         assert_eq!(
             from_parts(&seventeen, &POOL),
@@ -1457,26 +1413,26 @@ mod tests {
     #[test]
     fn try_build_names_each_refusal_and_build_panics_with_its_message() {
         let inline = RuleTable::builder()
-            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .inline_assets(ASSETS);
         let cases = [
             (
                 with_rules(
                     RuleTable::builder(),
-                    sender_rules().chain([Rule::allow_only_assets()]),
+                    sender_rules().chain([Rule::require(Subject::Asset, ListId::Allow)]),
                 ),
                 RuleTableError::TooManyRules,
             ),
             (
                 RuleTable::builder()
-                    .rule(Rule::allow_only_assets())
+                    .rule(Rule::require(Subject::Asset, ListId::Allow))
                     .inline_assets(&POOL)
                     .inline_assets(ASSETS),
                 RuleTableError::TooManyInlineAssets,
             ),
             (
                 RuleTable::builder()
-                    .rule(Rule::allow_only_assets())
+                    .rule(Rule::require(Subject::Asset, ListId::Allow))
                     .inline_assets(&[[0u8; 32]]),
                 RuleTableError::ZeroInlineAsset,
             ),
@@ -1484,15 +1440,18 @@ mod tests {
                 RuleTable::builder()
                     .rule(Rule {
                         subject: Subject::Sender,
-                        source: RuleSource::InlineAssets,
+                        source: RuleSource::Lists {
+                            present: ListSet::EMPTY,
+                            absent: ListSet::EMPTY,
+                        },
                         guard: Guard::Always,
                     })
                     .inline_assets(ASSETS),
-                RuleTableError::InlineNotAsset,
+                RuleTableError::EmptyLists,
             ),
             (
-                RuleTable::builder().rule(Rule::allow_only_assets()),
-                RuleTableError::InlineWithoutPool,
+                RuleTable::builder().rule(Rule::require_any(Subject::Asset, ListSet::EMPTY)),
+                RuleTableError::EmptyLists,
             ),
             (
                 RuleTable::builder()
@@ -1526,8 +1485,9 @@ mod tests {
                 RuleTableError::ZeroThreshold,
             ),
             (
-                RuleTable::builder().rule(Rule::require(Subject::Asset, ListId::Approval)),
-                RuleTableError::AssetListRule,
+                RuleTable::builder()
+                    .rule(Rule::require(Subject::Asset, ListId::Approval).above_by_asset()),
+                RuleTableError::PerAssetGuardNotOwner,
             ),
             (
                 RuleTable::builder()
@@ -1539,7 +1499,7 @@ mod tests {
                 inline
                     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
                     .inline_assets(&[[4u8; 32]]),
-                RuleTableError::OwnerGuardWithoutInlineAsset,
+                RuleTableError::PoolWithoutInlineRule,
             ),
             (
                 RuleTable::builder().limits(&outflow_limits(MAX_OUTFLOW_LIMITS as u8 + 1)),
@@ -1709,11 +1669,11 @@ mod tests {
         );
         assert_eq!(
             RuleTable::builder()
-                .rule(Rule::allow_only_assets())
+                .rule(Rule::require(Subject::Asset, ListId::Allow))
                 .inline_assets(&[[3u8; 32]])
                 .inline_limits(&[5])
                 .try_build(),
-            Err(RuleTableError::AssetLimitWithoutGuard)
+            Err(RuleTableError::PoolWithoutInlineRule)
         );
     }
 
@@ -1738,55 +1698,51 @@ mod tests {
     #[should_panic(expected = "zero is the padding value")]
     fn zero_inline_members_are_rejected() {
         let _ = RuleTable::builder()
-            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .inline_assets(&[[0u8; 32]])
             .build();
     }
 
     #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_without_an_inline_asset_is_rejected() {
-        let _ = RuleTable::builder()
+    fn an_owner_guard_needs_no_inline_membership() {
+        let table = RuleTable::builder()
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
             .build();
+        assert_eq!(table.rules().len(), 1);
+        // Mixed-mint transfers are rejected by the evaluator.
     }
 
     #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_beside_two_inline_assets_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(&[[3u8; 32], [4u8; 32]])
-            .build();
-    }
-
-    #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_beside_a_guarded_inline_asset_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .rule(Rule::allow_only_assets().above(9))
-            .inline_assets(ASSETS)
-            .build();
-    }
-
-    #[test]
-    fn an_asset_rule_reads_the_inline_pool_only() {
+    fn an_owner_guard_cannot_reintroduce_an_inline_allowlist() {
         assert_eq!(
             RuleTable::builder()
-                .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
+                .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+                .inline_assets(&[[3u8; 32], [4u8; 32]])
                 .try_build(),
-            Err(RuleTableError::AssetListRule)
+            Err(RuleTableError::PoolWithoutInlineRule)
         );
-        assert_eq!(
-            Rule::decode(&packed([0, 0b0100_0000, 1, 4], 0, 0)),
-            Err(RuleTableError::AssetListRule)
-        );
-        const GUARDED_INLINE: RuleTable = RuleTable::builder()
-            .rule(Rule::allow_only_assets().above(7))
-            .inline_assets(ASSETS)
+    }
+
+    #[test]
+    fn owner_and_asset_list_guards_can_coexist() {
+        let table = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .rule(Rule::require(Subject::Asset, ListId::Allow).above(9))
             .build();
-        assert_eq!(GUARDED_INLINE.rules().len(), 1);
+        assert_eq!(table.rules().len(), 2);
+    }
+
+    #[test]
+    fn asset_rules_read_lists_and_reject_the_old_inline_encoding() {
+        let rule = Rule::require(Subject::Asset, ListId::Approval).above(7);
+        let table = RuleTable::builder().rule(rule).build();
+        assert_eq!(table.rules(), &[rule]);
+        assert_eq!(Rule::decode(&rule.encoded()), Ok(rule));
+        assert_eq!(
+            Rule::decode(&packed([0, 0, 1, 4], 0, 0)),
+            Err(RuleTableError::EmptyLists)
+        );
+        let forbid = Rule::forbid(Subject::Asset, ListId::Block);
+        assert_eq!(Rule::decode(&forbid.encoded()), Ok(forbid));
     }
 }

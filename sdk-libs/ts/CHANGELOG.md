@@ -10,9 +10,11 @@ per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
 
+- Asset rules use authenticated mint records in the own or curator registry. The inline eight-mint allowlist is removed. `inlineAssets` and `inlineLimits` now serve only per-mint amount guards. Scalar owner guards reject mixed-mint transfers. Replace inline asset rules with list rules and populate the mint records before transferring.
+
 - `RingMemberRegistryReader` replaces key-registry reads with `getRingMemberRecord` and `getRingMemberRegistryRoot`, authenticated at height 20 with list bits and escrow keys → migrate custom indexer adapters and use this release's program, indexer and prover together.
-- `CustomRingPolicyProofRequest` uses nine `subjects`, nine `foreignSubjects`, an own `memberRegistryRoot` even with escrow off, and one `foreignRoot`, while deposit proofs use `members` and `ctHashes` → replace entry-answer witnesses and old key-only records in custom provers.
-- `RingPolicyConfig.sources` uses `registry` addresses, zero for the own registry and at most one curator registry, and asset rules require inline assets → re-pin policies under version 9 and replace curator namespace addresses.
+- `CustomRingPolicyProofRequest` uses thirteen `subjects`, thirteen `foreignSubjects`, an own `memberRegistryRoot` even with escrow off, and one `foreignRoot`, while deposit proofs use `members` and `ctHashes` → replace entry-answer witnesses and old key-only records in custom provers.
+- `RingPolicyConfig.sources` uses `registry` addresses, zero for the own registry and at most one curator registry, and asset rules read registry lists → re-pin policies under version 10 and replace curator namespace addresses.
 - `buildRingListWriteTransaction` now proves member-record updates and returns authenticated `records` when unchanged, while `createRingEntryInstruction`, `updateRingEntryInstruction` and entry-proof builders are removed → use `buildRingMemberUpdateTransaction` for batches of up to sixteen members and supply `proveCustomRingUpdateMembers`.
 - Key-registry types, PDA helpers, constants and error names use `MemberRegistry`/`MEMBER_REGISTRY` naming and the PDA seed is `members` → migrate imports and initialize the new registry before registration, list writes or policy transfers.
 

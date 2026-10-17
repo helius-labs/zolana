@@ -6,6 +6,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
@@ -26,6 +27,23 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 		foreign, _ := c.ForeignSubjects[s].Resolve(api, api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash)
 		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
 		subjects[s] = subjectView{present: c.Subjects[s].Present, escrowKey: escrowKey}
+		for i := range subjects[s].onList {
+			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
+		}
+	}
+	assetRules := frontend.Variable(0)
+	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
+	for i, packed := range c.Rules {
+		rule := decodeRule(api, packed)
+		active := rules.Active[i]
+		assetRules = api.Or(assetRules, api.Mul(active, rule.onAsset))
+	}
+	for o, slot := range tx.outputs {
+		s := NInputs + NOutputs + o
+		active := api.Mul(slot.utxo, assetRules, base.NonZero(api, slot.asset))
+		own, _ := c.Subjects[s].Resolve(api, active, c.MemberRegistryRoot, slot.asset)
+		foreign, _ := c.ForeignSubjects[s].Resolve(api, api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset)
+		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
 		for i := range subjects[s].onList {
 			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
 		}

@@ -77,7 +77,7 @@ func hashFields(hashes []Hash) []ring.Field {
 	return out
 }
 
-// liveSubjects lists the slots whose owner the indexer opens, inputs first as the circuit orders them.
+// liveSubjects lists input owners, output owners, then output assets used by asset rules.
 func liveSubjects(p *ring.PolicyParams) []int {
 	var live []int
 	for i, input := range p.Inputs {
@@ -85,9 +85,18 @@ func liveSubjects(p *ring.PolicyParams) []int {
 			live = append(live, i)
 		}
 	}
+	assetRules := false
+	for i, rule := range p.Rules {
+		if i < int(p.PolicyLen) && rule.Int != nil && rule.Uint64()&255 == policy.SubjectAsset {
+			assetRules = true
+		}
+	}
 	for o, output := range p.Outputs {
 		if o < int(p.NOut) && output.Domain.Int != nil && output.Domain.Cmp(big.NewInt(shared.UtxoDomain)) == 0 {
 			live = append(live, policy.NInputs+o)
+			if assetRules && output.Asset.Int != nil && output.Asset.Sign() != 0 {
+				live = append(live, policy.NInputs+policy.NOutputs+o)
+			}
 		}
 	}
 	return live
@@ -97,5 +106,5 @@ func subjectOpening(p *ring.PolicyParams, slot int) *ring.Opening {
 	if slot < policy.NInputs {
 		return &p.Inputs[slot]
 	}
-	return &p.Outputs[slot-policy.NInputs].Opening
+	return &p.Outputs[(slot-policy.NInputs)%policy.NOutputs].Opening
 }

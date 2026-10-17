@@ -97,7 +97,7 @@ function reason(action: () => unknown): string {
 }
 
 describe("rule rows", () => {
-  it("decodes require, forbid, any-of, inline assets and a threshold", () => {
+  it("decodes require, forbid, any-of, asset lists and a threshold", () => {
     expect(
       decodeRule(row({ subject: OUTPUT_OWNER, mode: PRESENT, mask: bit(ListId.allow) })),
     ).toEqual({
@@ -124,9 +124,9 @@ describe("rule rows", () => {
       source: { kind: "lists", present: [ListId.approval], absent: [ListId.block] },
       guard: { kind: "always" },
     });
-    expect(decodeRule(row({ subject: ASSET, mode: PRESENT, mask: 0 }))).toEqual({
+    expect(decodeRule(row({ subject: ASSET, mode: PRESENT, mask: 1 }))).toEqual({
       subject: "asset",
-      source: { kind: "inlineAssets" },
+      source: { kind: "lists", present: [ListId.allow], absent: [] },
       guard: { kind: "always" },
     });
     expect(
@@ -164,8 +164,8 @@ describe("rule rows", () => {
       ["UnknownSubject", { subject: 5, mode: PRESENT, mask: allow }],
       ["UnknownSubject", { subject: 0, mode: PRESENT, mask: allow }],
       ["UnknownMode", { subject: OUTPUT_OWNER, mode: 3, mask: allow }],
-      ["InlineWithAlternative", { subject: ASSET, mode: PRESENT, mask: 0, alternative: allow }],
-      ["InlineAbsent", { subject: ASSET, mode: ABSENT, mask: 0 }],
+      ["EmptyLists", { subject: ASSET, mode: PRESENT, mask: 0, alternative: allow }],
+      ["EmptyLists", { subject: ASSET, mode: ABSENT, mask: 0 }],
       [
         "NonCanonicalAlternative",
         { subject: SENDER, mode: ABSENT, mask: allow, alternative: allow },
@@ -177,10 +177,10 @@ describe("rule rows", () => {
       ["UnknownGuardTag", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, guardTag: 3 }],
       ["ExitDestination", { subject: EXIT, mode: PRESENT, mask: allow }],
       ["ListInBothSets", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, alternative: allow }],
-      ["InlineNotAsset", { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0 }],
+      ["EmptyLists", { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0 }],
       ["SenderGuard", { subject: SENDER, mode: PRESENT, mask: allow, guardTag: 1, threshold: 5n }],
       ["ZeroThreshold", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, guardTag: 1 }],
-      ["PerAssetGuardNotOwner", { subject: ASSET, mode: PRESENT, mask: 0, guardTag: 2 }],
+      ["PerAssetGuardNotOwner", { subject: ASSET, mode: PRESENT, mask: 1, guardTag: 2 }],
     ];
     for (const [expected, input] of cases) {
       expect(reason(() => decodeRule(row(input)))).toBe(expected);
@@ -190,7 +190,7 @@ describe("rule rows", () => {
 
 describe("rule tables", () => {
   const requireAllow = row({ subject: OUTPUT_OWNER, mode: PRESENT, mask: bit(ListId.allow) });
-  const inline = row({ subject: ASSET, mode: PRESENT, mask: 0 });
+  const inline = row({ subject: ASSET, mode: PRESENT, mask: 1 });
   const guardedOwner = row({
     subject: OUTPUT_OWNER,
     mode: PRESENT,
@@ -214,8 +214,8 @@ describe("rule tables", () => {
         inline,
         guardedOwner,
       ],
-      inlineAssets: [mint],
-      inlineLimits: [0n],
+      inlineAssets: [],
+      inlineLimits: [],
       limits: [],
     });
     expect(table.rules).toHaveLength(4);
@@ -270,14 +270,21 @@ describe("rule tables", () => {
         "DuplicateRule",
         { rules: [requireAllow, requireAllow], inlineAssets: [], inlineLimits: [] },
       ],
-      ["InlineWithoutPool", { rules: [inline], inlineAssets: [], inlineLimits: [] }],
+      [
+        "EmptyLists",
+        {
+          rules: [row({ subject: ASSET, mode: PRESENT, mask: 0 })],
+          inlineAssets: [],
+          inlineLimits: [],
+        },
+      ],
       [
         "PoolWithoutInlineRule",
         { rules: [requireAllow], inlineAssets: [mint], inlineLimits: [0n] },
       ],
       [
-        "OwnerGuardWithoutInlineAsset",
-        { rules: [guardedOwner], inlineAssets: [], inlineLimits: [] },
+        "PoolWithoutInlineRule",
+        { rules: [guardedOwner], inlineAssets: [mint], inlineLimits: [0n] },
       ],
       ["MissingAssetLimit", { rules: [perAsset], inlineAssets: [], inlineLimits: [] }],
       ["MissingAssetLimit", { rules: [perAsset], inlineAssets: [mint], inlineLimits: [0n] }],
@@ -285,18 +292,18 @@ describe("rule tables", () => {
         "DuplicateInlineAsset",
         { rules: [perAsset], inlineAssets: [mint, mint], inlineLimits: [1n, 2n] },
       ],
-      ["AssetLimitWithoutGuard", { rules: [inline], inlineAssets: [mint], inlineLimits: [1n] }],
+      ["PoolWithoutInlineRule", { rules: [inline], inlineAssets: [mint], inlineLimits: [1n] }],
       [
-        "OwnerGuardWithoutInlineAsset",
+        "PoolWithoutInlineRule",
         { rules: [guardedOwner, inline], inlineAssets: [mint, mint], inlineLimits: [0n, 0n] },
       ],
       [
-        "AssetListRule",
+        "EmptyLists",
         {
           rules: [
             requireAllow,
             ...LIST_IDS.slice(1, 3).map(sender),
-            row({ subject: ASSET, mode: PRESENT, mask: bit(ListId.reader) }),
+            row({ subject: ASSET, mode: PRESENT, mask: 0 }),
             row({ subject: OUTPUT_OWNER, mode: ABSENT, mask: bit(ListId.block) }),
           ],
           inlineAssets: [],
@@ -629,7 +636,7 @@ const above = (base: Rule, amount: bigint): Rule => ({
 });
 const ALLOW_ONLY_ASSETS: Rule = {
   subject: "asset",
-  source: { kind: "inlineAssets" },
+  source: { kind: "lists", present: [ListId.allow], absent: [] },
   guard: { kind: "always" },
 };
 
@@ -658,7 +665,7 @@ describe("rule encoding", () => {
         above(require("outputOwner", ListId.approval), 2000n),
         { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b0100_0000, guardTag: 1, threshold: 2000n },
       ],
-      [ALLOW_ONLY_ASSETS, { subject: ASSET, mode: PRESENT, mask: 0 }],
+      [ALLOW_ONLY_ASSETS, { subject: ASSET, mode: PRESENT, mask: 1 }],
       [
         rule("outputOwner", [ListId.allow], [ListId.block]),
         { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b01, alternative: 0b10 },
@@ -701,7 +708,9 @@ describe("rule encoding", () => {
     expect(ruleAlternatives(forbid("sender", ListId.frozen))).toEqual([
       { listId: ListId.frozen, mode: "absent" },
     ]);
-    expect(ruleAlternatives(ALLOW_ONLY_ASSETS)).toEqual([]);
+    expect(ruleAlternatives(ALLOW_ONLY_ASSETS)).toEqual([
+      { listId: ListId.allow, mode: "present" },
+    ]);
   });
 });
 
@@ -716,10 +725,10 @@ describe("rule table builder", () => {
       ["TooManyInlineAssets", { rules: [ALLOW_ONLY_ASSETS], inlineAssets: [...pool, asset] }],
       ["ZeroInlineAsset", { rules: [ALLOW_ONLY_ASSETS], inlineAssets: [filled(0)] }],
       [
-        "InlineNotAsset",
+        "PoolWithoutInlineRule",
         { rules: [{ ...ALLOW_ONLY_ASSETS, subject: "sender" }], inlineAssets: [asset] },
       ],
-      ["InlineWithoutPool", { rules: [ALLOW_ONLY_ASSETS] }],
+      ["EmptyLists", { rules: [rule("asset", [], [])] }],
       ["PoolWithoutInlineRule", { rules: [requireAllow], inlineAssets: [asset] }],
       ["EmptyLists", { rules: [rule("sender", [], [])] }],
       [
@@ -731,7 +740,7 @@ describe("rule table builder", () => {
       ["ZeroThreshold", { rules: [above(require("outputOwner", ListId.approval), 0n)] }],
       ["DuplicateRule", { rules: [requireAllow, above(requireAllow, 10n)] }],
       [
-        "OwnerGuardWithoutInlineAsset",
+        "PoolWithoutInlineRule",
         {
           rules: [ALLOW_ONLY_ASSETS, above(requireAllow, 7n)],
           inlineAssets: [asset, filled(4)],
@@ -782,13 +791,12 @@ describe("rule table builder", () => {
   it("keeps declaration order and pads a limit per inline asset", () => {
     const table = buildRuleTable({
       rules: [requireAllow, forbid("sender", ListId.frozen), ALLOW_ONLY_ASSETS],
-      inlineAssets: [asset],
     });
     expect(table.rules.map((entry) => entry.subject)).toEqual(["outputOwner", "sender", "asset"]);
-    expect(table.inlineLimits).toEqual([0n]);
+    expect(table.inlineLimits).toEqual([]);
     const encoded = encodeRuleTable(table);
     expect(encoded.ruleCount).toBe(3);
-    expect(encoded.rules[2]).toEqual(row({ subject: ASSET, mode: PRESENT, mask: 0 }));
+    expect(encoded.rules[2]).toEqual(row({ subject: ASSET, mode: PRESENT, mask: 1 }));
     expect(decodeRuleTable(encoded)).toEqual(table);
   });
 });
@@ -814,7 +822,6 @@ describe("policy hash", () => {
         ALLOW_ONLY_ASSETS,
         above(require("outputOwner", ListId.approval), 2000n),
       ],
-      inlineAssets: [memberOfAsset(ASSET_MINT)],
     });
     const sources = owners([
       [ListId.allow, records],
@@ -823,20 +830,20 @@ describe("policy hash", () => {
       [ListId.approval, records],
     ]);
     expect(ringPolicyHash(table, sources)).toEqual(
-      hex("236e20cab88575db7290d6e003fabb64099f0992230883be980dc8418eb34b16"),
+      hex("0f58b60e0b035012dea442d57d379c4895fcd8f8ac44a8e4504db1f96bb1f451"),
     );
   });
 
   it("matches the Go fixture for the empty, one-rule, two-rule and mixed tables", () => {
     expect(ringPolicyHash(buildRuleTable({ rules: [] }), owners([]))).toEqual(
-      hex("22fe4fe93bb783144529ec54b8c2deee271fd86ca6e3d12c09c94febe15ea6cb"),
+      hex("1bf8b1374da19d08802d34a5d651751776d7e3b69a2aa844e3b7f93c80040622"),
     );
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [require("outputOwner", ListId.allow)] }),
         owners([[ListId.allow, records]]),
       ),
-    ).toEqual(hex("0c15349662d17bee75ea93e9b190df5f974d2a2a48410ecff96edb0e075838e3"));
+    ).toEqual(hex("1c4fdae99597cb9cec253b622f3b988840c58713a682c4b6e8fe5b2f9ba5c07a"));
     expect(
       ringPolicyHash(
         buildRuleTable({
@@ -847,7 +854,7 @@ describe("policy hash", () => {
           [ListId.frozen, curator],
         ]),
       ),
-    ).toEqual(hex("14d518c045ff9d929063eef93572b9001fca0dfe7d4a8829d5b5af30b818c40b"));
+    ).toEqual(hex("0b596d952f79d4c04c609def6f2c9f0a0832620b334c54daded79115ebc7fc84"));
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [rule("outputOwner", [ListId.approval], [ListId.block])] }),
@@ -856,7 +863,7 @@ describe("policy hash", () => {
           [ListId.approval, records],
         ]),
       ),
-    ).toEqual(hex("1d43c7a7cb4a0ba253ec346ed1651f517e9954c3ec4e8cc2fe4b08b9ed238996"));
+    ).toEqual(hex("300de33d9369363fb64b6a569465d1871eadfa32a8fa965738ce2cdd67127437"));
   });
 
   it("matches the Go fixture for a per-asset limit", () => {
@@ -867,7 +874,7 @@ describe("policy hash", () => {
       limits: [],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("1e578b4983f9fcede5171cc5f9714b61979569018aed0494b5e043148095a98e"),
+      hex("23187c7be3db2e0652d82eaa371419941256c92b0db3625e1ab62f8d9700ffcb"),
     );
   });
 
@@ -877,7 +884,7 @@ describe("policy hash", () => {
       limits: [{ asset: memberOfAsset(ASSET_MINT), cap: 5000n, cosignAbove: 600n }],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("2ee080b44cc6798d264651470081a3ba21bbbbe358b00b0ec7dfef3ab9adfe63"),
+      hex("031edd85abc0abefc06815a79a9325bc9cbd6461d1b77016fe96bccbc4a4a1f9"),
     );
     expect(() =>
       buildRuleTable({

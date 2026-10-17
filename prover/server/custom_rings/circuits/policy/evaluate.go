@@ -20,10 +20,16 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 	totals := sumOutputs(api, tx.outputs, liveOwner, liveAsset)
 
 	for r, rule := range checked.rules {
+		for i, left := range tx.outputs {
+			for _, right := range tx.outputs[:i] {
+				enabled := api.Mul(checked.ruleEnabled[r], rule.onOwner, rule.scalarGuard, left.utxo, right.utxo)
+				api.AssertIsEqual(api.Mul(enabled, api.Sub(left.asset, right.asset)), 0)
+			}
+		}
 		onOutput := api.Mul(checked.ruleEnabled[r], api.Add(rule.onOwner, rule.onAsset))
 		for o := range tx.outputs {
 			enabled := api.Mul(onOutput, api.Select(rule.onAsset, liveAsset[o], liveOwner[o]))
-			satisfied := api.Select(rule.inline, limits[o].found, rule.satisfiedBy(api, subjects[NInputs+o]))
+			satisfied := api.Select(rule.onAsset, rule.satisfiedBy(api, subjects[NInputs+NOutputs+o]), rule.satisfiedBy(api, subjects[NInputs+o]))
 			// Per-asset limits apply even when the list condition holds.
 			shared.AssertWhen(api, api.Mul(enabled, rule.assetGuard), limits[o].found)
 			subjectTotal := api.Select(rule.onAsset, totals[o].byAsset, totals[o].byOwner)

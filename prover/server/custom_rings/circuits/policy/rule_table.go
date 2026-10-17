@@ -80,12 +80,7 @@ func (r ruleFields) check(api frontend.API, enabled frontend.Variable, configure
 		api.AssertIsEqual(api.Mul(enabled, r.listBits[i], r.altBits[i]), 0)
 		shared.AssertWhen(api, api.Mul(enabled, api.Or(r.listBits[i], r.altBits[i])), configured[i])
 	}
-	// Assets have no member record, an asset rule checks the inline allowlist without alternatives.
-	shared.AssertWhen(api, api.Mul(enabled, r.onAsset), r.inline)
-	inline := api.Mul(enabled, r.inline)
-	shared.AssertWhen(api, inline, r.onAsset)
-	shared.AssertWhen(api, inline, r.present)
-	api.AssertIsEqual(api.Mul(inline, r.altMask), 0)
+	api.AssertIsEqual(api.Mul(enabled, r.inline), 0)
 	shared.AssertWhen(api, enabled, api.Add(r.always, r.scalarGuard, r.assetGuard))
 	shared.AssertWhen(api, api.Mul(enabled, r.scalarGuard), base.NonZero(api, r.threshold))
 	api.AssertIsEqual(api.Mul(enabled, api.Sub(1, r.scalarGuard), r.threshold), 0)
@@ -95,14 +90,12 @@ func (r ruleFields) check(api frontend.API, enabled frontend.Variable, configure
 
 // Amount guards need one enforced asset for owner totals and distinct limited assets for per-asset totals.
 func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, checked checkedPolicy) {
-	ownerGuard, assetGuard, unguardedInline := frontend.Variable(0), frontend.Variable(0), frontend.Variable(0)
+	assetGuard := frontend.Variable(0)
 	for i, r := range checked.rules {
 		enabled := checked.ruleEnabled[i]
-		ownerGuard = api.Or(ownerGuard, api.Mul(enabled, r.onOwner, r.scalarGuard))
 		assetGuard = api.Or(assetGuard, api.Mul(enabled, r.assetGuard))
-		unguardedInline = api.Or(unguardedInline, api.Mul(enabled, r.inline, r.always))
 	}
-	shared.AssertWhen(api, ownerGuard, api.And(unguardedInline, checked.inline.OneHot[1]))
+	api.AssertIsEqual(api.Mul(api.Sub(1, assetGuard), c.InlineCount), 0)
 	shared.AssertWhen(api, assetGuard, checked.inline.Active[0])
 	for i, asset := range c.InlineAssets {
 		required := api.Mul(assetGuard, checked.inline.Active[i])

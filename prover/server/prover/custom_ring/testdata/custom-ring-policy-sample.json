@@ -1,6 +1,6 @@
 {
   "circuitType": "custom-ring-policy",
-  "publicInputHash": "0x00132214e942b5a5c84e8439c7bc756e27623fd2de975e99d0132ecbfbf87b12",
+  "publicInputHash": "0x0e8e02631b0a2f014b0899c616dd45ceddefd139bf7520081cc4316c717661af",
   "privateTxHash": "0x1d1d343fa87cf91e8f8d857550f792bb9ea34711b28f6ed59cfee0daa6b5b879",
   "txViewingSk": "0x001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e",
   "ephSk": "0x01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d",
@@ -334,6 +334,10 @@
     },
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
   ],
   "foreignRoot": "0x20fb407bf9222b65caa37796e958fd86697f86b7915b9c725d1ad72251b930f4",
@@ -408,6 +412,10 @@
       "lowLists": 128,
       "lowEscrow": "0x0000000000000000000000000000000000000000000000000000000000000000"
     },
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null

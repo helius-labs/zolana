@@ -806,8 +806,7 @@ pub const RELEASED_RULES: RuleTable = RuleTable::builder()
 pub const PINNED_RULES: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
     .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-    .rule(Rule::allow_only_assets())
-    .inline_assets(&[[3u8; 32], [4u8; 32]])
+    .rule(Rule::require(Subject::Asset, ListId::Allow))
     .build();
 
 pub const LIMIT_ASSET: [u8; 32] = [3u8; 32];
@@ -836,8 +835,9 @@ pub fn largest_table() -> RuleTable {
         ])
         .fold(
             RuleTable::builder()
-                .rule(Rule::allow_only_assets())
-                .inline_assets(&INLINE_POOL),
+                .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+                .inline_assets(&INLINE_POOL)
+                .inline_limits(&[1; MAX_INLINE_ASSETS]),
             |builder, rule| builder.rule(rule),
         )
         .build()

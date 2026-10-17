@@ -45,7 +45,7 @@ type CustomRingPolicyCircuit struct {
 	KeyEscrow          frontend.Variable
 
 	MemberRegistryRoot frontend.Variable
-	// Subjects open each live UTXO slot's owner in the ring's registry, inputs first.
+	// Subjects open input owners, output owners, then output assets in the own registry.
 	Subjects [NSubjects]registry.MemberOpening
 	// ForeignRoot is the curator registry the sources name, zero without one.
 	ForeignRoot     frontend.Variable

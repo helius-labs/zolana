@@ -113,8 +113,6 @@ fn the_inline_pool_lists_the_mint_asset_field() {
 /// An owner guard needs a single unguarded inline asset beside it.
 const GUARDED: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(5))
-    .rule(Rule::allow_only_assets())
-    .inline_assets(ASSETS)
     .build();
 
 const BLOCK: RuleTable = RuleTable::builder()
@@ -132,8 +130,6 @@ const MIXED: RuleTable = RuleTable::builder()
         ListSet::single(ListId::Approval),
         ListSet::single(ListId::Block),
     ))
-    .rule(Rule::allow_only_assets())
-    .inline_assets(ASSETS)
     .build();
 
 #[test]
@@ -165,9 +161,7 @@ fn a_rule_holds_on_its_primary_list_or_off_every_alternative() {
         ListSet::single(ListId::Approval),
         ListSet::single(ListId::Block),
     );
-    let RuleSource::Lists { present, absent } = rule.source else {
-        panic!("a list rule");
-    };
+    let RuleSource::Lists { present, absent } = rule.source;
     assert!(satisfied(&rule, present, absent, ListSet::EMPTY));
     assert!(satisfied(
         &rule,
@@ -188,9 +182,7 @@ fn a_rule_holds_on_its_primary_list_or_off_every_alternative() {
         ListSet::single(ListId::Block)
     ));
     let forbid = Rule::forbid(Subject::Sender, ListId::Frozen);
-    let RuleSource::Lists { present, absent } = forbid.source else {
-        panic!("a list rule");
-    };
+    let RuleSource::Lists { present, absent } = forbid.source;
     assert!(satisfied(
         &forbid,
         present,
@@ -419,7 +411,10 @@ async fn a_guarded_rule_exempts_a_recipient_only_below_the_aggregated_threshold(
         witness(&policy, &inputs, &above).build(&rpc, false).await,
         Err(RingError::PolicyRuleUnsatisfied)
     ));
-    let foreign_asset = [output_asset(Address::new_from_array([8; 32]), address, 1)];
+    let foreign_asset = [
+        output(address, 1),
+        output_asset(Address::new_from_array([8; 32]), address, 1),
+    ];
     assert!(matches!(
         witness(&policy, &inputs, &foreign_asset)
             .build(&rpc, false)
@@ -589,4 +584,51 @@ fn a_transfer_past_the_policy_slots_is_refused() {
     let input = witness(&policy, &inputs, &[]);
     assert!(input.slots().is_ok());
     assert!(inputs.len() > POLICY_INPUT_SLOTS);
+}
+
+#[tokio::test]
+async fn asset_rules_open_mint_records_after_output_owners() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let (owner, recipient) = recipient();
+    let inputs = [input(&sender, 10, 0, None)];
+    let outputs = [output(recipient.shielded_address().unwrap(), 5)];
+    let mint = Member::asset(&Address::new_from_array(MINT)).unwrap();
+    let table = RuleTable::builder()
+        .rule(Rule::require(Subject::Asset, ListId::Allow))
+        .build();
+    let pinned = policy(&table);
+    let mut registry = MemberRegistryTree::new().unwrap();
+    listed(&mut registry, owner, ListSet::single(ListId::Allow));
+    let rpc = RegistryRpc::new(registry.clone(), None);
+    assert!(matches!(
+        witness(&pinned, &inputs, &outputs).build(&rpc, false).await,
+        Err(RingError::PolicyRuleUnsatisfied)
+    ));
+    listed(&mut registry, mint, ListSet::single(ListId::Allow));
+    let rpc = RegistryRpc::new(registry, None);
+    let built = witness(&pinned, &inputs, &outputs)
+        .build(&rpc, false)
+        .await
+        .unwrap();
+    assert!(
+        built.subjects[POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS]
+            .as_ref()
+            .unwrap()
+            .present
+    );
+    assert_eq!(built.subjects.len(), 13);
+    let mut foreign = MemberRegistryTree::new().unwrap();
+    listed(&mut foreign, mint, ListSet::single(ListId::Allow));
+    let pinned = curated(&table, ListSet::single(ListId::Allow));
+    let rpc = RegistryRpc::new(MemberRegistryTree::new().unwrap(), Some(foreign));
+    let built = witness(&pinned, &inputs, &outputs)
+        .build(&rpc, false)
+        .await
+        .unwrap();
+    assert!(
+        built.foreign_subjects[POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS]
+            .as_ref()
+            .unwrap()
+            .present
+    );
 }

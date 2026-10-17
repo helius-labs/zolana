@@ -357,7 +357,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "asset outside the inline allowlist",
+			name: "asset outside the registry allowlist",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.inlineAsset = fill(0xe5)
@@ -365,10 +365,10 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "asset rule on a list",
+			name: "legacy inline asset rule",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				s := newStatement(t, defaultFixture())
-				s.rules[2].mask = listMask(listAllow)
+				s.rules[2].mask = 0
 				return s.assignment(t)
 			},
 		},
@@ -409,10 +409,10 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "inline rule carrying an alt mask",
+			name: "asset rule with overlapping alternatives",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
-				f.inlineAltMask = listMask(listBlock)
+				f.inlineAltMask = listMask(listAllow)
 				return buildAssignment(t, f)
 			},
 		},
@@ -537,7 +537,7 @@ type fixture struct {
 	outputOwnerAltMask int64
 	// 0 keeps Present, else the guarded Approval rule's mode
 	guardedMode       int64
-	inlineAltMask     int64 // an alt mask on the inline asset rule
+	inlineAltMask     int64 // an alternative list mask on the asset rule
 	recipient         [32]byte
 	transferred       [32]byte
 	inlineAsset       [32]byte
@@ -729,17 +729,22 @@ func newStatement(t *testing.T, f fixture) *statement {
 	s.rules = []rule{
 		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)},
 		{subject: SubjectSender, mode: ModeAbsent, mask: listMask(listFrozen)},
-		{subject: SubjectAsset, mode: ModePresent, mask: listMask()},
+		{subject: SubjectAsset, mode: ModePresent, mask: listMask(listAllow)},
 		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{assetField(t, f.inlineAsset)}
 	if f.secondInlineAsset != [32]byte{} {
 		s.inlineAssets = append(s.inlineAssets, assetField(t, f.secondInlineAsset))
 	}
+	for _, mint := range s.inlineAssets {
+		s.members.Update(t, mint, big.NewInt(listMask(listAllow)), big.NewInt(0))
+	}
 	if f.perAssetLimits != nil {
 		s.rules[3].guardTag = GuardAboveAmountByAsset
 		s.rules[3].threshold = 0
 		s.inlineLimits = f.perAssetLimits
+	} else {
+		s.inlineAssets = nil
 	}
 	if f.outputOwnerMask != 0 {
 		s.rules[0].mask = f.outputOwnerMask
@@ -955,6 +960,24 @@ func (s *statement) assignment(t *testing.T) *CustomRingPolicyCircuit {
 	}
 	c.NOut = len(s.outputs)
 
+	for i := range c.Subjects {
+		c.Subjects[i], c.ForeignSubjects[i] = zeroMemberOpening(), zeroMemberOpening()
+	}
+	for _, rule := range s.rules {
+		if rule.subject != SubjectAsset {
+			continue
+		}
+		for o, output := range s.outputs {
+			if spptest.AsBigInt(output.Domain).Int64() != protocol.UtxoDomain {
+				continue
+			}
+			index := NInputs + NOutputs + o
+			c.Subjects[index] = openingWires(s.members.Opening(spptest.AsBigInt(output.Asset)))
+			if s.anyForeign() {
+				c.ForeignSubjects[index] = openingWires(s.curator.Opening(spptest.AsBigInt(output.Asset)))
+			}
+		}
+	}
 	slots := append(append([]UtxoWires{}, c.Inputs[:]...), s.outputWires(c)...)
 	for i, slot := range slots {
 		c.Subjects[i], c.ForeignSubjects[i] = zeroMemberOpening(), zeroMemberOpening()

@@ -151,6 +151,15 @@ async function proveAtRoots(
           member: ownerMember({ ...output, ownerAddress: output.ownerAddress }),
         });
     });
+    if (input.table.rules.some((rule) => rule.subject === "asset")) {
+      input.outputs.forEach((output, index) => {
+        if (output.ownerAddress !== undefined)
+          slots.push({
+            position: RING_INPUT_SLOTS + RING_OUTPUT_SLOTS + index,
+            member: memberOfAsset(output.asset),
+          });
+      });
+    }
     const cache = new Map<
       string,
       Promise<Readonly<{ own: MemberRecordRead; foreign?: MemberRecordRead }>>
@@ -194,7 +203,11 @@ async function proveAtRoots(
         records.set(key, read);
         own[slot.position] = subjectWitness(read.own.opening);
         if (read.foreign !== undefined) other[slot.position] = subjectWitness(read.foreign.opening);
-        if (input.keyEscrow && slot.position >= RING_INPUT_SLOTS) {
+        if (
+          input.keyEscrow &&
+          slot.position >= RING_INPUT_SLOTS &&
+          slot.position < RING_INPUT_SLOTS + RING_OUTPUT_SLOTS
+        ) {
           const index = slot.position - RING_INPUT_SLOTS;
           const output = input.outputs[index];
           if (
@@ -215,26 +228,29 @@ async function proveAtRoots(
       }),
     );
     input.table.rules.forEach((rule, ruleIndex) => {
+      if (rule.subject === "outputOwner" && rule.guard.kind === "aboveAmount") {
+        const assets = new Set(
+          input.outputs
+            .filter((output) => output.ownerAddress !== undefined)
+            .map((output) => bytesKey(memberOfAsset(output.asset))),
+        );
+        if (assets.size > 1) throw new RingError("RING_POLICY_RULE_UNSATISFIED");
+      }
       for (const member of subjects(rule, input)) {
         if (guardExempts(rule, member, input)) continue;
-        let satisfied: boolean;
-        if (rule.source.kind === "inlineAssets")
-          satisfied = input.table.inlineAssets.some((asset) => equalBytes(asset, member));
-        else {
-          const found = records.get(bytesKey(member));
-          if (found === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
-          satisfied = ruleAlternatives(rule).some(({ listId, mode }) => {
-            const source = input.config.sources[listId - 1];
-            if (source?.listId !== listId) throw new RingError("RING_POLICY_SOURCE_INVALID");
-            const record = equalBytes(addressBytes(source.registry), ZERO_32)
-              ? found.own
-              : found.foreign;
-            if (record === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
-            const lists = record.opening.present ? record.opening.record.lists : 0n;
-            const on = (lists & (1n << BigInt(listId - 1))) !== 0n;
-            return mode === "present" ? on : !on;
-          });
-        }
+        const found = records.get(bytesKey(member));
+        if (found === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+        const satisfied = ruleAlternatives(rule).some(({ listId, mode }) => {
+          const source = input.config.sources[listId - 1];
+          if (source?.listId !== listId) throw new RingError("RING_POLICY_SOURCE_INVALID");
+          const record = equalBytes(addressBytes(source.registry), ZERO_32)
+            ? found.own
+            : found.foreign;
+          if (record === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+          const lists = record.opening.present ? record.opening.record.lists : 0n;
+          const on = (lists & (1n << BigInt(listId - 1))) !== 0n;
+          return mode === "present" ? on : !on;
+        });
         if (!satisfied)
           throw new RingError("RING_POLICY_RULE_UNSATISFIED", {
             details: { ruleIndex, member: bytesKey(member) },

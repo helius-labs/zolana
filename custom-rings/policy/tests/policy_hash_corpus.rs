@@ -161,9 +161,7 @@ fn generate() -> Corpus {
         match rng.below(4) {
             0 => {}
             1 => {
-                let count = 1 + rng.below(3) as usize;
-                assets = (0..count).map(|_| rng.asset()).collect();
-                builder = builder.rule(Rule::allow_only_assets());
+                builder = builder.rule(Rule::require(Subject::Asset, ListId::Allow));
             }
             2 => {
                 let count = 1 + rng.below(3) as usize;
@@ -174,11 +172,13 @@ fn generate() -> Corpus {
                     builder.rule(Rule::require_any(Subject::OutputOwner, present).above_by_asset());
             }
             _ => {
-                assets = vec![rng.asset()];
                 let present = rng.lists(ListSet::EMPTY);
-                builder = builder.rule(Rule::allow_only_assets()).rule(
-                    Rule::require_any(Subject::OutputOwner, present).above(1 + rng.below(1 << 40)),
-                );
+                builder = builder
+                    .rule(Rule::require(Subject::Asset, ListId::Allow))
+                    .rule(
+                        Rule::require_any(Subject::OutputOwner, present)
+                            .above(1 + rng.below(1 << 40)),
+                    );
             }
         }
         let outflow = if rng.below(3) == 0 {

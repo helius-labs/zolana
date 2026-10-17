@@ -107,8 +107,8 @@ fn the_policy_request_matches_the_server_wire_format() {
         sorted_keys(&value["limits"][0]),
         ["asset", "cap", "cosignAbove"]
     );
-    assert_eq!(value["subjects"].as_array().unwrap().len(), 9);
-    assert_eq!(value["foreignSubjects"].as_array().unwrap().len(), 9);
+    assert_eq!(value["subjects"].as_array().unwrap().len(), 13);
+    assert_eq!(value["foreignSubjects"].as_array().unwrap().len(), 13);
     assert!(value["subjects"]
         .as_array()
         .unwrap()

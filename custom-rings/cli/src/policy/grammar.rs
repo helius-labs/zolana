@@ -46,7 +46,7 @@ pub struct LimitSpec {
     pub cosign_above: u64,
 }
 
-/// Exactly one of `require`, `forbid`, `any` or `assets` beside the subject.
+/// Exactly one of `require`, `forbid` or `any` beside the subject.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "RawRule", into = "RawRule")]
 pub struct RuleSpec {
@@ -68,7 +68,6 @@ pub enum SourceSpec {
     Require(ListName),
     Forbid(ListName),
     Any(Vec<Alternative>),
-    Assets(Vec<Base58Address>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -106,13 +105,15 @@ pub(crate) struct PolicyRows {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PolicyError {
+    #[error("asset allowlists use registry lists, replace assets with require or forbid")]
+    InlineAssetsRemoved,
     #[error("unknown list {name}")]
     UnknownList { name: String },
     #[error("the {name} list is written by its members, a rule cannot read it")]
     MemberWrittenList { name: String },
-    #[error("a rule names no source, give one of require, forbid, any or assets")]
+    #[error("a rule names no source, give one of require, forbid or any")]
     NoSourceForm,
-    #[error("a rule names several sources, give one of require, forbid, any or assets")]
+    #[error("a rule names several sources, give one of require, forbid or any")]
     SeveralSourceForms,
     #[error("any names no alternative")]
     EmptyAny,
@@ -278,11 +279,13 @@ impl TryFrom<RawRule> for RuleSpec {
         if raw.above.is_some() && raw.limits.is_some() {
             return Err(PolicyError::SeveralGuardForms);
         }
+        if raw.assets.is_some() {
+            return Err(PolicyError::InlineAssetsRemoved);
+        }
         let source = one_form([
             raw.require.map(SourceSpec::Require),
             raw.forbid.map(SourceSpec::Forbid),
             raw.any.map(SourceSpec::Any),
-            raw.assets.map(SourceSpec::Assets),
         ])?;
         if matches!(&source, SourceSpec::Any(alternatives) if alternatives.is_empty()) {
             return Err(PolicyError::EmptyAny);
@@ -311,7 +314,6 @@ impl From<RuleSpec> for RawRule {
             SourceSpec::Require(list) => raw.require = Some(list),
             SourceSpec::Forbid(list) => raw.forbid = Some(list),
             SourceSpec::Any(alternatives) => raw.any = Some(alternatives),
-            SourceSpec::Assets(mints) => raw.assets = Some(mints),
         }
         raw
     }
@@ -358,12 +360,11 @@ impl Alternative {
 }
 
 impl SourceSpec {
-    /// The lists the rule reads, none for an asset allowlist.
+    /// The registry lists the rule reads.
     pub fn lists(&self) -> Vec<ListName> {
         match self {
             Self::Require(list) | Self::Forbid(list) => vec![*list],
             Self::Any(alternatives) => alternatives.iter().map(|alt| alt.list()).collect(),
-            Self::Assets(_) => Vec::new(),
         }
     }
 }
@@ -391,26 +392,12 @@ impl RuleSpec {
                 };
                 Rule::any_of(subject, lists(true), lists(false))
             }
-            SourceSpec::Assets(mints) => {
-                merge(
-                    index,
-                    assets,
-                    &members(index, mints.iter().map(|mint| mint.0))?,
-                )?;
-                Rule {
-                    subject,
-                    source: RuleSource::InlineAssets,
-                    guard: Guard::Always,
-                }
-            }
         };
         if let Some(configured) = &self.limits {
             if configured.is_empty() {
                 return Err(PolicyError::EmptyLimits { rule: index });
             }
-            if !matches!(subject, Subject::OutputOwner)
-                || matches!(&self.source, SourceSpec::Assets(_))
-            {
+            if !matches!(subject, Subject::OutputOwner) {
                 return Err(PolicyError::PerAssetGuard { rule: index });
             }
             let mints = configured.iter().map(|limit| limit.asset.0);
@@ -438,7 +425,7 @@ fn members(
     mints.map(|mint| Ok(*member(mint)?.as_bytes())).collect()
 }
 
-/// Every inline asset rule and per-asset limit shares one map.
+/// Every per-asset amount guard shares one threshold map.
 fn merge<T: Clone + PartialEq>(
     rule: usize,
     current: &mut Vec<T>,
@@ -594,7 +581,6 @@ pub fn describe(rule: &Rule) -> String {
         Subject::ExitDestination => "each exit destination",
     };
     let condition = match rule.source {
-        RuleSource::InlineAssets => "must be one of the listed assets".to_owned(),
         RuleSource::Lists { .. } => rule
             .alternatives()
             .map(|(list_id, mode)| match mode {
@@ -714,7 +700,7 @@ forbid = "frozen"
 
 [[rules]]
 subject = "asset"
-assets = ["{MINT}"]
+require = "allow"
 
 [[rules]]
 subject = "output-owner"
@@ -734,17 +720,12 @@ above = 1000000
             )
         );
         assert_eq!(rows[1], Rule::forbid(Subject::Sender, ListId::Frozen));
-        assert_eq!(rows[2].source, RuleSource::InlineAssets);
+        assert_eq!(rows[2], Rule::require(Subject::Asset, ListId::Allow));
         assert_eq!(
             rows[3],
             Rule::require(Subject::OutputOwner, ListId::Allow).above(1_000_000)
         );
-        assert_eq!(
-            policy.rules.inline_assets(),
-            [*Member::asset(&Address::from_str_const(MINT))
-                .expect("member")
-                .as_bytes()]
-        );
+        assert!(policy.rules.inline_assets().is_empty());
         assert_eq!(policy.address_tree, Address::from_str_const(CURATOR));
         assert_eq!(
             policy.shared_sources,
@@ -831,14 +812,10 @@ limits = [
             compiled(&rows),
             Err(PolicyError::TooManyRules { count: 17 })
         );
-        let mints = (0..9).map(|_| format!("\"{MINT}\"")).collect::<Vec<_>>();
-        assert_eq!(
-            compiled(&format!(
-                "[[rules]]\nsubject = \"asset\"\nassets = [{}]\n",
-                mints.join(", ")
-            )),
-            Err(PolicyError::TooManyAssets { count: 9 })
-        );
+        assert!(spec(&format!(
+            "[[rules]]\nsubject = \"asset\"\nrequire = \"allow\"\"{MINT}\"]\n"
+        ))
+        .is_err());
         assert_eq!(
             compiled(&format!(
                 "[sources.devnet]\nblock = \"{CURATOR}\"\n[[rules]]\nsubject = \"sender\"\nrequire = \"allow\"\n"
@@ -884,23 +861,11 @@ limits = [
             "[[rules]]\nsubject = \"sender\"\nrequire = \"allow\"\n\
              [[rules]]\nsubject = \"output-owner\"\nrequire = \"allow\"\nabove = 7\n",
         );
-        assert_eq!(
-            guard_without_asset,
-            Err(PolicyError::Refused {
-                rule: 1,
-                message: RuleTableError::OwnerGuardWithoutInlineAsset.message()
-            })
-        );
-        let inline_on_sender = compiled(&format!(
+        assert!(guard_without_asset.is_ok());
+        assert!(spec(&format!(
             "[[rules]]\nsubject = \"sender\"\nassets = [\"{MINT}\"]\n"
-        ));
-        assert_eq!(
-            inline_on_sender,
-            Err(PolicyError::Refused {
-                rule: 0,
-                message: RuleTableError::InlineNotAsset.message()
-            })
-        );
+        ))
+        .is_err());
         assert_eq!(
             PolicyError::Refused {
                 rule: 2,
@@ -930,8 +895,8 @@ limits = [
             "each output owner must be on the approval list or must not be on the block list"
         );
         assert_eq!(
-            describe(&Rule::allow_only_assets()),
-            "each asset must be one of the listed assets"
+            describe(&Rule::require(Subject::Asset, ListId::Allow)),
+            "each asset must be on the allow list"
         );
         assert_eq!(
             describe(&Rule::require(Subject::Asset, ListId::Allow).above(1_000_000)),

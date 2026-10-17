@@ -172,11 +172,11 @@ mod bodies {
 
     fn policy_with(anonymous: Option<AnonymousIdentities>) -> PolicyBody {
         let two = |index: usize, value: [u8; 32]| if index < 2 { value } else { [0; 32] };
-        let mut subjects: [Option<SubjectWitness>; 9] = Default::default();
+        let mut subjects: [Option<SubjectWitness>; 13] = Default::default();
         subjects[0] = Some(subject(800, true));
         subjects[1] = Some(subject(900, false));
         subjects[5] = Some(subject(1000, true));
-        let mut foreign_subjects: [Option<SubjectWitness>; 9] = Default::default();
+        let mut foreign_subjects: [Option<SubjectWitness>; 13] = Default::default();
         foreign_subjects[5] = Some(subject(1100, false));
         PolicyBody {
             circuit_type: RingCircuit::Policy,

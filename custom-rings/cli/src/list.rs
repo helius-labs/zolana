@@ -22,16 +22,23 @@ use crate::{
 const NO_POLICY: &str = "the ring has no policy config, run `zolana-ring init` first";
 
 #[derive(Debug, Clone, Copy, Args)]
+#[group(required = true, multiple = false)]
 pub struct MemberArg {
     /// The member's owner tag, base58.
     #[arg(long, value_name = "TAG")]
-    owner: Address,
+    owner: Option<Address>,
+    /// The mint to screen through this registry list.
+    #[arg(long, value_name = "MINT")]
+    asset: Option<Address>,
 }
 
 impl MemberArg {
     pub fn member(&self) -> Result<(Member, String)> {
-        let tag = self.owner;
-        Ok((Member::owner_tag(tag.as_array())?, format!("owner {tag}")))
+        match (self.owner, self.asset) {
+            (Some(tag), None) => Ok((Member::owner_tag(tag.as_array())?, format!("owner {tag}"))),
+            (None, Some(mint)) => Ok((Member::asset(&mint)?, format!("asset {mint}"))),
+            _ => bail!("give exactly one of --owner or --asset"),
+        }
     }
 }
 
@@ -223,19 +230,25 @@ mod tests {
         }
     }
 
-    /// Assets have no member record, an asset rule reads the inline pool.
     #[test]
-    fn an_asset_is_not_a_list_member() {
+    fn every_member_command_accepts_exactly_one_owner_or_asset() {
         assert_eq!(
             parse("add", &[]).expect_err("no flag").kind(),
             ErrorKind::MissingRequiredArgument
         );
-        assert_eq!(
-            parse("add", &["--asset", MINT])
-                .expect_err("an asset")
-                .kind(),
-            ErrorKind::UnknownArgument
-        );
+        let mint = Member::asset(&Address::from_str_const(MINT)).unwrap();
+        for verb in ["add", "clear", "show"] {
+            assert_eq!(
+                parse(verb, &["--asset", MINT]).unwrap(),
+                (mint, format!("asset {MINT}"))
+            );
+            assert_eq!(
+                parse(verb, &["--owner", TAG, "--asset", MINT])
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::ArgumentConflict
+            );
+        }
     }
 
     #[test]

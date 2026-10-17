@@ -157,8 +157,8 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     keyEscrow: false,
     memberRegistryRoot: bytes(0),
     foreignRoot: bytes(0),
-    subjects: Array.from({ length: 9 }, () => undefined),
-    foreignSubjects: Array.from({ length: 9 }, () => undefined),
+    subjects: Array.from({ length: 13 }, () => undefined),
+    foreignSubjects: Array.from({ length: 13 }, () => undefined),
   };
 }
 
@@ -359,9 +359,9 @@ const EXPECTED_RING_BODY = {
   approvalRequired: false,
   keyEscrow: false,
   memberRegistryRoot: fieldHex(0),
-  subjects: Array.from({ length: 9 }, () => null),
+  subjects: Array.from({ length: 13 }, () => null),
   foreignRoot: fieldHex(0),
-  foreignSubjects: Array.from({ length: 9 }, () => null),
+  foreignSubjects: Array.from({ length: 13 }, () => null),
 };
 
 function mergeInputs(): MergeInputs {
@@ -681,8 +681,8 @@ describe("prover request routing", () => {
     expect(body["circuitType"]).toBe("custom-ring-policy");
     expect(body["auditorPk"]).toHaveLength(66);
     expect(body["publicInputHash"]).toHaveLength(66);
-    expect(body["subjects"]).toEqual(Array.from({ length: 9 }, () => null));
-    expect(body["foreignSubjects"]).toEqual(Array.from({ length: 9 }, () => null));
+    expect(body["subjects"]).toEqual(Array.from({ length: 13 }, () => null));
+    expect(body["foreignSubjects"]).toEqual(Array.from({ length: 13 }, () => null));
     const sources = body["sources"] as Record<string, unknown>[];
     expect(sources).toHaveLength(8);
     expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "registry"]);
@@ -760,6 +760,10 @@ describe("prover request routing", () => {
         lowLists: 0,
         lowEscrow: fieldHex(0),
       },
+      null,
+      null,
+      null,
+      null,
       null,
       null,
     ]);

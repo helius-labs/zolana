@@ -2,13 +2,13 @@
 
 use std::path::{Path, PathBuf};
 
-use zolana_ring_policy::{Guard, RuleSource};
+use zolana_ring_policy::{Guard, Subject};
 
 use crate::{
     config::{RingConfig, Target},
     file,
     new::read_policy,
-    policy::{SourceSpec, SubjectName},
+    policy::SourceSpec,
 };
 
 const EXAMPLES: [&str; 7] = [
@@ -67,7 +67,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
             for rule in compiled.rules.rules() {
                 forms.above |= matches!(rule.guard, Guard::AboveAmount(_));
                 forms.above |= matches!(rule.guard, Guard::AboveAmountByAsset);
-                forms.assets |= matches!(rule.source, RuleSource::InlineAssets);
+                forms.assets |= matches!(rule.subject, Subject::Asset);
             }
             forms.assets |= !compiled.rules.inline_assets().is_empty();
             forms.limits |= !compiled.rules.limits().is_empty();
@@ -82,16 +82,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
                 SourceSpec::Require(_) => forms.require = true,
                 SourceSpec::Forbid(_) => forms.forbid = true,
                 SourceSpec::Any(_) => forms.any = true,
-                SourceSpec::Assets(_) => {
-                    assert_eq!(rule.subject, SubjectName::Asset);
-                    continue;
-                }
             }
-            assert_ne!(
-                rule.subject,
-                SubjectName::Asset,
-                "{name} reads an asset list"
-            );
         }
         // The file re-renders to the same policy, comments aside.
         let rendered = config

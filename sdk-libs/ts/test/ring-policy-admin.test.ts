@@ -53,7 +53,6 @@ const AUTHORITY = addressOf(12);
 const CURATOR_A = addressOf(20);
 const CURATOR_B = addressOf(21);
 const ADDRESS_TREE = addressOf(30);
-const ASSET = filled(0x14);
 
 const requireAllow: Rule = {
   subject: "outputOwner",
@@ -67,13 +66,12 @@ const approvalOrUnfrozen: Rule = {
 };
 const allowOnlyAssets: Rule = {
   subject: "asset",
-  source: { kind: "inlineAssets" },
+  source: { kind: "lists", present: [ListId.allow], absent: [] },
   guard: { kind: "always" },
 };
 /** Rust `instruction_builders.rs` `TABLE`. */
 const TABLE = buildRuleTable({
   rules: [requireAllow, approvalOrUnfrozen, allowOnlyAssets],
-  inlineAssets: [ASSET],
 });
 const BLOCK_ONLY = buildRuleTable({
   rules: [
@@ -92,10 +90,8 @@ function tableBody(sources: readonly (readonly [number, number])[]): number[] {
     ...sources.flat(),
     3,
     ...TABLE.rules.flatMap((rule) => [...encodeRule(rule)]),
-    1,
-    ...ASSET,
-    1,
-    ...new Uint8Array(8),
+    0,
+    0,
     // No outflow limits.
     0,
   ];

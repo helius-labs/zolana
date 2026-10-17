@@ -53,7 +53,7 @@ const ADVANCED_SOURCES: [&str; 5] = [
     "require a list",
     "forbid a list",
     "either-or lists",
-    "inline asset allowlist",
+    "asset registry list",
     "discard",
 ];
 const ALTERNATIVE_KINDS: [&str; 4] = ["require", "forbid", "done", "discard"];
@@ -62,7 +62,6 @@ const OWNER_GUARDS: [&str; 3] = ["always", "above an amount", "above per-mint am
 const OWN_ENTRIES: &str = "this ring manages the members";
 const ANOTHER_CURATOR: &str = "another curator manages the members";
 const OTHER_MINT: &str = "another mint address";
-const OTHER_MINTS: &str = "other mint addresses";
 const DEVNET_USDC: Address =
     Address::from_str_const("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 /// Localnet offers only SOL, USDC is a devnet mint.
@@ -103,13 +102,6 @@ fn check_amount(text: &str) -> Result<(), String> {
             i64::MAX
         )),
     }
-}
-
-fn check_mints(text: &str) -> Result<(), String> {
-    if text.split(',').next().unwrap_or_default().trim().is_empty() {
-        return Err("name at least one mint".to_owned());
-    }
-    text.split(',').map(str::trim).try_for_each(check_address)
 }
 
 fn labels<T: ToString>(items: impl IntoIterator<Item = T>) -> Vec<String> {
@@ -414,39 +406,14 @@ impl Wizard<'_> {
             .parse()?)
     }
 
-    fn mints(&mut self, target: Target) -> Result<Vec<Base58Address>> {
-        let (presets, options) = asset_presets(target, OTHER_MINTS);
-        let picked = loop {
-            match self.ask.pick_many("assets", &options)? {
-                picked if picked.is_empty() => ui::refusal("select at least one asset"),
-                picked => break picked,
-            }
-        };
-        let mut mints: Vec<Base58Address> = picked
-            .iter()
-            .filter_map(|index| presets.get(*index))
-            .map(|(_, mint)| Base58Address(*mint))
-            .collect();
-        if picked.contains(&presets.len()) {
-            let prompt = "mint addresses, comma separated";
-            for text in self.ask.text(prompt, None, false, &check_mints)?.split(',') {
-                let mint = text.trim().parse()?;
-                if !mints.contains(&mint) {
-                    mints.push(mint);
-                }
-            }
-        }
-        Ok(mints)
-    }
-
-    fn asset_rule(&mut self, target: Target, ask_guard: bool) -> Result<RuleSpec> {
-        let mints = self.mints(target)?;
+    fn asset_rule(&mut self, _target: Target, ask_guard: bool) -> Result<RuleSpec> {
+        let list = self.list()?;
         let guarded = ask_guard && self.ask.pick("amount guard", &labels(OPTIONAL_GUARDS), 0)? == 1;
         Ok(RuleSpec {
             above: guarded
                 .then(|| self.amount("amount threshold"))
                 .transpose()?,
-            ..simple_rule(SubjectName::Asset, SourceSpec::Assets(mints))
+            ..simple_rule(SubjectName::Asset, SourceSpec::Require(list))
         })
     }
 
@@ -454,11 +421,11 @@ impl Wizard<'_> {
         Ok(ListName::ALL[self.ask.pick("list", &labels(ListName::ALL), 0)?])
     }
 
-    /// An owner threshold reads its asset from the inline map, so that row comes first.
+    /// Scalar owner thresholds require a single mint at transfer time.
     fn guard(
         &mut self,
         target: Target,
-        spec: &PolicySpec,
+        _spec: &PolicySpec,
         mut rule: RuleSpec,
     ) -> Result<Vec<RuleSpec>> {
         let guards = match rule.subject {
@@ -470,14 +437,6 @@ impl Wizard<'_> {
             0 => {}
             1 => {
                 rule.above = Some(self.amount("amount threshold")?);
-                if rule.subject == SubjectName::OutputOwner {
-                    let mint = self.mint(target)?;
-                    let dependency =
-                        simple_rule(SubjectName::Asset, SourceSpec::Assets(vec![mint]));
-                    if !spec.rules.contains(&dependency) {
-                        return Ok(vec![dependency, rule]);
-                    }
-                }
             }
             _ => rule.limits = Some(self.asset_limits(target)?),
         }
@@ -615,37 +574,29 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn devnet_usdc_uses_its_cluster_mint_and_deduplicates_manual_entries() {
-        let usdc = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-        let manual = format!("{usdc},{MINT}");
+    fn asset_allowlist_selects_a_registry_list() {
         let answers = run(script_for(
             Target::Devnet,
             &[
                 Answer::from("asset allowlist"),
-                Answer::from(["SOL", "USDC", OTHER_MINTS]),
-                Answer::from(manual.as_str()),
+                Answer::from("allow"),
                 Answer::from("finish"),
+                Answer::from(OWN_ENTRIES),
             ],
         ))
         .expect("wizard");
         let policy = answers.policy.expect("policy");
+        assert_eq!(policy.rules[0].subject, SubjectName::Asset);
         assert_eq!(
             policy.rules[0].source,
-            SourceSpec::Assets(vec![
-                Base58Address(SOL_MINT),
-                Base58Address(usdc.parse().expect("devnet USDC")),
-                Base58Address(MINT.parse().expect("manual mint")),
-            ])
+            SourceSpec::Require(named_list("allow"))
         );
-        policy.compile(Target::Devnet).expect("compiles");
-        assert!(
-            run(script(&[
-                Answer::from("asset allowlist"),
-                Answer::from(["USDC"]),
-            ]))
-            .is_err(),
-            "local mint addresses must be supplied"
-        );
+        assert!(policy
+            .compile(Target::Devnet)
+            .expect("compiles")
+            .rules
+            .inline_assets()
+            .is_empty());
     }
 
     #[test]
@@ -776,7 +727,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_advanced_owner_threshold_adds_its_asset_rule_atomically() {
+    fn an_owner_threshold_needs_no_inline_asset_rule() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
             Answer::from("require a list"),
@@ -784,16 +735,17 @@ pub(crate) mod tests {
             Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("1000000"),
-            Answer::from(OTHER_MINT),
-            Answer::from(MINT),
             Answer::from("finish"),
             Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
-        let compiled = policy.compile(Target::Localnet).expect("compiles");
-        assert_eq!(compiled.rules.rules().len(), 2);
-        assert_eq!(compiled.rules.inline_assets().len(), 1);
+        let compiled = answers
+            .policy
+            .expect("policy")
+            .compile(Target::Localnet)
+            .expect("compiles");
+        assert_eq!(compiled.rules.rules().len(), 1);
+        assert!(compiled.rules.inline_assets().is_empty());
     }
 
     #[test]
@@ -824,34 +776,28 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_advanced_inline_asset_rule_can_carry_a_scalar_guard() {
+    fn an_asset_registry_rule_can_carry_a_scalar_guard() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
-            Answer::from("inline asset allowlist"),
-            Answer::from(["SOL", OTHER_MINTS]),
-            Answer::from(MINT),
+            Answer::from("asset registry list"),
+            Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("7"),
             Answer::from("finish"),
+            Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
+        let policy = answers.policy.expect("policy");
         assert_eq!(policy.rules[0].above, Some(7));
-        let SourceSpec::Assets(mints) = &policy.rules[0].source else {
-            panic!("inline assets");
-        };
         assert_eq!(
-            mints.as_slice(),
-            &[
-                Base58Address(SOL_MINT),
-                Base58Address(MINT.parse().expect("mint"))
-            ]
+            policy.rules[0].source,
+            SourceSpec::Require(named_list("allow"))
         );
         policy.compile(Target::Localnet).expect("compiles");
     }
 
     #[test]
-    fn removal_cannot_strand_an_owner_threshold_dependency() {
+    fn removing_an_owner_threshold_leaves_no_asset_dependency() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
             Answer::from("require a list"),
@@ -859,48 +805,37 @@ pub(crate) mod tests {
             Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("1000000"),
-            Answer::from(OTHER_MINT),
-            Answer::from(MINT),
-            Answer::from("remove"),
-            Answer::from("1 each asset must be one of the listed assets"),
             Answer::from("remove"),
             Answer::from(
-                "2 each output owner must be on the allow list when the amount is above 1000000",
+                "1 each output owner must be on the allow list when the amount is above 1000000",
             ),
-            Answer::from("finish"),
+            Answer::from("configure policy later"),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
-        assert_eq!(
-            policy.rules.len(),
-            1,
-            "the guard row went, the asset row it needs stayed"
-        );
-        assert!(matches!(policy.rules[0].source, SourceSpec::Assets(_)));
+        assert!(answers.policy.expect("policy").rules.is_empty());
     }
 
     #[test]
-    fn a_ninth_inline_asset_is_refused_without_selecting_the_policy_tier() {
-        let mints = (1..=9)
-            .map(|byte| Address::new_from_array([byte; 32]).to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+    fn asset_membership_is_not_copied_into_the_policy_table() {
         let answers = run(script(&[
             Answer::from("asset allowlist"),
-            Answer::from([OTHER_MINTS]),
-            Answer::from(mints.as_str()),
+            Answer::from("allow"),
             Answer::from("finish"),
+            Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        assert!(
-            answers.policy.is_none(),
-            "the refused option was not retained"
-        );
+        let compiled = answers
+            .policy
+            .expect("policy")
+            .compile(Target::Localnet)
+            .expect("compiles");
+        assert!(compiled.rules.inline_assets().is_empty());
+        assert_eq!(compiled.rules.rules().len(), 1);
     }
 
-    /// An asset has no member record, its rules read the inline pool only.
+    /// Asset and owner rules use the same registry list vocabulary.
     #[test]
-    fn an_asset_list_rule_refuses_the_whole_added_option() {
+    fn an_asset_list_rule_is_added_with_the_other_rules() {
         let mut ask = Scripted::new([]);
         let mut curators = fixed;
         let wizard = Wizard {
@@ -930,7 +865,7 @@ pub(crate) mod tests {
                 simple_rule(SubjectName::Asset, SourceSpec::Forbid(named_list("block"))),
             ],
         );
-        assert_eq!(spec.rules.len(), 1, "the asset list rule was refused");
+        assert_eq!(spec.rules.len(), 3, "the asset list rule was added");
     }
 
     #[test]
@@ -1044,8 +979,5 @@ pub(crate) mod tests {
         assert!(check_amount("0").is_err());
         assert!(check_amount("-1").is_err());
         assert!(check_amount(&u64::MAX.to_string()).is_err());
-        assert!(check_mints(&format!("{MINT}, {CURATOR}")).is_ok());
-        assert!(check_mints("").is_err());
-        assert!(check_mints(&format!("{MINT},")).is_err());
     }
 }

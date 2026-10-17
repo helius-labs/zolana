@@ -610,9 +610,9 @@ impl Serialize for Slot<'_> {
     }
 }
 
-/// Every live UTXO slot opens its owner, inputs first, a dummy slot sends `null`.
+/// Input owners, output owners and output assets. Unused slots send `null`.
 pub(crate) fn subjects<S: Serializer>(
-    subjects: &[Option<SubjectWitness>; POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS],
+    subjects: &[Option<SubjectWitness>; POLICY_INPUT_SLOTS + 2 * POLICY_OUTPUT_SLOTS],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(subjects.iter())

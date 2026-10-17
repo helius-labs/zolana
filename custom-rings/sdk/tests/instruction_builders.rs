@@ -960,9 +960,8 @@ fn ring_instruction_tags_are_stable() {
 
 const CURATOR_A: CustomRing = CustomRing::new(Address::new_from_array([20; 32]));
 const CURATOR_B: CustomRing = CustomRing::new(Address::new_from_array([21; 32]));
-const ASSET: [u8; 32] = [77; 32];
 
-/// Two list rules, one of them a group, and an inline asset rule.
+/// Two owner list rules, one of them a group, and an asset list rule.
 const TABLE: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
     .rule(Rule::any_of(
@@ -970,8 +969,7 @@ const TABLE: RuleTable = RuleTable::builder()
         ListSet::single(ListId::Approval),
         ListSet::single(ListId::Frozen),
     ))
-    .rule(Rule::allow_only_assets())
-    .inline_assets(&[ASSET])
+    .rule(Rule::require(Subject::Asset, ListId::Allow))
     .build();
 
 fn create_policy(
@@ -1031,8 +1029,8 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
                 spec(ListId::Approval, 0),
             ],
             rules: encoded.rules[..3].to_vec(),
-            inline_assets: vec![ASSET],
-            inline_limits: vec![0],
+            inline_assets: Vec::new(),
+            inline_limits: Vec::new(),
             limits: Vec::new(),
         }
     );
@@ -1133,10 +1131,11 @@ fn the_largest_pin_is_past_a_legacy_packet_and_inside_a_v1_transaction() {
     for list_id in ListId::ALL {
         builder = builder.rule(Rule::require(Subject::Sender, list_id));
     }
-    let pool = [[9u8; 32]; MAX_INLINE_ASSETS];
+    let pool = core::array::from_fn::<_, MAX_INLINE_ASSETS, _>(|i| [i as u8 + 1; 32]);
     let full = builder
-        .rule(Rule::allow_only_assets())
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
         .inline_assets(&pool)
+        .inline_limits(&[1; MAX_INLINE_ASSETS])
         .build();
     let curated: Vec<(ListId, CustomRing)> = ListId::ALL
         .into_iter()

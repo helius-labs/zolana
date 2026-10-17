@@ -28,8 +28,8 @@ use crate::{
     PolicyReads, PolicyTreeContext, PoolTree, RegistryBinding, RingError,
 };
 
-/// One subject per transaction slot, inputs first.
-pub(crate) const SUBJECT_SLOTS: usize = POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS;
+/// Input owners, output owners, then output assets used by asset rules.
+pub(crate) const SUBJECT_SLOTS: usize = POLICY_INPUT_SLOTS + 2 * POLICY_OUTPUT_SLOTS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PolicyTree {
@@ -242,6 +242,22 @@ impl<'a> WitnessInput<'a> {
                 member: Member::from_bytes(address.signing_pubkey.owner_proof_input_hash()?)?,
             });
         }
+        if self
+            .pinned
+            .table
+            .rules()
+            .iter()
+            .any(|rule| rule.subject == Subject::Asset)
+        {
+            for (position, output) in self.rule_outputs().iter().enumerate() {
+                if output.owner_address.is_some() {
+                    slots.push(Slot {
+                        position: POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS + position,
+                        member: Member::asset(&output.asset.asset)?,
+                    });
+                }
+            }
+        }
         Ok(slots)
     }
 
@@ -319,7 +335,10 @@ impl<'a> WitnessInput<'a> {
                     .foreign
                     .as_ref()
                     .map(crate::request::SubjectWitness::of);
-                if self.key_escrow && slot.position >= POLICY_INPUT_SLOTS {
+                if self.key_escrow
+                    && (POLICY_INPUT_SLOTS..POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS)
+                        .contains(&slot.position)
+                {
                     let output = &self.outputs[slot.position - POLICY_INPUT_SLOTS];
                     ct_hashes[slot.position - POLICY_INPUT_SLOTS] =
                         escrowed_ct_hash(output, slot.member, &found.own)?;
@@ -402,19 +421,19 @@ impl<'a> WitnessInput<'a> {
                 .ok_or(RingError::PolicyRuleUnsatisfied)
         };
         for rule in self.pinned.table.rules() {
-            match rule.source {
-                RuleSource::InlineAssets => {
-                    for output in self.rule_outputs() {
-                        if output.owner_address.is_none() {
-                            continue;
-                        }
-                        let asset = Member::asset(&output.asset.asset)?;
-                        let found = self.pinned.table.inline_assets().contains(asset.as_bytes());
-                        if !found && !self.guard_exempts(rule, &asset)? {
-                            return Err(RingError::PolicyRuleUnsatisfied);
-                        }
+            if rule.subject == Subject::OutputOwner && matches!(rule.guard, Guard::AboveAmount(_)) {
+                let mut assets = self
+                    .rule_outputs()
+                    .iter()
+                    .filter(|output| output.owner_address.is_some())
+                    .map(|output| output.asset.asset);
+                if let Some(first) = assets.next() {
+                    if assets.any(|asset| asset != first) {
+                        return Err(RingError::PolicyRuleUnsatisfied);
                     }
                 }
+            }
+            match rule.source {
                 RuleSource::Lists { present, absent } => {
                     for member in self.subjects(rule, slots)? {
                         if self.guard_exempts(rule, &member)? {
@@ -518,8 +537,12 @@ impl<'a> WitnessInput<'a> {
                 .filter(|slot| slot.position < POLICY_INPUT_SLOTS)
                 .map(|slot| slot.member)
                 .collect(),
-            // Asset rules read the inline pool, the table admits no list source for them.
-            Subject::Asset | Subject::ExitDestination => Vec::new(),
+            Subject::Asset => slots
+                .iter()
+                .filter(|slot| slot.position >= POLICY_INPUT_SLOTS + POLICY_OUTPUT_SLOTS)
+                .map(|slot| slot.member)
+                .collect(),
+            Subject::ExitDestination => Vec::new(),
         })
     }
 }

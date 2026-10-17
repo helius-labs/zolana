@@ -424,3 +424,41 @@ func TestRegistryProjectionLagRemainsRetryable(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyResolvesMintMembershipWithoutTreatingItAsAnEscrowedOwner(t *testing.T) {
+	registry := newHostRegistry(t)
+	request := policyFixture(t, registry)
+	var raw map[string]any
+	if err := json.Unmarshal(request.Prepared, &raw); err != nil {
+		t.Fatal(err)
+	}
+	output := liveOutput(raw)
+	output["asset"] = common.ToHex(big.NewInt(3))
+	raw["keyEscrow"] = true
+	raw["policyLen"] = 1
+	raw["ruleEnc"].([]any)[0] = common.ToHex(big.NewInt(4 + 256 + 65536))
+	raw["sources"].([]any)[0].(map[string]any)["listId"] = 1
+	request.Prepared = encoded(t, raw)
+	calls := 0
+	resolver := newTestResolver(t)
+	resolver.client.Transport = recordTransport(t, &calls, func(member Hash) (any, map[string]any) {
+		if member == registry.member {
+			return registry.present(), nil
+		}
+		return registry.absent(), nil
+	})
+	resolved, err := resolver.Resolve(context.Background(), encoded(t, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var params ring.PolicyParams
+	if err := json.Unmarshal(resolved.Payload, &params); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(params.Subjects) != 13 || params.Subjects[9] == nil || params.Subjects[9].Present {
+		t.Fatalf("mint absence not resolved, calls %d, subjects %+v", calls, params.Subjects)
+	}
+	if params.Outputs[0].CtHash.Cmp(registry.ctHash) != 0 {
+		t.Fatal("owner escrow lost")
+	}
+}

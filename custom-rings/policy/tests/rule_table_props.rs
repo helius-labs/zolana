@@ -23,7 +23,6 @@ fn guard() -> impl Strategy<Value = Guard> {
 
 fn source() -> impl Strategy<Value = RuleSource> {
     prop_oneof![
-        Just(RuleSource::InlineAssets),
         (any::<u8>(), any::<u8>()).prop_map(|(present, absent)| RuleSource::Lists {
             present: ListSet::from_bits(present),
             absent: ListSet::from_bits(absent),

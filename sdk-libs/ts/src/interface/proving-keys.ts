@@ -16,9 +16,9 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
   "custom_ring_base.key": "65fcf4f7221e0c7e170f572bf59f636cf50d76789acd69db33d1c90d79e7abc2",
   "custom_ring_delegate_policy.key":
-    "bee9cda30074a67e51a336f4956163f5e64c6df30b0ff2525ad398f778f0da21",
+    "11f41a0310294a0d22b8cda31fb8dc1369cd72768fe0d2bf8129dc0585e14023",
   "custom_ring_deposit.key": "7018092f0fa02d11adc6aadc7b083d7d5ae32936c91877252125377ef51b263b",
-  "custom_ring_policy.key": "ceb5f0f0f925c80a1f1ee7975b91c62d967a260ab65fa8bf589d25c96ff47c47",
+  "custom_ring_policy.key": "4a8d772d834dab09eee44f1cae634dc5df88e676c58d324176f3616dca373bd2",
   "custom_ring_register_key.key":
     "cdad9dddf838db7899fe6bd958ec3b6846d4c7ffa12502d388d8dd831574b14f",
   "custom_ring_update_members.key":

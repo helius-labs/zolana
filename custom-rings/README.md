@@ -142,6 +142,15 @@ the pinned auditor, destination tree and exact deposit bytes before settlement.
 Disabling the setting permits proofless deposits again. Existing deposits gain
 no disclosure when the setting changes.
 
+Asset screening uses registry lists, just like owner screening. For example,
+`subject = "asset"` with `require = "allow"` checks the mint's Allow bit.
+Use `zolana-ring list add allow --asset <MINT>` to set it, or `list clear` to
+remove it. A list may come from the ring's own registry or its configured curator.
+The old `assets = [...]` rule form is rejected. There is no eight-mint membership
+cap. The eight-entry asset tables that remain configure amount thresholds only.
+Scalar owner amount guards require all live outputs to use the same mint.
+Use per-mint guards for mixed-mint transfers.
+
 An outflow limit bounds what one sender moves out of its own balance per
 mint in one transfer, shielded payments, exits and withdrawals alike, and
 demands the co-signer on a transfer above a threshold. The `limits` array of
@@ -355,10 +364,10 @@ ring. Outflow limits remain supported. Auditor and viewing keys use canonical
 X25519 encodings. P-256 ownership and historical viewing data require migration
 before upgrading.
 
-The proofs bind output commitments and ciphertext bytes to one private
-transaction hash. They do not prove that decrypted output plaintext opens its
-commitment. The RPC reports what it decrypts and marks unreadable slots. It
-cannot prove that reported values equal the committed UTXOs.
+The dedicated auditor disclosure encrypts the note fields the circuit uses to
+compute commitments. Anonymous disclosure also binds the sender, spent notes
+and recipients to the private transaction hash. This guarantee does not cover
+arbitrary recipient ciphertexts.
 
 An outflow limit bounds one transfer, a sender may move up to the cap in
 every transfer. A limited transfer has one sender. Delegation is exempt from

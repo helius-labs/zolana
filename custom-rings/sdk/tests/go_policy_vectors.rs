@@ -301,9 +301,8 @@ fn typescript_member_registry_policy_vectors() {
         RuleTable::builder()
             .rule(allow)
             .rule(frozen)
-            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(2000))
-            .inline_assets(ASSET_MEMBERS)
             .build()
             .hash(&four)
             .unwrap(),
@@ -320,15 +319,13 @@ fn typescript_member_registry_policy_vectors() {
             .unwrap(),
     ];
     let expected = [
-        "22fe4fe93bb783144529ec54b8c2deee271fd86ca6e3d12c09c94febe15ea6cb",
-        "0c15349662d17bee75ea93e9b190df5f974d2a2a48410ecff96edb0e075838e3",
-        "14d518c045ff9d929063eef93572b9001fca0dfe7d4a8829d5b5af30b818c40b",
-        "1d43c7a7cb4a0ba253ec346ed1651f517e9954c3ec4e8cc2fe4b08b9ed238996",
-        "236e20cab88575db7290d6e003fabb64099f0992230883be980dc8418eb34b16",
-        "1e578b4983f9fcede5171cc5f9714b61979569018aed0494b5e043148095a98e",
-        "2ee080b44cc6798d264651470081a3ba21bbbbe358b00b0ec7dfef3ab9adfe63",
+        "1bf8b1374da19d08802d34a5d651751776d7e3b69a2aa844e3b7f93c80040622",
+        "1c4fdae99597cb9cec253b622f3b988840c58713a682c4b6e8fe5b2f9ba5c07a",
+        "0b596d952f79d4c04c609def6f2c9f0a0832620b334c54daded79115ebc7fc84",
+        "300de33d9369363fb64b6a569465d1871eadfa32a8fa965738ce2cdd67127437",
+        "0f58b60e0b035012dea442d57d379c4895fcd8f8ac44a8e4504db1f96bb1f451",
+        "23187c7be3db2e0652d82eaa371419941256c92b0db3625e1ab62f8d9700ffcb",
+        "031edd85abc0abefc06815a79a9325bc9cbd6461d1b77016fe96bccbc4a4a1f9",
     ];
-    for (value, expected) in cases.into_iter().zip(expected) {
-        assert_eq!(hex::encode(value), expected);
-    }
+    assert_eq!(cases.map(hex::encode), expected);
 }

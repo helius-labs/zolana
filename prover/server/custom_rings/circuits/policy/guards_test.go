@@ -21,6 +21,7 @@ func TestAmountGuardGrouping(t *testing.T) {
 	}{
 		{"owner total at threshold", SubjectOutputOwner, GuardAboveAmount, 0, 0, 1000, true},
 		{"owner total above threshold", SubjectOutputOwner, GuardAboveAmount, 0, 0, 1001, false},
+		{"owner scalar guard rejects mixed mints", SubjectOutputOwner, GuardAboveAmount, 0, 1, 1, false},
 		{"different owners have separate totals", SubjectOutputOwner, GuardAboveAmount, 1, 0, 1001, true},
 		{"asset total across owners at threshold", SubjectAsset, GuardAboveAmount, 1, 0, 1000, true},
 		{"asset total across owners above threshold", SubjectAsset, GuardAboveAmount, 1, 0, 1001, false},
@@ -33,11 +34,8 @@ func TestAmountGuardGrouping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newStatement(t, defaultFixture())
-			// An asset rule checks the inline allowlist, the guard alone exempts the transfer.
+			// Subjects absent from Approval pass only through the amount exemption.
 			mask := listMask(listApproval)
-			if tt.subject == SubjectAsset {
-				mask = 0
-			}
 			s.rules = []rule{{subject: tt.subject, mode: ModePresent, mask: mask, guardTag: tt.guard, threshold: 2000}}
 			second := s.outputs[0]
 			second.OwnerPkHash = new(big.Int).Add(second.OwnerPkHash.(*big.Int), big.NewInt(tt.ownerDelta))
@@ -47,13 +45,12 @@ func TestAmountGuardGrouping(t *testing.T) {
 			s.outputs[1] = second
 			if tt.guard == GuardAboveAmountByAsset {
 				s.rules[0].threshold = 0
+				s.inlineAssets = []*big.Int{s.outputs[0].Asset.(*big.Int)}
 				s.inlineLimits = []uint64{2000}
 				if tt.assetDelta != 0 {
 					s.inlineAssets = append(s.inlineAssets, second.Asset.(*big.Int))
 					s.inlineLimits = append(s.inlineLimits, 2000)
 				}
-			} else if tt.subject == SubjectOutputOwner {
-				s.rules = append(s.rules, rule{subject: SubjectAsset, mode: ModePresent})
 			} else {
 				s.inlineAssets = nil
 			}

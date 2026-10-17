@@ -13,14 +13,14 @@ const (
 	NInlineAssets  = 8
 	NSources       = 8
 	NOutflowLimits = 8
-	// NSubjects opens one member record per transaction slot, inputs first.
-	NSubjects = NInputs + NOutputs
+	// NSubjects opens input owners, output owners, then output assets.
+	NSubjects = NInputs + 2*NOutputs
 	// NForeign is the number of curator registries a policy may read lists from.
 	NForeign = 1
 )
 
 // PolicyVersion is committed in policy_hash.
-const PolicyVersion = 9
+const PolicyVersion = 10
 
 // Subjects select the transaction value a rule checks, SubjectExitDestination is rejected.
 const (

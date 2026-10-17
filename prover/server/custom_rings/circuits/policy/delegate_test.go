@@ -26,7 +26,7 @@ func TestDelegatePolicyKeepsRulesButExemptsOutflowLimits(t *testing.T) {
 		{"over the cap and the co-sign threshold", nil, false},
 		{"allow list still required", func(s *statement) { s.setLists(t, s.members, pkField(t, allowedKey), 0) }, true},
 		{"freeze list still required", func(s *statement) { s.setLists(t, s.curator, s.sender, listMask(listFrozen)) }, true},
-		{"asset allow rule still required", func(s *statement) { s.inlineAssets[0] = big.NewInt(17) }, true},
+		{"asset allow rule still required", func(s *statement) { s.setLists(t, s.members, assetField(t, defaultFixture().transferred), 0) }, true},
 		{"approval cannot be raised", func(s *statement) { s.approval = true }, true},
 		{"anonymous ring", func(s *statement) { s.anonymous = true }, true},
 		{"a row without a bound", func(s *statement) { s.limits[0].cap, s.limits[0].cosign = 0, 0 }, true},

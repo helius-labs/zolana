@@ -84,13 +84,15 @@ func TestBlockedRecipientWithoutApprovalFails(t *testing.T) {
 	rejectAssignment(t, s.assignment(t))
 }
 
-func TestInlineAssetsNeedNoRecords(t *testing.T) {
+func TestAssetListsRequireAuthenticatedMintRecords(t *testing.T) {
 	s := newStatement(t, defaultFixture())
-	s.rules = []rule{{subject: SubjectAsset, mode: ModePresent}}
+	s.rules = []rule{{subject: SubjectAsset, mode: ModePresent, mask: listMask(listAllow)}}
 	solve(t, testConstraintSystem(t), s.assignment(t))
-
-	s.inlineAssets = append(s.inlineAssets, s.inlineAssets[0])
-	solve(t, testConstraintSystem(t), s.assignment(t))
+	c := s.assignment(t)
+	c.Subjects[NInputs+NOutputs] = c.Subjects[NInputs]
+	rejectAssignment(t, c)
+	s.setLists(t, s.members, assetField(t, defaultFixture().transferred), 0)
+	rejectAssignment(t, s.assignment(t))
 }
 
 // A slot that holds no UTXO leaves its openings unread.
@@ -229,4 +231,25 @@ func rejectAssignment(t *testing.T, c *CustomRingPolicyCircuit) {
 	if err := testConstraintSystem(t).IsSolved(witness); err == nil {
 		t.Fatal("invalid policy witness satisfied the circuit")
 	}
+}
+
+func TestAssetRegistryHasNoEightMintAllowlistCap(t *testing.T) {
+	s := newStatement(t, defaultFixture())
+	s.rules = []rule{{subject: SubjectAsset, mode: ModePresent, mask: listMask(listAllow)}}
+	for i := int64(1); i <= 12; i++ {
+		s.setLists(t, s.members, big.NewInt(i), listMask(listAllow))
+	}
+	for i := range s.outputs {
+		s.outputs[i].Asset = big.NewInt(12)
+	}
+	solve(t, testConstraintSystem(t), s.assignment(t))
+	s.sources[listAllow-1].registry = s.curatorRegistry
+	rejectAssignment(t, s.assignment(t))
+	s.setLists(t, s.curator, big.NewInt(12), listMask(listAllow))
+	solve(t, testConstraintSystem(t), s.assignment(t))
+	s.rules[0].mode = ModeAbsent
+	s.rules[0].mask = listMask(listBlock)
+	solve(t, testConstraintSystem(t), s.assignment(t))
+	s.setLists(t, s.members, big.NewInt(12), listMask(listBlock))
+	rejectAssignment(t, s.assignment(t))
 }

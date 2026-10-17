@@ -887,13 +887,13 @@ export function customRingPolicyProofRequest(
     approvalRequired: inputs.limits.approvalRequired,
     keyEscrow: inputs.keyEscrow,
     memberRegistryRoot: hex32(inputs.memberRegistryRoot, "memberRegistryRoot"),
-    subjects: sized(inputs.subjects, RING_INPUT_SLOTS + RING_OUTPUT_SLOTS, "subjects").map(
+    subjects: sized(inputs.subjects, RING_INPUT_SLOTS + 2 * RING_OUTPUT_SLOTS, "subjects").map(
       subjectJson,
     ),
     foreignRoot: hex32(inputs.foreignRoot, "foreignRoot"),
     foreignSubjects: sized(
       inputs.foreignSubjects,
-      RING_INPUT_SLOTS + RING_OUTPUT_SLOTS,
+      RING_INPUT_SLOTS + 2 * RING_OUTPUT_SLOTS,
       "foreignSubjects",
     ).map(subjectJson),
   });

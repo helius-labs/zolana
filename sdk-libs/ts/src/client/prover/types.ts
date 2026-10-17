@@ -198,7 +198,7 @@ export interface CustomRingSubjectWitness extends CustomRingRecordWitness {
 export interface CustomRingRegistryKey extends CustomRingRecordWitness {
   readonly ctHash: Bytes32;
 }
-export const RING_SUBJECT_SLOTS = RING_INPUT_SLOTS + RING_OUTPUT_SLOTS;
+export const RING_SUBJECT_SLOTS = RING_INPUT_SLOTS + 2 * RING_OUTPUT_SLOTS;
 
 /** Mirrors Rust `RuleAnswer`, one entry fact proven against the roots. */
 export interface CustomRingRuleAnswer {

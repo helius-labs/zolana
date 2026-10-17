@@ -76,9 +76,11 @@ function listBits(ids: readonly ListId[]): number {
 
 export type RuleSubject = "outputOwner" | "sender" | "exitDestination" | "asset";
 
-export type RuleSource =
-  | Readonly<{ kind: "lists"; present: readonly ListId[]; absent: readonly ListId[] }>
-  | Readonly<{ kind: "inlineAssets" }>;
+export type RuleSource = Readonly<{
+  kind: "lists";
+  present: readonly ListId[];
+  absent: readonly ListId[];
+}>;
 
 export type RuleGuard =
   | Readonly<{ kind: "always" }>
@@ -172,9 +174,7 @@ export function decodeRule(row: Bytes32): Rule {
   if (mode !== 1 && mode !== 2) throw ruleTableInvalid("UnknownMode");
   let source: RuleSource;
   if (mask === 0) {
-    if (alternative !== 0) throw ruleTableInvalid("InlineWithAlternative");
-    if (mode === 2) throw ruleTableInvalid("InlineAbsent");
-    source = { kind: "inlineAssets" };
+    throw ruleTableInvalid("EmptyLists");
   } else if (mode === 1) {
     source = { kind: "lists", present: listSet(mask), absent: listSet(alternative) };
   } else {
@@ -201,11 +201,10 @@ export function decodeRule(row: Bytes32): Rule {
 function checkRule(rule: Rule): void {
   if (rule.subject === "exitDestination") throw ruleTableInvalid("ExitDestination");
   if (rule.source.kind === "lists") {
-    if (rule.subject === "asset") throw ruleTableInvalid("AssetListRule");
     const { present, absent } = rule.source;
     if (present.length + absent.length === 0) throw ruleTableInvalid("EmptyLists");
     if ((listBits(present) & listBits(absent)) !== 0) throw ruleTableInvalid("ListInBothSets");
-  } else if (rule.subject !== "asset") {
+  } else {
     throw ruleTableInvalid("InlineNotAsset");
   }
   if (rule.guard.kind === "aboveAmount") {
@@ -214,7 +213,6 @@ function checkRule(rule: Rule): void {
   }
   if (rule.guard.kind === "aboveAmountByAsset") {
     if (rule.subject !== "outputOwner") throw ruleTableInvalid("PerAssetGuardNotOwner");
-    if (rule.source.kind === "inlineAssets") throw ruleTableInvalid("PerAssetGuardInline");
   }
 }
 
@@ -295,27 +293,15 @@ function checkedRuleTable(table: RuleTable): RuleTable {
   }
   for (const rule of rules) checkRule(rule);
   const signatures = new Set<string>();
-  let ownerGuard = false;
-  let inlineRule = false;
-  let unguardedInline = false;
   let perAssetGuard = false;
   for (const rule of rules) {
     const signature = ruleSignature(rule);
     if (signatures.has(signature)) throw ruleTableInvalid("DuplicateRule");
     signatures.add(signature);
-    if (rule.source.kind === "inlineAssets") {
-      inlineRule = true;
-      unguardedInline = rule.guard.kind === "always";
-    }
-    if (rule.subject === "outputOwner" && rule.guard.kind === "aboveAmount") ownerGuard = true;
     if (rule.guard.kind === "aboveAmountByAsset") perAssetGuard = true;
   }
   const pool = inlineAssets.length;
-  if (inlineRule && pool === 0) throw ruleTableInvalid("InlineWithoutPool");
-  if (!inlineRule && !perAssetGuard && pool > 0) throw ruleTableInvalid("PoolWithoutInlineRule");
-  if (ownerGuard && !(unguardedInline && pool === 1)) {
-    throw ruleTableInvalid("OwnerGuardWithoutInlineAsset");
-  }
+  if (!perAssetGuard && pool > 0) throw ruleTableInvalid("PoolWithoutInlineRule");
   if (perAssetGuard) {
     if (pool === 0 || inlineLimits.some((limit) => limit === 0n)) {
       throw ruleTableInvalid("MissingAssetLimit");
@@ -420,7 +406,7 @@ function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>
 }
 
 /** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 9;
+export const RING_POLICY_VERSION = 10;
 
 /** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
 export function ringPolicyHash(

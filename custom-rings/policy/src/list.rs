@@ -11,7 +11,7 @@ pub enum Writer {
 
 macro_rules! lists {
     ($($variant:ident = $id:literal, $name:literal => $writer:ident,)*) => {
-        /// The on-chain discriminant of a list, never `0` (the circuit's inline-asset sentinel).
+        /// The on-chain discriminant of a list, never the unused source slot `0`.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u8)]
         pub enum ListId {

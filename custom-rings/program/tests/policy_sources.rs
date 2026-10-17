@@ -237,14 +237,15 @@ fn a_shared_source_without_a_curator_is_rejected_exactly() {
 #[test]
 fn a_second_curator_registry_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut sources = mixed_sources();
+    let mut sources = own_source_slots(&RELEASED_RULES);
     sources[ListId::Frozen.slot()].registry =
         pinocchio::Address::new_from_array(Pubkey::new_from_array([77; 32]).to_bytes());
-    let fixture = set_policy_source_fixture(
+    let mut fixture = set_policy_source_fixture(
         policy_config_account_with(&RELEASED_RULES, sources),
         ListId::Block as u8,
-        0,
+        1,
     );
+    fixture.push(curator_slot(initialized_curator_registry_account()));
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 

@@ -97,19 +97,12 @@ fn create_policy_refuses_rows_the_circuit_cannot_enforce() {
         ("nine inline members", |table| {
             table.inline_assets.resize(9, [9u8; 32]);
         }),
-        ("too many answers", |table| {
-            table.rules = [
-                Rule::require(Subject::OutputOwner, ListId::Allow),
-                Rule::forbid(Subject::OutputOwner, ListId::Block),
-                Rule::require(Subject::OutputOwner, ListId::Approval),
-            ]
-            .iter()
-            .map(Rule::encoded)
-            .collect();
-            table.inline_assets.clear();
+        ("legacy inline asset encoding", |table| {
+            table.rules[2][29] = 0;
         }),
-        ("members without an inline rule", |table| {
-            table.rules.truncate(2);
+        ("asset thresholds without a per-asset guard", |table| {
+            table.inline_assets = vec![[3u8; 32]];
+            table.inline_limits = vec![0];
         }),
         ("per-asset guard without limits", |table| {
             table.rules[0][28] = 2;

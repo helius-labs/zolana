@@ -14,8 +14,8 @@
       "source": "release"
     },
     "custom_ring_delegate_policy.key": {
-      "sha256": "bee9cda30074a67e51a336f4956163f5e64c6df30b0ff2525ad398f778f0da21",
-      "size": 91496808,
+      "sha256": "11f41a0310294a0d22b8cda31fb8dc1369cd72768fe0d2bf8129dc0585e14023",
+      "size": 107366126,
       "source": "release"
     },
     "custom_ring_deposit.key": {
@@ -24,8 +24,8 @@
       "source": "release"
     },
     "custom_ring_policy.key": {
-      "sha256": "ceb5f0f0f925c80a1f1ee7975b91c62d967a260ab65fa8bf589d25c96ff47c47",
-      "size": 91869412,
+      "sha256": "4a8d772d834dab09eee44f1cae634dc5df88e676c58d324176f3616dca373bd2",
+      "size": 107736662,
       "source": "release"
     },
     "custom_ring_register_key.key": {
