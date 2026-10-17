@@ -366,8 +366,11 @@ before upgrading.
 
 The dedicated auditor disclosure encrypts the note fields the circuit uses to
 compute commitments. Anonymous disclosure also binds the sender, spent notes
-and recipients to the private transaction hash. This guarantee does not cover
-arbitrary recipient ciphertexts.
+and recipients to the private transaction hash. Settlement requires this proof.
+Ordinary recipient encryption stays wallet-side. A sender can make their own
+payment unreadable, but cannot use that to bypass conservation or double-spend
+checks. Protocols that rely on delivery, such as swaps, need a separate proof
+of the recipient ciphertext and its binding to the intended recipient's key.
 
 An outflow limit bounds one transfer, a sender may move up to the cap in
 every transfer. A limited transfer has one sender. Delegation is exempt from
