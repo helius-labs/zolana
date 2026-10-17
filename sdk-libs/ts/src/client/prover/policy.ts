@@ -36,6 +36,7 @@ export function indexedPolicyEnvelope(
   serialized: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
   if (
+    inputs.policy.twoByThree === true ||
     !["custom-ring-policy", "custom-ring-delegate-policy"].includes(inputs.circuit) ||
     inputs.trees.length < 1 ||
     inputs.trees.length > 5 ||

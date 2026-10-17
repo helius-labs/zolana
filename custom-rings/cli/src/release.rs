@@ -34,13 +34,20 @@ pub struct RingKey(&'static str, &'static str);
 impl RingKey {
     pub const CONFIDENTIAL_AUDIT: Self =
         Self("confidential_audit_key", "custom-ring-base-confidential");
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
         Self("proving_key", "custom-ring-policy"),
         Self("audit_key", "custom-ring-base"),
         Self("delegate_policy_key", "custom-ring-delegate-policy"),
         Self("register_key", "custom-ring-register-key"),
         Self("deposit_key", "custom-ring-deposit"),
         Self::CONFIDENTIAL_AUDIT,
+        Self("policy_2x3_key", "custom-ring-policy-2x3"),
+        Self(
+            "anonymous_policy_2x3_key",
+            "custom-ring-policy-2x3-anonymous",
+        ),
+        Self("delegate_policy_2x3_key", "custom-ring-delegate-policy-2x3"),
+        Self("update_members_key", "custom-ring-update-members"),
     ];
 
     /// Also the key's name in proving-keys.lock.
@@ -146,13 +153,13 @@ mod tests {
         let release = RingRelease::from_lock().expect("lock");
         assert!(!release.tag.is_empty());
         release.program().expect("the ring program");
-        // This immutable historical release predates the ordinary audit key.
+        // This immutable historical release predates the keys added after its first five.
         // Never advertise an artifact that has not been published.
-        for key in RingKey::ALL
-            .into_iter()
-            .filter(|key| *key != RingKey::CONFIDENTIAL_AUDIT)
-        {
+        for key in RingKey::ALL.into_iter().take(5) {
             release.key(key).expect("ring key");
+        }
+        for key in RingKey::ALL.into_iter().skip(5) {
+            assert!(release.key(key).is_err());
         }
         let missing = release
             .key(RingKey::CONFIDENTIAL_AUDIT)

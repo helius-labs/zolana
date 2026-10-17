@@ -82,6 +82,7 @@ pub type DelegateTransfer<'a> = RingTransfer<Delegated<'a>>;
 
 #[must_use = "build or submit the proven transfer"]
 pub struct ProvenRingTransfer {
+    two_by_three: bool,
     pub tx_viewing_key: ViewingKey,
     pub data: TransactIxData,
     pub proof: CustomRingProof,
@@ -194,11 +195,12 @@ impl<R: Rail> RingTransfer<R> {
             })),
         };
         // Neither proof is an input to the other, the requests go out together.
-        let ((data, outputs), (proof, policy, approval_required)) = futures::try_join!(
+        let ((data, outputs), (proof, policy, approval_required, two_by_three)) = futures::try_join!(
             boxed(|| spp.prove(client, &staged.proof_inputs)),
             boxed(|| tier.prove(client)),
         )?;
         Ok(ProvenRingTransfer {
+            two_by_three,
             tx_viewing_key: staged.tx_viewing_key,
             data,
             proof: to_instruction_proof(proof)?,
@@ -301,19 +303,39 @@ impl PolicyStatement {
         pending: PendingCustomRingProof,
         private_tx_hash: [u8; 32],
     ) -> Result<PolicyRequest, RingError> {
-        let PolicyProof { body, indexed } =
+        let PolicyProof { mut body, indexed } =
             pending.finish(private_tx_hash, self.witness, &self.policy_hash)?;
+        let circuit = if indexed.is_none() && body.witness.supports_two_by_three() {
+            match (self.circuit, body.anonymous.is_some()) {
+                (RingCircuit::DelegatePolicy, _) => RingCircuit::DelegatePolicyTwoByThree,
+                (_, true) => RingCircuit::AnonymousPolicyTwoByThree,
+                (_, false) => RingCircuit::PolicyTwoByThree,
+            }
+        } else {
+            self.circuit
+        };
+        let public_table = if circuit.is_two_by_three() {
+            body.circuit_type = circuit;
+            Some(
+                body.witness
+                    .public_table_inputs(body.public_input_hash, self.policy_hash)?,
+            )
+        } else {
+            None
+        };
         Ok(PolicyRequest {
+            public_table,
             body,
             indexed,
             reads: self.reads,
             approval_required: self.approval_required,
-            circuit: self.circuit,
+            circuit,
         })
     }
 }
 
 pub(crate) struct PolicyRequest {
+    pub public_table: Option<Box<custom_ring_interface::PolicyTableInputs>>,
     pub body: crate::request::PolicyBody,
     pub indexed: Option<IndexedPolicyData>,
     pub reads: PolicyReads,
@@ -334,7 +356,11 @@ impl PolicyRequest {
         &self,
     ) -> Result<zolana_client::prover::requests::CircuitRequest, ClientError> {
         match self.circuit {
-            RingCircuit::Policy => requests::CircuitRequest::of(&RingRequest(&self.body)),
+            RingCircuit::Policy
+            | RingCircuit::PolicyTwoByThree
+            | RingCircuit::AnonymousPolicyTwoByThree => {
+                requests::CircuitRequest::of(&RingRequest(&self.body))
+            }
             _ => requests::CircuitRequest::of(&RingRequest(&self.envelope())),
         }
     }
@@ -345,7 +371,11 @@ impl PolicyRequest {
     ) -> Result<(Proof, PolicyReads), RingError> {
         let request = self.request()?;
         let Some((prover, data)) = client.indexed_prover().zip(self.indexed.take()) else {
-            return Ok((client.prove_request(&request).await?, self.reads));
+            let proof = client.prove_request(&request).await?;
+            if let Some(inputs) = &self.public_table {
+                self.circuit.verify_table(&proof, inputs)?;
+            }
+            return Ok((proof, self.reads));
         };
         let indexed = IndexedPolicyRequest::new(request.body()?, request.proving_key()?, data)?;
         let proof = prover.prove_indexed(&indexed).await?;
@@ -374,17 +404,19 @@ impl Tier {
     async fn prove<P: AsyncRpc, I: AsyncIndexer>(
         self,
         client: &AsyncZolanaClient<P, I>,
-    ) -> Result<(Proof, Option<PolicyReads>, bool), RingError> {
+    ) -> Result<(Proof, Option<PolicyReads>, bool, bool), RingError> {
         match self {
             Self::Base(body) => Ok((
                 client.prove_request(&RingRequest(&*body)).await?,
                 None,
                 false,
+                false,
             )),
             Self::Policy(request) => {
                 let approval_required = request.approval_required;
+                let two_by_three = request.circuit.is_two_by_three();
                 let (proof, reads) = boxed(|| request.prove(client)).await?;
-                Ok((proof, Some(reads), approval_required))
+                Ok((proof, Some(reads), approval_required, two_by_three))
             }
         }
     }
@@ -655,7 +687,7 @@ impl ProvenRingTransfer {
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
             }
-            .instruction(),
+            .instruction_with_policy_shape(self.two_by_three),
             Some(delegate) => CustomRingDelegateTransact {
                 ring: self.ring,
                 payer: self.payer,
@@ -668,7 +700,7 @@ impl ProvenRingTransfer {
                 transact: self.data.clone(),
                 approval_required: self.approval_required,
             }
-            .instruction(),
+            .instruction_with_policy_shape(self.two_by_three),
         }
     }
 }

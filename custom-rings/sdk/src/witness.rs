@@ -110,6 +110,48 @@ pub(crate) struct CustomRingWitness {
 }
 
 impl CustomRingWitness {
+    /// A conservative selector. Indexed requests keep their existing route,
+    /// since their record indices are not known until the service resolves them.
+    pub fn supports_two_by_three(&self) -> bool {
+        if self.indexed.is_some() || self.n_in != 2 || self.n_out != 3 {
+            return false;
+        }
+        [&self.subjects, &self.foreign_subjects]
+            .into_iter()
+            .all(|subjects| {
+                let mut prefixes = subjects.iter().flatten().map(|s| s.record.index >> 3);
+                let first = prefixes.next();
+                prefixes.all(|prefix| Some(prefix) == first)
+            })
+    }
+
+    pub fn public_table_inputs(
+        &self,
+        statement: [u8; 32],
+        policy_hash: [u8; 32],
+    ) -> Result<Box<custom_ring_interface::PolicyTableInputs>, RingError> {
+        use zolana_ring_policy::{EncodedRuleTable, SourceMap};
+        let table = EncodedRuleTable {
+            rule_count: self.policy_len,
+            rules: self.rules,
+            inline_count: self.inline_count,
+            inline_assets: self.inline_assets,
+            inline_limits: self.inline_limits.map(u64::to_be_bytes),
+            limit_count: self.limits.limit_count,
+            limit_assets: self.limits.limits.map(|l| l.asset),
+            limit_caps: self.limits.limits.map(|l| l.cap.to_be_bytes()),
+            limit_cosign: self.limits.limits.map(|l| l.cosign_above.to_be_bytes()),
+        };
+        Ok(custom_ring_interface::policy_table_inputs(
+            statement,
+            policy_hash,
+            &SourceMap::from_slots(self.sources)
+                .map_err(custom_ring_interface::CustomRingError::from)?,
+            &table,
+            zolana_interface::tree_slot::populated_tree_slots_hash_chain(&self.tree_slots())?,
+        ))
+    }
+
     pub fn tree_slots(&self) -> Vec<TreeSlot> {
         self.trees.iter().map(PolicyTree::slot).collect()
     }

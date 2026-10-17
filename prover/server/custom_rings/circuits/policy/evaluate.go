@@ -18,6 +18,12 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 		limits[o] = c.matchInlineAssets(api, output.asset, checked.inline.Active)
 	}
 	totals := sumOutputs(api, tx.outputs, liveOwner, liveAsset)
+	var assetExemptions [NOutputs]frontend.Variable
+	if c.FixedInputs != 0 {
+		for o := range tx.outputs {
+			assetExemptions[o] = api.Mul(limits[o].found, c.amountAtMost(api, totals[o].byOwnerAndAsset, limits[o].threshold))
+		}
+	}
 
 	for r, rule := range checked.rules {
 		for i, left := range tx.outputs {
@@ -33,7 +39,14 @@ func (c *CustomRingPolicyCircuit) constrainRules(api frontend.API, tx transactio
 			// Per-asset limits apply even when the list condition holds.
 			shared.AssertWhen(api, api.Mul(enabled, rule.assetGuard), limits[o].found)
 			subjectTotal := api.Select(rule.onAsset, totals[o].byAsset, totals[o].byOwner)
-			shared.AssertWhen(api, enabled, api.Or(satisfied, rule.amountExemption(api, subjectTotal, totals[o].byOwnerAndAsset, limits[o])))
+			var exempt frontend.Variable
+			if c.FixedInputs != 0 {
+				scalar := api.Mul(rule.scalarGuard, c.amountAtMost(api, subjectTotal, rule.threshold))
+				exempt = api.Or(scalar, api.Mul(rule.assetGuard, assetExemptions[o]))
+			} else {
+				exempt = rule.amountExemptionWith(api, subjectTotal, totals[o].byOwnerAndAsset, limits[o], c.amountAtMost)
+			}
+			shared.AssertWhen(api, enabled, api.Or(satisfied, exempt))
 		}
 		onInput := api.Mul(checked.ruleEnabled[r], rule.onSender)
 		for i, input := range tx.inputs {

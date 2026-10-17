@@ -746,6 +746,28 @@ describe("prover request routing", () => {
       })),
     };
     const body = customRingPolicyProofRequest(escrowed);
+    const compact = { ...escrowed, nIn: 2, nOut: 3, twoByThree: true };
+    expect(customRingPolicyProofRequest(compact)["circuitType"]).toBe("custom-ring-policy-2x3");
+    for (const counts of [
+      { nIn: 1, nOut: 3 },
+      { nIn: 2, nOut: 4 },
+    ]) {
+      expect(() => customRingPolicyProofRequest({ ...compact, ...counts })).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
+    }
+    const scattered = {
+      ...compact,
+      subjects: compact.subjects.map((value, index) =>
+        index === 0 ? { ...subject, index: 8n } : value,
+      ),
+    };
+    expect(() => customRingPolicyProofRequest(scattered)).toThrow(
+      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+    );
+    expect(customRingPolicyProofRequest({ ...scattered, twoByThree: false })["circuitType"]).toBe(
+      "custom-ring-policy",
+    );
     expect(body).toMatchObject({ keyEscrow: true, memberRegistryRoot: fieldHex(15) });
     expect(body["outputs"]).toEqual(
       escrowed.outputs.map((_, index) => ({

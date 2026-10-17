@@ -12,6 +12,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
@@ -47,8 +48,12 @@ func TestRingCircuitsCarryOnePrivateCommitment(t *testing.T) {
 			if len(info[0].PublicAndCommitmentCommitted) != 0 {
 				t.Fatalf("commitment covers %d public wires", len(info[0].PublicAndCommitmentCommitted))
 			}
-			if cs.GetNbPublicVariables() != 2 {
-				t.Fatalf("%d public variables, want the constant and the statement hash", cs.GetNbPublicVariables())
+			public := 2
+			if _, ok := ring.Circuit().(*policy.PublicTableTwoByThreeCircuit); ok {
+				public = 79
+			}
+			if cs.GetNbPublicVariables() != public {
+				t.Fatalf("%d public variables, want %d", cs.GetNbPublicVariables(), public)
 			}
 		})
 	}
@@ -96,7 +101,7 @@ func loadRingSystem(t *testing.T, circuit common.CircuitType) *common.RingProofS
 
 func TestAssignNamesEveryMissingValue(t *testing.T) {
 	for _, ring := range RingCircuits {
-		err := assign(ring.Circuit(), ring.params())
+		_, err := Assign(ring.Type, ring.params())
 		if err == nil || !strings.Contains(err.Error(), "PublicInputHash: missing") {
 			t.Fatalf("%s: zero request assigned: %v", ring.Type, err)
 		}

@@ -1,4 +1,5 @@
 import { ZERO_32 } from "../transaction/internal.js";
+import { shareMemberSubtree } from "../interface/member-registry.js";
 import { withProofDataRetry } from "../client/retry.js";
 import type {
   BlockhashProvider,
@@ -214,6 +215,7 @@ export type CustomRingDelegateTransferParams = Omit<CustomRingTransferParams, "c
 /** Mirrors Rust `ProvenTransfer`. */
 export type ProvenRingTransfer = RingTransactTrees &
   Readonly<{
+    twoByThree?: boolean;
     data: TransactInstructionData;
     proof: Uint8Array;
     txViewingPublicKey: X25519PublicKey;
@@ -511,6 +513,7 @@ async function buildRingSpend<R>(
         outputTree: proven.outputTree,
         ...(proven.policy === undefined ? {} : { policy: proven.policy }),
         proof: proven.proof,
+        twoByThree: proven.twoByThree === true,
         data: proven.data,
         approvalRequired: proven.approvalRequired,
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
@@ -836,7 +839,17 @@ async function proveRingTransferStatement(
       ...memberRegistryRoot,
     };
     const privateTxPreimage = sppPrivateTxHashInput(proofInputs);
+    const twoByThree =
+      flow.client.proofDataSource !== "prover" &&
+      openings.nIn === 2 &&
+      openings.nOut === 3 &&
+      [policyRound.subjects, policyRound.foreignSubjects].every((subjects) =>
+        shareMemberSubtree(
+          subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
+        ),
+      );
     const policyRequest: CustomRingPolicyProofRequest = {
+      twoByThree,
       publicInputHash: policyPublicInputHash(statement),
       privateTxHash: data.privateTxHash,
       txViewingSecret: encrypted.audit.txViewingSecret,
@@ -911,6 +924,7 @@ async function proveRingTransferStatement(
       ...common,
       proof,
       approvalRequired,
+      twoByThree,
       policy: Object.freeze({
         trees: policyRound.policyTrees,
         treeContexts:

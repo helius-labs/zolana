@@ -1,5 +1,6 @@
 use custom_ring_interface::{
-    base_confidential_verifying_key, base_verifying_key, delegate_policy_verifying_key,
+    base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
+    delegate_policy_verifying_key, policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key,
     policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
     CustomRingPolicyPublicInput, CustomRingTransactIxData, DisclosureShape, PolicyConfig, RingMode,
     N_FOREIGN, TAGGED_X25519_KEY_LEN,
@@ -25,7 +26,7 @@ use crate::{
         policy_trees::PolicyTrees,
         public_legs::PublicLegs,
         shared::{cpi_spp, parse},
-        verifier::verify_groth16,
+        verifier::{verify_groth16, verify_groth16_inputs},
     },
     state::is_x25519_viewing_key,
 };
@@ -35,10 +36,11 @@ pub fn process_transact_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
+    two_by_three: bool,
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     let controls = Controls::next(&mut iter)?;
-    Rail::Member.verify_and_forward(program_id, controls, iter, data)
+    Rail::Member.verify_and_forward(program_id, controls, iter, data, two_by_three)
 }
 
 /// The ring config and the co-signer slots every forwarded instruction leads with.
@@ -74,6 +76,7 @@ impl Rail {
         controls: Controls<'_>,
         mut rest: AccountIterator<'_>,
         data: &[u8],
+        two_by_three: bool,
     ) -> ProgramResult {
         let decoded: Box<CustomRingTransactIxData> = parse(data)?;
         let CustomRingTransactIxData {
@@ -90,9 +93,18 @@ impl Rail {
         }
 
         let config = load_audited_config(program_id, controls.config)?;
+        if two_by_three
+            && (!config.has_policy || transact.inputs.len() != 2 || transact.outputs.len() != 3)
+        {
+            return Err(CustomRingError::UnsupportedCircuit.into());
+        }
         let anonymous = config.mode == RingMode::Anonymous;
         let policy = if config.has_policy {
-            let binding = PolicyBinding::load(program_id, rest.next_account("policy_config")?)?;
+            let binding = PolicyBinding::load(
+                program_id,
+                rest.next_account("policy_config")?,
+                two_by_three,
+            )?;
             let trees = PolicyTrees::load(&mut rest, policy_trees)?;
             if self == Rail::Delegate && config.mode != RingMode::Registry {
                 return Err(if anonymous {
@@ -195,7 +207,7 @@ impl Rail {
             anonymous,
         };
 
-        let (public_input, verifying_key) = match policy {
+        match policy {
             Some((binding, trees, roots)) => {
                 let ring_id =
                     ring_id_field(program_id.as_array()).map_err(CustomRingError::from)?;
@@ -211,18 +223,35 @@ impl Rail {
                     member_registry_root: &roots.own,
                     foreign_root: &roots.foreign,
                 };
-                self.policy_statement(input)?
+                if let Some(table) = binding.table {
+                    let tree_hash =
+                        zolana_interface::tree_slot::populated_tree_slots_hash_chain(trees.slots())
+                            .map_err(CustomRingError::from)?;
+                    let inputs = table.public_table_inputs(
+                        input.hash().map_err(CustomRingError::from)?,
+                        tree_hash,
+                    )?;
+                    let key = match (self, anonymous) {
+                        (Rail::Delegate, _) => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
+                        (Rail::Member, true) => &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
+                        (Rail::Member, false) => &policy_2x3_verifying_key::VERIFYINGKEY,
+                    };
+                    verify_groth16_inputs(proof, &inputs, key)?;
+                } else {
+                    let (public_input, key) = self.policy_statement(input)?;
+                    verify_groth16(proof, public_input, key)?;
+                }
             }
-            None => (
+            None => verify_groth16(
+                proof,
                 audit.hash().map_err(CustomRingError::from)?,
                 if anonymous || transact.outputs.len() != 2 {
                     &base_verifying_key::VERIFYINGKEY
                 } else {
                     &base_confidential_verifying_key::VERIFYINGKEY
                 },
-            ),
-        };
-        verify_groth16(proof, public_input, verifying_key)?;
+            )?,
+        }
 
         let mut instruction_data = vec![self.spp_tag()];
         instruction_data.extend_from_slice(
@@ -268,6 +297,7 @@ impl Rail {
 
 /// Copied out, no account borrow may live across the SPP CPI.
 struct PolicyBinding {
+    table: Option<Box<PolicyConfig>>,
     policy_hash: [u8; 32],
     address_tree_id: u16,
     namespace_owner_hash: [u8; 32],
@@ -278,9 +308,14 @@ struct PolicyBinding {
 
 impl PolicyBinding {
     #[inline(never)]
-    fn load(program_id: &Address, account: &AccountView) -> Result<Self, ProgramError> {
+    fn load(
+        program_id: &Address,
+        account: &AccountView,
+        two_by_three: bool,
+    ) -> Result<Self, ProgramError> {
         let policy = load::<PolicyConfig>(program_id, account)?;
         Ok(Self {
+            table: two_by_three.then(|| Box::new(*policy)),
             policy_hash: policy.policy_hash,
             address_tree_id: policy.address_tree_id(),
             namespace_owner_hash: policy.namespace_owner_hash,

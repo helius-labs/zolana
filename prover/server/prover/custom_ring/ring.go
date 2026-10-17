@@ -42,6 +42,19 @@ var RingCircuits = []RingCircuit{
 	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
 	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
 	ring[UpdateMembersParams, registry.UpdateMembersCircuit](common.CustomRingUpdateMembersCircuitType),
+	twoByThreeRing(common.CustomRingPolicyTwoByThreeCircuitType, false, false),
+	twoByThreeRing(common.CustomRingAnonymousPolicyTwoByThreeCircuitType, true, false),
+	twoByThreeRing(common.CustomRingDelegatePolicyTwoByThreeCircuitType, false, true),
+}
+
+func twoByThreeRing(kind common.CircuitType, anonymous, delegate bool) RingCircuit {
+	params := func() any { return new(PolicyParams) }
+	if delegate {
+		params = func() any { return new(DelegatePolicyParams) }
+	}
+	return RingCircuit{Type: kind, params: params, Circuit: func() frontend.Circuit {
+		return &policy.PublicTableTwoByThreeCircuit{Circuit: policy.TwoByThreeCircuit{Anonymous: anonymous, Delegate: delegate}}
+	}}
 }
 
 func Ring(circuitType common.CircuitType) (RingCircuit, error) {
@@ -79,6 +92,15 @@ func Assign(circuitType common.CircuitType, params any) (frontend.Circuit, error
 		return nil, err
 	}
 	assignment := ring.Circuit()
+	if fast, ok := assignment.(*policy.PublicTableTwoByThreeCircuit); ok {
+		if delegated, ok := params.(*DelegatePolicyParams); ok {
+			params = &delegated.Policy
+		}
+		if err := assign(&fast.Circuit.Policy, params); err != nil {
+			return nil, err
+		}
+		return policy.AssignPublicTable(&fast.Circuit.Policy, fast.Circuit.Anonymous, fast.Circuit.Delegate)
+	}
 	return assignment, assign(assignment, params)
 }
 

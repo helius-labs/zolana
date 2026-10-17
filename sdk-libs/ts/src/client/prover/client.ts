@@ -19,6 +19,7 @@ import {
 import {
   MEMBER_REGISTRY_CAPACITY,
   MEMBER_REGISTRY_HEIGHT,
+  shareMemberSubtree,
 } from "../../interface/member-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
@@ -327,7 +328,9 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     const body = JSON.stringify(customRingPolicyProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-policy" });
+    const key = provingKeyFor({
+      circuit: inputs.twoByThree === true ? "custom-ring-policy-2x3" : "custom-ring-policy",
+    });
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -379,10 +382,18 @@ export class ProverClient {
   ): Promise<Proof> {
     if (inputs.limits.approvalRequired) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     const body = JSON.stringify({
-      circuitType: "custom-ring-delegate-policy",
+      circuitType:
+        inputs.twoByThree === true
+          ? "custom-ring-delegate-policy-2x3"
+          : "custom-ring-delegate-policy",
       policy: customRingPolicyProofRequest(inputs),
     });
-    const key = provingKeyFor({ circuit: "custom-ring-delegate-policy" });
+    const key = provingKeyFor({
+      circuit:
+        inputs.twoByThree === true
+          ? "custom-ring-delegate-policy-2x3"
+          : "custom-ring-delegate-policy",
+    });
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -851,8 +862,26 @@ export function customRingBaseProofRequest(
 export function customRingPolicyProofRequest(
   inputs: CustomRingPolicyProofRequest,
 ): Readonly<Record<string, unknown>> {
+  if (inputs.twoByThree !== undefined && typeof inputs.twoByThree !== "boolean")
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  if (
+    inputs.twoByThree === true &&
+    (inputs.nIn !== 2 ||
+      inputs.nOut !== 3 ||
+      ![inputs.subjects, inputs.foreignSubjects].every(
+        (subjects) =>
+          Array.isArray(subjects) &&
+          subjects.every(
+            (subject) => subject === undefined || (subject !== null && typeof subject === "object"),
+          ) &&
+          shareMemberSubtree(
+            subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
+          ),
+      ))
+  )
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   return Object.freeze({
-    circuitType: "custom-ring-policy",
+    circuitType: inputs.twoByThree === true ? "custom-ring-policy-2x3" : "custom-ring-policy",
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),

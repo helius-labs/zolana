@@ -64,6 +64,8 @@ const RingProgramTag = Object.freeze({
   initSppRingConfig: 2,
   transact: 3,
   delegateTransact: 25,
+  transactTwoByThree: 33,
+  delegateTransactTwoByThree: 34,
   createPolicy: 7,
   updateMembers: 32,
   setPolicySource: 10,
@@ -188,6 +190,7 @@ type RingTransactCommon = RingTransactTrees &
     cosigner?: SignerAccount;
     /** Must equal the proof's approval bit. */
     approvalRequired?: boolean;
+    twoByThree?: boolean;
   }>;
 
 export async function ringTransactInstruction(
@@ -234,7 +237,10 @@ export async function ringTransactInstruction(
       ...policy,
       ...pool,
     ],
-    data: transactData(RingProgramTag.transact, input),
+    data: transactData(
+      input.twoByThree === true ? RingProgramTag.transactTwoByThree : RingProgramTag.transact,
+      input,
+    ),
   };
 }
 
@@ -245,9 +251,19 @@ function transactData(
     proof: Uint8Array;
     policy?: RingTransactPolicy;
     approvalRequired?: boolean;
+    twoByThree?: boolean;
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
+  if (input.twoByThree !== undefined && typeof input.twoByThree !== "boolean")
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+  if (
+    input.twoByThree === true &&
+    (input.policy === undefined ||
+      input.data.inputs.length !== 2 ||
+      input.data.outputs.length !== 3)
+  )
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
   const proof = checkedCustomRingProof(input.proof);
   const policy = input.policy;
   const contexts = policy?.treeContexts ?? [];
@@ -308,7 +324,12 @@ export async function ringDelegateTransactInstruction(
       ...policy,
       ...pool,
     ],
-    data: transactData(RingProgramTag.delegateTransact, input),
+    data: transactData(
+      input.twoByThree === true
+        ? RingProgramTag.delegateTransactTwoByThree
+        : RingProgramTag.delegateTransact,
+      input,
+    ),
   };
 }
 

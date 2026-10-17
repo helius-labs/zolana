@@ -78,6 +78,8 @@ func (w AuditOutputWires) Select(api frontend.API, selected frontend.Variable, o
 
 // AuditTx is the transaction the caller opened, Hashes commit its output slots.
 type AuditTx struct {
+	// Compact permits compile-time pruning when the caller pins the shape.
+	Compact bool
 	Outputs [AuditOutputSlots]AuditOutputWires
 	Hashes  [AuditOutputSlots]frontend.Variable
 	NOut    Count
@@ -94,7 +96,7 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	// The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
 	AssertClamped(api, a.TxViewingSk)
 	txPk := gadget.PackBytesBE(api, TaggedPubkey(api, a.TxViewingSk))
-	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo}.Seal(api)
+	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo, Compact: tx.Compact}.Seal(api)
 	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
 	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
 
@@ -137,6 +139,17 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 			}
 		}
 	}
+	if tx.Compact && !ordinary {
+		last := 0
+		for i, flag := range live {
+			if !constantZero(api, flag) {
+				last = i + 1
+			}
+		}
+		// Keep the final hash group's zero padding, but no later groups.
+		length := 1 + 3*chainGroups(last)
+		plaintext, live = plaintext[:length], live[:length]
+	}
 
 	// Published fields are the live prefix, the zero tail pads the final HashChain4 group.
 	padCount := len(plaintext)
@@ -144,12 +157,17 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 		// The last HashChain4 element is a permanent zero. Its pad is unused.
 		padCount--
 	}
+	if tx.Compact {
+		for padCount > 1 && constantZero(api, live[padCount-1]) {
+			padCount--
+		}
+	}
 	pad := disclosurePad(api, key, salt, padCount)
 	states := []frontend.Variable{api.Mul(live[0], api.Add(plaintext[0], pad[0]))}
 	for start := 1; start < len(plaintext); start += 3 {
 		group := []frontend.Variable{states[len(states)-1]}
 		for i := start; i < start+3; i++ {
-			if i == padCount {
+			if i >= padCount {
 				group = append(group, 0)
 			} else {
 				group = append(group, api.Mul(live[i], api.Add(plaintext[i], pad[i])))
@@ -157,15 +175,49 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 		}
 		states = append(states, gadget.PoseidonHash(api, group))
 	}
-	disclosure := api.Mul(legacy, states[chainGroups(AuditOutputSlots*AuditOutputFieldCount)])
+	var disclosure frontend.Variable = 0
+	if !tx.Compact || !constantZero(api, legacy) {
+		disclosure = api.Mul(legacy, states[chainGroups(AuditOutputSlots*AuditOutputFieldCount)])
+	}
 	for _, shape := range layout.shapes {
+		if tx.Compact && constantZero(api, shape.selected) {
+			continue
+		}
 		disclosure = api.Add(disclosure, api.Mul(shape.selected, states[chainGroups(shape.length)]))
 	}
 
+	var outputHash frontend.Variable
+	if tx.Compact {
+		selectedCount := -1
+		for i, selected := range tx.NOut.OneHot {
+			value, ok := api.Compiler().ConstantValue(selected)
+			if !ok {
+				selectedCount = -1
+				break
+			}
+			if value.Sign() != 0 {
+				if value.Sign() < 0 || value.BitLen() != 1 || selectedCount != -1 {
+					panic("compact audit requires a one-hot output count")
+				}
+				selectedCount = i + 1
+			}
+		}
+		if selectedCount != -1 {
+			outputHash = gadget.HashChain4(api, tx.Hashes[:selectedCount])
+		}
+	}
+	if outputHash == nil {
+		outputHash = HashPrefix4(api, tx.Hashes[:], tx.NOut)
+	}
 	return [12]frontend.Variable{
 		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
-		gadget.HashBytes(api, sealed.Ciphertext), HashPrefix4(api, tx.Hashes[:], tx.NOut), salt, disclosure, a.Anonymous,
+		gadget.HashBytes(api, sealed.Ciphertext), outputHash, salt, disclosure, a.Anonymous,
 	}
+}
+
+func constantZero(api frontend.API, value frontend.Variable) bool {
+	v, ok := api.Compiler().ConstantValue(value)
+	return ok && v.Sign() == 0
 }
 
 // chainGroups is the HashChain4 state index that absorbs the first n values.

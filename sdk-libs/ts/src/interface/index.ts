@@ -31,7 +31,11 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
-export { MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_HEIGHT } from "./member-registry.js";
+export {
+  MEMBER_REGISTRY_CAPACITY,
+  MEMBER_REGISTRY_HEIGHT,
+  shareMemberSubtree,
+} from "./member-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   TransactCacheAccounts,

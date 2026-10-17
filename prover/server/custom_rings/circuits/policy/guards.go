@@ -16,7 +16,7 @@ type outputTotals struct {
 	byOwner, byAsset, byOwnerAndAsset frontend.Variable
 }
 
-func sumOutputs(api frontend.API, outputs [NOutputs]utxoView, liveOwner, liveAsset [NOutputs]frontend.Variable) [NOutputs]outputTotals {
+func sumOutputs(api frontend.API, outputs []utxoView, liveOwner, liveAsset [NOutputs]frontend.Variable) [NOutputs]outputTotals {
 	var totals [NOutputs]outputTotals
 	for i, output := range outputs {
 		totals[i] = outputTotals{0, 0, 0}
@@ -44,8 +44,12 @@ func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, asset fron
 
 // amountExemption waives coverage within the selected guard's grouped amount limit.
 func (r ruleFields) amountExemption(api frontend.API, subjectTotal, ownerAssetTotal frontend.Variable, limit assetLimit) frontend.Variable {
-	scalar := api.Mul(r.scalarGuard, outputTotalAtMost(api, subjectTotal, r.threshold))
-	perAsset := api.Mul(r.assetGuard, limit.found, outputTotalAtMost(api, ownerAssetTotal, limit.threshold))
+	return r.amountExemptionWith(api, subjectTotal, ownerAssetTotal, limit, outputTotalAtMost)
+}
+
+func (r ruleFields) amountExemptionWith(api frontend.API, subjectTotal, ownerAssetTotal frontend.Variable, limit assetLimit, atMost func(frontend.API, frontend.Variable, frontend.Variable) frontend.Variable) frontend.Variable {
+	scalar := api.Mul(r.scalarGuard, atMost(api, subjectTotal, r.threshold))
+	perAsset := api.Mul(r.assetGuard, limit.found, atMost(api, ownerAssetTotal, limit.threshold))
 	return api.Or(scalar, perAsset)
 }
 

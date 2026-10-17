@@ -39,8 +39,11 @@ const (
 
 	// CustomRingPolicyCircuitType folds the audit statement with policy
 	// enforcement in one proof and one verification per transact.
-	CustomRingPolicyCircuitType         CircuitType = "custom-ring-policy"
-	CustomRingDelegatePolicyCircuitType CircuitType = "custom-ring-delegate-policy"
+	CustomRingPolicyCircuitType                    CircuitType = "custom-ring-policy"
+	CustomRingDelegatePolicyCircuitType            CircuitType = "custom-ring-delegate-policy"
+	CustomRingPolicyTwoByThreeCircuitType          CircuitType = "custom-ring-policy-2x3"
+	CustomRingAnonymousPolicyTwoByThreeCircuitType CircuitType = "custom-ring-policy-2x3-anonymous"
+	CustomRingDelegatePolicyTwoByThreeCircuitType  CircuitType = "custom-ring-delegate-policy-2x3"
 
 	// Key registration writes a member's auditor-encrypted nullifier key into its record.
 	CustomRingKeyRegisterCircuitType CircuitType = "custom-ring-register-key"
@@ -58,6 +61,9 @@ var RingCircuitTypes = []CircuitType{
 	CustomRingPolicyCircuitType,
 	CustomRingBaseCircuitType,
 	CustomRingDelegatePolicyCircuitType,
+	CustomRingPolicyTwoByThreeCircuitType,
+	CustomRingAnonymousPolicyTwoByThreeCircuitType,
+	CustomRingDelegatePolicyTwoByThreeCircuitType,
 	CustomRingKeyRegisterCircuitType,
 	CustomRingDepositCircuitType,
 	CustomRingUpdateMembersCircuitType,

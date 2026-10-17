@@ -10,7 +10,8 @@ use zolana_interface::{
     event::RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     instruction::{
         instruction_data::transact::{
-            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
+            CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+            TreeContext,
         },
         MessageData,
     },
@@ -151,6 +152,22 @@ fn policy_fixture_with(ix: CustomRingTransactIxData) -> Fixture {
         initialized_config_account(authority(), auditor_pubkey(4)),
         encode_transact(tag::TRANSACT, &ix),
     )
+}
+
+#[test]
+fn the_fixed_policy_tag_refuses_other_shapes_and_audit_only_rings() {
+    let (mollusk, _) = setup_mollusk();
+    let mut policy = policy_fixture(0, 0);
+    policy.data_mut()[0] = tag::TRANSACT_TWO_BY_THREE;
+    policy.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    let audit = audit_transact_fixture(
+        audit_only_config_account(authority(), auditor_pubkey(4)),
+        encode_transact(
+            tag::TRANSACT_TWO_BY_THREE,
+            &audit_ix_data(bogus_proof(), transact_data()),
+        ),
+    );
+    audit.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
 
 /// An audit-only ring dispatches to the audit verifying key with no policy
@@ -534,6 +551,50 @@ fn five_policy_trees_and_the_registry_fit_the_transaction_budget() {
     );
     eprintln!(
         "policy transact with {INPUT_TREES} trees and the registry: {} CU",
+        result.compute_units_consumed
+    );
+}
+
+/// Exercises public-table loading, all 78 scalar multiplications and the
+/// Groth16 pairing in SBF. The deliberately false proof then stops before CPI.
+#[test]
+fn the_fixed_policy_verifier_fits_the_transaction_budget() {
+    let (mollusk, _) = setup_mollusk();
+    let mut transact = transact_data();
+    transact.circuit = CircuitId::ConfidentialRingEd25519(2, 4, N_PUBLIC_SLOTS as u8);
+    transact.inputs = vec![
+        InputUtxo {
+            nullifier_hash: [1; 32],
+            tree_index: 0
+        };
+        2
+    ];
+    transact.outputs = vec![confidential_output(); 3];
+    transact.messages[0].data.resize(auditor_message_len(3), 0);
+    let mut ix = ix_data(0, 0, false, transact);
+    ix.proof.commitment = [0; 32];
+    ix.proof.commitment_pok = [0; 32];
+    let fixture = transact_fixture(
+        escrowed_config_account(),
+        encode_transact(tag::TRANSACT_TWO_BY_THREE, &ix),
+    );
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(
+        result.program_result,
+        mollusk_svm::result::ProgramResult::Failure(custom(
+            CustomRingError::ProofVerificationFailed
+        ))
+    );
+    assert!(
+        result.compute_units_consumed > 400_000,
+        "must reach the public-input MSM and pairing"
+    );
+    assert!(
+        result.compute_units_consumed < 900_000,
+        "leave room for commitment verification and SPP"
+    );
+    eprintln!(
+        "fixed policy transact through Groth16 pairing: {} CU",
         result.compute_units_consumed
     );
 }

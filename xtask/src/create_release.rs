@@ -168,7 +168,7 @@ impl RingKeySource {
     }
 }
 
-const RING_KEY_SOURCES: [RingKeySource; 6] = [
+const RING_KEY_SOURCES: [RingKeySource; 10] = [
     RingKeySource {
         section: "proving_key",
         prover_file: "custom_ring_policy.key",
@@ -198,6 +198,26 @@ const RING_KEY_SOURCES: [RingKeySource; 6] = [
         section: "confidential_audit_key",
         prover_file: "custom_ring_base_confidential.key",
         asset_stem: "custom-ring-base-confidential-key",
+    },
+    RingKeySource {
+        section: "policy_2x3_key",
+        prover_file: "custom_ring_policy_2x3.key",
+        asset_stem: "custom-ring-policy-2x3-key",
+    },
+    RingKeySource {
+        section: "anonymous_policy_2x3_key",
+        prover_file: "custom_ring_policy_2x3_anonymous.key",
+        asset_stem: "custom-ring-policy-2x3-anonymous-key",
+    },
+    RingKeySource {
+        section: "delegate_policy_2x3_key",
+        prover_file: "custom_ring_delegate_policy_2x3.key",
+        asset_stem: "custom-ring-delegate-policy-2x3-key",
+    },
+    RingKeySource {
+        section: "update_members_key",
+        prover_file: "custom_ring_update_members.key",
+        asset_stem: "custom-ring-update-members-key",
     },
 ];
 

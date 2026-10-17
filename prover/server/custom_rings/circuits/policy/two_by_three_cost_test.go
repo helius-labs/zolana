@@ -29,7 +29,7 @@ func (s *twoByThreeStage) Define(api frontend.API) error {
 	if s.Stage == 1 {
 		return nil
 	}
-	subjects := c.resolveSubjects(api, tx, checked.sources)
+	subjects := c.resolveSubjects(api, tx, checked)
 	if s.Stage == 2 {
 		return nil
 	}
@@ -83,22 +83,38 @@ func TestTwoByThreeCost(t *testing.T) {
 	}
 }
 
+func TestPublicTableTwoByThreeCost(t *testing.T) {
+	for _, anonymous := range []bool{false, true} {
+		c := &PublicTableTwoByThreeCircuit{Circuit: TwoByThreeCircuit{Anonymous: anonymous, RegistrySubtreeDepth: 3}}
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, c, frontend.WithCompressThreshold(300))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("public table anonymous=%v constraints=%d public=%d", anonymous, cs.GetNbConstraints(), cs.GetNbPublicVariables())
+	}
+}
+
 func TestTwoByThreeChecksShapeAndMode(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		anonymous bool
 		delegate  bool
+		depth     int
 	}{
 		{name: "ordinary"},
 		{name: "anonymous", anonymous: true},
 		{name: "delegate", delegate: true},
+		{name: "ordinary_subtree", depth: 3},
+		{name: "anonymous_subtree", anonymous: true, depth: 3},
+		{name: "delegate_subtree", delegate: true, depth: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			circuit := &TwoByThreeCircuit{Anonymous: tc.anonymous, Delegate: tc.delegate}
+			circuit := &TwoByThreeCircuit{Anonymous: tc.anonymous, Delegate: tc.delegate, RegistrySubtreeDepth: tc.depth}
 			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("2x3 %s: %d constraints", tc.name, cs.GetNbConstraints())
 			s := newStatement(t, defaultFixture())
 			s.anonymous = tc.anonymous
 			s.outputs = append(s.outputs, dummyOpening(t, 0x56))
@@ -107,7 +123,7 @@ func TestTwoByThreeChecksShapeAndMode(t *testing.T) {
 				s.limits = []limitRow{{asset: assetField(t, defaultFixture().transferred), cap: 1, cosign: 1}}
 				s.escrowOutputs(t)
 			}
-			w := &TwoByThreeCircuit{Policy: *s.assignment(t), Anonymous: tc.anonymous, Delegate: tc.delegate}
+			w := &TwoByThreeCircuit{Policy: *s.assignment(t), Anonymous: tc.anonymous, Delegate: tc.delegate, RegistrySubtreeDepth: tc.depth}
 			check := func(w *TwoByThreeCircuit, accepted bool) {
 				t.Helper()
 				witness, err := frontend.NewWitness(w, ecc.BN254.ScalarField())

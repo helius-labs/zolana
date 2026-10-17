@@ -55,7 +55,11 @@ func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rang
 	checked := checkedPolicy{ruleEnabled: rules.Active, inline: base.SelectCount(api, c.InlineCount, 0, NInlineAssets+1)}
 	checked.sources = c.checkSources(api)
 	for i, packed := range c.Rules {
-		checked.rules[i] = decodeRule(api, packed)
+		if c.FixedInputs != 0 {
+			checked.rules[i] = decodeRuleCompact(api, packed)
+		} else {
+			checked.rules[i] = decodeRule(api, packed)
+		}
 		checked.rules[i].check(api, rules.Active[i], checked.sources.configured)
 	}
 	for i, asset := range c.InlineAssets {
@@ -67,7 +71,11 @@ func (c *CustomRingPolicyCircuit) checkPolicy(api frontend.API, rc frontend.Rang
 	}
 	c.checkGuardAssets(api, checked)
 	checked.limits = c.checkLimitTable(api, rc)
-	checked.hash = c.policyHash(api, rules, checked.inline.Active, checked.limits.Active)
+	if c.PublicPolicyHash != nil {
+		checked.hash = c.PublicPolicyHash
+	} else {
+		checked.hash = c.policyHash(api, rules, checked.inline.Active, checked.limits.Active)
+	}
 	return checked
 }
 

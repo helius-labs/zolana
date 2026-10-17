@@ -10,17 +10,22 @@ import { InterfaceError } from "./errors.js";
  * rotation updates this table in the same change.
  */
 export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
+  "custom_ring_delegate_policy_2x3.key":
+    "06f5e0babd78b420fcbc66e26a1f897287b0ae7fa6d839634d6e2f80b19951da",
+  "custom_ring_policy_2x3_anonymous.key":
+    "d9035b123e917aea6e54b28448d9bdf71d94c2fd0691c364c802b890fa3e8fcf",
+  "custom_ring_policy_2x3.key": "9f945e64ba36b8642910d176635ffe1b07c12d722d4108bc2527ef2bec31ce33",
   "batch_address-append_40_10.key":
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
   "custom_ring_base_confidential.key":
-    "05486d42dbfac14637e78fcdf53ac773e8cdb511b20d1ecdab259c7965c1cfbe",
+    "993ae54cb67e6d3b7ca2c12948606f5754fa4b8db8d14ed8dc6a8d0f2cd61b23",
   "custom_ring_delegate_policy.key":
-    "17135904f857a3fe2e7916c332a289e5d2e37228669f9061de6b5d416cfa1f9a",
-  "custom_ring_base.key": "73a27072d09f7dcd0124f637dbfb8d36b0a1c5c690c4d082716f8cbff778c695",
+    "49f34bb653e2e05c071ef6dcfb449eca7a1d34e39a155343e8744fd3a48c1053",
+  "custom_ring_base.key": "b08248b70ac4ec29e5473e2ca9d8ddda3eccadbd301caf7cecbc431bc743b6bc",
   "custom_ring_deposit.key": "7018092f0fa02d11adc6aadc7b083d7d5ae32936c91877252125377ef51b263b",
-  "custom_ring_policy.key": "93d772c2e303cad0c35a8b17f1c5ad907f7b878360752c2a4d626a9a24982e31",
+  "custom_ring_policy.key": "993b7d8c9490ec42cb468f3e7e8145627e5a23234b6c65bd81ee824dd88fdee7",
   "custom_ring_register_key.key":
     "cdad9dddf838db7899fe6bd958ec3b6846d4c7ffa12502d388d8dd831574b14f",
   "custom_ring_update_members.key":
@@ -181,6 +186,9 @@ export type ProvingKeyCircuit =
   | { readonly circuit: "custom-ring-base" }
   | { readonly circuit: "custom-ring-base-confidential" }
   | { readonly circuit: "custom-ring-policy" }
+  | { readonly circuit: "custom-ring-policy-2x3" }
+  | { readonly circuit: "custom-ring-policy-2x3-anonymous" }
+  | { readonly circuit: "custom-ring-delegate-policy-2x3" }
   | { readonly circuit: "custom-ring-compressed-policy" }
   | { readonly circuit: "custom-ring-delegate-policy" }
   | { readonly circuit: "custom-ring-deposit" }
@@ -222,6 +230,9 @@ function provingKeyName(request: ProvingKeyCircuit): string {
     case "custom-ring-base":
     case "custom-ring-base-confidential":
     case "custom-ring-policy":
+    case "custom-ring-policy-2x3":
+    case "custom-ring-policy-2x3-anonymous":
+    case "custom-ring-delegate-policy-2x3":
     case "custom-ring-compressed-policy":
     case "custom-ring-delegate-policy":
     case "custom-ring-deposit":

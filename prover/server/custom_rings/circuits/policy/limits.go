@@ -52,12 +52,12 @@ func (c *CustomRingPolicyCircuit) constrainLimits(api frontend.API, rows base.Co
 			toSender := api.Mul(api.IsZero(api.Sub(output.ownerPkHash, sender)), api.IsZero(api.Sub(output.ringProgramID, c.RingID)))
 			change = api.Add(change, api.Mul(output.utxo, api.IsZero(api.Sub(output.asset, row.Asset)), toSender, output.amount))
 		}
-		shared.AssertWhen(api, rows.Active[r], outputTotalAtMost(api, change, inflow))
+		shared.AssertWhen(api, rows.Active[r], c.amountAtMost(api, change, inflow))
 		outflow := api.Sub(inflow, change)
 		capped := api.Mul(rows.Active[r], base.NonZero(api, row.Cap))
-		shared.AssertWhen(api, capped, outputTotalAtMost(api, outflow, row.Cap))
+		shared.AssertWhen(api, capped, c.amountAtMost(api, outflow, row.Cap))
 		cosigned := api.Mul(rows.Active[r], base.NonZero(api, row.CosignAbove))
-		approval = api.Or(approval, api.Mul(cosigned, api.Sub(1, outputTotalAtMost(api, outflow, row.CosignAbove))))
+		approval = api.Or(approval, api.Mul(cosigned, api.Sub(1, c.amountAtMost(api, outflow, row.CosignAbove))))
 	}
 	api.AssertIsBoolean(c.ApprovalRequired)
 	api.AssertIsEqual(c.ApprovalRequired, approval)

@@ -30,7 +30,10 @@ pub fn process_instruction(
         InstructionTag::InitSppRingConfig => {
             process_init_spp_ring_config_ix(program_id, accounts, ix_data)
         }
-        InstructionTag::Transact => process_transact_ix(program_id, accounts, ix_data),
+        InstructionTag::Transact => process_transact_ix(program_id, accounts, ix_data, false),
+        InstructionTag::TransactTwoByThree => {
+            process_transact_ix(program_id, accounts, ix_data, true)
+        }
         // SPP's dispatcher strips the tag byte, the forwarder passes it on.
         InstructionTag::Deposit => Forward::Deposit.process(program_id, accounts, instruction_data),
         InstructionTag::AuditedDeposit => {
@@ -60,7 +63,10 @@ pub fn process_instruction(
             process_set_deposit_audit_ix(program_id, accounts, ix_data)
         }
         InstructionTag::DelegateTransact => {
-            process_delegate_transact_ix(program_id, accounts, ix_data)
+            process_delegate_transact_ix(program_id, accounts, ix_data, false)
+        }
+        InstructionTag::DelegateTransactTwoByThree => {
+            process_delegate_transact_ix(program_id, accounts, ix_data, true)
         }
         InstructionTag::CreateMemberRegistryRoot => {
             process_create_member_registry_root_ix(program_id, accounts, ix_data)

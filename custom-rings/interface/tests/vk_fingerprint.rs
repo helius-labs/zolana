@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "000e34cd25381e366f2ebba8b4632074bfbe63a8ffa4780238a0ac44c8571a16",
+        fingerprint, "00ea83fbcf8264dcbf6ee378f4d06707166d643524cd44d3881c7f50e73037ff",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn base_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "0055583b0d072b486fa3a1eecff02424e1454914d6589ad0e0e6449dfef2c851",
+        fingerprint, "00a638d9fa9214907ed586a25d32cc1dfaa6f43e36088c63e410aa56b2439125",
         "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -82,7 +82,7 @@ fn confidential_base_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "base_confidential_verifying_key",
         &custom_ring_interface::base_confidential_verifying_key::VERIFYINGKEY,
-        "00b6b1cd2c2faf0313e047f69c7edef5e0d83bef5343de694a1cdbc8d4694f17",
+        "00e3d232a1bb9206080e7a37671f949081e6215c1dddcdd737d6f81a9e1b80db",
     );
 }
 
@@ -91,7 +91,7 @@ fn delegate_policy_verifying_key_fingerprint_is_pinned() {
     assert_rail_fingerprint(
         "delegate_policy_verifying_key",
         &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
-        "00beb1a5a17c64b08f7ee53beb92f67ee037a8a3ab11b3dfa4e0718ea5e49fa9",
+        "0000a442b4ea66ddd63d139590f1787a6fe04255c3136d3a096e234858766e70",
     );
 }
 
@@ -120,4 +120,31 @@ fn update_members_verifying_key_fingerprint_is_pinned() {
         &custom_ring_interface::update_members_verifying_key::VERIFYINGKEY,
         "00d2a0857f2d81b7e86400af8a18b5427cca6e735df5fd0c0c9f44b1ba5fb924",
     );
+}
+
+#[test]
+fn policy_2x3_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "policy_2x3_verifying_key",
+        &custom_ring_interface::policy_2x3_verifying_key::VERIFYINGKEY,
+        "004e5ba7881f0811d11b7fe71aee6b62a5da33ffaf95aca6af123dc0f3a407b1",
+    )
+}
+
+#[test]
+fn policy_2x3_anonymous_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "policy_2x3_anonymous_verifying_key",
+        &custom_ring_interface::policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
+        "002fc742e008811a85f831bc82e93d6834d1feba3f38551ac3a5c98d9d687d9b",
+    )
+}
+
+#[test]
+fn delegate_policy_2x3_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "delegate_policy_2x3_verifying_key",
+        &custom_ring_interface::delegate_policy_2x3_verifying_key::VERIFYINGKEY,
+        "00717a5f396de81b02478813c2b1005bcb7fd91bdc800c495897ac358ddc951d",
+    )
 }

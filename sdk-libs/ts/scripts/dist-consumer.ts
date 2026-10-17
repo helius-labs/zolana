@@ -183,3 +183,21 @@ export {
   readRingMemberRecord,
   fetchRingMemberRecord,
 } from "@heliuslabs/zolana/ring";
+
+export { shareMemberSubtree } from "@heliuslabs/zolana/interface";
+import type { CustomRingPolicyProofRequest } from "@heliuslabs/zolana/client";
+import type { ProvenRingTransfer } from "@heliuslabs/zolana/ring";
+import { ringTransactInstruction, ringDelegateTransactInstruction } from "@heliuslabs/zolana/ring";
+
+export const fixedPolicyShape: Pick<CustomRingPolicyProofRequest, "twoByThree"> = {
+  twoByThree: true,
+};
+export const fixedProvenShape: Pick<ProvenRingTransfer, "twoByThree"> = fixedPolicyShape;
+export const fixedMemberInstruction: Pick<
+  Parameters<typeof ringTransactInstruction>[0],
+  "twoByThree"
+> = fixedPolicyShape;
+export const fixedDelegateInstruction: Pick<
+  Parameters<typeof ringDelegateTransactInstruction>[0],
+  "twoByThree"
+> = fixedPolicyShape;

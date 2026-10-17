@@ -45,6 +45,7 @@ pub use transact::{
 };
 pub use utxo::ProofInputUtxo;
 pub use verify::{
-    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,
+    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_inputs,
+    verify_proof_statement,
 };
 pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};

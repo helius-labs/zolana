@@ -309,6 +309,7 @@ async function buildDelegateTransaction(
       outputTree: proven.outputTree,
       ...(proven.policy === undefined ? {} : { policy: proven.policy }),
       proof: proven.proof,
+      twoByThree: proven.twoByThree === true,
       data: proven.data,
       delegate,
       ...(cosigner === undefined ? {} : { cosigner }),

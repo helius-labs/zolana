@@ -3,6 +3,18 @@ import type { Bytes32 } from "./types.js";
 export const MEMBER_REGISTRY_HEIGHT = 20;
 export const MEMBER_REGISTRY_CAPACITY = 1n << BigInt(MEMBER_REGISTRY_HEIGHT);
 
+/** Eligibility for the fixed policy proof. The proof authenticates every index. */
+export function shareMemberSubtree(indices: readonly bigint[]): boolean {
+  let prefix: bigint | undefined;
+  for (const index of indices) {
+    if (typeof index !== "bigint" || index < 0n || index >= MEMBER_REGISTRY_CAPACITY) return false;
+    const current = index >> 3n;
+    if (prefix !== undefined && current !== prefix) return false;
+    prefix = current;
+  }
+  return true;
+}
+
 export interface MemberRecord {
   readonly member: Bytes32;
   readonly next: Bytes32;

@@ -11,14 +11,16 @@ import (
 type TwoByThreeCircuit struct {
 	Policy CustomRingPolicyCircuit
 	// Anonymous and Delegate are key metadata, never prover-controlled wires.
-	Anonymous bool `gnark:"-"`
-	Delegate  bool `gnark:"-"`
+	Anonymous            bool `gnark:"-"`
+	Delegate             bool `gnark:"-"`
+	RegistrySubtreeDepth int  `gnark:"-"`
 }
 
 func (c *TwoByThreeCircuit) Define(api frontend.API) error {
 	c.Policy.FixedInputs = 2
 	c.Policy.FixedOutputs = 3
 	c.Policy.FixedMode = 1
+	c.Policy.RegistrySubtreeDepth = c.RegistrySubtreeDepth
 	if c.Anonymous {
 		c.Policy.FixedMode = 2
 	}

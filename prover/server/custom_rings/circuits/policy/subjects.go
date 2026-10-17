@@ -20,11 +20,33 @@ type subjectView struct {
 
 // resolveSubjects opens every live UTXO slot's owner in the ring registry, and in the curator
 // registry when the sources name one. Other slots leave their openings unread.
-func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transaction, sources sourcesView) [NSubjects]subjectView {
+func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transaction, checked checkedPolicy) [NSubjects]subjectView {
+	sources := checked.sources
 	var subjects [NSubjects]subjectView
-	for s, slot := range tx.slots() {
-		own, escrowKey := c.Subjects[s].Resolve(api, slot.utxo, c.MemberRegistryRoot, slot.ownerPkHash)
-		foreign, _ := c.ForeignSubjects[s].Resolve(api, api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash)
+	var ownBatch, foreignBatch *registry.SubtreeBatch
+	if c.RegistryWitness != nil {
+		ownBatch = registry.NewSparseSubtreeBatch(api, c.MemberRegistryRoot, &c.RegistryWitness[0])
+		foreignBatch = registry.NewSparseSubtreeBatch(api, c.ForeignRoot, &c.RegistryWitness[1])
+	} else if c.RegistrySubtreeDepth != 0 {
+		ownBatch = registry.NewSubtreeBatch(c.RegistrySubtreeDepth, c.MemberRegistryRoot)
+		foreignBatch = registry.NewSubtreeBatch(c.RegistrySubtreeDepth, c.ForeignRoot)
+	}
+	resolve := func(o registry.MemberOpening, active, root, member frontend.Variable, batch *registry.SubtreeBatch) (frontend.Variable, frontend.Variable) {
+		if batch != nil {
+			return batch.Resolve(api, o, active, member)
+		}
+		if c.FixedInputs != 0 {
+			return o.ResolveCompact(api, active, root, member)
+		}
+		return o.Resolve(api, active, root, member)
+	}
+	for index, slot := range tx.slots() {
+		s := index
+		if index >= len(tx.inputs) {
+			s = NInputs + index - len(tx.inputs)
+		}
+		own, escrowKey := resolve(c.Subjects[s], slot.utxo, c.MemberRegistryRoot, slot.ownerPkHash, ownBatch)
+		foreign, _ := resolve(c.ForeignSubjects[s], api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash, foreignBatch)
 		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
 		subjects[s] = subjectView{present: c.Subjects[s].Present, escrowKey: escrowKey}
 		for i := range subjects[s].onList {
@@ -34,19 +56,28 @@ func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transacti
 	assetRules := frontend.Variable(0)
 	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
 	for i, packed := range c.Rules {
-		rule := decodeRule(api, packed)
+		var rule ruleFields
+		if c.FixedInputs != 0 {
+			rule = checked.rules[i]
+		} else {
+			rule = decodeRule(api, packed)
+		}
 		active := rules.Active[i]
 		assetRules = api.Or(assetRules, api.Mul(active, rule.onAsset))
 	}
 	for o, slot := range tx.outputs {
 		s := NInputs + NOutputs + o
 		active := api.Mul(slot.utxo, assetRules, base.NonZero(api, slot.asset))
-		own, _ := c.Subjects[s].Resolve(api, active, c.MemberRegistryRoot, slot.asset)
-		foreign, _ := c.ForeignSubjects[s].Resolve(api, api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset)
+		own, _ := resolve(c.Subjects[s], active, c.MemberRegistryRoot, slot.asset, ownBatch)
+		foreign, _ := resolve(c.ForeignSubjects[s], api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset, foreignBatch)
 		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
 		for i := range subjects[s].onList {
 			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
 		}
+	}
+	if ownBatch != nil {
+		ownBatch.Check(api)
+		foreignBatch.Check(api)
 	}
 	return subjects
 }

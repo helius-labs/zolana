@@ -1,86 +1,74 @@
-Ordinary payments prove auditor disclosure against the committed outputs. Recipient encryption remains wallet-side.
+The full 2-input, 3-output policy and auditor proof is below 100k constraints. No policy feature was removed. Ordinary recipient encryption stays wallet-side.
 
-## Full-policy 2-input, 3-output probe
+| Custom-ring proof | General key | New 2×3 key | Reduction |
+|---|---:|---:|---:|
+| Ordinary policy and audit | 326,293 | **95,943** | 70.6% |
+| Anonymous policy and audit | 326,293 | **98,809** | 69.7% |
+| Delegate policy and audit | 324,033 | **95,217** | 70.6% |
 
-A fixed 2×3 policy circuit preserves the current policy and audit statements. It pins the input count, output count and ring mode in the verifying key. The existing general circuits and keys remain available. This probe is not wired into production key selection because it misses the 100k custom-proof target.
+These are exact compiled R1CS counts. The new keys retain sixteen rules, eight list sources, eight per-mint amount thresholds, eight outflow rows, curator lists and key escrow. Each rail keeps its existing semantics. The delegate still requires authorization and escrow and remains exempt from outflow limits.
 
-| Policy and audit proof | General key | Fixed 2×3 probe |
-|---|---:|---:|
-| Ordinary | 326,293 | 235,600 |
-| Anonymous | 326,293 | 245,661 |
-| Delegate | 324,033 | 233,421 |
+The 100k budget covers the custom-ring proof. SPP settlement is separate. Three published outputs use its padded 2×4 circuit. Ordinary custom settlement adds 57,680 constraints, giving **153,623** across both proofs. The default-ring settlement circuit has 57,554 constraints at that shape.
 
-For the ordinary probe, cumulative compile differences attribute about 123,448 constraints to registry openings and 54,191 to audit. Policy table checks add 22,451, transaction checks add 11,153 and rule and limit checks add 17,291. The attribution test omits part of the final statement hash, so its component sum is not the exact production count. All three full counts above are exact compiled R1CS sizes.
-
-The existing 20-level member registry authenticates each owner or asset against the ring registry and, when configured, a curator registry. The 2×3 circuit still supports eight subject slots and up to sixteen authenticated openings. Even deleting registry verification entirely from the attribution circuit leaves over 100k constraints after the audit and other policy checks. A batch Merkle proof alone cannot meet the target. A safe sub-100k design needs measured savings in audit, policy evaluation and registry authentication together. Until one passes the full gate, the current proving path stays in service.
-
-| Circuit | Before optimization | Now |
-|---|---:|---:|
-| Ordinary auditor disclosure, two outputs | 95,610 | 58,645 |
-| Anonymous-capable auditor disclosure | 95,610 | 79,021 |
-| Policy and audit | 339,469 | 326,293 |
-| Delegate policy and audit | 337,209 | 324,033 |
-
-A one-input, two-output payment adds 30,987 settlement constraints. The ordinary custom-ring total is **89,632**, down from 126,597. Other output counts use the general audit circuit. Policy and anonymous payments have larger totals.
-
-The remaining two-output audit cost breaks down as follows. These are cumulative compile differences, including deferred lookup arguments. The order matters because the curve operations share range tables.
-
-| Work | Added constraints |
-|---|---:|
-| Transaction viewing public key | 5,916 |
-| Auditor X25519 key agreement | 25,424 |
-| Envelope transcript, KDF and AES | 9,373 |
-| Disclosure stream, ciphertext hashing and framing | 12,699 |
-| Two note commitments and output hash | 2,595 |
-| Public statement hash | 2,638 |
-| Total | **58,645** |
-
-The default ring already compiles for the transaction's output count. The ordinary audit circuit now pins two outputs at compile time and hashes only those two note openings. The program chooses this key only for a two-output, nonanonymous transfer without policy. It chooses the general key for one, three or four outputs. The circuit independently checks its count is two. The Rust and TypeScript clients make the same selection.
-
-The auditor envelope now uses the two-hash stream KDF from `../zk-experiments/gnark-gadgets/encryption/kdf.go`. The first Poseidon output supplies 31 key bytes. The second supplies the last key byte and 12 nonce bytes. Exact canonical encoding admits every native field value, including `q - 1`. The older four-hash schedule remains in other encryption paths. A standalone compilation measures 824 constraints for the two-hash schedule against 2,490 for the older schedule. In the complete audit circuit, shared lookup costs make the saving about 1,812. The new ciphertext is pinned by the rotated proof keys and a common Go, Rust and TypeScript vector.
-
-The spread-lane AES implementation already has shared tables, reused key expansion, cached first-round columns and fused final XOR. Those savings are already in the totals above.
-
-A two-output audit still encrypts four output slots because the published disclosure has a fixed 36-field layout. Shortening that layout needs coordinated circuit, program, Rust and TypeScript changes, plus a message version for auditor recovery. An inactive witness flag alone does not reduce circuit constraints.
-
-The auditor still recovers the transaction viewing key. It opens both the checked note disclosure and the transaction's output data. Encrypting the disclosure directly from auditor ECDH would remove the envelope, but would remove that output-data recovery path. It is a different audit guarantee and is not counted as an optimization here.
-
-Reproduce the measured circuit breakdown from `prover/server`:
-
-```sh
-go test ./custom_rings/circuits/base -run '^TestAudit(CostBreakdown|KDFStructuralCost)$' -v
-```
-
-The ordinary audit circuit fixes anonymous mode to zero at compilation. It proves the same public statement and emits the same auditor ciphertext and disclosure. It omits the hidden input and identity machinery that ordinary rings never use. The program chooses the key from its stored ring configuration. The request cannot choose a cheaper verification mode.
-
-The general circuit selects the complete output opening before hashing it. The selected hash binds both disclosure and the anonymous transaction commitment. Previously it hashed both candidate openings before selecting. The anonymous mode still constrains the sender, spent notes and recipients.
-
-Canonical field serialization now uses 32 bounded bytes and a bounded complement. Let `B = 2^128` and let `q` be the native field modulus. The circuit constrains both byte halves, both 128-bit complement limbs and one Boolean carry:
+The main savings come from avoiding repeated work.
 
 ```text
-x_low  + gap_low         = (q - 1)_low + carry × B
-x_high + gap_high + carry = (q - 1)_high
-x_high × B + x_low        = input   in the native field
+Before
+  policy table → hash again inside proof
+  each record  → separate 20-level Merkle path
+  audit        → support every shape and both modes
+
+After
+  stored policy → verifier binds its public fields
+  shared records → one upper path per registry
+  audit          → prove exactly this shape and mode
 ```
 
-Each of the first two equations is smaller than `2^129 + 1`, far below BN254's modulus. They therefore hold over the integers. Together they prove `x + gap = q - 1`. Since the gap is nonnegative, `x < q`. The final equality binds that unique encoding to the input. An encoding of `input + q` cannot pass. Hints supply candidates only. Constraints check their bytes, bounds, carry and equations.
+The new proof has 78 public inputs. The program constructs them from its own PolicyConfig account and the transaction's resolved tree slots. The table is already public. It does not enter the instruction payload. The proof still occupies 192 bytes. Policy creation and every policy edit validate the table and update its hash.
 
-The bounded-complement approach was informed by `../zk-experiments/gnark-gadgets/p256/emfield/canonical.go`. [zk.golf](https://zk.golf/llms.txt) and its [scalar multiplication work](https://zk.golf/api/agent/v1/submissions/42a0c2fb-2d99-4ea4-8441-9e484970954e) informed the approach of computing only consumed results while preserving every bound. This implementation has algebraic reasoning and adversarial tests. It does not claim a Lean proof.
+Registry openings share a private sparse Merkle frontier. Every queried leaf must have a complete chain of expanded ancestors. The proof binds each active record to the same subtree and index prefix, then authenticates that subtree against the existing height-20 root. Present records, absence witnesses and repeated subjects all work. Existing paths supply the frontier. No extra indexer query is needed.
 
-Tests cover modulus aliases, byte and complement carries, invalid carry bits, incorrect disclosure fields, omitted outputs and mode substitution. Real Groth16 proofs verify under the regenerated keys. An ordinary proof fails under the anonymous-capable key. Existing cross-language disclosure vectors remain unchanged.
+**Eligibility matters.** Within each registry, all queried record indices must fit in one aligned block of eight leaves. An absence query uses its predecessor record's index. The own registry and curator can use different blocks. The registry itself can be much larger than eight records. Scattered records and other shapes keep the unrestricted proof. Indexed requests also keep that route because the client does not yet know their record positions.
 
-`just check-custom-ring-keys` re-exports every ring verifying key from its pinned local proving key and compares the committed constants. It passed for the rotated audit, policy and delegate keys and the unchanged ring keys.
+The smaller arithmetic gadgets preserve the same integer bounds. Absence uses four nonnegative gaps that partition `q - 1`, proving strict canonical order without decomposing three full field elements into bits. Amount checks range-check the low limb and constrain the comparison bit. Packed rules decompose only the masks that evaluation needs as bits. Canonical X25519 keys check byte bounds and the short exceptional range at the top of the field.
 
-Security review: the program selects the verifying key from the stored ring mode and settled output count. The proof binds the configured auditor key, encrypted viewing key, disclosure, output commitments and SPP transaction hash in one public statement. The two-output circuit independently fixes its mode and count. The auditor can decrypt the committed note fields. Recipient ciphertexts still have no delivery proof. Reusing an ephemeral key with the same auditor key reuses the AES-CTR stream. Reusing a viewing key with the same salt reuses the disclosure stream. The Rust and TypeScript constructors generate fresh ephemeral keys. Proving keys and verifying keys must be deployed as one matching set.
+Fixed keys also remove unused slot checks, repeated rule decoding and unused anonymous disclosure groups. They keep the existing X25519, AES, KDF and ciphertext formats. The auditor still recovers the transaction viewing key and the checked note disclosure. Anonymous disclosure still covers the sender, spent notes and recipients.
 
-Run the payment benchmark from `prover/server`:
+Security checks cover forged hint outputs, modulus wraparound, limb carries, out-of-range key bytes, false comparison bits, missing Merkle expansions, wrong upper paths, mixed prefixes and substituted disclosure fields. Full-policy fixtures reject unapproved recipients and assets, frozen senders, exceeded guards and caps, false approval flags and wrong escrow keys. Rust accepts the generated proofs under the committed keys and rejects changes to every one of the 78 public inputs. It also rejects cross-mode proofs and missing commitments.
+
+The SBF verifier test uses 488,137 CU through the 78 public inputs and Groth16 pairing. Its deliberately invalid proof stops before the commitment pairing and SPP CPI. This is not a complete transaction CU measurement. Full valid proofs pass native Rust verification. A live end-to-end transfer was not run.
+
+Fresh ephemeral keys and a fresh viewing-key/salt pair remain necessary. Reuse repeats the encryption stream. Both SDKs generate fresh ephemeral keys.
+
+The table/hash relationship now relies on the program's authenticated account state. A verifier must never take the public policy fields from the prover. Recent accepted registry roots can still predate a list update. This is the existing root-history policy. Recipient ciphertext delivery remains outside the ordinary transfer proof. These are implementation tests and a source review, not an independent cryptographic audit.
+
+The prover serves three new circuit types. Program tags 33 and 34 select them, with anonymous mode chosen from the stored ring configuration. Rust selects all three modes. TypeScript selects the ordinary and delegate variants it supports. Both retain the existing path for ineligible transfers.
+
+Keys were generated locally. The verifying keys, local proving-key hashes, client pins and release tooling agree. The historical release manifest stays unchanged. Deployment must ship the program, prover keys and clients together.
+
+Reproduce counts and full proof checks from `prover/server`:
 
 ```sh
-go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkPaymentProofs$' -benchtime=5x -count=3
+go test ./custom_rings/circuits/policy -run '^TestPublicTable' -v
+go test ./custom_rings/circuits/base ./custom_rings/circuits/registry
+go test ./prover/custom_ring ./prover/fingerprint
 ```
 
-On an Apple M5 Pro, the median batch times were 70.0 ms for the default ring, 76.1 ms for custom settlement and 161.7 ms for ordinary audit. Three batches of five proofs give a combined 237.8 ms for the custom transfer.
+| Proof for a 2-input, 3-output payment | Constraints | Proving time |
+|---|---:|---:|
+| Default-ring settlement | 57,554 | 146.6 ms |
+| Custom-ring settlement | 57,680 | 159.7 ms |
+| General policy and audit | 326,293 | 575.6 ms |
+| New ordinary policy and audit | 95,943 | 237.8 ms |
+| New anonymous policy and audit | 98,809 | 267.9 ms |
+| New delegate policy and audit | 95,217 | 271.9 ms |
+| Custom settlement + new ordinary policy and audit | **153,623** | **397.5 ms** |
 
-The benchmark measures CPU proving wall time on one input and two outputs. It excludes compilation, setup, witness encoding and verification. Every timed proof is verified outside the timer. Adding the settlement and audit times gives sequential proving time, not transaction latency. The SDK may request the proofs concurrently.
+Proving benchmarks use an Apple M5 Pro with 18 Go threads. Times are medians of three batches of five proofs. They exclude compilation, setup, witness encoding and verification. Every timed proof is verified outside the timer. The combined time adds the two medians. It is not transaction latency. The default and custom settlement measurements use the padded 2×4 circuit. The policy fixtures contain two real inputs, three real outputs and full tables.
 
-The base, policy and delegate keys were rotated locally. A new `custom_ring_base_confidential.key` was added. Verifying keys, fingerprints and Rust and TypeScript key pins must ship together. The historical release manifest remains unchanged because these artifacts have not been published.
+```sh
+go test ./prover/custom_ring -run '^$' -bench '^BenchmarkFullPolicyTwoByThree$' -benchtime=5x -count=3
+go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkTwoByThreeSettlement$' -benchtime=5x -count=3
+```
+
+The existing two-output audit-only path remains 58,645 constraints. With its 30,987-constraint settlement proof, that one-input, two-output transfer totals 89,632. Its two-hash Poseidon KDF came from `../zk-experiments`. The bounded-limb work follows the same principle used there and in [zk.golf](https://zk.golf/llms.txt). The new path changes proof structure, not the auditor's encryption format.

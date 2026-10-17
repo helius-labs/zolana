@@ -81,6 +81,9 @@ instruction_tags! {
     SetDepositAudit = SET_DEPOSIT_AUDIT: 30 => ACCOUNT_UNITS,
     AuditedDeposit = AUDITED_DEPOSIT: 31 => PROOF_UNITS,
     UpdateMembers = UPDATE_MEMBERS: 32 => PROOF_UNITS,
+    /// Full policy and audit, fixed 2x3 shape and shared registry subtrees.
+    TransactTwoByThree = TRANSACT_TWO_BY_THREE: 33 => PROOF_UNITS,
+    DelegateTransactTwoByThree = DELEGATE_TRANSACT_TWO_BY_THREE: 34 => PROOF_UNITS,
 }
 
 /// Config-authority change to the direct-deposit disclosure requirement.

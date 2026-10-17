@@ -63,3 +63,30 @@ func (o MemberOpening) Resolve(api frontend.API, cond, root, member frontend.Var
 	api.AssertIsEqual(api.Mul(absent, o.EscrowKey), 0)
 	return api.Mul(cond, o.Lists), api.Mul(cond, o.EscrowKey)
 }
+
+// ResolveCompact proves the same opening using one selected leaf hash and a
+// bounded-gap certificate for absence. Existing keys retain Resolve.
+func (o MemberOpening) ResolveCompact(api frontend.API, cond, root, member frontend.Variable) (lists, escrowKey frontend.Variable) {
+	if constant, ok := api.Compiler().ConstantValue(cond); ok && constant.Sign() == 0 {
+		return 0, 0
+	}
+	leaf := o.compactLeaf(api, cond, member)
+	opened := o.root(api, leaf)
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: opened, B: root})
+	return api.Mul(cond, o.Lists), api.Mul(cond, o.EscrowKey)
+}
+
+func (o MemberOpening) compactLeaf(api frontend.API, cond, member frontend.Variable) frontend.Variable {
+	api.AssertIsBoolean(o.Present)
+	record := Record{
+		Member:    api.Select(o.Present, member, o.LowMember),
+		Next:      api.Select(o.Present, o.Next, o.LowNext),
+		Lists:     api.Select(o.Present, o.Lists, o.LowLists),
+		EscrowKey: api.Select(o.Present, o.EscrowKey, o.LowEscrow),
+	}
+	absent := api.Mul(cond, api.Sub(1, o.Present))
+	assertOrderedWhen(api, absent, o.LowMember, member, o.LowNext)
+	api.AssertIsEqual(api.Mul(absent, o.Lists), 0)
+	api.AssertIsEqual(api.Mul(absent, o.EscrowKey), 0)
+	return record.Hash(api)
+}

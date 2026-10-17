@@ -9,6 +9,7 @@ pub mod error;
 pub mod instruction;
 pub mod member_registry;
 pub mod policy_public_input;
+pub mod public_table;
 pub mod state;
 
 macro_rules! verifying_keys {
@@ -29,8 +30,11 @@ verifying_keys! {
     base_verifying_key => "custom_ring_base.key",
     base_confidential_verifying_key => "custom_ring_base_confidential.key",
     delegate_policy_verifying_key => "custom_ring_delegate_policy.key",
+    delegate_policy_2x3_verifying_key => "custom_ring_delegate_policy_2x3.key",
     deposit_verifying_key => "custom_ring_deposit.key",
     policy_verifying_key => "custom_ring_policy.key",
+    policy_2x3_verifying_key => "custom_ring_policy_2x3.key",
+    policy_2x3_anonymous_verifying_key => "custom_ring_policy_2x3_anonymous.key",
     register_key_verifying_key => "custom_ring_register_key.key",
     update_members_verifying_key => "custom_ring_update_members.key",
 }
@@ -43,6 +47,7 @@ pub use error::CustomRingError;
 pub use instruction::*;
 pub use member_registry::*;
 pub use policy_public_input::{CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS};
+pub use public_table::*;
 pub use state::*;
 
 /// One-byte `0x04` scheme tag followed by a canonical X25519 u-coordinate.

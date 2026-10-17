@@ -55,19 +55,26 @@ Registry mode keeps key escrow for recovery and a separately authorized delegate
 
 Programs, proving keys, SDKs and indexer layouts must agree. Existing list notes need migration into the registry.
 
-For an ordinary transfer with one input and two outputs:
+The full policy and auditor proof now fits below 100k constraints for two inputs and three outputs. All rule capacity, curator lists and escrow remain. The saving comes from sharing registry paths, binding the public policy directly from its account and proving only the selected shape and mode.
 
-| Proof | Constraints | Proving time |
+```text
+Before: each record gets a full path + policy is hashed again
+Now:    records share a path + verifier reads the stored policy
+```
+
+| Proof for a 2-input, 3-output payment | Constraints | Proving time |
 |---|---:|---:|
-| Default ring | 30,922 | 70.0 ms |
-| Custom ring settlement | 30,987 | 76.1 ms |
-| Custom ring auditor disclosure | 58,645 | 161.7 ms |
-| Custom ring total, without policy rules | 89,632 | 237.8 ms |
+| Default-ring settlement | 57,554 | 146.6 ms |
+| Custom-ring settlement | 57,680 | 159.7 ms |
+| General policy and audit | 326,293 | 575.6 ms |
+| New ordinary policy and audit | **95,943** | **237.8 ms** |
+| New anonymous policy and audit | **98,809** | **267.9 ms** |
+| New delegate policy and audit | **95,217** | **271.9 ms** |
 
-Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The total adds the two proof times. It is not transaction latency. Policy enforcement uses a separate combined policy-and-audit circuit and is not included here.
+The sub-100k figure covers policy and audit. Ordinary custom settlement adds another 57,680 constraints. Both proofs together total **153,623 constraints and 397.5 ms**. Default-ring settlement has no custom policy or auditor disclosure.
 
-The auditor path uses optimized X25519 and AES with a Poseidon key schedule. Ordinary rings now use a smaller audit circuit that excludes anonymous disclosure work. Settlement selects the key from the ring's configured mode and output count. The complete two-output transfer falls from 126,597 to 89,632 constraints. The auditor still receives the same checked data.
+The smaller proof requires queried records to share one aligned eight-leaf block within each registry. Absence checks use the predecessor's position. The registry itself can be much larger. Scattered records, other shapes and indexed requests keep the general proof. No policy checks are dropped to qualify.
 
-Anonymous audit proofs also shrink from 95,610 to 79,021 constraints. Canonical byte encoding uses bounded limbs instead of individual bits. Output commitments are computed once. Neither change removes a disclosure check. [Optimization details](proof-costs.md) explain the bounds and validation.
+Measured on an Apple M5 Pro. Times are medians of three batches of five proofs. Compilation, setup and verification are excluded. Each proof was verified. The combined time adds the two proof times. It is not transaction latency.
 
-Reproduce with `go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkPaymentProofs$' -benchtime=5x -count=3` from `prover/server`.
+The existing one-input, two-output audit-only transfer remains 89,632 constraints across both proofs. It has no policy rules. [Proof costs and security checks](proof-costs.md) give the bounds, fallback and reproduction commands. New keys are generated locally. The matching program, keys and clients still need deployment together.

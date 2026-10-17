@@ -5,6 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/cmp"
+	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
@@ -19,6 +20,24 @@ func AgreeAuditKey(api frontend.API, secret, recipient [32]frontend.Variable) (a
 	copy(auditor[1:], recipient[:])
 	copy(ephemeral[1:], pub[:])
 	return
+}
+
+// assertCanonicalX25519Compact checks the byte encoding against 2^255-19.
+// After bounding the top byte to 7 bits, only the maximal upper 247-bit
+// prefix needs a low-byte comparison. All other prefixes are already below p.
+func assertCanonicalX25519Compact(api frontend.API, key [32]frontend.Variable) {
+	rc := rangecheck.New(api)
+	for _, b := range key[:31] {
+		rc.Check(b, 8)
+	}
+	rc.Check(key[31], 7)
+	var high frontend.Variable = 0
+	for i := 31; i >= 1; i-- {
+		high = api.Add(api.Mul(high, 256), key[i])
+	}
+	maxHigh := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 247), big.NewInt(1))
+	top := api.IsZero(api.Sub(high, maxHigh))
+	rc.Check(api.Mul(top, api.Sub(236, key[0])), 8)
 }
 
 // assertCanonicalX25519 bounds every byte and rejects a u coordinate at or above p.

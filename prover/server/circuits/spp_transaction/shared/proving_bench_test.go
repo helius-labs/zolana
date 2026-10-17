@@ -50,6 +50,20 @@ func BenchmarkPaymentProofs(b *testing.B) {
 	})
 }
 
+// Three published outputs use the 2x4 settlement key. Constraint count and
+// proving cost belong to that compiled shape, including its fourth slot.
+func BenchmarkTwoByThreeSettlement(b *testing.B) {
+	shape := protocol.Shape{NInputs: 2, NOutputs: 4}
+	b.Run("default_ring", func(b *testing.B) {
+		a := buildDefaultRingConfidentialEd25519Assignment(b, shape)
+		benchmarkPaymentProof(b, MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)), asDefaultRingConfidentialEd25519(a))
+	})
+	b.Run("custom_ring", func(b *testing.B) {
+		a := buildCircuitAssignment(b, shape)
+		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEd25519Circuit(Shape(shape)), asCustomRingConfidentialEd25519(a))
+	})
+}
+
 func benchmarkPaymentProof(b *testing.B, circuit, assignment frontend.Circuit) {
 	b.Helper()
 	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))

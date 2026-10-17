@@ -24,6 +24,8 @@ fn ring_dispatch_tags_do_not_collide_with_forwarded_spp_tags() {
         tag::SET_DEPOSIT_AUDIT,
         tag::AUDITED_DEPOSIT,
         tag::UPDATE_MEMBERS,
+        tag::TRANSACT_TWO_BY_THREE,
+        tag::DELEGATE_TRANSACT_TWO_BY_THREE,
     ];
     let unique: std::collections::BTreeSet<_> = tags.into_iter().collect();
     assert_eq!(unique.len(), tags.len());

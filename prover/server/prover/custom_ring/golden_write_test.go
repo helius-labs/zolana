@@ -87,4 +87,33 @@ func TestWriteGoldenRequests(t *testing.T) {
 		{big.NewInt(0x40), big.NewInt(0b100), big.NewInt(0x5e)},
 		{big.NewInt(0x50), big.NewInt(0), big.NewInt(0x5f)},
 	}))
+	for _, kind := range []common.CircuitType{common.CustomRingPolicyTwoByThreeCircuitType, common.CustomRingAnonymousPolicyTwoByThreeCircuitType, common.CustomRingDelegatePolicyTwoByThreeCircuitType} {
+		path := filepath.Join("../../../../custom-rings/sdk/tests/fixtures", string(kind)+".json")
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var vector struct {
+			Request json.RawMessage `json:"request"`
+		}
+		if err := json.Unmarshal(payload, &vector); err != nil {
+			t.Fatal(err)
+		}
+		r, err := Ring(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		params := r.params()
+		if err := Unmarshal(vector.Request, params); err != nil {
+			t.Fatal(err)
+		}
+		write(string(kind), params)
+		encoded, err := json.MarshalIndent(params, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join("../../../../custom-rings/sdk/tests/fixtures/prover-json", string(kind)+".json"), append(encoded, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

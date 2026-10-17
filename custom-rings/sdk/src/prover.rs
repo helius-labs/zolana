@@ -1,6 +1,7 @@
 use custom_ring_interface::{
-    base_confidential_verifying_key, base_verifying_key, delegate_policy_verifying_key,
-    deposit_verifying_key, policy_verifying_key, register_key_verifying_key,
+    base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
+    delegate_policy_verifying_key, deposit_verifying_key, policy_2x3_anonymous_verifying_key,
+    policy_2x3_verifying_key, policy_verifying_key, register_key_verifying_key,
     update_members_verifying_key, CustomRingProof, PlainGroth16Proof, PROVING_KEY_SHA256S,
 };
 use serde::{Serialize, Serializer};
@@ -18,6 +19,9 @@ pub(crate) enum RingCircuit {
     Base,
     Policy,
     DelegatePolicy,
+    PolicyTwoByThree,
+    AnonymousPolicyTwoByThree,
+    DelegatePolicyTwoByThree,
     Deposit,
     RegisterKey,
     UpdateMembers,
@@ -30,6 +34,9 @@ impl RingCircuit {
             Self::Base => "custom-ring-base",
             Self::Policy => "custom-ring-policy",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
+            Self::PolicyTwoByThree => "custom-ring-policy-2x3",
+            Self::AnonymousPolicyTwoByThree => "custom-ring-policy-2x3-anonymous",
+            Self::DelegatePolicyTwoByThree => "custom-ring-delegate-policy-2x3",
             Self::Deposit => "custom-ring-deposit",
             Self::RegisterKey => "custom-ring-register-key",
             Self::UpdateMembers => "custom-ring-update-members",
@@ -59,11 +66,41 @@ impl RingCircuit {
             Self::Base => &base_verifying_key::VERIFYINGKEY,
             Self::Policy => &policy_verifying_key::VERIFYINGKEY,
             Self::DelegatePolicy => &delegate_policy_verifying_key::VERIFYINGKEY,
+            Self::PolicyTwoByThree => &policy_2x3_verifying_key::VERIFYINGKEY,
+            Self::AnonymousPolicyTwoByThree => &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
+            Self::DelegatePolicyTwoByThree => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
             Self::Deposit => &deposit_verifying_key::VERIFYINGKEY,
             Self::RegisterKey => &register_key_verifying_key::VERIFYINGKEY,
             Self::UpdateMembers => &update_members_verifying_key::VERIFYINGKEY,
         };
         verify_proof_statement(proof, public_input_hash, key)
+    }
+
+    pub(crate) fn is_two_by_three(self) -> bool {
+        matches!(
+            self,
+            Self::PolicyTwoByThree
+                | Self::AnonymousPolicyTwoByThree
+                | Self::DelegatePolicyTwoByThree
+        )
+    }
+
+    pub(crate) fn verify_table(
+        self,
+        proof: &Proof,
+        inputs: &custom_ring_interface::PolicyTableInputs,
+    ) -> Result<(), ClientError> {
+        let key = match self {
+            Self::PolicyTwoByThree => &policy_2x3_verifying_key::VERIFYINGKEY,
+            Self::AnonymousPolicyTwoByThree => &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
+            Self::DelegatePolicyTwoByThree => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
+            _ => {
+                return Err(ClientError::ProofVerification(
+                    "not a public-table policy key".to_owned(),
+                ))
+            }
+        };
+        zolana_client::prover::verify_proof_inputs(proof, inputs, key)
     }
 }
 

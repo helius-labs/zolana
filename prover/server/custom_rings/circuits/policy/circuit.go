@@ -21,7 +21,12 @@ type CustomRingPolicyCircuit struct {
 	// Compile-time capacities for a specialized key. Zero retains the general circuit.
 	FixedInputs, FixedOutputs int `gnark:"-"`
 	// FixedMode is 0 for a witnessed mode, 1 for ordinary, 2 for anonymous.
-	FixedMode int `gnark:"-"`
+	FixedMode            int `gnark:"-"`
+	RegistrySubtreeDepth int `gnark:"-"`
+	// Set only by a circuit that binds every table field to verifier inputs.
+	PublicTreeHash   frontend.Variable          `gnark:"-"`
+	PublicPolicyHash frontend.Variable          `gnark:"-"`
+	RegistryWitness  *[2]registry.SparseSubtree `gnark:"-"`
 
 	NIn               frontend.Variable
 	NOut              frontend.Variable
@@ -91,7 +96,7 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	checked := c.checkPolicy(api, rc)
 	tx := c.constrainTransaction(api, rc)
 	c.constrainNamespace(api, tx)
-	subjects := c.resolveSubjects(api, tx, checked.sources)
+	subjects := c.resolveSubjects(api, tx, checked)
 	c.constrainRules(api, tx, subjects, checked)
 	if rail == delegateRail {
 		api.AssertIsEqual(c.ApprovalRequired, 0)
@@ -104,6 +109,10 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 	c.constrainEscrow(api, tx, subjects)
 
 	audit := auditWitness.Define(api, rc, c.auditTx(tx))
-	return append(audit[:], checked.hash, shared.TreeSlotsHashChain(api, c.TreeSlots[:]), c.AddressTreeID,
+	treeHash := c.PublicTreeHash
+	if treeHash == nil {
+		treeHash = shared.TreeSlotsHashChain(api, c.TreeSlots[:])
+	}
+	return append(audit[:], checked.hash, treeHash, c.AddressTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.ApprovalRequired, c.KeyEscrow, c.MemberRegistryRoot, c.ForeignRoot)
 }

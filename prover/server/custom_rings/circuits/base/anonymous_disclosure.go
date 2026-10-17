@@ -77,6 +77,13 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 	disclosedInputs := frontend.Variable(0)
 	for i, w := range tx.Inputs {
 		active := api.Mul(anonymous, tx.NIn.Active[i])
+		if tx.Compact && constantZero(api, active) {
+			inputs[i] = make([]frontend.Variable, auditInputChunks)
+			for j := range inputs[i] {
+				inputs[i][j] = 0
+			}
+			continue
+		}
 		utxo := isDomain(api, w.Domain, shared.UtxoDomain)
 		// An address slot would publish a nullifier the sender's key derives.
 		shared.AssertWhen(api, active, api.Add(utxo, isDomain(api, w.Domain, shared.DummyDomain)))
@@ -92,6 +99,13 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 
 	var outputs [AuditOutputSlots][]frontend.Variable
 	for i, w := range tx.Notes {
+		if tx.Compact && constantZero(api, tx.NOut.Active[i]) {
+			outputs[i] = make([]frontend.Variable, auditOutputChunks)
+			for j := range outputs[i] {
+				outputs[i][j] = 0
+			}
+			continue
+		}
 		disclosed := api.Mul(anonymous, tx.NOut.Active[i], isDomain(api, w.Domain, shared.UtxoDomain))
 		recipient, viewing := a.Recipients[i][:], a.RecipientViewingKeys[i]
 		CheckBytes(rc, viewing[:])
@@ -104,7 +118,11 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 		for j := range u {
 			u[j] = api.Mul(disclosed, viewing[j+1])
 		}
-		assertCanonicalX25519(api, u)
+		if tx.Compact {
+			assertCanonicalX25519Compact(api, u)
+		} else {
+			assertCanonicalX25519(api, u)
+		}
 		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, checked.HashBytes(api, recipient))), 0)
 		outputs[i] = chunks(api, slices.Concat(
 			recipient, viewing[:], fieldBytes(api, w.NullifierPk), uintBytes(api, api.Mul(disclosed, w.Amount), 8),

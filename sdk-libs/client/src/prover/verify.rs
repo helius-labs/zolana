@@ -144,40 +144,40 @@ struct StatementVerification {
 
 impl StatementVerification {
     fn verify(self, proof: &Proof) -> Result<(), ClientError> {
-        let public_inputs = [self.public_input_hash];
-        let mut verifier = match (
-            &proof.commitment,
-            self.verifying_key.vk_commitment.is_some(),
-        ) {
-            (Some(commitment), true) => Groth16Verifier::new_with_commitment(
-                &proof.a,
-                &proof.b,
-                &proof.c,
-                &commitment.commitment,
-                &commitment.commitment_pok,
-                &public_inputs,
-                self.verifying_key,
-            ),
-            (None, false) => Groth16Verifier::new(
-                &proof.a,
-                &proof.b,
-                &proof.c,
-                &public_inputs,
-                self.verifying_key,
-            ),
-            _ => {
-                return Err(ClientError::ProofVerification(
-                    "proof commitment mismatch".to_owned(),
-                ))
-            }
-        }
-        .map_err(|error| {
-            ClientError::ProofVerification(format!("invalid proof encoding {error:?}"))
-        })?;
-        verifier.verify().map_err(|error| {
-            ClientError::ProofVerification(format!("pairing check failed: {error:?}"))
-        })
+        verify_proof_inputs(proof, &[self.public_input_hash], self.verifying_key)
     }
+}
+
+/// Verify every public field under the expected key. The caller constructs
+/// these fields from authenticated state and the transaction it authorized.
+pub fn verify_proof_inputs<const N: usize>(
+    proof: &Proof,
+    public_inputs: &[[u8; 32]; N],
+    verifying_key: &'static Groth16Verifyingkey<'static>,
+) -> Result<(), ClientError> {
+    let mut verifier = match (&proof.commitment, verifying_key.vk_commitment.is_some()) {
+        (Some(commitment), true) => Groth16Verifier::new_with_commitment(
+            &proof.a,
+            &proof.b,
+            &proof.c,
+            &commitment.commitment,
+            &commitment.commitment_pok,
+            public_inputs,
+            verifying_key,
+        ),
+        (None, false) => {
+            Groth16Verifier::new(&proof.a, &proof.b, &proof.c, public_inputs, verifying_key)
+        }
+        _ => {
+            return Err(ClientError::ProofVerification(
+                "proof commitment mismatch".to_owned(),
+            ))
+        }
+    }
+    .map_err(|error| ClientError::ProofVerification(format!("invalid proof encoding {error:?}")))?;
+    verifier
+        .verify()
+        .map_err(|error| ClientError::ProofVerification(format!("pairing check failed: {error:?}")))
 }
 
 pub fn verify_proof_statement(

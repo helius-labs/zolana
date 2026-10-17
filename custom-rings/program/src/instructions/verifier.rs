@@ -13,6 +13,15 @@ pub(crate) fn verify_groth16(
     public_input_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
 ) -> ProgramResult {
+    verify_groth16_inputs(proof, &[public_input_hash], verifying_key)
+}
+
+#[inline(never)]
+pub(crate) fn verify_groth16_inputs<const N: usize>(
+    proof: &CustomRingProof,
+    public_inputs: &[[u8; 32]; N],
+    verifying_key: &Groth16Verifyingkey,
+) -> ProgramResult {
     let points = &proof.groth16;
     Groth16Verifier::new_with_commitment(
         &decompress_g1(&points.proof_a).map_err(failed)?,
@@ -20,7 +29,7 @@ pub(crate) fn verify_groth16(
         &decompress_g1(&points.proof_c).map_err(failed)?,
         &decompress_g1(&proof.commitment).map_err(failed)?,
         &decompress_g1(&proof.commitment_pok).map_err(failed)?,
-        &[public_input_hash],
+        public_inputs,
         verifying_key,
     )
     .map_err(failed)?

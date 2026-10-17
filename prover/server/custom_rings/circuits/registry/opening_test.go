@@ -29,6 +29,7 @@ func TestZeroNullifierPkIsThePoseidonOfZero(t *testing.T) {
 }
 
 type openingCircuit struct {
+	Compact   bool `gnark:"-"`
 	Cond      frontend.Variable
 	Root      frontend.Variable
 	Member    frontend.Variable
@@ -38,7 +39,11 @@ type openingCircuit struct {
 }
 
 func (c *openingCircuit) Define(api frontend.API) error {
-	lists, escrowKey := c.Opening.Resolve(api, c.Cond, c.Root, c.Member)
+	resolve := c.Opening.Resolve
+	if c.Compact {
+		resolve = c.Opening.ResolveCompact
+	}
+	lists, escrowKey := resolve(api, c.Cond, c.Root, c.Member)
 	api.AssertIsEqual(lists, c.Lists)
 	api.AssertIsEqual(escrowKey, c.EscrowKey)
 	return nil
@@ -135,9 +140,12 @@ func TestMemberOpeningResolvesPresentAndAbsentMembers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := assignment(alice)
 			tt.change(c)
-			err := test.IsSolved(&openingCircuit{}, c, ecc.BN254.ScalarField())
-			if (err == nil) != tt.passes {
-				t.Fatalf("passes=%v, solve=%v", tt.passes, err)
+			for _, compact := range []bool{false, true} {
+				c.Compact = compact
+				err := test.IsSolved(&openingCircuit{Compact: compact}, c, ecc.BN254.ScalarField())
+				if (err == nil) != tt.passes {
+					t.Fatalf("compact=%v passes=%v, solve=%v", compact, tt.passes, err)
+				}
 			}
 		})
 	}

@@ -338,6 +338,9 @@ fn every_circuit_names_its_pinned_proving_key() {
         RingCircuit::Base,
         RingCircuit::Policy,
         RingCircuit::DelegatePolicy,
+        RingCircuit::PolicyTwoByThree,
+        RingCircuit::AnonymousPolicyTwoByThree,
+        RingCircuit::DelegatePolicyTwoByThree,
         RingCircuit::Deposit,
         RingCircuit::RegisterKey,
         RingCircuit::UpdateMembers,
@@ -348,4 +351,26 @@ fn every_circuit_names_its_pinned_proving_key() {
             format!("{}.key", circuit.circuit_type().replace('-', "_"))
         );
     }
+}
+
+#[test]
+fn the_fast_policy_selector_preserves_the_general_fallback() {
+    let mut w = witness();
+    assert!(!w.supports_two_by_three());
+    w.n_in = 2;
+    w.n_out = 3;
+    w.subjects[0] = Some(subject(true));
+    w.subjects[5] = Some(subject(false));
+    w.subjects[5].as_mut().unwrap().record.index = 7;
+    assert!(w.supports_two_by_three());
+    w.subjects[5].as_mut().unwrap().record.index = 8;
+    assert!(!w.supports_two_by_three());
+    w.subjects[0].as_mut().unwrap().record.index = 8;
+    assert!(w.supports_two_by_three());
+    // Each registry has its own prefix, the curator need not match the own tree.
+    w.foreign_subjects[0] = Some(subject(false));
+    assert!(w.supports_two_by_three());
+    w.foreign_subjects[5] = Some(subject(true));
+    w.foreign_subjects[5].as_mut().unwrap().record.index = 8;
+    assert!(!w.supports_two_by_three());
 }

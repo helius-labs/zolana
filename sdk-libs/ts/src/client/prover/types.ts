@@ -279,6 +279,8 @@ export function outflowLimitsOff(
 
 /** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the canonical 32-byte X25519 coordinate. */
 export interface CustomRingPolicyProofRequest {
+  /** Use the fixed 2x3 proof when each registry's records share an eight-leaf subtree. */
+  readonly twoByThree?: boolean;
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

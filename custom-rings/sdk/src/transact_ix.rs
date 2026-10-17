@@ -154,6 +154,20 @@ pub struct CustomRingDelegateTransact {
 
 impl CustomRingTransact {
     pub fn instruction(self) -> Result<Instruction, RingError> {
+        self.instruction_with_policy_shape(false)
+    }
+
+    pub fn instruction_with_policy_shape(
+        self,
+        two_by_three: bool,
+    ) -> Result<Instruction, RingError> {
+        if two_by_three
+            && (self.policy.is_none()
+                || self.transact.inputs.len() != 2
+                || self.transact.outputs.len() != 3)
+        {
+            return Err(RingError::PolicyShapeUnsupported);
+        }
         let spp = RingTransact {
             payer: self.payer,
             input_trees: self.input_trees,
@@ -171,7 +185,11 @@ impl CustomRingTransact {
             proof: self.proof,
         }
         .instruction(
-            tag::TRANSACT,
+            if two_by_three {
+                tag::TRANSACT_TWO_BY_THREE
+            } else {
+                tag::TRANSACT
+            },
             Vec::new(),
             spp.instruction().accounts,
             spp.data,
@@ -181,6 +199,16 @@ impl CustomRingTransact {
 
 impl CustomRingDelegateTransact {
     pub fn instruction(self) -> Result<Instruction, RingError> {
+        self.instruction_with_policy_shape(false)
+    }
+
+    pub fn instruction_with_policy_shape(
+        self,
+        two_by_three: bool,
+    ) -> Result<Instruction, RingError> {
+        if two_by_three && (self.transact.inputs.len() != 2 || self.transact.outputs.len() != 3) {
+            return Err(RingError::PolicyShapeUnsupported);
+        }
         if !self.transact.interface_transfers.is_empty() {
             return Err(RingError::DelegatePublicLeg);
         }
@@ -204,7 +232,11 @@ impl CustomRingDelegateTransact {
             proof: self.proof,
         }
         .instruction(
-            tag::DELEGATE_TRANSACT,
+            if two_by_three {
+                tag::DELEGATE_TRANSACT_TWO_BY_THREE
+            } else {
+                tag::DELEGATE_TRANSACT
+            },
             delegate,
             spp.instruction().accounts,
             spp.data,

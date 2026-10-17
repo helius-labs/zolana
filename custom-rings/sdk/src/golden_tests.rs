@@ -229,6 +229,7 @@ mod bodies {
 
     fn wrapped(circuit: RingCircuit) -> String {
         let request = PolicyRequest {
+            public_table: None,
             body: policy(),
             indexed: None,
             reads: PolicyReads {
