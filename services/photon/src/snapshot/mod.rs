@@ -45,6 +45,35 @@ pub const TRANSACTIONS_TO_ACCUMULATE: usize = 5000;
 
 const SNAPSHOT_VERSION: u8 = 1;
 
+/// Written once, by a writer that starts an empty store. Snapshot files carry
+/// no version of their own, so this is what says the store has kept custom ring
+/// instructions since its first slot. Its name is not a snapshot file name, so
+/// listings and merges leave it alone.
+const FORMAT_FILE: &str = "format.json";
+const FORMAT: &str = r#"{"custom_rings":true}"#;
+
+/// Whether every snapshot in the store keeps custom ring instructions, so the
+/// custom ring index can be rebuilt from it. A store some writer began before
+/// rings were kept says no, whatever was appended later.
+pub async fn keeps_custom_rings(directory_adapter: Arc<DirectoryAdapter>) -> Result<bool> {
+    if !directory_adapter
+        .list_files()
+        .await?
+        .iter()
+        .any(|file| file == FORMAT_FILE)
+    {
+        return Ok(false);
+    }
+    let bytes: Vec<Bytes> = directory_adapter
+        .read_file(FORMAT_FILE.to_string())
+        .await
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<_>>()?;
+    Ok(bytes.concat() == FORMAT.as_bytes())
+}
+
 #[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq)]
 struct SnapshotHeader {
     version: u8,
@@ -744,7 +773,13 @@ pub async fn update_snapshot_helper(
         .unwrap_or(last_indexed_slot);
 
     let mut filter = SnapshotFilter::default();
-    if !snapshot_files.is_empty() {
+    if snapshot_files.is_empty() {
+        let format = stream! { yield Ok(Bytes::from_static(FORMAT.as_bytes())); };
+        directory_adapter
+            .write_file(FORMAT_FILE.to_string(), format)
+            .await
+            .context("Failed to write the snapshot format")?;
+    } else {
         filter
             .learn_from(load_block_stream_from_directory_adapter(directory_adapter.clone()).await)
             .await;
@@ -1113,6 +1148,37 @@ mod tests {
             .map(|block| (block.metadata.slot, block.transactions.len()))
             .collect();
         assert_eq!(kept, [(1, 1), (2, 1)]);
+        assert!(keeps_custom_rings(adapter.clone()).await.unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn only_a_store_begun_by_a_ring_aware_writer_keeps_custom_rings() {
+        let dir = temp_dir().join(format!("photon-snapshot-format-{}", Pubkey::new_unique()));
+        fs::create_dir_all(&dir).unwrap();
+        let adapter = Arc::new(DirectoryAdapter::from_local_directory(
+            dir.to_string_lossy().into_owned(),
+        ));
+        // A file an older writer left, with no format beside it.
+        fs::write(dir.join("snapshot-1-1"), []).unwrap();
+        assert!(!keeps_custom_rings(adapter.clone()).await.unwrap());
+
+        let block = BlockInfo {
+            metadata: BlockMetadata {
+                slot: 2,
+                parent_slot: 1,
+                ..Default::default()
+            },
+            transactions: Vec::new(),
+        };
+        update_snapshot_helper(adapter.clone(), stream::iter([vec![block]]), 0, 1, u64::MAX)
+            .await
+            .unwrap();
+        // Appending with a ring-aware writer does not make the older part complete.
+        assert!(!keeps_custom_rings(adapter.clone()).await.unwrap());
+        // The format is not mistaken for a snapshot file.
+        let files = get_snapshot_files_with_metadata(&adapter).await.unwrap();
+        assert!(files.iter().all(|file| file.file.starts_with("snapshot-")));
         fs::remove_dir_all(dir).unwrap();
     }
 
