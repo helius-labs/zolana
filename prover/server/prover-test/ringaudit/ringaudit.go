@@ -445,6 +445,16 @@ func pack33(key [33]byte) (lo, hi *big.Int) {
 // Mirrors ve.KeySchedule.
 func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte, nonce [12]byte) {
 	t.Helper()
+	if info == auditEncInfo {
+		headTag := new(big.Int).SetBytes(append([]byte(info), 0))
+		tailTag := new(big.Int).SetBytes(append([]byte(info), 1))
+		head := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{headTag, sharedSecret}))
+		tail := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tailTag, sharedSecret}))
+		copy(key[:31], head[1:])
+		key[31] = tail[19]
+		copy(nonce[:], tail[20:])
+		return key, nonce
+	}
 	siloed := spptest.MustPoseidon(t, 4, []*big.Int{
 		tag(ve.DomSepSilo),
 		sharedSecret,

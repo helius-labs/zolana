@@ -19,10 +19,15 @@ type CustomRingConfidentialCircuit struct {
 }
 
 func (c *CustomRingConfidentialCircuit) Define(api frontend.API) error {
+	// The settlement count selects this key. Pin it in the circuit as well.
+	api.AssertIsEqual(c.NOut, 2)
 	audit := Audit{PrivateTxHash: c.PrivateTxHash, Anonymous: 0, TxViewingSk: c.TxViewingSk, EphSk: c.EphSk, AuditorPk: c.AuditorPk, Salt: c.Salt}
-	tx := AuditTx{Outputs: c.Outputs, NOut: SelectCount(api, c.NOut, 1, AuditOutputSlots)}
-	for i, output := range c.Outputs {
-		tx.Hashes[i] = output.Hash(api)
+	tx := AuditTx{Outputs: c.Outputs, NOut: SelectCount(api, 2, 1, AuditOutputSlots)}
+	for i := range tx.Hashes {
+		tx.Hashes[i] = 0
+	}
+	for i := 0; i < 2; i++ {
+		tx.Hashes[i] = c.Outputs[i].Hash(api)
 	}
 	elements := audit.Define(api, rangecheck.New(api), tx)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, elements[:]))

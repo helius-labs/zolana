@@ -29,7 +29,7 @@ const EPH_HI: &str = "0000000000000000000000000000000000000000000000000000000000
 const AUDITOR_LO: &str = "0004708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3";
 const AUDITOR_HI: &str = "000000000000000000000000000000000000000000000000000000000000115a";
 
-const CIPHERTEXT: &str = "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354";
+const CIPHERTEXT: &str = "da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90";
 
 fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
     let decoded = hex::decode(hex_str).expect("valid hex");
@@ -131,7 +131,7 @@ fn base_public_input_includes_the_ring_mode() {
     let hash = statement.hash().unwrap();
     assert_eq!(
         hash,
-        hex_bytes::<32>("12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f")
+        hex_bytes::<32>("291c6025244409748c719079f396ec892db1764098323df8f3a685ae5d7a3a22")
     );
     assert_ne!(
         hash,

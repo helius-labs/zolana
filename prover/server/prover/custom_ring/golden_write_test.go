@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -32,6 +33,11 @@ func TestWriteGoldenRequests(t *testing.T) {
 	}
 	write(string(common.CustomRingBaseCircuitType), baseParams(t))
 	ordinary := baseParams(t)
+	ordinary.NOut = 2
+	ordinaryKeys := ringaudit.DefaultKeys(t)
+	ordinaryStatement := ordinaryKeys.Statement(ordinary.PrivateTxHash.Int)
+	ordinaryStatement.Count = 2
+	ordinary.PublicInputHash = fb(spptest.MustHashChain(t, ordinaryKeys.ChainElementsFor(t, ordinaryStatement)))
 	ordinary.CircuitType = string(common.CustomRingConfidentialCircuitType)
 	write(ordinary.CircuitType, ordinary)
 	write(string(common.CustomRingBaseCircuitType)+"-anonymous", anonymousBaseParams(t))

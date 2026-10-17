@@ -9,6 +9,7 @@ use zolana_ring_policy::{
 
 use crate::{
     golden_tests::{auditor, key, TX_SK},
+    prover::RingCircuit,
     request::{CustomRingOpening, CustomRingOutputOpening},
     tests::support::ring,
     trees::TransactRoots,
@@ -87,6 +88,25 @@ pub(super) fn private_tx_hash() -> [u8; 32] {
     let mut hash = [0; 32];
     hash[29..].copy_from_slice(&[0xab, 0xcd, 0xef]);
     hash
+}
+
+#[test]
+fn ordinary_audit_key_follows_the_settled_output_count() {
+    for count in 1..=4 {
+        let body = encrypted(vec![ProofInputUtxo::default(); count])
+            .pending
+            .finish_base(private_tx_hash())
+            .unwrap();
+        assert_eq!(
+            body.circuit_type,
+            if count == 2 {
+                RingCircuit::BaseConfidential
+            } else {
+                RingCircuit::Base
+            }
+        );
+        assert_eq!(usize::from(body.n_out), count);
+    }
 }
 
 /// The public input binds the tree slot, the escrow flag and both registry roots.

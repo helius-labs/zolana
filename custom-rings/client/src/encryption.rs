@@ -15,7 +15,7 @@ use zolana_hasher::primitives::{BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
-    symmetric_apply, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
+    symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
 };
 
 use crate::AuditError;
@@ -90,11 +90,12 @@ fn auditor_stream(
         true => (&local_pk, remote),
         false => (remote, &local_pk),
     };
-    Ok(symmetric_apply(
-        &*shared_secret(&dh, ephemeral, auditor)?,
-        info,
-        data,
-    )?)
+    let secret = shared_secret(&dh, ephemeral, auditor)?;
+    if info == AUDIT_ENC_INFO {
+        Ok(symmetric_apply_audit(&secret, info, data)?)
+    } else {
+        Ok(symmetric_apply(&secret, info, data)?)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,7 +157,8 @@ pub struct AnonymousDisclosure {
     pub outputs: Vec<AnonymousOutputOpening>,
 }
 
-/// The only way to a message is a fresh ephemeral scalar, so a CTR keystream is never reused.
+/// The standard constructor draws a fresh ephemeral scalar. Reusing one with
+/// the same auditor key reuses the CTR keystream.
 pub struct AuditorEncryption {
     pub ephemeral_sk: Zeroizing<[u8; 32]>,
     pub message: AuditorMessage,

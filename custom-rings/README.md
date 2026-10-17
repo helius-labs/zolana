@@ -373,8 +373,9 @@ checks. Protocols that rely on delivery, such as swaps, need a separate proof
 of the recipient ciphertext and its binding to the intended recipient's key.
 
 Ordinary rings without policy rules use `custom-ring-base-confidential` for
-auditor disclosure. Anonymous rings use `custom-ring-base`. The configured
-ring mode selects the verifying key. The optimized circuits require the
+two-output auditor disclosure and `custom-ring-base` for other output counts.
+Anonymous rings use `custom-ring-base`. The configured ring mode and settled
+output count select the verifying key. The optimized circuits require the
 matching program and local proving keys. The historical release lock does
 not contain the new ordinary key. See [proof costs](proof-costs.md).
 

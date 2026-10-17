@@ -1,13 +1,41 @@
-Ordinary payments still prove auditor disclosure against the committed outputs. Recipient encryption remains wallet-side.
+Ordinary payments prove auditor disclosure against the committed outputs. Recipient encryption remains wallet-side.
 
-| Circuit | Before | After |
+| Circuit | Before optimization | Now |
 |---|---:|---:|
-| Ordinary auditor disclosure | 95,610 | 62,345 |
-| Anonymous-capable auditor disclosure | 95,610 | 80,833 |
-| Policy and audit | 339,469 | 328,105 |
-| Delegate policy and audit | 337,209 | 325,845 |
+| Ordinary auditor disclosure, two outputs | 95,610 | 58,645 |
+| Anonymous-capable auditor disclosure | 95,610 | 79,021 |
+| Policy and audit | 339,469 | 326,293 |
+| Delegate policy and audit | 337,209 | 324,033 |
 
-An ordinary one-input, two-output transfer adds 30,987 settlement constraints. Its total is **93,332**, down from 126,597. Policy and anonymous transfers have larger totals. These numbers do not claim a 100k bound for those paths.
+A one-input, two-output payment adds 30,987 settlement constraints. The ordinary custom-ring total is **89,632**, down from 126,597. Other output counts use the general audit circuit. Policy and anonymous payments have larger totals.
+
+The remaining two-output audit cost breaks down as follows. These are cumulative compile differences, including deferred lookup arguments. The order matters because the curve operations share range tables.
+
+| Work | Added constraints |
+|---|---:|
+| Transaction viewing public key | 5,916 |
+| Auditor X25519 key agreement | 25,424 |
+| Envelope transcript, KDF and AES | 9,373 |
+| Disclosure stream, ciphertext hashing and framing | 12,699 |
+| Two note commitments and output hash | 2,595 |
+| Public statement hash | 2,638 |
+| Total | **58,645** |
+
+The default ring already compiles for the transaction's output count. The ordinary audit circuit now pins two outputs at compile time and hashes only those two note openings. The program chooses this key only for a two-output, nonanonymous transfer without policy. It chooses the general key for one, three or four outputs. The circuit independently checks its count is two. The Rust and TypeScript clients make the same selection.
+
+The auditor envelope now uses the two-hash stream KDF from `../zk-experiments/gnark-gadgets/encryption/kdf.go`. The first Poseidon output supplies 31 key bytes. The second supplies the last key byte and 12 nonce bytes. Exact canonical encoding admits every native field value, including `q - 1`. The older four-hash schedule remains in other encryption paths. A standalone compilation measures 824 constraints for the two-hash schedule against 2,490 for the older schedule. In the complete audit circuit, shared lookup costs make the saving about 1,812. The new ciphertext is pinned by the rotated proof keys and a common Go, Rust and TypeScript vector.
+
+The spread-lane AES implementation already has shared tables, reused key expansion, cached first-round columns and fused final XOR. Those savings are already in the totals above.
+
+A two-output audit still encrypts four output slots because the published disclosure has a fixed 36-field layout. Shortening that layout needs coordinated circuit, program, Rust and TypeScript changes, plus a message version for auditor recovery. An inactive witness flag alone does not reduce circuit constraints.
+
+The auditor still recovers the transaction viewing key. It opens both the checked note disclosure and the transaction's output data. Encrypting the disclosure directly from auditor ECDH would remove the envelope, but would remove that output-data recovery path. It is a different audit guarantee and is not counted as an optimization here.
+
+Reproduce the measured circuit breakdown from `prover/server`:
+
+```sh
+go test ./custom_rings/circuits/base -run '^TestAudit(CostBreakdown|KDFStructuralCost)$' -v
+```
 
 The ordinary audit circuit fixes anonymous mode to zero at compilation. It proves the same public statement and emits the same auditor ciphertext and disclosure. It omits the hidden input and identity machinery that ordinary rings never use. The program chooses the key from its stored ring configuration. The request cannot choose a cheaper verification mode.
 
@@ -27,13 +55,17 @@ The bounded-complement approach was informed by `../zk-experiments/gnark-gadgets
 
 Tests cover modulus aliases, byte and complement carries, invalid carry bits, incorrect disclosure fields, omitted outputs and mode substitution. Real Groth16 proofs verify under the regenerated keys. An ordinary proof fails under the anonymous-capable key. Existing cross-language disclosure vectors remain unchanged.
 
+`just check-custom-ring-keys` re-exports every ring verifying key from its pinned local proving key and compares the committed constants. It passed for the rotated audit, policy and delegate keys and the unchanged ring keys.
+
+Security review: the program selects the verifying key from the stored ring mode and settled output count. The proof binds the configured auditor key, encrypted viewing key, disclosure, output commitments and SPP transaction hash in one public statement. The two-output circuit independently fixes its mode and count. The auditor can decrypt the committed note fields. Recipient ciphertexts still have no delivery proof. Reusing an ephemeral key with the same auditor key reuses the AES-CTR stream. Reusing a viewing key with the same salt reuses the disclosure stream. The Rust and TypeScript constructors generate fresh ephemeral keys. Proving keys and verifying keys must be deployed as one matching set.
+
 Run the payment benchmark from `prover/server`:
 
 ```sh
 go test ./circuits/spp_transaction/shared -run '^$' -bench '^BenchmarkPaymentProofs$' -benchtime=5x -count=3
 ```
 
-On an Apple M5 Pro, the median batch times were 61.4 ms for the default ring, 62.4 ms for custom settlement and 158.6 ms for ordinary audit. Three batches of five proofs give a combined 221.1 ms for the custom transfer.
+On an Apple M5 Pro, the median batch times were 70.0 ms for the default ring, 76.1 ms for custom settlement and 161.7 ms for ordinary audit. Three batches of five proofs give a combined 237.8 ms for the custom transfer.
 
 The benchmark measures CPU proving wall time on one input and two outputs. It excludes compilation, setup, witness encoding and verification. Every timed proof is verified outside the timer. Adding the settlement and audit times gives sequential proving time, not transaction latency. The SDK may request the proofs concurrently.
 

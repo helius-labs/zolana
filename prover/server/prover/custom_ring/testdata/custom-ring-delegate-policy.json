@@ -2,7 +2,7 @@
   "circuitType": "custom-ring-delegate-policy",
   "policy": {
     "circuitType": "custom-ring-delegate-policy",
-    "publicInputHash": "0x2eb9e76d94d63dcca8875f642c1dc45f408b90ad19985e8c385dbb5eb9629cd3",
+    "publicInputHash": "0x26eb03bfdd3778ac87a750f7c180e88e3acfc97b041b41d856cd66d9722fa3fb",
     "privateTxHash": "0x1d1d343fa87cf91e8f8d857550f792bb9ea34711b28f6ed59cfee0daa6b5b879",
     "txViewingSk": "0x001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e",
     "ephSk": "0x01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d",

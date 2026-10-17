@@ -65,7 +65,7 @@ const SHARED_SECRET = hex(
   "2590b2b949a2f87b9201e4d065167ea9282c4bd06a32e888e24e33c5bddae54f",
 ) as Bytes32;
 const CIPHERTEXT = hex(
-  "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354",
+  "da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90",
 ) as Bytes32;
 
 // Fixture from custom-rings/program/src/instructions/transact.rs.
@@ -73,7 +73,7 @@ const TX_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f");
+const PUBLIC_INPUT_HASH = hex("291c6025244409748c719079f396ec892db1764098323df8f3a685ae5d7a3a22");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 const PAD_KEY = Uint8Array.from({ length: 32 }, (_, index) => 0x40 ^ index) as Bytes32;

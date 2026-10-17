@@ -215,7 +215,7 @@ impl Rail {
             }
             None => (
                 audit.hash().map_err(CustomRingError::from)?,
-                if anonymous {
+                if anonymous || transact.outputs.len() != 2 {
                     &base_verifying_key::VERIFYINGKEY
                 } else {
                     &base_confidential_verifying_key::VERIFYINGKEY
@@ -402,7 +402,7 @@ mod tests {
     const TX_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
     const EPH_PK: &str = "048ea960e4e1b72cdec9a6e7d86ae28cd04edb4b5c07266d3c32d9133c8ebaa966";
     const AUDITOR_PK: &str = "04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a";
-    const CIPHERTEXT: &str = "03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354";
+    const CIPHERTEXT: &str = "da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90";
     /// `big.NewInt(0xabcdef)` as a 32-byte big-endian field element, the Go
     /// fixture's `PrivateTxHash`.
     const PRIVATE_TX_HASH: &str =
@@ -410,9 +410,9 @@ mod tests {
 
     const TX_PK_LO: &str = "00043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0";
     const TX_PK_HI: &str = "000000000000000000000000000000000000000000000000000000000000eb63";
-    const CT_HASH: &str = "1ceeed7a0df2acee11de3ba05f2c9e205cabd3adb067a1eaa9b6bc67149409f8";
+    const CT_HASH: &str = "2ec8fca72d305d1cfc2ea01acb5058150dd251c32da26baa29affbca9f7779d9";
     const PUBLIC_INPUT_HASH: &str =
-        "12ee7bbd1c762abdd135f89ca3661d0ccfa8bd8338c6c33e65bd1b461d10eb7f";
+        "291c6025244409748c719079f396ec892db1764098323df8f3a685ae5d7a3a22";
 
     fn bytes<const N: usize>(hex_str: &str) -> [u8; N] {
         let decoded = hex::decode(hex_str).expect("valid hex");

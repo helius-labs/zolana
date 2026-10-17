@@ -22,14 +22,13 @@ import type {
 } from "../src/interface/types.js";
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
-  AUDIT_ENC_INFO,
   auditPublicInputHash,
-  auditSharedSecret,
   auditorViewTag,
+  encryptTransactionViewingSecret,
   parseAuditorMessage,
+  symmetricAuditApply,
 } from "../src/keypair/audit.js";
 import { bytesToBigInt } from "../src/keypair/bytes.js";
-import { symmetricApply } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
@@ -1053,6 +1052,15 @@ describe("ring openings", () => {
 });
 
 describe("ring audit", () => {
+  it("matches the Go and Rust auditor stream vector", () => {
+    const shared = new Uint8Array(32) as Bytes32;
+    shared.set([1, 0x23, 0x45], 29);
+    const ciphertext = symmetricAuditApply(shared, new Uint8Array(32));
+    expect(Buffer.from(ciphertext).toString("hex")).toBe(
+      "001d45a89ea12a64c7e6886ce543a66f77971b2c1052688ff668fe8c0c5d7c7b",
+    );
+    expect(symmetricAuditApply(shared, ciphertext)).toEqual(new Uint8Array(32));
+  });
   it("opens every real slot with the recovered transaction key like Rust `TransactionAudit`", async () => {
     const auditor = X25519Secret.generate();
     const { proofInputs, recipient } = await auditedProofInputs(4n, auditor, [1n]);
@@ -1208,17 +1216,15 @@ describe("ring audit", () => {
   it("opens only the clamped secret like Rust `an_unclamped_alias_of_the_published_key_is_refused`", () => {
     const auditor = X25519Secret.generate();
     const recover = (plaintext: Bytes32) => {
-      const ephemeral = X25519Secret.generate();
-      const shared = auditSharedSecret(
-        ephemeral.ecdh(auditor.publicKey()),
-        ephemeral.publicKey(),
+      const { ephemeralSecret, message } = encryptTransactionViewingSecret(
+        plaintext,
         auditor.publicKey(),
       );
-      return recoverTransactionViewingKey(auditor, {
-        ephemeralPublicKey: ephemeral.publicKey(),
-        ciphertext: symmetricApply(shared, AUDIT_ENC_INFO, plaintext) as Bytes32,
-        disclosure: Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32),
-      });
+      try {
+        return recoverTransactionViewingKey(auditor, message);
+      } finally {
+        ephemeralSecret.fill(0);
+      }
     };
     const key = ViewingKey.fromBytes(new Uint8Array(32).fill(0x48) as Bytes32);
     const canonical = key.secretBytes();

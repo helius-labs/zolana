@@ -33,6 +33,7 @@ func TestConfidentialAuditBindsDisclosureAndMode(t *testing.T) {
 	}{
 		{"valid", nil},
 		{"false amount", func(c *base.CustomRingConfidentialCircuit) { c.Outputs[0].Amount = 10 }},
+		{"false second amount", func(c *base.CustomRingConfidentialCircuit) { c.Outputs[1].Amount = 10 }},
 		{"wrong owner", func(c *base.CustomRingConfidentialCircuit) { c.Outputs[0].OwnerHash = 1 }},
 		{"wrong asset", func(c *base.CustomRingConfidentialCircuit) { c.Outputs[0].Asset = 1 }},
 		{"wrong blinding", func(c *base.CustomRingConfidentialCircuit) { c.Outputs[0].Blinding = 1 }},
@@ -45,6 +46,8 @@ func TestConfidentialAuditBindsDisclosureAndMode(t *testing.T) {
 		{"too many outputs", func(c *base.CustomRingConfidentialCircuit) { c.NOut = 5 }},
 		{"wrong transaction", func(c *base.CustomRingConfidentialCircuit) { c.PrivateTxHash = 124 }},
 		{"wrong salt", func(c *base.CustomRingConfidentialCircuit) { c.Salt[0] = 1 }},
+		{"wrong viewing secret", func(c *base.CustomRingConfidentialCircuit) { c.TxViewingSk[1] = 9 }},
+		{"wrong ephemeral secret", func(c *base.CustomRingConfidentialCircuit) { c.EphSk[1] = 9 }},
 		{"wrong auditor", func(c *base.CustomRingConfidentialCircuit) { c.AuditorPk[0] = 0 }},
 		{"anonymous mode", func(c *base.CustomRingConfidentialCircuit) {
 			elements := keys.ChainElementsFor(t, statement)

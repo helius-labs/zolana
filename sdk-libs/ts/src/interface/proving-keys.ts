@@ -15,12 +15,12 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
   "custom_ring_base_confidential.key":
-    "ae4b89e496ae9669f843893b06d529b18d4c5f8a28e096aadf93bcf09d5d2bfa",
+    "05486d42dbfac14637e78fcdf53ac773e8cdb511b20d1ecdab259c7965c1cfbe",
   "custom_ring_delegate_policy.key":
-    "df71b1a44a67c87dc98728fe30ff62a02ffec67938708cc668f2f26aa5d2cd91",
-  "custom_ring_base.key": "11edacc4aed3591837422d4c582a511a606f8870c20fc968fd68966bc49f9afe",
+    "17135904f857a3fe2e7916c332a289e5d2e37228669f9061de6b5d416cfa1f9a",
+  "custom_ring_base.key": "73a27072d09f7dcd0124f637dbfb8d36b0a1c5c690c4d082716f8cbff778c695",
   "custom_ring_deposit.key": "7018092f0fa02d11adc6aadc7b083d7d5ae32936c91877252125377ef51b263b",
-  "custom_ring_policy.key": "6eac2b4f1a99cf079f57c75b99bd03648392d18400b379996a18b27ad10290d7",
+  "custom_ring_policy.key": "93d772c2e303cad0c35a8b17f1c5ad907f7b878360752c2a4d626a9a24982e31",
   "custom_ring_register_key.key":
     "cdad9dddf838db7899fe6bd958ec3b6846d4c7ffa12502d388d8dd831574b14f",
   "custom_ring_update_members.key":

@@ -307,6 +307,7 @@ fetch-custom-ring-keys:
 ensure-custom-ring-live-keys: fetch-custom-ring-keys check-custom-ring-keys
 
 # The committed verifying keys must be the export of the pinned proving keys.
+# Normalize historical rustfmt skips before comparing generated constants.
 check-custom-ring-keys: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
@@ -321,8 +322,10 @@ check-custom-ring-keys: build-prover-server
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
-        rustfmt --config-path rustfmt.toml "$export_dir/$module"
-        diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
+        sed '/^#\[rustfmt::skip\]$/d' "custom-rings/interface/src/$module" > "$export_dir/committed-$module"
+        sed '/^#\[rustfmt::skip\]$/d' "$export_dir/$module" > "$export_dir/generated-$module"
+        rustfmt --config-path rustfmt.toml "$export_dir/committed-$module" "$export_dir/generated-$module"
+        diff -u "$export_dir/committed-$module" "$export_dir/generated-$module"
     done
     for key in {{anonymous-ring-keys}}; do
         module="${key%.key}.rs"
@@ -332,8 +335,10 @@ check-custom-ring-keys: build-prover-server
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
-        rustfmt --config-path rustfmt.toml "$export_dir/$module"
-        diff -u "program-libs/interface/src/verifying_keys/$module" "$export_dir/$module"
+        sed '/^#\[rustfmt::skip\]$/d' "program-libs/interface/src/verifying_keys/$module" > "$export_dir/committed-$module"
+        sed '/^#\[rustfmt::skip\]$/d' "$export_dir/$module" > "$export_dir/generated-$module"
+        rustfmt --config-path rustfmt.toml "$export_dir/committed-$module" "$export_dir/generated-$module"
+        diff -u "$export_dir/committed-$module" "$export_dir/generated-$module"
     done
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving

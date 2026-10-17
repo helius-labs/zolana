@@ -32,7 +32,13 @@ func (e Envelope) Seal(api frontend.API) Sealed {
 	sealed := Sealed{Auditor: gadget.PackBytesBE(api, auditor[:]), Eph: gadget.PackBytesBE(api, eph[:])}
 	// Binding both keys keeps the key schedule input from replaying under another key pair.
 	secret := gadget.PoseidonHash(api, slices.Concat([]frontend.Variable{uint64(DomSepCRShared)}, gadget.PackBytesBE(api, dh[:]), sealed.Eph, sealed.Auditor))
-	key, nonce := ve.KeySchedule(api, secret, ConstBytes(e.Info), len(e.Info))
+	var key [32]frontend.Variable
+	var nonce [12]frontend.Variable
+	if e.Info == auditEncInfo {
+		key, nonce = auditStreamKeySchedule(api, secret)
+	} else {
+		key, nonce = ve.KeySchedule(api, secret, ConstBytes(e.Info), len(e.Info))
+	}
 	sealed.Ciphertext = aes.NewCipher(api, key).CTREncrypt(nonce, e.Plaintext)
 	return sealed
 }

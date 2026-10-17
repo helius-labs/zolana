@@ -1,3 +1,4 @@
+import { ctr } from "@noble/ciphers/aes.js";
 import { X25519PublicKey, X25519Secret } from "./x25519.js";
 import {
   inputTreeSlots,
@@ -17,9 +18,9 @@ import {
   bytesToBigInt,
   checkedBytes,
   concatBytes,
+  copyBytes,
   u32be,
 } from "./bytes.js";
-import { symmetricApply } from "./merge/index.js";
 import { poseidon } from "./poseidon.js";
 
 /** Rust `AUDIT_ENC_INFO`. */
@@ -36,6 +37,32 @@ export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
+
+/** Two Poseidon outputs supply 31 key bytes, then one key byte and a 12-byte nonce. */
+export function symmetricAuditApply(shared: Bytes32, data: Uint8Array): Uint8Array {
+  const tag = new Uint8Array(11);
+  tag.set(AUDIT_ENC_INFO);
+  const key = new Uint8Array(32);
+  const counter = new Uint8Array(16);
+  let head: Uint8Array | undefined;
+  let tail: Uint8Array | undefined;
+  try {
+    head = poseidon([rightAlign(tag), shared]);
+    key.set(head.subarray(1), 0);
+    tag[10] = 1;
+    tail = poseidon([rightAlign(tag), shared]);
+    key[31] = tail[19] ?? 0;
+    counter.set(tail.subarray(20), 0);
+    counter[15] = 2;
+    return ctr(key, counter).encrypt(copyBytes(data));
+  } finally {
+    tag.fill(0);
+    key.fill(0);
+    counter.fill(0);
+    head?.fill(0);
+    tail?.fill(0);
+  }
+}
 /** The anonymous circuit packs its plaintext into 31-byte big-endian chunks. */
 const DISCLOSURE_CHUNK_BYTES = 31;
 /** `tag(1) || sender(32)`, zero padded to two chunks. Rust `DISCLOSURE_SENDER_LEN`. */
@@ -174,7 +201,7 @@ export function encryptTransactionViewingSecret(
     const ephemeralPublicKey = ephemeral.publicKey();
     dh = ephemeral.ecdh(auditorPublicKey);
     shared = auditSharedSecret(dh, ephemeralPublicKey, auditorPublicKey);
-    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, txViewingSecret) as Bytes32;
+    const ciphertext = symmetricAuditApply(shared, txViewingSecret) as Bytes32;
     const disclosure = sealDisclosure(txViewingSecret, outputDisclosure);
     return Object.freeze({
       ephemeralSecret: ephemeral.secretBytes(),
@@ -197,7 +224,7 @@ export function decryptTransactionViewingSecret(
   try {
     dh = auditor.ecdh(message.ephemeralPublicKey);
     shared = auditSharedSecret(dh, message.ephemeralPublicKey, auditor.publicKey());
-    return symmetricApply(shared, AUDIT_ENC_INFO, message.ciphertext) as Bytes32;
+    return symmetricAuditApply(shared, message.ciphertext) as Bytes32;
   } finally {
     dh?.fill(0);
     shared?.fill(0);

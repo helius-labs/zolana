@@ -391,7 +391,9 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     const body = JSON.stringify(customRingBaseProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-base-confidential" });
+    const key = provingKeyFor({
+      circuit: inputs.nOut === 2 ? "custom-ring-base-confidential" : "custom-ring-base",
+    });
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -833,7 +835,7 @@ export function customRingBaseProofRequest(
   inputs: CustomRingBaseProofRequest,
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    circuitType: "custom-ring-base-confidential",
+    circuitType: inputs.nOut === 2 ? "custom-ring-base-confidential" : "custom-ring-base",
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),

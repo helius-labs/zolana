@@ -10,7 +10,8 @@ per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
 
-- `proveCustomRingBase` selects the smaller ordinary auditor circuit → deploy the matching ring program and serve `custom-ring-base-confidential` with this release's proving keys.
+- `proveCustomRingBase` selects the smaller ordinary auditor circuit for two outputs and the general base circuit for other output counts → deploy the matching ring program and serve both keys from this release.
+- Auditor key envelopes use a two-hash Poseidon KDF. Previous envelope ciphertexts do not open with this release's auditor client → rotate the ring prover and auditor client together.
 
 - Asset rules use authenticated mint records in the own or curator registry. The inline eight-mint allowlist is removed. `inlineAssets` and `inlineLimits` now serve only per-mint amount guards. Scalar owner guards reject mixed-mint transfers. Replace inline asset rules with list rules and populate the mint records before transferring.
 

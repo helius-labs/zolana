@@ -63,8 +63,11 @@ func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, e
 	if err := Unmarshal(payload, params); err != nil {
 		return nil, err
 	}
-	if circuitType == common.CustomRingConfidentialCircuitType && params.(*BaseParams).Anonymous {
-		return nil, fmt.Errorf("confidential audit circuit cannot prove anonymous disclosure")
+	if circuitType == common.CustomRingConfidentialCircuitType {
+		baseParams := params.(*BaseParams)
+		if baseParams.Anonymous || baseParams.NOut != 2 {
+			return nil, fmt.Errorf("confidential audit circuit requires ordinary mode and two outputs")
+		}
 	}
 	return Assign(circuitType, params)
 }

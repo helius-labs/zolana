@@ -141,7 +141,7 @@ impl PendingCustomRingProof {
             _ => return Err(RingError::AnonymousDisclosureShape),
         };
         Ok(BaseBody {
-            circuit_type: if anonymous.is_some() {
+            circuit_type: if anonymous.is_some() || self.outputs.len() != 2 {
                 RingCircuit::Base
             } else {
                 RingCircuit::BaseConfidential
@@ -280,7 +280,7 @@ impl PendingCustomRingProof {
         }
     }
 
-    /// The circuit recomputes `private_tx_hash`, so only the one the SPP witness fixed proves.
+    /// The audit statement binds the `private_tx_hash` that SPP settles.
     fn secrets(&self, private_tx_hash: [u8; 32]) -> Result<AuditSecrets, RingError> {
         if !is_canonical_bn254_scalar_be(&private_tx_hash) {
             return Err(RingError::NonCanonicalHash);

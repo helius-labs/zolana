@@ -139,12 +139,21 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	}
 
 	// Published fields are the live prefix, the zero tail pads the final HashChain4 group.
-	pad := disclosurePad(api, key, salt, len(plaintext))
+	padCount := len(plaintext)
+	if ordinary {
+		// The last HashChain4 element is a permanent zero. Its pad is unused.
+		padCount--
+	}
+	pad := disclosurePad(api, key, salt, padCount)
 	states := []frontend.Variable{api.Mul(live[0], api.Add(plaintext[0], pad[0]))}
 	for start := 1; start < len(plaintext); start += 3 {
 		group := []frontend.Variable{states[len(states)-1]}
 		for i := start; i < start+3; i++ {
-			group = append(group, api.Mul(live[i], api.Add(plaintext[i], pad[i])))
+			if i == padCount {
+				group = append(group, 0)
+			} else {
+				group = append(group, api.Mul(live[i], api.Add(plaintext[i], pad[i])))
+			}
 		}
 		states = append(states, gadget.PoseidonHash(api, group))
 	}

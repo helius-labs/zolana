@@ -1,14 +1,18 @@
 package custom_ring
 
 import (
+	"bytes"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -41,6 +45,29 @@ func TestGoldenRequestsProveWithTheInstalledKeys(t *testing.T) {
 				t.Fatal("proof admitted under a different statement")
 			}
 		})
+	}
+}
+
+func TestOrdinaryBaseFallbackAcceptsEverySettledOutputCount(t *testing.T) {
+	cs := compileRing(t, common.CustomRingBaseCircuitType)
+	for count := 1; count <= 4; count++ {
+		params := baseParams(t)
+		params.NOut = uint8(count)
+		keys := ringaudit.DefaultKeys(t)
+		statement := keys.Statement(params.PrivateTxHash.Int)
+		statement.Count = count
+		params.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)))
+		assignment, err := Assign(common.CustomRingBaseCircuitType, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(witness); err != nil {
+			t.Fatalf("%d outputs: %v", count, err)
+		}
 	}
 }
 
@@ -84,6 +111,15 @@ func TestConfidentialAuditKeyCannotReplaceAnonymousAudit(t *testing.T) {
 	}
 	if _, err := Decode(common.CustomRingConfidentialCircuitType, anonymous); err == nil {
 		t.Fatal("ordinary endpoint accepted anonymous disclosure")
+	}
+	for _, count := range []byte{'0', '1', '3', '4'} {
+		changed := bytes.Replace(ordinary, []byte(`"nOut": 2`), []byte{'"', 'n', 'O', 'u', 't', '"', ':', ' ', count}, 1)
+		if bytes.Equal(changed, ordinary) {
+			t.Fatal("test fixture has no output count")
+		}
+		if _, err := Decode(common.CustomRingConfidentialCircuitType, changed); err == nil {
+			t.Fatalf("ordinary endpoint accepted %c outputs", count)
+		}
 	}
 	ps := loadRingSystem(t, common.CustomRingConfidentialCircuitType)
 	other := loadRingSystem(t, common.CustomRingBaseCircuitType)

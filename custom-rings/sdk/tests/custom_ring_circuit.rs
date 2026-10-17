@@ -18,7 +18,7 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 }
 
 fn fixture_ciphertext() -> [u8; 32] {
-    hex_bytes::<32>("03417a38002f02b2af3e7b938032a1d317e6350831c55a9d3a91e9520feb2354")
+    hex_bytes::<32>("da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90")
 }
 
 /// One public input plus the lookup argument's BSB22 commitment, `vk_ic`

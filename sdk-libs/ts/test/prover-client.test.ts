@@ -19,6 +19,7 @@ import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
+  customRingBaseProofRequest,
   customRingPolicyProofRequest,
   customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
@@ -175,6 +176,17 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
     outputs: Array.from({ length: 4 }, () => zeroOpening()),
   };
 }
+
+it("binds the ordinary audit proving key to two settled outputs", () => {
+  const request = auditRequest(x25519.getPublicKey(bytes(4)));
+  for (const count of [1, 2, 3, 4]) {
+    const body = customRingBaseProofRequest({ ...request, nOut: count });
+    expect(body["circuitType"]).toBe(
+      count === 2 ? "custom-ring-base-confidential" : "custom-ring-base",
+    );
+    expect(body["nOut"]).toBe(count);
+  }
+});
 
 describe("delegate ring prover contracts", () => {
   it("decodes delegate proofs and refuses malformed responses", async () => {
