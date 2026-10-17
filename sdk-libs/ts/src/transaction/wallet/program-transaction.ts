@@ -66,6 +66,8 @@ export interface ProgramProofInputUtxo {
   readonly treeId: number;
   readonly leafIndex: bigint;
   readonly cacheSlot?: number;
+  readonly address?: boolean;
+  readonly compact?: boolean;
 }
 
 export interface ProgramProofOutputUtxo {
@@ -79,6 +81,7 @@ export interface ProgramProofOutputUtxo {
   readonly ownerTag?: Uint8Array;
   readonly data?: ProgramData;
   readonly cacheSlot?: number;
+  readonly compact?: boolean;
 }
 
 export type ProgramOwnerTag =
@@ -181,6 +184,8 @@ const INPUT_KEYS = [
   "treeId",
   "leafIndex",
   "cacheSlot",
+  "address",
+  "compact",
 ] as const;
 const UTXO_KEYS = ["owner", "asset", "amount", "blinding", "ringProgramId", "data"] as const;
 const OUTPUT_KEYS = [
@@ -194,6 +199,7 @@ const OUTPUT_KEYS = [
   "ownerTag",
   "data",
   "cacheSlot",
+  "compact",
 ] as const;
 
 const invalid = (field: string): TransactionError =>
@@ -271,7 +277,8 @@ export async function decodeProgramTransaction(
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
       interfaceTransfers: frozenTransfers,
-      outputs: tags.map((entry, slotIndex) => {
+      outputs: tags.flatMap((entry, slotIndex) => {
+        if (frozenOutputs[slotIndex]?.isCompact()) return [];
         const output = frozenOutputs[slotIndex];
         const slot = encrypted.payload[slotIndex];
         const data = output?.isDummy() ? randomBytes(dummyLength) : slot?.data;
@@ -282,9 +289,11 @@ export async function decodeProgramTransaction(
         if (utxoHash === undefined) {
           throw new TransactionError("TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH", { slotIndex });
         }
-        return { utxoHash, ownerTag: entry.tag, data };
+        return [{ utxoHash, ownerTag: entry.tag, data }];
       }),
-      resolvedOwnerTags,
+      resolvedOwnerTags: resolvedOwnerTags.filter(
+        (_, slotIndex) => !frozenOutputs[slotIndex]?.isCompact(),
+      ),
       messages: [],
     });
   };
@@ -390,7 +399,9 @@ function checkOwnerTags(
       throw new TransactionError("TRANSACTION_OWNER_TAG_COUNT_MISMATCH", { slotIndex });
     }
     // A dummy publishes the participant tag it was padded with.
-    const viewTag = output.ownerAddress?.confidentialViewTag() ?? output.ownerTag;
+    const viewTag = output.isCompact()
+      ? new Uint8Array(32)
+      : (output.ownerAddress?.confidentialViewTag() ?? output.ownerTag);
     if (viewTag === undefined || !equal(entry.resolved, viewTag)) {
       throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", {
         slotIndex,
@@ -418,9 +429,16 @@ function checkOwnerTags(
 function proofInput(value: unknown, path: string, assets: AssetRegistry): ProofInputUtxo {
   const entry = exactRecord(value, path, INPUT_KEYS);
   const utxoHash = fixedBytes<Bytes32>(entry["utxoHash"], 32, `${path}.utxoHash`);
-  u64(entry["leafIndex"], `${path}.leafIndex`);
+  const leafIndex = u64(entry["leafIndex"], `${path}.leafIndex`);
+  const address =
+    entry["address"] === undefined ? false : decoder.boolean(entry["address"], `${path}.address`);
+  if (address && leafIndex !== 0n) throw new TransactionError("TRANSACTION_INVALID_ADDRESS_INPUT");
   const input = new ProofInputUtxo({
     utxo: utxoValue(entry["utxo"], `${path}.utxo`, assets),
+    address,
+    ...optional(entry, "compact", path, (item, field) => ({
+      compact: decoder.boolean(item, field),
+    })),
     nullifierPublicKey: fixedBytes<Bytes32>(
       entry["nullifierPubkey"],
       32,
@@ -458,6 +476,8 @@ function utxoValue(value: unknown, path: string, assets: AssetRegistry): Utxo {
 
 function proofOutput(value: unknown, path: string, assets: AssetRegistry): ProofOutputUtxo {
   const entry = exactRecord(value, path, OUTPUT_KEYS);
+  if (entry["compact"] === true && entry["ownerAddress"] !== undefined)
+    throw invalid(`${path}.compact`);
   return createProofOutput({
     asset: mint(entry["asset"], `${path}.asset`, assets),
     amount: u64(entry["amount"], `${path}.amount`),
@@ -471,6 +491,9 @@ function proofOutput(value: unknown, path: string, assets: AssetRegistry): Proof
     })),
     ...optional(entry, "dataHash", path, (item, field) => ({
       dataHash: fixedBytes<Bytes32>(item, 32, field),
+    })),
+    ...optional(entry, "compact", path, (item, field) => ({
+      compact: decoder.boolean(item, field),
     })),
     ...optional(entry, "ownerAddress", path, (item, field) => ({
       ownerAddress: shieldedAddress(item, field),

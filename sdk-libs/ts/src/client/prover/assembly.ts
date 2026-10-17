@@ -15,7 +15,7 @@ import {
   type CachedInputFields,
 } from "../../interface/cache.js";
 import { CACHE_CAPACITY } from "../../interface/state.js";
-import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
+import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_WIDTHS,
   selectSppShape,
@@ -252,6 +252,12 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   const shape = proofInputs.checkShape();
+  if (
+    circuit.kind !== "confidential" &&
+    proofInputs.inputUtxos.some((input) => input.isAddress())
+  ) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
   const plan = circuitPlan(circuit, shape);
   if (
     plan.authority &&
@@ -430,7 +436,7 @@ function prepareTransferUnchecked(
       lookups: proofInputs.inputUtxos.map((input, index) =>
         Object.freeze({
           treeSlot: treeIndexes[index] ?? 0,
-          commitment: input.isDummy() || input.cacheSlot !== undefined ? null : input.hash(),
+          commitment: input.requiresInclusion() ? input.hash() : null,
           nullifier: input.isCompact() ? input.nullifier() : null,
         }),
       ),
@@ -700,7 +706,7 @@ export function prepareInput(
     treeSlot: asField(BigInt(options.treeSlot)),
     nullifier: asField(bytesField(options.nullifier ?? input.publishedNullifier(), "nullifier")),
     ownerPublicKeyHash: asField(dummy ? 0n : options.owner),
-    ...(dummy ? { nullifierSecret: asField(0n) } : {}),
+    ...(dummy || input.isAddress() ? { nullifierSecret: asField(0n) } : {}),
   });
 }
 
@@ -819,7 +825,7 @@ export function assembleSlots(
     let treeIndex: number;
     let converted: TransferInput;
     let owner: bigint;
-    if (input.cacheSlot !== undefined) {
+    if (!input.requiresInclusion()) {
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
         throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
@@ -1238,6 +1244,7 @@ function spendInput(
     treeSlot: asField(BigInt(treeSlot)),
     nullifier: asField(bytesField(input.nullifier(), "nullifier")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
+    ...(input.isAddress() ? { nullifierSecret: asField(0n) } : {}),
   });
 }
 
@@ -1294,9 +1301,13 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
         bytesField(input.nullifierPublicKey, "nullifier public key"),
       ]);
   return Object.freeze({
-    domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
+    domain: asField(
+      BigInt(dummy ? DUMMY_DOMAIN : input.isAddress() ? ADDRESS_DOMAIN : UTXO_DOMAIN),
+    ),
     owner: asField(owner),
-    asset: asField(dummy ? 0n : hashBytesBigInt(addressBytes(input.utxo.asset))),
+    asset: asField(
+      dummy || input.isAddress() ? 0n : hashBytesBigInt(addressBytes(input.utxo.asset)),
+    ),
     amount: asField(dummy ? 0n : input.utxo.amount),
     blinding: asField(bytesToBigInt(input.utxo.blinding)),
     dataHash: asField(dummy ? 0n : input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),

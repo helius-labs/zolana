@@ -24,6 +24,7 @@ Breaking
 
 Added
 
+- `ProofInputUtxo.address(owner, seed, treeId)` reserves a signing owner’s address with a non-inclusion proof, and `decodeProgramTransaction` accepts reserved addresses and compact padding from ZK program bindings.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other

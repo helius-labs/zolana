@@ -13,6 +13,7 @@ import {
   NO_UTXO_ROOT,
   type TreeSlot,
 } from "../../interface/tree-slot.js";
+import { ADDRESS_DOMAIN } from "../../interface/program.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import { hashChain } from "../../transaction/internal.js";
@@ -354,12 +355,21 @@ function checkStatement(inputs: IndexedProofInputs): void {
       (cached === 1n && (input?.isDummy !== 0n || inputs.circuit === "transferRingAuthority"))
     )
       throw invalid();
+    const address = input?.circuit.domain === BigInt(ADDRESS_DOMAIN);
+    if (
+      address &&
+      (inputs.circuit !== "transfer" ||
+        input.isDummy !== 0n ||
+        cached !== 0n ||
+        input.nullifierSecret !== 0n)
+    )
+      throw invalid();
     if (
       input === undefined ||
       lookup.treeSlot >= inputs.trees.length ||
       BigInt(lookup.treeSlot) !== input.treeSlot ||
       (input.isDummy !== 0n && input.isDummy !== 1n) ||
-      (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n) ||
+      (lookup.commitment === null) !== (input.isDummy === 1n || cached === 1n || address) ||
       (lookup.nullifier === null) !== (input.isDummy === 0n || input.nullifier !== 0n)
     )
       throw invalid();

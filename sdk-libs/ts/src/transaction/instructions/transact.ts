@@ -402,6 +402,8 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
  * callers that hash a transaction they cannot sign.
  */
 export interface InputUtxo {
+  /** The reserved address; absent for state spends and padding. */
+  readonly addressNullifier?: Bytes32 | undefined;
   readonly utxo: Utxo;
   readonly nullifierPublicKey: Bytes32;
   /** The tree the UTXO is spent from. */
@@ -491,10 +493,13 @@ export function privateTxAddressChain(
 export function sppPrivateTxHashInput(proofInputs: SppProofInputs): PrivateTxHashInput {
   return Object.freeze({
     inputHashes: proofInputs.inputUtxos.map((input) =>
-      input.isDummy() ? copy(ZERO_32) : input.hash(),
+      input.isDummy() || input.isAddress() ? copy(ZERO_32) : input.hash(),
     ),
     outputHashes: proofInputs.outputs.map((output) =>
       output.isDummy() ? copy(ZERO_32) : output.hash(proofInputs.outputTreeId),
+    ),
+    addressNullifiers: proofInputs.inputUtxos.map(
+      (input) => input.addressNullifier ?? copy(ZERO_32),
     ),
     blinding: proofInputs.privateTxBlinding(),
   });
@@ -532,7 +537,10 @@ export function createEncryptedTransaction(
     // `SppProofInputs.messageHash`.
     hash(): Bytes32 {
       return privateTxHash({
-        inputHashes: inputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
+        inputHashes: inputs.map((entry) =>
+          entry.isDummy() || entry.addressNullifier !== undefined ? copy(ZERO_32) : entry.hash(),
+        ),
+        addressNullifiers: inputs.map((entry) => entry.addressNullifier ?? copy(ZERO_32)),
         outputHashes: outputs.map((entry) =>
           entry.isDummy() ? copy(ZERO_32) : entry.hash(input.outputTreeId),
         ),
@@ -743,6 +751,9 @@ export class SppProofInputs {
   }
 
   checkShape(): Shape {
+    this.inputUtxos.forEach((input) => {
+      if (input.isAddress()) input.validateAddress();
+    });
     const shape = exactShape(this.inputUtxos.length, this.outputs.length);
     checkPaddingLast(this.inputUtxos, isDummySlot, "input", "TRANSACTION_REAL_SLOT_AFTER_DUMMY");
     checkPaddingLast(this.outputs, isDummySlot, "output", "TRANSACTION_REAL_SLOT_AFTER_DUMMY");
@@ -774,7 +785,7 @@ export class SppProofInputs {
   /**
    * The published nullifier of input slot 0, which the circuit derives every
    * output blinding and the private transaction blinding from. Slot 0 must be
-   * a real spend.
+   * a state spend or reserved address.
    */
   firstNullifier(): Bytes32 {
     const first = this.inputUtxos[0];
@@ -796,13 +807,13 @@ export class SppProofInputs {
 
   inputUtxoHashes(): readonly Bytes32[] {
     return this.inputUtxos
-      .filter((input) => !input.isDummy() && input.cacheSlot === undefined)
+      .filter((input) => input.requiresInclusion())
       .map((input) => input.hash());
   }
 
   inputContexts(): readonly InputUtxoContext[] {
     return this.inputUtxos
-      .filter((input) => !input.isDummy() && input.cacheSlot === undefined)
+      .filter((input) => input.requiresInclusion())
       .map((input, index) =>
         Object.freeze({
           index,
@@ -814,11 +825,11 @@ export class SppProofInputs {
 
   /**
    * The nullifiers that need a non-inclusion proof without a state proof:
-   * every padding slot, compact padding included, and every cached input.
+   * every reserved address, padding slot and cached input.
    */
   dummyNullifiers(): readonly Bytes32[] {
     return this.inputUtxos
-      .filter((input) => input.isDummy() || input.cacheSlot !== undefined)
+      .filter((input) => !input.requiresInclusion())
       .map((input) => new Uint8Array(input.nullifier()) as Bytes32);
   }
 
