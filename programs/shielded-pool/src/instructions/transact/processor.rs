@@ -121,6 +121,7 @@ fn process_resolved_transact(
         ix,
         tree_input_counts,
         &mut proof_inputs,
+        clock.slot,
     )?;
     bind_cached_inputs(cache.as_ref(), ix, &mut proof_inputs)?;
     // 11. Append new utxo hashes.

@@ -388,6 +388,7 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
     let root_history_cursor = usize::from(layout.utxo.root_history_cursor);
     let root_history_len = usize::from(layout.utxo.root_history_len);
     if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
+        || layout.utxo.root_pending > 1
         || root_history_capacity != smt::ROOT_HISTORY_CAPACITY
         || root_history_cursor >= root_history_capacity
         || !(1..=root_history_capacity).contains(&root_history_len)

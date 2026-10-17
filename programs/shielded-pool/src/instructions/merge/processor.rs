@@ -147,7 +147,7 @@ pub(crate) fn process_merge_core(
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
         };
-        let first_input_queue_seq = apply_input_tree(&mut tree, ix, &mut derived)?;
+        let first_input_queue_seq = apply_input_tree(&mut tree, ix, &mut derived, slot)?;
         let forester_fee = tree
             .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;
@@ -214,7 +214,11 @@ fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
     derived: &mut MergeProofInputs,
+    slot: u64,
 ) -> Result<u64, ProgramError> {
+    tree.utxo_tree()
+        .finalize_pending_root(slot)
+        .map_err(tree_error)?;
     derived.tree_slot = TreeSlot {
         id: tree.tree_id_array(),
         utxo_root: tree

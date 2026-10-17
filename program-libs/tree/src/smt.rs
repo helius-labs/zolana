@@ -5,7 +5,7 @@ use wincode::{
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Poseidon};
 
 use crate::error::TreeError;
 
@@ -25,7 +25,7 @@ pub struct UtxoTreeLayout<const HEIGHT: usize> {
     pub root_history_len: u16,
     pub root_history_capacity: u16,
     pub subtrees_len: u8,
-    pub _padding: [u8; 1],
+    pub root_pending: u8,
     pub last_update_slot: u64,
     pub subtrees: [[u8; 32]; HEIGHT],
     pub root_history: [[u8; 32]; ROOT_HISTORY_CAPACITY],
@@ -62,7 +62,7 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         self.root_history_len = 1;
         self.root_history_capacity = capacity;
         self.subtrees_len = height_byte;
-        self._padding = [0];
+        self.root_pending = 0;
         self.last_update_slot = 0;
         for (subtree, zero) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
             *subtree = *zero;
@@ -77,75 +77,98 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         1u64 << HEIGHT
     }
 
-    /// Appends one leaf and stores its resulting root in the history ring.
-    /// Further appends in the same slot overwrite that history entry.
     pub fn append(&mut self, leaf: [u8; 32], slot: u64) -> Result<(), TreeError> {
         self.append_batch([&leaf], slot)
     }
 
-    /// Appends a batch of leaves and stores only its final root. The first
-    /// update observed in a new slot advances the history cursor; later
-    /// updates in that slot overwrite the current entry. Returns
-    /// [`TreeError::TreeIsFull`] once the tree holds `2^HEIGHT` leaves;
-    /// appending past that would overwrite the subtrees and produce a garbage
-    /// root. Leaves appended before the error stay appended; in the program
-    /// the error aborts the instruction.
     pub fn append_batch<'l, I>(&mut self, leaves: I, slot: u64) -> Result<(), TreeError>
     where
         I: IntoIterator<Item = &'l [u8; 32]>,
     {
-        let zero_bytes = Poseidon::zero_bytes();
         let mut leaves = leaves.into_iter().peekable();
-        // `next_index` changes for every leaf, so capture this before walking
-        // the batch. In particular, a multi-leaf first batch must still
-        // advance away from the initial empty root at history index 0.
-        let is_first_update = self.next_index() == 0;
-        if leaves.peek().is_some() && !is_first_update && slot < self.last_update_slot {
+        if leaves.peek().is_none() {
+            return Ok(());
+        }
+        if slot < self.last_update_slot {
             return Err(TreeError::InvalidUpdateSlot);
         }
+        if self.next_index() >= self.capacity() {
+            return Err(TreeError::TreeIsFull);
+        }
+        self.finalize_pending_root(slot)?;
 
-        while let Some(leaf) = leaves.next() {
+        for leaf in leaves {
             if self.next_index() >= self.capacity() {
                 return Err(TreeError::TreeIsFull);
             }
-            let is_last = leaves.peek().is_none();
+            if !is_canonical_bn254_scalar_be(leaf) {
+                return Err(TreeError::Hash);
+            }
             let mut current_index = self.next_index();
             let mut current_level_hash = *leaf;
 
-            for (subtree, zero_byte) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
+            for subtree in self.subtrees.iter_mut() {
                 if current_index.is_multiple_of(2) {
                     *subtree = current_level_hash;
-                    if !is_last {
-                        break;
-                    }
-                    current_level_hash = Poseidon::hashv(&[&current_level_hash, zero_byte])
-                        .map_err(|_| TreeError::Hash)?;
-                } else {
-                    let left = *subtree;
-                    current_level_hash = Poseidon::hashv(&[&left, &current_level_hash])
-                        .map_err(|_| TreeError::Hash)?;
+                    break;
                 }
+                current_level_hash = Poseidon::hashv(&[&*subtree, &current_level_hash])
+                    .map_err(|_| TreeError::Hash)?;
                 current_index /= 2;
             }
 
-            // Intermediate roots are not computed; only the batch-final root
-            // enters the history.
-            if is_last {
-                self.root = current_level_hash;
-                self.push_root(current_level_hash, slot, is_first_update);
-            }
             self.set_next_index(self.next_index() + 1);
+            self.root_pending = 1;
+            self.last_update_slot = slot;
         }
         Ok(())
+    }
+
+    pub fn finalize_pending_root(&mut self, slot: u64) -> Result<bool, TreeError> {
+        if self.root_pending == 0 || slot <= self.last_update_slot {
+            return Ok(false);
+        }
+        let root = self.root_from_subtrees()?;
+        self.root = root;
+        self.push_root(root);
+        self.root_pending = 0;
+        Ok(true)
+    }
+
+    pub fn root_from_subtrees(&self) -> Result<[u8; 32], TreeError> {
+        let zero_bytes = Poseidon::zero_bytes();
+        let mut current_index = self.next_index();
+        let mut current_level_hash = *zero_bytes.first().ok_or(TreeError::HeightTooLarge)?;
+        for (subtree, zero_byte) in self.subtrees.iter().zip(zero_bytes.iter()) {
+            current_level_hash = if current_index.is_multiple_of(2) {
+                Poseidon::hashv(&[&current_level_hash, zero_byte])
+            } else {
+                Poseidon::hashv(&[subtree, &current_level_hash])
+            }
+            .map_err(|_| TreeError::Hash)?;
+            current_index /= 2;
+        }
+        Ok(current_level_hash)
     }
 
     pub fn root(&self) -> [u8; 32] {
         self.root
     }
 
-    /// Index of the most recently appended root in the history ring buffer.
     pub fn current_root_index(&self) -> u16 {
         self.root_history_cursor
+    }
+
+    pub fn has_pending_root(&self) -> bool {
+        self.root_pending != 0
+    }
+
+    pub fn proof_root_index(&self) -> u16 {
+        if self.root_pending == 0 {
+            return self.root_history_cursor;
+        }
+        let capacity = self.root_history.len();
+        ((usize::from(self.root_history_cursor) + 1) % capacity) as u16
     }
 
     /// Historical root at `index`. Rejects empty slots and indices past the
@@ -183,15 +206,9 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         self.next_index = value.to_le_bytes();
     }
 
-    fn push_root(&mut self, root: [u8; 32], slot: u64, is_first_update: bool) {
+    fn push_root(&mut self, root: [u8; 32]) {
         let capacity = self.root_history.len();
         let cursor = usize::from(self.current_root_index());
-        if !is_first_update && slot == self.last_update_slot {
-            if let Some(history_slot) = self.root_history.get_mut(cursor) {
-                *history_slot = root;
-            }
-            return;
-        }
         let len = usize::from(self.root_history_len);
         let next = (cursor + 1) % capacity;
         let next_len = (len + 1).min(capacity);
@@ -200,6 +217,5 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         }
         self.root_history_cursor = next as u16;
         self.root_history_len = next_len as u16;
-        self.last_update_slot = slot;
     }
 }

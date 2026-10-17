@@ -35,7 +35,7 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(UtxoLayout, root_history_len), 42);
     assert_eq!(offset_of!(UtxoLayout, root_history_capacity), 44);
     assert_eq!(offset_of!(UtxoLayout, subtrees_len), 46);
-    assert_eq!(offset_of!(UtxoLayout, _padding), 47);
+    assert_eq!(offset_of!(UtxoLayout, root_pending), 47);
     assert_eq!(offset_of!(UtxoLayout, last_update_slot), 48);
     assert_eq!(offset_of!(UtxoLayout, subtrees), 56);
     assert_eq!(offset_of!(UtxoLayout, root_history), 1_080);
