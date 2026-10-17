@@ -103,6 +103,7 @@ impl CheckedOutput {
 #[cfg_attr(not(feature = "client"), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub struct CheckedTransaction {
+    pub(crate) preserve_input_slots: bool,
     pub(crate) blinding_seed: CircuitVar,
     pub(crate) first_nullifier: CircuitVar,
     pub(crate) output_tree_id: CircuitVar,
@@ -139,6 +140,7 @@ pub struct ConfidentialTransaction<'a, P> {
     public_transfers: Vec<PublicTransfer>,
     transferred: CircuitVar,
     error: Option<CircuitError>,
+    preserve_input_slots: bool,
 }
 
 impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
@@ -152,6 +154,60 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
             public_transfers: Vec::new(),
             transferred: zero(),
             error: None,
+            preserve_input_slots: false,
+        }
+    }
+
+    /// Preserve dummy input slots in the native transaction, so its SPP shape
+    /// does not disclose how many of an application's optional inputs exist.
+    pub fn with_input_padding(mut self) -> Self {
+        self.preserve_input_slots = true;
+        self
+    }
+
+    /// Reserve an address independently of the state commitment written by this transaction.
+    #[track_caller]
+    pub fn with_new_address(mut self, owner: &crate::circuit::Owner, seed: &CircuitVar) -> Self {
+        let result = (|| {
+            owner.key().tag().assert_equal(
+                &constant(u64::from(zolana_hasher::primitives::SOLANA_OWNER_TAG)),
+                "an address is owned by a Solana signer",
+            )?;
+            owner.nullifier_pk().assert_equal(
+                &poseidon(&[zero()])?,
+                "an address uses the zero nullifier key",
+            )?;
+            crate::circuit::utxo::derive_address(owner, seed)
+        })();
+        match result {
+            Ok(address) => self.addresses.push(CreatedAddress {
+                owner: owner.clone(),
+                seed: seed.clone(),
+                address,
+            }),
+            Err(error) => self.record(error),
+        }
+        self
+    }
+
+    /// Add a state whose plaintext is transported outside the UTXO payload.
+    #[track_caller]
+    pub fn with_hashed_data_utxo(mut self, utxo: DataUtxo<CircuitVar>) -> Self {
+        self.add_data_utxo(&utxo, || Ok(None));
+        self
+    }
+
+    /// Add two optional token inputs with real deposits before padding. Their
+    /// output order remains the application's order; the input order is private.
+    #[track_caller]
+    pub fn with_optional_token_utxos(mut self, utxos: [TokenUtxos; 2]) -> Self {
+        let [first, second] = utxos;
+        match TokenUtxos::order_optional(first, second) {
+            Ok((first, second)) => self.with_token_utxos(first).with_token_utxos(second),
+            Err(error) => {
+                self.record(error);
+                self
+            }
         }
     }
 
@@ -274,6 +330,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
         let transaction_hash = transaction_hash(&private_tx_hash, &self.public_transfers)?;
         let public_hash = self.public.hash(&transaction_hash)?;
         Ok(CheckedTransaction {
+            preserve_input_slots: self.preserve_input_slots,
             blinding_seed,
             first_nullifier,
             output_tree_id,

@@ -127,7 +127,7 @@ impl<S: UtxoData> UniqueDataUtxo<S> {
 }
 
 #[track_caller]
-fn derive_address(owner: &Owner, seed: &CircuitVar) -> Result<CircuitVar, CircuitError> {
+pub(crate) fn derive_address(owner: &Owner, seed: &CircuitVar) -> Result<CircuitVar, CircuitError> {
     let _scope = Scope::open(
         &system_of([owner.key().tag()]),
         "a unique data utxo's address",

@@ -15,6 +15,7 @@ pub struct TokenUtxos {
     balance: Balance,
     spent_inputs: Vec<SpentInput>,
     close: bool,
+    retain_zero_output: bool,
 }
 
 impl HasBalance for TokenUtxos {
@@ -37,6 +38,7 @@ impl TokenUtxos {
             balance: Balance::new(owner.clone(), asset.clone(), Amount::zero()),
             spent_inputs: Vec::new(),
             close: false,
+            retain_zero_output: false,
         }
     }
 
@@ -49,6 +51,95 @@ impl TokenUtxos {
     #[track_caller]
     pub fn new_close<const N: usize>(inputs: &[Utxo; N]) -> Result<Self, CircuitError> {
         Self::spend(inputs, true)
+    }
+
+    /// A real, encrypted token output even when its amount is zero.
+    pub fn with_zero_output(mut self) -> Self {
+        self.retain_zero_output = true;
+        self
+    }
+
+    /// An optional plain deposit. A dummy contributes no value or commitment;
+    /// a real input must have the specified owner and asset.
+    #[track_caller]
+    pub fn new_optional_close(
+        input: &Utxo,
+        owner: &Owner,
+        asset: &Asset,
+    ) -> Result<Self, CircuitError> {
+        let dummy = input.domain.is_equal(&constant(u64::from(DUMMY_DOMAIN)))?;
+        input.domain.assert_equal_if(
+            &utxo_domain(),
+            &dummy.not(),
+            "an optional token input is spendable",
+        )?;
+        input.assert_default_ring()?;
+        input
+            .data_hash
+            .assert_equal(&zero(), "a token input carries no program state")?;
+        input.owner.assert_equal_if(
+            owner,
+            &dummy.not(),
+            "a deposit belongs to its program owner",
+        )?;
+        input
+            .asset
+            .assert_equal_if(asset, &dummy.not(), "a deposit has its expected asset")?;
+        let hash = dummy.select(&zero(), &input.hash_with(&owner.hash()?, &asset.hash()?)?);
+        let amount = dummy.select(&zero(), &input.amount.var());
+        Ok(Self {
+            balance: Balance::new(owner.clone(), asset.clone(), Amount::sum(&[amount])),
+            spent_inputs: vec![input.spent(hash)],
+            close: true,
+            retain_zero_output: false,
+        })
+    }
+
+    pub(crate) fn order_optional(
+        mut first: Self,
+        mut second: Self,
+    ) -> Result<(Self, Self), CircuitError> {
+        if first.spent_inputs.len() != 1 || second.spent_inputs.len() != 1 {
+            return Err(CircuitErrorKind::RuleBroken(
+                "an optional token group has exactly one input",
+            )
+            .into());
+        }
+        let first_input =
+            first
+                .spent_inputs
+                .first()
+                .cloned()
+                .ok_or(CircuitErrorKind::RuleBroken(
+                    "the first optional input exists",
+                ))?;
+        let second_input =
+            second
+                .spent_inputs
+                .first()
+                .cloned()
+                .ok_or(CircuitErrorKind::RuleBroken(
+                    "the second optional input exists",
+                ))?;
+        let second_first = first_input
+            .hash
+            .is_equal(&zero())?
+            .and(&second_input.hash.is_equal(&zero())?.not());
+        let select = |left: &SpentInput, right: &SpentInput| SpentInput {
+            hash: second_first.select(&left.hash, &right.hash),
+            meta: crate::circuit::UtxoMeta {
+                nullifier: second_first.select(&left.meta.nullifier, &right.meta.nullifier),
+                latest_tree_id: second_first
+                    .select(&left.meta.latest_tree_id, &right.meta.latest_tree_id),
+                has_latest_tree_id: second_first.select(
+                    &left.meta.has_latest_tree_id,
+                    &right.meta.has_latest_tree_id,
+                ),
+            },
+        };
+        first.spent_inputs = vec![select(&second_input, &first_input)];
+        second.spent_inputs = vec![select(&first_input, &second_input)];
+        Ok((first, second))
     }
 
     pub(crate) fn spent_inputs(&self) -> &[SpentInput] {
@@ -76,7 +167,7 @@ impl TokenUtxos {
             amount: self.balance.output_amount()?,
             data_hash: zero(),
             data: None,
-            empty_if_zero: true,
+            empty_if_zero: !self.retain_zero_output,
         }))
     }
 
@@ -135,6 +226,7 @@ impl TokenUtxos {
             ),
             spent_inputs,
             close,
+            retain_zero_output: false,
         })
     }
 }

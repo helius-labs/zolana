@@ -20,7 +20,19 @@ impl SppTransactionBuilder<'_> {
             .iter()
             .enumerate()
             .filter_map(|(slot, hash)| match to_bytes(hash) {
-                Ok(hash) if hash == [0u8; 32] => None,
+                Ok(hash) if hash == [0u8; 32] => {
+                    if self.checked.preserve_input_slots {
+                        Some(
+                            crate::conversion::u16_value(&self.checked.output_tree_id)
+                                .map_err(ClientErrorKind::Circuit)
+                                .and_then(|tree| {
+                                    WalletUtxo::dummy(tree).map_err(ClientErrorKind::Transaction)
+                                }),
+                        )
+                    } else {
+                        None
+                    }
+                }
                 Ok(hash) => Some(
                     self.records
                         .get::<UtxoRecords>()

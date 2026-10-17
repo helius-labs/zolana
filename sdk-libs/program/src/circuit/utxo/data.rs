@@ -93,6 +93,7 @@ pub struct DataUtxo<S> {
     address: Option<CircuitVar>,
     spent: Option<SpentInput>,
     output_state: OutputState,
+    unwrapped_data_hash: bool,
 }
 
 impl<S> HasBalance for DataUtxo<S> {
@@ -135,13 +136,28 @@ impl<S: DataHash> DataUtxo<S> {
         address: Option<CircuitVar>,
         output_state: OutputState,
     ) -> Result<Self, CircuitError> {
+        Self::spend_with_hash(input, state, address, output_state, false)
+    }
+
+    #[track_caller]
+    fn spend_with_hash(
+        input: &Utxo,
+        state: S,
+        address: Option<CircuitVar>,
+        output_state: OutputState,
+        unwrapped_data_hash: bool,
+    ) -> Result<Self, CircuitError> {
         let _scope = Scope::open(&input.domain.cs(), "a data utxo's input");
         input
             .domain
             .assert_equal(&utxo_domain(), "the utxo is not a spendable utxo")?;
         input.assert_default_ring()?;
         input.data_hash.assert_equal(
-            &data_hash(address.as_ref(), &state)?,
+            &if unwrapped_data_hash {
+                state.hash()?
+            } else {
+                data_hash(address.as_ref(), &state)?
+            },
             "the input does not commit to its program state",
         )?;
         Ok(Self {
@@ -155,6 +171,7 @@ impl<S: DataHash> DataUtxo<S> {
             // The domain check above already excludes dummies.
             spent: Some(input.spent(input.hash_with(&input.owner.hash()?, &input.asset.hash()?)?)),
             output_state,
+            unwrapped_data_hash,
         })
     }
 }
@@ -167,6 +184,7 @@ impl<S> DataUtxo<S> {
             address,
             spent: None,
             output_state: OutputState::Default,
+            unwrapped_data_hash: false,
         }
     }
 
@@ -197,7 +215,13 @@ impl<S: DataHash> DataUtxo<S> {
     pub(crate) fn output(&self) -> Result<Option<Output>, CircuitError> {
         let balance = self.balance.amount_var();
         let data_hash = match &self.output_state {
-            OutputState::Default => data_hash(self.address.as_ref(), &self.state)?,
+            OutputState::Default => {
+                if self.unwrapped_data_hash {
+                    self.state.hash()?
+                } else {
+                    data_hash(self.address.as_ref(), &self.state)?
+                }
+            }
             OutputState::Closed(address) => {
                 balance.assert_equal(&zero(), CLOSED_LEAVES_BALANCE)?;
                 poseidon(&[
@@ -247,5 +271,20 @@ impl<S> Deref for DataUtxo<S> {
 impl<S> DerefMut for DataUtxo<S> {
     fn deref_mut(&mut self) -> &mut S {
         &mut self.state
+    }
+}
+
+impl DataUtxo<CircuitVar> {
+    /// A state commitment whose plaintext is transported separately, without a
+    /// DATA wrapper or an attached state payload. The application owns its hash domain.
+    pub fn new_init_with_hash(owner: &Owner, data_hash: &CircuitVar) -> Self {
+        let mut utxo = Self::fresh(owner, data_hash.clone(), None);
+        utxo.unwrapped_data_hash = true;
+        utxo
+    }
+
+    #[track_caller]
+    pub fn new_close_with_hash(input: &Utxo, data_hash: &CircuitVar) -> Result<Self, CircuitError> {
+        Self::spend_with_hash(input, data_hash.clone(), None, OutputState::None, true)
     }
 }
