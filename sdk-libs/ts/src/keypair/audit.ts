@@ -616,11 +616,9 @@ export function policyPublicInputHash(
       namespaceOwnerHash: Bytes32;
       /** Set when an outflow passes a limit's cosign threshold, false on the delegate rail. */
       approvalRequired: boolean;
-      /** Present exactly when output nullifier keys must be enrolled under it. */
-      keyRegistryRoot?: Bytes32;
-      revocationTargets?: readonly Bytes32[];
-      /** Per fact slot, the index into `treeSlots` its revocation target lives in. */
-      revocationTreeIndexes?: readonly number[];
+      keyEscrow: boolean;
+      memberRegistryRoot: Bytes32;
+      foreignRoot: Bytes32;
     }>,
 ): Bytes32 {
   const indexed = policyIndexedInputs(input);
@@ -640,30 +638,10 @@ export function policyIndexedInputs(
     checkedBytes(input.ringId, 32, "ring id"),
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
     u64Field(input.approvalRequired ? 1n : 0n),
-    u64Field(input.keyRegistryRoot === undefined ? 0n : 1n),
-    checkedBytes(input.keyRegistryRoot ?? new Uint8Array(32), 32, "key registry root"),
-    packRevocationTreeIndexes(input.revocationTreeIndexes),
-    ...checkedRevocationTargets(input.revocationTargets),
+    u64Field(input.keyEscrow ? 1n : 0n),
+    checkedBytes(input.memberRegistryRoot, 32, "member registry root"),
+    checkedBytes(input.foreignRoot, 32, "foreign registry root"),
   ];
-}
-
-/** Mirrors Rust `pack_revocation_tree_indexes`, `Σ index_i · 8^i`, an index of 8 or more would alias its neighbour. */
-function packRevocationTreeIndexes(indexes: readonly number[] | undefined): Bytes32 {
-  const values = indexes ?? Array.from({ length: 10 }, () => 0);
-  if (values.length !== 10) throw new RangeError("revocation tree indexes must hold 10 entries");
-  const packed = values.reduce((sum, index, slot) => {
-    if (!Number.isInteger(index) || index < 0 || index >= 8) {
-      throw new RangeError("a revocation tree index must be below 8");
-    }
-    return sum | (BigInt(index) << BigInt(3 * slot));
-  }, 0n);
-  return u64Field(packed);
-}
-
-function checkedRevocationTargets(targets: readonly Bytes32[] | undefined): readonly Bytes32[] {
-  const values = targets ?? Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32);
-  if (values.length !== 10) throw new RangeError("revocation targets must hold 10 entries");
-  return values.map((target) => checkedBytes(target, 32, "revocation target"));
 }
 
 function u64Field(value: bigint): Bytes32 {

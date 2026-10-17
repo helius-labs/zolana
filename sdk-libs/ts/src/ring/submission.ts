@@ -29,7 +29,7 @@ import {
 } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 import { assertVersion1Transaction } from "../flows/compile.js";
-import { fetchRingKeyRegistryRoot } from "./config.js";
+import { fetchRingMemberRegistryRoot } from "./config.js";
 import type { RingTransactPolicy } from "./instructions.js";
 import { RingError, RingProgramError } from "./error.js";
 
@@ -40,7 +40,7 @@ export interface RingSubmissionAttempt {
   readonly intentHash: Bytes32;
   readonly ringInstructionIndex: number;
   /** The registry history slot an escrowed statement names and the root its proof binds. */
-  readonly keyRegistryRoot?: Readonly<{ ringProgramId: Address; index: number; root: Bytes32 }>;
+  readonly memberRegistryRoot?: Readonly<{ ringProgramId: Address; index: number; root: Bytes32 }>;
 }
 
 export type RingSubmissionResult =
@@ -192,9 +192,13 @@ export class RingTransactionSubmission {
 
   /** Later registrations wrapped the history over the slot, so the program read another root. */
   async #rootReplaced(context?: RequestContext): Promise<boolean> {
-    const bound = this.#attempt.keyRegistryRoot;
+    const bound = this.#attempt.memberRegistryRoot;
     if (bound === undefined || this.#registry === undefined) return false;
-    const registry = await fetchRingKeyRegistryRoot(this.#registry, bound.ringProgramId, context);
+    const registry = await fetchRingMemberRegistryRoot(
+      this.#registry,
+      bound.ringProgramId,
+      context,
+    );
     const held = registry.history[bound.index];
     return held === undefined || !equalBytes(held, bound.root);
   }
@@ -277,7 +281,7 @@ export class RingTransactionSubmission {
         const retry =
           status.kind === "expired" ||
           rootReplaced ||
-          ringCode === RingProgramError.staleKeyRegistryRoot;
+          ringCode === RingProgramError.staleMemberRegistryRoot;
         if (!retry || this.#attempts >= MAX_ATTEMPTS) {
           this.#terminal = true;
           this.#reservation.release();
@@ -369,13 +373,14 @@ function failedSubmission(
 export function boundRegistryRoot(
   ringProgramId: Address,
   policy: RingTransactPolicy | undefined,
-): Pick<RingSubmissionAttempt, "keyRegistryRoot"> {
-  if (policy?.keyRegistryRootIndex === undefined || policy.keyRegistryRoot === undefined) return {};
+): Pick<RingSubmissionAttempt, "memberRegistryRoot"> {
+  if (policy?.memberRegistryRootIndex === undefined || policy.memberRegistryRoot === undefined)
+    return {};
   return {
-    keyRegistryRoot: {
+    memberRegistryRoot: {
       ringProgramId,
-      index: policy.keyRegistryRootIndex,
-      root: policy.keyRegistryRoot,
+      index: policy.memberRegistryRootIndex,
+      root: policy.memberRegistryRoot,
     },
   };
 }

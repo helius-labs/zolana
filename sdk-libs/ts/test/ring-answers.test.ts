@@ -1,619 +1,303 @@
-import { getAddressDecoder, type Address } from "@solana/kit";
-import { describe, expect, it } from "vitest";
-
+import { getAddressDecoder } from "@solana/kit";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
-import type { Bytes32 } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
-import type { ShieldedAddress } from "../src/keypair/shielded.js";
-import { planPolicyAnswers, provePolicyAnswers, type PolicyAnswers } from "../src/ring/answers.js";
+import { ringMemberRegistryRootPda, treeAddress } from "../src/interface/pda/index.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
+import type { Bytes32 } from "../src/interface/types.js";
+import {
+  provePolicyAnswers,
+  type PolicyAnswerInput,
+  type RingPolicyAnswerClient,
+} from "../src/ring/answers.js";
 import {
   ListId,
-  RingListNamespace,
   buildRuleTable,
+  memberOfIdentity,
   memberOfAsset,
-  memberOfTag,
-  type Member,
   type Rule,
   type RuleTable,
 } from "../src/ring/policy.js";
-import {
-  ProofInputUtxo,
-  Utxo,
-  createProofOutput,
-  type ProofOutputUtxo,
-} from "../src/transaction/utxo.js";
+import { createProofOutput, type ProofOutputUtxo } from "../src/transaction/utxo.js";
+import { ownSources, ringPolicyConfig, ownedAccount } from "./helpers/ring-accounts.js";
+import { registryFixture, memberRegistryRootData } from "./helpers/member-registry.js";
+import { treeAccount } from "./helpers/tree-account.js";
 
-import { ownSources, ringPolicyConfig } from "./helpers/ring-accounts.js";
-import { FIXTURE_HEADS, entryProofReads, lineage } from "./helpers/ring-entries.js";
-
-await initializePoseidon();
-
-const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
-const addressOf = (byte: number): Address => getAddressDecoder().decode(filled(byte));
-const TREE = addressOf(0x30);
-const NAMESPACE = addressOf(0x11);
-const ASSET = addressOf(9);
-const ASSET_MEMBER = memberOfAsset(ASSET);
-
-function recipient(): Readonly<{ member: Member; address: ShieldedAddress }> {
-  const address = ShieldedKeypair.generate().shieldedAddress();
-  return { member: memberOfTag(address.confidentialViewTag()), address };
-}
-
-function output(address: ShieldedAddress, amount: bigint, asset = ASSET): ProofOutputUtxo {
-  return createProofOutput({ ownerAddress: address, asset, amount, blinding: filled(1) });
-}
-
-const require = (subject: Rule["subject"], id: ListId): Rule => ({
-  subject,
+const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
+const address = (byte: number) => getAddressDecoder().decode(filled(byte));
+const RING = address(2),
+  TREE = treeAddress(0),
+  ASSET = address(9);
+beforeAll(initializePoseidon);
+const requireList = (id: ListId): Rule => ({
+  subject: "outputOwner",
   source: { kind: "lists", present: [id], absent: [] },
   guard: { kind: "always" },
 });
-const forbid = (subject: Rule["subject"], id: ListId): Rule => ({
-  subject,
+const forbid = (id: ListId): Rule => ({
+  ...requireList(id),
   source: { kind: "lists", present: [], absent: [id] },
-  guard: { kind: "always" },
 });
-const above = (rule: Rule, amount: bigint): Rule => ({
-  ...rule,
-  guard: { kind: "aboveAmount", amount },
-});
-const ALLOW_ONLY_ASSETS: Rule = {
+const inline: Rule = {
   subject: "asset",
   source: { kind: "inlineAssets" },
   guard: { kind: "always" },
 };
-
-const EMPTY = buildRuleTable({ rules: [] });
-const TWO_ALLOW = buildRuleTable({
-  rules: [
-    require("outputOwner", ListId.allow),
-    {
-      subject: "outputOwner",
-      source: { kind: "lists", present: [ListId.allow, ListId.block], absent: [] },
-      guard: { kind: "always" },
-    },
-  ],
-});
-/** An owner guard needs a single unguarded inline asset beside it. */
-const GUARDED = buildRuleTable({
-  rules: [above(require("outputOwner", ListId.allow), 5n), ALLOW_ONLY_ASSETS],
-  inlineAssets: [ASSET_MEMBER],
-});
-const BLOCK = buildRuleTable({ rules: [forbid("outputOwner", ListId.block)] });
-/** An approval overrides a block. */
-const MIXED = buildRuleTable({
-  rules: [
-    {
-      subject: "outputOwner",
-      source: { kind: "lists", present: [ListId.approval], absent: [ListId.block] },
-      guard: { kind: "always" },
-    },
-    ALLOW_ONLY_ASSETS,
-  ],
-  inlineAssets: [ASSET_MEMBER],
-});
-
-function input(
-  table: RuleTable,
-  outputs: readonly ProofOutputUtxo[],
-  namespace = NAMESPACE,
-): Parameters<typeof planPolicyAnswers>[0] {
-  const config = ringPolicyConfig({
-    table,
-    sources: ownSources(table, namespace),
-    addressTree: TREE,
+function output(amount = 1n, asset = ASSET): ProofOutputUtxo {
+  return createProofOutput({
+    ownerAddress: ShieldedKeypair.generate().shieldedAddress(),
+    asset,
+    amount,
+    blinding: filled(1),
   });
-  return { proofDataSource: "client", table, config, inputs: [], outputs };
 }
-
-const HEADS = FIXTURE_HEADS;
-
-/** The single policy tree's slot roots and history positions. */
-function rootsOf(proven: PolicyAnswers) {
-  expect(proven.policyTrees).toEqual([TREE]);
-  const [slot] = proven.treeSlots;
-  const [context] = proven.treeContexts;
+const member = (out: ProofOutputUtxo) => {
+  if (out.ownerAddress === undefined) throw new Error("missing owner");
+  return memberOfIdentity(out.ownerAddress.signingPublicKey.ownerProofInputHash());
+};
+async function fixture(table: RuleTable, outputs: readonly ProofOutputUtxo[], lists = 0n) {
+  const [root, bump] = await ringMemberRegistryRootPda(RING);
+  const unique = new Map(
+    outputs.map((out) => [Buffer.from(member(out)).toString("hex"), member(out)]),
+  );
+  const registry = registryFixture([...unique.values()].map((member) => ({ member, lists })));
+  const read = vi.fn(
+    async (request: Parameters<RingPolicyAnswerClient["getRingMemberRecord"]>[0]) =>
+      registry.read(request.member),
+  );
+  const client: RingPolicyAnswerClient = {
+    getRingMemberRecord: read,
+    getAccount: async (key) =>
+      key === root
+        ? ownedAccount(
+            RING,
+            memberRegistryRootData({
+              root: registry.root,
+              nextIndex: registry.tip.nextIndex,
+              bump,
+            }),
+          )
+        : key === TREE
+          ? ownedAccount(
+              SHIELDED_POOL_PROGRAM_ID,
+              treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 0n }),
+            )
+          : undefined,
+  };
+  const input: PolicyAnswerInput = {
+    ringProgramId: RING,
+    keyEscrow: false,
+    proofDataSource: "client",
+    table,
+    config: ringPolicyConfig({ table, sources: ownSources(table, RING), addressTree: TREE }),
+    inputs: [],
+    outputs,
+  };
   return {
-    stateRoot: slot?.utxoRoot,
-    stateRootIndex: context?.utxoTreeRootIndex,
-    nullifierRoot: slot?.nullifierRoot,
-    nullifierRootIndex: context?.nullifierTreeRootIndex,
+    input,
+    client,
+    read,
+    registry,
+    prove: (changes: Partial<PolicyAnswerInput> = {}) =>
+      provePolicyAnswers({ ...input, ...changes, client }),
   };
 }
-
-describe("answer planning", () => {
-  it("list-backed asset rules name each live output asset", () => {
-    const { address } = recipient();
-    const table: RuleTable = {
-      rules: [require("asset", ListId.allow)],
-      inlineAssets: [],
-      inlineLimits: [],
-      limits: [],
-    };
-    const plan = planPolicyAnswers(input(table, [output(address, 1n)]));
-    expect(plan.lookups).toEqual([
-      { namespace: NAMESPACE, listId: ListId.allow, member: ASSET_MEMBER },
-    ]);
-    expect(plan.demands).toHaveLength(1);
-  });
-
-  it("a guarded rule exempts a recipient only below the aggregated threshold", () => {
-    const { address } = recipient();
-    const guarded = buildRuleTable({
-      rules: [above(require("outputOwner", ListId.allow), 2000n), ALLOW_ONLY_ASSETS],
-      inlineAssets: [ASSET_MEMBER],
-    });
-    expect(
-      planPolicyAnswers(input(guarded, [output(address, 1000n), output(address, 1500n)])).demands,
-    ).toHaveLength(2);
-    expect(planPolicyAnswers(input(guarded, [output(address, 1000n)])).demands).toHaveLength(0);
-    const unguarded = buildRuleTable({ rules: [require("outputOwner", ListId.allow)] });
-    expect(planPolicyAnswers(input(unguarded, [output(address, 1000n)])).demands).toHaveLength(1);
-  });
-
-  it("the guard sums exactly past the u64 range", () => {
-    const { address } = recipient();
-    const other = recipient();
-    const max = (1n << 64n) - 1n;
-    const guarded = buildRuleTable({
-      rules: [above(require("outputOwner", ListId.allow), max), ALLOW_ONLY_ASSETS],
-      inlineAssets: [ASSET_MEMBER],
-    });
-    expect(
-      planPolicyAnswers(input(guarded, [output(address, max), output(address, 1n)])).demands,
-    ).toHaveLength(2);
-    expect(
-      planPolicyAnswers(input(guarded, [output(address, max), output(other.address, 1n)])).demands,
-    ).toHaveLength(0);
-  });
-
-  it("per-asset guard uses each mint limit and rejects an unknown mint", () => {
-    const { address } = recipient();
-    const first = addressOf(8);
-    const second = addressOf(9);
-    const table = buildRuleTable({
-      rules: [{ ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
-      inlineAssets: [memberOfAsset(first), memberOfAsset(second)],
-      inlineLimits: [10n, 20n],
-      limits: [],
-    });
-    const below = [
-      output(address, 4n, first),
-      output(address, 6n, first),
-      output(address, 20n, second),
-    ];
-    expect(planPolicyAnswers(input(table, below)).demands).toHaveLength(0);
-    expect(planPolicyAnswers(input(table, [output(address, 11n, first)])).demands).toHaveLength(1);
-    expect(() => planPolicyAnswers(input(table, [output(address, 1n, addressOf(7))]))).toThrow(
-      expect.objectContaining({ code: "RING_POLICY_ASSET_UNSUPPORTED" }),
-    );
-  });
-
-  it("a sender guard never exempts", () => {
-    const keypair = ShieldedKeypair.generate();
-    const spend = ProofInputUtxo.fromKeypair(
-      new Utxo({
-        owner: keypair.signingPublicKey(),
-        asset: ASSET,
-        amount: 7n,
-        blinding: filled(1),
-      }),
-      keypair,
-    );
-    const config = ringPolicyConfig({
-      table: buildRuleTable({ rules: [require("sender", ListId.allow)] }),
-      sources: ownSources(buildRuleTable({ rules: [require("sender", ListId.allow)] }), NAMESPACE),
-      addressTree: TREE,
-    });
-    const guarded: RuleTable = {
-      rules: [above(require("sender", ListId.allow), (1n << 64n) - 1n)],
-      inlineAssets: [],
-      inlineLimits: [],
-      limits: [],
-    };
-    const plan = planPolicyAnswers({
-      proofDataSource: "client",
-      table: guarded,
-      config,
-      inputs: [spend],
-      outputs: [],
-    });
-    expect(plan.demands).toHaveLength(1);
-    expect(plan.lookups[0]?.member).toEqual(
-      memberOfTag(keypair.signingPublicKey().confidentialViewTag()),
-    );
-  });
-
-  it("refuses a shape past the policy openings", () => {
-    const { address } = recipient();
-    expect(() =>
-      planPolicyAnswers(
-        input(
-          EMPTY,
-          Array.from({ length: 5 }, () => output(address, 1n)),
-        ),
+describe("member policy witnesses", () => {
+  it("reads list bits from the configured curator and rejects a substituted registry owner", async () => {
+    const out = output(),
+      test = await fixture(buildRuleTable({ rules: [requireList(ListId.allow)] }), [out]);
+    const curator = address(6),
+      [root, bump] = await ringMemberRegistryRootPda(curator);
+    const foreign = registryFixture([{ member: member(out), lists: 1n }]);
+    const config = {
+      ...test.input.config,
+      sources: test.input.config.sources.map((slot) =>
+        slot.listId === ListId.allow ? { ...slot, registry: root } : slot,
       ),
-    ).toThrow(expect.objectContaining({ code: "RING_POLICY_SHAPE_UNSUPPORTED" }));
-  });
-});
-
-describe("answer proving", () => {
-  it("two outputs to one recipient under two rules consult the pair once", async () => {
-    const { member, address } = recipient();
-    const allow = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.allow,
-      member,
-      states: ["active"],
-    });
-    const client = entryProofReads({ tree: TREE, spenders: allow.spenders, account: true });
-    const proven = await provePolicyAnswers({
-      client,
-      ...input(TWO_ALLOW, [output(address, 10n), output(address, 20n)]),
-    });
-    const { answers } = proven;
-    const roots = rootsOf(proven);
-    expect(client.merkle).toEqual([[allow.utxoHash]]);
-    expect(client.nonInclusion).toEqual([[allow.nullifier]]);
-    expect(client.accounts).toBe(0);
-    // The claim round asks for both group addresses, the Allow lineage one more round.
-    expect(client.requests).toHaveLength(2);
-    expect(client.requests[0]).toHaveLength(2);
-    expect(client.requests[1]).toEqual([allow.nullifier]);
-    const enabled = answers.filter((answer) => answer.enabled);
-    expect(enabled).toHaveLength(1);
-    expect(enabled[0]).toMatchObject({ member, absentBranch: 2, mode: 1, listId: ListId.allow });
-    expect(answers).toHaveLength(10);
-    expect(roots).toEqual({
-      stateRoot: filled(1),
-      stateRootIndex: 3,
-      nullifierRoot: HEADS.nullifierRoot,
-      nullifierRootIndex: HEADS.nullifierRootIndex,
-    });
-  });
-
-  it("absence proofs at an older live root keep their own root and index", async () => {
-    const { member, address } = recipient();
-    const allow = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.allow,
-      member,
-      states: ["active"],
-    });
-    const older = { value: filled(0x33) as Bytes32, index: 2 };
-    const client = entryProofReads({
-      tree: TREE,
-      spenders: allow.spenders,
-      account: true,
-      nullifierRoots: [older],
-    });
-    const proven = await provePolicyAnswers({
-      client,
-      ...input(TWO_ALLOW, [output(address, 10n)]),
-    });
-    const roots = rootsOf(proven);
-    expect(roots.nullifierRoot).toEqual(older.value);
-    expect(roots.nullifierRootIndex).toBe(older.index);
-  });
-
-  it("a guard-exempt subject triggers no request", async () => {
-    const { address } = recipient();
-    const client = entryProofReads({ tree: TREE, account: true });
-    const proven = await provePolicyAnswers({
-      client,
-      ...input(GUARDED, [output(address, 1n)]),
-    });
-    const { answers } = proven;
-    const roots = rootsOf(proven);
-    expect(client.requests).toHaveLength(0);
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toHaveLength(0);
-    expect(answers.every((answer) => !answer.enabled)).toBe(true);
-    expect(roots).toEqual(HEADS);
-  });
-
-  it("a missing entry refuses the transfer before any proof call", async () => {
-    const { address } = recipient();
-    const client = entryProofReads({ tree: TREE });
-    await expect(
-      provePolicyAnswers({ client, ...input(TWO_ALLOW, [output(address, 1n)]) }),
-    ).rejects.toMatchObject({
-      code: "RING_POLICY_RULE_UNSATISFIED",
-    });
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toHaveLength(0);
-  });
-
-  it("responses with two roots are refused", async () => {
-    const first = recipient();
-    const second = recipient();
-    const client = entryProofReads({
-      tree: TREE,
-      spenders: [
-        ...lineage({
-          namespace: NAMESPACE,
-          tree: TREE,
-          listId: ListId.allow,
-          member: first.member,
-          states: ["active"],
-        }).spenders,
-        ...lineage({
-          namespace: NAMESPACE,
-          tree: TREE,
-          listId: ListId.allow,
-          member: second.member,
-          states: ["active"],
-        }).spenders,
-      ],
-      stateRoots: [
-        { value: filled(1), index: 3 },
-        { value: filled(5), index: 5 },
-      ],
-    });
+    };
+    const getAccount = test.client.getAccount;
+    const client = {
+      ...test.client,
+      getAccount: async (key: typeof root) =>
+        key === root
+          ? ownedAccount(curator, memberRegistryRootData({ ...foreign.tip, bump }))
+          : getAccount(key),
+      getRingMemberRecord: vi.fn(
+        async (request: Parameters<RingPolicyAnswerClient["getRingMemberRecord"]>[0]) =>
+          (request.ringProgramId === curator ? foreign : test.registry).read(request.member),
+      ),
+    };
+    const result = await provePolicyAnswers({ ...test.input, config, client });
+    expect(result.subjects[5]?.lists).toBe(0n);
+    expect(result.foreignSubjects[5]?.lists).toBe(1n);
+    expect(result.foreign?.indexed.root).toEqual(foreign.root);
+    expect(client.getRingMemberRecord).toHaveBeenCalledTimes(2);
+    client.getRingMemberRecord.mockClear();
     await expect(
       provePolicyAnswers({
-        client,
-        ...input(TWO_ALLOW, [output(first.address, 1n), output(second.address, 1n)]),
+        ...test.input,
+        config,
+        client: {
+          ...client,
+          getAccount: async (key) =>
+            key === root
+              ? ownedAccount(RING, memberRegistryRootData({ ...foreign.tip, bump }))
+              : getAccount(key),
+        },
       }),
-    ).rejects.toMatchObject({ code: "RING_POLICY_ROOT_MISMATCH" });
+    ).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_INVALID" });
+    expect(client.getRingMemberRecord).not.toHaveBeenCalled();
   });
 
-  it("unclaimed answers take the state root from the tree account", async () => {
-    const { member, address } = recipient();
-    const client = entryProofReads({ tree: TREE, account: true });
-    const proven = await provePolicyAnswers({
-      client,
-      ...input(BLOCK, [output(address, 1n)]),
-    });
-    const { answers } = proven;
-    const roots = rootsOf(proven);
-    expect(roots).toEqual(HEADS);
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toEqual([
-      [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
-    ]);
-    expect(client.accounts).toBe(1);
-    expect(answers[0]).toMatchObject({
-      enabled: true,
-      absentBranch: 1,
-      mode: 2,
-      listId: ListId.block,
-    });
+  it("rejects list-backed asset rules", () =>
+    expect(() =>
+      buildRuleTable({ rules: [{ ...requireList(ListId.allow), subject: "asset" }] }),
+    ).toThrow("RING_RULE_TABLE_INVALID"));
+  it("deduplicates a recipient while filling both output slots", async () => {
+    const out = output(),
+      test = await fixture(buildRuleTable({ rules: [requireList(ListId.allow)] }), [out, out], 1n);
+    const result = await test.prove();
+    expect(test.read).toHaveBeenCalledTimes(1);
+    expect(result.subjects).toHaveLength(9);
+    expect(result.subjects[5]).toEqual(result.subjects[6]);
+    expect(result.subjects[5]?.lists).toBe(1n);
+    expect(result.registry.root).toEqual(test.registry.root);
   });
-
-  it("a table without answers reads both roots from the tree account", async () => {
-    const client = entryProofReads({ tree: TREE, account: true });
-    const proven = await provePolicyAnswers({ client, ...input(EMPTY, []) });
-    expect(rootsOf(proven)).toEqual(HEADS);
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toHaveLength(0);
-    expect(client.accounts).toBe(1);
+  it("refuses an unlisted recipient", async () => {
+    const test = await fixture(buildRuleTable({ rules: [requireList(ListId.allow)] }), [output()]);
+    await expect(test.prove()).rejects.toMatchObject({ code: "RING_POLICY_RULE_UNSATISFIED" });
   });
-
-  it("a blocked member passes through its approval", async () => {
-    const { member, address } = recipient();
-    const approved = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.approval,
-      member,
-      states: ["active"],
-    });
-    const blocked = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.block,
-      member,
-      states: ["active"],
-    });
-    const client = entryProofReads({
-      tree: TREE,
-      spenders: [...approved.spenders, ...blocked.spenders],
-      account: true,
-    });
-    const { answers } = await provePolicyAnswers({
-      client,
-      ...input(MIXED, [output(address, 1n)]),
-    });
-    const enabled = answers.filter((answer) => answer.enabled);
-    expect(enabled).toHaveLength(1);
-    expect(enabled[0]).toMatchObject({
-      listId: ListId.approval,
-      mode: 1,
-      absentBranch: 2,
-      state: 1,
-    });
-    expect(client.merkle).toEqual([[approved.utxoHash]]);
-    expect(client.nonInclusion).toEqual([[approved.nullifier]]);
-    expect(client.requests[0]).toHaveLength(2);
-  });
-
-  it("an unlisted member passes through the absent alternative", async () => {
-    const { member, address } = recipient();
-    const client = entryProofReads({ tree: TREE, account: true });
-    const { answers } = await provePolicyAnswers({
-      client,
-      ...input(MIXED, [output(address, 1n)]),
-    });
-    const enabled = answers.filter((answer) => answer.enabled);
-    expect(enabled).toHaveLength(1);
-    expect(enabled[0]).toMatchObject({ listId: ListId.block, mode: 2, absentBranch: 1 });
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toEqual([
-      [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
-    ]);
-  });
-
-  it("a blocked member without approval is refused", async () => {
-    const { member, address } = recipient();
-    const client = entryProofReads({
-      tree: TREE,
-      spenders: lineage({
-        namespace: NAMESPACE,
-        tree: TREE,
-        listId: ListId.block,
-        member,
-        states: ["active"],
-      }).spenders,
-    });
-    await expect(
-      provePolicyAnswers({ client, ...input(MIXED, [output(address, 1n)]) }),
-    ).rejects.toMatchObject({
+  it("allows a blocked member only through an approval alternative", async () => {
+    const rule: Rule = {
+      ...requireList(ListId.approval),
+      source: { kind: "lists", present: [ListId.approval], absent: [ListId.block] },
+    };
+    const table = buildRuleTable({ rules: [rule] });
+    await expect((await fixture(table, [output()], 2n | 64n)).prove()).resolves.toBeDefined();
+    await expect((await fixture(table, [output()], 2n)).prove()).rejects.toMatchObject({
       code: "RING_POLICY_RULE_UNSATISFIED",
     });
-    expect(client.merkle).toHaveLength(0);
-    expect(client.nonInclusion).toHaveLength(0);
   });
-
-  it("a cleared entry answers an absence through the cleared branch", async () => {
-    const { member, address } = recipient();
-    const cleared = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.block,
-      member,
-      states: ["active", "cleared"],
-    });
-    const client = entryProofReads({ tree: TREE, spenders: cleared.spenders, account: true });
-    const { answers } = await provePolicyAnswers({
-      client,
-      ...input(BLOCK, [output(address, 1n)]),
-    });
-    expect(answers[0]).toMatchObject({
-      enabled: true,
-      mode: 2,
-      absentBranch: 2,
-      state: 2,
-      version: 1n,
-    });
-    expect(client.merkle).toEqual([[cleared.utxoHash]]);
-    expect(client.nonInclusion).toEqual([[cleared.nullifier]]);
+  it("proves absence using the authenticated predecessor", async () => {
+    const test = await fixture(buildRuleTable({ rules: [forbid(ListId.block)] }), [output()]);
+    const empty = registryFixture();
+    const [root, bump] = await ringMemberRegistryRootPda(RING);
+    const account = test.client.getAccount;
+    test.client.getAccount = async (key) =>
+      key === root
+        ? ownedAccount(RING, memberRegistryRootData({ root: empty.root, nextIndex: 1n, bump }))
+        : account(key);
+    test.read.mockImplementation(async (request) => empty.read(request.member));
+    expect((await test.prove()).subjects[5]?.present).toBe(false);
   });
-
-  it("refuses a proof set that is short, foreign or truncated", async () => {
-    const { member, address } = recipient();
-    const allow = lineage({
-      namespace: NAMESPACE,
-      tree: TREE,
-      listId: ListId.allow,
-      member,
-      states: ["active"],
+  it("treats cleared list bits as absence in a present record", async () => {
+    const test = await fixture(buildRuleTable({ rules: [forbid(ListId.block)] }), [output()], 1n);
+    expect((await test.prove()).subjects[5]).toMatchObject({ present: true, lists: 1n });
+  });
+  it("aggregates guarded amounts across recipient outputs", async () => {
+    const out = output(3n),
+      table = buildRuleTable({
+        rules: [
+          { ...requireList(ListId.allow), guard: { kind: "aboveAmount", amount: 5n } },
+          inline,
+        ],
+        inlineAssets: [memberOfAsset(ASSET)],
+      });
+    await expect((await fixture(table, [out])).prove()).resolves.toBeDefined();
+    await expect((await fixture(table, [out, out])).prove()).rejects.toMatchObject({
+      code: "RING_POLICY_RULE_UNSATISFIED",
     });
-    const cases: readonly ((reads: ReturnType<typeof entryProofReads>) => void)[] = [
-      (reads) =>
-        reads.getMerkleProofs.mockResolvedValue({
-          context: { blockTime: 0n, slot: 0n },
-          proofs: [],
-        }),
-      (reads) =>
-        reads.getMerkleProofs.mockImplementation(async (_tree, leaves) => ({
-          context: { blockTime: 0n, slot: 0n },
-          proofs: leaves.map((leaf) => ({
-            leaf,
-            merkleContext: { treeType: 0, tree: addressOf(0x31) },
-            path: Array.from({ length: 32 }, () => filled(0)),
-            leafIndex: 0n,
-            root: filled(1),
-            rootSeq: 0n,
-            rootIndex: 3,
-          })),
-        })),
-      (reads) =>
-        reads.getNonInclusionProofs.mockImplementation(async (_tree, leaves) => ({
-          context: { blockTime: 0n, slot: 0n },
-          proofs: leaves.map((leaf) => ({
-            leaf,
-            merkleContext: { treeType: 1, tree: TREE },
-            path: [filled(0)],
-            lowElement: filled(0),
-            lowElementIndex: 0n,
-            highElement: filled(0xff),
-            highElementIndex: 1n,
-            root: filled(2),
-            rootSeq: 0n,
-            rootIndex: 4,
-          })),
-        })),
-    ];
-    for (const corrupt of cases) {
-      const client = entryProofReads({ tree: TREE, spenders: allow.spenders });
-      corrupt(client);
-      await expect(
-        provePolicyAnswers({ client, ...input(TWO_ALLOW, [output(address, 1n)]) }),
-      ).rejects.toMatchObject({ code: "RING_ENTRY_PROOF_INCOMPLETE" });
+  });
+  it("does not overflow guarded totals above u64", async () => {
+    const out = output((1n << 64n) - 1n),
+      table = buildRuleTable({
+        rules: [
+          {
+            ...requireList(ListId.allow),
+            guard: { kind: "aboveAmount", amount: (1n << 64n) - 1n },
+          },
+          inline,
+        ],
+        inlineAssets: [memberOfAsset(ASSET)],
+      });
+    await expect((await fixture(table, [out, out])).prove()).rejects.toMatchObject({
+      code: "RING_POLICY_RULE_UNSATISFIED",
+    });
+  });
+  it("applies per-asset thresholds and refuses unknown mints", async () => {
+    const table = buildRuleTable({
+      rules: [{ ...requireList(ListId.allow), guard: { kind: "aboveAmountByAsset" } }, inline],
+      inlineAssets: [memberOfAsset(ASSET)],
+      inlineLimits: [5n],
+    });
+    await expect((await fixture(table, [output(5n)])).prove()).resolves.toBeDefined();
+    await expect((await fixture(table, [output(6n)])).prove()).rejects.toMatchObject({
+      code: "RING_POLICY_RULE_UNSATISFIED",
+    });
+    await expect((await fixture(table, [output(1n, address(8))])).prove()).rejects.toBeDefined();
+  });
+  it("rejects a sender guard at table construction", () =>
+    expect(() =>
+      buildRuleTable({
+        rules: [
+          {
+            ...requireList(ListId.allow),
+            subject: "sender",
+            guard: { kind: "aboveAmount", amount: 1n },
+          },
+        ],
+      }),
+    ).toThrow());
+  it("rejects too many output slots", async () => {
+    const test = await fixture(buildRuleTable({ rules: [] }), [output()]);
+    await expect(
+      test.prove({ outputs: Array.from({ length: 5 }, () => output()) }),
+    ).rejects.toMatchObject({ code: "RING_POLICY_SHAPE_UNSUPPORTED" });
+  });
+  it("binds indexed policy requests without fetching records", async () => {
+    const test = await fixture(buildRuleTable({ rules: [] }), [output()]);
+    const result = await test.prove({ proofDataSource: "prover" });
+    expect(test.read).not.toHaveBeenCalled();
+    expect(result.subjects.every((value) => value === undefined)).toBe(true);
+    expect(result.treeSlots).toHaveLength(1);
+  });
+  it("rejects truncated, foreign and tampered record paths", async () => {
+    for (const change of ["path", "member", "lists"]) {
+      const test = await fixture(buildRuleTable({ rules: [] }), [output()]);
+      test.read.mockImplementation(async (request) => {
+        const row = test.registry.read(request.member);
+        return {
+          ...row,
+          path: change === "path" ? row.path.slice(1) : row.path,
+          record:
+            row.record === null
+              ? null
+              : {
+                  ...row.record,
+                  ...(change === "member"
+                    ? { member: filled(3) }
+                    : change === "lists"
+                      ? { lists: 9n }
+                      : {}),
+                },
+        };
+      });
+      await expect(test.prove()).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_INVALID" });
     }
   });
-
-  it("refuses a missing, foreign or undecodable address tree account", async () => {
-    const { address } = recipient();
-    const client = entryProofReads({ tree: TREE });
-    await expect(
-      provePolicyAnswers({ client, ...input(BLOCK, [output(address, 1n)]) }),
-    ).rejects.toMatchObject({
-      code: "RING_POLICY_TREE_INVALID",
-    });
-    client.getAccount.mockResolvedValue({
-      owner: NAMESPACE,
-      lamports: 1n,
-      data: new Uint8Array(30_344),
-    });
-    await expect(
-      provePolicyAnswers({ client, ...input(BLOCK, [output(address, 1n)]) }),
-    ).rejects.toMatchObject({
-      code: "RING_POLICY_TREE_INVALID",
-    });
+  it("rejects a missing or foreign address-tree account", async () => {
+    for (const foreign of [false, true]) {
+      const test = await fixture(buildRuleTable({ rules: [] }), [output()]);
+      const read = test.client.getAccount;
+      test.client.getAccount = async (key) =>
+        key === TREE ? (foreign ? ownedAccount(RING, new Uint8Array()) : undefined) : read(key);
+      await expect(test.prove()).rejects.toMatchObject({ code: "RING_POLICY_TREE_INVALID" });
+    }
   });
-
-  it("refuses a referenced list without a source and a table past the answer width", () => {
-    const { address } = recipient();
-    const unmapped = { ...input(BLOCK, [output(address, 1n)]) };
-    const config = {
-      ...unmapped.config,
-      sources: unmapped.config.sources.map((slot) => ({ ...slot, listId: 0 })),
-    };
-    expect(() => planPolicyAnswers({ ...unmapped, config })).toThrow(
-      expect.objectContaining({
-        code: "RING_POLICY_SOURCE_INVALID",
-        details: { reason: "MissingSourceOwner", listId: ListId.block },
-      }),
-    );
-    const wide: RuleTable = {
-      rules: [
-        require("outputOwner", ListId.allow),
-        require("outputOwner", ListId.block),
-        require("outputOwner", ListId.frozen),
-      ],
-      inlineAssets: [],
-      inlineLimits: [],
-      limits: [],
-    };
-    const parties = Array.from({ length: 4 }, () => recipient());
-    const client = entryProofReads({
-      tree: TREE,
-      spenders: parties.flatMap((party) =>
-        [ListId.allow, ListId.block, ListId.frozen].flatMap(
-          (listId) =>
-            lineage({
-              namespace: NAMESPACE,
-              tree: TREE,
-              listId,
-              member: party.member,
-              states: ["active"],
-            }).spenders,
-        ),
-      ),
+  it("refuses escrow without a sealed key", async () => {
+    const test = await fixture(buildRuleTable({ rules: [] }), [output()]);
+    await expect(test.prove({ keyEscrow: true })).rejects.toMatchObject({
+      code: "RING_UNREGISTERED_OUTPUT_KEY",
     });
-    return expect(
-      provePolicyAnswers({
-        client,
-        ...input(
-          wide,
-          parties.map((party) => output(party.address, 1n)),
-        ),
-      }),
-    ).rejects.toMatchObject({ code: "RING_POLICY_SHAPE_UNSUPPORTED" });
   });
 });

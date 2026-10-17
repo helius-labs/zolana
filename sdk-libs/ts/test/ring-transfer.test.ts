@@ -71,10 +71,15 @@ import {
 } from "../src/ring/policy.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import { ownSources, ownedAccount, ringPolicyConfigData } from "./helpers/ring-accounts.js";
-import { keyRegistryRootData, oneMemberRegistry } from "./helpers/key-registry.js";
-import { KEY_REGISTRY_EMPTY_ROOT } from "../src/ring/key-registry-tree.js";
-import { ringKeyRegistryRootPda } from "../src/interface/pda/index.js";
-import { entryProofReads, lineage } from "./helpers/ring-entries.js";
+import {
+  memberRegistryRootData,
+  oneMemberRegistry,
+  registryFixture,
+  emptyMemberRecord,
+} from "./helpers/member-registry.js";
+import { MEMBER_REGISTRY_EMPTY_ROOT } from "../src/ring/member-registry-tree.js";
+import { ringMemberRegistryRootPda } from "../src/interface/pda/index.js";
+import { entryProofReads } from "./helpers/ring-entries.js";
 import { treeAccount } from "./helpers/tree-account.js";
 import { RING_AUTHORITY_WIDTHS, ringAuthorityWidth } from "../src/interface/shape.js";
 import {
@@ -289,7 +294,7 @@ async function ringAccounts(
     getProgramDerivedAddress({ programAddress: RING, seeds: [encoder.encode(seed)] });
   const [configAddress, configBump] = await pda("config");
   const [policyAddress, policyBump] = await pda("policy");
-  const [registryAddress, registryBump] = await ringKeyRegistryRootPda(RING);
+  const [registryAddress, registryBump] = await ringMemberRegistryRootPda(RING);
   const table = buildRuleTable({
     rules,
     ...(limited ? { limits: [{ asset: memberOfAsset(SOL_MINT), cap: 1n, cosignAbove: 1n }] } : {}),
@@ -319,15 +324,15 @@ async function ringAccounts(
         ]),
       };
     }
-    if (registryRoot !== undefined && account === registryAddress) {
+    if (account === registryAddress) {
       return ownedAccount(
         RING,
-        keyRegistryRootData({
-          root: registryRoot,
-          nextIndex: 2n,
+        memberRegistryRootData({
+          root: registryRoot ?? MEMBER_REGISTRY_EMPTY_ROOT,
+          nextIndex: registryRoot === undefined ? 1n : 2n,
           bump: registryBump,
           cursor: 1,
-          history: [KEY_REGISTRY_EMPTY_ROOT],
+          history: [MEMBER_REGISTRY_EMPTY_ROOT],
         }),
       );
     }
@@ -435,11 +440,7 @@ describe("delegate policy rail", () => {
         tree: client.tree,
         treeId: client.treeId,
         getAccount: client.getAccount,
-        getMerkleProofs: client.getMerkleProofs,
-        getNonInclusionProofs: client.getNonInclusionProofs,
-        getEncryptedUtxosByTags: client.getEncryptedUtxosByTags,
-        getShieldedTransactionsByNullifiers: client.getShieldedTransactionsByNullifiers,
-        getRingKeyRegistryEntry: async () => registry.entry,
+        getRingMemberRecord: async () => registry.entry,
         proveRingAuthorityTransact: async (inputs) => {
           finalized = inputs;
           return {
@@ -484,9 +485,9 @@ describe("delegate policy rail", () => {
     );
     expect(proved.ownerSigners).toEqual([]);
     expect(proved.approvalRequired).toBe(false);
-    expect(proved.policy?.keyRegistryRootIndex).toBe(1);
-    expect(proved.policy?.keyRegistryRoot).toEqual(registry.root);
-    expect(policy?.keyRegistryRoot).toEqual(registry.root);
+    expect(proved.policy?.memberRegistryRootIndex).toBe(1);
+    expect(proved.policy?.memberRegistryRoot).toEqual(registry.root);
+    expect(policy?.memberRegistryRoot).toEqual(registry.root);
     auditor.destroy();
   });
 
@@ -1310,13 +1311,13 @@ describe("ring proof folded fields", () => {
       { id: 0, utxoRoot: entriesStateRoot, nullifierRoot: entriesNullifierRoot },
     ]);
     expect(request?.addressTreeId).toBe(0);
-    expect(request?.keyRegistryRoot).toBeUndefined();
+    expect(request?.memberRegistryRoot).toEqual(MEMBER_REGISTRY_EMPTY_ROOT);
     expect(proven.policy).toMatchObject({
       trees: [ACTIVE_TREE],
       treeContexts: [{ utxoTreeRootIndex: 7, nullifierTreeRootIndex: 3 }],
     });
-    expect(proven.policy).not.toHaveProperty("keyRegistryRootIndex");
-    expect(proven.policy).not.toHaveProperty("keyRegistryRoot");
+    expect(proven.policy?.memberRegistryRootIndex).toBe(1);
+    expect(proven.policy?.memberRegistryRoot).toEqual(MEMBER_REGISTRY_EMPTY_ROOT);
     expect(proven.inputTrees).toEqual([RING]);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
     expect(proven.ownerSigners).toEqual([]);
@@ -1328,20 +1329,6 @@ describe("ring proof folded fields", () => {
     guard: { kind: "always" },
   };
 
-  /** Every party enrolled in allow under the ring's own namespace. */
-  async function allowEntries(parties: readonly ReturnType<typeof actor>[]) {
-    const namespace = await ringPolicyNamespaceAddress(RING);
-    return parties.map((party) =>
-      lineage({
-        namespace,
-        tree: ACTIVE_TREE,
-        listId: ListId.allow,
-        member: memberOfTag(party.address.confidentialViewTag()),
-        states: ["active"],
-      }),
-    );
-  }
-
   it.each([
     { proofDataSource: "client", lag: false },
     { proofDataSource: "prover", lag: false },
@@ -1350,20 +1337,18 @@ describe("ring proof folded fields", () => {
     "resolves policy answers with $proofDataSource proof data and lag=$lag",
     async ({ proofDataSource, lag }) => {
       const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
+      const registry = registryFixture(
+        [sender, recipient, actor(5)].map((party) => ({
+          member: memberOfTag(party.address.confidentialViewTag()),
+          lists: 1n << BigInt(ListId.allow - 1),
+        })),
+      );
       const accounts = await ringAccounts(X25519Secret.generate(), true, [requireAllow]);
-      const entries = await allowEntries([sender, recipient, actor(5)]);
-      const reads = entryProofReads({
-        tree: ACTIVE_TREE,
-        spenders: entries.flatMap((entry) => entry.spenders),
-        stateRoots: [{ value: new Uint8Array(32).fill(0x17) as Bytes32, index: 7 }],
-        nullifierRoots: [{ value: new Uint8Array(32).fill(0x23) as Bytes32, index: 3 }],
-      });
+      const [rootAddress, rootBump] = await ringMemberRegistryRootPda(RING);
       const order: string[] = [];
-      const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
-      reads.getShieldedTransactionsByNullifiers.mockImplementation(async (request) => {
-        order.push("lineage");
-        if (lineages === undefined) throw new Error("unreachable");
-        return lineages(request);
+      const getRingMemberRecord = vi.fn(async (input: { member: Bytes32 }) => {
+        order.push("member");
+        return registry.read(input.member);
       });
       const proveRingTransact = vi.fn(async () => {
         order.push("spp");
@@ -1378,7 +1363,11 @@ describe("ring proof folded fields", () => {
       const proven = await proveCustomRingTransfer({
         client: ringTransferClient({
           tree: RING,
-          getAccount: accounts.getAccount,
+          getAccount: async (address) =>
+            address === rootAddress
+              ? ownedAccount(RING, memberRegistryRootData({ ...registry.tip, bump: rootBump }))
+              : accounts.getAccount(address),
+          getRingMemberRecord,
           proveRingTransact,
           proveCustomRingPolicy,
           proofDataSource,
@@ -1387,7 +1376,7 @@ describe("ring proof folded fields", () => {
             if (lag && policyCalls === 1)
               throw new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
             request = indexed.policy;
-            expect(indexed.lookups.filter((lookup) => lookup.nullifier !== null)).toHaveLength(3);
+            expect(indexed.registry.root).toEqual(registry.root);
             return {
               proof: new Uint8Array(192),
               resolution: {
@@ -1400,9 +1389,6 @@ describe("ring proof folded fields", () => {
               },
             };
           },
-          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
-          getMerkleProofs: reads.getMerkleProofs,
-          getNonInclusionProofs: reads.getNonInclusionProofs,
         }),
         ringProgramId: RING,
         prepared,
@@ -1411,11 +1397,9 @@ describe("ring proof folded fields", () => {
         tree: RING,
         outputTree: ACTIVE_TREE,
       });
-      expect(order[0]).toBe("lineage");
       expect(order.at(-1)).toBe("spp");
-      const enabled = request?.answers.filter((answer) => answer.enabled) ?? [];
-      expect(enabled).toHaveLength(3);
-      expect(enabled.every((answer) => answer.mode === 1 && answer.absentBranch === 2)).toBe(true);
+      if (proofDataSource === "client")
+        expect(request?.subjects?.filter((subject) => subject?.present)).toHaveLength(4);
       expect(request?.treeSlots).toEqual([
         {
           id: 0,
@@ -1423,21 +1407,16 @@ describe("ring proof folded fields", () => {
           nullifierRoot: new Uint8Array(32).fill(0x23),
         },
       ]);
-      expect(enabled.every((answer) => answer.treeSlot === 0)).toBe(true);
       expect(proven.policy?.treeContexts).toEqual([
         {
           utxoTreeRootIndex: proofDataSource === "prover" ? 12 : 7,
           nullifierTreeRootIndex: proofDataSource === "prover" ? 4 : 3,
         },
       ]);
-      expect(proven.policy?.revocationTreeIndexes).toEqual(Array.from({ length: 10 }, () => 0));
-      expect(reads.getMerkleProofs).toHaveBeenCalledTimes(proofDataSource === "prover" ? 0 : 1);
-      expect(reads.getNonInclusionProofs).toHaveBeenCalledTimes(
-        proofDataSource === "prover" ? 0 : 1,
-      );
+      expect(proven.policy?.memberRegistryRootIndex).toBe(0);
+      expect(getRingMemberRecord).toHaveBeenCalledTimes(proofDataSource === "prover" ? 0 : 3);
       expect(proveCustomRingPolicy).toHaveBeenCalledTimes(proofDataSource === "prover" ? 0 : 1);
       expect(proveRingTransact).toHaveBeenCalledTimes(lag ? 2 : 1);
-      expect(order.filter((step) => step === "lineage")).toHaveLength(lag ? 4 : 2);
       // The account rows travel verbatim.
       const policy = accounts.policy;
       expect(request?.policyLen).toBe(1);
@@ -1464,18 +1443,13 @@ describe("ring proof folded fields", () => {
       true,
       [requireAllow],
       false,
-      KEY_REGISTRY_EMPTY_ROOT,
+      MEMBER_REGISTRY_EMPTY_ROOT,
     );
-    const entries = await allowEntries([sender, recipient, actor(5)]);
     const owner = Buffer.from(recipient.address.signingPublicKey.ownerProofInputHash()).toString(
       "hex",
     );
     for (const member of [owner, "2a".repeat(32)]) {
-      const reads = entryProofReads({
-        tree: ACTIVE_TREE,
-        spenders: entries.flatMap((entry) => entry.spenders),
-      });
-      const refused = new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+      const refused = new ClientError("CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED", {
         details: { method: "prove", member },
       });
       const proving = proveCustomRingTransfer({
@@ -1490,9 +1464,6 @@ describe("ring proof folded fields", () => {
           proveIndexedRingPolicy: async () => {
             throw refused;
           },
-          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
-          getMerkleProofs: reads.getMerkleProofs,
-          getNonInclusionProofs: reads.getNonInclusionProofs,
         }),
         ringProgramId: RING,
         prepared,
@@ -1524,9 +1495,7 @@ describe("ring proof folded fields", () => {
           tree: RING,
           getAccount: accounts.getAccount,
           proveRingTransact,
-          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
-          getMerkleProofs: reads.getMerkleProofs,
-          getNonInclusionProofs: reads.getNonInclusionProofs,
+          getRingMemberRecord: async () => ({ ...emptyMemberRecord(), rootIndex: 1 }),
         }),
         ringProgramId: RING,
         prepared,

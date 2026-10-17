@@ -1,3 +1,9 @@
+import {
+  ringMemberRegistryRootAddress,
+  ringMemberRegistryRootPda,
+} from "../src/interface/pda/index.js";
+import { memberRegistryRootData } from "./helpers/member-registry.js";
+import { MEMBER_REGISTRY_EMPTY_ROOT } from "../src/ring/member-registry-tree.js";
 import { X25519Secret } from "../src/keypair/x25519.js";
 import {
   AccountRole,
@@ -115,7 +121,7 @@ describe("policy admin instructions", () => {
       [SYSTEM_PROGRAM, AccountRole.READONLY],
       [RING, AccountRole.READONLY],
       [await ringProgramDataAddress(RING), AccountRole.READONLY],
-      [await ringPolicyConfigAddress(CURATOR_A), AccountRole.READONLY],
+      [await ringMemberRegistryRootAddress(CURATOR_A), AccountRole.READONLY],
     ]);
     expect([...(instruction.data ?? [])]).toEqual([
       7,
@@ -155,16 +161,16 @@ describe("policy admin instructions", () => {
       [await ringPolicyConfigAddress(RING), AccountRole.WRITABLE],
       [RING, AccountRole.READONLY],
       [await ringProgramDataAddress(RING), AccountRole.READONLY],
-      [await ringPolicyConfigAddress(CURATOR_A), AccountRole.READONLY],
+      [await ringMemberRegistryRootAddress(CURATOR_A), AccountRole.READONLY],
     ]);
     expect(instruction.data?.[0]).toBe(12);
     expect(instruction.data?.subarray(1)).toEqual(created.data?.subarray(1));
   });
 
-  it("indexes curators once in first-use order", async () => {
+  it("deduplicates one curator and refuses multiple curators", async () => {
     const sharedSources = [
       { listId: ListId.approval, curatorRingProgramId: CURATOR_B },
-      { listId: ListId.frozen, curatorRingProgramId: CURATOR_A },
+      { listId: ListId.frozen, curatorRingProgramId: CURATOR_B },
       { listId: ListId.allow, curatorRingProgramId: CURATOR_B },
     ];
     for (const instruction of [
@@ -183,20 +189,35 @@ describe("policy admin instructions", () => {
         sharedSources,
       }),
     ]) {
-      expect(instruction.accounts?.slice(-2).map((meta) => meta.address)).toEqual([
-        await ringPolicyConfigAddress(CURATOR_B),
-        await ringPolicyConfigAddress(CURATOR_A),
+      expect(instruction.accounts?.slice(-1).map((meta) => meta.address)).toEqual([
+        await ringMemberRegistryRootAddress(CURATOR_B),
       ]);
       expect([...(instruction.data?.subarray(1, 8) ?? [])]).toEqual([
         3,
         ListId.allow,
         1,
         ListId.frozen,
-        2,
+        1,
         ListId.approval,
         1,
       ]);
     }
+  });
+
+  it("rejects two distinct curator registries", async () => {
+    await expect(
+      createRingPolicyInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        addressTree: ADDRESS_TREE,
+        table: TABLE,
+        sharedSources: [
+          { listId: ListId.allow, curatorRingProgramId: CURATOR_A },
+          { listId: ListId.frozen, curatorRingProgramId: CURATOR_B },
+        ],
+      }),
+    ).rejects.toThrow("RING_POLICY_SOURCE_INVALID");
   });
 
   it("refuses a shared source the table does not reference", async () => {
@@ -233,7 +254,7 @@ describe("policy admin instructions", () => {
       source: { kind: "curator", ringProgramId: CURATOR_A },
     });
     expect(curated.accounts?.at(-1)).toEqual({
-      address: await ringPolicyConfigAddress(CURATOR_A),
+      address: await ringMemberRegistryRootAddress(CURATOR_A),
       role: AccountRole.READONLY,
     });
     expect([...(curated.data ?? [])]).toEqual([10, ListId.block, 1]);
@@ -320,6 +341,14 @@ describe("policy admin transactions", () => {
         ),
       ],
     ]);
+    const [registry, bump] = await ringMemberRegistryRootPda(CURATOR_A);
+    accounts.set(
+      registry,
+      ownedAccount(
+        CURATOR_A,
+        memberRegistryRootData({ root: MEMBER_REGISTRY_EMPTY_ROOT, nextIndex: 1n, bump }),
+      ),
+    );
     if (input.own) {
       accounts.set(
         ownPolicy,
@@ -351,49 +380,40 @@ describe("policy admin transactions", () => {
     });
     expect(Object.keys(transaction.signatures)).toEqual([PAYER, AUTHORITY]);
     expect(client.getAccount).toHaveBeenCalledWith(
-      await ringPolicyConfigAddress(CURATOR_A),
+      await ringMemberRegistryRootAddress(CURATOR_A),
       undefined,
     );
   });
 
-  it("refuses a curator on another tree, without the list, or absent, before the blockhash", async () => {
-    const cases = [
-      {
-        client: await chain({ addressTree: addressOf(31) }),
-        table: BLOCK_ONLY,
-        listId: ListId.block,
-        curator: CURATOR_A,
-        cause: "RING_POLICY_SOURCE_INVALID",
-      },
-      {
-        client: await chain({ addressTree: ADDRESS_TREE }),
+  it("accepts curator registries independently of policy trees and refuses missing registries before blockhash", async () => {
+    const client = await chain({ addressTree: addressOf(31) });
+    await expect(
+      buildRingCreatePolicyTransaction({
+        client,
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        addressTree: ADDRESS_TREE,
         table: TABLE,
-        listId: ListId.frozen,
-        curator: CURATOR_A,
-        cause: "RING_POLICY_SOURCE_INVALID",
-      },
-      {
-        client: await chain({ addressTree: ADDRESS_TREE }),
+        sharedSources: [{ listId: ListId.frozen, curatorRingProgramId: CURATOR_A }],
+      }),
+    ).resolves.toBeDefined();
+    client.getLatestBlockhash.mockClear();
+    await expect(
+      buildRingCreatePolicyTransaction({
+        client,
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        addressTree: ADDRESS_TREE,
         table: BLOCK_ONLY,
-        listId: ListId.block,
-        curator: CURATOR_B,
-        cause: "RING_POLICY_CONFIG_NOT_FOUND",
-      },
-    ] as const;
-    for (const { client, table, listId, curator, cause } of cases) {
-      await expect(
-        buildRingCreatePolicyTransaction({
-          client,
-          ringProgramId: RING,
-          payer: PAYER,
-          authority: AUTHORITY,
-          addressTree: ADDRESS_TREE,
-          table,
-          sharedSources: [{ listId, curatorRingProgramId: curator }],
-        }),
-      ).rejects.toMatchObject({ code: "RING_BUILD_POLICY", causeCode: cause });
-      expect(client.getLatestBlockhash).not.toHaveBeenCalled();
-    }
+        sharedSources: [{ listId: ListId.block, curatorRingProgramId: CURATOR_B }],
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_BUILD_POLICY",
+      causeCode: "RING_MEMBER_REGISTRY_MISSING",
+    });
+    expect(client.getLatestBlockhash).not.toHaveBeenCalled();
   });
 
   it("refuses an audit-only ring before the curator or the blockhash", async () => {
@@ -420,7 +440,7 @@ describe("policy admin transactions", () => {
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_POLICY", causeCode: "RING_POLICY_TIER_MISMATCH" });
     expect(client.getAccount).not.toHaveBeenCalledWith(
-      await ringPolicyConfigAddress(CURATOR_A),
+      await ringMemberRegistryRootAddress(CURATOR_A),
       undefined,
     );
     expect(client.getLatestBlockhash).not.toHaveBeenCalled();

@@ -35,13 +35,16 @@ export type {
   ProverInputs,
   TransactionAssembler,
   TreeContext,
-  RingKeyRegistryReader,
+  RingMemberRegistryReader,
   RingMemberProofRequest,
   RingMemberRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
+  RingMemberRecordResponse,
+  RingMemberRegistryTip,
   RingSubmissionTransport,
-  CustomRingRegistryInsertion,
+  CustomRingRecordWitness,
+  CustomRingSubjectWitness,
+  CustomRingUpdateMembersProofRequest,
+  RingSealedNullifierKey,
   CustomRingRegisterKeyProofRequest,
   CustomRingDepositProofRequest,
   WalletKeys,
@@ -89,10 +92,10 @@ export {
   createRingWithdrawalSubmission,
   createRingExitSubmission,
   createKitRingSubmissionTransport,
-  createRingKeyRegistryRootInstruction,
-  fetchRingKeyRegistryRoot,
-  ringKeyRegistryRootAddress,
-  decodeRingKeyRegistryRoot,
+  createRingMemberRegistryRootInstruction,
+  fetchRingMemberRegistryRoot,
+  ringMemberRegistryRootAddress,
+  decodeRingMemberRegistryRoot,
   prepareRingKeyRegistration,
   createRingKeyRegistrationSubmission,
   buildRingKeyRegistrationTransaction,
@@ -127,7 +130,7 @@ export type {
   RingDelegateTransferParams,
   RingTransactionSubmission,
   RingSubmissionResult,
-  RingKeyRegistryRoot,
+  RingMemberRegistryRoot,
   RingKeyRegistrationClient,
   RingKeyRegistrationParams,
   RingKeyRegistrationPreparation,
@@ -140,7 +143,7 @@ export type {
   RingRecoveryParams,
   RecoveredRingNotes,
   RingDelegateRecoveredParams,
-  KeyRegistryInsertProofInput,
+  MemberRegistryInsertProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
@@ -164,4 +167,19 @@ export {
   buildRingMergeTransaction,
   createRingMergeSubmission,
   customRingDepositPayload,
+} from "@heliuslabs/zolana/ring";
+
+export { MEMBER_REGISTRY_HEIGHT, MEMBER_REGISTRY_CAPACITY } from "@heliuslabs/zolana/interface";
+export type {
+  MemberRecord,
+  MemberOpening,
+  MemberUpdate,
+  RecordUpdateWitness,
+} from "@heliuslabs/zolana/interface";
+export { RING_SUBJECT_SLOTS } from "@heliuslabs/zolana/client";
+export {
+  buildRingMemberUpdateTransaction,
+  updateRingMembersInstruction,
+  readRingMemberRecord,
+  fetchRingMemberRecord,
 } from "@heliuslabs/zolana/ring";

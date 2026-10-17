@@ -819,7 +819,14 @@ mod tests {
         }
         .hash()
         .expect("public input");
-        assert_ne!(public_input, [0; 32]);
+        assert_eq!(
+            registry.root(),
+            bytes("133b1a84f6508b81465d8c2388be5210ec4171ef8347193f9dcad621953c5015")
+        );
+        assert_eq!(
+            public_input,
+            bytes("2b36575112a72041181227ef0313db6e9d340e56e378dd9e4368eaf9c50c8bfb")
+        );
     }
 
     #[test]

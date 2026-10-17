@@ -66,8 +66,8 @@ import {
   type RingMemberProofRequest,
   type UserRecordReader,
   type UserRecordsLookup,
-  type RingKeyRegistryEntry,
-  type RingKeyRegistryRegisterProof,
+  type RingMemberRecordResponse,
+  type RingMemberRegistryTip,
 } from "./ports.js";
 import {
   createKitClients,
@@ -571,18 +571,18 @@ export class ZolanaClient
     );
   }
 
-  getRingKeyRegistryEntry(
+  getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#indexer.getRingKeyRegistryEntry(request, context);
+  ): Promise<RingMemberRecordResponse> {
+    return this.#indexer.getRingMemberRecord(request, context);
   }
 
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
+  ): Promise<RingMemberRegistryTip> {
+    return this.#indexer.getRingMemberRegistryRoot(request, context);
   }
 
   getUserRecords(
@@ -868,6 +868,12 @@ export class ZolanaClient
     );
   }
 
+  proveCustomRingUpdateMembers(
+    inputs: import("./prover/types.js").CustomRingUpdateMembersProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    return this.#provingRing(() => this.#prover.proveCustomRingUpdateMembers(inputs, context));
+  }
   proveCustomRingRegisterKey(
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,

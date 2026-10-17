@@ -22,8 +22,8 @@ import {
   initializeRingConfigInstructions,
   buildRingCreatePolicyTransaction,
   initSppRingConfigInstruction,
-  createRingKeyRegistryRootInstruction,
-  fetchRingKeyRegistryRoot,
+  createRingMemberRegistryRootInstruction,
+  fetchRingMemberRegistryRoot,
   fetchRingSealedKey,
   openRingSealedKey,
   prepareRingKeyRegistration,
@@ -101,7 +101,9 @@ async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
             : undefined;
       if (
         code === undefined ||
-        !["CLIENT_KEY_REGISTRY_OUT_OF_SYNC", "CLIENT_KEY_REGISTRY_ROOT_CHANGED"].includes(code) ||
+        !["CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC", "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED"].includes(
+          code,
+        ) ||
         Date.now() > deadline
       )
         throw cause;
@@ -182,7 +184,11 @@ describe("fresh ring controls", () => {
       );
       await sendInstruction(
         client,
-        await createRingKeyRegistryRootInstruction({ ringProgramId, payer: authority, authority }),
+        await createRingMemberRegistryRootInstruction({
+          ringProgramId,
+          payer: authority,
+          authority,
+        }),
         authority,
       );
       await sendInstruction(
@@ -257,7 +263,7 @@ describe("fresh ring controls", () => {
           nullifierKey.destroy();
         }
       }
-      expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(3n);
+      expect((await fetchRingMemberRegistryRoot(client, ringProgramId)).nextIndex).toBe(3n);
       const registered = recipient.keypair.shieldedAddress();
       const zeroKey = ShieldedAddress.fromPublicKeys(
         registered.signingPublicKey,

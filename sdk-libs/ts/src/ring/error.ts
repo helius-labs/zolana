@@ -1,4 +1,5 @@
 export const RING_ERROR_CODES = [
+  "RING_ANONYMOUS_REFUSED",
   "RING_AUDIT_KEY_MISMATCH",
   "RING_AUDIT_MESSAGE",
   "RING_AUDIT_NONCANONICAL_KEY",
@@ -32,9 +33,9 @@ export const RING_ERROR_CODES = [
   "RING_INTENT_MISMATCH",
   "RING_INVALID_LENGTH",
   "RING_KEY_ENVELOPE_INVALID",
-  "RING_KEY_REGISTRY_INVALID",
-  "RING_KEY_REGISTRY_MISSING",
-  "RING_KEY_REGISTRY_STALE",
+  "RING_MEMBER_REGISTRY_INVALID",
+  "RING_MEMBER_REGISTRY_MISSING",
+  "RING_MEMBER_REGISTRY_STALE",
   "RING_LIST_SHARED",
   "RING_LIST_WRITER_UNAUTHORIZED",
   "RING_MULTIPLE_INPUT_TREES",
@@ -100,14 +101,16 @@ export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
 /** Rust `CustomRingError`. */
 export const RingProgramError = Object.freeze({
   proofVerificationFailed: 8101,
-  staleKeyRegistryRoot: 8161,
-  unexpectedKeyRegistryRoot: 8175,
+  staleMemberRegistryRoot: 8161,
+  unexpectedMemberRegistryRoot: 8175,
   unexpectedApproval: 8176,
   invalidSettlementAccounts: 8177,
   tooManyPublicLegs: 8178,
   invalidAuditedDeposit: 8179,
   invalidDepositData: 8180,
-  unexpectedRevocationTarget: 8181,
+  memberBatchOrder: 8189,
+  memberBatchTooLarge: 8190,
+  memberRecordMismatch: 8191,
 } as const);
 
 export class RingError extends Error {

@@ -28,24 +28,40 @@ export interface RingMemberProofContext {
   readonly member: Hash;
 }
 
-export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
-  readonly lowMember: Hash;
-  readonly lowNext: Hash;
-  readonly lowKeyHash: Hash;
-  readonly lowIndex: bigint;
-  readonly lowProof: readonly Hash[];
-  readonly newProof: readonly Hash[];
+export interface RingMemberRegistryTip {
+  readonly context: IndexerContext;
+  readonly root: Hash;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly appendPath: readonly Hash[];
 }
-
-/** Carries the encrypted nullifier key and its registry path. */
-export interface RingKeyRegistryEntry extends RingMemberProofContext {
+export interface RingMemberRecordView {
+  readonly member: Hash;
   readonly next: Hash;
-  readonly index: bigint;
-  readonly ephPk: Base64String;
-  readonly ciphertext: Base64String;
-  readonly proof: readonly Hash[];
+  readonly lists: bigint;
+  readonly escrowKey: Hash;
+  readonly ephPk: Base64String | null;
+  readonly ciphertext: Base64String | null;
 }
-
+export interface RingLowRecordView {
+  readonly member: Hash;
+  readonly next: Hash;
+  readonly lists: bigint;
+  readonly escrowKey: Hash;
+  readonly index: bigint;
+  readonly path: readonly Hash[];
+}
+export interface RingMemberRecordResponse {
+  readonly context: IndexerContext;
+  readonly root: Hash;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly present: boolean;
+  readonly record: RingMemberRecordView | null;
+  readonly index: bigint;
+  readonly path: readonly Hash[];
+  readonly low: RingLowRecordView | null;
+}
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
   readonly cursor?: Base64String;

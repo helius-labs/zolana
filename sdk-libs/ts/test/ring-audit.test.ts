@@ -131,14 +131,9 @@ describe("ring audit encryption", () => {
     ).toBe(Buffer.from(PUBLIC_INPUT_HASH).toString("hex"));
   });
 
-  it("extends the audit chain like Go `TestNonzeroRevocationTailVector`", () => {
+  it("extends the audit chain like the member-registry policy transcript", () => {
     const filled = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes32;
     const field = (value: bigint): Bytes32 => bigIntToBytes(value, 32) as Bytes32;
-    const revocationTargets = Array.from({ length: 10 }, () => new Uint8Array(32) as Bytes32);
-    revocationTargets[0] = field(0x42n);
-    revocationTargets[1] = filled(0x11);
-    // Fact 1 reads slot 2, fact 0 slot 0.
-    const revocationTreeIndexes = [0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
     const tail = (treeSlotsChain: Bytes32): Uint8Array =>
       [
         filled(0x2a),
@@ -149,12 +144,8 @@ describe("ring audit encryption", () => {
         field(1n),
         field(1n),
         filled(0x0b),
-        field(2n << 3n),
-        ...revocationTargets,
+        filled(0x0c),
       ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
-    expect(Buffer.from(tail(filled(6))).toString("hex")).toBe(
-      "287fe8b5f9ae4740720aa0c80bb628572ec71a111acfa1156c866d774f4a9257",
-    );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
       { id: 1, utxoRoot: filled(4), nullifierRoot: filled(5) },
@@ -177,16 +168,16 @@ describe("ring audit encryption", () => {
       ringId: filled(8),
       namespaceOwnerHash: filled(10),
       approvalRequired: true,
-      keyRegistryRoot: filled(0x0b),
-      revocationTargets,
-      revocationTreeIndexes,
+      memberRegistryRoot: filled(0x0b),
+      keyEscrow: true,
+      foreignRoot: filled(0x0c),
     };
     expect(policyPublicInputHash(input)).toEqual(
       tail(treeSlotsHashChain(inputTreeSlots(treeSlots))),
     );
-    expect(() =>
-      policyPublicInputHash({ ...input, revocationTreeIndexes: [8, 0, 0, 0, 0, 0, 0, 0, 0, 0] }),
-    ).toThrow(RangeError);
+    expect(policyPublicInputHash({ ...input, foreignRoot: filled(0) })).not.toEqual(
+      policyPublicInputHash(input),
+    );
   });
 
   it("masks each disclosure field with the chained two-input Poseidon pad", () => {

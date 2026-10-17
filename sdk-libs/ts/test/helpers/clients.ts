@@ -1,3 +1,4 @@
+import { emptyMemberRecord } from "./member-registry.js";
 import { blockhash, type Commitment } from "@solana/kit";
 
 import type { ChainReader, IndexerReader, KitRpcAccess } from "../../src/client/index.js";
@@ -120,12 +121,8 @@ export function ringTransferClient(
     proveRingTransact: notImplemented("proveRingTransact"),
     proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
     proveCustomRingBase: notImplemented("proveCustomRingBase"),
-    getEncryptedUtxosByTags: notImplemented("getEncryptedUtxosByTags"),
-    getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
-    getMerkleProofs: notImplemented("getMerkleProofs"),
-    getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     getSlot: notImplemented("getSlot"),
-    getRingKeyRegistryEntry: notImplemented("getRingKeyRegistryEntry"),
+    getRingMemberRecord: async () => ({ ...emptyMemberRecord(), rootIndex: 1 }),
     ...overrides,
   };
 }

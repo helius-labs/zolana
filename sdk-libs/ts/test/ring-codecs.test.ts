@@ -55,8 +55,7 @@ import {
   ringDelegateAddress,
   ringDelegatePda,
   ringDepositAuditAddress,
-  ringKeyRegistryRootAddress,
-  nullifierPdaAddress,
+  ringMemberRegistryRootAddress,
 } from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import {
@@ -461,8 +460,8 @@ describe("ring config", () => {
         sources: Uint8Array.from([1, ...filled(44, 32), ...new Uint8Array(33 * 7)]),
       }),
     );
-    expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(44) });
-    expect(config.sources[1]).toEqual({ listId: 0, namespace: addressOf(0) });
+    expect(config.sources[0]).toEqual({ listId: 1, registry: addressOf(44) });
+    expect(config.sources[1]).toEqual({ listId: 0, registry: addressOf(0) });
   });
 
   it("decodes a one-row rule table with an inline member and the generation", () => {
@@ -501,7 +500,7 @@ describe("ring config", () => {
     expect(config.inlineLimits).toEqual([123n]);
     expect(config.generation).toBe(0x01020304);
     expect(config.generationSlot).toBe(0x0102030405060708n);
-    expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(0x11) });
+    expect(config.sources[0]).toEqual({ listId: 1, registry: addressOf(0) });
     expect(config.namespaceOwnerHash).toEqual(
       hex("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196"),
     );
@@ -635,7 +634,7 @@ describe("ring config", () => {
       [AUTHORITY, AccountRole.READONLY_SIGNER],
       [RING_CONFIG, AccountRole.WRITABLE],
       [await ringDelegateAddress(RING), AccountRole.WRITABLE],
-      [await ringKeyRegistryRootAddress(RING), AccountRole.READONLY],
+      [await ringMemberRegistryRootAddress(RING), AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING, AccountRole.READONLY],
       [programData, AccountRole.READONLY],
@@ -1200,12 +1199,10 @@ describe("ring transact", () => {
     messages: [],
   });
 
-  const ZERO_TARGETS = Array.from({ length: 10 }, () => filled(0, 32) as Bytes32);
   const policy = (input: Partial<RingTransactPolicy> = {}): RingTransactPolicy => ({
     trees: [ADDRESS_TREE],
     treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
-    revocationTargets: ZERO_TARGETS,
-    revocationTreeIndexes: Array.from({ length: 10 }, () => 0),
+    memberRegistryRootIndex: 0,
     ...input,
   });
 
@@ -1239,7 +1236,7 @@ describe("ring transact", () => {
       delegate,
       inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      policy: policy({ keyRegistryRootIndex: 3 }),
+      policy: policy({ memberRegistryRootIndex: 3 }),
       proof: customRingProof(),
       data: transactData(),
     });
@@ -1252,10 +1249,10 @@ describe("ring transact", () => {
       [delegate, AccountRole.READONLY_SIGNER],
       [policyConfig, AccountRole.READONLY],
       [ADDRESS_TREE, AccountRole.READONLY],
-      [await ringKeyRegistryRootAddress(RING), AccountRole.READONLY],
+      [await ringMemberRegistryRootAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
     ]);
-    for (const unescrowed of [undefined, policy()]) {
+    for (const unescrowed of [undefined]) {
       await expect(
         ringDelegateTransactInstruction({
           ringProgramId: RING,
@@ -1276,7 +1273,7 @@ describe("ring transact", () => {
         delegate,
         inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        policy: policy({ keyRegistryRootIndex: 3 }),
+        policy: policy({ memberRegistryRootIndex: 3 }),
         proof: customRingProof(),
         data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
       }),
@@ -1288,7 +1285,7 @@ describe("ring transact", () => {
         delegate,
         inputTrees: [TREE],
         outputTree: OUTPUT_TREE,
-        policy: policy({ keyRegistryRootIndex: 3 }),
+        policy: policy({ memberRegistryRootIndex: 3 }),
         approvalRequired: true,
         proof: customRingProof(),
         data: transactData(),
@@ -1348,13 +1345,12 @@ describe("ring transact", () => {
       programAddress: RING,
       seeds: [new TextEncoder().encode("policy")],
     });
-    const revocationTarget = filled(66, 32) as Bytes32;
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
       inputTrees: [TREE],
       outputTree: OUTPUT_TREE,
-      policy: policy({ revocationTargets: [revocationTarget, ...ZERO_TARGETS.slice(1)] }),
+      policy: policy(),
       proof: customRingProof(),
       data: transactData(),
     });
@@ -1365,7 +1361,7 @@ describe("ring transact", () => {
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [policyConfig, AccountRole.READONLY],
       [ADDRESS_TREE, AccountRole.READONLY],
-      [await nullifierPdaAddress(ADDRESS_TREE, revocationTarget), AccountRole.READONLY],
+      [await ringMemberRegistryRootAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SPP, AccountRole.READONLY],
@@ -1380,19 +1376,13 @@ describe("ring transact", () => {
         "00000000" +
         "00" +
         "00" +
-        "01" +
-        "42".repeat(32) +
-        "00".repeat(10) +
+        "00" +
         "ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );
   });
 
-  it("derives each revocation PDA under its fact's policy tree", async () => {
-    const targets = [
-      filled(66, 32) as Bytes32,
-      filled(67, 32) as Bytes32,
-      ...ZERO_TARGETS.slice(2),
-    ];
+  it("binds one curator registry and both registry history slots", async () => {
+    const foreignRegistry = addressOf(66);
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
@@ -1404,41 +1394,34 @@ describe("ring transact", () => {
           { utxoTreeRootIndex: 0x0102, nullifierTreeRootIndex: 0x0304 },
           { utxoTreeRootIndex: 0x0506, nullifierTreeRootIndex: 0x0708 },
         ],
-        keyRegistryRootIndex: 9,
-        revocationTargets: targets,
-        revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        memberRegistryRootIndex: 9,
+        foreignRegistry,
+        foreignRootIndex: 7,
       }),
       proof: customRingProof(),
       data: transactData(),
     });
-    expect(instruction.accounts?.slice(4, 9).map((meta) => meta.address)).toEqual([
+    expect(instruction.accounts?.slice(4, 8).map((meta) => meta.address)).toEqual([
       ADDRESS_TREE,
       TREE,
-      await ringKeyRegistryRootAddress(RING),
-      await nullifierPdaAddress(TREE, filled(66, 32)),
-      await nullifierPdaAddress(ADDRESS_TREE, filled(67, 32)),
+      await ringMemberRegistryRootAddress(RING),
+      foreignRegistry,
     ]);
-    const data = instruction.data ?? new Uint8Array();
-    // Policy trees, key registry root index, then the approval bit.
-    expect(Array.from(data.slice(193, 204))).toEqual([2, 2, 1, 4, 3, 6, 5, 8, 7, 9, 0]);
-    const indexes = 204 + 1 + 2 * 32;
-    expect(Array.from((instruction.data ?? new Uint8Array()).slice(indexes, indexes + 10))).toEqual(
-      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    );
-    await expect(
-      ringTransactInstruction({
-        ringProgramId: RING,
-        payer: PAYER,
-        inputTrees: [TREE],
-        outputTree: OUTPUT_TREE,
-        policy: policy({
-          revocationTargets: targets,
-          revocationTreeIndexes: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    expect(Array.from((instruction.data ?? new Uint8Array()).slice(193, 205))).toEqual([
+      2, 2, 1, 4, 3, 6, 5, 8, 7, 9, 7, 0,
+    ]);
+    for (const invalid of [-1, 32])
+      await expect(
+        ringTransactInstruction({
+          ringProgramId: RING,
+          payer: PAYER,
+          inputTrees: [TREE],
+          outputTree: OUTPUT_TREE,
+          policy: policy({ memberRegistryRootIndex: invalid }),
+          proof: customRingProof(),
+          data: transactData(),
         }),
-        proof: customRingProof(),
-        data: transactData(),
-      }),
-    ).rejects.toThrow("RING_POLICY_SHAPE_UNSUPPORTED");
+      ).rejects.toThrow();
   });
 });
 

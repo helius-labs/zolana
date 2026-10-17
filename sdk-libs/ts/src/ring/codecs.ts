@@ -14,7 +14,7 @@ import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 
 import { RingError } from "./error.js";
-import { checkedRegistryField, KEY_REGISTRY_CAPACITY } from "./key-registry-tree.js";
+import { checkedRegistryField, MEMBER_REGISTRY_CAPACITY } from "./member-registry-tree.js";
 
 /** Mirrors Rust `RingMode`, set once at creation and never cleared. */
 export type RingMode = "off" | "registry" | "anonymous";
@@ -48,7 +48,7 @@ export function decodeRingDepositAudit(data: Uint8Array): RingDepositAudit {
 /** Mirrors Rust `SourceSlot`, slot `i` is empty (`listId === 0`) or serves list `i + 1`. */
 export interface RingPolicySource {
   readonly listId: number;
-  readonly namespace: Address;
+  readonly registry: Address;
 }
 
 /** Mirrors Rust `PolicyConfig`. */
@@ -197,28 +197,28 @@ export function decodeRingDelegate(data: Uint8Array): RingDelegate {
   return Object.freeze({ delegate: encodeBase58(key), bump });
 }
 
-/** Rust `KeyRegistryRoot`. */
-export interface RingKeyRegistryRoot {
+/** Rust `MemberRegistryRoot`. */
+export interface RingMemberRegistryRoot {
   readonly root: Bytes32;
   readonly nextIndex: bigint;
   readonly bump: number;
   /** Slot of `root` in `history`. */
   readonly historyCursor: number;
-  /** Every root stays sound, an enrolled leaf never changes. */
+  /** Only roots in the retained history can be used by policy reads. */
   readonly history: readonly Bytes32[];
 }
 
-/** Rust `KEY_REGISTRY_ROOT`, `KEY_REGISTRY_ROOT_HISTORY` and `KeyRegistryRoot::SIZE`. */
-const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 7;
-export const RING_KEY_REGISTRY_ROOT_HISTORY = 32;
-const RING_KEY_REGISTRY_ROOT_SIZE = 1 + 8 + 1 + 1 + 32 * RING_KEY_REGISTRY_ROOT_HISTORY;
+/** Rust `MEMBER_REGISTRY_ROOT`, `MEMBER_REGISTRY_ROOT_HISTORY` and `MemberRegistryRoot::SIZE`. */
+const RING_MEMBER_REGISTRY_ROOT_DISCRIMINATOR = 9;
+export const RING_MEMBER_REGISTRY_ROOT_HISTORY = 32;
+const RING_MEMBER_REGISTRY_ROOT_SIZE = 1 + 8 + 1 + 1 + 32 * RING_MEMBER_REGISTRY_ROOT_HISTORY;
 
-export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot {
+export function decodeRingMemberRegistryRoot(data: Uint8Array): RingMemberRegistryRoot {
   if (
-    data.length !== RING_KEY_REGISTRY_ROOT_SIZE ||
-    data[0] !== RING_KEY_REGISTRY_ROOT_DISCRIMINATOR
+    data.length !== RING_MEMBER_REGISTRY_ROOT_SIZE ||
+    data[0] !== RING_MEMBER_REGISTRY_ROOT_DISCRIMINATOR
   ) {
-    throw new RingError("RING_KEY_REGISTRY_INVALID", {
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID", {
       details: { length: data.length, discriminator: data[0] },
     });
   }
@@ -229,18 +229,18 @@ export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot
   const historyCursor = reader.u8("historyCursor");
   const history = Object.freeze(
     Array.from(
-      { length: RING_KEY_REGISTRY_ROOT_HISTORY },
+      { length: RING_MEMBER_REGISTRY_ROOT_HISTORY },
       () => reader.bytes(32, "history") as Bytes32,
     ),
   );
   reader.done();
-  if (nextIndex < 1n || nextIndex > KEY_REGISTRY_CAPACITY) {
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { nextIndex } });
+  if (nextIndex < 1n || nextIndex > MEMBER_REGISTRY_CAPACITY) {
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { nextIndex } });
   }
-  // Mirrors Rust `KeyRegistryRoot::root`.
+  // Mirrors Rust `MemberRegistryRoot::root`.
   const current = history[historyCursor];
   if (current === undefined || equalBytes(current, ZERO_32)) {
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { historyCursor } });
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { historyCursor } });
   }
   const root = checkedRegistryField(current.slice());
   return Object.freeze({ root, nextIndex, bump, historyCursor, history });
@@ -268,7 +268,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
     Array.from({ length: RING_SOURCE_SLOTS }, () =>
       Object.freeze({
         listId: reader.u8("listId"),
-        namespace: encodeBase58(reader.bytes(32, "namespace")),
+        registry: encodeBase58(reader.bytes(32, "registry")),
       }),
     ),
   );

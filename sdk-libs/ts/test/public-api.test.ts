@@ -98,7 +98,7 @@ describe("public package surface", () => {
   it("exports every type named by the custom-ring public API", () => {
     expectTypeOf<CustomRingSourceOwner>().toMatchTypeOf<{
       readonly listId: number;
-      readonly ownerHash: Bytes32;
+      readonly registry: Bytes32;
     }>();
   });
 
@@ -263,7 +263,7 @@ describe("public package surface", () => {
       "setRingPolicyRulesInstruction",
       "setRingPolicySourceInstruction",
       "buildRingCreatePolicyTransaction",
-      "createRingEntryInstruction",
+      "updateRingMembersInstruction",
       "buildRingListWriteTransaction",
       "deployRingProgram",
       "registerRingKeyInstruction",

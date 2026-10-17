@@ -4,7 +4,6 @@ import { ClientError } from "../client/error.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader } from "../client/ports.js";
 import {
-  RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
@@ -101,9 +100,6 @@ export interface RuleTable {
   readonly limits: readonly CustomRingOutflowLimit[];
 }
 
-/** Rust `GUARANTEED_LOAD`. */
-const GUARANTEED_SENDERS = 1;
-const GUARANTEED_OUTPUTS = 4;
 const U64_MAX = (1n << 64n) - 1n;
 
 const SUBJECTS: readonly RuleSubject[] = ["outputOwner", "sender", "exitDestination", "asset"];
@@ -205,6 +201,7 @@ export function decodeRule(row: Bytes32): Rule {
 function checkRule(rule: Rule): void {
   if (rule.subject === "exitDestination") throw ruleTableInvalid("ExitDestination");
   if (rule.source.kind === "lists") {
+    if (rule.subject === "asset") throw ruleTableInvalid("AssetListRule");
     const { present, absent } = rule.source;
     if (present.length + absent.length === 0) throw ruleTableInvalid("EmptyLists");
     if ((listBits(present) & listBits(absent)) !== 0) throw ruleTableInvalid("ListInBothSets");
@@ -328,8 +325,6 @@ function checkedRuleTable(table: RuleTable): RuleTable {
   } else if (inlineLimits.some((limit) => limit !== 0n)) {
     throw ruleTableInvalid("AssetLimitWithoutGuard");
   }
-  const answers = rules.reduce((total, rule) => total + maxAnswers(rule), 0);
-  if (answers > RING_ANSWER_SLOTS) throw ruleTableInvalid("TooManyAnswers");
   return Object.freeze({
     rules: Object.freeze([...rules]),
     inlineAssets: Object.freeze([...inlineAssets]),
@@ -364,19 +359,6 @@ function ruleSignature(rule: Rule): string {
   return `${rule.subject}:${present}:${absent}`;
 }
 
-function maxAnswers(rule: Rule): number {
-  if (rule.source.kind === "inlineAssets") return 0;
-  switch (rule.subject) {
-    case "sender":
-      return GUARANTEED_SENDERS;
-    case "outputOwner":
-    case "asset":
-      return GUARANTEED_OUTPUTS;
-    case "exitDestination":
-      return 0;
-  }
-}
-
 /** In slot order. */
 export function referencedLists(rules: readonly Rule[]): readonly ListId[] {
   const bits = rules.reduce(
@@ -401,8 +383,13 @@ export function policySourceOwners(
     sources.map((slot) =>
       Object.freeze(
         slot.listId === 0
-          ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
-          : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
+          ? { listId: 0, registry: new Uint8Array(32) as Bytes32 }
+          : {
+              listId: slot.listId,
+              registry: equalBytes(addressBytes(slot.registry), ZERO_32)
+                ? ZERO_32
+                : (hashBytes(addressBytes(slot.registry)) as Bytes32),
+            },
       ),
     ),
   );
@@ -415,10 +402,16 @@ function checkedSourceOwners(
     throw sourceInvalid("SlotCount", { slots: owners.length });
   }
   owners.forEach((slot, index) => {
-    const empty = slot.listId === 0 && equalBytes(slot.ownerHash, ZERO_32);
-    const positional = slot.listId === index + 1 && !equalBytes(slot.ownerHash, ZERO_32);
+    const empty = slot.listId === 0 && equalBytes(slot.registry, ZERO_32);
+    const positional = slot.listId === index + 1;
     if (!empty && !positional) throw sourceInvalid("NotPositional", { index });
   });
+  const foreign = new Set(
+    owners
+      .filter((slot) => !equalBytes(slot.registry, ZERO_32))
+      .map((slot) => Array.from(slot.registry).join(",")),
+  );
+  if (foreign.size > 1) throw sourceInvalid("MultipleCurators", {});
   return Object.freeze([...owners]);
 }
 
@@ -427,7 +420,7 @@ function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>
 }
 
 /** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 8;
+export const RING_POLICY_VERSION = 9;
 
 /** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
 export function ringPolicyHash(
@@ -440,7 +433,7 @@ export function ringPolicyHash(
   }
   const encoded = encodeRuleTable(table);
   const elements: Bytes32[] = [POLICY_TABLE_DOMAIN, fieldU8(RING_POLICY_VERSION)];
-  for (const slot of owners) elements.push(fieldU8(slot.listId), slot.ownerHash);
+  for (const slot of owners) elements.push(fieldU8(slot.listId), slot.registry);
   elements.push(
     fieldU8(encoded.ruleCount),
     fieldU8(encoded.inlineAssets.length),

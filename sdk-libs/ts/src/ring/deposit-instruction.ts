@@ -9,7 +9,7 @@ import {
   ringConfigAddress,
   ringCoSignerAddress,
   ringDepositAuditAddress,
-  ringKeyRegistryRootAddress,
+  ringMemberRegistryRootAddress,
 } from "../interface/pda/index.js";
 import {
   depositLayout,
@@ -37,11 +37,11 @@ export async function ringDepositInstruction(
     proof?: Uint8Array;
     cosigner?: SignerAccount;
     /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
-    keyRegistryRootIndex?: number;
+    memberRegistryRootIndex?: number;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  if (input.keyRegistryRootIndex !== undefined && input.proof === undefined) {
+  if (input.memberRegistryRootIndex !== undefined && input.proof === undefined) {
     throw new RingError("RING_DEPOSIT_AUDIT_REQUIRED", { details: { reason: "keyEscrow" } });
   }
   if (input.proof !== undefined) {
@@ -60,14 +60,14 @@ export async function ringDepositInstruction(
       ephemeralKey = capsule.ephemeralPublicKey;
     }
   }
-  const [ringAuth, config, cosignerPda, depositAudit, keyRegistryRoot] = await Promise.all([
+  const [ringAuth, config, cosignerPda, depositAudit, memberRegistryRoot] = await Promise.all([
     ringAuthAddress(input.ringProgramId),
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
     ringDepositAuditAddress(input.ringProgramId),
-    input.keyRegistryRootIndex === undefined
+    input.memberRegistryRootIndex === undefined
       ? undefined
-      : ringKeyRegistryRootAddress(input.ringProgramId),
+      : ringMemberRegistryRootAddress(input.ringProgramId),
   ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
@@ -79,7 +79,7 @@ export async function ringDepositInstruction(
     meta(config, false, false),
     ...ringCoSignerMetas(cosignerPda, input.cosigner),
     meta(depositAudit, false, false),
-    ...(keyRegistryRoot === undefined ? [] : [meta(keyRegistryRoot, false, false)]),
+    ...(memberRegistryRoot === undefined ? [] : [meta(memberRegistryRoot, false, false)]),
   );
   const sppWire = tagged(
     InstructionTag.ringDeposit,
@@ -108,7 +108,9 @@ export async function ringDepositInstruction(
           AUDITED_RING_DEPOSIT_TAG,
           new Uint8Array([
             ...copyBytes(input.proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"),
-            ...new Writer().u8(input.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex").finish(),
+            ...new Writer()
+              .u8(input.memberRegistryRootIndex ?? 0, "memberRegistryRootIndex")
+              .finish(),
             ...sppWire,
           ]),
         ),

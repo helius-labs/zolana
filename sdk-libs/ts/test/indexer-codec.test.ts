@@ -6,8 +6,8 @@ import {
   decodeShieldedTransactionsResponse,
   decodeShieldedTransactionsBySignatureResponse,
   encodeRingsByTagsRequest,
-  decodeRingKeyRegistryEntry,
-  decodeRingKeyRegistryRegisterProof,
+  decodeRingMemberRecord,
+  decodeRingMemberRegistryRoot,
   decodeUserRecordsResponse,
   encodeRingMemberProofRequest,
   encodeUserRecordsRequest,
@@ -25,21 +25,21 @@ const TAG = hash("11111111111111111111111111111111");
 const RING = address("8hcir6LNDXjqKSof1KV41SBZxGaEQFB3WTtcoYn3Atpg");
 
 describe("ring key registry wire", () => {
-  it("bounds the key registry cursor at forty bits", () => {
+  it("bounds the key registry cursor at twenty bits", () => {
     expect(
       encodeRingMemberProofRequest({
         ringProgramId: RING,
         member: TAG,
         expectedRoot: TAG,
-        expectedNextIndex: 1n << 40n,
+        expectedNextIndex: 1n << 20n,
       }),
-    ).toMatchObject({ expectedNextIndex: 2 ** 40 });
+    ).toMatchObject({ expectedNextIndex: 2 ** 20 });
     expect(() =>
       encodeRingMemberProofRequest({
         ringProgramId: RING,
         member: TAG,
         expectedRoot: TAG,
-        expectedNextIndex: (1n << 40n) + 1n,
+        expectedNextIndex: (1n << 20n) + 1n,
       }),
     ).toThrow();
   });
@@ -49,36 +49,44 @@ describe("key registry wire", () => {
   const proof = {
     context: { slot: 1, blockTime: 2 },
     root: TAG,
-    member: TAG,
+    rootIndex: 0,
     nextIndex: 1,
-    lowMember: TAG,
-    lowNext: TAG,
-    lowKeyHash: TAG,
-    lowIndex: 0,
-    lowProof: Array.from({ length: 40 }, () => TAG),
-    newProof: Array.from({ length: 40 }, () => TAG),
+    appendPath: Array.from({ length: 20 }, () => TAG),
   };
   const entry = {
     context: { slot: 1, blockTime: 2 },
     root: TAG,
-    member: TAG,
+    rootIndex: 0,
     nextIndex: 2,
-    next: TAG,
+    present: true,
     index: 1,
-    ephPk: Buffer.from(
-      "040900000000000000000000000000000000000000000000000000000000000000",
-      "hex",
-    ).toString("base64"),
-    ciphertext: Buffer.alloc(32, 7).toString("base64"),
-    proof: Array.from({ length: 40 }, () => TAG),
+    path: Array.from({ length: 20 }, () => TAG),
+    low: null,
+    record: {
+      member: TAG,
+      next: TAG,
+      lists: 0,
+      escrowKey: TAG,
+      ephPk: Buffer.from(
+        "040900000000000000000000000000000000000000000000000000000000000000",
+        "hex",
+      ).toString("base64"),
+      ciphertext: Buffer.alloc(32, 7).toString("base64"),
+    },
   };
-
-  it("names the predecessor key hash and keeps the entry inside the cursor", () => {
-    expect(decodeRingKeyRegistryRegisterProof(proof)).toMatchObject({ lowIndex: 0n });
-    expect(() => decodeRingKeyRegistryRegisterProof({ ...proof, lowKey: TAG })).toThrow();
-    expect(decodeRingKeyRegistryEntry(entry)).toMatchObject({ index: 1n, nextIndex: 2n });
-    for (const changed of [{ index: 0 }, { index: 2 }, { proof: [] }, { ephPk: 3 }])
-      expect(() => decodeRingKeyRegistryEntry({ ...entry, ...changed })).toThrow();
+  it("bounds the root cursor and authenticatable record shape", () => {
+    expect(decodeRingMemberRegistryRoot(proof)).toMatchObject({ rootIndex: 0, nextIndex: 1n });
+    for (const changed of [{ rootIndex: 32 }, { appendPath: [] }, { nextIndex: 0 }])
+      expect(() => decodeRingMemberRegistryRoot({ ...proof, ...changed })).toThrow();
+    expect(decodeRingMemberRecord(entry)).toMatchObject({ index: 1n, nextIndex: 2n });
+    for (const changed of [
+      { index: 0 },
+      { index: 2 },
+      { path: [] },
+      { record: { ...entry.record, ephPk: 3 } },
+      { present: false },
+    ])
+      expect(() => decodeRingMemberRecord({ ...entry, ...changed })).toThrow();
   });
 
   it("distinguishes every typed registry RPC failure and rejects a malformed entry", async () => {
@@ -97,27 +105,27 @@ describe("key registry wire", () => {
         }),
       );
     for (const [rpcCode, code] of [
-      [-32070, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
-      [-32071, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
-      [-32072, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
-      [-32073, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+      [-32070, "CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC"],
+      [-32071, "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED"],
+      [-32072, "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"],
+      [-32073, "CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED"],
     ] as const) {
       const indexer = indexerFor({ error: { code: rpcCode, message: "private diagnostics" } });
-      await expect(indexer.getRingKeyRegistryEntry(request)).rejects.toMatchObject({ code });
-      await expect(indexer.getRingKeyRegistryRegisterProof(request)).rejects.toMatchObject({
+      await expect(indexer.getRingMemberRecord(request)).rejects.toMatchObject({ code });
+      await expect(indexer.getRingMemberRegistryRoot(request)).rejects.toMatchObject({
         code,
       });
     }
-    const decoded = await indexerFor({ result: entry }).getRingKeyRegistryEntry(request);
-    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x04);
-    expect(decoded.ciphertext).toEqual(new Uint8Array(32).fill(7));
+    const decoded = await indexerFor({ result: entry }).getRingMemberRecord(request);
+    expect(decoded.record!.ephemeralPublicKey!.toBytes()[0]).toBe(0x04);
+    expect(decoded.record!.ciphertext).toEqual(new Uint8Array(32).fill(7));
     for (const changed of [
-      { ciphertext: Buffer.alloc(31, 7).toString("base64") },
-      { ephPk: Buffer.alloc(33, 9).toString("base64") },
+      { record: { ...entry.record, ciphertext: Buffer.alloc(31, 7).toString("base64") } },
+      { record: { ...entry.record, ephPk: Buffer.alloc(33, 9).toString("base64") } },
       { nextIndex: 3 },
     ])
       await expect(
-        indexerFor({ result: { ...entry, ...changed } }).getRingKeyRegistryEntry(request),
+        indexerFor({ result: { ...entry, ...changed } }).getRingMemberRecord(request),
       ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
   });
 });

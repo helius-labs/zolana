@@ -2,7 +2,7 @@ import { withProofDataRetry } from "../client/retry.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
-import type { IndexedDepositClient, Prover, RingKeyRegistryReader } from "../client/ports.js";
+import type { IndexedDepositClient, Prover, RingMemberRegistryReader } from "../client/ports.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./deposit-capsule.js";
 import { copyBytes } from "../interface/internal.js";
@@ -40,7 +40,7 @@ export const RING_DEPOSIT_COMPUTE_UNIT_LIMIT = 1_400_000;
 export type RingDepositClient = DepositClient &
   IndexedDepositClient &
   Pick<Prover, "proveCustomRingDeposit"> &
-  Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
+  Pick<RingMemberRegistryReader, "getRingMemberRecord">;
 
 export interface RingDepositTransactionParams {
   readonly client: RingDepositClient;
@@ -161,7 +161,7 @@ async function buildRingDepositOnce(
       ringProgramId: input.ringProgramId,
       tree,
       depositor,
-      ...(escrow === undefined ? {} : { keyRegistryRootIndex: escrow.rootIndex }),
+      ...(escrow === undefined ? {} : { memberRegistryRootIndex: escrow.rootIndex }),
       ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
       deposits: [
         {
@@ -198,17 +198,18 @@ async function buildRingDepositOnce(
           ownerCommitments: [ownerCommitment],
           capsules: sealed.capsules,
           auditorPublicKey,
-          ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
+          ...(escrow === undefined ? {} : { memberRegistryRoot: escrow.root }),
         }),
         contextHash,
         count: 1,
         ownerPkHashes: firstSlot(owner.ownerPkHash, ZERO_32),
         nullifierPks: firstSlot(owner.nullifierPk, ZERO_32),
         blindings: firstSlot(blinding, ZERO_32),
-        keys: firstSlot(escrow?.keys[0], undefined),
+        members: firstSlot(escrow?.keys[0], undefined),
+        ctHashes: firstSlot(escrow?.keys[0]?.ctHash ?? ZERO_32, ZERO_32),
         ephemeralSecret: sealed.ephemeralSecret,
         auditorPublicKey: auditorPublicKey.u(),
-        ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
+        ...(escrow === undefined ? {} : { memberRegistryRoot: escrow.root }),
       };
       let proof: Uint8Array;
       if (escrow !== undefined && input.client.proofDataSource === "prover") {

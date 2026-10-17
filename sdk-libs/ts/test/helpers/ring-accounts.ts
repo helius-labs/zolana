@@ -17,10 +17,12 @@ import { bigIntBytes } from "../../src/transaction/internal.js";
 export const ZERO_ADDRESS = getAddressDecoder().decode(new Uint8Array(32));
 
 /** Every referenced list sourced from `namespace`, the other slots empty. */
-export function ownSources(table: RuleTable, namespace: Address): readonly RingPolicySource[] {
+export function ownSources(table: RuleTable, _namespace: Address): readonly RingPolicySource[] {
   const referenced = referencedLists(table.rules);
   return LIST_IDS.map((listId) =>
-    referenced.includes(listId) ? { listId, namespace } : { listId: 0, namespace: ZERO_ADDRESS },
+    referenced.includes(listId)
+      ? { listId, registry: ZERO_ADDRESS }
+      : { listId: 0, registry: ZERO_ADDRESS },
   );
 }
 
@@ -67,7 +69,7 @@ export function ringPolicyConfigData(
     .u8(input.bump, "bump")
     .bytes(input.namespaceOwnerHash ?? new Uint8Array(32));
   for (const slot of input.sources) {
-    writer.u8(slot.listId, "listId").bytes(addressBytes(slot.namespace));
+    writer.u8(slot.listId, "listId").bytes(addressBytes(slot.registry));
   }
   writer.u8(encoded.ruleCount, "ruleCount");
   for (const row of encoded.rules) writer.bytes(row);

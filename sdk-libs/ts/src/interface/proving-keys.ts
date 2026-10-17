@@ -181,7 +181,8 @@ export type ProvingKeyCircuit =
   | { readonly circuit: "custom-ring-compressed-policy" }
   | { readonly circuit: "custom-ring-delegate-policy" }
   | { readonly circuit: "custom-ring-deposit" }
-  | { readonly circuit: "custom-ring-register-key" };
+  | { readonly circuit: "custom-ring-register-key" }
+  | { readonly circuit: "custom-ring-update-members" };
 
 /** The proving key a proof must come from. */
 export type ExpectedProvingKey = Readonly<{ name: string; sha256: string }>;
@@ -220,6 +221,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
     case "custom-ring-compressed-policy":
     case "custom-ring-delegate-policy":
     case "custom-ring-deposit":
+    case "custom-ring-update-members":
     case "custom-ring-register-key":
       // The prover's `RingKeyFiles`: custom-ring-<x> is custom_ring_<x>.key.
       return `${request.circuit.replaceAll("-", "_")}.key`;

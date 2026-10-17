@@ -1,204 +1,266 @@
 import type {
   ChainReader,
-  IndexedPolicyLookup,
+  RingMemberRegistryReader,
   ProofDataSource,
-  ProofReader,
+  IndexedRegistry,
 } from "../client/ports.js";
 import {
-  RING_ANSWER_SLOTS,
   RING_INPUT_SLOTS,
   RING_OUTPUT_SLOTS,
-  disabledRuleAnswer,
-  type CustomRingRuleAnswer,
+  RING_SUBJECT_SLOTS,
+  type CustomRingSubjectWitness,
 } from "../client/prover/types.js";
 import type { TreeSlot } from "../interface/tree-slot.js";
 import type { Address, Bytes32, RequestContext, TreeContext } from "../interface/types.js";
-import type { ProofInputUtxo, ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
+import type { ProofInputUtxo, ProofOutputUtxo } from "../transaction/utxo.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
-
-import type { RingPolicyConfig } from "./codecs.js";
+import { ZERO_32 } from "../transaction/internal.js";
+import { hashBytes } from "../hasher/index.js";
+import { addressBytes } from "../interface/internal.js";
+import { ringMemberRegistryRootAddress } from "../interface/pda/index.js";
+import { waitForProjection } from "../client/retry.js";
+import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
+import { type RingPolicyConfig, decodeRingMemberRegistryRoot } from "./codecs.js";
+import { fetchRingMemberRegistryRoot } from "./config.js";
+import { readRingMemberRecord, type MemberRecordRead } from "./member-record.js";
+import type { MemberOpening } from "./member-registry-tree.js";
+import { registeredKeyHash } from "./member-registry.js";
 import { RingError } from "./error.js";
-import { provePolicyTrees, type PolicyTreeFact, type ProvenPolicyTrees } from "./policy-trees.js";
+import { readTreeHeads } from "./policy-trees.js";
 import {
-  RingListNamespace,
-  listIdFromByte,
+  policySourceOwners,
   memberOfAsset,
   memberOfIdentity,
-  readRingEntryLineages,
   ruleAlternatives,
-  type EntryIndexer,
-  type ListId,
-  type LiveEntry,
   type Member,
   type Rule,
-  type RuleMode,
   type RuleTable,
 } from "./policy.js";
-import { ringTreeIdResolver } from "./trees.js";
 
 export type RingPolicyAnswerClient = Pick<ChainReader, "getAccount"> &
-  EntryIndexer &
-  Pick<ProofReader, "getMerkleProofs" | "getNonInclusionProofs">;
-
+  Pick<RingMemberRegistryReader, "getRingMemberRecord">;
 export interface PolicyAnswerInput {
+  readonly ringProgramId: Address;
+  readonly keyEscrow: boolean;
   readonly proofDataSource: ProofDataSource;
   readonly table: RuleTable;
   readonly config: RingPolicyConfig;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
 }
-
 export interface PolicyAnswers {
-  readonly indexedLookups?: readonly IndexedPolicyLookup[];
-  readonly answers: readonly CustomRingRuleAnswer[];
-  /** One account per `treeSlots` entry, the policy trees the transact instruction lists. */
+  readonly subjects: readonly (CustomRingSubjectWitness | undefined)[];
+  readonly foreignSubjects: readonly (CustomRingSubjectWitness | undefined)[];
+  readonly ctHashes: readonly Bytes32[];
+  readonly registry: IndexedRegistry;
+  readonly rootIndex: number;
+  readonly foreign?: Readonly<{ registry: Address; rootIndex: number; indexed: IndexedRegistry }>;
   readonly policyTrees: readonly Address[];
   readonly treeSlots: readonly TreeSlot[];
   readonly treeContexts: readonly TreeContext[];
-  readonly revocationTargets: readonly Bytes32[];
-  /** Per fact slot, the policy tree its revocation target lives in. */
-  readonly revocationTreeIndexes: readonly number[];
 }
-
-/** Mirrors Rust `CustomRingWitnessInput::build`, a rule no entry admits is refused before any prover round. */
+export function subjectWitness(opening: MemberOpening): CustomRingSubjectWitness {
+  if (opening.present)
+    return {
+      present: true,
+      next: opening.record.next,
+      lists: opening.record.lists,
+      escrowKey: opening.record.escrowKey,
+      index: opening.index,
+      path: opening.path,
+      lowMember: ZERO_32,
+      lowNext: ZERO_32,
+      lowLists: 0n,
+      lowEscrow: ZERO_32,
+    };
+  return {
+    present: false,
+    next: ZERO_32,
+    lists: 0n,
+    escrowKey: ZERO_32,
+    index: opening.index,
+    path: opening.path,
+    lowMember: opening.low.member,
+    lowNext: opening.low.next,
+    lowLists: opening.low.lists,
+    lowEscrow: opening.low.escrowKey,
+  };
+}
 export async function provePolicyAnswers(
   input: PolicyAnswerInput & Readonly<{ client: RingPolicyAnswerClient }>,
   context?: RequestContext,
 ): Promise<PolicyAnswers> {
-  const plan = planPolicyAnswers(input);
-  const addressTree = { tree: input.config.addressTree, treeId: input.config.addressTreeId };
-  const lineages = await readRingEntryLineages(
-    {
-      indexer: input.client,
-      addressTreeId: addressTree.treeId,
-      resolveTreeId: ringTreeIdResolver(input.client, [addressTree], context),
-      lookups: plan.lookups,
-    },
+  return waitForProjection(
+    (context) => proveAtRoots(input, context),
+    MEMBER_REGISTRY_PROJECTION_ERRORS,
     context,
   );
-  const resolved = resolvePolicyAnswers(plan, lineages, addressTree.treeId);
-  const facts = resolved.map(({ fact }): PolicyTreeFact =>
-    fact.kind === "live"
-      ? {
-          holder: { tree: fact.live.tree, treeId: fact.live.treeId },
-          state: fact.live.utxoHash,
-          absence: fact.live.nullifier,
-        }
-      : { absence: fact.address },
-  );
-  const trees = await provePolicyTrees(
-    { client: input.client, addressTree, facts, proofDataSource: input.proofDataSource },
+}
+async function proveAtRoots(
+  input: PolicyAnswerInput & Readonly<{ client: RingPolicyAnswerClient }>,
+  context: RequestContext,
+): Promise<PolicyAnswers> {
+  if (input.inputs.length > RING_INPUT_SLOTS || input.outputs.length > RING_OUTPUT_SLOTS)
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+  policySourceOwners(input.config.sources);
+  const root = await fetchRingMemberRegistryRoot(input.client, input.ringProgramId, context);
+  const heads = await readTreeHeads(
+    input.client,
+    { tree: input.config.addressTree, treeId: input.config.addressTreeId },
     context,
   );
-  return Object.freeze({
-    ...(input.proofDataSource === "prover"
-      ? {
-          indexedLookups: padded(
-            facts.map((fact, index) => ({
-              treeSlot: trees.factSlots[index]!,
-              commitment: fact.state ?? null,
-              nullifier: fact.absence as Bytes32 | null,
-            })),
-            () => ({ treeSlot: 0, commitment: null, nullifier: null }),
-          ),
+  let foreign: PolicyAnswers["foreign"];
+  let foreignRoot: typeof root | undefined;
+  const curator = input.config.sources.find(
+    (slot) => slot.listId !== 0 && !equalBytes(addressBytes(slot.registry), ZERO_32),
+  )?.registry;
+  if (curator !== undefined) {
+    const account = await input.client.getAccount(curator, context);
+    if (account === undefined || (await ringMemberRegistryRootAddress(account.owner)) !== curator)
+      throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+    foreignRoot = decodeRingMemberRegistryRoot(account.data);
+    foreign = {
+      registry: curator,
+      rootIndex: foreignRoot.historyCursor,
+      indexed: {
+        ringProgramId: account.owner,
+        root: foreignRoot.root,
+        nextIndex: foreignRoot.nextIndex,
+      },
+    };
+  }
+  const own: Array<CustomRingSubjectWitness | undefined> = Array.from(
+    { length: RING_SUBJECT_SLOTS },
+    () => undefined,
+  );
+  const other: Array<CustomRingSubjectWitness | undefined> = Array.from(
+    { length: RING_SUBJECT_SLOTS },
+    () => undefined,
+  );
+  const ctHashes: Bytes32[] = Array.from({ length: RING_OUTPUT_SLOTS }, () => ZERO_32);
+  if (input.proofDataSource !== "prover") {
+    const slots: Array<Readonly<{ position: number; member: Member }>> = [];
+    input.inputs.forEach((spend, position) => {
+      if (!spend.isDummy())
+        slots.push({ position, member: memberOfIdentity(spend.utxo.owner.ownerProofInputHash()) });
+    });
+    input.outputs.forEach((output, index) => {
+      if (output.ownerAddress !== undefined)
+        slots.push({
+          position: RING_INPUT_SLOTS + index,
+          member: ownerMember({ ...output, ownerAddress: output.ownerAddress }),
+        });
+    });
+    const cache = new Map<
+      string,
+      Promise<Readonly<{ own: MemberRecordRead; foreign?: MemberRecordRead }>>
+    >();
+    const records = new Map<
+      string,
+      Readonly<{ own: MemberRecordRead; foreign?: MemberRecordRead }>
+    >();
+    await Promise.all(
+      slots.map(async (slot) => {
+        const key = bytesKey(slot.member);
+        let pending = cache.get(key);
+        if (pending === undefined) {
+          pending = (async () => {
+            const own = await readRingMemberRecord(
+              {
+                client: input.client,
+                ringProgramId: input.ringProgramId,
+                member: slot.member,
+                registry: root,
+              },
+              context,
+            );
+            const readForeign =
+              foreign === undefined || foreignRoot === undefined
+                ? undefined
+                : await readRingMemberRecord(
+                    {
+                      client: input.client,
+                      ringProgramId: foreign.indexed.ringProgramId,
+                      member: slot.member,
+                      registry: foreignRoot,
+                    },
+                    context,
+                  );
+            return { own, ...(readForeign === undefined ? {} : { foreign: readForeign }) };
+          })();
+          cache.set(key, pending);
         }
-      : {}),
-    answers: assemblePolicyAnswers(resolved, trees, input.proofDataSource === "prover"),
-    policyTrees: Object.freeze(trees.trees.map(({ tree }) => tree)),
-    treeSlots: trees.slots,
-    treeContexts: trees.contexts,
-    revocationTargets: padded(
-      facts.map((fact) => fact.absence),
-      () => new Uint8Array(32) as Bytes32,
-    ),
-    revocationTreeIndexes: padded(trees.factSlots, () => 0),
-  });
-}
-
-function padded<T>(values: readonly T[], zero: () => T): readonly T[] {
-  return Object.freeze([
-    ...values,
-    ...Array.from({ length: RING_ANSWER_SLOTS - values.length }, zero),
-  ]);
-}
-
-interface AnswerLookup {
-  readonly namespace: Address;
-  readonly listId: ListId;
-  readonly member: Member;
-}
-
-interface Alternative {
-  readonly lookup: number;
-  readonly mode: RuleMode;
-}
-
-interface Demand {
-  readonly ruleIndex: number;
-  readonly member: Member;
-  readonly alternatives: readonly Alternative[];
-}
-
-interface AnswerPlan {
-  readonly lookups: readonly AnswerLookup[];
-  readonly demands: readonly Demand[];
-}
-
-/** Mirrors Rust `WitnessPlan`, one lookup per distinct list entry the rules consult. */
-export function planPolicyAnswers(input: PolicyAnswerInput): AnswerPlan {
-  if (input.inputs.length > RING_INPUT_SLOTS || input.outputs.length > RING_OUTPUT_SLOTS) {
-    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
-      details: { inputs: input.inputs.length, outputs: input.outputs.length },
+        const read = await pending;
+        records.set(key, read);
+        own[slot.position] = subjectWitness(read.own.opening);
+        if (read.foreign !== undefined) other[slot.position] = subjectWitness(read.foreign.opening);
+        if (input.keyEscrow && slot.position >= RING_INPUT_SLOTS) {
+          const index = slot.position - RING_INPUT_SLOTS;
+          const output = input.outputs[index];
+          if (
+            output?.ownerAddress === undefined ||
+            !read.own.opening.present ||
+            read.own.sealed === null ||
+            !equalBytes(
+              read.own.opening.record.escrowKey,
+              registeredKeyHash({
+                nullifierPublicKey: output.ownerAddress.nullifierPublicKey,
+                ciphertext: read.own.sealed.ciphertext,
+              }),
+            )
+          )
+            throw new RingError("RING_UNREGISTERED_OUTPUT_KEY", { details: { owner: key } });
+          ctHashes[index] = hashBytes(read.own.sealed.ciphertext) as Bytes32;
+        }
+      }),
+    );
+    input.table.rules.forEach((rule, ruleIndex) => {
+      for (const member of subjects(rule, input)) {
+        if (guardExempts(rule, member, input)) continue;
+        let satisfied: boolean;
+        if (rule.source.kind === "inlineAssets")
+          satisfied = input.table.inlineAssets.some((asset) => equalBytes(asset, member));
+        else {
+          const found = records.get(bytesKey(member));
+          if (found === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+          satisfied = ruleAlternatives(rule).some(({ listId, mode }) => {
+            const source = input.config.sources[listId - 1];
+            if (source?.listId !== listId) throw new RingError("RING_POLICY_SOURCE_INVALID");
+            const record = equalBytes(addressBytes(source.registry), ZERO_32)
+              ? found.own
+              : found.foreign;
+            if (record === undefined) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+            const lists = record.opening.present ? record.opening.record.lists : 0n;
+            const on = (lists & (1n << BigInt(listId - 1))) !== 0n;
+            return mode === "present" ? on : !on;
+          });
+        }
+        if (!satisfied)
+          throw new RingError("RING_POLICY_RULE_UNSATISFIED", {
+            details: { ruleIndex, member: bytesKey(member) },
+          });
+      }
     });
   }
-  const namespaces = sourceNamespaces(input.config);
-  const lookups: AnswerLookup[] = [];
-  const keys = new Map<string, number>();
-  const demands: Demand[] = [];
-  input.table.rules.forEach((rule, ruleIndex) => {
-    const alternatives = ruleAlternatives(rule);
-    if (alternatives.length === 0) return;
-    for (const member of subjects(rule, input)) {
-      if (guardExempts(rule, member, input)) continue;
-      demands.push({
-        ruleIndex,
-        member,
-        alternatives: alternatives.map(({ listId, mode }) => {
-          const namespace = namespaces.get(listId);
-          if (namespace === undefined) {
-            throw new RingError("RING_POLICY_SOURCE_INVALID", {
-              details: { reason: "MissingSourceOwner", listId },
-            });
-          }
-          const key = `${namespace}:${String(listId)}:${bytesKey(member)}`;
-          let lookup = keys.get(key);
-          if (lookup === undefined) {
-            lookup = lookups.length;
-            keys.set(key, lookup);
-            lookups.push({ namespace, listId, member });
-          }
-          return { lookup, mode };
-        }),
-      });
-    }
-  });
-  return Object.freeze({ lookups: Object.freeze(lookups), demands: Object.freeze(demands) });
-}
-
-/** The lookups read the namespace whose owner hash the proof binds. */
-function sourceNamespaces(config: RingPolicyConfig): Map<ListId, Address> {
-  const namespaces = new Map<ListId, Address>();
-  for (const slot of config.sources) {
-    if (slot.listId === 0) continue;
-    const listId = listIdFromByte(slot.listId);
-    if (listId === undefined) {
-      throw new RingError("RING_POLICY_SOURCE_INVALID", {
-        details: { reason: "NotPositional", listId: slot.listId },
-      });
-    }
-    namespaces.set(listId, slot.namespace);
-  }
-  return namespaces;
+  return {
+    subjects: own,
+    foreignSubjects: other,
+    ctHashes,
+    registry: { ringProgramId: input.ringProgramId, root: root.root, nextIndex: root.nextIndex },
+    rootIndex: root.historyCursor,
+    ...(foreign === undefined ? {} : { foreign }),
+    policyTrees: [input.config.addressTree],
+    treeSlots: [
+      {
+        id: input.config.addressTreeId,
+        utxoRoot: heads.stateRoot,
+        nullifierRoot: heads.nullifierRoot,
+      },
+    ],
+    treeContexts: [
+      { utxoTreeRootIndex: heads.stateRootIndex, nullifierTreeRootIndex: heads.nullifierRootIndex },
+    ],
+  };
 }
 
 /** Mirrors Rust `subjects`, live outputs and non-dummy inputs in slot order. */
@@ -262,121 +324,4 @@ function assetLimitsExempt(owner: Member, input: PolicyAnswerInput): boolean {
     totals[index] = (totals[index] ?? 0n) + output.amount;
   }
   return totals.every((total, index) => total <= (input.table.inlineLimits[index] ?? 0n));
-}
-
-type EntryFact =
-  | Readonly<{ kind: "unclaimed"; address: Bytes32 }>
-  | Readonly<{ kind: "live"; live: LiveEntry }>;
-
-interface ResolvedAnswer {
-  readonly listId: ListId;
-  readonly member: Member;
-  readonly mode: RuleMode;
-  readonly fact: EntryFact;
-}
-
-/** Mirrors Rust `WitnessPlan::resolve`, the first alternative the entries satisfy answers a demand. */
-function resolvePolicyAnswers(
-  plan: AnswerPlan,
-  lineages: readonly (LiveEntry | undefined)[],
-  treeId: TreeId,
-): readonly ResolvedAnswer[] {
-  if (lineages.length !== plan.lookups.length) {
-    throw new RingError("RING_ENTRY_PROOF_INCOMPLETE", {
-      details: { expected: plan.lookups.length, actual: lineages.length },
-    });
-  }
-  const facts: EntryFact[] = plan.lookups.map((lookup, index) => {
-    const live = lineages[index];
-    return live === undefined
-      ? {
-          kind: "unclaimed",
-          address: RingListNamespace.of(lookup.namespace, treeId).entryAddress(lookup),
-        }
-      : { kind: "live", live };
-  });
-  const answers: ResolvedAnswer[] = [];
-  for (const demand of plan.demands) {
-    const satisfied = demand.alternatives
-      .map((candidate) => ({ candidate, fact: facts[candidate.lookup] }))
-      .find(({ candidate, fact }) => fact !== undefined && satisfies(fact, candidate.mode));
-    const lookup = satisfied === undefined ? undefined : plan.lookups[satisfied.candidate.lookup];
-    if (satisfied?.fact === undefined || lookup === undefined) {
-      throw new RingError("RING_POLICY_RULE_UNSATISFIED", {
-        details: { ruleIndex: demand.ruleIndex, member: bytesKey(demand.member) },
-      });
-    }
-    const answer: ResolvedAnswer = {
-      listId: lookup.listId,
-      member: demand.member,
-      mode: satisfied.candidate.mode,
-      fact: satisfied.fact,
-    };
-    if (!answers.some((known) => sameQuestion(known, answer))) answers.push(answer);
-  }
-  if (answers.length > RING_ANSWER_SLOTS) {
-    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", { details: { answers: answers.length } });
-  }
-  return Object.freeze(answers);
-}
-
-function satisfies(fact: EntryFact, mode: RuleMode): boolean {
-  const active = fact.kind === "live" && fact.live.entry.state === "active";
-  return mode === "present" ? active : !active;
-}
-
-function sameQuestion(left: ResolvedAnswer, right: ResolvedAnswer): boolean {
-  return (
-    left.listId === right.listId &&
-    left.mode === right.mode &&
-    equalBytes(left.member, right.member)
-  );
-}
-
-/** Mirrors Rust `ResolvedWitness::assemble`, padded to the answer width. */
-function assemblePolicyAnswers(
-  answers: readonly ResolvedAnswer[],
-  trees: ProvenPolicyTrees,
-  indexed: boolean,
-): readonly CustomRingRuleAnswer[] {
-  const assembled = answers.map((answer, index) => {
-    const absence = trees.absences[index];
-    const treeSlot = trees.factSlots[index];
-    if ((!indexed && absence === undefined) || treeSlot === undefined) {
-      throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
-    }
-    const base = {
-      ...disabledRuleAnswer(),
-      enabled: true,
-      treeSlot,
-      mode: answer.mode === "present" ? 1 : 2,
-      listId: answer.listId,
-      member: answer.member,
-      ...(absence === undefined
-        ? {}
-        : {
-            low: absence.lowElement,
-            next: absence.highElement,
-            nullifierPath: absence.path,
-            nullifierPathIndex: absence.lowElementIndex,
-          }),
-    };
-    if (answer.fact.kind === "unclaimed") return Object.freeze({ ...base, absentBranch: 1 });
-    const state = trees.states[index];
-    if (!indexed && state === undefined) throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
-    const { entry } = answer.fact.live;
-    return Object.freeze({
-      ...base,
-      absentBranch: 2,
-      state: entry.state === "active" ? 1 : 2,
-      version: entry.version,
-      blinding: entry.blinding,
-      contentHash: entry.contentHash,
-      ...(state === undefined ? {} : { statePath: state.path, statePathIndex: state.leafIndex }),
-    });
-  });
-  return Object.freeze([
-    ...assembled,
-    ...Array.from({ length: RING_ANSWER_SLOTS - assembled.length }, () => disabledRuleAnswer()),
-  ]);
 }

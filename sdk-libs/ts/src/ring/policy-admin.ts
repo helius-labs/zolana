@@ -1,9 +1,14 @@
+import { address } from "@solana/kit";
+import { ringMemberRegistryRootAddress } from "../interface/pda/index.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
 
-import type { RingPolicyConfig } from "./codecs.js";
-import { fetchRingPolicyConfig, fetchRingProgramConfig } from "./config.js";
+import {
+  fetchRingPolicyConfig,
+  fetchRingProgramConfig,
+  fetchRingMemberRegistryRoot,
+} from "./config.js";
 import { wrapRingError, RingError } from "./error.js";
 import {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
@@ -16,7 +21,7 @@ import {
   type RingPolicyTableInput,
   type RingSharedSource,
 } from "./instructions.js";
-import type { ListId } from "./policy.js";
+import { policySourceOwners, type ListId } from "./policy.js";
 
 export type RingPolicyAdminClient = BlockhashProvider & Pick<ChainReader, "getAccount">;
 
@@ -105,6 +110,13 @@ export async function buildRingSetPolicySourceTransaction(
         details: { reason: "UnreferencedList", listId: params.listId },
       });
     }
+    const registry =
+      params.source.kind === "own"
+        ? address("11111111111111111111111111111111")
+        : await ringMemberRegistryRootAddress(params.source.ringProgramId);
+    policySourceOwners(
+      own.sources.map((slot) => (slot.listId === params.listId ? { ...slot, registry } : slot)),
+    );
     if (params.source.kind === "curator") {
       await checkCurators(
         params,
@@ -142,27 +154,14 @@ async function checkTier(params: RingPolicyAdminParams, context: RequestContext 
 /** The checks `load_curator_policy_config` and `resolve_sources` apply on chain. */
 async function checkCurators(
   params: RingPolicyAdminParams,
-  addressTree: Address,
+  _addressTree: Address,
   shared: readonly RingSharedSource[],
   context: RequestContext | undefined,
 ): Promise<void> {
-  const curators = new Map<Address, RingPolicyConfig>();
-  for (const source of shared) {
-    const curator =
-      curators.get(source.curatorRingProgramId) ??
-      (await fetchRingPolicyConfig(params.client, source.curatorRingProgramId, context));
-    curators.set(source.curatorRingProgramId, curator);
-    if (curator.addressTree !== addressTree) {
-      throw new RingError("RING_POLICY_SOURCE_INVALID", {
-        details: { reason: "CuratorTreeMismatch", listId: source.listId },
-      });
-    }
-    if (curator.sources[source.listId - 1]?.listId !== source.listId) {
-      throw new RingError("RING_POLICY_SOURCE_INVALID", {
-        details: { reason: "CuratorSourceMissing", listId: source.listId },
-      });
-    }
-  }
+  const curators = new Set(shared.map((source) => source.curatorRingProgramId));
+  if (curators.size > 1)
+    throw new RingError("RING_POLICY_SOURCE_INVALID", { details: { reason: "MultipleCurators" } });
+  for (const ring of curators) await fetchRingMemberRegistryRoot(params.client, ring, context);
 }
 
 function priceOption(params: RingPolicyAdminParams): Readonly<{ priorityFeeLamports?: bigint }> {

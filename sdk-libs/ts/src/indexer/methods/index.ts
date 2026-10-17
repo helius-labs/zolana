@@ -10,8 +10,9 @@ import {
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
   encodeRingMemberProofRequest,
-  decodeRingKeyRegistryEntry,
-  decodeRingKeyRegistryRegisterProof,
+  decodeRingMemberRecord,
+  decodeRingMemberRegistryRoot,
+  encodeRingMemberRegistryRootRequest,
   decodeUserRecordsResponse,
   encodeUserRecordsRequest,
 } from "../codec.js";
@@ -19,8 +20,8 @@ import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
-  GET_RING_KEY_REGISTRY_ENTRY,
-  GET_RING_KEY_REGISTRY_REGISTER_PROOF,
+  GET_RING_MEMBER_RECORD,
+  GET_RING_MEMBER_REGISTRY_ROOT,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
@@ -41,8 +42,8 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
+  RingMemberRecordResponse,
+  RingMemberRegistryTip,
 } from "../types.js";
 
 export interface MethodDescriptor<Request, Response> {
@@ -51,21 +52,21 @@ export interface MethodDescriptor<Request, Response> {
   decodeResponse(value: unknown): Response;
 }
 
-export const getRingKeyRegistryEntryMethod: MethodDescriptor<
+export const getRingMemberRecordMethod: MethodDescriptor<
   RingMemberProofRequest,
-  RingKeyRegistryEntry
+  RingMemberRecordResponse
 > = {
-  name: GET_RING_KEY_REGISTRY_ENTRY,
+  name: GET_RING_MEMBER_RECORD,
   encodeRequest: encodeRingMemberProofRequest,
-  decodeResponse: decodeRingKeyRegistryEntry,
+  decodeResponse: decodeRingMemberRecord,
 };
-export const getRingKeyRegistryRegisterProofMethod: MethodDescriptor<
-  RingMemberProofRequest,
-  RingKeyRegistryRegisterProof
+export const getRingMemberRegistryRootMethod: MethodDescriptor<
+  Readonly<{ ringProgramId: import("../../interface/types.js").Address }>,
+  RingMemberRegistryTip
 > = {
-  name: GET_RING_KEY_REGISTRY_REGISTER_PROOF,
-  encodeRequest: encodeRingMemberProofRequest,
-  decodeResponse: decodeRingKeyRegistryRegisterProof,
+  name: GET_RING_MEMBER_REGISTRY_ROOT,
+  encodeRequest: encodeRingMemberRegistryRootRequest,
+  decodeResponse: decodeRingMemberRegistryRoot,
 };
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<

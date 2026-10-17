@@ -28,13 +28,16 @@ export type {
   CustomRingBasePublicInput,
 } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
-export { ringKeyRegistryRootAddress, ringKeyRegistryRootPda } from "../interface/pda/index.js";
-export { fetchRingKeyRegistryRoot, createRingKeyRegistryRootInstruction } from "./config.js";
-export { RING_KEY_REGISTRY_ROOT_HISTORY, decodeRingKeyRegistryRoot } from "./codecs.js";
+export {
+  ringMemberRegistryRootAddress,
+  ringMemberRegistryRootPda,
+} from "../interface/pda/index.js";
+export { fetchRingMemberRegistryRoot, createRingMemberRegistryRootInstruction } from "./config.js";
+export { RING_MEMBER_REGISTRY_ROOT_HISTORY, decodeRingMemberRegistryRoot } from "./codecs.js";
 export { openRingEscrowedKeys } from "./key-escrow.js";
 export type { RingEscrowedKeys, RingKeyOwner } from "./key-escrow.js";
 export { ringTreeIdResolver } from "./trees.js";
-export type { RingKeyRegistryRoot } from "./codecs.js";
+export type { RingMemberRegistryRoot } from "./codecs.js";
 export {
   NF_KEY_ENC_INFO,
   buildRingKeyRegistrationTransaction,
@@ -46,7 +49,7 @@ export {
   registeredKeyHash,
   registerKeyPublicInputHash,
   sealNullifierKey,
-} from "./key-registry.js";
+} from "./member-registry.js";
 export type {
   NullifierKeyEnvelope,
   RegisterKeyStatement,
@@ -57,21 +60,29 @@ export type {
   RingSealedKeyClient,
   RingSealedKeyEntry,
   SealedNullifierKey,
-} from "./key-registry.js";
+} from "./member-registry.js";
 export { recoverRingMemberNotes } from "./recover.js";
 export type { RecoveredRingNotes, RingRecoveryClient, RingRecoveryParams } from "./recover.js";
 export {
-  KEY_REGISTRY_HEIGHT,
-  KEY_REGISTRY_CAPACITY,
-  keyRegistryLeaf,
-  keyRegistryRootFromProof,
-  verifyKeyRegistryInsert,
-} from "./key-registry-tree.js";
+  MEMBER_REGISTRY_HEIGHT,
+  MEMBER_REGISTRY_CAPACITY,
+  memberRegistryLeaf,
+  memberRegistryRootFromProof,
+  verifyMemberOpening,
+  verifyMemberRegistryInsert,
+  updateMemberRecord,
+  updateMembersPublicInputHash,
+  MemberRegistryOverlay,
+  MAX_MEMBER_BATCH,
+} from "./member-registry-tree.js";
 export type {
-  KeyRegistryInsertProofInput,
-  KeyRegistryLeaf,
-  KeyRegistryPath,
-} from "./key-registry-tree.js";
+  MemberOpening,
+  MemberRegistryInsertProofInput,
+  MemberUpdate,
+  RecordUpdateWitness,
+  MemberRecord,
+  MemberRegistryPath,
+} from "./member-registry-tree.js";
 export {
   buildRingDelegateRecoveredTransaction,
   buildRingDelegateTransferTransaction,
@@ -246,24 +257,21 @@ export {
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
   registerRingKeyInstruction,
+  updateRingMembersInstruction,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initializeRingConfigInstructions,
-  createRingEntryInstruction,
   createRingPolicyInstruction,
   initSppRingConfigInstruction,
   ringDelegateTransactInstruction,
   ringTransactInstruction,
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
-  updateRingEntryInstruction,
 } from "./instructions.js";
 export type {
-  RingEntryInstructionInput,
-  RingEntryTrees,
   RingPolicySourceOwner,
   RingPolicyTableInput,
   RingSharedSource,
@@ -376,22 +384,13 @@ export type {
 } from "./program.js";
 export { provePolicyAnswers } from "./answers.js";
 export type { PolicyAnswerInput, PolicyAnswers, RingPolicyAnswerClient } from "./answers.js";
-export { proveRingEntryTransition, ringEntryTransitionInputs } from "./entry-proof.js";
-export type {
-  ListEntryDraft,
-  RingEntryProof,
-  RingEntryProofClient,
-  RingEntryStateLeaf,
-  RingEntryTransition,
-  RingEntryTransitionInput,
-  RingEntryTransitionInputs,
-  RingEntryTransitionProofInputs,
-  RingMutationTrees,
-} from "./entry-proof.js";
-export { buildRingListWriteTransaction } from "./list-write.js";
+export { buildRingListWriteTransaction, buildRingMemberUpdateTransaction } from "./list-write.js";
 export type {
   RingListWrite,
   RingListWriteClient,
+  RingMemberWrite,
+  RingMemberUpdate,
+  RingMemberUpdateTransactionParams,
   RingListWriteTransactionParams,
 } from "./list-write.js";
 export {
@@ -431,3 +430,9 @@ export {
 } from "./merge.js";
 export { ringMergeInstruction } from "./instructions.js";
 export type { RingMergeClient } from "../client/ports.js";
+
+export {
+  readRingMemberRecord,
+  fetchRingMemberRecord,
+  type MemberRecordRead,
+} from "./member-record.js";

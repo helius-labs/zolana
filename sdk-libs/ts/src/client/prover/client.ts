@@ -16,7 +16,10 @@ import {
   parseIndexedResponse,
   resolvedTrees,
 } from "./indexed.js";
-import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
+import {
+  MEMBER_REGISTRY_CAPACITY,
+  MEMBER_REGISTRY_HEIGHT,
+} from "../../interface/member-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
@@ -62,12 +65,9 @@ import type { AttestedProver } from "./tee/verify.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_INPUT_SLOTS,
-  RING_NULLIFIER_PATH_LENGTH,
   RING_OUTPUT_SLOTS,
-  RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
-  RING_STATE_PATH_LENGTH,
   RING_OUTFLOW_LIMIT_SLOTS,
 } from "./types.js";
 import type {
@@ -75,11 +75,8 @@ import type {
   CustomRingDepositProofRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
-  CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
-  CustomRingRegistryInsertion,
   CustomRingRegisterKeyProofRequest,
-  CustomRingRegistryKey,
   CustomRingOutflowLimit,
   Field,
   MergeInputs,
@@ -347,6 +344,15 @@ export class ProverClient {
     );
     checkDepositResolution(publicInputHash, result.resolution);
     return result.proof;
+  }
+
+  async proveCustomRingUpdateMembers(
+    inputs: import("./types.js").CustomRingUpdateMembersProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    const body = JSON.stringify(customRingUpdateMembersProofRequest(inputs));
+    const key = provingKeyFor({ circuit: "custom-ring-update-members" });
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
   async proveCustomRingRegisterKey(
@@ -854,10 +860,12 @@ export function customRingPolicyProofRequest(
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
     inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map((opening) => {
-      if (opening.key !== undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
       return openingJson(opening);
     }),
-    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
+    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map((opening) => ({
+      ...openingJson(opening),
+      ctHash: hex32(opening.ctHash ?? new Uint8Array(32), "ctHash"),
+    })),
     addressChain: hex32(inputs.addressChain, "addressChain"),
     privateTxBlinding: hex32(inputs.privateTxBlinding, "privateTxBlinding"),
     sources: sized(inputs.sources, RING_SOURCE_SLOTS, "sources").map(sourceJson),
@@ -877,8 +885,17 @@ export function customRingPolicyProofRequest(
     ringId: hex32(inputs.limits.ringId, "ringId"),
     namespaceOwnerHash: hex32(inputs.limits.namespaceOwnerHash, "namespaceOwnerHash"),
     approvalRequired: inputs.limits.approvalRequired,
-    ...keyEscrowJson(inputs.keyRegistryRoot),
-    answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+    keyEscrow: inputs.keyEscrow,
+    memberRegistryRoot: hex32(inputs.memberRegistryRoot, "memberRegistryRoot"),
+    subjects: sized(inputs.subjects, RING_INPUT_SLOTS + RING_OUTPUT_SLOTS, "subjects").map(
+      subjectJson,
+    ),
+    foreignRoot: hex32(inputs.foreignRoot, "foreignRoot"),
+    foreignSubjects: sized(
+      inputs.foreignSubjects,
+      RING_INPUT_SLOTS + RING_OUTPUT_SLOTS,
+      "foreignSubjects",
+    ).map(subjectJson),
   });
 }
 
@@ -908,50 +925,49 @@ function policyTreeSlotJson(slot: TreeSlot): Readonly<Record<string, unknown>> {
 function keyEscrowJson(root: Bytes32 | undefined): Readonly<Record<string, unknown>> {
   return Object.freeze({
     keyEscrow: root !== undefined,
-    keyRegistryRoot: hex32(root ?? new Uint8Array(32), "keyRegistryRoot"),
+    memberRegistryRoot: hex32(root ?? new Uint8Array(32), "memberRegistryRoot"),
   });
 }
 
 /** Mirrors Go `writeRegistryKey`, `null` for an absent key. */
 function registryKeyJson(
-  key: CustomRingRegistryKey | undefined,
+  key: import("./types.js").CustomRingRecordWitness | undefined,
 ): Readonly<Record<string, unknown>> | null {
   if (key === undefined) return null;
-  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= KEY_REGISTRY_CAPACITY)
+  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= MEMBER_REGISTRY_CAPACITY)
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "key index" } });
   return Object.freeze({
     next: hex32(key.next, "key next"),
-    ctHash: hex32(key.ctHash, "key ctHash"),
+    lists: u64Json(key.lists, "lists"),
+    escrowKey: hex32(key.escrowKey, "escrowKey"),
     index: u64Json(key.index, "key index"),
-    path: sized(key.path, KEY_REGISTRY_HEIGHT, "key path").map((node) => hex32(node, "key path")),
+    path: sized(key.path, MEMBER_REGISTRY_HEIGHT, "key path").map((node) =>
+      hex32(node, "key path"),
+    ),
   });
 }
 
-function registryIndexHex(index: bigint, field: string): string {
-  if (typeof index !== "bigint" || index < 0n || index >= KEY_REGISTRY_CAPACITY)
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
-  return `0x${index.toString(16).padStart(64, "0")}`;
-}
-
-function registryInsertionJson(
-  input: CustomRingRegistryInsertion,
+function recordUpdateJson(
+  input: import("../../interface/member-registry.js").RecordUpdateWitness,
 ): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    registryOldRoot: hex32(input.registryOldRoot, "registryOldRoot"),
-    registryNewRoot: hex32(input.registryNewRoot, "registryNewRoot"),
-    member: hex32(input.member, "member"),
-    newIndex: registryIndexHex(input.newIndex, "newIndex"),
-    lowIndex: registryIndexHex(input.lowIndex, "lowIndex"),
+  if (typeof input.exists !== "boolean") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  for (const index of [input.index, input.lowIndex])
+    if (typeof index !== "bigint" || index < 0n || index >= MEMBER_REGISTRY_CAPACITY)
+      throw new ClientError("CLIENT_INVALID_INTEGER");
+  return {
+    exists: input.exists,
+    next: hex32(input.next, "next"),
+    index: u64Json(input.index, "index"),
+    path: sized(input.path, MEMBER_REGISTRY_HEIGHT, "path").map((node) => hex32(node, "path")),
     lowMember: hex32(input.lowMember, "lowMember"),
     lowNext: hex32(input.lowNext, "lowNext"),
-    lowKey: hex32(input.lowKey, "lowKey"),
-    lowProof: sized(input.lowProof, KEY_REGISTRY_HEIGHT, "lowProof").map((node) =>
-      hex32(node, "lowProof"),
+    lowLists: u64Json(input.lowLists, "lowLists"),
+    lowEscrow: hex32(input.lowEscrow, "lowEscrow"),
+    lowIndex: u64Json(input.lowIndex, "lowIndex"),
+    lowPath: sized(input.lowPath, MEMBER_REGISTRY_HEIGHT, "lowPath").map((node) =>
+      hex32(node, "lowPath"),
     ),
-    newProof: sized(input.newProof, KEY_REGISTRY_HEIGHT, "newProof").map((node) =>
-      hex32(node, "newProof"),
-    ),
-  });
+  };
 }
 
 /** Mirrors Rust `RegisterKeyProofRequest::body`, the zero high byte keeps the secret below the field order. */
@@ -963,7 +979,11 @@ export function customRingRegisterKeyProofRequest(
   return Object.freeze({
     circuitType: "custom-ring-register-key",
     publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    ...registryInsertionJson(input),
+    registryOldRoot: hex32(input.registryOldRoot, "registryOldRoot"),
+    registryNewRoot: hex32(input.registryNewRoot, "registryNewRoot"),
+    member: hex32(input.member, "member"),
+    lists: u64Json(input.oldLists, "lists"),
+    ...recordUpdateJson(input.update),
     nullifierSecret: bytesHex(nullifierSecret),
     ephSk: hex32(input.ephemeralSecret, "ephSk"),
     auditorPk: auditorPkHex(input.auditorPublicKey),
@@ -978,8 +998,10 @@ export function customRingDepositProofRequest(
     !Number.isInteger(input.count) ||
     input.count < 1 ||
     input.count > RING_DEPOSIT_AUDIT_SLOTS ||
-    !Array.isArray(input.keys) ||
-    input.keys.length !== RING_DEPOSIT_AUDIT_SLOTS ||
+    !Array.isArray(input.ctHashes) ||
+    input.ctHashes.length !== RING_DEPOSIT_AUDIT_SLOTS ||
+    !Array.isArray(input.members) ||
+    input.members.length !== RING_DEPOSIT_AUDIT_SLOTS ||
     columns.some((column) => !Array.isArray(column) || column.length !== RING_DEPOSIT_AUDIT_SLOTS)
   )
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -989,13 +1011,19 @@ export function customRingDepositProofRequest(
   } catch {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  for (const field of [input.publicInputHash, input.contextHash, ...columns.flat()]) {
+  for (const field of [
+    input.publicInputHash,
+    input.contextHash,
+    ...columns.flat(),
+    ...input.ctHashes,
+  ]) {
     if (!isCanonicalField(field)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   for (let index = input.count; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
     if (
       columns.some((column) => column[index]?.some((byte) => byte !== 0)) ||
-      input.keys[index] !== undefined
+      input.members[index] !== undefined ||
+      input.ctHashes[index]?.some((byte: number) => byte !== 0)
     )
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -1007,10 +1035,13 @@ export function customRingDepositProofRequest(
     ownerPkHashes: input.ownerPkHashes.map((field) => hex32(field, "ownerPkHash")),
     nullifierPks: input.nullifierPks.map((field) => hex32(field, "nullifierPk")),
     blindings: input.blindings.map((field) => hex32(field, "blinding")),
-    keys: input.keys.map(registryKeyJson),
+    members: input.members.map(registryKeyJson),
+    ctHashes: sized(input.ctHashes, RING_DEPOSIT_AUDIT_SLOTS, "ctHashes").map((value) =>
+      hex32(value, "ctHash"),
+    ),
     ephSk: hex32(input.ephemeralSecret, "ephSk"),
     auditorPk: auditorPkHex(input.auditorPublicKey),
-    ...keyEscrowJson(input.keyRegistryRoot),
+    ...keyEscrowJson(input.memberRegistryRoot),
   });
 }
 
@@ -1052,7 +1083,6 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
     dataHash: hex32(opening.dataHash, "dataHash"),
     ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
     ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
-    ...(opening.key === undefined ? {} : { key: registryKeyJson(opening.key) }),
   });
 }
 
@@ -1079,36 +1109,25 @@ function auditOpeningJson(opening: CustomRingOpening): Readonly<Record<string, u
 function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unknown>> {
   return Object.freeze({
     listId: u8(source.listId, "listId"),
-    ownerHash: hex32(source.ownerHash, "ownerHash"),
+    registry: hex32(source.registry, "registry"),
   });
 }
 
-function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    enabled: entry.enabled,
-    treeSlot: u8(entry.treeSlot, "treeSlot"),
-    mode: u8(entry.mode, "mode"),
-    listId: u8(entry.listId, "listId"),
-    state: u8(entry.state, "state"),
-    absentBranch: u8(entry.absentBranch, "absentBranch"),
-    member: hex32(entry.member, "member"),
-    contentHash: hex32(entry.contentHash, "contentHash"),
-    version: u64Json(entry.version, "version"),
-    blinding: hex32(entry.blinding, "blinding"),
-    low: hex32(entry.low, "low"),
-    next: hex32(entry.next, "next"),
-    nfPathElements: sized(entry.nullifierPath, RING_NULLIFIER_PATH_LENGTH, "nullifierPath").map(
-      (element) => hex32(element, "nullifierPath"),
-    ),
-    nfPathIndex: u64Json(entry.nullifierPathIndex, "nullifierPathIndex"),
-    statePathElements: sized(entry.statePath, RING_STATE_PATH_LENGTH, "statePath").map((element) =>
-      hex32(element, "statePath"),
-    ),
-    statePathIndex: u64Json(entry.statePathIndex, "statePathIndex"),
-  });
+function subjectJson(
+  subject: import("./types.js").CustomRingSubjectWitness | undefined,
+): Readonly<Record<string, unknown>> | null {
+  if (subject === undefined) return null;
+  if (typeof subject.present !== "boolean") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return {
+    present: subject.present,
+    ...registryKeyJson(subject),
+    lowMember: hex32(subject.lowMember, "lowMember"),
+    lowNext: hex32(subject.lowNext, "lowNext"),
+    lowLists: u64Json(subject.lowLists, "lowLists"),
+    lowEscrow: hex32(subject.lowEscrow, "lowEscrow"),
+  };
 }
 
-/** Rust `field_hex`, the fixed-width hex the prover requires. */
 function hex32(bytes: Uint8Array, field: string): string {
   return bytesHex(checkedBytes(bytes, 32, field));
 }
@@ -1329,7 +1348,7 @@ function indexedFailure(body: unknown): ClientError | undefined {
     case "indexer_unconfigured":
       return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
     case "registry_member_missing":
-      return new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
+      return new ClientError("CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED", {
         details: { method: "prove", member: registryMember(body["member"]) },
       });
     default:
@@ -1361,4 +1380,34 @@ function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {
     }
   }
   return Object.freeze({ pollIntervalCapMs: input.pollIntervalCapMs, maxWaitMs: input.maxWaitMs });
+}
+
+export function customRingUpdateMembersProofRequest(
+  input: import("./types.js").CustomRingUpdateMembersProofRequest,
+): Readonly<Record<string, unknown>> {
+  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 16)
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  let previous = 0n;
+  const items = input.items.map((item) => {
+    const member = bytesToBigInt(item.member);
+    if (member <= previous) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    previous = member;
+    if (item.index !== item.update.index) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return {
+      member: hex32(item.member, "member"),
+      oldLists: u64Json(item.oldLists, "oldLists"),
+      oldEscrowKey: hex32(item.oldEscrowKey, "oldEscrowKey"),
+      lists: u64Json(item.lists, "lists"),
+      escrowKey: hex32(item.escrowKey, "escrowKey"),
+      ...recordUpdateJson(item.update),
+    };
+  });
+  return {
+    circuitType: "custom-ring-update-members",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    oldRoot: hex32(input.oldRoot, "oldRoot"),
+    newRoot: hex32(input.newRoot, "newRoot"),
+    itemCount: items.length,
+    items: [...items, ...Array.from({ length: 16 - items.length }, () => null)],
+  };
 }

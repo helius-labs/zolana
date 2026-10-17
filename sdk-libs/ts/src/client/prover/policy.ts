@@ -15,7 +15,7 @@ import type { Bytes32 } from "../../interface/types.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
 /** The policy statement chain less the folded audit prefix and the tree commitment. */
-const POLICY_PUBLIC_INPUTS = 18;
+const POLICY_PUBLIC_INPUTS = 8;
 const decoder = wireDecoder(invalid);
 const hex = (value: Uint8Array): string => {
   const bytes = checkedBytes(value, 32, "field");
@@ -39,40 +39,20 @@ export function indexedPolicyEnvelope(
     !["custom-ring-policy", "custom-ring-delegate-policy"].includes(inputs.circuit) ||
     inputs.trees.length < 1 ||
     inputs.trees.length > 5 ||
-    inputs.lookups.length !== 10 ||
     inputs.publicInputs.length !== POLICY_PUBLIC_INPUTS
   )
     throw invalid();
   if (inputs.circuit === "custom-ring-delegate-policy" && inputs.policy.limits.approvalRequired)
     throw invalid();
-  const prepared = omit(serialized, ["treeSlots", "publicInputHash"]);
-  prepared["answers"] = decoder.list(prepared["answers"], "answers").map((answer, index) => {
-    const fact = decoder.record(answer, "answer");
-    const lookup = inputs.lookups[index];
-    if (
-      lookup === undefined ||
-      !Number.isInteger(lookup.treeSlot) ||
-      lookup.treeSlot < 0 ||
-      lookup.treeSlot >= inputs.trees.length ||
-      fact["enabled"] !== (lookup.nullifier !== null) ||
-      fact["treeSlot"] !== lookup.treeSlot ||
-      (lookup.nullifier !== null &&
-        (fact["absentBranch"] === 2) !== (lookup.commitment !== null)) ||
-      (lookup.nullifier === null && lookup.commitment !== null)
-    )
-      throw invalid();
-    return omit(fact, [
-      "statePathElements",
-      "statePathIndex",
-      "nfPathElements",
-      "nfPathIndex",
-      "low",
-      "next",
-    ]);
-  });
+  const prepared = omit(serialized, [
+    "treeSlots",
+    "publicInputHash",
+    "subjects",
+    "foreignSubjects",
+  ]);
   prepared["outputs"] = decoder
     .list(prepared["outputs"], "outputs")
-    .map((output) => omit(output, ["key"]));
+    .map((output) => omit(output, ["ctHash"]));
   const trees = inputs.trees.map((tree, index) => {
     if (
       tree.tree !== treeAddress(tree.id) ||
@@ -92,8 +72,6 @@ export function indexedPolicyEnvelope(
       fallback: { ...tree, utxoRoot: hex(tree.utxoRoot), nullifierRoot: hex(tree.nullifierRoot) },
     };
   });
-  if ((inputs.registry === undefined) !== (inputs.policy.keyRegistryRoot === undefined))
-    throw invalid();
   const registry = inputs.registry;
   const wrapped =
     inputs.circuit === "custom-ring-policy"
@@ -104,17 +82,11 @@ export function indexedPolicyEnvelope(
     circuitType: inputs.circuit,
     prepared: wrapped,
     trees,
-    inputs: inputs.lookups.map((lookup) => ({
-      treeSlot: lookup.treeSlot,
-      commitment: lookup.commitment === null ? null : base58(lookup.commitment),
-      nullifier: lookup.nullifier === null ? null : base58(lookup.nullifier),
-    })),
     publicInputs: inputs.publicInputs.map(hex),
-    ...(registry === undefined
+    registry: registryEnvelope(registry, inputs.policy.memberRegistryRoot),
+    ...(inputs.foreignRegistry === undefined
       ? {}
-      : {
-          registry: registryEnvelope(registry, inputs.policy.keyRegistryRoot),
-        }),
+      : { foreignRegistry: registryEnvelope(inputs.foreignRegistry, inputs.policy.foreignRoot) }),
   };
 }
 
@@ -126,7 +98,7 @@ function registryEnvelope(
     root === undefined ||
     typeof registry.nextIndex !== "bigint" ||
     registry.nextIndex < 1n ||
-    registry.nextIndex > 1n << 40n ||
+    registry.nextIndex > 1n << 20n ||
     !equalBytes(registry.root, root)
   )
     throw invalid();
@@ -143,9 +115,9 @@ export function indexedDepositEnvelope(
 ): Readonly<Record<string, unknown>> {
   return {
     circuitType: "custom-ring-deposit",
-    prepared: omit(serialized, ["keys"]),
+    prepared: omit(serialized, ["members", "ctHashes"]),
     publicInputs: [hex(inputs.deposit.publicInputHash)],
-    registry: registryEnvelope(inputs.registry, inputs.deposit.keyRegistryRoot),
+    registry: registryEnvelope(inputs.registry, inputs.deposit.memberRegistryRoot),
     ...contextSlotJson(inputs.minContextSlot),
   };
 }
@@ -153,16 +125,19 @@ export function indexedDepositEnvelope(
 export function snapshotPolicyInputs(inputs: IndexedPolicyInputs): IndexedPolicyInputs {
   return {
     ...inputs,
+    registry: { ...inputs.registry, root: checkedBytes(inputs.registry.root, 32, "registry root") },
+    ...(inputs.foreignRegistry === undefined
+      ? {}
+      : {
+          foreignRegistry: {
+            ...inputs.foreignRegistry,
+            root: checkedBytes(inputs.foreignRegistry.root, 32, "foreign root"),
+          },
+        }),
     trees: inputs.trees.map((tree) => ({
       ...tree,
       utxoRoot: checkedBytes(tree.utxoRoot, 32, "state root"),
       nullifierRoot: checkedBytes(tree.nullifierRoot, 32, "nullifier root"),
-    })),
-    lookups: inputs.lookups.map((lookup) => ({
-      ...lookup,
-      commitment:
-        lookup.commitment === null ? null : checkedBytes(lookup.commitment, 32, "commitment"),
-      nullifier: lookup.nullifier === null ? null : checkedBytes(lookup.nullifier, 32, "nullifier"),
     })),
     publicInputs: inputs.publicInputs.map((value) => checkedBytes(value, 32, "public input")),
   };

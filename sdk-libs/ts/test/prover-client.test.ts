@@ -29,7 +29,7 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
-import { disabledRuleAnswer, outflowLimitsOff } from "../src/client/prover/types.js";
+import { outflowLimitsOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { hashChain } from "../src/transaction/internal.js";
 import type { IndexedPolicyInputs } from "../src/client/ports.js";
@@ -145,7 +145,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     outputs: Array.from({ length: 4 }, () => zeroOpening()),
     addressChain: bytes(0),
     privateTxBlinding: bytes(7),
-    sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: bytes(0) })),
+    sources: Array.from({ length: 8 }, () => ({ listId: 0, registry: bytes(0) })),
     policyLen: 1,
     rules: Array.from({ length: 16 }, () => bytes(0)),
     inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
@@ -154,7 +154,11 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     treeSlots: [{ id: 3, utxoRoot: bytes(8), nullifierRoot: bytes(9) }],
     addressTreeId: 3,
     limits: outflowLimitsOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
-    answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
+    keyEscrow: false,
+    memberRegistryRoot: bytes(0),
+    foreignRoot: bytes(0),
+    subjects: Array.from({ length: 9 }, () => undefined),
+    foreignSubjects: Array.from({ length: 9 }, () => undefined),
   };
 }
 
@@ -193,13 +197,19 @@ describe("delegate ring prover contracts", () => {
       registryOldRoot: bytes(1),
       registryNewRoot: bytes(2),
       member: bytes(3),
-      newIndex: 1n,
-      lowMember: bytes(0),
-      lowNext: bytes(5),
-      lowKey: bytes(0),
-      lowIndex: 0n,
-      lowProof: Array.from({ length: 40 }, () => bytes(0)),
-      newProof: Array.from({ length: 40 }, () => bytes(0)),
+      oldLists: 0n,
+      update: {
+        exists: false,
+        next: bytes(0),
+        index: 1n,
+        path: Array.from({ length: 20 }, () => bytes(0)),
+        lowMember: bytes(0),
+        lowNext: bytes(5),
+        lowLists: 0n,
+        lowEscrow: bytes(0),
+        lowIndex: 0n,
+        lowPath: Array.from({ length: 20 }, () => bytes(0)),
+      },
       nullifierSecret,
       ephemeralSecret: bytes(6),
       auditorPublicKey: x25519.getPublicKey(bytes(4)),
@@ -207,7 +217,7 @@ describe("delegate ring prover contracts", () => {
     const body = customRingRegisterKeyProofRequest(request);
     expect(body).toMatchObject({
       circuitType: "custom-ring-register-key",
-      newIndex: `0x${"0".repeat(63)}1`,
+      index: 1,
       nullifierSecret: `0x${"0".repeat(62)}07`,
       ephSk: fieldHex(6),
     });
@@ -220,12 +230,18 @@ describe("delegate ring prover contracts", () => {
     expect(() => customRingRegisterKeyProofRequest({ ...request, nullifierSecret: high })).toThrow(
       "CLIENT_INVALID_PROOF_INPUTS",
     );
-    expect(() => customRingRegisterKeyProofRequest({ ...request, lowIndex: -1n })).toThrow(
-      "CLIENT_INVALID_INTEGER",
-    );
-    expect(() => customRingRegisterKeyProofRequest({ ...request, newIndex: 1n << 40n })).toThrow(
-      "CLIENT_INVALID_INTEGER",
-    );
+    expect(() =>
+      customRingRegisterKeyProofRequest({
+        ...request,
+        update: { ...request.update, lowIndex: -1n },
+      }),
+    ).toThrow("CLIENT_INVALID_INTEGER");
+    expect(() =>
+      customRingRegisterKeyProofRequest({
+        ...request,
+        update: { ...request.update, index: 1n << 20n },
+      }),
+    ).toThrow("CLIENT_INVALID_INTEGER");
     const proof = proofFor({ circuitType: "custom-ring-register-key" });
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
     const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
@@ -309,25 +325,6 @@ const EXPECTED_OPENING = {
   ringProgramId: fieldHex(0),
 };
 
-const EXPECTED_RULE_ANSWER = {
-  enabled: false,
-  treeSlot: 0,
-  mode: 1,
-  listId: 1,
-  state: 1,
-  absentBranch: 1,
-  member: fieldHex(0),
-  contentHash: fieldHex(0),
-  version: 0,
-  blinding: fieldHex(0),
-  low: fieldHex(0),
-  next: fieldHex(0),
-  nfPathElements: Array.from({ length: 40 }, () => fieldHex(0)),
-  nfPathIndex: 0,
-  statePathElements: Array.from({ length: 32 }, () => fieldHex(0)),
-  statePathIndex: 0,
-};
-
 /** Key order from Rust `CustomRingPolicyProofRequestJson` in `request_ring.rs`. */
 const EXPECTED_RING_BODY = {
   circuitType: "custom-ring-policy",
@@ -340,10 +337,10 @@ const EXPECTED_RING_BODY = {
   nIn: 2,
   nOut: 2,
   inputs: Array.from({ length: 5 }, () => EXPECTED_OPENING),
-  outputs: Array.from({ length: 4 }, () => EXPECTED_OPENING),
+  outputs: Array.from({ length: 4 }, () => ({ ...EXPECTED_OPENING, ctHash: fieldHex(0) })),
   addressChain: fieldHex(0),
   privateTxBlinding: fieldHex(7),
-  sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: fieldHex(0) })),
+  sources: Array.from({ length: 8 }, () => ({ listId: 0, registry: fieldHex(0) })),
   policyLen: 1,
   ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
   inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
@@ -361,8 +358,10 @@ const EXPECTED_RING_BODY = {
   namespaceOwnerHash: fieldHex(11),
   approvalRequired: false,
   keyEscrow: false,
-  keyRegistryRoot: fieldHex(0),
-  answers: Array.from({ length: 10 }, () => EXPECTED_RULE_ANSWER),
+  memberRegistryRoot: fieldHex(0),
+  subjects: Array.from({ length: 9 }, () => null),
+  foreignRoot: fieldHex(0),
+  foreignSubjects: Array.from({ length: 9 }, () => null),
 };
 
 function mergeInputs(): MergeInputs {
@@ -644,47 +643,49 @@ describe("prover request routing", () => {
     expect(deliveries).toEqual([null]);
     const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
     // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
-    expect(Object.keys(body).sort()).toEqual([
-      "addressChain",
-      "addressTreeId",
-      "answers",
-      "approvalRequired",
-      "auditorPk",
-      "circuitType",
-      "ephSk",
-      "inlineAssets",
-      "inlineCount",
-      "inlineLimits",
-      "inputs",
-      "keyEscrow",
-      "keyRegistryRoot",
-      "limitCount",
-      "limits",
-      "nIn",
-      "nOut",
-      "namespaceOwnerHash",
-      "outputs",
-      "policyLen",
-      "privateTxBlinding",
-      "privateTxHash",
-      "publicInputHash",
-      "ringId",
-      "ruleEnc",
-      "salt",
-      "sources",
-      "treeSlots",
-      "txViewingSk",
-    ]);
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        "addressChain",
+        "addressTreeId",
+        "subjects",
+        "foreignRoot",
+        "foreignSubjects",
+        "approvalRequired",
+        "auditorPk",
+        "circuitType",
+        "ephSk",
+        "inlineAssets",
+        "inlineCount",
+        "inlineLimits",
+        "inputs",
+        "keyEscrow",
+        "memberRegistryRoot",
+        "limitCount",
+        "limits",
+        "nIn",
+        "nOut",
+        "namespaceOwnerHash",
+        "outputs",
+        "policyLen",
+        "privateTxBlinding",
+        "privateTxHash",
+        "publicInputHash",
+        "ringId",
+        "ruleEnc",
+        "salt",
+        "sources",
+        "treeSlots",
+        "txViewingSk",
+      ].sort(),
+    );
     expect(body["circuitType"]).toBe("custom-ring-policy");
     expect(body["auditorPk"]).toHaveLength(66);
     expect(body["publicInputHash"]).toHaveLength(66);
-    const answers = body["answers"] as Record<string, unknown>[];
-    expect(answers).toHaveLength(10);
-    expect(answers[0]?.["nfPathElements"]).toHaveLength(40);
-    expect(answers[0]?.["statePathElements"]).toHaveLength(32);
+    expect(body["subjects"]).toEqual(Array.from({ length: 9 }, () => null));
+    expect(body["foreignSubjects"]).toEqual(Array.from({ length: 9 }, () => null));
     const sources = body["sources"] as Record<string, unknown>[];
     expect(sources).toHaveLength(8);
-    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "ownerHash"]);
+    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "registry"]);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(
@@ -695,7 +696,7 @@ describe("prover request routing", () => {
     }
     // The server rejects `answers.len() != 10`, an unpadded answers array must not leave the client.
     await expect(
-      prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), answers: [] }),
+      prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), subjects: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
     for (const treeSlots of [
       [],
@@ -708,47 +709,76 @@ describe("prover request routing", () => {
     expect(raw).toHaveLength(1);
   });
 
-  it("sends each escrowed output key beside its opening like Go `writeRegistryKey`", async () => {
-    const auditorPublicKey = x25519.getPublicKey(bytes(4));
-    const key = {
+  it("sends output ciphertext hashes and authenticated member subjects separately", () => {
+    const request = ringRequest(x25519.getPublicKey(bytes(4)));
+    const subject = {
+      present: true,
       next: bytes(12),
-      ctHash: bytes(13),
+      lists: 3n,
+      escrowKey: bytes(13),
       index: 5n,
-      path: Array.from({ length: 40 }, () => bytes(14)),
+      path: Array.from({ length: 20 }, () => bytes(14)),
+      lowMember: bytes(0),
+      lowNext: bytes(0),
+      lowLists: 0n,
+      lowEscrow: bytes(0),
     };
-    const request = ringRequest(auditorPublicKey);
     const escrowed = {
       ...request,
-      keyRegistryRoot: bytes(15),
-      outputs: request.outputs.map((opening, index) =>
-        index === 1 ? { ...opening, key } : opening,
-      ),
+      keyEscrow: true,
+      memberRegistryRoot: bytes(15),
+      subjects: request.subjects.map((value, index) => (index === 6 ? subject : value)),
+      outputs: request.outputs.map((opening, index) => ({
+        ...opening,
+        ctHash: bytes(index === 1 ? 13 : 0),
+      })),
     };
     const body = customRingPolicyProofRequest(escrowed);
-    expect(body).toMatchObject({ keyEscrow: true, keyRegistryRoot: fieldHex(15) });
-    const outputs = body["outputs"] as Record<string, unknown>[];
-    expect(outputs[0]).not.toHaveProperty("key");
-    expect(outputs[1]?.["key"]).toEqual({
-      next: fieldHex(12),
-      ctHash: fieldHex(13),
-      index: 5,
-      path: Array.from({ length: 40 }, () => fieldHex(14)),
-    });
+    expect(body).toMatchObject({ keyEscrow: true, memberRegistryRoot: fieldHex(15) });
+    expect(body["outputs"]).toEqual(
+      escrowed.outputs.map((_, index) => ({
+        ...EXPECTED_OPENING,
+        ctHash: fieldHex(index === 1 ? 13 : 0),
+      })),
+    );
+    expect(body["subjects"]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        present: true,
+        next: fieldHex(12),
+        lists: 3,
+        escrowKey: fieldHex(13),
+        index: 5,
+        path: Array.from({ length: 20 }, () => fieldHex(14)),
+        lowMember: fieldHex(0),
+        lowNext: fieldHex(0),
+        lowLists: 0,
+        lowEscrow: fieldHex(0),
+      },
+      null,
+      null,
+    ]);
     expect(() =>
       customRingPolicyProofRequest({
         ...escrowed,
-        inputs: request.inputs.map((opening) => ({ ...opening, key })),
-      }),
-    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
-    expect(() =>
-      customRingPolicyProofRequest({
-        ...escrowed,
-        outputs: request.outputs.map((opening) => ({
-          ...opening,
-          key: { ...key, index: 1n << 40n },
-        })),
+        subjects: escrowed.subjects.map((value) =>
+          value === undefined ? value : { ...value, index: 1n << 20n },
+        ),
       }),
     ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_INTEGER" }));
+    expect(() =>
+      customRingPolicyProofRequest({
+        ...escrowed,
+        subjects: escrowed.subjects.map((value) =>
+          value === undefined ? value : { ...value, path: [] },
+        ),
+      }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_LENGTH" }));
   });
 
   it("encodes the base request byte for byte like Rust `CustomRingBaseProofRequest::body`", async () => {
@@ -770,17 +800,19 @@ describe("prover request routing", () => {
     // The audit proof is queued, never sent inline.
     expect(deliveries).toEqual([null]);
     const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual([
-      "auditorPk",
-      "circuitType",
-      "ephSk",
-      "nOut",
-      "outputs",
-      "privateTxHash",
-      "publicInputHash",
-      "salt",
-      "txViewingSk",
-    ]);
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        "auditorPk",
+        "circuitType",
+        "ephSk",
+        "nOut",
+        "outputs",
+        "privateTxHash",
+        "publicInputHash",
+        "salt",
+        "txViewingSk",
+      ].sort(),
+    );
     expect(body["circuitType"]).toBe("custom-ring-base");
     expect(body["auditorPk"]).toHaveLength(66);
 
@@ -1314,12 +1346,8 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
     policy,
     minContextSlot: 123n,
     trees: [tree],
-    lookups: Array.from({ length: 10 }, () => ({
-      treeSlot: 0,
-      commitment: null,
-      nullifier: null,
-    })),
-    publicInputs: Array.from({ length: 18 }, () => bytes(1)),
+    registry: { ringProgramId: treeAddress(3), root: policy.memberRegistryRoot, nextIndex: 1n },
+    publicInputs: Array.from({ length: 8 }, () => bytes(1)),
   };
   const hash = hashChain([
     inputs.publicInputs[0]!,
@@ -1362,9 +1390,9 @@ describe("indexed policy proofs", () => {
       expect(body["minContextSlot"]).toBe(123);
       expect(wrapped["minContextSlot"]).toBeUndefined();
       expect(prepared["treeSlots"]).toBeUndefined();
-      expect(
-        decoder.record(decoder.list(prepared["answers"], "answers")[0], "answer")["nfPathElements"],
-      ).toBeUndefined();
+      expect(prepared["subjects"]).toBeUndefined();
+      expect(prepared["foreignSubjects"]).toBeUndefined();
+      expect(body["registry"]).toBeDefined();
       const client = new ZolanaClient({
         fetch,
         indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
@@ -1465,7 +1493,7 @@ describe("indexed prover failures", () => {
     ]) {
       const error = await prove(fetch).catch((cause: unknown) => cause);
       expect(error).toMatchObject({
-        code: "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
+        code: "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED",
         details: { method: "prove", member: Buffer.from(MEMBER).toString("hex") },
       });
       expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);

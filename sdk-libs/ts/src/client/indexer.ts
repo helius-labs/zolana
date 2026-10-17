@@ -29,8 +29,8 @@ import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
   RegistryRecord,
   RingMemberProofRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
+  RingMemberRecordResponse,
+  RingMemberRegistryTip,
   UserRecordsLookup,
 } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
@@ -140,52 +140,79 @@ export class ZolanaIndexer {
     });
   }
 
-  async getRingKeyRegistryEntry(
+  async getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    const method = "getRingKeyRegistryEntry";
+  ): Promise<RingMemberRecordResponse> {
+    const method = "getRingMemberRecord";
     try {
       const wire = memberRequest(request);
-      const response = await this.#api.getRingKeyRegistryEntry(wire, context);
-      checkMemberResponse(wire, response);
-      return Object.freeze({
+      const response = await this.#api.getRingMemberRecord(wire, context);
+      if (
+        response.root !== wire.expectedRoot ||
+        response.nextIndex !== wire.expectedNextIndex ||
+        (response.record !== null && response.record.member !== wire.member)
+      )
+        throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path: "$" } });
+      const fields = (record: {
+        member: import("../indexer/types.js").Hash;
+        next: import("../indexer/types.js").Hash;
+        lists: bigint;
+        escrowKey: import("../indexer/types.js").Hash;
+      }) => ({
+        member: hashBytes(record.member),
+        next: hashBytes(record.next),
+        lists: record.lists,
+        escrowKey: hashBytes(record.escrowKey),
+      });
+      return {
         context: response.context,
         root: hashBytes(response.root),
-        member: hashBytes(response.member),
+        rootIndex: response.rootIndex,
         nextIndex: response.nextIndex,
-        next: hashBytes(response.next),
+        present: response.present,
         index: response.index,
-        ephemeralPublicKey: decodeX25519(response.ephPk, method, "$.ephPk"),
-        ciphertext: decodeCiphertext(response.ciphertext, method, "$.ciphertext"),
-        proof: Object.freeze(response.proof.map(hashBytes)),
-      });
+        path: response.path.map(hashBytes),
+        record:
+          response.record === null
+            ? null
+            : {
+                ...fields(response.record),
+                ephemeralPublicKey:
+                  response.record.ephPk === null
+                    ? null
+                    : decodeX25519(response.record.ephPk, method, "record.ephPk"),
+                ciphertext:
+                  response.record.ciphertext === null
+                    ? null
+                    : decodeCiphertext(response.record.ciphertext, method, "record.ciphertext"),
+              },
+        low:
+          response.low === null
+            ? null
+            : {
+                ...fields(response.low),
+                index: response.low.index,
+                path: response.low.path.map(hashBytes),
+              },
+      };
     } catch (cause) {
       throw wrapIndexer(cause, method);
     }
   }
 
-  async getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  async getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    const method = "getRingKeyRegistryRegisterProof";
+  ): Promise<RingMemberRegistryTip> {
+    const method = "getRingMemberRegistryRoot";
     try {
-      const wire = memberRequest(request);
-      const response = await this.#api.getRingKeyRegistryRegisterProof(wire, context);
-      checkMemberResponse(wire, response);
-      return Object.freeze({
-        context: response.context,
+      const response = await this.#api.getRingMemberRegistryRoot(request, context);
+      return {
+        ...response,
         root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        lowMember: hashBytes(response.lowMember),
-        lowNext: hashBytes(response.lowNext),
-        lowKeyHash: hashBytes(response.lowKeyHash),
-        lowIndex: response.lowIndex,
-        lowProof: Object.freeze(response.lowProof.map(hashBytes)),
-        newProof: Object.freeze(response.newProof.map(hashBytes)),
-      });
+        appendPath: response.appendPath.map(hashBytes),
+      };
     } catch (cause) {
       throw wrapIndexer(cause, method);
     }
@@ -305,21 +332,6 @@ function memberRequest(request: RingMemberProofRequest) {
     expectedRoot: hash(request.expectedRoot),
     expectedNextIndex: request.expectedNextIndex,
   });
-}
-
-function checkMemberResponse(
-  request: ReturnType<typeof memberRequest>,
-  response: Readonly<{ root: string; member: string; nextIndex: bigint }>,
-): void {
-  if (
-    response.root !== request.expectedRoot ||
-    response.member !== request.member ||
-    response.nextIndex !== request.expectedNextIndex
-  ) {
-    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method: "ringMemberProof", path: "$.result" },
-    });
-  }
 }
 
 function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
@@ -646,12 +658,12 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 /** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
 const RING_PROJECTION_CODES: ReadonlyMap<
   number,
-  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}`>
+  Extract<ClientErrorCode, `CLIENT_MEMBER_REGISTRY_${string}`>
 > = new Map([
-  [-32070, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
-  [-32071, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
-  [-32072, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
-  [-32073, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+  [-32070, "CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC"],
+  [-32071, "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED"],
+  [-32072, "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"],
+  [-32073, "CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED"],
 ]);
 
 function wrapIndexer(cause: unknown, method: string): ClientError {

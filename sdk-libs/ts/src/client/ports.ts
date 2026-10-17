@@ -119,34 +119,49 @@ export interface UserRecordReader {
 }
 
 /** Authenticates insertion of a member's encrypted nullifier key. */
-export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
-  readonly lowMember: Bytes32;
-  readonly lowNext: Bytes32;
-  readonly lowKeyHash: Bytes32;
-  readonly lowIndex: bigint;
-  readonly lowProof: readonly Bytes32[];
-  readonly newProof: readonly Bytes32[];
+export interface RingMemberRegistryTip {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: Bytes32;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly appendPath: readonly Bytes32[];
 }
-
-/** Carries an encrypted key and the path needed to authenticate its opening. */
-export interface RingKeyRegistryEntry extends RingMemberProofContext {
+export interface RingMemberRecordView {
+  readonly member: Bytes32;
   readonly next: Bytes32;
-  readonly index: bigint;
-  readonly ephemeralPublicKey: X25519PublicKey;
-  readonly ciphertext: Bytes32;
-  readonly proof: readonly Bytes32[];
+  readonly lists: bigint;
+  readonly escrowKey: Bytes32;
+  readonly ephemeralPublicKey: X25519PublicKey | null;
+  readonly ciphertext: Bytes32 | null;
 }
-
-/** Reads encrypted member keys and their registry paths. */
-export interface RingKeyRegistryReader {
-  getRingKeyRegistryEntry(
+export interface RingLowRecordView {
+  readonly member: Bytes32;
+  readonly next: Bytes32;
+  readonly lists: bigint;
+  readonly escrowKey: Bytes32;
+  readonly index: bigint;
+  readonly path: readonly Bytes32[];
+}
+export interface RingMemberRecordResponse {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: Bytes32;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly present: boolean;
+  readonly record: RingMemberRecordView | null;
+  readonly index: bigint;
+  readonly path: readonly Bytes32[];
+  readonly low: RingLowRecordView | null;
+}
+export interface RingMemberRegistryReader {
+  getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry>;
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  ): Promise<RingMemberRecordResponse>;
+  getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof>;
+  ): Promise<RingMemberRegistryTip>;
 }
 
 export type RingSubmissionStatus =
@@ -314,9 +329,9 @@ export interface IndexedPolicyInputs {
   readonly circuit: "custom-ring-policy" | "custom-ring-delegate-policy";
   readonly policy: CustomRingPolicyProofRequest;
   readonly trees: readonly ResolvedProofTree[];
-  readonly lookups: readonly IndexedPolicyLookup[];
   readonly publicInputs: readonly Bytes32[];
-  readonly registry?: IndexedRegistry;
+  readonly registry: IndexedRegistry;
+  readonly foreignRegistry?: IndexedRegistry;
 }
 
 export interface IndexedPolicyClient extends ProofDataSourceContext {
@@ -387,6 +402,10 @@ export interface Prover {
   ): Promise<ProvenRingTransact>;
   proveCustomRingDelegatePolicy(
     inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingUpdateMembers(
+    inputs: import("./prover/types.js").CustomRingUpdateMembersProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
   proveCustomRingRegisterKey(
@@ -557,3 +576,9 @@ export type RingMergeClient = TreeContext &
   Pick<ChainReader, "getAccount"> &
   Pick<MergeAssembler, "proveMerge"> &
   ProofDataSourceContext;
+
+/** A nullifier key encrypted to the ring auditor. */
+export interface RingSealedNullifierKey {
+  readonly ephemeralPublicKey: X25519PublicKey;
+  readonly ciphertext: Bytes32;
+}

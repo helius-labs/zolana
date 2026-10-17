@@ -1,3 +1,4 @@
+import { updateMembersPublicInputHash, checkedRegistryField } from "./member-registry-tree.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import {
   AccountRole,
@@ -27,7 +28,7 @@ import {
   ringCoSignerAddress,
   ringConfigAddress,
   ringDelegateAddress,
-  ringKeyRegistryRootAddress,
+  ringMemberRegistryRootAddress,
   ringPolicyConfigAddress,
 } from "../interface/pda/index.js";
 import type {
@@ -42,21 +43,17 @@ import type {
 import { Writer } from "../interface/internal.js";
 
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
-import { RING_ANSWER_SLOTS } from "../client/prover/types.js";
 import { checkedCustomRingProof } from "./codecs.js";
 import {
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   setRingDepositAuditInstruction,
 } from "./config.js";
-import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
-import { revocationPdaAddresses } from "./policy-trees.js";
 import {
   encodeRuleTable,
   checkedListId,
   referencedLists,
-  type ListEntry,
   type ListId,
   type RuleTable,
 } from "./policy.js";
@@ -68,8 +65,7 @@ const RingProgramTag = Object.freeze({
   transact: 3,
   delegateTransact: 25,
   createPolicy: 7,
-  createEntry: 8,
-  updateEntry: 9,
+  updateMembers: 32,
   setPolicySource: 10,
   setPolicyRules: 12,
   registerKey: 29,
@@ -94,13 +90,13 @@ export interface RingTransactPolicy {
   /** Distinct SPP trees in proof slot order, one history context each. */
   readonly trees: readonly Address[];
   readonly treeContexts: readonly TreeContext[];
-  /** The registry history slot of the bound root, present exactly when the ring escrows keys. */
-  readonly keyRegistryRootIndex?: number;
-  /** The root at `keyRegistryRootIndex` the proof binds, a failed proof checks the slot for it. */
-  readonly keyRegistryRoot?: Bytes32;
-  readonly revocationTargets: readonly Bytes32[];
-  /** Per fact slot, the index into `trees` its revocation target lives in. */
-  readonly revocationTreeIndexes: readonly number[];
+  /** The bound own-registry history slot, required for every policy proof. */
+  readonly memberRegistryRootIndex?: number;
+  /** The root at `memberRegistryRootIndex` the proof binds, a failed proof checks the slot for it. */
+  readonly memberRegistryRoot?: Bytes32;
+  readonly foreignRegistry?: Address;
+  readonly foreignRootIndex?: number;
+  readonly foreignRoot?: Bytes32;
 }
 
 /** Mirrors Rust `CreateConfig`. The authority signs, so the recorded authority consented to the role. */
@@ -258,27 +254,9 @@ function transactData(
   const prefix = new Writer().u8(contexts.length, "policyTrees.length");
   for (const context of contexts) writeTreeContext(prefix, context);
   prefix
-    .u8(policy?.keyRegistryRootIndex ?? 0, "keyRegistryRootIndex")
+    .u8(policy?.memberRegistryRootIndex ?? 0, "registryRootIndex")
+    .u8(policy?.foreignRootIndex ?? 0, "foreignRootIndex")
     .bool(input.approvalRequired === true, "approvalRequired");
-  const targets = policy?.revocationTargets ?? [];
-  const treeIndexes = policy?.revocationTreeIndexes ?? [];
-  if (
-    policy !== undefined &&
-    (targets.length !== RING_ANSWER_SLOTS || treeIndexes.length !== RING_ANSWER_SLOTS)
-  ) {
-    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED", {
-      details: { revocationTargets: targets.length, revocationTreeIndexes: treeIndexes.length },
-    });
-  }
-  let targetCount = targets.length;
-  while (targetCount > 0 && targets[targetCount - 1]?.every((byte) => byte === 0)) targetCount--;
-  prefix.u8(targetCount, "revocationTargetCount");
-  for (const target of targets.slice(0, targetCount)) {
-    prefix.bytes(target, 32, "revocationTarget");
-  }
-  for (let slot = 0; slot < RING_ANSWER_SLOTS; slot++) {
-    prefix.u8(treeIndexes[slot] ?? 0, "revocationTreeIndex");
-  }
   const prefixBytes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + prefixBytes.length + transact.length);
@@ -301,8 +279,8 @@ export async function ringDelegateTransactInstruction(
       details: { legs: input.data.interfaceTransfers.length },
     });
   }
-  // Mirrors the program's `DelegateRequiresPolicy` and escrow checks.
-  if (input.policy?.keyRegistryRootIndex === undefined) {
+  // The caller binds policy roots; the program checks that its config enables escrow.
+  if (input.policy?.memberRegistryRootIndex === undefined) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
   }
   const [config, ringAuth, cosignerPda, delegatePda, policy] = await Promise.all([
@@ -346,22 +324,20 @@ async function policyAccountMetas(
       details: { policyTrees: policy.trees.length, treeContexts: policy.treeContexts.length },
     });
   }
-  const [policyConfig, keyRegistryRoot, revocations] = await Promise.all([
+  for (const index of [policy.memberRegistryRootIndex, policy.foreignRootIndex ?? 0])
+    if (index === undefined || !Number.isInteger(index) || index < 0 || index >= 32)
+      throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+  if (policy.foreignRegistry === undefined && (policy.foreignRootIndex ?? 0) !== 0)
+    throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
+  const [policyConfig, memberRegistryRoot] = await Promise.all([
     ringPolicyConfigAddress(ringProgramId),
-    policy.keyRegistryRootIndex === undefined
-      ? undefined
-      : ringKeyRegistryRootAddress(ringProgramId),
-    revocationPdaAddresses({
-      policyTrees: policy.trees,
-      targets: policy.revocationTargets,
-      treeIndexes: policy.revocationTreeIndexes,
-    }),
+    ringMemberRegistryRootAddress(ringProgramId),
   ]);
   return [
     policyConfig,
     ...policy.trees,
-    ...(keyRegistryRoot === undefined ? [] : [keyRegistryRoot]),
-    ...revocations,
+    memberRegistryRoot,
+    ...(policy.foreignRegistry === undefined ? [] : [policy.foreignRegistry]),
   ].map((address) => ({ address, role: AccountRole.READONLY }));
 }
 
@@ -403,7 +379,7 @@ export async function createRingPolicyInstruction(
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),
-      ...body.curatorPolicyConfigs.map((account) => meta(account, false, false)),
+      ...body.curatorRegistries.map((account) => meta(account, false, false)),
     ],
     data: Uint8Array.of(RingProgramTag.createPolicy, ...body.data),
   };
@@ -427,7 +403,7 @@ export async function setRingPolicyRulesInstruction(
       meta(policyConfig, false, true),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),
-      ...body.curatorPolicyConfigs.map((account) => meta(account, false, false)),
+      ...body.curatorRegistries.map((account) => meta(account, false, false)),
     ],
     data: Uint8Array.of(RingProgramTag.setPolicyRules, ...body.data),
   };
@@ -450,7 +426,7 @@ export async function setRingPolicySourceInstruction(
     ringConfigAddress(input.ringProgramId),
     ringPolicyConfigAddress(input.ringProgramId),
     input.source.kind === "curator"
-      ? ringPolicyConfigAddress(input.source.ringProgramId)
+      ? ringMemberRegistryRootAddress(input.source.ringProgramId)
       : undefined,
   ]);
   return {
@@ -469,65 +445,26 @@ export async function setRingPolicySourceInstruction(
   };
 }
 
-/** A claim spends from the address tree, an update from the tree holding the live leaf. */
-export interface RingEntryTrees {
-  readonly inputTree: Address;
-  readonly outputTree: Address;
-}
-
-export interface RingEntryInstructionInput extends RingEntryTrees {
-  readonly ringProgramId: Address;
-  /** An authority list needs the config authority, a member list the member's key. */
-  readonly payer: SignerAccount;
-  readonly entry: ListEntry;
-  readonly proof: RingEntryProof;
-}
-
-/** Mirrors Rust `ProvenEntry::instruction` for a claim at version zero. */
-export async function createRingEntryInstruction(
-  input: RingEntryInstructionInput,
-): Promise<Instruction> {
-  const data = new Writer()
-    .u8(RingProgramTag.createEntry, "tag")
-    .u8(input.entry.listId, "listId")
-    .bytes(input.entry.member, 32, "member");
-  writeEntryTail(data, input.entry, input.proof);
-  return entryInstruction(input, data.finish());
-}
-
-/** Mirrors Rust `ProvenEntry::instruction` for a spend, the spent fields rebuild the live leaf. */
-export async function updateRingEntryInstruction(
-  input: RingEntryInstructionInput & Readonly<{ spent: ListEntry }>,
-): Promise<Instruction> {
-  const data = new Writer()
-    .u8(RingProgramTag.updateEntry, "tag")
-    .u8(input.entry.listId, "listId")
-    .bytes(input.entry.member, 32, "member")
-    .u8(entryStateByte(input.spent), "spentState")
-    .bytes(input.spent.contentHash, 32, "spentContentHash")
-    .u64(input.spent.version, "spentVersion")
-    .bytes(input.spent.blinding, 32, "spentBlinding");
-  writeEntryTail(data, input.entry, input.proof);
-  return entryInstruction(input, data.finish());
-}
-
 /** Mirrors Rust `ProvenKeyRegistration::instruction`, the member signs and pays. */
 export async function registerRingKeyInstruction(
   input: Readonly<{
     ringProgramId: Address;
     member: SignerAccount;
     proof: Uint8Array;
-    registryOldRoot: Bytes32;
+    registryOldRootIndex: number;
     registryNewRoot: Bytes32;
-    registryNextIndex: bigint;
+    item: import("../interface/member-registry.js").MemberUpdate;
     nullifierPublicKey: Bytes32;
     ephemeralPublicKey: Bytes33;
     ciphertext: Bytes32;
   }>,
 ): Promise<Instruction> {
+  checkedRegistryIndex(input.registryOldRootIndex);
+  checkedRegistryField(input.registryNewRoot);
+  updateMembersPublicInputHash(new Uint8Array(32) as Bytes32, input.registryNewRoot, [input.item]);
   const [config, root] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    ringKeyRegistryRootAddress(input.ringProgramId),
+    ringMemberRegistryRootAddress(input.ringProgramId),
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -536,12 +473,14 @@ export async function registerRingKeyInstruction(
       meta(config, false, false),
       meta(root, false, true),
     ],
-    data: new Writer()
-      .u8(RingProgramTag.registerKey, "tag")
-      .bytes(checkedCustomRingProof(input.proof), CUSTOM_RING_PROOF_LENGTH, "proof")
-      .bytes(input.registryOldRoot, 32, "registryOldRoot")
-      .bytes(input.registryNewRoot, 32, "registryNewRoot")
-      .u64(input.registryNextIndex, "registryNextIndex")
+    data: writeMemberUpdate(
+      new Writer()
+        .u8(RingProgramTag.registerKey, "tag")
+        .bytes(checkedCustomRingProof(input.proof), CUSTOM_RING_PROOF_LENGTH, "proof")
+        .u8(input.registryOldRootIndex, "registryOldRootIndex")
+        .bytes(input.registryNewRoot, 32, "registryNewRoot"),
+      input.item,
+    )
       .bytes(input.nullifierPublicKey, 32, "nullifierPublicKey")
       .bytes(input.ephemeralPublicKey, 33, "ephemeralPublicKey")
       .bytes(input.ciphertext, 32, "ciphertext")
@@ -549,58 +488,9 @@ export async function registerRingKeyInstruction(
   };
 }
 
-function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof): void {
-  writer
-    .u8(entryStateByte(entry), "state")
-    .bytes(entry.contentHash, 32, "contentHash")
-    .bytes(entry.blinding, 32, "blinding")
-    .bytes(proof.privateTxBlinding, 32, "privateTxBlinding")
-    .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
-    .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
-    .bytes(proof.proof.a, 32, "proof.a")
-    .bytes(proof.proof.b, 128, "proof.b")
-    .bytes(proof.proof.c, 32, "proof.c");
-}
-
-function entryStateByte(entry: ListEntry): number {
-  return entry.state === "active" ? 1 : 2;
-}
-
-/** Everything after the two config accounts is forwarded to SPP position for position. */
-async function entryInstruction(
-  input: Pick<
-    RingEntryInstructionInput,
-    "ringProgramId" | "payer" | "inputTree" | "outputTree" | "proof"
-  >,
-  data: Uint8Array,
-): Promise<Instruction> {
-  const [config, policyConfig, namespace, nullifierPda] = await Promise.all([
-    ringConfigAddress(input.ringProgramId),
-    ringPolicyConfigAddress(input.ringProgramId),
-    ringPolicyNamespaceAddress(input.ringProgramId),
-    nullifierPdaAddress(input.inputTree, input.proof.nullifier),
-  ]);
-  return {
-    programAddress: input.ringProgramId,
-    accounts: [
-      meta(config, false, false),
-      meta(policyConfig, false, false),
-      meta(input.payer, true, true),
-      meta(input.outputTree, false, true),
-      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
-      meta(SYSTEM_PROGRAM, false, false),
-      meta(input.inputTree, false, true),
-      meta(nullifierPda, false, true),
-      meta(namespace, false, false),
-    ],
-    data,
-  };
-}
-
-/** Mirrors Rust `PolicyTable::body`, curators indexed in first-use order. */
 async function policyTableBody(
   input: RingPolicyTableInput,
-): Promise<Readonly<{ data: Uint8Array; curatorPolicyConfigs: readonly Address[] }>> {
+): Promise<Readonly<{ data: Uint8Array; curatorRegistries: readonly Address[] }>> {
   const referenced = referencedLists(input.table.rules);
   const shared = input.sharedSources ?? [];
   const seen = new Set<ListId>();
@@ -628,6 +518,8 @@ async function policyTableBody(
     }
     writer.u8(listId, "listId").u8(source, "source");
   }
+  if (curators.length > 1)
+    throw new RingError("RING_POLICY_SOURCE_INVALID", { details: { reason: "MultipleCurators" } });
   const encoded = encodeRuleTable(input.table);
   writer.u8(encoded.ruleCount, "rules.length");
   for (const row of encoded.rules) writer.bytes(row, 32, "rule");
@@ -644,7 +536,7 @@ async function policyTableBody(
   }
   return Object.freeze({
     data: writer.finish(),
-    curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
+    curatorRegistries: await Promise.all(curators.map(ringMemberRegistryRootAddress)),
   });
 }
 
@@ -684,4 +576,56 @@ export async function ringMergeInstruction(
       .bytes(encodeMergeTransactInstructionData(input.data))
       .finish(),
   };
+}
+
+function writeMemberUpdate(
+  writer: Writer,
+  item: import("../interface/member-registry.js").MemberUpdate,
+): Writer {
+  return writer
+    .bytes(item.member, 32, "member")
+    .u64(item.oldLists, "oldLists")
+    .bytes(item.oldEscrowKey, 32, "oldEscrowKey")
+    .u64(item.lists, "lists")
+    .bytes(item.escrowKey, 32, "escrowKey")
+    .u64(item.index, "index");
+}
+
+export async function updateRingMembersInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    proof: Uint8Array;
+    oldRootIndex: number;
+    newRoot: Bytes32;
+    items: readonly import("../interface/member-registry.js").MemberUpdate[];
+    signers: readonly SignerAccount[];
+  }>,
+): Promise<Instruction> {
+  checkedRegistryIndex(input.oldRootIndex);
+  updateMembersPublicInputHash(new Uint8Array(32) as Bytes32, input.newRoot, input.items);
+  const [config, root] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringMemberRegistryRootAddress(input.ringProgramId),
+  ]);
+  const data = new Writer()
+    .u8(RingProgramTag.updateMembers, "tag")
+    .bytes(checkedCustomRingProof(input.proof), CUSTOM_RING_PROOF_LENGTH, "proof")
+    .u8(input.oldRootIndex, "oldRootIndex")
+    .bytes(input.newRoot, 32, "newRoot")
+    .u8(input.items.length, "items.length");
+  for (const item of input.items) writeMemberUpdate(data, item);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(config, false, false),
+      meta(root, false, true),
+      ...input.signers.map((signer) => meta(signer, true, false)),
+    ],
+    data: data.finish(),
+  };
+}
+
+function checkedRegistryIndex(index: number): void {
+  if (!Number.isInteger(index) || index < 0 || index >= 32)
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID");
 }

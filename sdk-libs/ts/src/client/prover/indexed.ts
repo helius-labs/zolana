@@ -224,12 +224,10 @@ export function checkPolicyResolution(
     if (
       sent === undefined ||
       tree.utxoRootIndex >= STATE_ROOT_HISTORY_CAPACITY ||
-      (!opensAt(inputs.lookups, index, "commitment") &&
-        (bytesToBigInt(tree.utxoRoot) !== bytesToBigInt(sent.utxoRoot) ||
-          tree.utxoRootIndex !== sent.utxoRootIndex)) ||
-      (!opensAt(inputs.lookups, index, "nullifier") &&
-        (bytesToBigInt(tree.nullifierRoot) !== bytesToBigInt(sent.nullifierRoot) ||
-          tree.nullifierRootIndex !== sent.nullifierRootIndex))
+      bytesToBigInt(tree.utxoRoot) !== bytesToBigInt(sent.utxoRoot) ||
+      tree.utxoRootIndex !== sent.utxoRootIndex ||
+      bytesToBigInt(tree.nullifierRoot) !== bytesToBigInt(sent.nullifierRoot) ||
+      tree.nullifierRootIndex !== sent.nullifierRootIndex
     )
       throw unparsable();
   });

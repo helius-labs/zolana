@@ -320,7 +320,8 @@ describe("deposit disclosure", () => {
       ownerPkHashes: [field(3n), ...Array.from({ length: 7 }, () => field(0n))],
       nullifierPks: [field(5n), ...Array.from({ length: 7 }, () => field(0n))],
       blindings: [field(4n), ...Array.from({ length: 7 }, () => field(0n))],
-      keys: Array.from({ length: 8 }, () => undefined),
+      members: Array.from({ length: 8 }, () => undefined),
+      ctHashes: Array.from({ length: 8 }, () => field(0n)),
       ephemeralSecret: ephemeral.secretBytes(),
       auditorPublicKey: auditor.publicKey().u(),
     };
@@ -332,9 +333,9 @@ describe("deposit disclosure", () => {
           (bytes) => `0x${Buffer.from(bytes).toString("hex")}`,
         ),
         nullifierPks: input.nullifierPks.map((bytes) => `0x${Buffer.from(bytes).toString("hex")}`),
-        keys: Array.from({ length: 8 }, () => null),
+        members: Array.from({ length: 8 }, () => null),
         keyEscrow: false,
-        keyRegistryRoot: `0x${"0".repeat(64)}`,
+        memberRegistryRoot: `0x${"0".repeat(64)}`,
         ephSk: `0x${Buffer.from(input.ephemeralSecret).toString("hex")}`,
       });
       const invalidInputs = expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" });
@@ -364,10 +365,22 @@ describe("deposit disclosure", () => {
       expect(() =>
         customRingDepositProofRequest({
           ...input,
-          keys: [
-            ...input.keys.slice(0, 7),
-            { next: field(0n), ctHash: field(0n), index: 1n, path: [] },
+          members: [
+            ...input.members.slice(0, 7),
+            { next: field(0n), lists: 0n, escrowKey: field(0n), index: 1n, path: [] },
           ],
+        }),
+      ).toThrow(invalidInputs);
+      expect(() =>
+        customRingDepositProofRequest({
+          ...input,
+          ctHashes: [...input.ctHashes.slice(0, 7), field(1n)],
+        }),
+      ).toThrow(invalidInputs);
+      expect(() =>
+        customRingDepositProofRequest({
+          ...input,
+          ctHashes: [field(BN254_SCALAR_ORDER), ...input.ctHashes.slice(1)],
         }),
       ).toThrow(invalidInputs);
       const fetch = vi.fn<typeof globalThis.fetch>(async (_url, options) => {
@@ -392,7 +405,7 @@ describe("deposit disclosure", () => {
         code: "CLIENT_PROOF_PARSE",
       });
       expect(fetch).toHaveBeenCalledTimes(2);
-      const deposit = { ...input, keyRegistryRoot: field(17n) };
+      const deposit = { ...input, memberRegistryRoot: field(17n) };
       const indexed = {
         deposit,
         registry: { ringProgramId: RING, root: field(17n), nextIndex: 2n },
@@ -535,7 +548,7 @@ describe("deposit audit control", () => {
         }),
         proofDataSource: "client" as const,
         proveCustomRingDeposit,
-        getRingKeyRegistryEntry: vi.fn(async () => {
+        getRingMemberRecord: vi.fn(async () => {
           throw new Error("escrow is off");
         }),
       };
@@ -586,7 +599,7 @@ describe("deposit builder ring mode", () => {
         }),
         proofDataSource: "client" as const,
         proveCustomRingDeposit,
-        getRingKeyRegistryEntry: vi.fn(async () => {
+        getRingMemberRecord: vi.fn(async () => {
           throw new Error("the mode check comes first");
         }),
       };

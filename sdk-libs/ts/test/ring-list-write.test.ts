@@ -1,650 +1,302 @@
-import { X25519Secret } from "../src/keypair/x25519.js";
-import {
-  AccountRole,
-  getAddressDecoder,
-  getProgramDerivedAddress,
-  type Address,
-} from "@solana/kit";
-import { describe, expect, it, vi } from "vitest";
-
-import type { MerkleProof, NonInclusionProof } from "../src/client/rpc.js";
+import { getAddressDecoder } from "@solana/kit";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
-import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
-import { addressBytes } from "../src/interface/internal.js";
+import { ringConfigPda, ringMemberRegistryRootPda } from "../src/interface/pda/index.js";
+import type { Bytes32 } from "../src/interface/types.js";
+import type { CustomRingUpdateMembersProofRequest } from "../src/client/prover/types.js";
+import { customRingUpdateMembersProofRequest } from "../src/client/prover/client.js";
 import {
-  nullifierPdaAddress,
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-} from "../src/interface/pda/index.js";
-import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
-import type { Bytes32, TransactProof } from "../src/interface/types.js";
-
-import { bigintToBytes, bytesToBigInt } from "../src/client/internal.js";
-import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
+  buildRingListWriteTransaction,
+  buildRingMemberUpdateTransaction,
+  type RingListWriteClient,
+  type RingMemberWrite,
+} from "../src/ring/list-write.js";
+import { updateRingMembersInstruction } from "../src/ring/instructions.js";
+import { ListId, memberOfTag, type Member } from "../src/ring/policy.js";
 import {
-  proveRingEntryTransition,
-  ringEntryTransitionInputs,
-  type RingEntryStateLeaf,
-} from "../src/ring/entry-proof.js";
-import {
-  RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
-  createRingEntryInstruction,
-  updateRingEntryInstruction,
-} from "../src/ring/instructions.js";
-import { buildRingListWriteTransaction } from "../src/ring/list-write.js";
-import {
-  ListId,
-  RingListNamespace,
-  buildRuleTable,
-  encodeListEntry,
-  memberOfTag,
-  type ListEntry,
-} from "../src/ring/policy.js";
-import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
-
-import { BLOCKHASH, transactionsPage } from "./helpers/clients.js";
-import {
-  ownSources,
-  ownedAccount,
-  policyConfigPda,
-  ringPolicyConfigData,
-  ringProgramConfigData,
-} from "./helpers/ring-accounts.js";
-import { filled as fill, treeAccount } from "./helpers/tree-account.js";
-
-await initializePoseidon();
-
-const filled = (byte: number): Bytes32 => fill(byte) as Bytes32;
-const addressOf = (bytes: Uint8Array): Address => getAddressDecoder().decode(bytes);
-const hexOf = (value: bigint): string => Buffer.from(bigintToBytes(value, "value")).toString("hex");
-const RECORDS_PDA = addressOf(filled(0x11));
-const PAYER = addressOf(filled(0x01));
-const ADDRESS_TREE = addressOf(filled(0x30));
-const RING = addressOf(filled(0x10));
-const ZERO_PROOF: TransactProof = {
-  a: new Uint8Array(32) as Bytes32,
-  b: new Uint8Array(128) as TransactProof["b"],
-  c: new Uint8Array(32) as Bytes32,
-};
-
-const member = memberOfTag(filled(0xa1));
-const v0Draft = {
-  listId: ListId.allow,
-  member,
-  state: "active",
-  version: 0n,
-  contentHash: filled(0),
-} as const;
-const v0: ListEntry = { ...v0Draft, blinding: filled(0x21) };
-const v1: ListEntry = { ...v0, version: 1n, blinding: filled(0x22) };
-/** The Rust vectors hash under tree 3 from seed 8. */
-const VECTOR_TREE_ID = 3;
-const BLINDING_SEED = filled(0x08);
-
-function absenceOf(target: Bytes32, tree = ADDRESS_TREE): NonInclusionProof {
+  MemberRegistryOverlay,
+  memberRegistryRootFromProof,
+  memberRegistryLeaf,
+  updateMembersPublicInputHash,
+} from "../src/ring/member-registry-tree.js";
+import { ZERO_32, bigIntBytes } from "../src/transaction/internal.js";
+import { registryFixture, memberRegistryRootData } from "./helpers/member-registry.js";
+import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
+import { X25519Secret } from "../src/keypair/x25519.js";
+import { BLOCKHASH } from "./helpers/clients.js";
+const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
+const address = (byte: number) => getAddressDecoder().decode(filled(byte));
+const RING = address(1),
+  AUTHORITY = address(2),
+  OTHER = address(3);
+beforeAll(initializePoseidon);
+async function fixture(records: Parameters<typeof registryFixture>[0] = []) {
+  const registry = registryFixture(records),
+    [config, bump] = await ringConfigPda(RING),
+    [root, rootBump] = await ringMemberRegistryRootPda(RING);
+  const prove = vi.fn(async (_request: CustomRingUpdateMembersProofRequest) => new Uint8Array(192));
+  const read = vi.fn(async (request: Parameters<RingListWriteClient["getRingMemberRecord"]>[0]) =>
+    registry.read(request.member),
+  );
+  const tip = vi.fn(async () => registry.tip);
+  const client: RingListWriteClient = {
+    getAccount: async (key) =>
+      key === config
+        ? ownedAccount(
+            RING,
+            ringProgramConfigData({
+              authority: AUTHORITY,
+              auditorPublicKey: X25519Secret.fromBytes(filled(3)).publicKey().toBytes(),
+              hasPolicy: false,
+              bump,
+            }),
+          )
+        : key === root
+          ? ownedAccount(
+              RING,
+              memberRegistryRootData({
+                root: registry.root,
+                nextIndex: registry.tip.nextIndex,
+                bump: rootBump,
+              }),
+            )
+          : undefined,
+    getLatestBlockhash: async () => BLOCKHASH,
+    getRingMemberRecord: read,
+    getRingMemberRegistryRoot: tip,
+    proveCustomRingUpdateMembers: prove,
+  };
   return {
-    leaf: target,
-    merkleContext: { treeType: 1, tree },
-    path: Array.from({ length: 40 }, () => filled(0)),
-    lowElement: filled(2),
-    lowElementIndex: 9n,
-    highElement: filled(3),
-    highElementIndex: 10n,
-    root: filled(7),
-    rootSeq: 1n,
-    rootIndex: 5,
+    registry,
+    client,
+    prove,
+    read,
+    tip,
+    write: (
+      member: Member,
+      listId: ListId,
+      state: "active" | "cleared" = "active",
+      payer = AUTHORITY,
+    ) =>
+      buildRingListWriteTransaction({ client, ringProgramId: RING, payer, member, listId, state }),
   };
 }
-
-function inclusionOf(leaf: Bytes32, tree = ADDRESS_TREE): MerkleProof {
-  return {
-    leaf,
-    merkleContext: { treeType: 1, tree },
-    path: Array.from({ length: 32 }, () => filled(0)),
-    leafIndex: 3n,
-    root: filled(6),
-    rootSeq: 1n,
-    rootIndex: 4,
-  };
-}
-
-const HEAD: RingEntryStateLeaf = {
-  root: filled(6),
-  rootIndex: 4,
-  path: Array.from({ length: 32 }, () => filled(0)),
-  leafIndex: 0n,
-};
-
-/** `custom-rings/sdk/tests/entry_proof_vectors.rs`. */
-describe("entry transition inputs", () => {
-  const owner = RingListNamespace.of(RECORDS_PDA, VECTOR_TREE_ID);
-  const claim = () =>
-    ringEntryTransitionInputs({
-      namespace: RECORDS_PDA,
-      trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
-      payer: PAYER,
-      entry: v0Draft,
-      state: HEAD,
-      absence: absenceOf(owner.entryAddress(v0Draft)),
-      blindingSeed: BLINDING_SEED,
+describe("member list writes", () => {
+  it("inserts a first member with a batch proof", async () => {
+    const test = await fixture(),
+      member = memberOfTag(filled(4));
+    const result = await test.write(member, ListId.allow);
+    expect(result.kind).toBe("transaction");
+    expect(test.prove).toHaveBeenCalledTimes(1);
+    const request = test.prove.mock.calls[0]![0];
+    expect(request.newRoot).toEqual(registryFixture([{ member, lists: 1n }]).root);
+    expect(request.items[0]).toMatchObject({
+      oldLists: 0n,
+      lists: 1n,
+      index: 1n,
+      update: { exists: false },
     });
-
-  it("hashes a claim like Rust `EntryWitness::prove`", () => {
-    const address = owner.entryAddress(v0Draft);
-    const { inputs, nullifier, entry } = claim();
-    expect(hexOf(bytesToBigInt(entry.blinding))).toBe(
-      "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344",
-    );
-    expect(nullifier).toEqual(address);
-    expect(hexOf(inputs.externalDataHash)).toBe(
-      "001329a899d89d646ce5958e2ec09d0fec95f547a2ef76922e7e34fd873cd822",
-    );
-    expect(hexOf(inputs.privateTxHash)).toBe(
-      "2084195c27c25c187bff6963df6beb0ce817719088662d4a83b575f99943b11c",
-    );
-    expect(hexOf(inputs.publicInputHash)).toBe(
-      "28504492f258339afe5ae7af22744560006852fa9eed4af18e3fb548382be291",
-    );
-    const [input] = inputs.inputs;
-    expect(input?.circuit.domain).toBe(2n);
-    expect(input?.circuit.asset).toBe(0n);
-    expect(input?.nullifier).toBe(BigInt(`0x${Buffer.from(address).toString("hex")}`));
-    expect(input?.statePathIndex).toBe(0n);
-    expect(inputs.signerPublicKeyHashes).toHaveLength(2);
-    expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([
-      inputs.signerPublicKeyHashes[1],
-      0n,
-    ]);
-    expect(inputs.outputs[0]?.circuit.blinding).toBe(bytesToBigInt(entry.blinding));
-    // The 1x2 shape's second output is compact padding: hash and owner 0.
-    expect(inputs.outputs).toHaveLength(2);
-    expect(inputs.outputs[1]).toMatchObject({
-      isDummy: 1n,
-      hash: 0n,
-      ownerPublicKeyHash: 0n,
-      nullifierPublicKey: 0n,
-    });
-    expect(inputs.outputs[1]?.circuit.domain).toBe(1n);
-    expect(inputs.inputFlags).toBe(1n);
-    expect(inputs.ringProgramId).toBe(0n);
   });
-
-  it("hashes a spend like Rust `EntryWitness::prove`", () => {
-    const spent = claim().entry;
-    const spentHashes = owner.entryHashes(spent, VECTOR_TREE_ID);
-    const { inputs, nullifier } = ringEntryTransitionInputs({
-      namespace: RECORDS_PDA,
-      trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
-      payer: PAYER,
-      entry: { ...v0Draft, version: 1n },
-      spent,
-      state: { ...HEAD, leafIndex: 3n },
-      absence: absenceOf(spentHashes.nullifier),
-      blindingSeed: BLINDING_SEED,
-    });
-    expect(nullifier).toEqual(spentHashes.nullifier);
-    expect(hexOf(inputs.privateTxHash)).toBe(
-      "05463251217cd0b40990a3f1163a0c1b6cb37b0b5fc4d27428798ad5c4d63679",
-    );
-    expect(hexOf(inputs.publicInputHash)).toBe(
-      "0a98e151ecb39be8b75f1211965a1d986403927b21ae436e8845b79ee42808cc",
-    );
-    expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
-    expect(inputs.inputs[0]?.statePathIndex).toBe(3n);
-    expect(inputs.outputs[0]?.circuit.blinding).toBe(
-      0x018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256n,
-    );
+  it("returns unchanged without fetching an append path or proving", async () => {
+    const member = memberOfTag(filled(4)),
+      test = await fixture([{ member, lists: 1n }]);
+    expect((await test.write(member, ListId.allow)).kind).toBe("unchanged");
+    expect(test.prove).not.toHaveBeenCalled();
+    expect(test.tip).not.toHaveBeenCalled();
   });
-});
-
-describe("entry transitions across trees", () => {
-  const trees = { address: VECTOR_TREE_ID, input: 5, output: 6 };
-
-  it("hashes the address under the address tree, the spent leaf under the input tree and the written leaf under the output tree", () => {
-    const owner = RingListNamespace.of(RECORDS_PDA, VECTOR_TREE_ID);
-    const spent = { ...v0Draft, blinding: filled(0x21) };
-    const spentHashes = owner.entryHashes(spent, trees.input);
-    const { inputs, nullifier, entry } = ringEntryTransitionInputs({
-      namespace: RECORDS_PDA,
-      trees,
-      payer: PAYER,
-      entry: { ...v0Draft, version: 1n },
-      spent,
-      state: { ...HEAD, leafIndex: 3n },
-      absence: absenceOf(spentHashes.nullifier),
-      blindingSeed: BLINDING_SEED,
+  it("rewrites a list bit in place and preserves other bits", async () => {
+    const member = memberOfTag(filled(4)),
+      test = await fixture([{ member, lists: 3n }]);
+    await test.write(member, ListId.block, "cleared");
+    const request = test.prove.mock.calls[0]![0];
+    expect(request.newRoot).toEqual(registryFixture([{ member, lists: 1n }]).root);
+    expect(request.items[0]).toMatchObject({
+      oldLists: 3n,
+      lists: 1n,
+      index: 1n,
+      update: { exists: true },
     });
-    expect(spentHashes.address).toEqual(owner.entryAddress(v0Draft));
-    expect(nullifier).toEqual(spentHashes.nullifier);
-    expect(inputs.treeSlots[0]?.id).toBe(5n);
-    expect(inputs.outputTreeId).toBe(6n);
-    expect(inputs.outputs[0]?.hash).toBe(
-      bytesToBigInt(owner.entryHashes(entry, trees.output).utxoHash),
-    );
   });
-
-  it("update entry spends from the tree holding the live leaf and writes to the output tree", async () => {
-    const holding = addressOf(filled(0x31));
-    const output = addressOf(filled(0x32));
-    const instruction = await updateRingEntryInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      inputTree: holding,
-      outputTree: output,
-      entry: { ...v1, state: "cleared" },
-      spent: v0,
-      proof: {
-        proof: ZERO_PROOF,
-        utxoTreeRootIndex: 0,
-        nullifierTreeRootIndex: 0,
-        nullifier: filled(9),
-        privateTxBlinding: filled(0x11),
-      },
-    });
-    expect(instruction.accounts?.slice(3, 8).map((meta) => meta.address)).toEqual([
-      output,
-      SHIELDED_POOL_PROGRAM_ID,
-      SYSTEM_PROGRAM,
-      holding,
-      await nullifierPdaAddress(holding, filled(9)),
-    ]);
-  });
-});
-
-describe("entry transition proving", () => {
-  function client(input: Readonly<{ tree?: Address; account?: boolean }> = {}) {
-    const tree = input.tree ?? ADDRESS_TREE;
-    const getMerkleProofs = vi.fn(async (_tree: Address, leaves: readonly Bytes32[]) => ({
-      context: { blockTime: 1n, slot: 1n },
-      proofs: leaves.map((leaf) => inclusionOf(leaf, tree)),
-    }));
-    const getNonInclusionProofs = vi.fn(async (_tree: Address, leaves: readonly Bytes32[]) => ({
-      context: { blockTime: 1n, slot: 1n },
-      proofs: leaves.map((leaf) => absenceOf(leaf, tree)),
-    }));
-    const getAccount = vi.fn(async () =>
-      input.account === false
-        ? undefined
-        : ownedAccount(
-            SHIELDED_POOL_PROGRAM_ID,
-            treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n }),
-          ),
-    );
-    const proveTransferInputs = vi.fn(async () => ZERO_PROOF);
-    return { getMerkleProofs, getNonInclusionProofs, getAccount, proveTransferInputs };
-  }
-
-  it("claims from the tree head without a state proof", async () => {
-    const fake = client();
-    const { entry, proof } = await proveRingEntryTransition({
-      client: fake,
-      ringProgramId: RING,
-      addressTree: { tree: ADDRESS_TREE, treeId: 0 },
-      outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-      payer: PAYER,
-      entry: v0Draft,
-    });
-    const namespace = RingListNamespace.of(await ringPolicyNamespaceAddress(RING), 0);
-    expect(entry).toMatchObject(v0Draft);
-    expect(proof).toEqual({
-      proof: ZERO_PROOF,
-      utxoTreeRootIndex: 4,
-      nullifierTreeRootIndex: 5,
-      nullifier: namespace.entryHashes(v0, 0).address,
-      privateTxBlinding: expect.any(Uint8Array),
-    });
-    expect(fake.getMerkleProofs).not.toHaveBeenCalled();
-    expect(fake.getAccount).toHaveBeenCalledWith(ADDRESS_TREE, undefined);
-    expect(fake.getNonInclusionProofs).toHaveBeenCalledWith(
-      ADDRESS_TREE,
-      [namespace.entryHashes(v0, 0).address],
-      undefined,
-      undefined,
-    );
-  });
-
-  it("spends the live leaf with its inclusion proof", async () => {
-    const fake = client();
-    const { proof } = await proveRingEntryTransition({
-      client: fake,
-      ringProgramId: RING,
-      addressTree: { tree: ADDRESS_TREE, treeId: 0 },
-      outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-      payer: PAYER,
-      entry: v1,
-      spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
-    });
-    const namespace = RingListNamespace.of(await ringPolicyNamespaceAddress(RING), 0);
-    expect(proof.nullifier).toEqual(namespace.entryHashes(v0, 0).nullifier);
-    expect(fake.getAccount).not.toHaveBeenCalled();
-    expect(fake.getMerkleProofs).toHaveBeenCalledWith(
-      ADDRESS_TREE,
-      [namespace.entryHashes(v0, 0).utxoHash],
-      undefined,
-      undefined,
-    );
-  });
-
-  it("refuses a proof from another tree and a missing tree account", async () => {
+  it("refuses an unauthorized writer before reading or proving", async () => {
+    const test = await fixture();
     await expect(
-      proveRingEntryTransition({
-        client: client({ tree: addressOf(filled(0x31)) }),
-        ringProgramId: RING,
-        addressTree: { tree: ADDRESS_TREE, treeId: 0 },
-        outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-        payer: PAYER,
-        entry: v1,
-        spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
-      }),
-    ).rejects.toMatchObject({ code: "RING_ENTRY_PROOF_INCOMPLETE" });
-    const missing = client({ account: false });
-    await expect(
-      proveRingEntryTransition({
-        client: missing,
-        ringProgramId: RING,
-        addressTree: { tree: ADDRESS_TREE, treeId: 0 },
-        outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-        payer: PAYER,
-        entry: v0Draft,
-      }),
-    ).rejects.toMatchObject({ code: "RING_POLICY_TREE_INVALID" });
-    expect(missing.proveTransferInputs).not.toHaveBeenCalled();
-  });
-});
-
-describe("entry instructions", () => {
-  const proof = {
-    proof: ZERO_PROOF,
-    utxoTreeRootIndex: 0x0102,
-    nullifierTreeRootIndex: 0x0304,
-    nullifier: filled(9),
-    privateTxBlinding: filled(0x11),
-  };
-
-  it("create entry lays out the claim and forwards the SPP accounts", async () => {
-    const instruction = await createRingEntryInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      inputTree: ADDRESS_TREE,
-      outputTree: ADDRESS_TREE,
-      entry: v0,
-      proof,
-    });
-    expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
-      [await ringConfigAddress(RING), AccountRole.READONLY],
-      [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
-      [PAYER, AccountRole.WRITABLE_SIGNER],
-      [ADDRESS_TREE, AccountRole.WRITABLE],
-      [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
-      [SYSTEM_PROGRAM, AccountRole.READONLY],
-      [ADDRESS_TREE, AccountRole.WRITABLE],
-      [await nullifierPdaAddress(ADDRESS_TREE, filled(9)), AccountRole.WRITABLE],
-      [await ringPolicyNamespaceAddress(RING), AccountRole.READONLY],
-    ]);
-    expect([...(instruction.data ?? [])]).toEqual([
-      8,
-      ListId.allow,
-      ...member,
-      1,
-      ...filled(0),
-      ...v0.blinding,
-      ...filled(0x11),
-      0x04,
-      0x03,
-      0x02,
-      0x01,
-      ...new Uint8Array(192),
-    ]);
-  });
-
-  it("update entry carries the spent version before the new fields", async () => {
-    const instruction = await updateRingEntryInstruction({
-      ringProgramId: RING,
-      payer: PAYER,
-      inputTree: ADDRESS_TREE,
-      outputTree: ADDRESS_TREE,
-      entry: { ...v1, state: "cleared" },
-      spent: v0,
-      proof,
-    });
-    expect([...(instruction.data ?? [])].slice(0, 1 + 1 + 32 + 1 + 32 + 8 + 32 + 1)).toEqual([
-      9,
-      ListId.allow,
-      ...member,
-      1,
-      ...filled(0),
-      ...new Uint8Array(8),
-      ...v0.blinding,
-      2,
-    ]);
-    expect(instruction.data).toHaveLength(
-      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 192,
-    );
-    expect(RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT).toBe(1_400_000);
-  });
-});
-
-describe("list writes", () => {
-  const AUTHORITY = addressOf(filled(0x12));
-  const CURATOR = addressOf(filled(0x20));
-  const table = buildRuleTable({
-    rules: [
-      {
-        subject: "outputOwner",
-        source: { kind: "lists", present: [ListId.allow], absent: [ListId.block] },
-        guard: { kind: "always" },
-      },
-      {
-        subject: "sender",
-        source: { kind: "lists", present: [], absent: [ListId.frozen] },
-        guard: { kind: "always" },
-      },
-    ],
-  });
-
-  async function chain(
-    input: Readonly<{ hasPolicy?: boolean; live?: readonly IndexedShieldedTransaction[] }> = {},
-  ) {
-    const [[configAddress, configBump], [policyAddress, policyBump], namespace, curatorNamespace] =
-      await Promise.all([
-        getProgramDerivedAddress({
-          programAddress: RING,
-          seeds: [new TextEncoder().encode("config")],
-        }),
-        policyConfigPda(RING),
-        ringPolicyNamespaceAddress(RING),
-        ringPolicyNamespaceAddress(CURATOR),
-      ]);
-    const sources = ownSources(table, namespace).map((slot) =>
-      slot.listId === ListId.frozen ? { listId: slot.listId, namespace: curatorNamespace } : slot,
-    );
-    const accounts = new Map([
-      [
-        configAddress,
-        ownedAccount(
-          RING,
-          ringProgramConfigData({
-            authority: AUTHORITY,
-            auditorPublicKey: X25519Secret.generate().publicKey().toBytes(),
-            bump: configBump,
-            hasPolicy: input.hasPolicy ?? true,
-          }),
-        ),
-      ],
-      [
-        policyAddress,
-        ownedAccount(
-          RING,
-          ringPolicyConfigData({ table, sources, addressTree: ADDRESS_TREE, bump: policyBump }),
-        ),
-      ],
-      [
-        ADDRESS_TREE,
-        ownedAccount(
-          SHIELDED_POOL_PROGRAM_ID,
-          treeAccount({ stateCursor: 4, written: 5, nullifierCursor: 4n }),
-        ),
-      ],
-    ]);
-    const live = input.live ?? [];
-    const byNullifiers = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
-      transactionsPage({
-        transactions: live.filter((transaction) =>
-          transaction.nullifiers.some((spent) =>
-            request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
-          ),
-        ),
-        scannedThrough: new Uint8Array([1]),
-      }),
-    );
-    return {
-      namespace,
-      client: {
-        getAccount: vi.fn(async (account: Address) => accounts.get(account)),
-        getLatestBlockhash: vi.fn(async () => BLOCKHASH),
-        getEncryptedUtxosByTags: vi.fn(async () => {
-          throw new Error("unused");
-        }),
-        getShieldedTransactionsByNullifiers: byNullifiers,
-        getMerkleProofs: vi.fn(async (_tree: Address, leaves: readonly Bytes32[]) => ({
-          context: { blockTime: 1n, slot: 1n },
-          proofs: leaves.map((leaf) => inclusionOf(leaf)),
-        })),
-        getNonInclusionProofs: vi.fn(async (_tree: Address, leaves: readonly Bytes32[]) => ({
-          context: { blockTime: 1n, slot: 1n },
-          proofs: leaves.map((leaf) => absenceOf(leaf)),
-        })),
-        proveTransferInputs: vi.fn(async () => ZERO_PROOF),
-      },
-    };
-  }
-
-  function spender(
-    namespace: Address,
-    nullifier: Bytes32,
-    entry: ListEntry,
-  ): IndexedShieldedTransaction {
-    const hashes = RingListNamespace.of(namespace, 0).entryHashes(entry, 0);
-    return {
-      slot: 5n,
-      txSignature: "claim" as IndexedShieldedTransaction["txSignature"],
-      outputSlots: [
-        {
-          viewTag: filled(0),
-          outputContext: { hash: hashes.utxoHash, tree: ADDRESS_TREE, leafIndex: 0n },
-          payload: encodeListEntry(entry),
-        },
-      ],
-      messages: [],
-      nullifiers: [nullifier],
-      proofless: false,
-    };
-  }
-
-  it("claims a new entry for the authority at version zero", async () => {
-    const { client } = await chain();
-    const write = await buildRingListWriteTransaction({
-      client,
-      ringProgramId: RING,
-      payer: AUTHORITY,
-      listId: ListId.allow,
-      member,
-      state: "active",
-    });
-    expect(write.kind).toBe("transaction");
-    if (write.kind !== "transaction") return;
-    expect(write.change).toBe("claimed");
-    expect(write.entry).toMatchObject(v0Draft);
-    expect(Object.keys(write.transaction.signatures)).toEqual([AUTHORITY]);
-    expect(client.proveTransferInputs).toHaveBeenCalledTimes(1);
-    expect(client.getMerkleProofs).not.toHaveBeenCalled();
-  });
-
-  it("reports an entry already in the target state without a transaction", async () => {
-    const { client, namespace } = await chain();
-    const address = RingListNamespace.of(namespace, 0).entryHashes(v0, 0).address;
-    const seeded = await chain({ live: [spender(namespace, address, v0)] });
-    const write = await buildRingListWriteTransaction({
-      client: seeded.client,
-      ringProgramId: RING,
-      payer: AUTHORITY,
-      listId: ListId.allow,
-      member,
-      state: "active",
-    });
-    expect(write).toMatchObject({ kind: "unchanged", entry: { entry: v0 } });
-    expect(seeded.client.proveTransferInputs).not.toHaveBeenCalled();
-    expect(client.proveTransferInputs).not.toHaveBeenCalled();
-  });
-
-  it("moves a live entry to the next version", async () => {
-    const { namespace } = await chain();
-    const address = RingListNamespace.of(namespace, 0).entryHashes(v0, 0).address;
-    const { client } = await chain({ live: [spender(namespace, address, v0)] });
-    const write = await buildRingListWriteTransaction({
-      client,
-      ringProgramId: RING,
-      payer: AUTHORITY,
-      listId: ListId.allow,
-      member,
-      state: "cleared",
-    });
-    expect(write).toMatchObject({
-      kind: "transaction",
-      change: "moved",
-      entry: { ...v0Draft, version: 1n, state: "cleared" },
-    });
-    expect(client.getMerkleProofs).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses a curator-served list and a foreign writer before any read", async () => {
-    const cases = [
-      { listId: ListId.frozen, payer: AUTHORITY, cause: "RING_LIST_SHARED" },
-      { listId: ListId.allow, payer: PAYER, cause: "RING_LIST_WRITER_UNAUTHORIZED" },
-      { listId: ListId.ringViewing, payer: AUTHORITY, cause: "RING_LIST_WRITER_UNAUTHORIZED" },
-    ] as const;
-    for (const { listId, payer, cause } of cases) {
-      const { client } = await chain();
-      await expect(
-        buildRingListWriteTransaction({
-          client,
-          ringProgramId: RING,
-          payer,
-          listId,
-          member,
-          state: "active",
-        }),
-      ).rejects.toMatchObject({ code: "RING_BUILD_LIST_WRITE", causeCode: cause });
-      expect(client.getShieldedTransactionsByNullifiers).not.toHaveBeenCalled();
-      expect(client.proveTransferInputs).not.toHaveBeenCalled();
-    }
-  });
-
-  it("lets a member write its own member list and refuses a ring without a policy", async () => {
-    const { client } = await chain();
-    const self = memberOfTag(addressBytes(PAYER));
-    const write = await buildRingListWriteTransaction({
-      client,
-      ringProgramId: RING,
-      payer: PAYER,
-      listId: ListId.ringViewing,
-      member: self,
-      state: "active",
-    });
-    expect(write.kind).toBe("transaction");
-    const audit = await chain({ hasPolicy: false });
-    await expect(
-      buildRingListWriteTransaction({
-        client: audit.client,
-        ringProgramId: RING,
-        payer: AUTHORITY,
-        listId: ListId.allow,
-        member,
-        state: "active",
-      }),
+      test.write(memberOfTag(filled(4)), ListId.allow, "active", OTHER),
     ).rejects.toMatchObject({
       code: "RING_BUILD_LIST_WRITE",
-      causeCode: "RING_POLICY_CONFIG_NOT_FOUND",
+      causeCode: "RING_LIST_WRITER_UNAUTHORIZED",
     });
+    expect(test.read).not.toHaveBeenCalled();
+    expect(test.prove).not.toHaveBeenCalled();
+  });
+  it("allows a member to write its recovery bit without a policy", async () => {
+    const test = await fixture();
+    await test.write(memberOfTag(filled(3)), ListId.recovery, "active", OTHER);
+    expect(test.prove.mock.calls[0]![0].items[0]?.lists).toBe(16n);
+  });
+  it("refuses the authority writing another member's recovery bit", async () => {
+    const test = await fixture();
+    await expect(test.write(memberOfTag(filled(3)), ListId.recovery)).rejects.toBeDefined();
+    expect(test.prove).not.toHaveBeenCalled();
+  });
+  it("merges writes to one member into one record", async () => {
+    const test = await fixture(),
+      member = memberOfTag(filled(4));
+    await buildRingMemberUpdateTransaction({
+      client: test.client,
+      ringProgramId: RING,
+      payer: AUTHORITY,
+      signers: [AUTHORITY],
+      writes: [
+        { member, set: [ListId.allow], clear: [] },
+        { member, set: [ListId.block], clear: [] },
+      ],
+    });
+    expect(test.prove.mock.calls[0]![0].items).toHaveLength(1);
+    expect(test.prove.mock.calls[0]![0].items[0]?.lists).toBe(3n);
+  });
+  it("refuses conflicting writes atomically", async () => {
+    const test = await fixture(),
+      member = memberOfTag(filled(4));
+    await expect(
+      buildRingMemberUpdateTransaction({
+        client: test.client,
+        ringProgramId: RING,
+        payer: AUTHORITY,
+        signers: [AUTHORITY],
+        writes: [{ member, set: [ListId.allow], clear: [ListId.allow] }],
+      }),
+    ).rejects.toBeDefined();
+    expect(test.read).not.toHaveBeenCalled();
+    expect(test.prove).not.toHaveBeenCalled();
+  });
+  it("updates shared paths for two inserts in sorted order", async () => {
+    const test = await fixture(),
+      members = [memberOfTag(filled(6)), memberOfTag(filled(5))];
+    await buildRingMemberUpdateTransaction({
+      client: test.client,
+      ringProgramId: RING,
+      payer: AUTHORITY,
+      signers: [AUTHORITY],
+      writes: members.map((member) => ({ member, set: [ListId.allow], clear: [] })),
+    });
+    const request = test.prove.mock.calls[0]![0];
+    expect(request.newRoot).toEqual(
+      registryFixture(members.map((member) => ({ member, lists: 1n }))).root,
+    );
+    expect(request.items.map((item) => item.index)).toEqual([1n, 2n]);
+    expect(request.items[1]?.update.lowMember).toEqual(request.items[0]?.member);
+  });
+  it("mixes rewrites and inserts under one root", async () => {
+    const existing = memberOfTag(filled(7)),
+      fresh = memberOfTag(filled(8)),
+      test = await fixture([{ member: existing, lists: 2n }]);
+    const writes: RingMemberWrite[] = [
+      { member: existing, set: [ListId.allow], clear: [ListId.block] },
+      { member: fresh, set: [ListId.allow], clear: [] },
+    ];
+    await buildRingMemberUpdateTransaction({
+      client: test.client,
+      ringProgramId: RING,
+      payer: AUTHORITY,
+      signers: [AUTHORITY],
+      writes,
+    });
+    const request = test.prove.mock.calls[0]![0];
+    expect(request.newRoot).toEqual(
+      registryFixture([
+        { member: existing, lists: 1n },
+        { member: fresh, lists: 1n },
+      ]).root,
+    );
+    expect(
+      request.items.find((item) => Buffer.compare(item.member, existing) === 0)?.update.exists,
+    ).toBe(true);
+  });
+  it("refuses a malformed member proof before proving", async () => {
+    const test = await fixture();
+    test.read.mockImplementation(async (request) => ({
+      ...test.registry.read(request.member),
+      low: null,
+    }));
+    await expect(test.write(memberOfTag(filled(4)), ListId.allow)).rejects.toBeDefined();
+    expect(test.prove).not.toHaveBeenCalled();
+  });
+  it("refuses an unauthenticated append path before proving", async () => {
+    const test = await fixture();
+    test.tip.mockResolvedValue({
+      ...test.registry.tip,
+      appendPath: Array.from({ length: 20 }, () => ZERO_32),
+    });
+    await expect(test.write(memberOfTag(filled(4)), ListId.allow)).rejects.toBeDefined();
+    expect(test.prove).not.toHaveBeenCalled();
+  });
+  it("rejects empty and oversized batches before reads", async () => {
+    for (const count of [0, 17]) {
+      const test = await fixture();
+      await expect(
+        buildRingMemberUpdateTransaction({
+          client: test.client,
+          ringProgramId: RING,
+          payer: AUTHORITY,
+          signers: [AUTHORITY],
+          writes: Array.from({ length: count }, (_, i) => ({
+            member: memberOfTag(bigIntBytes(BigInt(i + 1)) as Bytes32),
+            set: [ListId.allow],
+            clear: [],
+          })),
+        }),
+      ).rejects.toBeDefined();
+      expect(test.prove).not.toHaveBeenCalled();
+      expect(test.read).not.toHaveBeenCalled();
+    }
+  });
+  it("serializes tag 32, current-root index and member fields in Rust order", async () => {
+    const test = await fixture(),
+      member = memberOfTag(filled(4));
+    await test.write(member, ListId.allow);
+    const request = test.prove.mock.calls[0]![0],
+      items = request.items;
+    const instruction = await updateRingMembersInstruction({
+      ringProgramId: RING,
+      proof: new Uint8Array(192),
+      oldRootIndex: 5,
+      newRoot: request.newRoot,
+      items,
+      signers: [AUTHORITY],
+    });
+    expect(instruction.data?.[0]).toBe(32);
+    expect(instruction.data?.[193]).toBe(5);
+    expect(instruction.data?.[226]).toBe(1);
+    expect(instruction.data?.slice(227, 259)).toEqual(member);
+    expect(instruction.accounts?.map((meta) => meta.address)).toEqual([
+      (await ringConfigPda(RING))[0],
+      (await ringMemberRegistryRootPda(RING))[0],
+      AUTHORITY,
+    ]);
+  });
+  it("pads the prover batch to sixteen slots and binds its count", async () => {
+    const test = await fixture();
+    await test.write(memberOfTag(filled(4)), ListId.allow);
+    const request = test.prove.mock.calls[0]![0],
+      body = customRingUpdateMembersProofRequest(request);
+    expect(body["itemCount"]).toBe(1);
+    expect(body["items"]).toHaveLength(16);
+    expect(request.publicInputHash).toEqual(
+      updateMembersPublicInputHash(request.oldRoot, request.newRoot, request.items),
+    );
+    expect(() => customRingUpdateMembersProofRequest({ ...request, items: [] })).toThrow();
+  });
+  it("keeps an overlay's predecessor path authenticated", () => {
+    const tree = registryFixture(),
+      overlay = new MemberRegistryOverlay(tree.root, 1n, tree.tip.appendPath),
+      read = tree.read(memberOfTag(filled(4)));
+    if (read.low === null) throw new Error("no low");
+    expect(
+      memberRegistryRootFromProof({
+        leaf: memberRegistryLeaf(read.low),
+        index: 0n,
+        proof: overlay.path(0n, read.low.path),
+      }),
+    ).toEqual(tree.root);
   });
 });

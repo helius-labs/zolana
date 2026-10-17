@@ -8,12 +8,12 @@ import { ownerHash } from "../keypair/hash.js";
 import { bytesToBigInt } from "../transaction/internal.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
-import { fetchRingKeyRegistryRoot } from "./config.js";
+import { fetchRingMemberRegistryRoot } from "./config.js";
 import { RingError } from "./error.js";
-import { readSealedKey, registersKey, type RingSealedKeyClient } from "./key-registry.js";
+import { readSealedKey, registersKey, type RingSealedKeyClient } from "./member-registry.js";
 import { memberOfIdentity } from "./policy.js";
 import { waitForProjection } from "../client/retry.js";
-import { KEY_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
+import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
 
 export interface RingKeyOwner {
   readonly ownerPkHash: Bytes32;
@@ -54,7 +54,7 @@ export async function openRingEscrowedKeys(
 ): Promise<RingEscrowedKeys> {
   return waitForProjection(
     async (attemptContext) => {
-      const registry = await fetchRingKeyRegistryRoot(
+      const registry = await fetchRingMemberRegistryRoot(
         input.client,
         input.ringProgramId,
         attemptContext,
@@ -85,7 +85,7 @@ export async function openRingEscrowedKeys(
         keys: Object.freeze(keys),
       });
     },
-    KEY_REGISTRY_PROJECTION_ERRORS,
+    MEMBER_REGISTRY_PROJECTION_ERRORS,
     context,
   );
 }
@@ -105,7 +105,7 @@ async function openKey(
   try {
     entry = await readSealedKey({ ...input, member }, context);
   } catch (cause) {
-    if (isClientError(cause) && cause.code === "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED") {
+    if (isClientError(cause) && cause.code === "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED") {
       throw refusedOwner(owner, cause);
     }
     throw cause;
@@ -113,6 +113,8 @@ async function openKey(
   if (!registersKey(entry, input.owner.nullifierPk)) throw refusedOwner(owner);
   return Object.freeze({
     next: entry.next,
+    lists: entry.lists,
+    escrowKey: entry.escrowKey,
     ctHash: hashBytes(entry.sealed.ciphertext) as Bytes32,
     index: entry.index,
     path: entry.proof,
@@ -126,7 +128,7 @@ export function unregisteredOutputKey(
 ): unknown {
   const member =
     isClientError(cause) &&
-    cause.code === "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED" &&
+    cause.code === "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED" &&
     cause.details !== undefined &&
     "member" in cause.details
       ? cause.details.member

@@ -3,7 +3,7 @@ import type {
   BlockhashProvider,
   ChainReader,
   Prover,
-  RingKeyRegistryReader,
+  RingMemberRegistryReader,
 } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
@@ -17,34 +17,31 @@ import { NullifierKey } from "../keypair/nullifier-key.js";
 import { bigIntBytes, hashChain, poseidon } from "../transaction/internal.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import { equalBytes } from "../wallet/internal.js";
-import type { RingKeyRegistryRoot } from "./codecs.js";
-import { fetchRingKeyRegistryRoot, fetchRingProgramConfig } from "./config.js";
+import type { RingMemberRegistryRoot } from "./codecs.js";
+import { fetchRingMemberRegistryRoot, fetchRingProgramConfig } from "./config.js";
 import { RingError } from "./error.js";
 import {
-  KEY_REGISTRY_CAPACITY,
-  KEY_REGISTRY_HEIGHT,
   checkedRegistryField,
-  keyRegistryLeaf,
-  keyRegistryRootFromProof,
-  verifyKeyRegistryInsert,
-} from "./key-registry-tree.js";
+  memberRegistryLeaf,
+  memberRegistryRootFromProof,
+  MemberRegistryOverlay,
+  updateMemberRecord,
+} from "./member-registry-tree.js";
+import { readRingMemberRecord } from "./member-record.js";
 import {
   RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT,
   registerRingKeyInstruction,
 } from "./instructions.js";
 import { memberOfTag, type Member } from "./policy.js";
 import { waitForProjection } from "../client/retry.js";
-import { KEY_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
+import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
 import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
 
 /** Rust `NF_KEY_ENC_INFO`, separates the key stream from the audit stream. */
 export const NF_KEY_ENC_INFO = new TextEncoder().encode("CRING/nfk1");
 
-/** Carries a nullifier key encrypted to the ring auditor. */
-export interface SealedNullifierKey {
-  readonly ephemeralPublicKey: X25519PublicKey;
-  readonly ciphertext: Bytes32;
-}
+import type { RingSealedNullifierKey as SealedNullifierKey } from "../client/ports.js";
+export type { RingSealedNullifierKey as SealedNullifierKey } from "../client/ports.js";
 
 /** Holds the sealed key and temporary encryption proof material. */
 export interface NullifierKeyEnvelope {
@@ -66,7 +63,7 @@ export interface RegisterKeyStatement {
 }
 
 export type RingKeyRegistrationClient = Pick<ChainReader, "getAccount"> &
-  RingKeyRegistryReader &
+  RingMemberRegistryReader &
   BlockhashProvider &
   Pick<Prover, "proveCustomRingRegisterKey">;
 
@@ -89,7 +86,7 @@ export type RingKeyRegistrationPreparation =
   | Readonly<{ kind: "pending"; submission: RingTransactionSubmission }>;
 
 export type RingSealedKeyClient = Pick<ChainReader, "getAccount"> &
-  Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
+  Pick<RingMemberRegistryReader, "getRingMemberRecord">;
 
 /** Requires an opened key or known nullifier public key to verify inclusion. */
 export interface RingSealedKeyEntry {
@@ -97,6 +94,8 @@ export interface RingSealedKeyEntry {
   readonly member: Member;
   readonly root: Bytes32;
   readonly next: Bytes32;
+  readonly lists: bigint;
+  readonly escrowKey: Bytes32;
   readonly index: bigint;
   readonly proof: readonly Bytes32[];
 }
@@ -201,7 +200,10 @@ export async function prepareRingKeyRegistration(
     checkRegisteredKey(entry, identity.nullifierPublicKey);
     return { kind: "registered", sealed: entry.sealed };
   } catch (cause) {
-    if (!(cause instanceof ClientError) || cause.code !== "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED")
+    if (
+      !(cause instanceof ClientError) ||
+      cause.code !== "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"
+    )
       throw cause;
   }
   return { kind: "pending", submission: await registrationSubmission(input, context) };
@@ -232,7 +234,7 @@ export async function fetchRingSealedKey(
       readSealedKey(
         {
           ...input,
-          registry: await fetchRingKeyRegistryRoot(
+          registry: await fetchRingMemberRegistryRoot(
             input.client,
             input.ringProgramId,
             attemptContext,
@@ -240,7 +242,7 @@ export async function fetchRingSealedKey(
         },
         attemptContext,
       ),
-    KEY_REGISTRY_PROJECTION_ERRORS,
+    MEMBER_REGISTRY_PROJECTION_ERRORS,
     context,
   );
 }
@@ -248,46 +250,30 @@ export async function fetchRingSealedKey(
 /** @internal The indexer answer must sit under the registry root read from Solana. */
 export async function readSealedKey(
   input: Readonly<{
-    client: Pick<RingKeyRegistryReader, "getRingKeyRegistryEntry">;
+    client: Pick<RingMemberRegistryReader, "getRingMemberRecord">;
     ringProgramId: Address;
     member: Member;
-    registry: Pick<RingKeyRegistryRoot, "root" | "nextIndex">;
+    registry: RingMemberRegistryRoot;
   }>,
   context: RequestContext,
 ): Promise<RingSealedKeyEntry> {
-  const { registry } = input;
-  const entry = await input.client.getRingKeyRegistryEntry(
-    {
-      ringProgramId: input.ringProgramId,
-      member: input.member,
-      expectedRoot: registry.root,
-      expectedNextIndex: registry.nextIndex,
-    },
-    context,
-  );
-  if (
-    !equalBytes(entry.root, registry.root) ||
-    entry.nextIndex !== registry.nextIndex ||
-    !equalBytes(entry.member, input.member)
-  )
-    throw new RingError("RING_KEY_REGISTRY_STALE");
-  if (
-    entry.index === 0n ||
-    entry.index >= entry.nextIndex ||
-    entry.proof.length !== KEY_REGISTRY_HEIGHT
-  )
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "entry" } });
-  return Object.freeze({
-    sealed: Object.freeze({
-      ephemeralPublicKey: entry.ephemeralPublicKey,
-      ciphertext: entry.ciphertext,
-    }),
+  const registry = input.registry;
+  const read = await readRingMemberRecord({ ...input, registry }, context);
+  if (!read.opening.present || read.sealed === null)
+    throw new ClientError("CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED", {
+      details: { method: "getRingMemberRecord" },
+    });
+  const { record, index, path } = read.opening;
+  return {
+    sealed: read.sealed,
     member: input.member,
-    root: entry.root,
-    next: entry.next,
-    index: entry.index,
-    proof: entry.proof,
-  });
+    root: registry.root,
+    next: record.next,
+    lists: record.lists,
+    escrowKey: record.escrowKey,
+    index,
+    proof: path,
+  };
 }
 
 /** The opened key must reproduce the leaf under the root read from Solana. */
@@ -313,19 +299,26 @@ interface MemberIdentity {
 
 function checkRegisteredKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes32): void {
   if (!registersKey(entry, nullifierPublicKey))
-    throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "inclusion" } });
+    throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { reason: "inclusion" } });
 }
 
 /** @internal Mirrors Go `KeyOpening.AssertEscrowed`, the member's leaf holds the key under the root. */
 export function registersKey(entry: RingSealedKeyEntry, nullifierPublicKey: Bytes32): boolean {
-  const leaf = keyRegistryLeaf({
+  const leaf = memberRegistryLeaf({
     member: entry.member,
     next: entry.next,
-    key: registeredKeyHash({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
+    lists: entry.lists,
+    escrowKey: registeredKeyHash({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
   });
-  return equalBytes(
-    keyRegistryRootFromProof({ leaf, index: entry.index, proof: entry.proof }),
-    entry.root,
+  return (
+    equalBytes(
+      entry.escrowKey,
+      registeredKeyHash({ nullifierPublicKey, ciphertext: entry.sealed.ciphertext }),
+    ) &&
+    equalBytes(
+      memberRegistryRootFromProof({ leaf, index: entry.index, proof: entry.proof }),
+      entry.root,
+    )
   );
 }
 
@@ -369,25 +362,25 @@ async function buildRegistrationAttempt(
 ): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight">> {
   const { client, ringProgramId } = input;
   const { payer, member } = checkedIdentity(input.member);
-  const auditor = (await fetchRingProgramConfig(client, ringProgramId, context)).auditorPublicKey;
-  const { root, insertion } = await waitForProjection(
-    async (attemptContext) => {
-      const root = await fetchRingKeyRegistryRoot(client, ringProgramId, attemptContext);
-      if (root.nextIndex >= KEY_REGISTRY_CAPACITY)
-        throw new RingError("RING_KEY_REGISTRY_INVALID", { details: { reason: "capacity" } });
-      const insertion = await client.getRingKeyRegistryRegisterProof(
-        { ringProgramId, member, expectedRoot: root.root, expectedNextIndex: root.nextIndex },
-        attemptContext,
-      );
+  const config = await fetchRingProgramConfig(client, ringProgramId, context);
+  if (config.mode === "anonymous") throw new RingError("RING_ANONYMOUS_REFUSED");
+  const auditor = config.auditorPublicKey;
+  const { root, read, tip } = await waitForProjection(
+    async (context) => {
+      const root = await fetchRingMemberRegistryRoot(client, ringProgramId, context);
+      const [read, tip] = await Promise.all([
+        readRingMemberRecord({ client, ringProgramId, member, registry: root }, context),
+        client.getRingMemberRegistryRoot({ ringProgramId }, context),
+      ]);
       if (
-        !equalBytes(insertion.root, root.root) ||
-        !equalBytes(insertion.member, member) ||
-        insertion.nextIndex !== root.nextIndex
+        !equalBytes(tip.root, root.root) ||
+        tip.nextIndex !== root.nextIndex ||
+        tip.rootIndex !== root.historyCursor
       )
-        throw new RingError("RING_KEY_REGISTRY_STALE");
-      return { root, insertion };
+        throw new RingError("RING_MEMBER_REGISTRY_STALE");
+      return { root, read, tip };
     },
-    KEY_REGISTRY_PROJECTION_ERRORS,
+    MEMBER_REGISTRY_PROJECTION_ERRORS,
     context,
   );
   // 2. Seal the member's key and authenticate the insertion path.
@@ -400,18 +393,19 @@ async function buildRegistrationAttempt(
       nullifierPublicKey: envelope.nullifierPublicKey,
       ciphertext: envelope.sealed.ciphertext,
     });
-    const registryNewRoot = verifyKeyRegistryInsert({
+    if (read.opening.present && !equalBytes(read.opening.record.escrowKey, new Uint8Array(32)))
+      throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+    const overlay = new MemberRegistryOverlay(root.root, root.nextIndex, tip.appendPath);
+    const changed = updateMemberRecord({
       root: root.root,
-      appendIndex: root.nextIndex,
+      nextIndex: root.nextIndex,
       member,
-      key,
-      lowMember: insertion.lowMember,
-      lowNext: insertion.lowNext,
-      lowKey: insertion.lowKeyHash,
-      lowIndex: insertion.lowIndex,
-      lowProof: insertion.lowProof,
-      newProof: insertion.newProof,
+      opening: read.opening,
+      lists: read.opening.present ? read.opening.record.lists : 0n,
+      escrowKey: key,
+      overlay,
     });
+    const registryNewRoot = changed.root;
     const publicInputHash = registerKeyPublicInputHash({
       registryOldRoot: root.root,
       registryNewRoot,
@@ -420,7 +414,7 @@ async function buildRegistrationAttempt(
       auditorPublicKey: auditor,
       ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
       ciphertext: envelope.sealed.ciphertext,
-      newIndex: root.nextIndex,
+      newIndex: changed.item.index,
     });
     // 3. Prove key disclosure and registry insertion in one statement.
     const proof = await client.proveCustomRingRegisterKey(
@@ -429,16 +423,11 @@ async function buildRegistrationAttempt(
         registryOldRoot: root.root,
         registryNewRoot,
         member,
-        newIndex: root.nextIndex,
+        oldLists: changed.item.oldLists,
+        update: changed.update,
         nullifierSecret,
         ephemeralSecret: envelope.ephemeralSecret,
         auditorPublicKey: auditor.u(),
-        lowMember: insertion.lowMember,
-        lowNext: insertion.lowNext,
-        lowKey: insertion.lowKeyHash,
-        lowIndex: insertion.lowIndex,
-        lowProof: insertion.lowProof,
-        newProof: insertion.newProof,
       },
       context,
     );
@@ -446,9 +435,9 @@ async function buildRegistrationAttempt(
       ringProgramId,
       member: payer,
       proof,
-      registryOldRoot: root.root,
+      registryOldRootIndex: root.historyCursor,
       registryNewRoot,
-      registryNextIndex: root.nextIndex,
+      item: changed.item,
       nullifierPublicKey: envelope.nullifierPublicKey,
       ephemeralPublicKey: envelope.sealed.ephemeralPublicKey.toBytes(),
       ciphertext: envelope.sealed.ciphertext,

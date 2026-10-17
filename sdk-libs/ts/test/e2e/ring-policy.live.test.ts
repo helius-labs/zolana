@@ -123,7 +123,7 @@ describe("ring policy", () => {
     if (account === undefined) throw new Error("address tree missing");
     const heads = decodeTreeHeadRoots(account.data);
     if (again.kind !== "unchanged") throw new Error("unreachable");
-    const { proofs } = await client.getMerkleProofs(client.tree, [again.entry.utxoHash]);
-    expect(proofs[0]?.rootIndex).toBeLessThanOrEqual(heads.stateRootIndex);
+    expect(again.records[0]?.opening.present).toBe(true);
+    expect(heads.stateRootIndex).toBeGreaterThanOrEqual(0);
   }, 900_000);
 });

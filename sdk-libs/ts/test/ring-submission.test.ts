@@ -10,9 +10,9 @@ import {
   RingTransactionSubmission,
   type RingSubmissionAttempt,
 } from "../src/ring/submission.js";
-import { ringKeyRegistryRootPda } from "../src/interface/pda/index.js";
+import { ringMemberRegistryRootPda } from "../src/interface/pda/index.js";
 import { BLOCKHASH, kitReads } from "./helpers/clients.js";
-import { keyRegistryRootData } from "./helpers/key-registry.js";
+import { memberRegistryRootData } from "./helpers/member-registry.js";
 import { ownedAccount } from "./helpers/ring-accounts.js";
 
 const HASH = new Uint8Array(32) as Bytes32;
@@ -20,14 +20,14 @@ const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 const STALE_ROOT: RingSubmissionStatus = {
   kind: "failed",
   instructionIndex: 0,
-  customCode: RingProgramError.staleKeyRegistryRoot,
+  customCode: RingProgramError.staleMemberRegistryRoot,
 };
 
-async function fixture(keyRegistryRoot?: RingSubmissionAttempt["keyRegistryRoot"]) {
+async function fixture(memberRegistryRoot?: RingSubmissionAttempt["memberRegistryRoot"]) {
   const payer = await generateKeyPairSigner();
   let version = 0;
   const build = vi.fn(async (): Promise<RingSubmissionAttempt> => ({
-    ...(keyRegistryRoot === undefined ? {} : { keyRegistryRoot }),
+    ...(memberRegistryRoot === undefined ? {} : { memberRegistryRoot }),
     transaction: compileUnsignedTransaction({
       feePayer: payer.address,
       lifetime: BLOCKHASH,
@@ -126,7 +126,7 @@ describe("ring submission ownership", () => {
       kind: "failed",
       attempts: 3,
       instructionIndex: 0,
-      customCode: RingProgramError.staleKeyRegistryRoot,
+      customCode: RingProgramError.staleMemberRegistryRoot,
     });
     expect(status).not.toHaveBeenCalled();
     expect(f.build).toHaveBeenCalledTimes(3);
@@ -144,7 +144,7 @@ describe("ring submission ownership", () => {
       kind: "failed",
       attempts: 1,
       instructionIndex: 1,
-      customCode: RingProgramError.staleKeyRegistryRoot,
+      customCode: RingProgramError.staleMemberRegistryRoot,
     });
     expect(f.build).toHaveBeenCalledTimes(1);
   });
@@ -166,7 +166,7 @@ describe("ring submission ownership", () => {
 
   it("rebuilds a rejected escrowed proof only when its registry slot holds another root", async () => {
     const ringProgramId = address("Ring111111111111111111111111111111111111111");
-    const [, bump] = await ringKeyRegistryRootPda(ringProgramId);
+    const [, bump] = await ringMemberRegistryRootPda(ringProgramId);
     const bound = new Uint8Array(32).fill(7) as Bytes32;
     for (const [held, attempts] of [
       [new Uint8Array(32).fill(8) as Bytes32, 3],
@@ -179,7 +179,7 @@ describe("ring submission ownership", () => {
         getAccount: vi.fn(async () =>
           ownedAccount(
             ringProgramId,
-            keyRegistryRootData({ root: held, nextIndex: 40n, bump, cursor: 3, history }),
+            memberRegistryRootData({ root: held, nextIndex: 40n, bump, cursor: 3, history }),
           ),
         ),
       };

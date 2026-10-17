@@ -161,7 +161,7 @@ export function ringDepositPublicInputHash(
     capsules: readonly RingDepositCapsule[];
     auditorPublicKey: X25519PublicKey;
     /** Present exactly when deposited nullifier keys must be enrolled under it. */
-    keyRegistryRoot?: Bytes32;
+    memberRegistryRoot?: Bytes32;
   }>,
 ): Bytes32 {
   const count = input.capsules.length;
@@ -203,8 +203,8 @@ export function ringDepositPublicInputHash(
   elements.push(
     ...pack33(input.auditorPublicKey.toBytes()),
     ...pack33(first.ephemeralPublicKey),
-    bigIntBytes(input.keyRegistryRoot === undefined ? 0n : 1n) as Bytes32,
-    input.keyRegistryRoot ?? ZERO,
+    bigIntBytes(input.memberRegistryRoot === undefined ? 0n : 1n) as Bytes32,
+    input.memberRegistryRoot ?? ZERO,
   );
   return hashChain(elements);
 }

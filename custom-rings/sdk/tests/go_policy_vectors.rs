@@ -258,3 +258,77 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
         }],
     }
 }
+
+/// The small named policy vectors consumed by the TypeScript SDK.
+#[test]
+fn typescript_member_registry_policy_vectors() {
+    use zolana_ring_policy::{ListSet, OutflowLimit};
+    let allow = Rule::require(Subject::OutputOwner, ListId::Allow);
+    let frozen = Rule::forbid(Subject::Sender, ListId::Frozen);
+    let curator = registry_field(&CURATOR_REGISTRY).unwrap();
+    let own = SourceMap::new(&[(ListId::Allow, [0; 32])]).unwrap();
+    let mixed_sources =
+        SourceMap::new(&[(ListId::Block, [0; 32]), (ListId::Approval, [0; 32])]).unwrap();
+    let both = SourceMap::new(&[(ListId::Allow, [0; 32]), (ListId::Frozen, curator)]).unwrap();
+    let four = SourceMap::new(&[
+        (ListId::Allow, [0; 32]),
+        (ListId::Block, [0; 32]),
+        (ListId::Frozen, curator),
+        (ListId::Approval, [0; 32]),
+    ])
+    .unwrap();
+    let cases = [
+        RuleTable::builder()
+            .build()
+            .hash(&SourceMap::new(&[]).unwrap())
+            .unwrap(),
+        RuleTable::builder().rule(allow).build().hash(&own).unwrap(),
+        RuleTable::builder()
+            .rule(allow)
+            .rule(frozen)
+            .build()
+            .hash(&both)
+            .unwrap(),
+        RuleTable::builder()
+            .rule(Rule::any_of(
+                Subject::OutputOwner,
+                ListSet::of(&[ListId::Approval]),
+                ListSet::of(&[ListId::Block]),
+            ))
+            .build()
+            .hash(&mixed_sources)
+            .unwrap(),
+        RuleTable::builder()
+            .rule(allow)
+            .rule(frozen)
+            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(2000))
+            .inline_assets(ASSET_MEMBERS)
+            .build()
+            .hash(&four)
+            .unwrap(),
+        PER_ASSET_RULES.hash(&own).unwrap(),
+        RuleTable::builder()
+            .rule(allow)
+            .limits(&[OutflowLimit {
+                asset: ASSET_MEMBERS[0],
+                cap: 5000,
+                cosign_above: 600,
+            }])
+            .build()
+            .hash(&own)
+            .unwrap(),
+    ];
+    let expected = [
+        "22fe4fe93bb783144529ec54b8c2deee271fd86ca6e3d12c09c94febe15ea6cb",
+        "0c15349662d17bee75ea93e9b190df5f974d2a2a48410ecff96edb0e075838e3",
+        "14d518c045ff9d929063eef93572b9001fca0dfe7d4a8829d5b5af30b818c40b",
+        "1d43c7a7cb4a0ba253ec346ed1651f517e9954c3ec4e8cc2fe4b08b9ed238996",
+        "236e20cab88575db7290d6e003fabb64099f0992230883be980dc8418eb34b16",
+        "1e578b4983f9fcede5171cc5f9714b61979569018aed0494b5e043148095a98e",
+        "2ee080b44cc6798d264651470081a3ba21bbbbe358b00b0ec7dfef3ab9adfe63",
+    ];
+    for (value, expected) in cases.into_iter().zip(expected) {
+        assert_eq!(hex::encode(value), expected);
+    }
+}

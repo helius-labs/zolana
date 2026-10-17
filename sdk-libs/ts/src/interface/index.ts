@@ -31,7 +31,7 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
-export { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "./key-registry.js";
+export { MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_HEIGHT } from "./member-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   TransactCacheAccounts,
@@ -115,3 +115,11 @@ export {
 export type { TreeSlot } from "./tree-slot.js";
 export type * from "./types.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export type {
+  MemberRecord,
+  MemberRegistryPath,
+  MemberOpening,
+  MemberUpdate,
+  RecordUpdateWitness,
+} from "./member-registry.js";

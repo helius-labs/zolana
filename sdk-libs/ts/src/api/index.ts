@@ -14,8 +14,8 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
+  RingMemberRecordResponse,
+  RingMemberRegistryTip,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
@@ -26,8 +26,8 @@ import {
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
-  getRingKeyRegistryEntryMethod,
-  getRingKeyRegistryRegisterProofMethod,
+  getRingMemberRecordMethod,
+  getRingMemberRegistryRootMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
@@ -104,18 +104,18 @@ export class ZolanaApi {
     return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
-  getRingKeyRegistryEntry(
+  getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#call(getRingKeyRegistryEntryMethod, request, context);
+  ): Promise<RingMemberRecordResponse> {
+    return this.#call(getRingMemberRecordMethod, request, context);
   }
 
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: import("../interface/types.js").Address }>,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#call(getRingKeyRegistryRegisterProofMethod, request, context);
+  ): Promise<RingMemberRegistryTip> {
+    return this.#call(getRingMemberRegistryRootMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(

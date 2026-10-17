@@ -164,12 +164,12 @@ export function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
   return ringAddress(ringDelegatePda(ringProgramId));
 }
 
-export function ringKeyRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("keyreg"));
+export function ringMemberRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("members"));
 }
 
-export function ringKeyRegistryRootAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringKeyRegistryRootPda(ringProgramId));
+export function ringMemberRegistryRootAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringMemberRegistryRootPda(ringProgramId));
 }
 
 export async function protocolConfigAddress(): Promise<Address> {

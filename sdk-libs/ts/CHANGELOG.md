@@ -6,10 +6,15 @@ Proofs go encrypted to an attested Nitro Enclave prover by default, and one
 private transfer can pay several recipients. Viewing keys and ring auditors
 move to X25519, and the auditor of an anonymous ring reads its hidden
 senders, inputs and recipients. A ring policy bounds each transfer's outflow
-per mint, the windowed velocity records are gone, and ring submissions prove
-again over a replaced key registry root.
+per mint, and member registries hold list membership and escrowed keys.
 
 Breaking
+
+- `RingMemberRegistryReader` replaces key-registry reads with `getRingMemberRecord` and `getRingMemberRegistryRoot`, authenticated at height 20 with list bits and escrow keys → migrate custom indexer adapters and use this release's program, indexer and prover together.
+- `CustomRingPolicyProofRequest` uses nine `subjects`, nine `foreignSubjects`, an own `memberRegistryRoot` even with escrow off, and one `foreignRoot`, while deposit proofs use `members` and `ctHashes` → replace entry-answer witnesses and old key-only records in custom provers.
+- `RingPolicyConfig.sources` uses `registry` addresses, zero for the own registry and at most one curator registry, and asset rules require inline assets → re-pin policies under version 9 and replace curator namespace addresses.
+- `buildRingListWriteTransaction` now proves member-record updates and returns authenticated `records` when unchanged, while `createRingEntryInstruction`, `updateRingEntryInstruction` and entry-proof builders are removed → use `buildRingMemberUpdateTransaction` for batches of up to sixteen members and supply `proveCustomRingUpdateMembers`.
+- Key-registry types, PDA helpers, constants and error names use `MemberRegistry`/`MEMBER_REGISTRY` naming and the PDA seed is `members` → migrate imports and initialize the new registry before registration, list writes or policy transfers.
 
 - `ViewingKey`, shielded addresses and custom-ring auditor envelopes use X25519
   keys for every transfer and ring deposit, old auditor envelopes are
@@ -57,7 +62,7 @@ Breaking
 - `RuleTable`, `RuleTableInput`, `EncodedRuleTable`, `RingPolicyConfig` and
   `CustomRingPolicyProofRequest` replace `windowSlots` and `velocity` with
   `limits`, one `CustomRingOutflowLimit` of `asset`, `cap` and `cosignAbove`
-  per mint, `RING_POLICY_VERSION` is 8, `RING_POLICY_CONFIG_SIZE` shrinks by
+  per mint, `RING_POLICY_VERSION` is 9, `RING_POLICY_CONFIG_SIZE` shrinks by
   eight bytes and `outflowLimitsOff` replaces `velocityProofInputOff` → rename
   the fields, a table pinned under the previous release hashes differently and
   needs a re-pin.
@@ -106,9 +111,9 @@ Added
   client that names its prover, and `ProverClient.hasIndexedRoute` says
   whether the prover reads proof data from its own indexer, false for the
   Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
-- `RingProgramError` names `unexpectedKeyRegistryRoot`, `unexpectedApproval`,
+- `RingProgramError` names `unexpectedMemberRegistryRoot`, `unexpectedApproval`,
   `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
-  `invalidDepositData` and `unexpectedRevocationTarget`, and `ShieldedPoolError`
+  `invalidDepositData`, `memberBatchOrder`, `memberBatchTooLarge` and `memberRecordMismatch`, and `ShieldedPoolError`
   names `RingEd25519OutputOwnerTag`, the refusals of this release's programs.
 
 Changed
@@ -121,7 +126,7 @@ Changed
 - Ring transfer, exit, withdrawal and delegate submissions treat a rejected
   proof as final unless later registrations replaced the key registry root at
   the slot an escrowed proof names, which rebuilds it, and
-  `RingTransactPolicy.keyRegistryRoot`, `RingSubmissionAttempt.keyRegistryRoot`
+  `RingTransactPolicy.memberRegistryRoot`, `RingSubmissionAttempt.memberRegistryRoot`
   and the `registry` reader of `RingTransactionSubmission` let a submission
   check that slot.
 

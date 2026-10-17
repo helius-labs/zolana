@@ -13,7 +13,7 @@ import {
   ringDelegatePda,
   ringDepositAuditAddress,
   ringDepositAuditPda,
-  ringKeyRegistryRootPda,
+  ringMemberRegistryRootPda,
   ringPolicyConfigPda,
 } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
@@ -30,8 +30,8 @@ import {
   decodeRingDepositAudit,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
-  decodeRingKeyRegistryRoot,
-  type RingKeyRegistryRoot,
+  decodeRingMemberRegistryRoot,
+  type RingMemberRegistryRoot,
 } from "./codecs.js";
 import { RingError } from "./error.js";
 
@@ -42,7 +42,7 @@ const SET_PAUSED_TAG = 11;
 const SET_CO_SIGNER_TAG = 27;
 const CLEAR_CO_SIGNER_TAG = 21;
 const SET_DELEGATE_TAG = 24;
-const CREATE_KEY_REGISTRY_ROOT_TAG = 28;
+const CREATE_MEMBER_REGISTRY_ROOT_TAG = 28;
 const SET_DEPOSIT_AUDIT_TAG = 30;
 
 export async function fetchRingDepositAudit(
@@ -87,26 +87,26 @@ export async function setRingDepositAuditInstruction(
 }
 
 /** The stored bump must be canonical. */
-export async function fetchRingKeyRegistryRoot(
+export async function fetchRingMemberRegistryRoot(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
   context?: RequestContext,
-): Promise<RingKeyRegistryRoot> {
-  const [address, bump] = await ringKeyRegistryRootPda(ringProgramId);
+): Promise<RingMemberRegistryRoot> {
+  const [address, bump] = await ringMemberRegistryRootPda(ringProgramId);
   const account = await client.getAccount(address, context);
-  if (account === undefined) throw new RingError("RING_KEY_REGISTRY_MISSING");
-  if (account.owner !== ringProgramId) throw new RingError("RING_KEY_REGISTRY_INVALID");
-  const root = decodeRingKeyRegistryRoot(account.data);
-  if (root.bump !== bump) throw new RingError("RING_KEY_REGISTRY_INVALID");
+  if (account === undefined) throw new RingError("RING_MEMBER_REGISTRY_MISSING");
+  if (account.owner !== ringProgramId) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
+  const root = decodeRingMemberRegistryRoot(account.data);
+  if (root.bump !== bump) throw new RingError("RING_MEMBER_REGISTRY_INVALID");
   return root;
 }
 
-export async function createRingKeyRegistryRootInstruction(
+export async function createRingMemberRegistryRootInstruction(
   input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
 ): Promise<Instruction> {
   const [config, [root]] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    ringKeyRegistryRootPda(input.ringProgramId),
+    ringMemberRegistryRootPda(input.ringProgramId),
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -117,7 +117,7 @@ export async function createRingKeyRegistryRootInstruction(
       meta(root, false, true),
       meta(SYSTEM_PROGRAM, false, false),
     ],
-    data: Uint8Array.of(CREATE_KEY_REGISTRY_ROOT_TAG),
+    data: Uint8Array.of(CREATE_MEMBER_REGISTRY_ROOT_TAG),
   };
 }
 
@@ -320,10 +320,10 @@ export async function setRingDelegateInstruction(
     delegate: Address;
   }>,
 ): Promise<Instruction> {
-  const [config, delegatePda, [keyRegistryRoot], programData] = await Promise.all([
+  const [config, delegatePda, [memberRegistryRoot], programData] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringDelegateAddress(input.ringProgramId),
-    ringKeyRegistryRootPda(input.ringProgramId),
+    ringMemberRegistryRootPda(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
   return {
@@ -333,7 +333,7 @@ export async function setRingDelegateInstruction(
       meta(input.authority, true, false),
       meta(config, false, true),
       meta(delegatePda, false, true),
-      meta(keyRegistryRoot, false, false),
+      meta(memberRegistryRoot, false, false),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.ringProgramId, false, false),
       meta(programData, false, false),

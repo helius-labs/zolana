@@ -178,18 +178,27 @@ export interface CustomRingOpening {
   readonly dataHash: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly ringProgramId: Bytes32;
-  /** Outputs only, absent with escrow off, in padding or on a namespace-owned record. */
-  readonly key?: CustomRingRegistryKey;
+  readonly ctHash?: Bytes32;
 }
-
-/** Mirrors Go `RegistryKey`, an owner's escrowed nullifier key opened in the ring key registry. */
-export interface CustomRingRegistryKey {
+export interface CustomRingRecordWitness {
   readonly next: Bytes32;
-  /** `hashBytes` of the sealed key ciphertext. */
-  readonly ctHash: Bytes32;
+  readonly lists: bigint;
+  readonly escrowKey: Bytes32;
   readonly index: bigint;
   readonly path: readonly Bytes32[];
 }
+export interface CustomRingSubjectWitness extends CustomRingRecordWitness {
+  readonly present: boolean;
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowLists: bigint;
+  readonly lowEscrow: Bytes32;
+}
+/** A checked record plus its sealed-key ciphertext hash. */
+export interface CustomRingRegistryKey extends CustomRingRecordWitness {
+  readonly ctHash: Bytes32;
+}
+export const RING_SUBJECT_SLOTS = RING_INPUT_SLOTS + RING_OUTPUT_SLOTS;
 
 /** Mirrors Rust `RuleAnswer`, one entry fact proven against the roots. */
 export interface CustomRingRuleAnswer {
@@ -238,7 +247,7 @@ export function disabledRuleAnswer(): CustomRingRuleAnswer {
 /** Mirrors Rust `SourceOwner`, slot `i` is empty or serves list `i + 1`. */
 export interface CustomRingSourceOwner {
   readonly listId: number;
-  readonly ownerHash: Bytes32;
+  readonly registry: Bytes32;
 }
 
 /** Mirrors Rust `OutflowLimit`, a zero `cap` or `cosignAbove` leaves that bound off. */
@@ -292,9 +301,11 @@ export interface CustomRingPolicyProofRequest {
   readonly treeSlots: readonly TreeSlot[];
   readonly addressTreeId: number;
   readonly limits: CustomRingOutflowLimitProofInput;
-  /** Present exactly when the ring escrows nullifier keys, every output key opens under it. */
-  readonly keyRegistryRoot?: Bytes32;
-  readonly answers: readonly CustomRingRuleAnswer[];
+  readonly keyEscrow: boolean;
+  readonly memberRegistryRoot: Bytes32;
+  readonly subjects: readonly (CustomRingSubjectWitness | undefined)[];
+  readonly foreignRoot: Bytes32;
+  readonly foreignSubjects: readonly (CustomRingSubjectWitness | undefined)[];
 }
 
 export interface CustomRingBaseProofRequest {
@@ -318,33 +329,31 @@ export interface CustomRingDepositProofRequest {
   readonly nullifierPks: readonly Bytes32[];
   readonly blindings: readonly Bytes32[];
   /** Per slot, absent with escrow off or past `count`. */
-  readonly keys: readonly (CustomRingRegistryKey | undefined)[];
+  readonly members: readonly (CustomRingRecordWitness | undefined)[];
+  readonly ctHashes: readonly Bytes32[];
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
   /** Present exactly when the ring escrows nullifier keys. */
-  readonly keyRegistryRoot?: Bytes32;
+  readonly memberRegistryRoot?: Bytes32;
 }
 
-/** Mirrors Go `registryInsertion`, the append the key registration circuit proves. */
-export interface CustomRingRegistryInsertion {
+export interface CustomRingRegisterKeyProofRequest {
+  readonly publicInputHash: Bytes32;
   readonly registryOldRoot: Bytes32;
   readonly registryNewRoot: Bytes32;
   readonly member: Bytes32;
-  readonly newIndex: bigint;
-  readonly lowMember: Bytes32;
-  readonly lowNext: Bytes32;
-  readonly lowKey: Bytes32;
-  readonly lowIndex: bigint;
-  readonly lowProof: readonly Bytes32[];
-  readonly newProof: readonly Bytes32[];
-}
-
-/** Proves disclosure of a member nullifier key to the auditor. */
-export interface CustomRingRegisterKeyProofRequest extends CustomRingRegistryInsertion {
-  readonly publicInputHash: Bytes32;
+  readonly oldLists: bigint;
+  readonly update: import("../../interface/member-registry.js").RecordUpdateWitness;
   readonly nullifierSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
+}
+export interface CustomRingUpdateMembersProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly oldRoot: Bytes32;
+  readonly newRoot: Bytes32;
+  readonly items: readonly (import("../../interface/member-registry.js").MemberUpdate &
+    Readonly<{ update: import("../../interface/member-registry.js").RecordUpdateWitness }>)[];
 }
 
 export interface Proof {

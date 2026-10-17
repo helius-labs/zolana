@@ -1,3 +1,4 @@
+import { emptyMemberRecord, emptyRegistryTip, registryFixture } from "./helpers/member-registry.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { X25519Secret } from "../src/keypair/x25519.js";
 import {
@@ -10,7 +11,7 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
-import type { RingKeyRegistryEntry } from "../src/client/ports.js";
+import type { RingMemberRecordResponse } from "../src/client/ports.js";
 import type {
   CustomRingRegisterKeyProofRequest,
   CustomRingPolicyProofRequest,
@@ -21,7 +22,7 @@ import { Writer, addressBytes } from "../src/interface/internal.js";
 import {
   ringConfigPda,
   ringDelegatePda,
-  ringKeyRegistryRootPda,
+  ringMemberRegistryRootPda,
   treeAddress,
 } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
@@ -46,14 +47,17 @@ import { EncryptedScheme, encodeOutputData } from "../src/transaction/serializat
 import { createProofOutput, Utxo } from "../src/transaction/utxo.js";
 import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
 import type { WalletUtxo } from "../src/transaction/wallet/state.js";
-import { decodeRingKeyRegistryRoot, RING_KEY_REGISTRY_ROOT_HISTORY } from "../src/ring/codecs.js";
-import { fetchRingKeyRegistryRoot } from "../src/ring/config.js";
+import {
+  decodeRingMemberRegistryRoot,
+  RING_MEMBER_REGISTRY_ROOT_HISTORY,
+} from "../src/ring/codecs.js";
+import { fetchRingMemberRegistryRoot } from "../src/ring/config.js";
 import { buildRingDelegateRecoveredTransaction } from "../src/ring/delegate.js";
 import {
-  KEY_REGISTRY_EMPTY_ROOT,
-  KEY_REGISTRY_FIELD_MAX,
-  verifyKeyRegistryInsert,
-} from "../src/ring/key-registry-tree.js";
+  MEMBER_REGISTRY_EMPTY_ROOT,
+  MEMBER_REGISTRY_FIELD_MAX,
+  verifyMemberRegistryInsert,
+} from "../src/ring/member-registry-tree.js";
 import { registerRingKeyInstruction } from "../src/ring/instructions.js";
 import {
   buildRingKeyRegistrationTransaction,
@@ -68,7 +72,7 @@ import {
   sealNullifierKeyWith,
   type RingKeyRegistrationClient,
   type SealedNullifierKey,
-} from "../src/ring/key-registry.js";
+} from "../src/ring/member-registry.js";
 import { RingError } from "../src/ring/error.js";
 import { buildRuleTable, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
@@ -82,7 +86,11 @@ import {
   ringProgramConfigData,
 } from "./helpers/ring-accounts.js";
 import { treeAccount } from "./helpers/tree-account.js";
-import { firstInsertion, keyRegistryRootData, oneMemberRegistry } from "./helpers/key-registry.js";
+import {
+  firstInsertion,
+  memberRegistryRootData,
+  oneMemberRegistry,
+} from "./helpers/member-registry.js";
 
 function hex(value: string): Uint8Array {
   return Uint8Array.from(Buffer.from(value, "hex"));
@@ -115,8 +123,8 @@ const NULLIFIER_PK = hex("2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042df
 const EPH_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63");
 const CIPHERTEXT = hex("2c2a1650e3a2a0d012a0d438341ff610ad99bd3c1cde0dd169179174880e755d");
 const KEY_HASH = hex("1c73c14786dd7354525c98368bca8dbc5f836e957c45f552f377c84e266546c4");
-const REGISTRY_NEW_ROOT = hex("2ec354929355675625614fc9fd05405e3538fd0de45f028690d20e3c6a4e3b76");
-const PUBLIC_INPUT_HASH = hex("27640a4aef274e2bd8e4fcc761ca86b1e70a4f203857cc2728dad0bc5b6a6085");
+const REGISTRY_NEW_ROOT = hex("133b1a84f6508b81465d8c2388be5210ec4171ef8347193f9dcad621953c5015");
+const PUBLIC_INPUT_HASH = hex("2b36575112a72041181227ef0313db6e9d340e56e378dd9e4368eaf9c50c8bfb");
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const TREE = treeAddress(0);
@@ -167,14 +175,16 @@ describe("nullifier key envelope", () => {
     });
     expect(key).toEqual(KEY_HASH);
     const insertion = firstInsertion(member);
-    const registryNewRoot = verifyKeyRegistryInsert({
-      root: KEY_REGISTRY_EMPTY_ROOT,
+    const registryNewRoot = verifyMemberRegistryInsert({
+      root: MEMBER_REGISTRY_EMPTY_ROOT,
       appendIndex: 1n,
       member,
-      key,
+      lists: 0n,
+      escrowKey: key,
       lowMember: insertion.lowMember,
       lowNext: insertion.lowNext,
-      lowKey: insertion.lowKeyHash,
+      lowLists: 0n,
+      lowEscrowKey: insertion.lowKeyHash,
       lowIndex: insertion.lowIndex,
       lowProof: insertion.lowProof,
       newProof: insertion.newProof,
@@ -182,7 +192,7 @@ describe("nullifier key envelope", () => {
     expect(registryNewRoot).toEqual(REGISTRY_NEW_ROOT);
     expect(
       registerKeyPublicInputHash({
-        registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
+        registryOldRoot: MEMBER_REGISTRY_EMPTY_ROOT,
         registryNewRoot,
         member,
         nullifierPublicKey: NULLIFIER_PK as Bytes32,
@@ -207,9 +217,16 @@ describe("nullifier key envelope", () => {
         ...filled(4),
         ...filled(5),
       ]),
-      registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
+      registryOldRootIndex: 0,
       registryNewRoot: filled(0x11) as Bytes32,
-      registryNextIndex: 1n,
+      item: {
+        member: filled(7) as Bytes32,
+        oldLists: 0n,
+        oldEscrowKey: filled(0) as Bytes32,
+        lists: 0n,
+        escrowKey: filled(0x13) as Bytes32,
+        index: 1n,
+      },
       nullifierPublicKey: filled(0x12) as Bytes32,
       ephemeralPublicKey: filled(0x02, 33) as Bytes33,
       ciphertext: filled(0x44) as Bytes32,
@@ -224,8 +241,11 @@ describe("nullifier key envelope", () => {
             "0303030303030303030303030303030303030303030303030303030303030303" +
             "0404040404040404040404040404040404040404040404040404040404040404" +
             "0505050505050505050505050505050505050505050505050505050505050505" +
-            "03a753cd12b351201070a629c59b9a162c53a1fd33a138cbd6be814bfcfe980e" +
-            "1111111111111111111111111111111111111111111111111111111111111111" +
+            "00" +
+            "11".repeat(32) +
+            "07".repeat(32) +
+            "00".repeat(8 + 32 + 8) +
+            "13".repeat(32) +
             "0100000000000000" +
             "1212121212121212121212121212121212121212121212121212121212121212" +
             "020202020202020202020202020202020202020202020202020202020202020202" +
@@ -233,66 +253,73 @@ describe("nullifier key envelope", () => {
         ),
       ]),
     );
-    expect(instruction.data?.length).toBe(362);
+    expect(instruction.data?.length).toBe(443);
     expect(instruction.accounts?.map((account) => account.address)).toEqual([
       member,
       (await ringConfigPda(RING))[0],
-      (await ringKeyRegistryRootPda(RING))[0],
+      (await ringMemberRegistryRootPda(RING))[0],
     ]);
   });
 });
 
 describe("key registry root", () => {
   it("decodes the account with its root history and refuses another layout", async () => {
-    const [rootAddress, bump] = await ringKeyRegistryRootPda(RING);
-    const data = keyRegistryRootData({ root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 1n, bump: bump });
-    expect(decodeRingKeyRegistryRoot(data)).toEqual({
-      root: KEY_REGISTRY_EMPTY_ROOT,
+    const [rootAddress, bump] = await ringMemberRegistryRootPda(RING);
+    const data = memberRegistryRootData({
+      root: MEMBER_REGISTRY_EMPTY_ROOT,
+      nextIndex: 1n,
+      bump: bump,
+    });
+    expect(decodeRingMemberRegistryRoot(data)).toEqual({
+      root: MEMBER_REGISTRY_EMPTY_ROOT,
       nextIndex: 1n,
       bump,
       historyCursor: 0,
-      history: [KEY_REGISTRY_EMPTY_ROOT, ...Array.from({ length: 31 }, () => new Uint8Array(32))],
+      history: [
+        MEMBER_REGISTRY_EMPTY_ROOT,
+        ...Array.from({ length: 31 }, () => new Uint8Array(32)),
+      ],
     });
-    const advanced = decodeRingKeyRegistryRoot(
-      keyRegistryRootData({
+    const advanced = decodeRingMemberRegistryRoot(
+      memberRegistryRootData({
         root: filled(5) as Bytes32,
         nextIndex: 3n,
         bump,
         cursor: 31,
-        history: [KEY_REGISTRY_EMPTY_ROOT],
+        history: [MEMBER_REGISTRY_EMPTY_ROOT],
       }),
     );
     expect(advanced.historyCursor).toBe(31);
-    expect(advanced.history[0]).toEqual(KEY_REGISTRY_EMPTY_ROOT);
+    expect(advanced.history[0]).toEqual(MEMBER_REGISTRY_EMPTY_ROOT);
     expect(advanced.history[31]).toEqual(filled(5));
-    for (const cursor of [1, RING_KEY_REGISTRY_ROOT_HISTORY]) {
+    for (const cursor of [1, RING_MEMBER_REGISTRY_ROOT_HISTORY]) {
       const unwritten = new Uint8Array(data);
       unwritten[10] = cursor;
-      expect(() => decodeRingKeyRegistryRoot(unwritten)).toThrow("RING_KEY_REGISTRY_INVALID");
+      expect(() => decodeRingMemberRegistryRoot(unwritten)).toThrow("RING_MEMBER_REGISTRY_INVALID");
     }
-    expect(() => decodeRingKeyRegistryRoot(data.subarray(0, 42))).toThrow(
-      "RING_KEY_REGISTRY_INVALID",
+    expect(() => decodeRingMemberRegistryRoot(data.subarray(0, 42))).toThrow(
+      "RING_MEMBER_REGISTRY_INVALID",
     );
     expect(() =>
-      decodeRingKeyRegistryRoot(
-        keyRegistryRootData({ root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 0n, bump: bump }),
+      decodeRingMemberRegistryRoot(
+        memberRegistryRootData({ root: MEMBER_REGISTRY_EMPTY_ROOT, nextIndex: 0n, bump: bump }),
       ),
-    ).toThrow("RING_KEY_REGISTRY_INVALID");
+    ).toThrow("RING_MEMBER_REGISTRY_INVALID");
     const otherKind = new Uint8Array(data);
     otherKind[0] = 8;
-    expect(() => decodeRingKeyRegistryRoot(otherKind)).toThrow("RING_KEY_REGISTRY_INVALID");
+    expect(() => decodeRingMemberRegistryRoot(otherKind)).toThrow("RING_MEMBER_REGISTRY_INVALID");
     await expect(
-      fetchRingKeyRegistryRoot({ getAccount: async () => undefined }, RING),
-    ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_MISSING" });
+      fetchRingMemberRegistryRoot({ getAccount: async () => undefined }, RING),
+    ).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_MISSING" });
     await expect(
-      fetchRingKeyRegistryRoot(
+      fetchRingMemberRegistryRoot(
         {
           getAccount: async (key) =>
             key === rootAddress
               ? ownedAccount(
                   RING,
-                  keyRegistryRootData({
-                    root: KEY_REGISTRY_EMPTY_ROOT,
+                  memberRegistryRootData({
+                    root: MEMBER_REGISTRY_EMPTY_ROOT,
                     nextIndex: 1n,
                     bump: bump ^ 1,
                   }),
@@ -301,7 +328,7 @@ describe("key registry root", () => {
         },
         RING,
       ),
-    ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_INVALID" });
+    ).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_INVALID" });
   });
 });
 
@@ -323,7 +350,7 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
   const member = actor(3);
   const identity = memberOfTag(member.address.confidentialViewTag());
   const [config, configBump] = await ringConfigPda(RING);
-  const [rootAddress, rootBump] = await ringKeyRegistryRootPda(RING);
+  const [rootAddress, rootBump] = await ringMemberRegistryRootPda(RING);
   const insertion = firstInsertion(identity);
   // A pinned seal fixes which wrong key passes the pad byte.
   const envelope = sealNullifierKeyWith(
@@ -335,31 +362,40 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
     nullifierPublicKey: envelope.nullifierPublicKey,
     ciphertext: envelope.sealed.ciphertext,
   });
-  const registeredRoot = verifyKeyRegistryInsert({
-    root: KEY_REGISTRY_EMPTY_ROOT,
+  const registeredRoot = verifyMemberRegistryInsert({
+    root: MEMBER_REGISTRY_EMPTY_ROOT,
     appendIndex: 1n,
     member: identity,
-    key,
+    lists: 0n,
+    escrowKey: key,
     lowMember: insertion.lowMember,
     lowNext: insertion.lowNext,
-    lowKey: insertion.lowKeyHash,
+    lowLists: 0n,
+    lowEscrowKey: insertion.lowKeyHash,
     lowIndex: insertion.lowIndex,
     lowProof: insertion.lowProof,
     newProof: insertion.newProof,
   });
   const root = input.registered
     ? { root: registeredRoot, nextIndex: 2n }
-    : { root: KEY_REGISTRY_EMPTY_ROOT, nextIndex: 1n };
-  const entry: RingKeyRegistryEntry = {
+    : { root: MEMBER_REGISTRY_EMPTY_ROOT, nextIndex: 1n };
+  const entry: RingMemberRecordResponse = {
     context: { slot: 1n, blockTime: 1n },
     root: registeredRoot,
     nextIndex: 2n,
-    member: identity,
-    next: KEY_REGISTRY_FIELD_MAX,
+    rootIndex: 0,
+    present: true,
+    low: null,
+    record: {
+      member: identity,
+      next: MEMBER_REGISTRY_FIELD_MAX,
+      lists: 0n,
+      escrowKey: key,
+      ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
+      ciphertext: envelope.sealed.ciphertext,
+    },
     index: 1n,
-    ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
-    ciphertext: envelope.sealed.ciphertext,
-    proof: insertion.newProof,
+    path: insertion.newProof,
   };
   let request: CustomRingRegisterKeyProofRequest | undefined;
   // The flow wipes the secrets once the prover returns, the test keeps copies.
@@ -386,30 +422,60 @@ async function registrationFixture(input: Readonly<{ registered?: boolean }> = {
       if (key === rootAddress)
         return ownedAccount(
           RING,
-          keyRegistryRootData({ root: root.root, nextIndex: root.nextIndex, bump: rootBump }),
+          memberRegistryRootData({ root: root.root, nextIndex: root.nextIndex, bump: rootBump }),
         );
       return undefined;
     },
     getLatestBlockhash: async () => BLOCKHASH,
-    getRingKeyRegistryRegisterProof: async () => ({
-      context: { slot: 1n, blockTime: 1n },
-      root: KEY_REGISTRY_EMPTY_ROOT,
-      nextIndex: 1n,
-      member: identity,
-      ...insertion,
-    }),
-    getRingKeyRegistryEntry: async () => {
-      if (input.registered) return entry;
-      throw new ClientError("CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED", {
-        details: { method: "getRingKeyRegistryEntry" },
-      });
-    },
+    getRingMemberRegistryRoot: async () => emptyRegistryTip(),
+    getRingMemberRecord: async () => (input.registered ? entry : emptyMemberRecord()),
     proveCustomRingRegisterKey: prove,
   };
   return { auditor, member, identity, client, prove, request: () => request, envelope, entry };
 }
 
 describe("key registration flow", () => {
+  it("registers an existing member without changing its lists or append cursor", async () => {
+    const test = await registrationFixture();
+    const registry = registryFixture([{ member: test.identity, lists: 0x85n }]);
+    const [root, bump] = await ringMemberRegistryRootPda(RING);
+    const getAccount = test.client.getAccount;
+    const client = {
+      ...test.client,
+      getAccount: async (key: Address) =>
+        key === root
+          ? ownedAccount(RING, memberRegistryRootData({ ...registry.tip, bump }))
+          : getAccount(key),
+      getRingMemberRecord: async () => registry.read(test.identity),
+      getRingMemberRegistryRoot: async () => registry.tip,
+    };
+    await expect(
+      prepareRingKeyRegistration({ client, ringProgramId: RING, member: test.member.enrolment }),
+    ).resolves.toMatchObject({ kind: "pending" });
+    const request = test.request();
+    if (request === undefined) throw new Error("missing proof");
+    expect(request.oldLists).toBe(0x85n);
+    expect(request.update.exists).toBe(true);
+    expect(request.update.index).toBe(1n);
+    const envelope = sealNullifierKeyWith(
+      X25519Secret.fromBytes(request.ephemeralSecret),
+      test.member.keypair.nullifierKey(),
+      test.auditor.publicKey(),
+    );
+    const reference = registryFixture([
+      {
+        member: test.identity,
+        lists: 0x85n,
+        escrowKey: registeredKeyHash({
+          nullifierPublicKey: envelope.nullifierPublicKey,
+          ciphertext: envelope.sealed.ciphertext,
+        }),
+      },
+    ]);
+    expect(request.registryNewRoot).toEqual(reference.root);
+    expect(reference.tip.nextIndex).toBe(registry.tip.nextIndex);
+  });
+
   it("seals the lent key, proves the append and pays as the member", async () => {
     const test = await registrationFixture();
     const preparation = await prepareRingKeyRegistration({
@@ -422,7 +488,7 @@ describe("key registration flow", () => {
     const request = test.request();
     if (request === undefined) throw new Error("registration proof missing");
     expect(request.member).toEqual(test.identity);
-    expect(request.newIndex).toBe(1n);
+    expect(request.update.index).toBe(1n);
     expect(request.nullifierSecret[0]).toBe(0);
     expect(request.nullifierSecret.subarray(1)).toEqual(
       test.member.keypair.nullifierKey().secretBytes(),
@@ -435,17 +501,19 @@ describe("key registration flow", () => {
       test.auditor.publicKey(),
     );
     const insertion = firstInsertion(test.identity);
-    const registryNewRoot = verifyKeyRegistryInsert({
-      root: KEY_REGISTRY_EMPTY_ROOT,
+    const registryNewRoot = verifyMemberRegistryInsert({
+      root: MEMBER_REGISTRY_EMPTY_ROOT,
       appendIndex: 1n,
       member: test.identity,
-      key: registeredKeyHash({
+      lists: 0n,
+      escrowKey: registeredKeyHash({
         nullifierPublicKey: envelope.nullifierPublicKey,
         ciphertext: envelope.sealed.ciphertext,
       }),
       lowMember: insertion.lowMember,
       lowNext: insertion.lowNext,
-      lowKey: insertion.lowKeyHash,
+      lowLists: 0n,
+      lowEscrowKey: insertion.lowKeyHash,
       lowIndex: insertion.lowIndex,
       lowProof: insertion.lowProof,
       newProof: insertion.newProof,
@@ -453,7 +521,7 @@ describe("key registration flow", () => {
     expect(request.registryNewRoot).toEqual(registryNewRoot);
     expect(request.publicInputHash).toEqual(
       registerKeyPublicInputHash({
-        registryOldRoot: KEY_REGISTRY_EMPTY_ROOT,
+        registryOldRoot: MEMBER_REGISTRY_EMPTY_ROOT,
         registryNewRoot,
         member: test.identity,
         nullifierPublicKey: envelope.nullifierPublicKey,
@@ -509,12 +577,9 @@ describe("key registration flow", () => {
       buildRingKeyRegistrationTransaction({
         client: {
           ...test.client,
-          getRingKeyRegistryRegisterProof: async () => ({
-            ...(await test.client.getRingKeyRegistryRegisterProof({
+          getRingMemberRegistryRoot: async () => ({
+            ...(await test.client.getRingMemberRegistryRoot({
               ringProgramId: RING,
-              member: test.identity,
-              expectedRoot: KEY_REGISTRY_EMPTY_ROOT,
-              expectedNextIndex: 1n,
             })),
             nextIndex: 2n,
           }),
@@ -522,7 +587,7 @@ describe("key registration flow", () => {
         ringProgramId: RING,
         member: test.member.enrolment,
       }),
-    ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_STALE" });
+    ).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_STALE" });
     expect(test.prove).not.toHaveBeenCalled();
     const abort = new AbortController();
     await expect(
@@ -530,10 +595,10 @@ describe("key registration flow", () => {
         {
           client: {
             ...test.client,
-            getRingKeyRegistryEntry: async () => {
+            getRingMemberRecord: async () => {
               abort.abort();
-              throw new ClientError("CLIENT_KEY_REGISTRY_OUT_OF_SYNC", {
-                details: { method: "getRingKeyRegistryEntry" },
+              throw new ClientError("CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC", {
+                details: { method: "getRingMemberRecord" },
               });
             },
           },
@@ -580,20 +645,20 @@ describe("key registration flow", () => {
       /RING_KEY_(ENVELOPE|REGISTRY)_INVALID/,
     );
     expect(() => openRingSealedKey(entry, wrongKeyPassingPad(entry.sealed))).toThrow(
-      "RING_KEY_REGISTRY_INVALID",
+      "RING_MEMBER_REGISTRY_INVALID",
     );
     const forged = { ...entry, proof: [filled(1) as Bytes32, ...entry.proof.slice(1)] };
-    expect(() => openRingSealedKey(forged, test.auditor)).toThrow("RING_KEY_REGISTRY_INVALID");
+    expect(() => openRingSealedKey(forged, test.auditor)).toThrow("RING_MEMBER_REGISTRY_INVALID");
     await expect(
       fetchRingSealedKey({
         client: {
           ...test.client,
-          getRingKeyRegistryEntry: async () => ({ ...test.entry, nextIndex: 3n }),
+          getRingMemberRecord: async () => ({ ...test.entry, nextIndex: 3n }),
         },
         ringProgramId: RING,
         member: test.identity,
       }),
-    ).rejects.toMatchObject({ code: "RING_KEY_REGISTRY_STALE" });
+    ).rejects.toMatchObject({ code: "RING_MEMBER_REGISTRY_STALE" });
   });
 });
 
@@ -1124,7 +1189,7 @@ describe("recovered delegate move", () => {
     const [config, configBump] = await ringConfigPda(RING);
     const [delegatePda, delegateBump] = await ringDelegatePda(RING);
     const [policyPda, policyBump] = await policyConfigPda(RING);
-    const [registryPda, registryBump] = await ringKeyRegistryRootPda(RING);
+    const [registryPda, registryBump] = await ringMemberRegistryRootPda(RING);
     const namespace = await ringPolicyNamespaceAddress(RING);
     const table = buildRuleTable({ rules: [] });
     const registry = oneMemberRegistry({
@@ -1203,12 +1268,12 @@ describe("recovered delegate move", () => {
           if (key === registryPda)
             return ownedAccount(
               RING,
-              keyRegistryRootData({
+              memberRegistryRootData({
                 root: registry.root,
                 nextIndex: 2n,
                 bump: registryBump,
                 cursor: 1,
-                history: [KEY_REGISTRY_EMPTY_ROOT],
+                history: [MEMBER_REGISTRY_EMPTY_ROOT],
               }),
             );
           if (key === delegatePda)
@@ -1220,19 +1285,7 @@ describe("recovered delegate move", () => {
             );
           return undefined;
         },
-        getMerkleProofs: async () => {
-          throw new Error("no list facts");
-        },
-        getNonInclusionProofs: async () => {
-          throw new Error("no list facts");
-        },
-        getEncryptedUtxosByTags: async () => {
-          throw new Error("no list facts");
-        },
-        getShieldedTransactionsByNullifiers: async () => {
-          throw new Error("no list facts");
-        },
-        getRingKeyRegistryEntry: async () => registry.entry,
+        getRingMemberRecord: async () => registry.entry,
         proveRingAuthorityTransact: async (inputs) => {
           owners = inputs.inputUtxos
             .filter((input) => !input.isDummy())
@@ -1266,13 +1319,15 @@ describe("recovered delegate move", () => {
     expect(Object.keys(transaction.signatures)).toEqual([delegate]);
     expect(owners).toEqual([source.keypair.signingPublicKey().toBytes().join(",")]);
     expect(policy?.auditorPublicKey).toEqual(auditor.publicKey().u());
-    expect(policy?.keyRegistryRoot).toEqual(registry.root);
+    expect(policy?.memberRegistryRoot).toEqual(registry.root);
     expect(policy?.treeSlots).toHaveLength(1);
-    expect(policy?.outputs.filter((output) => output.key !== undefined)).toHaveLength(2);
-    expect(policy?.outputs.find((output) => output.key !== undefined)?.key).toMatchObject({
-      next: registry.entry.next,
+    expect(
+      policy?.outputs.filter((output) => output.ctHash?.some((byte) => byte !== 0)),
+    ).toHaveLength(2);
+    expect(policy?.subjects?.find((subject) => subject?.present)).toMatchObject({
+      next: registry.entry.record!.next,
       index: 1n,
-      path: registry.entry.proof,
+      path: registry.entry.path,
     });
   });
 });
