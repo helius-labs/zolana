@@ -71,7 +71,7 @@ fn dummy(owner: &ShieldedKeypair, tree: u16) -> WalletUtxo {
 }
 #[derive(Debug, PartialEq, Eq)]
 struct Snapshot {
-    inputs: Vec<WalletUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     outputs: Vec<SppProofOutputUtxo>,
     transfers: Vec<PublicTransferRequest>,
     payer: Address,
@@ -164,7 +164,7 @@ fn constructor_binds_every_committed_input_field_at_each_position() {
     metadata.utxo.data = Data::new(vec![DataRecord::Memo(vec![8])]);
     metadata.leaf_index = 900;
     let tx = ConfidentialTransaction::new(vec![metadata.clone()], payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), [metadata]);
+    assert_eq!(tx.inputs(), [SppProofInputUtxo::from(metadata)]);
 }
 
 #[test]
@@ -215,7 +215,13 @@ fn constructor_enforces_declared_trees_and_preserves_interleaved_input_order() {
         dummy(&owner, 9),
     ];
     let tx = ConfidentialTransaction::new(interleaved.clone(), payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), interleaved);
+    assert_eq!(
+        tx.inputs(),
+        interleaved
+            .iter()
+            .map(SppProofInputUtxo::from)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(tx.input_tree_ids(), [9, 4]);
     assert_eq!(
         *tx.first_nullifier(),
