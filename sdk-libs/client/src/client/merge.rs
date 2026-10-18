@@ -237,7 +237,7 @@ pub fn check_merge_record(
     address: &ShieldedAddress,
 ) -> Result<(), ClientError> {
     if record.merge_encryption != MergeEncryptionScheme::PoseidonCtrV1 {
-        return Err(ClientError::MergeDisabled { owner });
+        return Err(ClientError::MergeEncryptionSchemeUnsupported { owner });
     }
     let signing = address.signing_pubkey;
     let signing_matches = match signing.curve()? {

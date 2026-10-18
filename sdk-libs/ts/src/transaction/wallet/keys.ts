@@ -90,6 +90,7 @@ export interface ShieldedKeys {
     requests: readonly DecryptRequest[],
     context?: RequestContext,
   ): Promise<readonly Uint8Array[]>;
+  /** Fresh buffers owned by the caller, which wipes them after use. */
   derive(requests: readonly DeriveRequest[], context?: RequestContext): Promise<readonly Bytes32[]>;
   /** Fresh key objects; the caller destroys them. */
   transactionKeys(

@@ -186,8 +186,12 @@ fn merge_rejects_a_non_canonical_ciphertext_element() {
 
     for element in 0..3 {
         let mut data = merge_ix_data(true);
-        let MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } = &mut data.output_encryption;
+        let mut ciphertext = [fe(42), fe(43), fe(44)];
         *ciphertext.get_mut(element).expect("ciphertext element") = [0xff; 32];
+        data.output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0; 16],
+            ciphertext,
+        };
         let ix = merge_instruction(&rpc, &tree, record, data);
         let error = rpc
             .create_and_send_default_payer_transaction_with_budget(

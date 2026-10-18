@@ -340,11 +340,17 @@ export class Merge {
       16,
       "merge output ciphertext salt",
     );
-    const outputCiphertext = encryptMergeOutput(
-      { amount, mint: asset },
-      checked<Bytes32>(input.outputKey, 32, "merge output key"),
-      outputCiphertextSalt,
-    );
+    const outputKey = checked<Bytes32>(input.outputKey, 32, "merge output key");
+    let outputCiphertext: MergeOutputCiphertext;
+    try {
+      outputCiphertext = encryptMergeOutput(
+        { amount, mint: asset },
+        outputKey,
+        outputCiphertextSalt,
+      );
+    } finally {
+      outputKey.fill(0);
+    }
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
@@ -382,7 +388,9 @@ export class Merge {
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const firstNullifier = first.nullifier();
     const nullifierKey = keypair.nullifierKey();
+    let outputKey: Bytes32 | undefined;
     try {
+      outputKey = mergeOutputKey(nullifierKey, firstNullifier);
       return new Merge({
         address: keypair.shieldedAddress(),
         inputs,
@@ -391,10 +399,11 @@ export class Merge {
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
-        outputKey: mergeOutputKey(nullifierKey, firstNullifier),
+        outputKey,
         outputTreeId,
       });
     } finally {
+      outputKey?.fill(0);
       nullifierKey.destroy();
     }
   }

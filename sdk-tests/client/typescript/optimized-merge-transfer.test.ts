@@ -2,8 +2,9 @@
 
 import {
   SOL_MINT,
+  MergeEncryptionScheme,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   createZolanaClient,
 } from "@heliuslabs/zolana";
 import { getCacheAddress } from "@heliuslabs/zolana/addresses";
@@ -80,10 +81,10 @@ describe("example: optimized merge and transfer", () => {
     }
     await signSendAndConfirm(
       client,
-      await buildSetMergingEnabledTransaction({
+      await buildSetMergeEncryptionTransaction({
         client,
         owner: senderSigner.address,
-        enabled: true,
+        scheme: MergeEncryptionScheme.PoseidonCtrV1,
       }),
       [senderSigner],
     );

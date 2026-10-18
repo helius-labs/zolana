@@ -1062,14 +1062,15 @@ it. On `merge_transact` it is `VerifiablyEncrypted(6 || salt || ciphertext)`,
 the scheme byte, with the ring data hash leading as in its instruction data.
 The outer tag is `Encrypted` because SPP did not verify that ciphertext.
 
-The cipher has no authentication tag. The owner derives `merge_output_key` and
+The cipher has no authentication tag. Both SDKs reject a ciphertext element
+that is not a canonical BN254 scalar before decryption. The owner derives `merge_output_key` and
 `merge_output_blinding(first_nullifier)` ([Methods](#methods)), subtracts the
 pads, and rejects an element out of its range (`amount >= 2^64`,
 `mint_chunk_0 >= 2^248`, `mint_chunk_1 >= 2^8`). It rebuilds the UTXO with the
 owner from its own keys, `data_hash = 0`, and on `merge_ring` the ring fields
 from the transaction, and accepts it only when its hash equals the published
 `output_utxo_hash`. The owner needs none of the merge's inputs. On `merge_ring`
-this hash check is the only check of the ciphertext, and a wallet must run it
+this commitment check authenticates the decrypted output, and a wallet must run it
 before it trusts the decrypted amount and mint. Padding slots
 publish `merge_dummy_nullifier(first_nullifier, slot)`.
 
@@ -1086,7 +1087,9 @@ The custom-ring rails do not enforce it. This is an accepted risk: a holder of
 the owner's nullifier secret, such as an operator that opened the owner's
 escrowed nullifier key, can merge a note the owner cannot open and publish a
 ciphertext that does not decrypt to the output. The owner's hash check then
-fails, and wallet sync and ring recovery leave the merged note unopened.
+fails, and ring recovery leaves the merged note unopened. TypeScript wallet
+sync rejects an undecodable merge that names the owner or spends a known wallet
+note, preserving its state and cursors for retry.
 
 # SPP Proof - Solana Privacy ZK Proof
 

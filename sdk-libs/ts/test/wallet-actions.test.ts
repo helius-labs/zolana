@@ -1572,7 +1572,7 @@ describe("merge encryption opt-in", () => {
         }),
       ).rejects.toMatchObject({
         code: "WALLET_BUILD_MERGE",
-        causeCode: "WALLET_MERGE_DISABLED",
+        causeCode: "WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED",
       });
       expect(unexpected).not.toHaveBeenCalled();
     } finally {

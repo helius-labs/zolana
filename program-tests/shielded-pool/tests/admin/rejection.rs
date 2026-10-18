@@ -724,7 +724,10 @@ fn tree_creation_steps_must_repeat_the_first_steps_payload() {
     let err = pool
         .rpc
         .create_and_send_transaction(
-            &other_payer_create.instructions()[1..],
+            other_payer_create
+                .instructions()
+                .get(1..)
+                .expect("continuation steps"),
             &other_payer.pubkey(),
             &[&other_payer, &pool.authority],
         )
@@ -732,7 +735,10 @@ fn tree_creation_steps_must_repeat_the_first_steps_payload() {
     Rejection::pool(ShieldedPoolError::TreeCreationMismatch).assert_litesvm(err);
 
     pool.rpc
-        .create_and_send_default_payer_transaction(&create.instructions()[1..], &[&pool.authority])
+        .create_and_send_default_payer_transaction(
+            create.instructions().get(1..).expect("continuation steps"),
+            &[&pool.authority],
+        )
         .expect("the first payer finishes the tree with the same payload");
     let tree = pool.rpc.account_data(&create.tree()).expect("tree");
     assert_eq!(tree.get(1), Some(&zolana_tree::INITIALIZED));

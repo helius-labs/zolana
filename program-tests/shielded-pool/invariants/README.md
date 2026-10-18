@@ -82,19 +82,19 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 298
+- Total invariants: 305
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
-  - merge.md: 45 (MergeTransact 22, RingMergeTransact 14, MergeCache 9)
-  - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
+  - merge.md: 46 (MergeTransact 22, RingMergeTransact 15, MergeCache 9)
+  - tree.md: 61 (CreateTree 12, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, open-PDA accounting 1, CloseNullifierPdas 11, SetTreeFees 10, ClaimTreeLamports 8)
   - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 26 (Create 9, UpdateOwner 5, Update 6, SetRingActivation 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
 - Critical (funds/double-spend/authority takeover): 106
-- High: 110
-- Medium: 77
+- High: 116
+- Medium: 78
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -162,28 +162,27 @@ ciphertext as public inputs, and the widest merge shape is 52 inputs instead
 of 54. INV-MERGE-29..31 added (3, all covered); INV-MERGE-12/-14 and
 INV-RING-MERGE-08/-13 restated. The counts below include them.
 
-Post-PR172 sync (2026-07-31):
+Current coverage (2026-10-18):
 
-- Covered: 271 / 298
+- Covered: 277 / 305
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Partial: 20 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(271 + 2 + 19 + 1 + 5 = 298. The per-file partial+untested column sums to 20
+(277 + 2 + 20 + 1 + 5 = 305. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 35/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 35/7/0/4, tree 56/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
-All added tests pass. Suites run green this pass:
-`shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
-`merge_functional` binary with a real on-chain merge proof), plus the
-documented gates (fmt, clippy, workspace check, photon, xtask, Go prover).
+The hermetic lane runs `just test-hermetic`; compiler and lint gates run
+`just clippy` and `just check-all`. Prover-backed and live tests are separate
+lanes and require the published proving keys.
 
 ### Remaining gaps
 
@@ -210,7 +209,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-19 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+20 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the

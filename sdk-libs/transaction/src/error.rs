@@ -76,6 +76,9 @@ pub enum TransactionError {
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
+    #[error("merge output ciphertext element {index} is not canonical")]
+    NonCanonicalMergeCiphertext { index: usize },
+
     #[error("merge output plaintext element {index} is out of range")]
     InvalidMergeOutputPlaintext { index: usize },
 

@@ -1,7 +1,10 @@
 package shared
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -9,7 +12,45 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
+type mergeRecoveryVector struct {
+	NullifierSecret string   `json:"nullifier_secret"`
+	FirstNullifier  string   `json:"first_nullifier"`
+	OutputBlinding  string   `json:"output_blinding"`
+	DummySlotIndex  int      `json:"dummy_slot_index"`
+	DummyNullifier  string   `json:"dummy_nullifier"`
+	OutputKey       string   `json:"output_key"`
+	Salt            string   `json:"output_ciphertext_salt"`
+	Amount          uint64   `json:"output_amount"`
+	Mint            string   `json:"output_mint"`
+	Ciphertext      []string `json:"output_ciphertext"`
+}
+
+func recoveryVector(t *testing.T) mergeRecoveryVector {
+	t.Helper()
+	data, err := os.ReadFile("../../../../../test-vectors/key_derivation.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors struct {
+		MergeRecovery mergeRecoveryVector `json:"merge_recovery"`
+	}
+	if err := json.Unmarshal(data, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	return vectors.MergeRecovery
+}
+
+func vectorField(t *testing.T, value string) *big.Int {
+	t.Helper()
+	field, ok := new(big.Int).SetString(value, 16)
+	if !ok {
+		t.Fatalf("invalid vector field: %q", value)
+	}
+	return field
+}
+
 type derivationCircuit struct {
+	Slot             int `gnark:"-"`
 	Secret           frontend.Variable
 	Tag              frontend.Variable
 	ExpectedBlinding frontend.Variable
@@ -18,34 +59,25 @@ type derivationCircuit struct {
 
 func (c *derivationCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.ExpectedBlinding, MergeOutputBlinding(api, c.Secret, c.Tag))
-	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.Secret, c.Tag, 3))
+	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.Secret, c.Tag, c.Slot))
 	return nil
 }
 
-// TestRecoveryDerivationsMatchRustVectors pins the in-circuit recovery
-// derivations against the host-side canonical implementation in
-// sdk-libs/transaction/src/instructions/merge.rs
-// (tests/cases/merge_derivation.rs:recovery_derivations_match_circuit_vectors).
+// The circuit reads the same recovery vector as the Rust and TypeScript SDKs.
 func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
-	mustBig := func(hexStr string) *big.Int {
-		v, ok := new(big.Int).SetString(hexStr, 16)
-		if !ok {
-			t.Fatalf("bad hex: %s", hexStr)
-		}
-		return v
-	}
-
+	vector := recoveryVector(t)
 	witness := derivationCircuit{
-		Secret:           big.NewInt(42),
-		Tag:              big.NewInt(7),
-		ExpectedBlinding: mustBig("2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897"),
-		ExpectedDummy:    mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914"),
+		Slot:             vector.DummySlotIndex,
+		Secret:           vectorField(t, vector.NullifierSecret),
+		Tag:              vectorField(t, vector.FirstNullifier),
+		ExpectedBlinding: vectorField(t, vector.OutputBlinding),
+		ExpectedDummy:    vectorField(t, vector.DummyNullifier),
 	}
+	circuit := &derivationCircuit{Slot: vector.DummySlotIndex}
 	assert := test.NewAssert(t)
-	assert.SolvingSucceeded(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
-
-	witness.ExpectedBlinding = mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914")
-	assert.SolvingFailed(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, &witness, test.WithCurves(ecc.BN254))
+	witness.ExpectedBlinding = new(big.Int).Add(vectorField(t, vector.OutputBlinding), big.NewInt(1))
+	assert.SolvingFailed(circuit, &witness, test.WithCurves(ecc.BN254))
 }
 
 type outputCiphertextCircuit struct {
@@ -71,33 +103,28 @@ func (c *outputCiphertextCircuit) Define(api frontend.API) error {
 // ciphertext against test-vectors/key_derivation.json merge_recovery, which the
 // Rust and TypeScript clients assert too.
 func TestOutputCiphertextMatchesSharedVectors(t *testing.T) {
-	mustBig := func(hexStr string) *big.Int {
-		v, ok := new(big.Int).SetString(hexStr, 16)
-		if !ok {
-			t.Fatalf("bad hex: %s", hexStr)
-		}
-		return v
+	vector := recoveryVector(t)
+	mint, err := hex.DecodeString(vector.Mint)
+	if err != nil || len(mint) != 32 {
+		t.Fatalf("invalid vector mint: %q", vector.Mint)
+	}
+	if len(vector.Ciphertext) != MergeOutputCiphertextLen {
+		t.Fatal("invalid vector ciphertext width")
 	}
 	witness := outputCiphertextCircuit{
-		Secret:         big.NewInt(0x2a),
-		FirstNullifier: big.NewInt(0x07),
-		Salt:           mustBig("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"),
-		Amount:         big.NewInt(1_000_000_007),
-		MintChunks: [2]frontend.Variable{
-			mustBig("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
-			big.NewInt(0x20),
-		},
-		ExpectedKey: mustBig("13dbaaca7265b36159c9ef318512003a522cb6059c6bb56f31cbd01badb669cb"),
-		ExpectedCiphertext: [MergeOutputCiphertextLen]frontend.Variable{
-			mustBig("02136684d623aad22f89c2b43f1f39bba344008ab9f3db882f71ab6ab34335f0"),
-			mustBig("08237cf2cb0566d514c2fd6ac26300de33fe04a4acd13359f5ffeaf9abfb8d3f"),
-			mustBig("2886c92820876f5e681d0990d63bd76bdce8ac3921409c56a8559b42805a03f0"),
-		},
+		Secret:         vectorField(t, vector.NullifierSecret),
+		FirstNullifier: vectorField(t, vector.FirstNullifier),
+		Salt:           vectorField(t, vector.Salt),
+		Amount:         new(big.Int).SetUint64(vector.Amount),
+		MintChunks:     [2]frontend.Variable{new(big.Int).SetBytes(mint[:31]), new(big.Int).SetBytes(mint[31:])},
+		ExpectedKey:    vectorField(t, vector.OutputKey),
+	}
+	for index, element := range vector.Ciphertext {
+		witness.ExpectedCiphertext[index] = vectorField(t, element)
 	}
 	assert := test.NewAssert(t)
 	assert.SolvingSucceeded(&outputCiphertextCircuit{}, &witness, test.WithCurves(ecc.BN254))
-
-	witness.Salt = mustBig("a0a1a2a3a4a5a6a7a8a9aaabacadaeb0")
+	witness.Salt = new(big.Int).Add(vectorField(t, vector.Salt), big.NewInt(1))
 	assert.SolvingFailed(&outputCiphertextCircuit{}, &witness, test.WithCurves(ecc.BN254))
 }
 

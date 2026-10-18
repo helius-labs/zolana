@@ -74,7 +74,7 @@ fn registration_builder_defaults_payer_to_owner() {
 }
 
 /// An ed25519 owner, its shielded address, and its user record.
-fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
+fn merge_owner(merge_encryption: MergeEncryptionScheme) -> (Pubkey, ShieldedAddress, UserRecord) {
     let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[8u8; 32]))
         .expect("ed25519 keypair");
     let address = keypair.shielded_address().expect("shielded address");
@@ -85,24 +85,20 @@ fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
         owner_p256: None,
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
-        merge_encryption: if merging_enabled {
-            MergeEncryptionScheme::PoseidonCtrV1
-        } else {
-            MergeEncryptionScheme::Disabled
-        },
+        merge_encryption,
     };
     (owner, address, record)
 }
 
 #[test]
 fn a_merge_needs_the_supported_scheme_and_the_owners_registered_keys() {
-    let (owner, address, record) = merge_owner(true);
+    let (owner, address, record) = merge_owner(MergeEncryptionScheme::PoseidonCtrV1);
     check_merge_record(&record, owner, &address).expect("matching record");
 
-    let (_, _, disabled) = merge_owner(false);
+    let (_, _, disabled) = merge_owner(MergeEncryptionScheme::Disabled);
     assert!(matches!(
         check_merge_record(&disabled, owner, &address),
-        Err(ClientError::MergeDisabled { owner: got }) if got == owner
+        Err(ClientError::MergeEncryptionSchemeUnsupported { owner: got }) if got == owner
     ));
     let mut p256 = record.clone();
     p256.owner_p256 = Some([2u8; 33]);

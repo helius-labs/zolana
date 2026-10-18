@@ -430,7 +430,7 @@ fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
         assert_eq!(
             MergeTransaction::new(notes)
                 .unwrap()
-                .encrypt_with_derived(&sender, secrets, [0; 16], &[])
+                .encrypt_with_derived(&sender, secrets, &[])
                 .err(),
             Some(error)
         );
@@ -614,11 +614,9 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
                 blinding,
                 key: merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
             },
-            [9; 16],
             &dummy_nullifiers,
         )
         .unwrap();
-    assert_eq!(result.output_ciphertext_salt, [9; 16]);
     let assets = zolana_transaction::AssetRegistry::new([(77, mint.asset)]).unwrap();
     let recovered = recover(&result, &owner, &assets);
     assert_eq!(
@@ -809,4 +807,69 @@ fn merge_output_ciphertext_matches_shared_vectors_and_decrypts_only_under_its_ke
         MergeOutputPlaintext::decrypt(&tampered, &key),
         Ok(plaintext)
     );
+}
+
+#[test]
+fn encrypt_with_derived_generates_a_fresh_salt_for_each_attempt() {
+    let owner = keypair(7);
+    let notes = inputs(&owner, 8);
+    let first_nullifier = notes.first().unwrap().nullifier;
+    let sender = owner.shielded_address().unwrap();
+    let secrets = MergeOutputSecrets {
+        blinding: merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
+        key: merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
+    };
+    let encrypt = || {
+        MergeTransaction::new(notes.clone())
+            .unwrap()
+            .encrypt_with_derived(&sender, secrets, &[])
+            .unwrap()
+    };
+    let first = encrypt();
+    let second = encrypt();
+    assert_ne!(first.output_ciphertext_salt, second.output_ciphertext_salt);
+    assert_ne!(first.output_ciphertext, second.output_ciphertext);
+    let assets = AssetRegistry::default();
+    let recovered = recover(&first, &owner, &assets);
+    assert_eq!(recover(&second, &owner, &assets), recovered);
+    assert_eq!((recovered.amount, recovered.asset), (16, Mint::SOL));
+}
+
+#[test]
+fn merge_decrypt_rejects_non_canonical_ciphertext_aliases() {
+    use num_bigint::BigUint;
+    use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+    let plaintext = MergeOutputPlaintext {
+        amount: 123,
+        mint: Mint::SOL.asset,
+    };
+    let key = [7; 32];
+    let salt = [8; 16];
+    let ciphertext = plaintext.encrypt(&key, &salt).unwrap();
+    let body = |elements: &[[u8; 32]; 3]| {
+        salt.iter()
+            .chain(elements.iter().flatten())
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        MergeOutputPlaintext::decrypt(&body(&ciphertext), &key),
+        Ok(plaintext)
+    );
+    for (index, element) in ciphertext.iter().enumerate() {
+        let alias =
+            BigUint::from_bytes_be(element) + BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
+        let alias: [u8; 32] = alias
+            .to_bytes_be()
+            .try_into()
+            .expect("alias is a 32-byte scalar encoding");
+        for replacement in [alias, BN254_SCALAR_MODULUS_BE] {
+            let mut noncanonical = ciphertext;
+            *noncanonical.get_mut(index).unwrap() = replacement;
+            assert!(matches!(
+                MergeOutputPlaintext::decrypt(&body(&noncanonical), &key),
+                Err(TransactionError::NonCanonicalMergeCiphertext { index: got }) if got == index
+            ));
+        }
+    }
 }

@@ -215,8 +215,8 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
-    #[error("owner {owner} has not enabled the merge service on its user-registry record")]
-    MergeDisabled { owner: Pubkey },
+    #[error("owner {owner}'s merge encryption scheme is disabled or unsupported by this client")]
+    MergeEncryptionSchemeUnsupported { owner: Pubkey },
 
     #[error("merging keypair signing key does not match the owner's registry record")]
     MergeSigningKeyMismatch,

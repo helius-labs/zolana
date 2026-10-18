@@ -1,8 +1,9 @@
+mod public_inputs;
+pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
+
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::primitives::pack_be;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -15,7 +16,7 @@ use zolana_interface::{
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     state::cache::CACHE_CAPACITY,
-    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    tree_slot::tree_slots_hash_chain,
 };
 use zolana_keypair::{viewing_key::Salt, Curve, NullifierKey};
 use zolana_transaction::{
@@ -261,31 +262,32 @@ impl MergeProver {
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
-        let mut elements = vec![
-            create_padded_right_hash_chain_4(
-                &assembled_inputs.nullifiers,
-                assembled_inputs.nullifiers.len(),
-            )?,
-            output_hash,
-            tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
-            tree_id_field(output_tree_id),
-            private_tx,
-            external_data_hash,
-            right_align(&[1u8]),
-        ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
-        if ring_program_id.is_some() {
-            // The ring merge proof does not bind the output ciphertext.
-            elements.extend([output_ring_data_hash, ring_hash]);
-        } else {
-            // Bind both halves of the UTXO owner to the registry, so another
-            // nullifier key cannot manufacture a merge for this signing identity.
-            elements.extend([user_signing_pk_hash, nullifier_pubkey]);
-            elements.push(right_align(&output_ciphertext_salt));
-            elements.extend(output_ciphertext);
+        let public_input_hash = MergePublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hash,
+            output_tree_id,
+            private_tx_hash: private_tx,
+            external_data_hash,
+            allow_dummy_inputs: true,
+            binding: if ring_program_id.is_some() {
+                MergePublicInputBinding::Ring {
+                    output_data_hash: output_ring_data_hash,
+                    program_id_hash: ring_hash,
+                }
+            } else {
+                MergePublicInputBinding::Owner {
+                    signing_key_hash: user_signing_pk_hash,
+                    nullifier_public_key: nullifier_pubkey,
+                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                        salt: output_ciphertext_salt,
+                        ciphertext: output_ciphertext,
+                    },
+                }
+            },
         }
-        let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
+        .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
         let eddsa_owner = match signing_pubkey.curve()? {
             Curve::Ed25519 | Curve::Pda => true,
             Curve::P256 => false,

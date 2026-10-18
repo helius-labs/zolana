@@ -6,7 +6,7 @@ use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDa
 use zolana_keypair::{constants::P256_PUBKEY_LEN, shielded::ShieldedAddress, P256Pubkey};
 
 use crate::{
-    asset::{AssetBalance, AssetRegistry, Balances},
+    asset::{AssetBalance, AssetRegistry, Balances, Mint},
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
@@ -28,9 +28,9 @@ pub struct DecryptionResult {
     /// chain checks it, so it is unverified: register the assets that exist
     /// and decrypt again, and the commitment decides.
     pub unknown_asset_ids: BTreeSet<u64>,
-    /// Mints named by deposits this wallet owns that the asset registry has no
-    /// id for. Those deposits are left out; register the mints and decrypt
-    /// again.
+    /// Mints named by authenticated deposits or merge outputs this wallet owns
+    /// that the asset registry has no id for. Those outputs are left out;
+    /// register the mints and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
 }
 
@@ -480,9 +480,11 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     let Ok(plaintext) = MergeOutputPlaintext::decrypt(encrypted, &key) else {
         return Ok(None);
     };
-    let utxo = plaintext.into_utxo(
+    // Only the mint address enters the commitment. Resolve its registry ID
+    // after authentication so unverified ciphertext cannot request backfills.
+    let mut utxo = plaintext.into_utxo(
         owner_cx.owner,
-        owner_cx.assets.mint(&plaintext.mint)?,
+        Mint::new(plaintext.mint, 0),
         blinding,
         tx.ring_program_id,
     );
@@ -496,6 +498,7 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     if hash != context.hash {
         return Ok(None);
     }
+    utxo.asset = owner_cx.assets.mint(&plaintext.mint)?;
     Ok(Some(DecodedSlot {
         utxos: vec![utxo],
         data_hash: None,

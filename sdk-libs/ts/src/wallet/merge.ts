@@ -240,7 +240,7 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
   // The program accepts only the record's scheme, and PoseidonCtrV1 is the only
   // scheme this SDK encrypts merge outputs with.
   if (record.mergeEncryption !== MergeEncryptionScheme.PoseidonCtrV1) {
-    throw new WalletError("WALLET_MERGE_DISABLED", {
+    throw new WalletError("WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED", {
       details: { owner, mergeEncryption: record.mergeEncryption },
     });
   }

@@ -1,5 +1,5 @@
 import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
-import { fieldAdd, fieldSub } from "../../hasher/index.js";
+import { BN254_SCALAR_ORDER, fieldAdd, fieldSub } from "../../hasher/index.js";
 import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
 import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
 import { TransactionError } from "../error.js";
@@ -33,11 +33,15 @@ function plaintextFields(plaintext: MergeOutputPlaintext): readonly [bigint, big
       value: String(plaintext.amount),
     });
   }
-  const mint = decodeAddress(plaintext.mint);
+  return [plaintext.amount, ...mergeMintChunks(plaintext.mint)];
+}
+
+/** The shared mint encoding used by the cipher and the merge prover inputs. */
+export function mergeMintChunks(mint: Address): readonly [bigint, bigint] {
+  const bytes = decodeAddress(mint);
   return [
-    plaintext.amount,
-    bytesToBigInt(mint.subarray(0, HASH_BYTES_CHUNK)),
-    bytesToBigInt(mint.subarray(HASH_BYTES_CHUNK)),
+    bytesToBigInt(bytes.subarray(0, HASH_BYTES_CHUNK)),
+    bytesToBigInt(bytes.subarray(HASH_BYTES_CHUNK)),
   ];
 }
 
@@ -81,7 +85,11 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
   const [pad0, pad1, pad2] = mergeOutputPads(key, body.subarray(0, SALT_LENGTH));
   const decrypt = (index: number, pad: bigint): bigint => {
     const offset = SALT_LENGTH + 32 * index;
-    return fieldSub(bytesToBigInt(body.subarray(offset, offset + 32)), pad);
+    const element = bytesToBigInt(body.subarray(offset, offset + 32));
+    if (element >= BN254_SCALAR_ORDER) {
+      throw new TransactionError("TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT", { index });
+    }
+    return fieldSub(element, pad);
   };
   const amount = decrypt(0, pad0);
   const chunk0 = decrypt(1, pad1);

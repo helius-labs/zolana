@@ -8,6 +8,8 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import * as mergeKeys from "../src/keypair/merge/index.js";
+import * as mergeCipher from "../src/transaction/serialization/merge.js";
 import type { RingKeyRegistryEntry } from "../src/client/ports.js";
 import type {
   CustomRingRegisterKeyProofRequest,
@@ -1073,23 +1075,50 @@ describe("recovery closure", () => {
             : [],
         }),
     };
-    try {
-      const result = await recoverRingMemberNotes({
-        client,
-        ringProgramId: RING,
-        auditor,
-        source: source.address,
-        nullifierKey: key,
-        assets: new AssetRegistry(),
-        resolveTreeId: () => 0,
-        origin: { ringInvoked: async () => true },
+    const derived: Bytes32[] = [];
+    const deriveKey = mergeKeys.mergeOutputKey;
+    const keySpy = vi
+      .spyOn(mergeKeys, "mergeOutputKey")
+      .mockImplementation((nullifierKey, firstNullifier) => {
+        const value = deriveKey(nullifierKey, firstNullifier);
+        derived.push(value);
+        return value;
       });
+    const params = {
+      client,
+      ringProgramId: RING,
+      auditor,
+      source: source.address,
+      nullifierKey: key,
+      assets: new AssetRegistry(),
+      resolveTreeId: () => 0,
+      origin: { ringInvoked: async () => true },
+    };
+    const decryptSpy = vi.spyOn(mergeCipher, "decryptMergeOutput");
+    try {
+      const result = await recoverRingMemberNotes(params);
       expect(result.unopened).toEqual([]);
       expect(result.notes).toHaveLength(1);
       expect(result.notes[0]?.utxo.amount).toBe(42n);
       expect(result.notes[0]?.outputContext).toEqual(merged.note.outputContext);
       expect(result.notes[0]?.nullifier).toEqual(merged.note.nullifier);
+      expect(derived).toHaveLength(1);
+      expect(derived[0]).toEqual(new Uint8Array(32));
+      decryptSpy.mockImplementation(() => ({ amount: 43n, mint: SOL_MINT }));
+      const mismatch = await recoverRingMemberNotes(params);
+      expect(mismatch.notes).toEqual([]);
+      expect(mismatch.unopened).toEqual([merged.note.outputContext.hash]);
+      decryptSpy.mockImplementation(() => {
+        throw new Error("invalid merge plaintext");
+      });
+      const invalid = await recoverRingMemberNotes(params);
+      expect(invalid.notes).toEqual([]);
+      expect(invalid.unopened).toEqual([merged.note.outputContext.hash]);
+      expect(derived).toHaveLength(3);
+      for (const value of derived) expect(value).toEqual(new Uint8Array(32));
     } finally {
+      keySpy.mockRestore();
+      decryptSpy.mockRestore();
       key.destroy();
       auditor.destroy();
     }

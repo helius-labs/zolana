@@ -400,14 +400,14 @@ async function recoverMerge(
   const body = readMergeOutputBody(slot.payload);
   const ringDataHash = body?.ringDataHash;
   if (body === undefined || ringDataHash === undefined) return undefined;
+  const outputKey = mergeOutputKey(input.nullifierKey, firstNullifier);
   let plaintext;
   try {
-    plaintext = decryptMergeOutput(
-      body.encrypted,
-      mergeOutputKey(input.nullifierKey, firstNullifier),
-    );
+    plaintext = decryptMergeOutput(body.encrypted, outputKey);
   } catch {
     return undefined;
+  } finally {
+    outputKey.fill(0);
   }
   const utxo = new Utxo({
     owner: input.source.signingPublicKey,

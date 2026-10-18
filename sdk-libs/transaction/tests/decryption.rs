@@ -1327,15 +1327,19 @@ fn a_merge_output_decrypts_only_under_its_owners_key_and_commitment() {
 
     // Another owner's merge decrypts to noise under this wallet's key.
     let (foreign_merge, _) = merge_publication(&other, &[&foreign], 11, None);
-    // One flipped ciphertext bit decrypts to another amount or out of range.
+    // A flipped mint ciphertext bit must not trigger an unauthenticated registry lookup.
     let (mut tampered, _) = merge_publication(&owner, &[&held], 12, None);
     edit_payload(&mut tampered, &|payload| {
         *payload.last_mut().expect("ciphertext byte") ^= 1;
     });
     // A published commitment that is not the encrypted output.
     let (mut wrong_commitment, _) = merge_publication(&owner, &[&held], 13, None);
-    wrong_commitment.output_slots[0].output_context.hash =
-        wallet_utxo(&owner, Mint::SOL, 31, 3, 5).utxo_hash;
+    wrong_commitment
+        .output_slots
+        .first_mut()
+        .expect("merge output slot")
+        .output_context
+        .hash = wallet_utxo(&owner, Mint::SOL, 31, 3, 5).utxo_hash;
     // A ring data hash on a merge that names no ring program.
     let (mut ring_without_program, _) = merge_publication(&owner, &[&held], 14, Some([4; 32]));
     ring_without_program.ring_program_id = None;
@@ -1358,10 +1362,53 @@ fn a_merge_output_decrypts_only_under_its_owners_key_and_commitment() {
             vec![],
         ),
     ] {
-        let spendable =
-            decrypt_spendable(&owner, &[received(&owner, &held), merge], &assets).unwrap();
+        let decrypted = decrypt(&owner, &[received(&owner, &held), merge], &assets).unwrap();
+        assert!(decrypted.unknown_asset_ids.is_empty(), "{case}");
+        assert!(decrypted.unknown_mints.is_empty(), "{case}");
+        let spendable = verify_spendable(&owner, &decrypted).unwrap();
         // No merge output decrypts; this wallet's merges still spend `held`.
         assert_eq!(spendable.utxos().collect::<Vec<_>>(), remaining, "{case}");
+    }
+}
+
+#[test]
+fn merge_mints_are_resolved_only_after_the_output_commitment_matches() {
+    let owner = keypair(54);
+    let mint = Mint::new(Address::new_from_array([55; 32]), 99);
+    for ring in [None, Some([4; 32])] {
+        let mut held = wallet_utxo(&owner, mint, 30, 3, 1);
+        if ring.is_some() {
+            held.utxo.ring_program_id = Some(Address::new_from_array([8; 32]));
+            held.utxo_hash = held
+                .utxo
+                .hash(&held.nullifier_pubkey, &[0; 32], &[0; 32], held.tree_id)
+                .unwrap();
+            held.nullifier = owner
+                .nullifier(&held.utxo_hash, &held.utxo.blinding)
+                .unwrap();
+        }
+        let (merge, merged) = merge_publication(&owner, &[&held], 12, ring);
+        let assets = AssetRegistry::default();
+        let valid = decrypt(&owner, std::slice::from_ref(&merge), &assets).unwrap();
+        assert_eq!(valid.unknown_mints, BTreeSet::from([mint.asset]));
+        assert!(valid.utxos.is_empty());
+
+        let mut tampered = merge.clone();
+        tampered
+            .output_slots
+            .first_mut()
+            .unwrap()
+            .output_context
+            .hash = [0; 32];
+        let rejected = decrypt(&owner, &[tampered], &assets).unwrap();
+        assert!(rejected.utxos.is_empty());
+        assert!(rejected.unknown_mints.is_empty());
+        assert!(rejected.unknown_asset_ids.is_empty());
+
+        let registered = AssetRegistry::new([(mint.asset_id, mint.asset)]).unwrap();
+        let recovered = decrypt(&owner, &[merge], &registered).unwrap();
+        assert_eq!(recovered.utxos, vec![merged]);
+        assert!(recovered.unknown_mints.is_empty());
     }
 }
 

@@ -93,17 +93,23 @@ fn merge_rejects_a_tampered_output_ciphertext_or_salt() {
     let mut tampered = Vec::new();
     for element in 0..3 {
         let mut data = merge.data.clone();
-        let MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } = &mut data.output_encryption;
-        let byte = ciphertext
-            .get_mut(element)
-            .and_then(|element| element.last_mut())
-            .expect("ciphertext element byte");
-        *byte ^= 1;
+        match &mut data.output_encryption {
+            MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } => {
+                let byte = ciphertext
+                    .get_mut(element)
+                    .and_then(|element| element.last_mut())
+                    .expect("ciphertext element byte");
+                *byte ^= 1;
+            }
+        }
         tampered.push((format!("ciphertext element {element}"), data));
     }
     let mut data = merge.data.clone();
-    let MergeOutputEncryption::PoseidonCtrV1 { salt, .. } = &mut data.output_encryption;
-    *salt.last_mut().expect("salt byte") ^= 1;
+    match &mut data.output_encryption {
+        MergeOutputEncryption::PoseidonCtrV1 { salt, .. } => {
+            *salt.last_mut().expect("salt byte") ^= 1;
+        }
+    }
     tampered.push(("salt".to_string(), data));
 
     for (label, data) in tampered {

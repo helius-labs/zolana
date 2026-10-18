@@ -289,7 +289,7 @@ export interface RingConfigAccount {
  * chunks of the mint.
  */
 export type MergeOutputEncryption = Readonly<{
-  scheme: typeof MergeEncryptionScheme.PoseidonCtrV1;
+  scheme: (typeof MergeEncryptionScheme)["PoseidonCtrV1"];
   salt: Bytes16;
   ciphertext: readonly [Bytes32, Bytes32, Bytes32];
 }>;

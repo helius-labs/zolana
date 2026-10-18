@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_hasher::{
-    primitives::{pack_be, right_align, PACK_BE_CHUNK_BYTES},
+    primitives::{is_canonical_bn254_scalar_be, pack_be, right_align, PACK_BE_CHUNK_BYTES},
     Hasher, Poseidon,
 };
 use zolana_keypair::{constants::SALT_LEN, viewing_key::Salt, PublicKey};
@@ -48,6 +48,11 @@ impl MergeOutputPlaintext {
     /// output against the published commitment.
     pub fn decrypt(body: &[u8], key: &[u8; 32]) -> Result<Self, TransactionError> {
         let (salt, ciphertext) = split_body(body)?;
+        for (index, element) in ciphertext.iter().enumerate() {
+            if !is_canonical_bn254_scalar_be(element) {
+                return Err(TransactionError::NonCanonicalMergeCiphertext { index });
+            }
+        }
         let [amount, chunk_0, chunk_1] = apply_pads(&ciphertext, &pads(key, &salt)?, field_sub);
         let amount = split_low::<8>(&amount, 0)?;
         let mint_head = split_low::<PACK_BE_CHUNK_BYTES>(&chunk_0, 1)?;

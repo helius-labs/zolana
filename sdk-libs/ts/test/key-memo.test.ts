@@ -153,4 +153,65 @@ describe("key holder batches", () => {
       owner.destroy();
     }
   });
+  it.each([
+    "success",
+    "malformed derivation",
+    "rejected decrypt",
+    "malformed transaction keys",
+    "synchronous key failure",
+  ])("wipes derivations after %s", async (outcome) => {
+    const owner = ShieldedKeypair.generate();
+    const keys = LocalShieldedKeys.fromKeypair(owner);
+    const fresh = checked<Bytes32>(new Uint8Array(32).fill(7), 32, "key");
+    const malformedBytes = new Uint8Array(31).fill(8);
+    Object.defineProperty(keys, "derive", {
+      value: async () => (outcome === "malformed derivation" ? [fresh, malformedBytes] : [fresh]),
+    });
+    const memo = new KeyMemo(keys);
+    const publicKey = keys.address().viewingPublicKey;
+    const request = { kind: "mergeOutputKey" as const, firstNullifier };
+    try {
+      expect(memo.derive(request)).toBeUndefined();
+      if (outcome === "malformed derivation") {
+        memo.derive({ kind: "mergeOutputBlinding", firstNullifier });
+      } else if (outcome === "rejected decrypt") {
+        vi.spyOn(keys, "decrypt").mockRejectedValue(
+          new TransactionError("TRANSACTION_DESERIALIZE"),
+        );
+        memo.decrypt({
+          viewingPublicKey: publicKey,
+          txViewingPublicKey: publicKey,
+          ciphertext: new Uint8Array(),
+          salt: checked<Bytes16>(new Uint8Array(16), 16, "salt"),
+          slotIndex: 0,
+          label: "transfer",
+        });
+      } else if (outcome === "synchronous key failure") {
+        vi.spyOn(keys, "transactionKeys").mockImplementation(() => {
+          throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
+        });
+        memo.transactionKey({ viewingPublicKey: publicKey, firstNullifier });
+      } else if (outcome === "malformed transaction keys") {
+        vi.spyOn(keys, "transactionKeys").mockResolvedValue([]);
+        memo.transactionKey({ viewingPublicKey: publicKey, firstNullifier });
+      }
+      if (outcome === "success") {
+        await memo.resolve();
+        const copy = memo.derive(request);
+        expect(copy).toEqual(fresh);
+        expect(copy).not.toBe(fresh);
+        copy?.fill(0);
+        expect(fresh.some((byte) => byte !== 0)).toBe(true);
+        memo.destroy();
+      } else {
+        await expect(memo.resolve()).rejects.toBeInstanceOf(TransactionError);
+      }
+      expect(fresh).toEqual(new Uint8Array(32));
+      if (outcome === "malformed derivation") expect(malformedBytes).toEqual(new Uint8Array(31));
+    } finally {
+      memo.destroy();
+      keys.destroy();
+      owner.destroy();
+    }
+  });
 });

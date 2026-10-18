@@ -676,10 +676,14 @@ mod tests {
             ],
             public_inputs: vec![scalar_one(); count],
         };
-        assert!(IndexedProofRequest::new(request("merge", 12)).is_ok());
-        assert!(IndexedProofRequest::new(request("merge", 8)).is_err());
-        assert!(IndexedProofRequest::new(request("merge-ring", 8)).is_ok());
-        assert!(IndexedProofRequest::new(request("merge-ring", 12)).is_err());
+        IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
+        IndexedProofRequest::new(request("merge-ring", 8)).expect("ring merge shape");
+        for (circuit, count) in [("merge", 8), ("merge-ring", 12)] {
+            assert!(matches!(
+                IndexedProofRequest::new(request(circuit, count)),
+                Err(ClientError::InvalidIndexedRequest)
+            ));
+        }
     }
 
     #[test]

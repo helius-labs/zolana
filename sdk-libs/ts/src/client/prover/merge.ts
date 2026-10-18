@@ -15,6 +15,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import { mergeMintChunks } from "../../transaction/serialization/merge.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
@@ -414,11 +415,8 @@ export function prepareMerge(
   if (ciphertext0 === undefined || ciphertext1 === undefined || ciphertext2 === undefined) {
     throw new ClientError("CLIENT_INVALID_MERGE");
   }
-  const mint = addressBytes(prepared.output.asset);
-  const mintChunks = [
-    asField(bytesToBigInt(mint.subarray(0, 31))),
-    asField(bytesToBigInt(mint.subarray(31))),
-  ] as const;
+  const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
+  const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
