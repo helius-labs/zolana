@@ -23,6 +23,10 @@ use crate::{
 
 pub const RING_TOML: &str = "ring.toml";
 
+const fn required_deposit_audit() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RingConfig {
@@ -42,7 +46,8 @@ pub struct RingConfig {
     /// Applied by `cosigner set` without flags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cosigner: Option<CoSignerSpec>,
-    #[serde(default)]
+    /// Retained for older ring.toml files. A false value is normalized at init.
+    #[serde(default = "required_deposit_audit")]
     pub deposit_audit: bool,
     pub localnet: Urls,
     pub devnet: Urls,
@@ -314,6 +319,7 @@ impl RingConfig {
     }
 
     pub fn set_deposit_audit(path: &Path, required: bool) -> Result<()> {
+        ensure!(required, "deposit auditing is mandatory");
         edit(path, |document| {
             document["deposit_audit"] = toml_edit::value(required);
             Ok(())
@@ -503,13 +509,16 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
-    fn deposit_audit_defaults_off_and_is_visible_in_the_initial_configuration() {
+    fn deposit_audit_defaults_required_and_old_false_configs_still_decode() {
         let config: RingConfig = toml::from_str(EXAMPLE).unwrap();
-        assert!(!config.deposit_audit);
-        assert!(config.render().unwrap().contains("deposit_audit = false"));
+        assert!(config.deposit_audit);
+        assert!(config.render().unwrap().contains("deposit_audit = true"));
         let enabled = format!("deposit_audit = true\n{EXAMPLE}");
         let config: RingConfig = toml::from_str(&enabled).unwrap();
         assert!(config.deposit_audit);
+        let historical = format!("deposit_audit = false\n{EXAMPLE}");
+        let config: RingConfig = toml::from_str(&historical).unwrap();
+        assert!(!config.deposit_audit);
     }
 
     #[test]

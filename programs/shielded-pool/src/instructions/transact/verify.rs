@@ -685,7 +685,7 @@ pub fn fixed_signer_hash_chain(
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    // A zero `unique_count` (only P256 or dummy inputs) is valid: the vector
+    // A zero `unique_count` (only dummy inputs) is valid: the vector
     // is all padding and folds to the precomputed zero chain below.
     let shape = ShieldedPoolError::InvalidTransactShape;
     let mut index = unique_count;

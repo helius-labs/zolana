@@ -46,7 +46,11 @@ pub(crate) struct ProgramBinary {
 }
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
-    let deposit_audit = args.deposit_audit.unwrap_or(ctx.config.deposit_audit);
+    ensure!(
+        args.deposit_audit != Some(false),
+        "deposit auditing is mandatory"
+    );
+    let deposit_audit = true;
     let workspace = Workspace::from_env()?;
     ensure!(
         workspace.is_none() || ctx.config.target == Target::Localnet,

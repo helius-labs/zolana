@@ -59,6 +59,10 @@ pub const TRANSACT_ACCOUNT_PREFIX_LEN: usize = 5;
 
 /// Accounts before the asset settlement groups in an SPP ring deposit.
 pub const RING_DEPOSIT_ACCOUNT_PREFIX_LEN: usize = 4;
+/// The funding signer in an SPP ring deposit account list.
+pub const RING_DEPOSIT_DEPOSITOR_INDEX: usize = 1;
+/// The funding signer in an SPP ring merge account list.
+pub const RING_MERGE_PAYER_INDEX: usize = 3;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

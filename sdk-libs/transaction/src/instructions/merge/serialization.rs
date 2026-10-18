@@ -49,8 +49,11 @@ impl MergeOutputPlaintext {
     /// output against the published commitment.
     pub fn decrypt(body: &[u8], key: &[u8; 32]) -> Result<Self, TransactionError> {
         let (salt, ciphertext) = split_body(body)?;
-        let [amount, chunk_0, chunk_1] = apply_pads(&ciphertext, &pads(key, &salt)?, field_sub);
-        let amount = split_low::<8>(&amount, 0)?;
+        // Almost every wrong key produces a field element that cannot be a u64.
+        // Reject it before deriving the two mint pads for this candidate.
+        let amount = split_low::<8>(&field_sub(&ciphertext[0], &pad(key, &salt, 0)?), 0)?;
+        let chunk_0 = field_sub(&ciphertext[1], &pad(key, &salt, 1)?);
+        let chunk_1 = field_sub(&ciphertext[2], &pad(key, &salt, 2)?);
         let mint_head = split_low::<PACK_BE_CHUNK_BYTES>(&chunk_0, 1)?;
         let [mint_tail] = split_low::<1>(&chunk_1, 2)?;
         let mut mint = [0u8; 32];
@@ -86,13 +89,20 @@ impl MergeOutputPlaintext {
 /// `pad_i = Poseidon("TMOC", key, salt, i)`, mirroring the circuit's
 /// `PoseidonCtr`.
 fn pads(key: &[u8; 32], salt: &Salt) -> Result<MergeOutputCiphertext, TransactionError> {
-    let domain = right_align(&DOMAIN_MERGE_OUTPUT_CIPHERTEXT.to_be_bytes());
-    let salt = right_align(salt);
     let mut pads = [[0u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS];
-    for (index, pad) in (0u32..).zip(pads.iter_mut()) {
-        *pad = Poseidon::hashv(&[&domain, key, &salt, &right_align(&index.to_be_bytes())])?;
+    for (index, entry) in (0u32..).zip(pads.iter_mut()) {
+        *entry = pad(key, salt, index)?;
     }
     Ok(pads)
+}
+
+fn pad(key: &[u8; 32], salt: &Salt, index: u32) -> Result<[u8; 32], TransactionError> {
+    Ok(Poseidon::hashv(&[
+        &right_align(&DOMAIN_MERGE_OUTPUT_CIPHERTEXT.to_be_bytes()),
+        key,
+        &right_align(salt),
+        &right_align(&index.to_be_bytes()),
+    ])?)
 }
 
 fn apply_pads(

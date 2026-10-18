@@ -558,6 +558,12 @@ fn an_escrowed_deposit_names_the_registry_root_and_requires_the_audit() {
 
 #[test]
 fn deposit_audit_setting_names_its_authority_and_canonical_pda() {
+    assert!(matches!(
+        ring().set_deposit_audit(payer(), authority(), false),
+        Err(RingError::Program(
+            custom_ring_interface::CustomRingError::DepositAuditRequired
+        ))
+    ));
     let instruction = ring()
         .set_deposit_audit(payer(), authority(), true)
         .unwrap();

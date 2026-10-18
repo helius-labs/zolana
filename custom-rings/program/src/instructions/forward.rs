@@ -5,6 +5,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     instruction::instruction_data::deposit::RingDepositIxDataRef, RING_DEPOSIT_ACCOUNT_PREFIX_LEN,
+    RING_DEPOSIT_DEPOSITOR_INDEX, RING_MERGE_PAYER_INDEX,
 };
 
 use crate::instructions::{
@@ -140,8 +141,8 @@ impl Forward {
         }
         // SPP debits the depositor on deposits and the payer on merges.
         let funding_signer = match self {
-            Self::Deposit | Self::AuditedDeposit => 1,
-            Self::Merge => 3,
+            Self::Deposit | Self::AuditedDeposit => RING_DEPOSIT_DEPOSITOR_INDEX,
+            Self::Merge => RING_MERGE_PAYER_INDEX,
         };
         let funder = spp_accounts
             .get(funding_signer)

@@ -71,6 +71,8 @@ pub(crate) enum Rail {
 }
 
 impl Rail {
+    /// Authorize the caller, verify auditor disclosure and policy against the
+    /// program's current accounts, then let SPP settle the same transaction.
     /// `rest` holds the policy accounts, then the SPP list.
     pub fn verify_and_forward(
         self,
@@ -274,6 +276,11 @@ struct RingStatement<'a> {
 }
 
 impl RingStatement<'_> {
+    /// The base proof opens the auditor ciphertext and ties disclosed notes to
+    /// `private_tx_hash` and the output commitments in the SPP transaction.
+    /// A policy proof extends that statement with the stored rule table and
+    /// authenticated member registry roots. Recipient delivery ciphertext is
+    /// outside this proof obligation.
     #[inline(never)]
     fn verify(self) -> ProgramResult {
         let anonymous = self.config.mode == RingMode::Anonymous;
@@ -328,7 +335,9 @@ impl RingStatement<'_> {
         }
     }
 
-    /// The policy table and roots come from program-owned accounts, never the prover.
+    /// Choose the key for the declared rail and shape. Rules come from this
+    /// program's policy account. Registry roots come from authenticated chain
+    /// accounts pinned by that policy, never prover-supplied values.
     #[inline(never)]
     fn verify_policy(
         &self,

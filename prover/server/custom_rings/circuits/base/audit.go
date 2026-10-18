@@ -30,7 +30,7 @@ type Audit struct {
 	EphSk       [32]frontend.Variable
 	AuditorPk   [32]frontend.Variable
 	Salt        [16]frontend.Variable
-	// Only an anonymous ring reads the identities and viewing keys, a legacy sender is zero.
+	// Only an anonymous ring reads identities and viewing keys, an ordinary sender is zero.
 	Sender               [IdentityLen]frontend.Variable
 	Recipients           [AuditOutputSlots][IdentityLen]frontend.Variable
 	RecipientViewingKeys [AuditOutputSlots][33]frontend.Variable

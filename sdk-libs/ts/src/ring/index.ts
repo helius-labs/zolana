@@ -1,4 +1,3 @@
-export * from "./advanced.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export {
   ringMemberRegistryRootAddress,

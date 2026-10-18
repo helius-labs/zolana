@@ -96,7 +96,7 @@ pub fn deposit_audit(ctx: &Context, command: DepositAuditCommand) -> Result<()> 
             RingConfig::set_deposit_audit(&ctx.config_path, required)?;
             required
         }
-        DepositAuditCommand::Show => ctx.block(ctx.ring.deposit_audit(ctx.chain()))?,
+        DepositAuditCommand::Show => ctx.block(ctx.ring.stored_deposit_audit_flag(ctx.chain()))?,
     };
     line(
         "legacy deposit flag",

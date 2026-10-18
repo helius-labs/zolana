@@ -4,9 +4,8 @@ import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { createZolanaClient } from "../../src/index.js";
+import { ListId, memberOfTag } from "../../src/ring/advanced.js";
 import {
-  ListId,
-  memberOfTag,
   buildRingDepositTransaction,
   buildRingTransferTransaction,
   fetchRingPolicyConfig,

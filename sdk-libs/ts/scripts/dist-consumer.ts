@@ -1,4 +1,14 @@
 export { P256ReaderKey } from "@heliuslabs/zolana/ring";
+export {
+  memberRegistryLeaf,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+} from "@heliuslabs/zolana/ring/advanced";
+export type {
+  CustomRingBasePublicInput,
+  MemberRegistryInsertProofInput,
+} from "@heliuslabs/zolana/ring/advanced";
 export { X25519PublicKey, X25519Secret } from "@heliuslabs/zolana/keypair";
 import { ShieldedPoolError as ErrorCodes } from "@heliuslabs/zolana/interface";
 
@@ -79,7 +89,6 @@ export type {
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type {
-  CustomRingBasePublicInput,
   DecryptedAnonymousRingTrace,
   RingAuditReader,
   RingRpcOptions,
@@ -143,7 +152,6 @@ export type {
   RingRecoveryParams,
   RecoveredRingNotes,
   RingDelegateRecoveredParams,
-  MemberRegistryInsertProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
@@ -161,9 +169,6 @@ export type {
 } from "@heliuslabs/zolana";
 
 export {
-  RING_DEPOSIT_AUDIT_SLOTS,
-  encodeRingDepositCapsule,
-  readRingDepositCapsule,
   buildRingMergeTransaction,
   createRingMergeSubmission,
   customRingDepositPayload,

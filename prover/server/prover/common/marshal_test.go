@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	bn254 "github.com/consensys/gnark-crypto/ecc/bn254"
@@ -55,5 +56,45 @@ func TestFromHexDoesNotEchoTheInput(t *testing.T) {
 	err := FromHex(&value, "review-private-sentinel")
 	if err == nil || err.Error() != "invalid number" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestProofJSONRejectsCoordinateAliases(t *testing.T) {
+	_, _, g1, g2 := bn254.Generators()
+	proof := &Proof{Proof: &groth16bn254.Proof{Ar: g1, Bs: g2, Krs: g1}}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original ProofJSON
+	if err := json.Unmarshal(encoded, &original); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*ProofJSON)
+	}{
+		{"overwide", func(w *ProofJSON) { w.Ar[0] = "0x1" + strings.Repeat("0", 64) }},
+		{"negative", func(w *ProofJSON) { w.Bs[0][0] = "-1" }},
+		{"short", func(w *ProofJSON) { w.Krs[0] = "0x01" }},
+		{"uppercase", func(w *ProofJSON) { w.Ar[1] = strings.ToUpper(w.Ar[1]) }},
+		{"missing_prefix", func(w *ProofJSON) { w.Bs[1][1] = strings.TrimPrefix(w.Bs[1][1], "0x") }},
+		{"overwide_commitment", func(w *ProofJSON) {
+			w.ProofCommitment = []string{"0x1" + strings.Repeat("0", 64), "0x00"}
+			w.ProofCommitmentPok = []string{"0x00", "0x00"}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire := original
+			test.mutate(&wire)
+			payload, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Proof
+			if err := json.Unmarshal(payload, &decoded); err == nil || !strings.Contains(err.Error(), "invalid proof coordinate") {
+				t.Fatalf("malformed proof coordinate accepted: %v", err)
+			}
+		})
 	}
 }

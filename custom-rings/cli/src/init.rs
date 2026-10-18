@@ -41,6 +41,10 @@ enum ConfigState {
 }
 
 pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
+    ensure!(
+        args.deposit_audit != Some(false),
+        "deposit auditing is mandatory"
+    );
     let key_file = ctx.path(&expand_tilde(&args.auditor_pubkey_file)?);
     let compile = |spec: &PolicySpec| spec.compile(ctx.config.target);
     let policy = ctx.config.policy.as_ref().map(compile).transpose()?;
@@ -110,9 +114,9 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
                 .require(trust)?
         }
     };
-    let deposit_audit = args
-        .deposit_audit
-        .or_else(|| existing.is_none().then_some(ctx.config.deposit_audit));
+    // Normalize an older false-valued account on every init. Its bit has no
+    // power to waive the proof, but leaving it false invites operator mistakes.
+    let deposit_audit = true;
     let deployer = upgrade_authority.as_ref();
     let has_policy = policy.is_some();
     let (config, authority) = create_config(
@@ -136,20 +140,17 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
         Some(_) => PRESENT,
         None => send(ring.create_member_registry_root(payer, payer))?,
     };
-    let deposit = match deposit_audit {
-        Some(required) if ctx.block(ring.deposit_audit(ctx.chain()))? != required => {
-            send(ring.set_deposit_audit(payer, payer, required)?)?
-        }
-        _ => PRESENT,
+    let deposit = if ctx.block(ring.stored_deposit_audit_flag(ctx.chain()))? != deposit_audit {
+        send(ring.set_deposit_audit(payer, payer, deposit_audit)?)?
+    } else {
+        PRESENT
     };
     // The program registers a policy ring only after its policy is pinned.
     let spp_ring = match ctx.block(ring.spp_ring_config(ctx.chain()))? {
         Some(_) => PRESENT,
         None => send(ring.init_spp_ring_config(payer, payer, has_policy)).map(|_| "registered")?,
     };
-    if let Some(required) = args.deposit_audit {
-        RingConfig::set_deposit_audit(&ctx.config_path, required)?;
-    }
+    RingConfig::set_deposit_audit(&ctx.config_path, deposit_audit)?;
     // Written after the chain agrees, so a failed init leaves no file a rerun takes for a local key.
     if choice == KeyChoice::RingRpc {
         write_auditor_pubkey(&key_file, &auditor_pk)?;

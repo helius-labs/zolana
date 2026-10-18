@@ -106,7 +106,7 @@ fn print_chain(ctx: &Context) -> Result<()> {
         Some(state) => {
             line(
                 "legacy deposit flag",
-                stored_audit_flag(ctx.block(ring.deposit_audit(chain))?),
+                stored_audit_flag(ctx.block(ring.stored_deposit_audit_flag(chain))?),
             );
             line("deposit audit", "required");
             let auditor = hex::encode(state.auditor_pubkey.as_bytes());

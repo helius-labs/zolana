@@ -15,7 +15,7 @@ use zolana_interface::{
     state::cache::CACHE_CAPACITY,
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
-use zolana_keypair::{viewing_key::Salt, Curve, NullifierKey};
+use zolana_keypair::{viewing_key::Salt, NullifierKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
@@ -317,14 +317,7 @@ impl MergeProver {
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         // The default rail loads the owner's identity from the user registry.
         // The ring rail proves ownership privately and must carry a false flag.
-        let eddsa_owner = if ring_program_id.is_some() {
-            false
-        } else {
-            match signing_pubkey.curve()? {
-                Curve::Ed25519 | Curve::Pda => true,
-                Curve::P256 => false,
-            }
-        };
+        let eddsa_owner = ring_program_id.is_none();
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs

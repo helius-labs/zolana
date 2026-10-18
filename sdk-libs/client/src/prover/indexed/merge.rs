@@ -14,7 +14,7 @@ use zolana_interface::{
     },
     tree_slot::tree_id_field,
 };
-use zolana_keypair::{Curve, NullifierKey};
+use zolana_keypair::NullifierKey;
 use zolana_transaction::instructions::{
     merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
@@ -287,7 +287,7 @@ impl IndexedMergePreparation {
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
             cache_slot: cache.map(|target| target.slot),
-            eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
+            eddsa_owner: merge.ring_program_id.is_none(),
         };
         Ok(PreparedIndexedMerge {
             request,
@@ -456,6 +456,7 @@ mod tests {
         .unwrap();
         assert_eq!(indexed.request.data.public_inputs.len(), 13);
         assert_eq!(indexed.request.data.public_inputs[8], registration.root);
+        assert!(!indexed.data.eddsa_owner);
         for change_input in [false, true] {
             let mut merge = prepared.clone();
             if change_input {
@@ -509,6 +510,7 @@ mod tests {
             .prepare()
             .unwrap();
             assert_eq!(prepared.data.output_utxo_hash, output);
+            assert!(prepared.data.eddsa_owner);
             assert_eq!(prepared.data.nullifiers, vec![real_nullifier]);
             assert_eq!(prepared.request.input_trees()[0].id, 3);
             let body: serde_json::Value = serde_json::from_str(&prepared.body().unwrap()).unwrap();

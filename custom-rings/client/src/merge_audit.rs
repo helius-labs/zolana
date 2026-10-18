@@ -84,9 +84,11 @@ pub struct MergeAuditPage {
     pub next_cursor: Option<Vec<u8>>,
 }
 
-/// Scans ring history and opens merges using every registered auditor key.
+/// Scans ring history and opens merges using authenticated auditor keys.
 /// Registry keys are final, so the current authenticated leaves cover earlier
-/// merges. A changed root or an incomplete page aborts the scan.
+/// merges. The ciphertext carries no owner hint, so an unresolved output may
+/// require trying every registered key. A changed root or incomplete scan
+/// aborts instead of returning partial coverage.
 #[must_use = "run or discard the merge audit explicitly"]
 pub struct MergeAudit<'a> {
     ring: Address,
@@ -95,6 +97,7 @@ pub struct MergeAudit<'a> {
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     max_member_pages: NonZeroUsize,
+    max_candidate_attempts: Option<NonZeroUsize>,
     indexer_config: Option<IndexerRpcConfig>,
 }
 
@@ -168,6 +171,7 @@ impl<'a> MergeAudit<'a> {
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             max_member_pages: DEFAULT_MAX_MEMBER_PAGES,
+            max_candidate_attempts: None,
             indexer_config: None,
         }
     }
@@ -189,6 +193,14 @@ impl<'a> MergeAudit<'a> {
 
     pub fn with_max_member_pages(mut self, max_member_pages: NonZeroUsize) -> Self {
         self.max_member_pages = max_member_pages;
+        self
+    }
+
+    /// Fail closed before trying more than this many key/output pairs. The
+    /// default scans the complete registry, so offline callers can exhaustively
+    /// audit a large ring. An RPC server can set a smaller per-request budget.
+    pub fn with_max_candidate_attempts(mut self, limit: NonZeroUsize) -> Self {
+        self.max_candidate_attempts = Some(limit);
         self
     }
 
@@ -323,11 +335,15 @@ impl<'a> MergeAudit<'a> {
         if pending.is_empty() {
             return Ok(MergeAuditResult::default());
         }
+        let mut attempts = 0;
         self.scan_registry(indexer, registry, |registered| {
-            for merge in &mut pending {
-                merge.try_open(registered, self.ring)?;
-            }
-            Ok(())
+            try_registered_key(
+                &mut pending,
+                registered,
+                self.ring,
+                &mut attempts,
+                self.max_candidate_attempts,
+            )
         })
         .await?;
         let mut result = MergeAuditResult::default();
@@ -361,13 +377,14 @@ impl<'a> MergeAudit<'a> {
         Ok(state)
     }
 
-    /// Authenticate every leaf at one chain-pinned root and discard its secret
-    /// immediately after the caller tries it against the bounded history page.
+    /// Authenticate leaves at one chain-pinned root until every merge opens or
+    /// the registry ends. The caller may stop only after it has authenticated
+    /// a key that opens each settled output.
     async fn scan_registry<I: AsyncRpc>(
         &self,
         indexer: &I,
         state: &MemberRegistryRoot,
-        mut visit: impl FnMut(&RegisteredKey) -> Result<(), AuditError>,
+        mut visit: impl FnMut(&RegisteredKey) -> Result<bool, AuditError>,
     ) -> Result<(), AuditError> {
         let root = state.root().ok_or(AuditError::InvalidMemberRegistry)?;
         let next_index = state.next_index();
@@ -375,7 +392,7 @@ impl<'a> MergeAudit<'a> {
         let mut pages_read = 0;
         while start_index < next_index {
             if pages_read == self.max_member_pages.get() {
-                return Err(AuditError::IncompleteScan);
+                return Err(AuditError::MergeAuditWorkBudget);
             }
             let response = indexer
                 .get_ring_member_records(GetRingMemberRecordsRequest {
@@ -451,11 +468,14 @@ impl<'a> MergeAudit<'a> {
                     if escrow_hash != record.escrow_key {
                         return Err(AuditError::InvalidMemberRegistry);
                     }
-                    visit(&RegisteredKey {
+                    let complete = visit(&RegisteredKey {
                         member,
                         owner_pubkey,
                         key,
                     })?;
+                    if complete {
+                        return Ok(());
+                    }
                 }
                 start_index += 1;
             }
@@ -463,6 +483,25 @@ impl<'a> MergeAudit<'a> {
         }
         Ok(())
     }
+}
+
+fn try_registered_key(
+    pending: &mut [PendingMerge],
+    registered: &RegisteredKey,
+    ring: Address,
+    attempts: &mut usize,
+    limit: Option<NonZeroUsize>,
+) -> Result<bool, AuditError> {
+    for merge in pending.iter_mut().filter(|merge| merge.opened.is_none()) {
+        if limit.is_some_and(|limit| *attempts >= limit.get()) {
+            return Err(AuditError::MergeAuditWorkBudget);
+        }
+        *attempts += 1;
+        merge.try_open(registered, ring)?;
+    }
+    // Each opening is checked against the settled commitment. Later leaves
+    // cannot change the result once every merge opened.
+    Ok(pending.iter().all(|merge| merge.opened.is_some()))
 }
 
 /// A short, oversized or gapped page cannot silently reduce registry coverage.
@@ -571,8 +610,106 @@ fn remember_merge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use zolana_hasher::primitives::right_align;
-    use zolana_indexer_api::{RingIndexedMemberRecordView, RingMemberRecordView};
+    use zolana_indexer_api::{Base64String, RingIndexedMemberRecordView, RingMemberRecordView};
+    use zolana_ring_member_registry::MemberRegistryTree;
+
+    struct RegistryPages {
+        first: GetRingMemberRecordsResponse,
+        requests: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for RegistryPages {
+        async fn get_ring_member_records(
+            &self,
+            request: GetRingMemberRecordsRequest,
+        ) -> Result<GetRingMemberRecordsResponse, zolana_client::ClientError> {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            if request.start_index != 1 {
+                return Err(zolana_client::ClientError::Indexer(
+                    "unexpected second registry page".to_owned(),
+                ));
+            }
+            Ok(self.first.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticated_opening_stops_before_unneeded_registry_pages() {
+        let ring = Address::new_from_array([9; 32]);
+        let auditor = X25519Secret::new();
+        let key = NullifierKey::from_secret([7; 31]);
+        let envelope = crate::NullifierKeyEnvelope::new(&key, &auditor.pubkey()).unwrap();
+        let escrow_key = EscrowKey {
+            nullifier_pk: &envelope.nullifier_pk,
+            ciphertext: &envelope.sealed.ciphertext,
+        }
+        .hash()
+        .unwrap();
+        let mut tree = MemberRegistryTree::new().unwrap();
+        for index in 1u64..=101 {
+            let member = right_align(&index.to_be_bytes());
+            let item = tree
+                .register_item(&member, if index == 1 { escrow_key } else { [0; 32] })
+                .unwrap();
+            tree.apply(&[item]).unwrap();
+        }
+        let records = (1..=100)
+            .map(|index| {
+                let record = tree.records()[index];
+                let sealed = (index == 1).then_some(&envelope.sealed);
+                RingIndexedMemberRecordView {
+                    index: index as u64,
+                    record: RingMemberRecordView {
+                        member: Hash(record.member),
+                        next: Hash(record.next),
+                        lists: record.lists,
+                        escrow_key: Hash(record.escrow_key),
+                        owner_pubkey: None,
+                        eph_pk: sealed
+                            .map(|sealed| Base64String(sealed.eph_pk.as_bytes().to_vec())),
+                        ciphertext: sealed.map(|sealed| Base64String(sealed.ciphertext.to_vec())),
+                    },
+                    path: tree
+                        .path(index as u64)
+                        .unwrap()
+                        .into_iter()
+                        .map(Hash)
+                        .collect(),
+                }
+            })
+            .collect();
+        let mut history = [[0; 32]; custom_ring_interface::MEMBER_REGISTRY_ROOT_HISTORY];
+        history[0] = tree.root();
+        let state = MemberRegistryRoot {
+            discriminator: 0,
+            next_index: tree.next_index().to_le_bytes(),
+            bump: 0,
+            history_cursor: 0,
+            history,
+        };
+        let pages = RegistryPages {
+            first: GetRingMemberRecordsResponse {
+                context: Context::default(),
+                root: Hash(tree.root()),
+                root_index: 0,
+                next_index: tree.next_index(),
+                records,
+                next_leaf_index: Some(101),
+            },
+            requests: AtomicUsize::new(0),
+        };
+        MergeAudit::new(ring, &auditor)
+            .scan_registry(&pages, &state, |registered| {
+                assert_eq!(registered.key.secret(), key.secret());
+                Ok(true)
+            })
+            .await
+            .unwrap();
+        assert_eq!(pages.requests.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn member_page_must_be_complete_and_contiguous() {
@@ -770,5 +907,25 @@ mod tests {
             pending.opened.as_ref().unwrap().owner_member,
             registered.member
         );
+
+        pending.opened = None;
+        let mut pending = [pending];
+        let mut attempts = 0;
+        let limit = Some(NonZeroUsize::new(1).unwrap());
+        assert!(!try_registered_key(&mut pending, &wrong_key, ring, &mut attempts, limit).unwrap());
+        assert!(matches!(
+            try_registered_key(&mut pending, &registered, ring, &mut attempts, limit),
+            Err(AuditError::MergeAuditWorkBudget)
+        ));
+        assert!(pending[0].opened.is_none());
+        assert!(try_registered_key(
+            &mut pending,
+            &registered,
+            ring,
+            &mut attempts,
+            Some(NonZeroUsize::new(2).unwrap()),
+        )
+        .unwrap());
+        assert_eq!(attempts, 2);
     }
 }

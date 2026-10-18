@@ -199,6 +199,9 @@ impl CustomRing {
         authority: Address,
         required: bool,
     ) -> Result<Instruction, RingError> {
+        if !required {
+            return Err(custom_ring_interface::CustomRingError::DepositAuditRequired.into());
+        }
         let data = tagged(tag::SET_DEPOSIT_AUDIT, &SetDepositAuditIxData { required })?;
         Ok(self.ix(
             self.upsert_metas(payer, authority, self.deposit_audit_pda()),

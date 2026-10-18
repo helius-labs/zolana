@@ -1174,7 +1174,7 @@ describe("signed ring request validation", () => {
   it("accepts a well-formed signed read and a webauthn signature", async () => {
     const { fetch } = capturingFetch({
       context: { slot: 1, blockTime: 1 },
-      value: { items: [], skipped: [] },
+      value: { items: [], skipped: [], cursor: null },
     });
     const rpc = new RingRpc("http://ring.example", {
       fetch,
@@ -1182,6 +1182,18 @@ describe("signed ring request validation", () => {
     });
     await rpc.readSigned(signedRead());
     await rpc.readSigned(signedRead({ signature: WEBAUTHN }));
+  });
+
+  it("refuses a missing audit cursor instead of treating the page as complete", async () => {
+    const { fetch } = capturingFetch({
+      context: { slot: 1, blockTime: 1 },
+      value: { items: [], skipped: [] },
+    });
+    await expect(
+      new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true }).readSigned(
+        signedRead(),
+      ),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
   });
 });
 
@@ -1211,7 +1223,7 @@ describe("ring rpc response validation", () => {
       unresolved: [
         { txSignature: signatureOf(10), eventIndex: 3, outputCommitment: addressOf(11) },
       ],
-      cursor: "AQID",
+      cursor: "AQIE",
     };
     const fetchPage = (body: unknown) =>
       (async (_url: URL | string, init?: RequestInit) => {
@@ -1237,7 +1249,7 @@ describe("ring rpc response validation", () => {
       timestamp: 1_700_000_000n,
     });
     expect(calls[0]?.["method"]).toBe("getAuditedMerges");
-    expect(page.cursor).toEqual(Uint8Array.of(1, 2, 3));
+    expect(page.cursor).toEqual(Uint8Array.of(1, 2, 4));
     expect(page.opened[0]).toMatchObject({
       signature: signatureOf(1),
       eventIndex: 2,
@@ -1247,6 +1259,22 @@ describe("ring rpc response validation", () => {
       inputNullifiers: [filled(7, 32), filled(8, 32)],
     });
     expect(page.unresolved[0]).toMatchObject({ signature: signatureOf(10), eventIndex: 3 });
+    await expect(
+      new RingRpc("http://ring.example", {
+        fetch: fetchPage({ ...value, cursor: "AQID" }),
+        allowInsecureHttp: true,
+      }).getAuditedMerges({
+        ringProgramId: RING,
+        signer: reader,
+        cursor: Uint8Array.of(1, 2, 3),
+      }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
+    await expect(
+      new RingRpc("http://ring.example", {
+        fetch: fetchPage(value),
+        allowInsecureHttp: true,
+      }).getAuditedMerges({ ringProgramId: RING, signer: reader, limit: 1n }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
     for (const bad of [
       { ...value, opened: [{ ...value.opened[0]!, inputNullifiers: [addressOf(7)] }] },
       { ...value, opened: [{ ...value.opened[0]!, eventIndex: 65536 }] },
@@ -1900,7 +1928,7 @@ describe("ring read request", () => {
                   reason: "invalidAuditData",
                 },
               ],
-              cursor: "AQID",
+              cursor: "AQIE",
             },
           },
         }).replace('"__U64_MAX__"', "18446744073709551615"),
@@ -1919,7 +1947,17 @@ describe("ring read request", () => {
     });
     expect(page.slot).toBe(9n);
     expect(page.blockTime).toBe(1_700_000_000n);
-    expect(page.cursor).toEqual(Uint8Array.of(1, 2, 3));
+    expect(page.cursor).toEqual(Uint8Array.of(1, 2, 4));
+    await expect(
+      new RingRpc("http://ring.example", {
+        fetch,
+        allowInsecureHttp: true,
+      }).getDecryptedTransactions({
+        ringProgramId: addressOf(7),
+        signer: reader,
+        limit: 1n,
+      }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
     expect(page.items[0]?.eventIndex).toBe(3);
     expect(page.skipped[0]?.eventIndex).toBe(4);
     expect(page.skipped).toEqual([
@@ -1997,6 +2035,7 @@ describe("ring read request", () => {
                 },
               ],
               skipped: [],
+              cursor: null,
             },
           },
         }),
@@ -2046,6 +2085,7 @@ describe("ring read request", () => {
                 },
               ],
               skipped: [],
+              cursor: null,
             },
           },
         }),
@@ -2255,7 +2295,7 @@ describe("ring read request", () => {
           id: 1,
           result: {
             context: { blockTime: 0, slot: 1 },
-            value: { items: [], skipped: [] },
+            value: { items: [], skipped: [], cursor: null },
           },
         }),
         JSON_HEADERS,

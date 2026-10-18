@@ -4,6 +4,7 @@ import type {
   KitRpcAccess,
   RingMemberRegistryReader,
 } from "../client/ports.js";
+import { ClientError } from "../client/error.js";
 import type { Address, Bytes32, RequestContext, Signature } from "../interface/types.js";
 import type { X25519Secret } from "../keypair/x25519.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -177,26 +178,51 @@ export async function auditRingMerges(
   };
   for (const source of input.members ?? []) {
     const member = memberOfIdentity(source.signingPublicKey.ownerProofInputHash());
+    const ownerPublicKey = source.solanaAddress();
+    const nullifierPublicKey = source.nullifierPublicKey;
     const identity = bytesKey(member);
     if (seenCandidates.has(identity)) continue;
     seenCandidates.add(identity);
-    let key: NullifierKey;
+    let record: Awaited<ReturnType<typeof readSealedKey>>;
     try {
-      const record = await readSealedKey(
+      record = await readSealedKey(
         { client: input.client, ringProgramId: input.ringProgramId, member, registry },
         context ?? {},
       );
-      if (!registersKey(record, source.nullifierPublicKey)) throw new Error("key mismatch");
+    } catch (cause) {
+      if (
+        !(cause instanceof ClientError) ||
+        cause.code !== "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"
+      )
+        throw cause;
+      unavailableMembers.set(identity, member);
+      continue;
+    }
+    if (!registersKey(record, nullifierPublicKey)) {
+      unavailableMembers.set(identity, member);
+      continue;
+    }
+    let key: NullifierKey;
+    try {
       key = openNullifierKey(record.sealed, input.auditor);
-      if (!equal(key.publicKey(), source.nullifierPublicKey)) {
-        key.destroy();
-        throw new Error("recovered key mismatch");
-      }
     } catch {
       unavailableMembers.set(identity, member);
       continue;
     }
-    await tryKey(member, key, source, source.solanaAddress());
+    let matches: boolean;
+    try {
+      matches = equal(key.publicKey(), nullifierPublicKey);
+    } catch {
+      key.destroy();
+      unavailableMembers.set(identity, member);
+      continue;
+    }
+    if (!matches) {
+      key.destroy();
+      unavailableMembers.set(identity, member);
+      continue;
+    }
+    await tryKey(member, key, source, ownerPublicKey);
     openedMembers.add(identity);
   }
   const listMembers = input.client.getRingMemberRecords;

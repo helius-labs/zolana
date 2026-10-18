@@ -13,8 +13,6 @@ pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 /// derivation from a signing key) refuse it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Curve {
-    /// Reserved owner scheme, rejected by every decoder.
-    P256,
     Ed25519,
     Pda,
 }
@@ -22,7 +20,6 @@ pub enum Curve {
 impl From<Curve> for u8 {
     fn from(value: Curve) -> Self {
         match value {
-            Curve::P256 => SIGNATURE_TYPE_P256,
             Curve::Ed25519 => SIGNATURE_TYPE_ED25519,
             Curve::Pda => SIGNATURE_TYPE_PDA,
         }
@@ -73,15 +70,11 @@ impl PublicKey {
     }
 
     pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
-        match Curve::try_from(bytes[0])? {
-            Curve::P256 => Err(KeypairError::InvalidSignatureType(bytes[0])),
-            Curve::Ed25519 | Curve::Pda => {
-                if bytes[PUBLIC_KEY_LEN - 1] != 0 {
-                    return Err(KeypairError::InvalidPublicKey);
-                }
-                Ok(Self(bytes))
-            }
+        Curve::try_from(bytes[0])?;
+        if bytes[PUBLIC_KEY_LEN - 1] != 0 {
+            return Err(KeypairError::InvalidPublicKey);
         }
+        Ok(Self(bytes))
     }
 
     pub fn curve(&self) -> Result<Curve, KeypairError> {
@@ -112,7 +105,6 @@ impl PublicKey {
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
         match self.curve()? {
-            Curve::P256 => Err(KeypairError::InvalidSignatureType(0)),
             Curve::Ed25519 => self.as_ed25519(),
             Curve::Pda => self.as_pda(),
         }
@@ -142,7 +134,7 @@ impl PublicKey {
                     Err(_) => false,
                 }
             }
-            Ok(Curve::P256 | Curve::Pda) | Err(_) => false,
+            Ok(Curve::Pda) | Err(_) => false,
         }
     }
 }

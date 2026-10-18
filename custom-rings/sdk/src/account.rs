@@ -177,8 +177,12 @@ impl CustomRing {
         }))
     }
 
-    /// Off unless the account requires disclosure, an empty account owned by another program is invalid.
-    pub async fn deposit_audit(self, rpc: &(impl AsyncRpc + ?Sized)) -> Result<bool, RingError> {
+    /// The retained on-chain flag. Historical false or absent values never make deposits proofless.
+    /// An empty account owned by another program is invalid.
+    pub async fn stored_deposit_audit_flag(
+        self,
+        rpc: &(impl AsyncRpc + ?Sized),
+    ) -> Result<bool, RingError> {
         let address = self.deposit_audit_pda();
         if let Some(account) = rpc.get_account(address).await? {
             if account.data.is_empty() {

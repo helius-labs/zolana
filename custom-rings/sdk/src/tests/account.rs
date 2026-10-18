@@ -66,9 +66,13 @@ fn delegate() -> Delegate {
 }
 
 #[tokio::test]
-async fn deposit_audit_defaults_off_and_rejects_malformed_state() {
+async fn stored_deposit_audit_flag_reads_historical_values_and_rejects_malformed_state() {
     let address = ring().deposit_audit_pda();
-    let read = |account| async move { ring().deposit_audit(&at(address, account)).await };
+    let read = |account| async move {
+        ring()
+            .stored_deposit_audit_flag(&at(address, account))
+            .await
+    };
     assert!(!read(None).await.unwrap());
     assert!(!read(Some(Account::default())).await.unwrap());
     let bump = Address::find_program_address(&[DepositAudit::SEED], &program()).1;

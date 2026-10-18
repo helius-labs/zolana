@@ -11,7 +11,7 @@ use solana_rpc_client::{
     rpc_client::GetConfirmedSignaturesForAddress2Config,
 };
 use solana_signature::Signature;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use zolana_api::ZolanaApi;
 use zolana_client::{
     program_data, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
@@ -31,6 +31,9 @@ use zolana_ring_client::rpc::{DepositRecord, RingDepositsResponse};
 
 use crate::audit::Page;
 
+const MAX_MERGE_MEMBER_PAGES: NonZeroUsize = NonZeroUsize::new(100).unwrap();
+const MAX_MERGE_CANDIDATE_ATTEMPTS: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
+
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
         &self,
@@ -39,13 +42,11 @@ pub trait TransactionSource: Send + Sync {
 
     fn merge_audit_page<'a>(
         &'a self,
-        _ring: Address,
-        _auditor: &'a zolana_keypair::X25519Secret,
-        _cursor: Option<Vec<u8>>,
-        _limit: NonZeroU32,
-    ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a {
-        async { Err(AuditError::InvalidMemberRegistry) }
-    }
+        ring: Address,
+        auditor: &'a zolana_keypair::X25519Secret,
+        cursor: Option<Vec<u8>>,
+        limit: NonZeroU32,
+    ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a;
 
     fn transaction_origin(
         &self,
@@ -169,10 +170,59 @@ impl AsyncRpc for MergeAuditSource<'_> {
         options: RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.indexer
+        let cursor = options.cursor.clone();
+        let response = self
+            .indexer
             .get_shielded_transactions_by_ring(options, config)
-            .await
+            .await?;
+        validate_merge_history_order(cursor.as_deref(), &response)?;
+        Ok(response)
     }
+}
+
+/// Photon orders ring history by this fixed-width cursor. Checking rows against
+/// the requested position prevents a repeated confirmed event on another page
+/// from being counted twice by a stateless signed RPC reader.
+fn merge_history_position(cursor: &[u8]) -> Option<(u64, [u8; 64], u16)> {
+    let (&2, body) = cursor.split_first()? else {
+        return None;
+    };
+    let (&slot, body) = body.split_first_chunk::<8>()?;
+    let (&signature, body) = body.split_first_chunk::<64>()?;
+    let (&event_index, []) = body.split_first_chunk::<2>()? else {
+        return None;
+    };
+    Some((
+        u64::from_be_bytes(slot),
+        signature,
+        u16::from_be_bytes(event_index),
+    ))
+}
+
+fn validate_merge_history_order(
+    cursor: Option<&[u8]>,
+    response: &GetShieldedTransactionsByTagsResponse,
+) -> Result<(), ClientError> {
+    let invalid = || ClientError::Indexer("invalid ring history cursor or row order".to_owned());
+    let mut previous = match cursor {
+        Some(cursor) => Some(merge_history_position(cursor).ok_or_else(invalid)?),
+        None => None,
+    };
+    for tx in &response.transactions {
+        let event_index = tx.event_index.ok_or_else(invalid)?;
+        let position = (tx.slot, *tx.tx_signature.as_array(), event_index);
+        if previous.is_some_and(|previous| position <= previous) {
+            return Err(invalid());
+        }
+        previous = Some(position);
+    }
+    if let Some(next) = response.next_cursor.as_deref() {
+        let next = merge_history_position(next).ok_or_else(invalid)?;
+        if Some(next) != previous {
+            return Err(invalid());
+        }
+    }
+    Ok(())
 }
 
 impl ChainSource {
@@ -226,6 +276,10 @@ impl TransactionSource for ChainSource {
         MergeAudit::new(ring, auditor)
             .with_cursor(cursor)
             .with_page_size(limit)
+            // A signed read cannot spend minutes enumerating a full registry.
+            // Hitting either cap returns MergeAuditWorkBudget, never partial coverage.
+            .with_max_member_pages(MAX_MERGE_MEMBER_PAGES)
+            .with_max_candidate_attempts(MAX_MERGE_CANDIDATE_ATTEMPTS)
             .page(
                 &MergeAuditSource {
                     rpc: &self.rpc,
@@ -272,9 +326,7 @@ impl TransactionSource for ChainSource {
         let mut deposits = Vec::new();
         let mut oldest = None;
         for entry in signatures {
-            let Ok(signature) = entry.signature.parse::<Signature>() else {
-                continue;
-            };
+            let signature = confirmed_signature(&entry.signature)?;
             oldest = Some((signature, entry.slot));
             if entry.err.is_some() {
                 continue;
@@ -348,6 +400,13 @@ impl TransactionSource for ChainSource {
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
         self.rpc.asset_registry().await
     }
+}
+
+/// A malformed signature must stop the page before its cursor can advance.
+fn confirmed_signature(value: &str) -> Result<Signature, ClientError> {
+    value
+        .parse()
+        .map_err(|_| ClientError::Rpc("confirmed ring signature is invalid".to_owned()))
 }
 
 /// Public deposit metadata needs the same settlement binding as private recovery.
@@ -440,6 +499,59 @@ mod tests {
     use solana_signer::Signer;
 
     use super::*;
+
+    #[test]
+    fn malformed_confirmed_signature_aborts_a_deposit_page() {
+        assert!(confirmed_signature("not a Solana signature").is_err());
+        let valid = Signature::from([7; 64]);
+        assert_eq!(confirmed_signature(&valid.to_string()).unwrap(), valid);
+    }
+
+    #[test]
+    fn signed_merge_pages_reject_repeated_or_reordered_indexer_rows() {
+        use zolana_transaction::ShieldedTransaction;
+
+        let position = |slot: u64, signature: &Signature, event_index: u16| {
+            let mut cursor = vec![2];
+            cursor.extend_from_slice(&slot.to_be_bytes());
+            cursor.extend_from_slice(signature.as_array());
+            cursor.extend_from_slice(&event_index.to_be_bytes());
+            cursor
+        };
+        let tx = |slot: u64, event_index: u16| ShieldedTransaction {
+            slot,
+            tx_signature: Signature::from([7; 64]),
+            event_index: Some(event_index),
+            tx_viewing_pk: None,
+            salt: None,
+            output_slots: vec![],
+            messages: vec![],
+            nullifiers: vec![],
+            proofless: false,
+            ring_config: None,
+            ring_program_id: None,
+        };
+        let first = tx(9, 1);
+        let second = tx(9, 2);
+        let mut response = GetShieldedTransactionsByTagsResponse {
+            context: zolana_client::Context {
+                slot: 9,
+                block_time: 0,
+            },
+            transactions: vec![first.clone(), second.clone()],
+            next_cursor: Some(position(9, &second.tx_signature, 2)),
+            scanned_through: None,
+            output_tree_id: None,
+        };
+        assert!(validate_merge_history_order(None, &response).is_ok());
+        let previous = position(9, &first.tx_signature, 1);
+        assert!(validate_merge_history_order(Some(&previous), &response).is_err());
+        response.transactions = vec![second.clone(), first];
+        assert!(validate_merge_history_order(None, &response).is_err());
+        response.transactions = vec![second];
+        response.next_cursor = Some(previous);
+        assert!(validate_merge_history_order(None, &response).is_err());
+    }
 
     fn account<T: Pod>(owner: Address, value: &T) -> Account {
         Account {

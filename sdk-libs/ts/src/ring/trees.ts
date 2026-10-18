@@ -30,7 +30,7 @@ export function ringTreeIdResolver(
     const cached = ids.get(tree);
     if (cached !== undefined) return Promise.resolve(cached);
     // The first caller's abort signal must not cancel another caller's lookup.
-    const shared = context?.signal === undefined;
+    const shared = context?.signal === undefined && context?.timeoutMs === undefined;
     const inFlight = shared ? pending.get(tree) : undefined;
     if (inFlight !== undefined) return inFlight;
     const id = readTreeId(client, tree, context).then((treeId) => {

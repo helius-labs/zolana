@@ -600,13 +600,14 @@ export class RingRpc {
     context?: RequestContext,
   ): Promise<AuditedMergesPage> {
     await initializePoseidon();
+    const checked = checkedSignedRead(read);
     const wire = record(
-      await this.#call("getAuditedMerges", signedReadParams(checkedSignedRead(read)), context),
+      await this.#call("getAuditedMerges", signedReadParams(checked), context),
       "result",
     );
     const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
-    const cursor = value["cursor"];
+    const cursor = readResponseCursor(value["cursor"], checked);
     const field = (input: unknown, path: string): Bytes32 => {
       const bytes = hash(input, path);
       if (bytesToBigInt(bytes) >= BN254_SCALAR_ORDER) throw invalid(path);
@@ -619,7 +620,7 @@ export class RingRpc {
     });
     const opened = list(value["opened"], "result.value.opened");
     const unresolved = list(value["unresolved"], "result.value.unresolved");
-    if (opened.length + unresolved.length > Number(RING_READ_PAGE_LIMIT))
+    if (opened.length + unresolved.length > Number(checked.limit ?? RING_READ_PAGE_LIMIT))
       throw invalid("result.value");
     return Object.freeze({
       slot: integer(wireContext["slot"], "result.context.slot"),
@@ -664,9 +665,7 @@ export class RingRpc {
           ),
         ),
       ),
-      ...(cursor === undefined || cursor === null
-        ? {}
-        : { cursor: base64(cursor, "result.value.cursor") }),
+      ...(cursor === undefined ? {} : { cursor }),
     });
   }
 
@@ -681,24 +680,24 @@ export class RingRpc {
     );
     const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
-    const cursor = value["cursor"];
+    const cursor = readResponseCursor(value["cursor"], checked);
+    const items = list(value["items"], "result.value.items");
+    const skipped = list(value["skipped"], "result.value.skipped");
+    if (items.length + skipped.length > Number(checked.limit ?? RING_READ_PAGE_LIMIT))
+      throw invalid("result.value");
     await initializePoseidon();
     return Object.freeze({
       slot: integer(wireContext["slot"], "result.context.slot"),
       blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
       items: Object.freeze(
-        list(value["items"], "result.value.items").map((item, index) =>
-          decodeTransaction(record(item, `result.value.items[${index}]`)),
-        ),
+        items.map((item, index) => decodeTransaction(record(item, `result.value.items[${index}]`))),
       ),
       skipped: Object.freeze(
-        list(value["skipped"], "result.value.skipped").map((entry, index) =>
+        skipped.map((entry, index) =>
           decodeSkipped(record(entry, `result.value.skipped[${index}]`)),
         ),
       ),
-      ...(cursor === undefined || cursor === null
-        ? {}
-        : { cursor: base64(cursor, "result.value.cursor") }),
+      ...(cursor === undefined ? {} : { cursor }),
     });
   }
 
@@ -778,6 +777,20 @@ function signedReadParams(checked: SignedRingRead): Record<string, unknown> {
           }),
     },
   };
+}
+
+/** A response cursor must be usable for the next signed page. */
+function readResponseCursor(value: unknown, request: SignedRingRead): Uint8Array | undefined {
+  if (value === null) return undefined;
+  if (value === undefined) throw invalid("result.value.cursor");
+  const cursor = base64(value, "result.value.cursor");
+  if (
+    cursor.length === 0 ||
+    cursor.length > RING_READ_CURSOR_LIMIT ||
+    (request.cursor !== undefined && equal(cursor, request.cursor))
+  )
+    throw invalid("result.value.cursor");
+  return cursor;
 }
 
 async function signMessage(signer: MessagePartialSigner, message: Uint8Array): Promise<Bytes64> {

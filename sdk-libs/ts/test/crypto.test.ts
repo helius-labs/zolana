@@ -92,8 +92,12 @@ describe("shielded key material", () => {
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(X25519PublicKey);
+    // @ts-expect-error -- retired owner type must also fail at the runtime boundary.
     expect(() => ShieldedKeypair.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    // @ts-expect-error -- retired owner type must also fail at the runtime boundary.
     expect(() => SigningKey.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    // @ts-expect-error -- a PDA has no signing secret to generate.
+    expect(() => SigningKey.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
   });
 
   it("rejects the reserved owner tag without changing Ed25519 or PDA encodings", () => {

@@ -31,7 +31,6 @@ import {
   prepareRingKeyRegistration,
   recoverRingMemberNotes,
   createRingDelegateRecoveredSubmission,
-  memberOfTag,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
   fetchRingCoSigner,
@@ -40,10 +39,7 @@ import {
   clearRingCoSignerInstruction,
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
-  ListId,
-  memberOfAsset,
   ringAuthAddress,
-  buildRuleTable,
   createKitRingSubmissionTransport,
   createRingTransferSubmission,
   createRingMergeSubmission,
@@ -54,6 +50,7 @@ import {
   buildRingDepositTransaction,
   type RingTransactionSubmission,
 } from "../../src/ring/index.js";
+import { ListId, buildRuleTable, memberOfAsset, memberOfTag } from "../../src/ring/advanced.js";
 import { liveHarness, signSendAndConfirm } from "./live-helpers.js";
 import {
   airdrop,

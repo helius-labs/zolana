@@ -807,7 +807,9 @@ describe("ring merge", () => {
       client: {
         ...client,
         getRingMemberRecord: async () => {
-          throw new Error("unavailable");
+          throw new ClientError("CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED", {
+            details: { method: "getRingMemberRecord" },
+          });
         },
       },
       ringProgramId: RING,
@@ -818,6 +820,22 @@ describe("ring merge", () => {
     expect(missingKey.merges).toEqual([]);
     expect(missingKey.unresolved).toHaveLength(1);
     expect(missingKey.unavailableMembers).toHaveLength(1);
+    await expect(
+      auditRingMerges({
+        client: {
+          ...client,
+          getRingMemberRecord: async () => {
+            throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+              details: { method: "getRingMemberRecord" },
+            });
+          },
+        },
+        ringProgramId: RING,
+        auditor: mergeAuditor,
+        members: [owner.shieldedAddress()],
+        origin,
+      }),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
 
     const record = mergeRegistry.entry.record;
     if (record === null) throw new Error("missing registered member");

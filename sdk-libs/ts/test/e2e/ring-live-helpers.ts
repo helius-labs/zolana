@@ -21,12 +21,10 @@ import {
   syncWallet,
   type Bytes32,
 } from "../../src/index.js";
+import { ListId, memberOfTag, type EntryState } from "../../src/ring/advanced.js";
 import {
-  ListId,
   buildRingListWriteTransaction,
-  memberOfTag,
   fetchRingMemberRecord,
-  type EntryState,
   type RingRpc,
   messageSignerReader,
 } from "../../src/ring/index.js";

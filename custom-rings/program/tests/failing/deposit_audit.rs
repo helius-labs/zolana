@@ -61,7 +61,7 @@ fn setter(required: u8, existing: Account) -> Fixture {
     )
 }
 
-/// Offset of the key registry root index in the audited wire.
+/// Offset of the member registry root index in the audited wire.
 const REGISTRY_INDEX: usize = 1 + CustomRingProof::SIZE;
 /// Offset of the forwarded SPP deposit instruction.
 const SPP_DATA: usize = core::mem::size_of::<AuditedDepositPrefix>();
@@ -198,7 +198,7 @@ fn proven_disclosures_bind_each_owner_and_both_ciphertexts() {
 }
 
 #[test]
-fn authority_can_create_enable_and_disable_deposit_auditing() {
+fn authority_can_create_or_normalize_required_deposit_auditing() {
     let (mollusk, _) = setup_mollusk();
     for initial in [
         account(0),
@@ -206,20 +206,26 @@ fn authority_can_create_enable_and_disable_deposit_auditing() {
         audit_account(0),
         audit_account(1),
     ] {
-        for required in [0, 1] {
-            let fixture = setter(required, initial.clone());
-            let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
-            assert_eq!(result.program_result, ProgramResult::Success);
-            let stored = result
-                .resulting_accounts
-                .iter()
-                .find(|(key, _)| key == &deposit_audit_pda().0)
-                .unwrap();
-            let value = bytemuck::from_bytes::<DepositAudit>(&stored.1.data);
-            assert_eq!(value.required, required);
-            assert_eq!(value.bump, deposit_audit_pda().1);
-            assert_eq!(stored.1.owner, program_id());
-        }
+        let fixture = setter(1, initial);
+        let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+        assert_eq!(result.program_result, ProgramResult::Success);
+        let stored = result
+            .resulting_accounts
+            .iter()
+            .find(|(key, _)| key == &deposit_audit_pda().0)
+            .unwrap();
+        let value = bytemuck::from_bytes::<DepositAudit>(&stored.1.data);
+        assert_eq!(value.required, 1);
+        assert_eq!(value.bump, deposit_audit_pda().1);
+        assert_eq!(stored.1.owner, program_id());
+    }
+}
+
+#[test]
+fn setter_cannot_disable_deposit_auditing() {
+    let (mollusk, _) = setup_mollusk();
+    for account in [account(0), audit_account(0), audit_account(1)] {
+        setter(0, account).expect_err(&mollusk, custom(CustomRingError::DepositAuditRequired));
     }
 }
 

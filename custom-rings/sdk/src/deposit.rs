@@ -416,10 +416,8 @@ impl DepositDisclosure {
 
 impl Deposit {
     pub fn instruction(self) -> Result<Instruction, RingError> {
-        if self.proof.is_none() {
-            return Err(RingError::AuditRequired);
-        }
-        if self.proof.is_some() && self.deposits.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
+        let proof = self.proof.ok_or(RingError::AuditRequired)?;
+        if self.deposits.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(DepositBuildError::TooManyEntries {
                 count: self.deposits.len(),
                 max: MAX_RING_DEPOSIT_AUDIT_SLOTS,
@@ -433,14 +431,12 @@ impl Deposit {
             deposits: self.deposits,
         }
         .instruction()?;
-        if let Some(proof) = self.proof {
-            let prefix = AuditedDepositPrefix {
-                tag: tag::AUDITED_DEPOSIT,
-                proof,
-                registry_root_index: self.escrow.root_index(),
-            };
-            instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
-        }
+        let prefix = AuditedDepositPrefix {
+            tag: tag::AUDITED_DEPOSIT,
+            proof,
+            registry_root_index: self.escrow.root_index(),
+        };
+        instruction.data = [bytemuck::bytes_of(&prefix), &instruction.data].concat();
         let mut prefix = ring_prefix(self.ring, self.cosigner).to_vec();
         prefix.push(AccountMeta::new_readonly(
             self.ring.deposit_audit_pda(),

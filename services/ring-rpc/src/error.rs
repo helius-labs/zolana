@@ -48,6 +48,10 @@ impl From<RingRpcError> for ErrorObjectOwned {
                 error!("upstream request failed {inner}");
                 (ErrorCode::InternalError, "upstream request failed")
             }
+            Origin(AuditError::MergeAuditWorkBudget) => (
+                ErrorCode::InternalError,
+                "audit scan exceeded its per-request work budget",
+            ),
             Origin(inner) => {
                 error!("transaction origin lookup failed {inner}");
                 (ErrorCode::InternalError, "upstream request failed")
@@ -66,5 +70,21 @@ impl From<RingRpcError> for ErrorObjectOwned {
             }
         };
         ErrorObjectOwned::owned(code.code(), message, None::<()>)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_merge_scan_has_an_explicit_rpc_error() {
+        let response =
+            ErrorObjectOwned::from(RingRpcError::Origin(AuditError::MergeAuditWorkBudget));
+        assert_eq!(response.code(), ErrorCode::InternalError.code());
+        assert_eq!(
+            response.message(),
+            "audit scan exceeded its per-request work budget"
+        );
     }
 }

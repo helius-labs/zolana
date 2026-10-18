@@ -348,6 +348,16 @@ mod tests {
             Err(ClientError::Rpc("unused source".to_owned()))
         }
 
+        async fn merge_audit_page(
+            &self,
+            _ring: Address,
+            _auditor: &X25519Secret,
+            _cursor: Option<Vec<u8>>,
+            _limit: std::num::NonZeroU32,
+        ) -> Result<zolana_ring_client::MergeAuditPage, AuditError> {
+            Err(AuditError::InvalidMemberRegistry)
+        }
+
         async fn transaction_origin(
             &self,
             _signature: Signature,

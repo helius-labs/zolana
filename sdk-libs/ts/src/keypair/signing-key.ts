@@ -55,7 +55,7 @@ export class SigningKey {
     this.#secret = secret;
   }
 
-  static generate(type: SignatureType = "ed25519"): SigningKey {
+  static generate(type: "ed25519" = "ed25519"): SigningKey {
     if (type !== "ed25519") throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type });
     return new SigningKey(randomBytes(32));
   }

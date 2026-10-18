@@ -463,6 +463,24 @@ fn delegate_shapes_settle_with_current_keys() -> Result<()> {
     settle_matching_key_mode(Mode::Delegate, 4)
 }
 
+#[test]
+#[ignore = "requires post-427 ordinary SPP transfer proving keys"]
+fn ordinary_two_by_two_settles_after_key_rotation() -> Result<()> {
+    let env = setup_with_extra_rings(&[])?;
+    let ring = GovernedRing {
+        env: &env,
+        ring: CustomRing::new(custom_ring_program_id()?),
+        mode: Mode::Member,
+        auditor: X25519Secret::new(),
+        delegate: Keypair::new(),
+    };
+    ring.configure()?;
+    for subtree in [false, true] {
+        ring.transfer(Shape::IN2_OUT2, subtree)?;
+    }
+    Ok(())
+}
+
 fn settle_matching_key_mode(mode: Mode, expected_capacities: usize) -> Result<()> {
     let program = Keypair::new().pubkey();
     let env = setup_with_extra_rings(&[program])?;

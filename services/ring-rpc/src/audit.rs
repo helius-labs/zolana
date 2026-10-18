@@ -13,7 +13,7 @@ use zolana_ring_client::{
         DecryptedTransactionsPage, GetAuditedMergesResponse, GetDecryptedTransactionsResponse,
         ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
-    AuditError, AuditedTransaction, RingOrigin, TransactionAudit,
+    AuditError, AuditedTransaction, MergeAuditPage, RingOrigin, TransactionAudit,
 };
 use zolana_transaction::{instructions::transact::canonical_shape, AssetRegistry};
 
@@ -308,15 +308,22 @@ impl<S: TransactionSource> AuthorizedRead<'_, S> {
                 self.page.limit(),
             )
             .await?;
-        if page
-            .next_cursor
-            .as_deref()
-            .is_some_and(|cursor| !cursor_in_bounds(cursor))
-        {
-            return Err(RingRpcError::InvalidIndexerResponse);
-        }
+        validate_merge_page(&page, self.page)?;
         Ok(page.into())
     }
+}
+
+fn validate_merge_page(page: &MergeAuditPage, request: &Page) -> Result<(), RingRpcError> {
+    let rows = page.result.opened.len() + page.result.unresolved.len();
+    if rows > request.limit.get() as usize
+        || page
+            .next_cursor
+            .as_deref()
+            .is_some_and(|cursor| !cursor_in_bounds(cursor) || request.cursor() == Some(cursor))
+    {
+        return Err(RingRpcError::InvalidIndexerResponse);
+    }
+    Ok(())
 }
 
 fn validate_indexer_response(
@@ -348,4 +355,46 @@ fn validate_indexer_response(
         return Err(RingRpcError::InvalidIndexerResponse);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_indexer_api::Context;
+    use zolana_ring_client::{MergeAuditResult, UnresolvedMerge};
+
+    use super::*;
+
+    #[test]
+    fn merge_page_rejects_an_unchanged_cursor_and_extra_rows() {
+        let request = Page::new(Some(Base64String(vec![7])), Some(Limit::new(1).unwrap())).unwrap();
+        let mut response = MergeAuditPage {
+            context: Context {
+                slot: 1,
+                block_time: 1,
+            },
+            result: MergeAuditResult::default(),
+            next_cursor: Some(vec![7]),
+        };
+        assert!(matches!(
+            validate_merge_page(&response, &request),
+            Err(RingRpcError::InvalidIndexerResponse)
+        ));
+        response.next_cursor = Some(vec![8]);
+        let unresolved = UnresolvedMerge {
+            tx_signature: Signature::from([3; 64]),
+            event_index: 0,
+            output_commitment: [1; 32],
+        };
+        response.result.unresolved.push(unresolved);
+        assert!(validate_merge_page(&response, &request).is_ok());
+        response.result.unresolved.push(UnresolvedMerge {
+            tx_signature: Signature::from([4; 64]),
+            event_index: 0,
+            output_commitment: [2; 32],
+        });
+        assert!(matches!(
+            validate_merge_page(&response, &request),
+            Err(RingRpcError::InvalidIndexerResponse)
+        ));
+    }
 }

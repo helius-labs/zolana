@@ -333,26 +333,24 @@ impl StaticSource {
 }
 
 impl TransactionSource for StaticSource {
-    fn merge_audit_page<'a>(
-        &'a self,
+    async fn merge_audit_page(
+        &self,
         _ring: Address,
-        _auditor: &'a X25519Secret,
+        _auditor: &X25519Secret,
         _cursor: Option<Vec<u8>>,
         _limit: NonZeroU32,
-    ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a {
-        async {
-            Ok(MergeAuditPage {
-                context: zolana_indexer_api::Context {
-                    block_time: 0,
-                    slot: 99,
-                },
-                result: MergeAuditResult {
-                    opened: Vec::new(),
-                    unresolved: Vec::new(),
-                },
-                next_cursor: None,
-            })
-        }
+    ) -> Result<MergeAuditPage, AuditError> {
+        Ok(MergeAuditPage {
+            context: zolana_indexer_api::Context {
+                block_time: 0,
+                slot: 99,
+            },
+            result: MergeAuditResult {
+                opened: Vec::new(),
+                unresolved: Vec::new(),
+            },
+            next_cursor: None,
+        })
     }
 
     fn transactions_by_tag(

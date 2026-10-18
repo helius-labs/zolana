@@ -122,16 +122,10 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 	const fpSize = 32
 	appendCoordinates := func(dst []byte, coordinates []string) ([]byte, error) {
 		for _, coordinate := range coordinates {
-			var value big.Int
-			if err := FromHex(&value, coordinate); err != nil {
-				return nil, err
-			}
 			fieldBytes := make([]byte, fpSize)
-			intBytes := value.Bytes()
-			if len(intBytes) > fpSize {
-				intBytes = intBytes[len(intBytes)-fpSize:]
+			if err := DecodeCanonicalHexInto(fieldBytes, coordinate); err != nil {
+				return nil, fmt.Errorf("invalid proof coordinate: %w", err)
 			}
-			copy(fieldBytes[fpSize-len(intBytes):], intBytes)
 			dst = append(dst, fieldBytes...)
 		}
 		return dst, nil

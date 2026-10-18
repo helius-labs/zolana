@@ -88,6 +88,12 @@ const INDEXER_POLL: IndexerPollConfig = IndexerPollConfig {
     max_delay_ms: 4_000,
 };
 
+fn require_deposit_audit(value: &str) -> std::result::Result<bool, String> {
+    (value == "true")
+        .then_some(true)
+        .ok_or_else(|| "deposit auditing is mandatory, only `true` is accepted".to_owned())
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "zolana-ring", about = "Operate a custom ring")]
 pub struct Cli {
@@ -341,8 +347,8 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
-    /// Store the legacy setting at first init. All deposits require an audit proof.
-    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    /// Normalize the retained setting to true. All deposits require an audit proof.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_parser = require_deposit_audit)]
     pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
     #[arg(long)]
@@ -353,9 +359,9 @@ pub struct DeployArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum DepositAuditCommand {
-    /// Store the legacy setting. All deposits still require an audit proof.
+    /// Normalize the retained setting to true. All deposits require an audit proof.
     Set {
-        #[arg(long, action = clap::ArgAction::Set, required = true)]
+        #[arg(long, action = clap::ArgAction::Set, required = true, value_parser = require_deposit_audit)]
         required: bool,
     },
     /// Read the stored legacy setting from the ring.
@@ -364,8 +370,8 @@ pub enum DepositAuditCommand {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Override the stored legacy setting. All deposits require an audit proof.
-    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    /// Normalize the retained setting to true. All deposits require an audit proof.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_parser = require_deposit_audit)]
     pub deposit_audit: Option<bool>,
     /// Hex tagged X25519 auditor key, created by the ring RPC and written here when absent.
     #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
@@ -791,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn deposit_audit_is_opt_in_and_can_be_disabled_explicitly() {
+    fn deposit_audit_flag_only_accepts_required() {
         let parse = |args| Cli::try_parse_from(args).unwrap().command;
         assert!(matches!(
             parse(vec!["zolana-ring", "deploy"]),
@@ -808,9 +814,9 @@ mod tests {
             })
         ));
         assert!(matches!(
-            parse(vec!["zolana-ring", "init", "--deposit-audit=false"]),
+            parse(vec!["zolana-ring", "init", "--deposit-audit=true"]),
             Command::Init(InitArgs {
-                deposit_audit: Some(false),
+                deposit_audit: Some(true),
                 ..
             })
         ));
@@ -820,10 +826,20 @@ mod tests {
                 "deposit-audit",
                 "set",
                 "--required",
-                "false"
+                "true"
             ]),
-            Command::DepositAudit(DepositAuditCommand::Set { required: false })
+            Command::DepositAudit(DepositAuditCommand::Set { required: true })
         ));
+        assert!(Cli::try_parse_from(["zolana-ring", "init", "--deposit-audit=false"]).is_err());
+        assert!(Cli::try_parse_from(["zolana-ring", "deploy", "--deposit-audit=false"]).is_err());
+        assert!(Cli::try_parse_from([
+            "zolana-ring",
+            "deposit-audit",
+            "set",
+            "--required",
+            "false"
+        ])
+        .is_err());
         assert!(Cli::try_parse_from(["zolana-ring", "deposit-audit", "set"]).is_err());
     }
 

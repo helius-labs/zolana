@@ -55,6 +55,8 @@ pub enum AuditError {
     InvalidMemberRegistry,
     #[error("ring history exceeds the scan bound, spent notes cannot be excluded")]
     IncompleteScan,
+    #[error("merge audit exceeded its key-search work budget")]
+    MergeAuditWorkBudget,
     #[error("audited output slot index {0} is absent from its transaction")]
     MissingOutputSlot(u32),
     #[error("transaction {signature} is unavailable {message}")]
