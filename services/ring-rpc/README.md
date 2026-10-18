@@ -34,6 +34,7 @@ All wire fields use camel case.
 | `ringStatus` | Ring program ID | Whether the ring's config names the key held here (`served`), another one (`foreignAuditor`), or does not exist yet (`uninitialized`), with the config's key when it exists |
 | `ringDeposits` | Ring program ID, examined signature limit, and page cursor | The deposits found, the next cursor, and the oldest slot examined |
 | `getDecryptedTransactions` | Ring, page, and read authorization | Decrypted transaction page |
+| `getAuditedMerges` | Ring, page, and read authorization | Commitment-checked merge openings and unresolved outputs |
 
 `ringDeposits` walks ring history backwards from the newest signature. A deposit publishes its asset and amount, so the method needs no auditor key and no read authorization. Its `limit` counts signatures examined rather than deposits found, so a page can hold no deposits and still have history behind it. The default limit is 50 and the service clamps it to 200.
 
@@ -64,6 +65,8 @@ Photon supplies transaction discovery. Ring RPC fetches each candidate from Sola
 Clients of Ring RPC trust the configured service to perform these checks. Validating the returned opening commitments alone does not independently authenticate chain history.
 
 The chain RPC remains trusted for confirmed contents. Photon remains trusted for complete history. These checks detect changed contents, but cannot prove that an indexer omitted no transaction. Rows that fail event binding or disclosure checks appear in `skipped`. A failed chain lookup returns an error.
+
+`getAuditedMerges` checks each confirmed merge against the chain and tries auditor keys from authenticated member-registry pages. It stops searching once every output on the history page has a commitment-checked opening. Each request is limited to 100 registry pages and 100,000 key and output attempts. If either limit is reached before the scan is complete, the method returns `audit scan exceeded its per-request work budget`. It does not return a partial page. A direct Rust `MergeAudit` scan has no default key-attempt limit and can search the full registry. Photon history rows must advance strictly past the requested cursor, so a repeated event cannot be counted on a later signed page.
 
 ## Operation
 

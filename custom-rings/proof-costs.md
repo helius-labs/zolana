@@ -1,6 +1,6 @@
 Constraint counts below include PR #427. Transfer proving times and policy settlement results are the `aa2273c60` baseline, before that PR. Settlement signer binding and keys changed. Fresh transfer timings and valid policy settlements with the matching keys are still required for the combined build. Current merge measurements are separate below.
 
-The new 8, 24 and 52-input ring-merge keys are available locally. They include the ring-state preservation check. Matching ordinary transfer keys and the default-ring 52-input merge key are still unavailable locally. These are separate artifact gaps. Local key generation does not establish settlement coverage or an approved mainnet setup.
+The new 8, 24 and 52-input ring-merge keys are available locally. They include the ring-state preservation check. Ordinary SPP ring-transfer key files are present, but their serialized circuits differ from the post-#427 transfer circuits. Matching ordinary transfer keys and the default-ring 52-input merge key are therefore still unavailable locally. These are separate artifact gaps. Local key generation does not establish settlement coverage or an approved mainnet setup.
 
 The full 2-input, 3-output policy and auditor proof is below 100k constraints. No policy feature was removed. Ordinary recipient encryption stays wallet-side.
 

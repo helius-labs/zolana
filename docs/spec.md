@@ -253,7 +253,6 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `X25519Pubkey` | `[u8; 33]` | X25519 public key, `0x04 \|\| u` with `u` the little-endian Montgomery u-coordinate. Only a canonical `u < 2^255 - 19` decodes. No scheme prefix beyond the tag. Used where the key is X25519 by construction, the viewing and ECDH keys (`tx_viewing_pk`, registry `viewing_pk`, ring auditor keys, ephemeral envelope keys). |
 | `X25519Keypair` | — | An X25519 `(secret, public)` keypair. The secret is a clamped 32-byte RFC 7748 scalar, and its public half is an `X25519Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
-| `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
 | `CircuitId` | enum | Selects `ConfidentialEd25519`, `ConfidentialRingEd25519`, `RingAuthority` or `AnonymousRingEd25519` and its fixed input/output capacities. Anonymous proofs also carry a BSB22 commitment. The two confidential families have `*Cached` twins with a read bitmap and write slots. Cached twins use the family key. Unknown and retired tags are rejected. |
@@ -2237,9 +2236,9 @@ enum OutputDataEncoding {
     /// [plaintext transfer](#plaintext-transfer) blob.
     Encrypted(Vec<u8>),
     /// Verifiably-encrypted payload: ciphertext whose well-formedness is
-    /// proven in-circuit: the [merge output](#merge), and upcoming auditor
-    /// encryption flows (custom rings with auditor), where the output must be
-    /// provably decryptable by the auditor.
+    /// proven in-circuit for the [merge output](#merge). Custom-ring transfer
+    /// auditor disclosure is a separate proof-bound message, not this output
+    /// payload. Ordinary recipient payloads are not proved.
     VerifiablyEncrypted(Vec<u8>),
 }
 
@@ -2499,7 +2498,8 @@ UTXOs may carry `ring_data`. The ring interprets it and commits it through
 | Set delegate | Changes mode to Registry | Allowed | Refused |
 
 Every transfer proves the dedicated auditor disclosure. Every ring deposit
-proves its auditor opening, regardless of the retained `deposit_audit` setting.
+proves its auditor opening. New `deposit_audit = false` settings are rejected,
+while old false accounts still decode without permitting a proofless deposit.
 Every permitted ring merge proves an owner key registration, including in Off
 mode. The auditor opens its committed amount and mint with that registered key.
 A configured policy
@@ -2614,8 +2614,9 @@ nonce = Poseidon("TMSN", siloed)[20..32]
 
 The AES counter begins at `nonce || BE32(2)`. Deposit slots use separate counter
 ranges. Registry-mode deposits also prove the required escrow records against
-the member-registry root. A configured deposit-audit requirement rejects plain
-deposits even in Off mode.
+the member-registry root. The reference ring rejects plain deposits in every
+mode. The retained deposit-audit configuration bit cannot permit one, and its
+setter rejects a new false value.
 
 # ZK Program Interface
 
@@ -2872,9 +2873,12 @@ struct SubmitTransactionResponse {
 
 ## Ring RPC
 
-The service holds an X25519 auditor key and exposes `getDecryptedTransactions`.
+The service holds an X25519 auditor key and exposes `getDecryptedTransactions`
+and `getAuditedMerges`.
 A request names the ring, page bounds, timestamp and nonce. A granted reader
-signs that request with Ed25519 or a WebAuthn P256 credential. Requests expire
+signs that request with Ed25519 or a WebAuthn P-256 credential. WebAuthn sends
+a DER-encoded ECDSA signature, whose challenge, origin and authenticator data
+the service validates before signature verification. Requests expire
 outside a 60-second clock window. The service rejects replayed nonces and checks
 the on-chain reader grant. Reader authentication does not grant spending rights.
 
@@ -2889,6 +2893,14 @@ identifies missing, malformed or mismatching recipient payloads. Those failures
 do not abort the page or remove its verified openings. Invalid mandatory
 auditor disclosure instead produces a `skipped` entry with an explicit reason.
 Anonymous transactions also include the disclosed sender and spent notes.
+
+`getAuditedMerges` checks confirmed merge events and tries auditor keys from
+authenticated member-registry pages. It returns commitment-checked openings
+and unresolved outputs. It stops searching after all outputs on the page open.
+The signed service caps each request at 100 registry pages and 100,000 key and
+output attempts. A cap hit returns an error without a partial page. The direct
+Rust audit defaults to a complete registry scan. The merge event carries no
+proof-bound owner hint, so a large registry can require many key attempts.
 
 Member recovery uses the opening's owner hash and ring field, then checks the
 note's nullifier against spend history. Missing mint preimages or unresolved

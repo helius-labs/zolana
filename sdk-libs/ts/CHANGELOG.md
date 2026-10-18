@@ -11,6 +11,8 @@ Paying a transaction fee no longer authorizes a spend. Merge outputs encrypt the
 
 Breaking
 
+- `SignatureType` no longer includes `"p256"`, and `SigningKey.generate` and `ShieldedKeypair.generate` accept only `"ed25519"` → derive PDA owners from their program and keep `P256ReaderKey` for passkey audit access.
+- `@heliuslabs/zolana/ring` leaves circuit codecs, registry proof helpers and policy primitives in `@heliuslabs/zolana/ring/advanced` → import those low-level helpers from the advanced subpath.
 - Ring transfer proving rejects absent or mismatched default-ring output markers with `CLIENT_OUTPUT_OWNER_MARKER_MISMATCH` before indexer or prover calls. Keep the confidential marker and the actual recipient owner tag on exits. Ordinary recipient ciphertext remains unproved.
 - Ring merges preserve the common committed `ringDataHash`. Mixed input hashes or a different explicit output hash fail with `TRANSACTION_MERGE_RING_DATA_MISMATCH`. An omitted output hash inherits the inputs.
 
@@ -163,6 +165,8 @@ Changed
 
 Fixed
 
+- `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.
+- `auditRingMerges` now surfaces registry read failures instead of reporting members as merely unavailable.
 - `RingProgramError.missingOwnerSigner` reports an owner account that did not sign before the ring forwards a transfer, and public deposit sources must also sign before the ring PDA signs for SPP.
 - `RingRpc.getDecryptedTransactions` now includes the SPP event index on opened and skipped records, so separate ring events in one Solana transaction have distinct identities.
 - `auditRing` now recognizes a terminal scan at the page limit even when Photon also returns a row cursor, so `recoverRingMemberNotes` does not report a complete history as incomplete, and invalid page limits fail instead of returning an empty audit.

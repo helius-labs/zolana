@@ -157,9 +157,10 @@ owner hash and blinding. The proof binds it to the deposit SPP accepts. Mint,
 amount and data commitments remain public. One proof covers up to eight outputs,
 subject to the transaction size limit. The program checks the pinned auditor,
 destination tree and exact deposit bytes before settlement. The old
-`deposit_audit` setting remains readable and writable for wire compatibility,
-but it cannot turn this requirement off. Historical proofless deposits gain no
-disclosure from the change.
+`deposit_audit` setting remains on the wire for compatibility. New false
+settings are rejected, and old false accounts still decode without permitting
+proofless deposits. Historical proofless deposits gain no disclosure from the
+change.
 
 Asset screening uses registry lists, just like owner screening. For example,
 `subject = "asset"` with `require = "allow"` checks the mint's Allow bit.
@@ -591,6 +592,9 @@ cannot open. Any later transfer of the merged value still takes the normal
 audited policy path. Legacy merge instruction formats need migration.
 The built-in confirmed-origin reader rejects them. A trusted adapter may
 reconstruct legacy events, but ciphertext-free outputs remain unresolved.
+The signed RPC limits each page to 100 member-registry pages and 100,000
+key and output attempts. It fails without a partial result if the search
+needs more work. A direct Rust audit can scan the complete registry.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction.
 
