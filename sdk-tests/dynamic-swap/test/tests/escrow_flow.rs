@@ -105,7 +105,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             })?;
             let user_address = env.user.address()?;
             let mut split = ConfidentialTransaction::new(vec![funding_utxo], user_solana.pubkey())
-                .context("create split transaction")?;
+                .context("create split transaction")?
+                .with_output_tree_id(env.localnet.tree_id)
+                .context("set split output tree")?;
             split
                 .transfer(&user_address, env.spl_mint, ORDER_AMOUNT)
                 .context("add split output")?;
@@ -114,8 +116,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .pad_utxos(Shape::IN1_OUT4, &user_address)
                 .context("pad split transaction")?;
             let spp_proof_inputs = split
-                .with_output_tree_id(env.localnet.tree_id)
-                .context("set split output tree")?
                 .encrypt(&env.user.keypair)
                 .context("encrypt split transaction")?;
             // The self-paid split has change and two padding slots; all four
