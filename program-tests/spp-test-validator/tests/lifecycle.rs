@@ -6,7 +6,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use zolana_smart_account_client::{settings::settings_threshold, SMART_ACCOUNT_PROGRAM_ID};
 use zolana_test_utils::smart_account::settings_member_keys;
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
@@ -41,17 +41,36 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
     };
     let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;
 
-    let expected: [(Pubkey, Pubkey); 5] = [
-        (setup.accounts.protocol_settings, setup.authority.pubkey()),
-        (setup.accounts.tree_settings, setup.tree_key.pubkey()),
-        (setup.accounts.ring_settings, setup.ring_key.pubkey()),
-        (setup.accounts.merge_settings, setup.merge_key.pubkey()),
+    // The protocol account is the 2-of-2 fixture of the production 2-of-5
+    // policy; the controlled accounts stay at one member and threshold 1.
+    let expected: [(Pubkey, Vec<Pubkey>, u16); 5] = [
+        (
+            setup.accounts.protocol_settings,
+            setup.authority.pubkeys().to_vec(),
+            2,
+        ),
+        (
+            setup.accounts.tree_settings,
+            vec![setup.tree_key.pubkey()],
+            1,
+        ),
+        (
+            setup.accounts.ring_settings,
+            vec![setup.ring_key.pubkey()],
+            1,
+        ),
+        (
+            setup.accounts.merge_settings,
+            vec![setup.merge_key.pubkey()],
+            1,
+        ),
         (
             setup.accounts.forester_settings,
-            setup.forester_key.pubkey(),
+            vec![setup.forester_key.pubkey()],
+            1,
         ),
     ];
-    for (settings_key, member) in expected {
+    for (settings_key, members, threshold) in expected {
         let account = rpc
             .get_account(Address::new_from_array(settings_key.to_bytes()))
             .with_context(|| format!("fetching settings account {settings_key}"))?
@@ -60,12 +79,17 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
             account.owner, SMART_ACCOUNT_PROGRAM_ID,
             "settings account {settings_key} owner"
         );
-        let members = settings_member_keys(&account.data)
-            .with_context(|| format!("decoding settings account {settings_key}"))?;
         assert_eq!(
+            settings_member_keys(&account.data)
+                .with_context(|| format!("decoding settings account {settings_key}"))?,
             members,
-            [member],
-            "settings account {settings_key} must list exactly its creation member"
+            "settings account {settings_key} must list exactly its creation members"
+        );
+        assert_eq!(
+            settings_threshold(&account.data)
+                .with_context(|| format!("decoding settings account {settings_key}"))?,
+            threshold,
+            "settings account {settings_key} threshold"
         );
     }
     Ok(())

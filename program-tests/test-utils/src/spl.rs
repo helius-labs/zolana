@@ -15,7 +15,7 @@ use zolana_interface::{
 };
 use zolana_program::instruction::{CreateAssetCounter, CreateSplInterface};
 
-use crate::smart_account;
+use crate::smart_account::ProtocolSigners;
 
 fn token_program_id() -> Pubkey {
     Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
@@ -161,7 +161,7 @@ pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), 
 /// the asset counter on first use.
 pub struct RegisterSplAsset<'a> {
     pub payer: &'a Keypair,
-    pub authority: &'a Keypair,
+    pub authority: &'a ProtocolSigners,
     pub protocol_settings: Pubkey,
     pub protocol_vault: Pubkey,
     pub mint: Pubkey,
@@ -175,10 +175,8 @@ impl RegisterSplAsset<'_> {
             .get_account(to_address(&pda::spl_asset_counter()))?
             .is_none()
         {
-            let counter = smart_account::execute_sync_ix(
+            let counter = self.authority.execute_sync(
                 &self.protocol_settings,
-                0,
-                &[self.authority.pubkey()],
                 &[CreateAssetCounter {
                     authority: self.protocol_vault,
                 }
@@ -187,14 +185,15 @@ impl RegisterSplAsset<'_> {
             rpc.create_and_send_transaction(
                 &[counter],
                 payer,
-                &[self.payer, self.authority],
+                &self
+                    .authority
+                    .with_fee_payer(self.payer)
+                    .map(|key| key as &dyn Signer),
                 ComputeBudgetConfig::for_instruction_count(1),
             )?;
         }
-        let interface = smart_account::execute_sync_ix(
+        let interface = self.authority.execute_sync(
             &self.protocol_settings,
-            0,
-            &[self.authority.pubkey()],
             &[CreateSplInterface {
                 authority: self.protocol_vault,
                 mint: self.mint,
@@ -205,7 +204,10 @@ impl RegisterSplAsset<'_> {
         rpc.create_and_send_transaction(
             &[interface],
             payer,
-            &[self.payer, self.authority],
+            &self
+                .authority
+                .with_fee_payer(self.payer)
+                .map(|key| key as &dyn Signer),
             ComputeBudgetConfig::for_instruction_count(1),
         )?;
         Ok(())

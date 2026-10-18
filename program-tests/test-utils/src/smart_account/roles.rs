@@ -31,7 +31,7 @@
 
 use solana_pubkey::Pubkey;
 
-use zolana_smart_account_client::{settings_pda, smart_account_pda};
+use zolana_smart_account_client::{roles as client_roles, settings_pda, smart_account_pda};
 
 /// One of the five protocol authority smart accounts, in creation order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +61,19 @@ impl Role {
             Role::Merge => "merge",
             Role::Forester => "forester",
         }
+    }
+
+    /// The execution threshold, taken from the production role policy so the
+    /// fixture cannot drift from it.
+    pub fn threshold(self) -> u16 {
+        match self {
+            Role::Protocol => client_roles::Role::Protocol,
+            Role::Tree => client_roles::Role::Tree,
+            Role::Ring => client_roles::Role::Ring,
+            Role::Merge => client_roles::Role::Merge,
+            Role::Forester => client_roles::Role::Forester,
+        }
+        .threshold()
     }
 
     /// The role's seed offset within the batch (1-based; see the module table).
