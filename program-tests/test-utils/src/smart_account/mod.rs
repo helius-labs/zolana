@@ -1,14 +1,13 @@
 //! Test helpers for the Squads smart-account program.
 //!
-//! The client surface (program id, PDA derivations, and the
-//! `create_smart_account_ix` / `execute_sync_ix` builders) lives in
-//! `zolana-smart-account-client` and is re-exported here so existing test
-//! imports keep working. This module adds the localnet `ProgramConfig` fixture
-//! and the standard five-role account layout the SPP tests share, built on the
-//! role table in [`roles`]: the localnet fixture `ProgramConfig` starts at
+//! The client surface (program id, PDA derivations, the `execute_sync_ix`
+//! builder, and the role table) lives in `zolana-smart-account-client` and is
+//! re-exported here so existing test imports keep working. This module adds
+//! the localnet `ProgramConfig` fixture and the standard five-role account
+//! layout the SPP tests share: the localnet fixture `ProgramConfig` starts at
 //! index 0, so the roles sit at seeds 1..=5 in `Role::ALL` creation order
-//! (protocol, tree, ring, merge, forester). `xtask init-protocol` deploys the
-//! same roles in the same order without sharing this table -- see [`roles`].
+//! (protocol, tree, ring, merge, forester), with the same thresholds
+//! `xtask init-protocol` deploys.
 
 use std::{fs, path::Path};
 
@@ -17,14 +16,13 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-pub mod roles;
+use zolana_smart_account_client::{create_role_smart_account_ix, roles::Role};
 pub mod settings;
 
-pub use roles::Role;
 pub use settings::settings_member_keys;
 pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
-    smart_account_pda, treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+    execute_sync_each, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
+    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]
@@ -84,14 +82,10 @@ impl ProtocolSigners {
         self.0.each_ref().map(Keypair::pubkey)
     }
 
-    pub fn keypairs(&self) -> [&Keypair; 2] {
-        self.0.each_ref()
-    }
-
     /// `fee_payer` followed by both members: the signer list of a transaction
     /// wrapping an `execute_sync_ix` against the protocol settings.
     pub fn with_fee_payer<'a>(&'a self, fee_payer: &'a Keypair) -> [&'a Keypair; 3] {
-        let [first, second] = self.keypairs();
+        let [first, second] = &self.0;
         [fee_payer, first, second]
     }
 
@@ -178,13 +172,13 @@ impl StandardAccounts {
                     permissions: Permissions::all(),
                 })
                 .collect();
-            create_smart_account_ix(
+            create_role_smart_account_ix(
                 creator,
                 &treasury,
                 role.seed(0),
                 settings_authority,
                 &members,
-                role.threshold(),
+                role,
                 0,
             )
         })

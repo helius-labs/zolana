@@ -75,21 +75,15 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
             .get_account(Address::new_from_array(settings_key.to_bytes()))
             .with_context(|| format!("fetching settings account {settings_key}"))?
             .ok_or_else(|| anyhow!("settings account {settings_key} not found"))?;
+        let decoding = || format!("decoding settings account {settings_key}");
         assert_eq!(
-            account.owner, SMART_ACCOUNT_PROGRAM_ID,
-            "settings account {settings_key} owner"
-        );
-        assert_eq!(
-            settings_member_keys(&account.data)
-                .with_context(|| format!("decoding settings account {settings_key}"))?,
-            members,
-            "settings account {settings_key} must list exactly its creation members"
-        );
-        assert_eq!(
-            settings_threshold(&account.data)
-                .with_context(|| format!("decoding settings account {settings_key}"))?,
-            threshold,
-            "settings account {settings_key} threshold"
+            (
+                account.owner,
+                settings_member_keys(&account.data).with_context(decoding)?,
+                settings_threshold(&account.data).with_context(decoding)?,
+            ),
+            (SMART_ACCOUNT_PROGRAM_ID, members, threshold),
+            "settings account {settings_key} must keep its owner, creation members and threshold"
         );
     }
     Ok(())

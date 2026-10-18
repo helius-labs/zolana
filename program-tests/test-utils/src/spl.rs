@@ -185,10 +185,7 @@ impl RegisterSplAsset<'_> {
             rpc.create_and_send_transaction(
                 &[counter],
                 payer,
-                &self
-                    .authority
-                    .with_fee_payer(self.payer)
-                    .map(|key| key as &dyn Signer),
+                &self.authority.dyn_with_fee_payer(self.payer),
                 ComputeBudgetConfig::for_instruction_count(1),
             )?;
         }
@@ -204,10 +201,7 @@ impl RegisterSplAsset<'_> {
         rpc.create_and_send_transaction(
             &[interface],
             payer,
-            &self
-                .authority
-                .with_fee_payer(self.payer)
-                .map(|key| key as &dyn Signer),
+            &self.authority.dyn_with_fee_payer(self.payer),
             ComputeBudgetConfig::for_instruction_count(1),
         )?;
         Ok(())
