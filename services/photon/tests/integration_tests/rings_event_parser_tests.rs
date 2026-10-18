@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use crate::rings_fixtures::{
     fixture_ring_program, fresh_rings_database, resolve_by_signature, resolve_by_tags,
@@ -2260,8 +2261,10 @@ fn merge_transaction_info() -> TransactionInfo {
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],
-        output_ciphertext_salt: [0x5a; 16],
-        output_ciphertext: [[0x61; 32], [0x62; 32], [0x63; 32]],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0x5a; 16],
+            ciphertext: [[0x61; 32], [0x62; 32], [0x63; 32]],
+        },
         eddsa_owner: true,
         private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)

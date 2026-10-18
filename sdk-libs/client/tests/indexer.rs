@@ -5,6 +5,7 @@ use std::{
     thread,
     time::Duration,
 };
+use zolana_user_registry_interface::MergeEncryptionScheme;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
@@ -681,7 +682,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 "ownerP256": STANDARD.encode([7; P256_PUBKEY_LEN]),
                 "nullifierPubkey": encode_hash_string(bytes32(3)),
                 "viewingPubkey": STANDARD.encode([4; P256_PUBKEY_LEN]),
-                "mergingEnabled": true,
+                "mergeEncryption": 1,
             },
             null,
             {
@@ -689,7 +690,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 "ownerP256": null,
                 "nullifierPubkey": encode_hash_string(bytes32(5)),
                 "viewingPubkey": STANDARD.encode([6; P256_PUBKEY_LEN]),
-                "mergingEnabled": false,
+                "mergeEncryption": 0,
             },
         ],
     })));
@@ -719,7 +720,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                     owner_p256: Some([7; P256_PUBKEY_LEN]),
                     nullifier_pubkey: bytes32(3),
                     viewing_pubkey: [4; P256_PUBKEY_LEN],
-                    merging_enabled: true,
+                    merge_encryption: MergeEncryptionScheme::PoseidonCtrV1,
                 }),
                 None,
                 Some(UserRecord {
@@ -728,7 +729,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                     owner_p256: None,
                     nullifier_pubkey: bytes32(5),
                     viewing_pubkey: [6; P256_PUBKEY_LEN],
-                    merging_enabled: false,
+                    merge_encryption: MergeEncryptionScheme::Disabled,
                 }),
             ],
         }
@@ -745,7 +746,7 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
             "ownerP256": null,
             "nullifierPubkey": encode_hash_string(bytes32(3)),
             "viewingPubkey": STANDARD.encode([4; 32]),
-            "mergingEnabled": false,
+            "mergeEncryption": 0,
         }],
     })));
 

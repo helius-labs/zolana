@@ -29,6 +29,7 @@ export {
   type ZolanaClientConfig,
 } from "./client/index.js";
 export {
+  MergeEncryptionScheme,
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
@@ -84,7 +85,7 @@ export {
   buildMergeTransaction,
   buildMultiTransferTransaction,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,

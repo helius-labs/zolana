@@ -1054,8 +1054,9 @@ fn received(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction {
 
 /// A merge of `inputs` as the indexer reports it: no transaction key, the
 /// padded slots spending dummy nullifiers, and one output committing to the
-/// inputs' total, published with the proof-bound ciphertext of its amount and
-/// mint under `owner`'s per-merge key. Returns the note the owner should decrypt.
+/// inputs' total, published with the ciphertext of its amount and mint with
+/// `owner`'s per-merge key (proof-bound on a default merge, unverified on a
+/// ring merge). Returns the note the owner should decrypt.
 fn merge_publication(
     owner: &ShieldedKeypair,
     inputs: &[&WalletUtxo],

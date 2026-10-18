@@ -1,6 +1,7 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_hasher::hash_chain::create_right_hash_chain_4_from_slice;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::{
     instruction::{
         instruction_data::merge_transact::MergeProof, tag, CreateCacheData, MergeTransactIxData,
@@ -29,8 +30,10 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [1u8; 32],
-        output_ciphertext_salt: [0u8; 16],
-        output_ciphertext: [[0u8; 32]; 3],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0u8; 16],
+            ciphertext: [[0u8; 32]; 3],
+        },
         nullifiers: (1u8..=8).map(|i| [i; 32]).collect(),
         utxo_tree_root_index: 0,
         nullifier_tree_root_index: 0,

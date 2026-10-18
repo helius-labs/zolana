@@ -19,6 +19,7 @@ import {
   CACHE_ACCOUNT_SIZE,
   CACHE_CAPACITY,
   InstructionTag,
+  MergeEncryptionScheme,
   StateDiscriminator,
   TransactCacheAccounts,
   bindCacheWrite,
@@ -127,8 +128,11 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
       c: field(3),
     },
     outputUtxoHash: field(9),
-    outputCiphertextSalt: filled(5, 16) as Bytes16,
-    outputCiphertext: [field(6), field(7), field(8)],
+    outputEncryption: {
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
+      salt: filled(5, 16) as Bytes16,
+      ciphertext: [field(6), field(7), field(8)],
+    },
     eddsaOwner: true,
     privateTxHash: field(3),
     nullifiers: Array.from({ length: 8 }, (_, index) => field(index + 1)),
@@ -437,7 +441,7 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 640);
+    expect(cached.data).toHaveLength(1 + 641);
     expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
     expect(plain.data?.at(-1)).toBe(0);
   });

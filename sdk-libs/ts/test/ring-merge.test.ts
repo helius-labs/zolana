@@ -212,6 +212,10 @@ describe("ring merge", () => {
         expect(proofDataSource === "prover" ? body.prepared : body).toMatchObject({
           circuitType: "merge-ring",
         });
+        // The prover refuses a ciphertext salt on a merge-ring request.
+        expect(proofDataSource === "prover" ? body.prepared : body).not.toHaveProperty(
+          "outputCiphertextSalt",
+        );
         if (proofDataSource === "prover") expect(body.prepared).not.toHaveProperty("treeSlots");
         else expect(body).toHaveProperty("treeSlots");
       } finally {

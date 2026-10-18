@@ -377,10 +377,12 @@ async function spendingTransactions(
 }
 
 /**
- * Decrypts a ring merge's output from its own transaction: the proof binds the
- * ciphertext of the output's amount and mint, so the owner needs none of the
- * merge's inputs, whichever notes the ring folded in. The cipher is
- * unauthenticated, so the rebuilt output still has to match the commitment.
+ * Decrypts a ring merge's output from its own transaction: the ciphertext of
+ * the output's amount and mint is published with it, so the owner needs none
+ * of the merge's inputs, whichever notes the ring folded in. The ring merge
+ * proof does not bind that ciphertext and the cipher is unauthenticated, so
+ * the rebuilt output must match the commitment, and one that does not is
+ * skipped.
  */
 async function recoverMerge(
   input: RingRecoveryParams,

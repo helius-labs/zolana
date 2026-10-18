@@ -585,9 +585,11 @@ struct MergeOutputDecryption<'a, 'b> {
 }
 
 impl MergeOutputDecryption<'_, '_> {
-    /// Decrypts a ring merge's output from its own transaction: the proof binds
-    /// the ciphertext of the output's amount and mint, so the owner needs none
-    /// of the merge's inputs, whichever notes the ring folded in.
+    /// Decrypts a ring merge's output from its own transaction, so the owner
+    /// needs none of the merge's inputs. SPP publishes the ring merge
+    /// ciphertext unverified, so the output is accepted only when the
+    /// decrypted note reproduces the output commitment; a merge whose
+    /// ciphertext does not stays unopened.
     fn rebuild(self) -> Result<Option<WalletUtxo>, RecoveryError> {
         let transaction = self.transaction;
         let Some(first_nullifier) = transaction.nullifiers.first() else {
@@ -596,7 +598,7 @@ impl MergeOutputDecryption<'_, '_> {
         let Some(slot) = transaction.output_slots.first() else {
             return Ok(None);
         };
-        let Some(OutputDataEncoding::VerifiablyEncrypted(blob)) = slot.output_data() else {
+        let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
             return Ok(None);
         };
         let Some((&MERGE_OUTPUT_SCHEME, body)) = blob.split_first() else {

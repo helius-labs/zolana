@@ -9,12 +9,17 @@ import type { Address, Bytes16, Bytes32 } from "../src/interface/types.js";
 import { NullifierKey, ShieldedKeypair, type Bytes31 } from "../src/keypair/index.js";
 import { mergeOutputKey } from "../src/keypair/merge/index.js";
 import { Merge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
-import { EncryptedScheme, decodeOutputData } from "../src/transaction/serialization/codecs.js";
+import {
+  EncryptedScheme,
+  decodeOutputData,
+  encodeOutputData,
+} from "../src/transaction/serialization/codecs.js";
 import {
   MERGE_OUTPUT_BODY_LENGTH,
   decryptMergeOutput,
   encodeMergeOutputData,
   encryptMergeOutput,
+  readMergeOutputBody,
   splitMergeOutputBody,
   type MergeOutputCiphertext,
 } from "../src/transaction/serialization/merge.js";
@@ -217,10 +222,12 @@ describe("merge output data", () => {
     expect(split?.encrypted).toEqual(encryptedBody(salt, ciphertext));
   });
 
-  it("leads a ring merge body with its output ring data hash", () => {
+  it("frames a ring merge as encrypted, its body led by the output ring data hash", () => {
     const payload = encodeMergeOutputData({ salt, ciphertext, ringDataHash });
+    // borsh `Encrypted(Vec<u8>)`: the ring merge proof does not bind the ciphertext.
+    expect(Array.from(payload.subarray(0, 5))).toEqual([1, 1 + 144, 0, 0, 0]);
     const frame = decodeOutputData(payload);
-    expect(frame.scheme).toBe(EncryptedScheme.merge);
+    expect(frame).toMatchObject({ encoding: "encrypted", scheme: EncryptedScheme.merge });
     expect(frame.body).toHaveLength(144);
     expect(frame.body.subarray(0, 32)).toEqual(ringDataHash);
     expect(frame.body.subarray(32)).toEqual(encryptedBody(salt, ciphertext));
@@ -231,6 +238,27 @@ describe("merge output data", () => {
     // The split hash is a copy, not a view the caller could mutate the body through.
     split?.ringDataHash?.fill(0);
     expect(frame.body.subarray(0, 32)).toEqual(ringDataHash);
+  });
+
+  it("reads a merge body only under the encoding its shape is published with", () => {
+    const plainBody = encryptedBody(salt, ciphertext);
+    const ringBody = new Uint8Array([...ringDataHash, ...plainBody]);
+    expect(readMergeOutputBody(encodeMergeOutputData({ salt, ciphertext }))).toEqual({
+      encrypted: plainBody,
+    });
+    expect(readMergeOutputBody(encodeMergeOutputData({ salt, ciphertext, ringDataHash }))).toEqual({
+      ringDataHash,
+      encrypted: plainBody,
+    });
+    expect(
+      readMergeOutputBody(encodeOutputData(EncryptedScheme.merge, ringBody, "verifiable")),
+    ).toBeUndefined();
+    expect(
+      readMergeOutputBody(encodeOutputData(EncryptedScheme.merge, plainBody, "encrypted")),
+    ).toBeUndefined();
+    expect(() => encodeOutputData(EncryptedScheme.merge, plainBody, "plaintext")).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }),
+    );
   });
 
   it.each([0, 32, 111, 113, 143, 145, 176])("splits no body of %i bytes", (length) => {

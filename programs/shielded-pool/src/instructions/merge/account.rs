@@ -13,7 +13,8 @@ use zolana_interface::{
     merge_utils::owner_proof_input_hash_compressed,
 };
 use zolana_user_registry_interface::{
-    state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
+    state::{MergeEncryptionScheme, UserRecord},
+    USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
 };
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
@@ -79,17 +80,17 @@ pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub nullifier_pk: [u8; 32],
     pub signing_view_tag: [u8; 32],
-    pub merging_enabled: bool,
+    pub merge_encryption: MergeEncryptionScheme,
 }
 
 /// Load and validate the `user_record`: owned by the registry program, stored at
 /// the canonical PDA for its owner, and containing a valid `UserRecord`
-/// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
+/// discriminator/body. Returns the per-user `merge_encryption` scheme alongside
 /// the rail-selected owner identity; the processor rejects the merge when it is
-/// `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana owner
-/// derives `signing_pk_field` as the tagged Solana identity of the registry
-/// account `owner` (ed25519), a P256 owner as the tagged P256 identity of
-/// `owner_p256`'s x-coordinate.
+/// `Disabled` or differs from the instruction's scheme. The owner identity is
+/// rail-selected by `eddsa_owner`: a Solana owner derives `signing_pk_field` as
+/// the tagged Solana identity of the registry account `owner` (ed25519), a P256
+/// owner as the tagged P256 identity of `owner_p256`'s x-coordinate.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -110,7 +111,7 @@ pub fn load_user_record(
     if account.address() != &expected_record || record.bump != expected_bump {
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }
-    let merging_enabled = record.merging_enabled;
+    let merge_encryption = record.merge_encryption;
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
         signing_view_tag.copy_from_slice(record.owner.as_array());
@@ -127,6 +128,6 @@ pub fn load_user_record(
         signing_pk_field,
         nullifier_pk: record.nullifier_pubkey,
         signing_view_tag,
-        merging_enabled,
+        merge_encryption,
     })
 }

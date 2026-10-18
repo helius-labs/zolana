@@ -1,5 +1,7 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::{instruction::RegisterData, UserRecord};
+use zolana_user_registry_interface::{
+    instruction::RegisterData, MergeEncryptionScheme, UserRecord,
+};
 
 use super::{
     common::{check_record_pda, check_system_program, create_record_account, write_record},
@@ -57,7 +59,7 @@ pub fn process_register(
         owner_p256: data.owner_p256,
         nullifier_pubkey: data.nullifier_pubkey,
         viewing_pubkey: data.viewing_pubkey,
-        merging_enabled: false,
+        merge_encryption: MergeEncryptionScheme::Disabled,
     };
     write_record(record, &state)
 }

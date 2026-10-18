@@ -21,6 +21,8 @@ import (
 // owner can decrypt, and every other output field is derived from the owner's keys
 // and the first nullifier, so the owner rebuilds the output from the merge
 // transaction alone, even when the merger folded in a note the owner never saw.
+// The ciphertext uses the scheme the owner registered; the program checks the
+// scheme and selects this circuit's key by it.
 
 type (
 	Input  = mergeshared.Input
@@ -49,6 +51,11 @@ type Circuit struct {
 	mergeshared.CommonPublicInputs
 
 	UserSigningPkHash frontend.Variable
+
+	// OutputCiphertextSalt is the per-proof pad nonce of the PoseidonCtrV1
+	// output ciphertext. It is 16 bytes of instruction data, so it is canonical
+	// without a range check.
+	OutputCiphertextSalt frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -91,11 +98,29 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.UserSigningPkHash, c.UserNullifierPk)
-	// Both rails end with the salt, then the output ciphertext.
-	fields = append(fields, c.OutputCiphertextSalt)
-	fields = append(fields, derived.OutputCiphertext...)
+	fields = append(fields, c.outputEncryption(api, tx, derived)...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
+}
+
+// outputEncryption encrypts the merged output's amount and mint chunks under
+// the PoseidonCtrV1 scheme and returns the public-input-hash tail it binds: the
+// salt, then the ciphertext. A new scheme is a new circuit (and key) with its
+// own tail.
+func (c *Circuit) outputEncryption(
+	api frontend.API,
+	tx mergeshared.Transaction,
+	derived mergeshared.Derived,
+) []frontend.Variable {
+	ciphertext := mergeshared.MergeOutputCiphertext(
+		api,
+		tx.UserNullifierSecret,
+		derived.FirstNullifier,
+		c.OutputCiphertextSalt,
+		derived.OutputAmount,
+		tx.MintChunks,
+	)
+	return append([]frontend.Variable{c.OutputCiphertextSalt}, ciphertext...)
 }
 
 // assertDefaultRing pins ring data to zero for every real input and for the

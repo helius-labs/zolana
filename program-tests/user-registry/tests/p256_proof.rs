@@ -15,7 +15,7 @@ use user_registry_tests::{
     p256_binding_signature, p256_owner_key, TestTransactionResult, UserRegistryTestRig,
 };
 use zolana_user_registry::error::UserRegistryError;
-use zolana_user_registry_interface::user_record_pda;
+use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 
 use common::{funded_keypair, keys, register};
 
@@ -55,7 +55,7 @@ fn register_with_a_valid_p256_proof_stores_the_key() {
     assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, value.viewing);
     assert_eq!(record.owner, owner.pubkey());
-    assert!(!record.merging_enabled);
+    assert_eq!(record.merge_encryption, MergeEncryptionScheme::Disabled);
 }
 
 #[test]

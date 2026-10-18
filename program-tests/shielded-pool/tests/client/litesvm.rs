@@ -125,7 +125,8 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
     let owner = Keypair::new();
     let wallet = ShieldedKeypair::from_keypair(&owner).expect("wallet");
     let address = wallet.shielded_address().expect("shielded address");
-    let inputs: Vec<_> = [300_000, 200_000, 100_000]
+    // The first deposit opens the SOL vault, so it must cover its rent.
+    let inputs: Vec<_> = [3_000_000, 2_000_000, 1_000_000]
         .into_iter()
         .map(|amount| shield(&mut harness, &tree, tree_id, &wallet, amount))
         .collect();
@@ -140,7 +141,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         .with_output_tree_id(tree_id)
         .encrypt(&wallet)
         .expect("encrypt");
-    assert_eq!(merge.output_utxo.amount, 600_000);
+    assert_eq!(merge.output_utxo.amount, 6_000_000);
     let submission = MergeSubmission::new(&merge, owner.pubkey(), &address, &wallet.nullifier_key);
     // The proof binds no payer: any account can send the instruction.
     let proved = submission.prove_sync(&client).expect("proved");
@@ -173,7 +174,7 @@ fn write_merging_record(harness: &mut ZolanaProgramTest, owner: Pubkey, wallet: 
         owner_p256: None,
         nullifier_pubkey: wallet.nullifier_key.pubkey().expect("nullifier pubkey"),
         viewing_pubkey: *wallet.viewing_pubkey().as_bytes(),
-        merging_enabled: true,
+        merge_encryption: zolana_user_registry_interface::MergeEncryptionScheme::PoseidonCtrV1,
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     record.serialize(&mut data).expect("serialize the record");

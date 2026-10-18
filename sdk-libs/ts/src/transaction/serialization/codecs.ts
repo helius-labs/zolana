@@ -79,13 +79,26 @@ export function encryptedSchemeToByte(scheme: EncryptedScheme): number {
   return encryptedSchemeFromByte(scheme);
 }
 
+/**
+ * The encoding a merge output slot is published with: `"verifiable"` for a
+ * default merge, whose proof binds the ciphertext, and `"encrypted"` for a ring
+ * merge, whose proof does not. Rust `encode_merge_output_data`.
+ */
+export function mergeOutputDataEncoding(ringMerge: boolean): OutputDataEncoding {
+  return ringMerge ? "encrypted" : "verifiable";
+}
+
+/**
+ * The default encoding of a scheme's slot. A merge output has two, see
+ * [`mergeOutputDataEncoding`]; the default is the default merge's.
+ */
 export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
   switch (encryptedSchemeFromByte(scheme)) {
     case EncryptedScheme.proofless:
     case EncryptedScheme.plaintextTransfer:
       return "plaintext";
     case EncryptedScheme.merge:
-      return "verifiable";
+      return mergeOutputDataEncoding(false);
     default:
       return "encrypted";
   }
@@ -786,14 +799,20 @@ export function splitBundleUtxos(
   );
 }
 
+function encodingAllowed(scheme: EncryptedScheme, encoding: OutputDataEncoding): boolean {
+  return scheme === EncryptedScheme.merge
+    ? encoding === mergeOutputDataEncoding(false) || encoding === mergeOutputDataEncoding(true)
+    : encoding === outputDataEncoding(scheme);
+}
+
 export function encodeOutputData(
   scheme: EncryptedScheme,
   body: Uint8Array,
   encoding = outputDataEncoding(scheme),
 ): Uint8Array {
   const checkedScheme = encryptedSchemeFromByte(scheme);
-  const expectedEncoding = outputDataEncoding(checkedScheme);
-  if (encoding !== expectedEncoding) {
+  if (!encodingAllowed(checkedScheme, encoding)) {
+    const expectedEncoding = outputDataEncoding(checkedScheme);
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       scheme: checkedScheme,
       encoding,
@@ -844,8 +863,8 @@ export function decodeOutputData(bytes: Uint8Array): Readonly<{
   body: Uint8Array;
 }> {
   const frame = readOutputData(bytes);
-  const expectedEncoding = outputDataEncoding(frame.scheme);
-  if (frame.encoding !== expectedEncoding) {
+  if (!encodingAllowed(frame.scheme, frame.encoding)) {
+    const expectedEncoding = outputDataEncoding(frame.scheme);
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       scheme: frame.scheme,
       encoding: frame.encoding,

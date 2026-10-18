@@ -1387,11 +1387,16 @@ components:
       - owner
       - nullifierPubkey
       - viewingPubkey
-      - mergingEnabled
+      - mergeEncryption
       properties:
-        mergingEnabled:
-          type: boolean
-          description: Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
+        mergeEncryption:
+          type: integer
+          format: u-int8
+          description: |-
+            Merge output encryption scheme the owner accepts for `merge_transact`:
+            0 disables merging, 1 is PoseidonCtrV1. While a scheme is selected, any
+            caller may merge this owner's UTXOs under that scheme.
+          minimum: 0
         nullifierPubkey:
           $ref: '#/components/schemas/Hash'
           description: Wallet-wide nullifier pubkey. Never rotates.

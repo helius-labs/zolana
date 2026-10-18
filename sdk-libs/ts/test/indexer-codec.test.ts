@@ -194,7 +194,7 @@ describe("user records wire", () => {
     ownerP256: null,
     nullifierPubkey: TAG,
     viewingPubkey: P256,
-    mergingEnabled: true,
+    mergeEncryption: 1,
   };
   const page = { context: { slot: 77, blockTime: 2 }, records: [record, null] };
 
@@ -202,7 +202,7 @@ describe("user records wire", () => {
     expect(decodeUserRecordsResponse(page)).toEqual({
       context: { slot: 77n, blockTime: 2n },
       records: [
-        { owner: RING, nullifierPubkey: TAG, viewingPubkey: P256, mergingEnabled: true },
+        { owner: RING, nullifierPubkey: TAG, viewingPubkey: P256, mergeEncryption: 1 },
         null,
       ],
     });
@@ -211,7 +211,10 @@ describe("user records wire", () => {
     ).toMatchObject({ ownerP256: P256 });
     for (const changed of [
       { records: [{ ...record, bump: 1 }] },
-      { records: [{ ...record, mergingEnabled: "yes" }] },
+      { records: [{ ...record, mergeEncryption: true }] },
+      { records: [{ ...record, mergeEncryption: 2 }] },
+      { records: [{ ...record, mergeEncryption: -1 }] },
+      { records: [{ ...record, mergingEnabled: true }] },
       { records: [{ ...record, nullifierPubkey: P256 }] },
       { records: [{ owner: RING }] },
       { records: [undefined] },
@@ -252,7 +255,7 @@ describe("user records wire", () => {
     const lookup = await indexerFor(page).getUserRecords([RING, OTHER]);
     expect(requests).toEqual([{ owners: [RING, OTHER] }]);
     expect(lookup.context).toEqual({ slot: 77n, blockTime: 2n });
-    expect(lookup.records[0]).toMatchObject({ owner: RING, mergingEnabled: true });
+    expect(lookup.records[0]).toMatchObject({ owner: RING, mergeEncryption: 1 });
     expect(lookup.records[0]?.ownerP256).toBeUndefined();
     expect(lookup.records[0]?.nullifierPublicKey).toEqual(new Uint8Array(32));
     expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x02);

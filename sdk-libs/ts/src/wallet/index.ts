@@ -75,7 +75,7 @@ export {
 export {
   buildKeyUpdateTransaction,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   decodeUserRecordAccount,
   fetchUserRecord,
   fetchUserRecordChecked,

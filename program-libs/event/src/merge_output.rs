@@ -1,7 +1,9 @@
 use crate::OutputDataEncoding;
 
-/// Scheme byte inside [`OutputDataEncoding::VerifiablyEncrypted`] for a merge
-/// output: its ciphertext is bound by the merge proof.
+/// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` output
+/// publishes it inside [`OutputDataEncoding::VerifiablyEncrypted`] (the merge
+/// proof binds the ciphertext); a `merge_ring` output inside
+/// [`OutputDataEncoding::Encrypted`] (the ring merge proof does not).
 pub const MERGE_OUTPUT_SCHEME: u8 = 6;
 
 /// Bytes of the per-proof salt the merge output ciphertext is padded under.
@@ -24,9 +26,10 @@ pub struct MergeOutputDataRef<'a> {
     pub ring_data_hash: Option<&'a [u8; 32]>,
 }
 
-/// Encodes a merge output's data slot:
-/// `VerifiablyEncrypted(scheme || [ring_data_hash ||] salt || ciphertext)`.
-/// The ring data hash leads, as it does in the `merge_ring` instruction data.
+/// Encodes a merge output's data slot: `VerifiablyEncrypted(scheme || salt ||
+/// ciphertext)` for `merge_transact`, `Encrypted(scheme || ring_data_hash ||
+/// salt || ciphertext)` for `merge_ring`. The ring data hash leads, as it does
+/// in the `merge_ring` instruction data.
 pub fn encode_merge_output_data(data: MergeOutputDataRef<'_>) -> Vec<u8> {
     let mut blob = Vec::with_capacity(1 + 32 + MERGE_OUTPUT_BODY_LEN);
     blob.push(MERGE_OUTPUT_SCHEME);
@@ -37,8 +40,12 @@ pub fn encode_merge_output_data(data: MergeOutputDataRef<'_>) -> Vec<u8> {
     for element in data.ciphertext {
         blob.extend_from_slice(element);
     }
-    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
-        .expect("borsh serialization into a Vec cannot fail")
+    let encoding = if data.ring_data_hash.is_some() {
+        OutputDataEncoding::Encrypted(blob)
+    } else {
+        OutputDataEncoding::VerifiablyEncrypted(blob)
+    };
+    borsh::to_vec(&encoding).expect("borsh serialization into a Vec cannot fail")
 }
 
 /// Splits a merge output body (after the scheme byte) into the `merge_ring`

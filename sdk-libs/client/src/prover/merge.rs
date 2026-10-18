@@ -8,7 +8,9 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
-            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+            merge_transact::{
+                MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
+            },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
@@ -93,8 +95,10 @@ impl MergeProofResult {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
-            output_ciphertext_salt: self.output_ciphertext_salt,
-            output_ciphertext: self.output_ciphertext,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: self.output_ciphertext_salt,
+                ciphertext: self.output_ciphertext,
+            },
             nullifiers: without_compact_padding(&self.nullifiers).to_vec(),
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
@@ -272,14 +276,15 @@ impl MergeProver {
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
         if ring_program_id.is_some() {
+            // The ring merge proof does not bind the output ciphertext.
             elements.extend([output_ring_data_hash, ring_hash]);
         } else {
             // Bind both halves of the UTXO owner to the registry, so another
             // nullifier key cannot manufacture a merge for this signing identity.
             elements.extend([user_signing_pk_hash, nullifier_pubkey]);
+            elements.push(right_align(&output_ciphertext_salt));
+            elements.extend(output_ciphertext);
         }
-        elements.push(right_align(&output_ciphertext_salt));
-        elements.extend(output_ciphertext);
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let eddsa_owner = match signing_pubkey.curve()? {
             Curve::Ed25519 | Curve::Pda => true,

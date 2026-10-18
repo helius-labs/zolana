@@ -6,6 +6,7 @@ import type {
   CreateCacheData,
   DepositInstructionData,
   InputUtxo,
+  MergeOutputEncryption,
   MergeTransactInstructionData,
   OwnerTag,
   ProtocolConfigAccount,
@@ -28,6 +29,7 @@ import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
   CACHE_CAPACITY,
+  MergeEncryptionScheme,
   NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET,
   NULLIFIER_ROOT_HISTORY_OFFSET,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
@@ -308,6 +310,18 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
   return encoded(value, writeTransactData);
 }
 
+/** Wincode `MergeOutputEncryption`: the u8 scheme tag, then that scheme's body. */
+function writeMergeOutputEncryption(writer: Writer, value: MergeOutputEncryption): void {
+  if (value.scheme !== MergeEncryptionScheme.PoseidonCtrV1) {
+    fail("INTERFACE_INVALID_DISCRIMINATOR", { outputEncryption: value.scheme });
+  }
+  writer.u8(value.scheme, "outputEncryption.scheme").bytes(value.salt, 16, "outputEncryption.salt");
+  if (value.ciphertext.length !== 3) {
+    fail("INTERFACE_INVALID_LENGTH", { outputEncryption: value.ciphertext.length });
+  }
+  for (const element of value.ciphertext) writer.bytes(element, 32, "outputEncryption.ciphertext");
+}
+
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   // The instruction carries the sent nullifiers; compact padding fills the
   // narrowest merge circuit that holds them.
@@ -322,12 +336,8 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.proof.a, 32, "proof.a")
     .bytes(value.proof.b, 128, "proof.b")
     .bytes(value.proof.c, 32, "proof.c")
-    .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
-    .bytes(value.outputCiphertextSalt, 16, "outputCiphertextSalt");
-  if (value.outputCiphertext.length !== 3) {
-    fail("INTERFACE_INVALID_LENGTH", { outputCiphertext: value.outputCiphertext.length });
-  }
-  for (const element of value.outputCiphertext) writer.bytes(element, 32, "outputCiphertext");
+    .bytes(value.outputUtxoHash, 32, "outputUtxoHash");
+  writeMergeOutputEncryption(writer, value.outputEncryption);
   writer
     .bool(value.eddsaOwner, "eddsaOwner")
     .bytes(value.privateTxHash, 32, "privateTxHash")
@@ -341,7 +351,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 383;
+const MERGE_FIXED_DATA_LENGTH = 384;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,

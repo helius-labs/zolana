@@ -1975,6 +1975,90 @@ describe("wallet sync", () => {
     ).toEqual([output]);
   });
 
+  // SPP does not verify a ring merge ciphertext, so a ring program may publish
+  // one that does not open to the committed output.
+  it.each([
+    [
+      "the ciphertext of another amount",
+      (keypair: ShieldedKeypair, firstNullifier: Bytes32) =>
+        mergePayload(keypair, firstNullifier, 41n, new Uint8Array(32) as Bytes32),
+    ],
+    [
+      "noise",
+      () =>
+        encodeMergeOutputData({
+          salt: new Uint8Array(16).fill(3) as Bytes16,
+          ciphertext: [7, 8, 9].map((byte) => new Uint8Array(32).fill(byte) as Bytes32) as [
+            Bytes32,
+            Bytes32,
+            Bytes32,
+          ],
+          ringDataHash: new Uint8Array(32) as Bytes32,
+        }),
+    ],
+  ])("counts a ring merge publishing %s as undecryptable", async (_name, payloadFor) => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const input = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: bytes(1),
+      ringProgramId: OWNER,
+    });
+    const inputHash = input.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+    const firstNullifier = input.nullifier(inputHash, keypair.nullifierKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: input,
+          outputContext: { hash: inputHash, tree: TREE, leafIndex: 0n },
+          nullifier: firstNullifier,
+          spent: false,
+        },
+      ],
+    });
+    const output = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+      ringProgramId: OWNER,
+    });
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: firstNullifier,
+              outputContext: {
+                hash: output.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+                tree: TREE,
+                leafIndex: 1n,
+              },
+              payload: payloadFor(keypair, firstNullifier),
+            },
+          ],
+          ringProgramId: OWNER,
+          messages: [],
+          nullifiers: [
+            firstNullifier,
+            ...Array.from({ length: 7 }, (_, offset) =>
+              mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 1),
+            ),
+          ],
+          proofless: false,
+        },
+      ],
+    });
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
+    expect(wallet.utxos().map((entry) => entry.utxo)).toEqual([input]);
+  });
+
   it("ignores a merge whose first nullifier is not owned", async () => {
     const keypair = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();

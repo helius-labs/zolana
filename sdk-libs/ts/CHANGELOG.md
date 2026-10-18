@@ -7,8 +7,9 @@ given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
 opts out. One private transfer can pay several recipients. Paying a
 transaction's fee no longer authorizes a spend. A merge publishes its output's
-amount and mint encrypted for the owner, so wallet sync recovers every merge
-output from the merge transaction alone.
+amount and mint encrypted for the owner with the scheme the owner's registry
+record names, so wallet sync recovers a default merge output from the merge
+transaction alone.
 
 Breaking
 
@@ -24,10 +25,21 @@ Breaking
   several payments → handle it, or refuse it explicitly.
 - `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
   select at most 52 notes per merge, and at most 51 on a custom ring.
-- `MergeTransactInstructionData` carries `outputCiphertextSalt` and
-  `outputCiphertext`, and `Merge` and `PreparedMerge` require the encrypted
-  output → build merges with `Merge.fromKeypair` or the client's merge flow, or
-  pass the wallet's `mergeOutputKey` answer as `Merge`'s `outputKey`.
+- `MergeTransactInstructionData` contains `outputEncryption`, a
+  `MergeOutputEncryption` tagged with its scheme, and `Merge` and
+  `PreparedMerge` require the encrypted output → build merges with
+  `Merge.fromKeypair` or the client's merge flow, or pass the wallet's
+  `mergeOutputKey` answer as `Merge`'s `outputKey`.
+- `UserRecord`, `RegistryRecord` and `getUserRecords` records contain
+  `mergeEncryption`, a `MergeEncryptionScheme`, in place of `mergingEnabled`,
+  and `buildSetMergingEnabledTransaction`, `getSetMergingEnabledInstructionAsync`
+  and `WALLET_BUILD_SET_MERGING_ENABLED` are `buildSetMergeEncryptionTransaction`,
+  `getSetMergeEncryptionInstructionAsync` and `WALLET_BUILD_SET_MERGE_ENCRYPTION`,
+  which take a `scheme` → opt in with `MergeEncryptionScheme.PoseidonCtrV1` and
+  out with `MergeEncryptionScheme.Disabled`.
+- `ShieldedPoolError.MergeDisabled` (7017) is `MergeEncryptionSchemeMismatch`,
+  which the program returns for a merge whose scheme differs from the owner's
+  registered scheme, a disabled record included → match on the new name.
 - `DeriveRequest` has a `mergeOutputKey` kind → a custom `ShieldedKeys` answers
   it with `mergeOutputKey(nullifierKey, firstNullifier)`.
 - `transactInstruction` (`getTransactInstructionAsync`) and
@@ -55,6 +67,9 @@ Added
   tree creation step that differs from the step that started it, and
   `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
   BN254 field.
+- `MergeEncryptionScheme` names the schemes a registry record accepts, and
+  `WalletErrorCode` adds `WALLET_INVALID_MERGE_ENCRYPTION_SCHEME` for a scheme
+  it does not define.
 
 Changed
 
@@ -63,6 +78,9 @@ Changed
 - Transfers, withdrawals, splits and custom ring transfers list an input owner
   who also pays as an owner signer, and a fee payer that owns no input no
   longer appears in their proofs.
+- `decodeOutputData` returns a ring merge output slot framed `"encrypted"`
+  (it was `"verifiable"`), and `syncWallet` counts a ring merge output that
+  does not open to its commitment as undecryptable.
 
 Fixed
 

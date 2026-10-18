@@ -218,6 +218,56 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	}
 }
 
+// The output ciphertext salt is a default-rail input only: the merge-ring
+// circuit has no ciphertext, so a merge-ring request omits the salt and one
+// carrying it is refused, while a default request without it is refused.
+func TestOutputCiphertextSaltIsDefaultRailOnly(t *testing.T) {
+	encode := func(circuitType common.CircuitType) map[string]json.RawMessage {
+		t.Helper()
+		params := sampleParams()
+		params.CircuitType = circuitType
+		data, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatalf("unmarshal to map: %v", err)
+		}
+		return fields
+	}
+	decode := func(fields map[string]json.RawMessage) error {
+		t.Helper()
+		data, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatalf("marshal fields: %v", err)
+		}
+		var params MergeParameters
+		return json.Unmarshal(data, &params)
+	}
+
+	ring := encode(common.MergeRingCircuitType)
+	if _, ok := ring["outputCiphertextSalt"]; ok {
+		t.Fatal("a merge-ring request must not carry the output ciphertext salt")
+	}
+	if err := decode(ring); err != nil {
+		t.Fatalf("merge-ring request without a salt: %v", err)
+	}
+	ring["outputCiphertextSalt"] = json.RawMessage(`"0x1"`)
+	if err := decode(ring); err == nil {
+		t.Fatal("a merge-ring request carrying a salt must be refused")
+	}
+
+	merge := encode(common.MergeCircuitType)
+	if err := decode(merge); err != nil {
+		t.Fatalf("merge request with a salt: %v", err)
+	}
+	delete(merge, "outputCiphertextSalt")
+	if err := decode(merge); err == nil {
+		t.Fatal("a merge request without a salt must be refused")
+	}
+}
+
 func sampleParams() *MergeParameters {
 	inputs := make([]InputParams, defaultTestNInputs)
 	for i := range inputs {

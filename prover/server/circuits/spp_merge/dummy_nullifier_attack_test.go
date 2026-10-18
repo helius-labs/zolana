@@ -32,7 +32,8 @@ import (
 // the constraint under test, not the hash binding.
 func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	t.Helper()
-	refreshPublicInputHash(t, f, f.userSigningPkHash, f.userNullifierPk)
+	tail := append([]*big.Int{f.userSigningPkHash, f.userNullifierPk, f.outputCiphertextSalt}, f.outputCiphertext...)
+	refreshPublicInputHash(t, f, tail...)
 }
 
 // refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.
@@ -41,8 +42,9 @@ func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID)
 }
 
-// refreshPublicInputHash hashes the common public columns, the rail-specific
-// tail, then the salt and the output ciphertext.
+// refreshPublicInputHash hashes the common public columns, then the
+// rail-specific tail: the default rail's ends with the salt and the output
+// ciphertext, the ring rail's has neither.
 func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
 	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {
@@ -61,8 +63,6 @@ func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.I
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),
 	}, tail...)
-	preimage = append(preimage, f.public.OutputCiphertextSalt.(*big.Int))
-	preimage = append(preimage, f.outputCiphertext...)
 	f.publicInputPreimage = preimage
 	f.publicInputHash = hashChain4(t, preimage)
 }

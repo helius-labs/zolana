@@ -470,6 +470,7 @@ impl CustomRingMergeInstruction {
 #[cfg(test)]
 mod tests {
     use solana_address::Address;
+    use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
     use zolana_interface::{instruction::instruction_data::merge_transact::MergeProof, pda};
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{Mint, Utxo};
@@ -520,8 +521,10 @@ mod tests {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],
-                output_ciphertext_salt: [0; 16],
-                output_ciphertext: [[0; 32]; 3],
+                output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                    salt: [0; 16],
+                    ciphertext: [[0; 32]; 3],
+                },
                 nullifiers: vec![[0; 32]; MERGE_DEFAULT_INPUT_COUNT],
                 utxo_tree_root_index: 0,
                 nullifier_tree_root_index: 0,

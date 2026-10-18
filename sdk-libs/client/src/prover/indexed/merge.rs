@@ -7,7 +7,8 @@ use zolana_interface::{
         instruction_data::{
             merge_ring::MergeRingIxData,
             merge_transact::{
-                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
+                merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
+                MergeTransactIxData,
             },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
@@ -194,29 +195,21 @@ impl IndexedMergePreparation {
         )
         .hash()?;
         let salt = right_align(&merge.output_ciphertext_salt);
-        let [ciphertext_0, ciphertext_1, ciphertext_2] = merge.output_ciphertext;
-        let public_inputs = vec![
+        let mut public_inputs = vec![
             create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
             tree_id_field(merge.output_tree_id),
             private,
             external,
             scalar_one(),
-            if merge.ring_program_id.is_some() {
-                ring_data_hash
-            } else {
-                owner_pk_hash
-            },
-            if merge.ring_program_id.is_some() {
-                ring_hash
-            } else {
-                nullifier_pk
-            },
-            salt,
-            ciphertext_0,
-            ciphertext_1,
-            ciphertext_2,
         ];
+        if merge.ring_program_id.is_some() {
+            // The ring merge proof binds no ciphertext.
+            public_inputs.extend([ring_data_hash, ring_hash]);
+        } else {
+            public_inputs.extend([owner_pk_hash, nullifier_pk, salt]);
+            public_inputs.extend(merge.output_ciphertext);
+        }
         let [mint_chunk_0, mint_chunk_1] =
             pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
         let witness = PreparedMergeJson {
@@ -232,7 +225,7 @@ impl IndexedMergePreparation {
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
             mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
-            output_ciphertext_salt: hex_field(&salt),
+            output_ciphertext_salt: merge.ring_program_id.is_none().then(|| hex_field(&salt)),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -261,8 +254,10 @@ impl IndexedMergePreparation {
                 c: [0; 32],
             },
             output_utxo_hash: output_hash,
-            output_ciphertext_salt: merge.output_ciphertext_salt,
-            output_ciphertext: merge.output_ciphertext,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: merge.output_ciphertext_salt,
+                ciphertext: merge.output_ciphertext,
+            },
             nullifiers: without_compact_padding(&nullifiers).to_vec(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
@@ -351,7 +346,9 @@ struct PreparedMergeJson {
     output: MergeOutputParamsJson,
     output_tree_id: String,
     mint_chunks: [String; 2],
-    output_ciphertext_salt: String,
+    /// Default merge rail only; the merge-ring circuit has no ciphertext.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_ciphertext_salt: Option<String>,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,

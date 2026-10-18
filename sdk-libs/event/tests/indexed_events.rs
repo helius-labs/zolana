@@ -135,7 +135,7 @@ fn merge_and_ring_merge_emit_events_are_indexed() {
         assert_eq!(
             published,
             Some(output_data),
-            "the indexed merge output carries the proof-bound ciphertext, source tag {source_tag}"
+            "the indexed merge output carries the output ciphertext, source tag {source_tag}"
         );
     }
 }

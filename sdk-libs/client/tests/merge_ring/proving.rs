@@ -132,7 +132,8 @@ impl MergeRingHarness {
 
         // The owner derives the merge-ring output blinding from its nullifier
         // key and the first real input's published nullifier; the amount and
-        // mint come from the proof-bound output ciphertext.
+        // mint come from the output ciphertext, which the ring merge proof does
+        // not bind.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge-ring output blinding"),

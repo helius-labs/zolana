@@ -3,10 +3,11 @@ use solana_address::Address;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use zolana_client::user_registry::{
-    build_registration_transaction_sync, set_merging_enabled_instruction,
+    build_registration_transaction_sync, set_merge_encryption_instruction,
 };
 use zolana_client::{check_merge_record, ClientError, Rpc};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use zolana_user_registry_interface::MergeEncryptionScheme;
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
 struct RegistryAbsent;
@@ -84,13 +85,17 @@ fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
         owner_p256: None,
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
-        merging_enabled,
+        merge_encryption: if merging_enabled {
+            MergeEncryptionScheme::PoseidonCtrV1
+        } else {
+            MergeEncryptionScheme::Disabled
+        },
     };
     (owner, address, record)
 }
 
 #[test]
-fn a_merge_needs_merging_enabled_and_the_owners_registered_keys() {
+fn a_merge_needs_the_supported_scheme_and_the_owners_registered_keys() {
     let (owner, address, record) = merge_owner(true);
     check_merge_record(&record, owner, &address).expect("matching record");
 
@@ -124,9 +129,9 @@ fn a_merge_needs_merging_enabled_and_the_owners_registered_keys() {
 }
 
 #[test]
-fn set_merging_enabled_targets_the_owners_record() {
+fn set_merge_encryption_targets_the_owners_record() {
     let owner = Pubkey::new_unique();
-    let instruction = set_merging_enabled_instruction(owner, true);
+    let instruction = set_merge_encryption_instruction(owner, MergeEncryptionScheme::PoseidonCtrV1);
     assert_eq!(instruction.accounts[0].pubkey, user_record_pda(&owner).0);
     assert!(instruction.accounts[0].is_writable);
     assert_eq!(instruction.accounts[1].pubkey, owner);

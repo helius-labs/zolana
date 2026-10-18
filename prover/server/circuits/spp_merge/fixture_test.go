@@ -129,9 +129,12 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
-	outputCiphertext    []*big.Int
-	publicInputPreimage []*big.Int
-	publicInputHash     *big.Int
+	// outputCiphertextSalt and outputCiphertext are the default rail's
+	// public-input-hash tail; the ring rail binds neither.
+	outputCiphertextSalt *big.Int
+	outputCiphertext     []*big.Int
+	publicInputPreimage  []*big.Int
+	publicInputHash      *big.Int
 }
 
 func buildDefaultWitness(t testing.TB, options mergeFixtureOptions) *merge.Circuit {
@@ -336,12 +339,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		RingProgramID: ringProgramID,
 	}
 	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
-	outputCiphertext, err := protocol.MergeOutputCiphertext(
-		nullifierSecret, nullifiers[0], fixtureCiphertextSalt, outAmount, fixtureMint,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	externalDataHash := options.externalDataHash
 	if externalDataHash == nil {
@@ -429,13 +426,24 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		externalDataHash,
 		allowDummyInputs,
 	}
+	var outputCiphertextSalt *big.Int
+	var outputCiphertext []*big.Int
 	switch options.rail {
 	case defaultFixtureRail:
+		outputCiphertextSalt = fixtureCiphertextSalt
+		outputCiphertext, err = protocol.MergeOutputCiphertext(
+			nullifierSecret, nullifiers[0], outputCiphertextSalt, outAmount, fixtureMint,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
 			userNullifierPk,
+			outputCiphertextSalt,
 		)
+		publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	case ringFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
@@ -445,8 +453,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
 	}
-	publicInputPreimage = append(publicInputPreimage, fixtureCiphertextSalt)
-	publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	publicInputHash := hashChain4(t, publicInputPreimage)
 
 	inputs := mergeshared.NewInputs(inputCount)
@@ -456,7 +462,6 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
-	public.OutputCiphertextSalt = fixtureCiphertextSalt
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,
@@ -501,19 +506,20 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	return &mergeWitnessFixture{
-		inputs:              inputs,
-		output:              merge.Output{RingDataHash: outputRingData},
-		mintChunks:          protocol.MintChunks(fixtureMint),
-		ownerPkHash:         ownerKeyHash,
-		userNullifierPk:     userNullifierPk,
-		userNullifierSecret: nullifierSecret,
-		public:              public,
-		userSigningPkHash:   userSigningPkHash,
-		outputRingDataHash:  outputRingData,
-		ringProgramID:       ringProgramID,
-		outputCiphertext:    outputCiphertext,
-		publicInputPreimage: publicInputPreimage,
-		publicInputHash:     publicInputHash,
+		inputs:               inputs,
+		output:               merge.Output{RingDataHash: outputRingData},
+		mintChunks:           protocol.MintChunks(fixtureMint),
+		ownerPkHash:          ownerKeyHash,
+		userNullifierPk:      userNullifierPk,
+		userNullifierSecret:  nullifierSecret,
+		public:               public,
+		userSigningPkHash:    userSigningPkHash,
+		outputRingDataHash:   outputRingData,
+		ringProgramID:        ringProgramID,
+		outputCiphertextSalt: outputCiphertextSalt,
+		outputCiphertext:     outputCiphertext,
+		publicInputPreimage:  publicInputPreimage,
+		publicInputHash:      publicInputHash,
 	}
 }
 
@@ -531,6 +537,7 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment.UserNullifierSecret = f.userNullifierSecret
 	assignment.CommonPublicInputs = f.public
 	assignment.UserSigningPkHash = f.userSigningPkHash
+	assignment.OutputCiphertextSalt = f.outputCiphertextSalt
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

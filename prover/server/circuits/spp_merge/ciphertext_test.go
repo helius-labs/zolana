@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 
 	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
@@ -14,39 +13,16 @@ import (
 )
 
 // ciphertextTail is the salt followed by the ciphertext, the last elements of
-// the public-input-hash preimage on both rails.
+// the default rail's public-input-hash preimage. The ring rail binds neither
+// (see ring_test.go).
 const ciphertextTail = 1 + mergeshared.MergeOutputCiphertextLen
 
-type ciphertextRail struct {
-	name    string
-	fixture func(t *testing.T) *mergeWitnessFixture
-	circuit func(f *mergeWitnessFixture) (frontend.Circuit, frontend.Circuit)
+func defaultCiphertextFixture(t *testing.T) *mergeWitnessFixture {
+	return buildMergeFixture(t, mergeFixtureOptions{rail: defaultFixtureRail})
 }
 
-var ciphertextRails = []ciphertextRail{
-	{
-		name: "default",
-		fixture: func(t *testing.T) *mergeWitnessFixture {
-			return buildMergeFixture(t, mergeFixtureOptions{rail: defaultFixtureRail})
-		},
-		circuit: func(f *mergeWitnessFixture) (frontend.Circuit, frontend.Circuit) {
-			return merge.NewMergeCircuit(len(f.inputs)), f.defaultCircuit()
-		},
-	},
-	{
-		name: "ring",
-		fixture: func(t *testing.T) *mergeWitnessFixture {
-			return buildMergeFixture(t, mergeFixtureOptions{
-				rail:           ringFixtureRail,
-				ringProgramID:  big.NewInt(0xC0FFEE),
-				inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-				outputRingData: big.NewInt(0xD2),
-			})
-		},
-		circuit: func(f *mergeWitnessFixture) (frontend.Circuit, frontend.Circuit) {
-			return merge.NewMergeRingCircuit(len(f.inputs)), f.ringCircuit()
-		},
-	},
+func solveDefault(f *mergeWitnessFixture) error {
+	return test.IsSolved(merge.NewMergeCircuit(len(f.inputs)), f.defaultCircuit(), ecc.BN254.ScalarField())
 }
 
 // withPreimageTail replaces the salt and ciphertext at the end of the
@@ -61,37 +37,29 @@ func (f *mergeWitnessFixture) withPreimageTail(t *testing.T, salt *big.Int, ciph
 }
 
 func TestMergeCiphertextIsTheLastPublicInputs(t *testing.T) {
-	for _, rail := range ciphertextRails {
-		t.Run(rail.name, func(t *testing.T) {
-			f := rail.fixture(t)
-			tail := f.publicInputPreimage[len(f.publicInputPreimage)-ciphertextTail:]
-			if tail[0].Cmp(fixtureCiphertextSalt) != 0 {
-				t.Fatalf("salt position: got %v", tail[0])
-			}
-			for i, element := range f.outputCiphertext {
-				if tail[1+i].Cmp(element) != 0 {
-					t.Fatalf("ciphertext element %d out of place", i)
-				}
-			}
-			empty, assignment := rail.circuit(f)
-			if err := test.IsSolved(empty, assignment, ecc.BN254.ScalarField()); err != nil {
-				t.Fatalf("host ciphertext rejected: %v", err)
-			}
-		})
+	f := defaultCiphertextFixture(t)
+	tail := f.publicInputPreimage[len(f.publicInputPreimage)-ciphertextTail:]
+	if tail[0].Cmp(fixtureCiphertextSalt) != 0 {
+		t.Fatalf("salt position: got %v", tail[0])
+	}
+	for i, element := range f.outputCiphertext {
+		if tail[1+i].Cmp(element) != 0 {
+			t.Fatalf("ciphertext element %d out of place", i)
+		}
+	}
+	if err := solveDefault(f); err != nil {
+		t.Fatalf("host ciphertext rejected: %v", err)
 	}
 }
 
 func TestMergeCircuitRejectsTamperedCiphertext(t *testing.T) {
-	for _, rail := range ciphertextRails {
-		for element := range mergeshared.MergeOutputCiphertextLen {
-			f := rail.fixture(t)
-			tampered := append([]*big.Int{}, f.outputCiphertext...)
-			tampered[element] = new(big.Int).Add(tampered[element], big.NewInt(1))
-			f.withPreimageTail(t, fixtureCiphertextSalt, tampered)
-			empty, assignment := rail.circuit(f)
-			if err := test.IsSolved(empty, assignment, ecc.BN254.ScalarField()); err == nil {
-				t.Fatalf("%s: tampered ciphertext element %d solved", rail.name, element)
-			}
+	for element := range mergeshared.MergeOutputCiphertextLen {
+		f := defaultCiphertextFixture(t)
+		tampered := append([]*big.Int{}, f.outputCiphertext...)
+		tampered[element] = new(big.Int).Add(tampered[element], big.NewInt(1))
+		f.withPreimageTail(t, fixtureCiphertextSalt, tampered)
+		if err := solveDefault(f); err == nil {
+			t.Fatalf("tampered ciphertext element %d solved", element)
 		}
 	}
 }
@@ -100,35 +68,30 @@ func TestMergeCircuitRejectsTamperedCiphertext(t *testing.T) {
 // another, and a different salt yields different pads.
 func TestMergeCircuitBindsTheSalt(t *testing.T) {
 	otherSalt := new(big.Int).Add(fixtureCiphertextSalt, big.NewInt(1))
-	for _, rail := range ciphertextRails {
-		t.Run(rail.name, func(t *testing.T) {
-			f := rail.fixture(t)
-			f.public.OutputCiphertextSalt = otherSalt
-			empty, assignment := rail.circuit(f)
-			if err := test.IsSolved(empty, assignment, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("a ciphertext under one salt solved under another")
-			}
 
-			f = rail.fixture(t)
-			mint := fixtureMint
-			amount := big.NewInt(5 + 7)
-			nullifierSecret := f.userNullifierSecret
-			firstNullifier := f.public.Nullifiers[0].(*big.Int)
-			resalted, err := protocol.MergeOutputCiphertext(nullifierSecret, firstNullifier, otherSalt, amount, mint)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for i := range resalted {
-				if resalted[i].Cmp(f.outputCiphertext[i]) == 0 {
-					t.Fatalf("element %d repeated across salts", i)
-				}
-			}
-			f.public.OutputCiphertextSalt = otherSalt
-			f.withPreimageTail(t, otherSalt, resalted)
-			empty, assignment = rail.circuit(f)
-			if err := test.IsSolved(empty, assignment, ecc.BN254.ScalarField()); err != nil {
-				t.Fatalf("the same merge under a fresh salt: %v", err)
-			}
-		})
+	f := defaultCiphertextFixture(t)
+	f.outputCiphertextSalt = otherSalt
+	if err := solveDefault(f); err == nil {
+		t.Fatal("a ciphertext under one salt solved under another")
+	}
+
+	f = defaultCiphertextFixture(t)
+	amount := big.NewInt(5 + 7)
+	firstNullifier := f.public.Nullifiers[0].(*big.Int)
+	resalted, err := protocol.MergeOutputCiphertext(
+		f.userNullifierSecret, firstNullifier, otherSalt, amount, fixtureMint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range resalted {
+		if resalted[i].Cmp(f.outputCiphertext[i]) == 0 {
+			t.Fatalf("element %d repeated across salts", i)
+		}
+	}
+	f.outputCiphertextSalt = otherSalt
+	f.withPreimageTail(t, otherSalt, resalted)
+	if err := solveDefault(f); err != nil {
+		t.Fatalf("the same merge under a fresh salt: %v", err)
 	}
 }

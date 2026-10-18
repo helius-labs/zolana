@@ -78,11 +78,6 @@ type CommonPublicInputs struct {
 	TreeSlots []transaction.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
-
-	// OutputCiphertextSalt is the per-proof pad nonce of the output
-	// ciphertext. It is 16 bytes of instruction data, so it is canonical
-	// without a range check.
-	OutputCiphertextSalt frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -93,8 +88,8 @@ type Transaction struct {
 	Output Output
 
 	// MintChunks are the hash_bytes_32 chunks of the merged asset's mint:
-	// bytes 0..31 and byte 31. The asset field is derived from them, so the
-	// output ciphertext carries the mint itself.
+	// bytes 0..31 and byte 31. The asset field is derived from them, so an
+	// output ciphertext can carry the mint itself.
 	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
@@ -105,11 +100,12 @@ type Transaction struct {
 	RingProgramID frontend.Variable
 }
 
-// Derived contains the values a wrapper publishes in its public-input-hash
-// preimage beyond the common prefix.
+// Derived contains the values an output encryption scheme encrypts or keys on.
 type Derived struct {
-	OwnerPkHash      frontend.Variable
-	OutputCiphertext []frontend.Variable
+	// OutputAmount is the merged output's amount, the sum of the input amounts.
+	OutputAmount frontend.Variable
+	// FirstNullifier is the first (always real) input's single-use nullifier.
+	FirstNullifier frontend.Variable
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -257,14 +253,6 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.RingProgramID,
 		t.Public.OutputTreeID,
 	)
-	outputCiphertext := MergeOutputCiphertext(
-		api,
-		t.UserNullifierSecret,
-		nullifiers[0],
-		t.Public.OutputCiphertextSalt,
-		sumInputs,
-		t.MintChunks,
-	)
 
 	addressNullifiers := make([]frontend.Variable, len(inputHashes))
 	for i := range addressNullifiers {
@@ -284,7 +272,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	return Derived{
-		OwnerPkHash:      t.OwnerPkHash,
-		OutputCiphertext: outputCiphertext,
+		OutputAmount:   sumInputs,
+		FirstNullifier: nullifiers[0],
 	}, nil
 }

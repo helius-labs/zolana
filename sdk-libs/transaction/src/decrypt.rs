@@ -351,6 +351,11 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             if scheme == EncryptedScheme::RingDeposit {
                 return decode_ring_deposit(shielded_keys, address, body, assets);
             }
+            // A ring merge publishes its ciphertext unverified: the ring merge
+            // proof does not bind it, so only the commitment check accepts it.
+            if scheme == EncryptedScheme::Merge {
+                return decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, true);
+            }
             let (ciphertext, viewing_pubkeys) = match scheme {
                 EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                     let Ok(viewing_pubkey) = Confidential::embedded_viewing_pk(body) else {
@@ -422,17 +427,18 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             Ok(None)
         }
         OutputDataEncoding::VerifiablyEncrypted(blob) => {
-            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx)
+            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, false)
         }
     }
 }
 
 /// A merge output publishes its amount and mint encrypted under a key the
-/// owner derives from the nullifier secret and the first nullifier, and the
-/// proof binds that ciphertext, so the owner rebuilds the output from the merge
-/// transaction alone, whichever inputs the merger chose. The cipher is
-/// unauthenticated: a merge of another wallet decrypts to noise, which the
-/// plaintext range check or the commitment rejects.
+/// owner derives from the nullifier secret and the first nullifier, so the
+/// owner rebuilds the output from the merge transaction alone. A default merge
+/// proof binds that ciphertext, whichever inputs the merger chose; a ring merge
+/// (`ring`) publishes it unverified. The cipher is unauthenticated: a merge of
+/// another wallet, or a wrong ring merge ciphertext, decrypts to noise, which
+/// the plaintext range check or the commitment rejects.
 fn decode_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
@@ -440,6 +446,7 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     slot: &OutputSlot,
     blob: &[u8],
     owner_cx: OwnerCx,
+    ring: bool,
 ) -> Result<Option<DecodedSlot>, TransactionError> {
     let Some((&scheme_byte, body)) = blob.split_first() else {
         return Ok(None);
@@ -450,9 +457,10 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     let Some((ring_data_hash, encrypted)) = split_merge_output_body(body) else {
         return Ok(None);
     };
-    // A ring merge leads with its output ring data hash and names its ring
-    // program; one without the other is not a merge output.
-    if ring_data_hash.is_some() != tx.ring_program_id.is_some() {
+    // A ring merge leads with its output ring data hash, names its ring program
+    // and is published unverified; a slot missing any of these is not a merge
+    // output.
+    if ring_data_hash.is_some() != ring || tx.ring_program_id.is_some() != ring {
         return Ok(None);
     }
     let Some(&first_nullifier) = tx.nullifiers.first() else {

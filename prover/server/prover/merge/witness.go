@@ -66,7 +66,6 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.OutputTreeID = p.OutputTreeID
-	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
 	circuit.PublicInputHash = p.PublicInputHash

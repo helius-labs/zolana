@@ -317,14 +317,23 @@ function requestField(value: unknown): Field {
   return asField(value);
 }
 
+/**
+ * Public inputs before the tree slots are folded in. A default merge ends with
+ * the owner binding and its four ciphertext elements, a ring merge with the
+ * output ring data hash and the ring program id only.
+ */
+function statementLength(inputs: IndexedProofInputs): number {
+  if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 8;
+  return inputs.circuit === "transferRingAuthority" ? 14 : 17;
+}
+
 /** Rejects a request the prover would refuse or resolve against other trees. */
 function checkStatement(inputs: IndexedProofInputs): void {
   if (
     inputs.trees.length < 1 ||
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
-    inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 12 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+    inputs.publicInputs.length !== statementLength(inputs)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

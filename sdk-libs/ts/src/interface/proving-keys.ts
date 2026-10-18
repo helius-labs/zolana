@@ -23,12 +23,12 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "custom_ring_policy.key": "1ebc92edebf9f7e6e4c53194a8035e21b6785bee0e8c4e2f7422b1e44d1a72a1",
   "custom_ring_register_key.key":
     "926bc02fe4d70f3d8163e190a572be82f8a0506e4ce734525fd3f92cf40c3357",
-  "merge_24_1.key": "1e0720495e3051cf56f6466b933965e910c18437e8cca853c75af637f3908d48",
-  "merge_52_1.key": "641f97f7129b5068847665f7911f570a75b4f89d70733aabe2aa979b22d66225",
-  "merge_8_1.key": "6a4cca6281710632dfd440e6eefd1bbf36bbf911301ccf2b4d17b8c0df5cb5e0",
-  "merge_ring_24_1.key": "125479fe72fbb91795905848ec44520edcdf340ab1aa172c959128d35ec92a2f",
-  "merge_ring_52_1.key": "8814eb2e4610ec8a90e0a7122f759ecbe504453f28450845c8fd8d4f481e333c",
-  "merge_ring_8_1.key": "3221d58369423771a3e37578de239b691d72ff2bfcf59e225b0bfe2ffb08072e",
+  "merge_24_1.key": "459cefcc03b48ecf9629dd494e9b6441ffd05833123b47473338a7e0dc8fa63d",
+  "merge_52_1.key": "5c1bc43dc2d84753c40c3c30e4b319d441efdab80440bba16de1e1bbf613fbd4",
+  "merge_8_1.key": "babf71dc8da512f9a35c5d9b6f39297c4727b14ab70c9e1e5f5e5822838765c8",
+  "merge_ring_24_1.key": "bfe4cd6e25924ed83bb42ad79131fe63fa893f8c4b9585198f0920bc96f99576",
+  "merge_ring_52_1.key": "bd2dfceea6f081551a52c21f77cad14fa0656f1a68551a9352d6e607695d51c9",
+  "merge_ring_8_1.key": "635f9f6d7d74447f2313264c691b818bc6a5611aedb0dcca3abd24405919d4a4",
   "transfer_confidential_12_2.key":
     "f97bd750648a767ea2f660f713f1e9139d7355f41f26dce274f50ac9bc3a1b9c",
   "transfer_confidential_12_4.key":

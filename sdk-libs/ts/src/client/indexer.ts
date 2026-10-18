@@ -401,7 +401,7 @@ function convertRegistryRecord(
       : { ownerP256: decodeP256(record.ownerP256, method, `${path}.ownerP256`) }),
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
     viewingPublicKey: decodeP256(record.viewingPubkey, method, `${path}.viewingPubkey`),
-    mergingEnabled: record.mergingEnabled,
+    mergeEncryption: record.mergeEncryption,
   });
 }
 

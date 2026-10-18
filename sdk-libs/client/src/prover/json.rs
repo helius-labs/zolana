@@ -354,9 +354,13 @@ pub(crate) struct MergeParametersJson {
     /// merged output; the circuit derives the asset from them.
     #[serde(rename = "mintChunks")]
     pub mint_chunks: Vec<String>,
-    /// Per-proof pad nonce of the output ciphertext.
-    #[serde(rename = "outputCiphertextSalt")]
-    pub output_ciphertext_salt: String,
+    /// Per-proof pad nonce of the PoseidonCtrV1 output ciphertext; `None` on
+    /// the merge-ring rail, whose circuit has no ciphertext.
+    #[serde(
+        rename = "outputCiphertextSalt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_ciphertext_salt: Option<String>,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -416,7 +420,7 @@ fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     }
 }
 
-fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
+fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> String {
     let json = MergeParametersJson {
         circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
@@ -424,7 +428,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         mint_chunks: inputs.mint_chunks.iter().map(big_uint_to_string).collect(),
-        output_ciphertext_salt: big_uint_to_string(&inputs.output_ciphertext_salt),
+        output_ciphertext_salt: (!ring).then(|| big_uint_to_string(&inputs.output_ciphertext_salt)),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -440,13 +444,13 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
 
 /// Serialize the default merge witness to the prover server's JSON request body.
 pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge")
+    merge_params_json(inputs, "merge", false)
 }
 
 /// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
 /// to the merge-ring circuit and reads the top-level `ringProgramId`.
 pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge-ring")
+    merge_params_json(inputs, "merge-ring", true)
 }
 
 #[derive(Debug, Clone, Serialize)]

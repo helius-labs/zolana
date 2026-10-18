@@ -55,7 +55,7 @@ import {
 } from "../codecs/index.js";
 
 export const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
-export type { MergeTransactInstructionData } from "../types.js";
+export type { MergeOutputEncryption, MergeTransactInstructionData } from "../types.js";
 
 type Meta = NonNullable<Instruction["accounts"]>[number];
 

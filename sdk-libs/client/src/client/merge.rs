@@ -13,7 +13,7 @@ use zolana_interface::{instruction::instruction_data::merge_transact::MergeTrans
 use zolana_keypair::{Curve, NullifierKey, ShieldedAddress};
 use zolana_program::instruction::MergeTransact;
 use zolana_transaction::instructions::merge::MergeProofInputs;
-use zolana_user_registry_interface::{user_record_pda, UserRecord};
+use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
 
 use crate::{
     error::ClientError,
@@ -226,16 +226,17 @@ impl<'a> MergeSubmission<'a> {
     }
 }
 
-/// Whether `record`, `owner`'s user record, lets `address` merge: merging is
-/// enabled, and the record holds `address`'s signing, nullifier and viewing
-/// keys. The program checks all but the viewing key, so a mismatch caught here
+/// Whether `record`, `owner`'s user record, lets `address` merge: the record
+/// selects the PoseidonCtrV1 merge encryption scheme (the one this client
+/// encrypts with; the program rejects any other), and the record holds
+/// `address`'s signing, nullifier and viewing keys. The program checks all but the viewing key, so a mismatch caught here
 /// saves a proof; a viewing key mismatch means the local keys are stale.
 pub fn check_merge_record(
     record: &UserRecord,
     owner: Address,
     address: &ShieldedAddress,
 ) -> Result<(), ClientError> {
-    if !record.merging_enabled {
+    if record.merge_encryption != MergeEncryptionScheme::PoseidonCtrV1 {
         return Err(ClientError::MergeDisabled { owner });
     }
     let signing = address.signing_pubkey;

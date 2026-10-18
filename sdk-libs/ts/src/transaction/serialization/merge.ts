@@ -4,7 +4,12 @@ import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
 import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, encodeAddress } from "../internal.js";
-import { EncryptedScheme, decodeOutputData, encodeOutputData } from "./codecs.js";
+import {
+  EncryptedScheme,
+  decodeOutputData,
+  encodeOutputData,
+  mergeOutputDataEncoding,
+} from "./codecs.js";
 
 /** The two output fields a merge proof encrypts for the owner. Rust `MergeOutputPlaintext`. */
 export interface MergeOutputPlaintext {
@@ -91,9 +96,11 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
 }
 
 /**
- * A merge output's data slot: `VerifiablyEncrypted(scheme || [ring_data_hash
- * ||] salt || ciphertext)`, as Rust `encode_merge_output_data` and the indexer
- * rebuild it from the merge instruction.
+ * A merge output's data slot, as Rust `encode_merge_output_data` and the
+ * indexer rebuild it from the merge instruction: `VerifiablyEncrypted(scheme ||
+ * salt || ciphertext)` for a default merge, whose proof binds the ciphertext,
+ * and `Encrypted(scheme || ring_data_hash || salt || ciphertext)` for a ring
+ * merge, whose proof does not.
  */
 export function encodeMergeOutputData(
   input: Readonly<{
@@ -115,20 +122,32 @@ export function encodeMergeOutputData(
     body.set(part, offset);
     offset += part.length;
   }
-  return encodeOutputData(EncryptedScheme.merge, body);
+  return encodeOutputData(
+    EncryptedScheme.merge,
+    body,
+    mergeOutputDataEncoding(input.ringDataHash !== undefined),
+  );
 }
 
 /** The encrypted body of a merge output slot. */
 export type MergeOutputBody = Readonly<{ ringDataHash?: Bytes32; encrypted: Uint8Array }>;
 
 /**
- * Reads a merge output slot's payload: `undefined` for any other scheme or a
- * payload that does not decode.
+ * Reads a merge output slot's payload: `undefined` for any other scheme, a
+ * payload that does not decode, or an encoding other than the one
+ * [`mergeOutputDataEncoding`] gives the body's shape (a ring merge body is led
+ * by its ring data hash). A ring merge ciphertext is unverified, so the caller
+ * must check the decrypted output against the published commitment.
  */
 export function readMergeOutputBody(payload: Uint8Array): MergeOutputBody | undefined {
   try {
     const frame = decodeOutputData(payload);
-    return frame.scheme === EncryptedScheme.merge ? splitMergeOutputBody(frame.body) : undefined;
+    if (frame.scheme !== EncryptedScheme.merge) return undefined;
+    const body = splitMergeOutputBody(frame.body);
+    if (body === undefined) return undefined;
+    return frame.encoding === mergeOutputDataEncoding(body.ringDataHash !== undefined)
+      ? body
+      : undefined;
   } catch {
     return undefined;
   }

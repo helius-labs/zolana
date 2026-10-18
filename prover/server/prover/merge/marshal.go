@@ -47,8 +47,10 @@ type MergeParametersJSON struct {
 	PrivateTxHash       string   `json:"privateTxHash"`
 	PublicInputHash     string   `json:"publicInputHash"`
 	AllowDummyInputs    string   `json:"allowDummyInputs"`
-	// OutputCiphertextSalt is the 16-byte pad nonce of the output ciphertext.
-	OutputCiphertextSalt string `json:"outputCiphertextSalt"`
+	// OutputCiphertextSalt is the 16-byte pad nonce of the PoseidonCtrV1 output
+	// ciphertext. Required on the default merge rail; the merge-ring circuit
+	// has no ciphertext, so a merge-ring request must omit it.
+	OutputCiphertextSalt string `json:"outputCiphertextSalt,omitempty"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -90,8 +92,9 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
-
-		OutputCiphertextSalt: common.FeHex(p.OutputCiphertextSalt),
+	}
+	if circuitType != common.MergeRingCircuitType {
+		paramsJson.OutputCiphertextSalt = common.FeHex(p.OutputCiphertextSalt)
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -177,8 +180,18 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 			return err
 		}
 	}
-	if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
-		return err
+	if p.CircuitType == common.MergeRingCircuitType {
+		if params.OutputCiphertextSalt != "" {
+			return fmt.Errorf("merge-ring: outputCiphertextSalt is not a merge-ring input")
+		}
+		p.OutputCiphertextSalt = nil
+	} else {
+		if params.OutputCiphertextSalt == "" {
+			return fmt.Errorf("merge: outputCiphertextSalt is required")
+		}
+		if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
+			return err
+		}
 	}
 
 	p.Inputs = make([]InputParams, len(params.Inputs))

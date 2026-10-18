@@ -19,6 +19,7 @@ import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";
 import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MergeEncryptionScheme } from "../interface/state.js";
 import {
   isPlainUtxo,
   selectUtxos,
@@ -236,8 +237,12 @@ async function proveAndAssembleMerge(
 }
 
 function validateMergeBuild(record: MergeRecord, owner: Address, address: ShieldedAddress): void {
-  if (!record.mergingEnabled) {
-    throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
+  // The program accepts only the record's scheme, and PoseidonCtrV1 is the only
+  // scheme this SDK encrypts merge outputs with.
+  if (record.mergeEncryption !== MergeEncryptionScheme.PoseidonCtrV1) {
+    throw new WalletError("WALLET_MERGE_DISABLED", {
+      details: { owner, mergeEncryption: record.mergeEncryption },
+    });
   }
   const signingPublicKey = address.signingPublicKey;
   if (signingPublicKey.signatureType() === "p256") {

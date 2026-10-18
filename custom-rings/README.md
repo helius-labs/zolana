@@ -510,9 +510,14 @@ Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
 always verifies its proof, including when the setting is off.
-Ring merge publishes the merged note's amount and mint as a proof-bound
-ciphertext that only its owner decrypts, so the owner rebuilds the note from the
-merge transaction alone. It combines up to 52 notes of one owner, asset and
+Ring merge publishes the merged note's amount and mint as a ciphertext that
+only its owner decrypts, so the owner can rebuild the note from the merge
+transaction alone. Neither the ring merge proof nor SPP checks that ciphertext,
+and these rails do not enforce it in the ring program. This is an accepted risk:
+a holder of the owner's escrowed nullifier key can merge a note the owner cannot
+open and publish a ciphertext that does not match the merged note. The owner's
+output hash check rejects it, and recovery reports the merge in `unopened`. It
+combines up to 52 notes of one owner, asset and
 ring into one note without moving value to another owner; a ring merge
 transaction fits at most 51 real inputs. The SDKs fill the merge proof's unused slots with
 compact padding, which the transaction leaves out, so a merge reveals how many

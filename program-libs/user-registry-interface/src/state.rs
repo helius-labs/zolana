@@ -11,10 +11,35 @@ pub struct UserRecord {
     pub owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
-    /// Per-user merge opt-in: when `false` `merge_transact` is rejected for this
-    /// owner; when `true` any caller may run `merge_transact` for this owner
-    /// (see shielded-pool spec).
-    pub merging_enabled: bool,
+    /// Per-user merge opt-in and the encryption scheme every `merge_transact`
+    /// output for this owner must use. `Disabled` rejects `merge_transact`; any
+    /// other scheme lets any caller run it with exactly that scheme (see
+    /// shielded-pool spec).
+    pub merge_encryption: MergeEncryptionScheme,
+}
+
+/// The merge output encryption scheme an owner accepts. A delegated merger
+/// cannot choose the scheme: the shielded pool rejects a merge whose scheme
+/// differs from the owner's record.
+///
+/// One byte, with the discriminants of the former `merging_enabled: bool`
+/// (`false` = 0, `true` = 1), so records written before the scheme existed
+/// decode unchanged. Borsh rejects any other byte.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum MergeEncryptionScheme {
+    Disabled = 0,
+    /// Poseidon counter mode under the owner's nullifier-secret-derived key.
+    PoseidonCtrV1 = 1,
+}
+
+impl MergeEncryptionScheme {
+    /// Decodes a scheme byte with the record's own borsh encoding; `None` for
+    /// a byte no scheme has.
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        Self::try_from_slice(&[byte]).ok()
+    }
 }
 
 impl UserRecord {

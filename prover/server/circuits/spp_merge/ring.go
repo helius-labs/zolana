@@ -15,10 +15,10 @@ import (
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The output's amount and mint are published under a ciphertext only the
-// owner can decrypt, and every other output field is derived from the owner's keys,
-// the first nullifier, and the public ring values, so the owner rebuilds the
-// output from the merge transaction alone.
+// 7. Every output field but the amount and mint is derived from the owner's
+// keys, the first nullifier, and the public ring values. The output ciphertext
+// a ring merge carries is not bound by this proof: SPP publishes it unverified,
+// and a ring that needs it recoverable enforces it in its own program.
 
 type RingCircuit struct {
 	NumInputs int `gnark:"-"`
@@ -74,17 +74,13 @@ func (c *RingCircuit) Define(api frontend.API) error {
 		return err
 	}
 	api.AssertIsDifferent(c.RingProgramID, 0)
-	derived, err := tx.Constrain(api)
-	if err != nil {
+	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
-	// Both rails end with the salt, then the output ciphertext.
-	fields = append(fields, c.OutputCiphertextSalt)
-	fields = append(fields, derived.OutputCiphertext...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

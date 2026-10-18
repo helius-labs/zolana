@@ -2,6 +2,7 @@ use shielded_pool_tests::support::{
     merge::{RealMerge, RealMergeProof},
     transact::{proof_env, tree_progress},
 };
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -92,8 +93,8 @@ fn merge_rejects_a_tampered_output_ciphertext_or_salt() {
     let mut tampered = Vec::new();
     for element in 0..3 {
         let mut data = merge.data.clone();
-        let byte = data
-            .output_ciphertext
+        let MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } = &mut data.output_encryption;
+        let byte = ciphertext
             .get_mut(element)
             .and_then(|element| element.last_mut())
             .expect("ciphertext element byte");
@@ -101,7 +102,8 @@ fn merge_rejects_a_tampered_output_ciphertext_or_salt() {
         tampered.push((format!("ciphertext element {element}"), data));
     }
     let mut data = merge.data.clone();
-    *data.output_ciphertext_salt.last_mut().expect("salt byte") ^= 1;
+    let MergeOutputEncryption::PoseidonCtrV1 { salt, .. } = &mut data.output_encryption;
+    *salt.last_mut().expect("salt byte") ^= 1;
     tampered.push(("salt".to_string(), data));
 
     for (label, data) in tampered {
