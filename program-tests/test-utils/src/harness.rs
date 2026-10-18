@@ -28,7 +28,7 @@ use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_program::instruction::{
     CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree,
 };
-use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
+use zolana_smart_account_client::execute_sync_each;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;
 
@@ -36,7 +36,7 @@ use crate::{
     localnet::{
         localnet_indexer_url, localnet_rpc_url, send_transaction, start_shielded_pool_localnet,
     },
-    smart_account::{self, StandardAccounts, StandardSigners},
+    smart_account::{self, ProtocolSigners, StandardAccounts, StandardSigners},
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };
@@ -156,7 +156,7 @@ pub struct BootstrapConfig {
 /// create a tree with custom nullifier-batch params).
 pub struct ProtocolSetup {
     pub payer: Keypair,
-    pub authority: Keypair,
+    pub authority: ProtocolSigners,
     pub forester_key: Keypair,
     pub merge_key: Keypair,
     pub tree_key: Keypair,
@@ -172,7 +172,7 @@ pub struct LocalnetHarness<D> {
     pub indexer: ZolanaIndexer,
     pub assets: AssetRegistry,
     pub payer: Keypair,
-    pub authority: Keypair,
+    pub authority: ProtocolSigners,
     pub ring_key: Keypair,
     pub tree: Pubkey,
     pub tree_address: Address,
@@ -258,13 +258,15 @@ impl<D> LocalnetHarness<D> {
         config: &BootstrapConfig,
     ) -> Result<ProtocolSetup> {
         let payer = Keypair::new();
-        let authority = Keypair::new();
+        let authority = ProtocolSigners::new();
         let forester_key = Keypair::new();
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
         let ring_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 500_000_000_000)?;
-        rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
+        for member in authority.pubkeys() {
+            rpc.airdrop(&member, 1_000_000_000)?;
+        }
         rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&tree_key.pubkey(), 1_000_000_000)?;
@@ -274,7 +276,7 @@ impl<D> LocalnetHarness<D> {
         for ix in accounts.create_ixs(
             &payer.pubkey(),
             StandardSigners {
-                protocol: authority.pubkey(),
+                protocol: authority.pubkeys(),
                 forester: forester_key.pubkey(),
                 merge: merge_key.pubkey(),
                 tree: tree_key.pubkey(),
@@ -330,17 +332,13 @@ impl<D> LocalnetHarness<D> {
                 )?;
             }
             None => {
-                let create_config_sync = execute_sync_ix(
-                    &accounts.protocol_settings,
-                    0,
-                    &[authority.pubkey()],
-                    &[create_config_ix],
-                );
+                let create_config_sync =
+                    authority.execute_sync(&accounts.protocol_settings, &[create_config_ix]);
                 send_transaction(
                     rpc,
                     &[create_config_sync],
                     &payer.pubkey(),
-                    &[&payer, &authority],
+                    &authority.with_fee_payer(&payer),
                 )?;
             }
         }
@@ -440,7 +438,6 @@ impl<D> LocalnetHarness<D> {
     /// asset registry under the next asset id so transfers can resolve it.
     pub fn ensure_spl_assets(&mut self, count: usize) -> Result<()> {
         let payer = self.payer.insecure_clone();
-        let authority = self.authority.insecure_clone();
         let protocol_vault = self.protocol_vault;
         let protocol_settings = self.protocol_settings;
 
@@ -458,12 +455,12 @@ impl<D> LocalnetHarness<D> {
                     authority: protocol_vault,
                 }
                 .instruction();
-                let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
+                let sync_ix = self.authority.execute_sync(&protocol_settings, &[ix]);
                 send_transaction(
                     &mut self.rpc,
                     &[sync_ix],
                     &payer.pubkey(),
-                    &[&payer, &authority],
+                    &self.authority.with_fee_payer(&payer),
                 )?;
             }
 
@@ -473,12 +470,12 @@ impl<D> LocalnetHarness<D> {
                 token_program: zolana_interface::pda::spl_token_program_id(),
             }
             .instruction();
-            let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
+            let sync_ix = self.authority.execute_sync(&protocol_settings, &[ix]);
             send_transaction(
                 &mut self.rpc,
                 &[sync_ix],
                 &payer.pubkey(),
-                &[&payer, &authority],
+                &self.authority.with_fee_payer(&payer),
             )?;
             let registry = pda::spl_asset_registry(&mint);
             let vault = pda::spl_interface(&mint);
