@@ -373,8 +373,8 @@ describe("transaction core", () => {
       expect(proofInputs.outputs[index]?.ownerTag).toEqual(senderTag);
       expect(proofInputs.externalData.resolvedOwnerTags[index]).toEqual(senderTag);
       expect(proofInputs.externalData.outputs[index]?.ownerTag).toEqual({
-        kind: "inline",
-        value: senderTag,
+        kind: "account",
+        index: 0,
       });
     }
   });

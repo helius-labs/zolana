@@ -30,8 +30,6 @@ pub enum AccountError {
     NotEnoughAccountKeys,
     #[error("Invalid Account.")]
     InvalidAccount,
-    #[error("Program error with code: {0}")]
-    ProgramError(u32),
 }
 
 impl From<AccountError> for u32 {
@@ -51,7 +49,6 @@ impl From<AccountError> for u32 {
             AccountError::AccountNotZeroed => 20013,
             AccountError::NotEnoughAccountKeys => 20014,
             AccountError::InvalidAccount => 20015,
-            AccountError::ProgramError(code) => code,
         }
     }
 }
@@ -59,14 +56,5 @@ impl From<AccountError> for u32 {
 impl From<AccountError> for solana_program_error::ProgramError {
     fn from(e: AccountError) -> Self {
         solana_program_error::ProgramError::Custom(e.into())
-    }
-}
-
-impl From<solana_program_error::ProgramError> for AccountError {
-    fn from(e: solana_program_error::ProgramError) -> Self {
-        match e {
-            solana_program_error::ProgramError::Custom(code) => AccountError::ProgramError(code),
-            _ => AccountError::ProgramError(u64::from(e) as u32),
-        }
     }
 }

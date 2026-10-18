@@ -14,6 +14,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client_api::client_error::{Error as RpcClientError, ErrorKind};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
@@ -77,8 +78,18 @@ pub fn batch_update_nullifier_tree_once(
         .get_latest_blockhash()
         .map_err(|e| ForestError::Rpc(e.to_string()))?;
     let tx = params.build_transaction(blockhash)?;
-    rpc.send_and_confirm_transaction(&tx)
-        .map_err(|e| ForestError::TxFailed(e.to_string()))
+    rpc.send_and_confirm_transaction(&tx).map_err(send_failure)
+}
+
+/// The node could not be reached or did not answer. Anything it did answer,
+/// a rejected transaction included, is `TxFailed`.
+fn send_failure(error: RpcClientError) -> ForestError {
+    match error.kind() {
+        ErrorKind::Io(_) | ErrorKind::Reqwest(_) | ErrorKind::Middleware(_) => {
+            ForestError::Rpc(error.to_string())
+        }
+        _ => ForestError::TxFailed(error.to_string()),
+    }
 }
 
 impl ForestParams<'_> {
@@ -106,6 +117,7 @@ impl ForestParams<'_> {
 #[cfg(test)]
 mod tests {
     use solana_instruction::AccountMeta;
+    use solana_rpc_client_api::request::RpcError;
     use zolana_interface::{
         instruction::{encode_instruction, tag},
         pda, SHIELDED_POOL_PROGRAM_ID,
@@ -124,6 +136,21 @@ mod tests {
                 b: [3u8; 128],
                 c: [4u8; 32],
             },
+        }
+    }
+
+    #[test]
+    fn only_an_unreachable_node_is_an_rpc_failure() {
+        let unreachable = RpcClientError::from(ErrorKind::Io(std::io::Error::other("refused")));
+        assert!(matches!(send_failure(unreachable), ForestError::Rpc(_)));
+        for answered in [
+            ErrorKind::RpcError(RpcError::ForUser("unable to confirm transaction".into())),
+            ErrorKind::Custom("simulation failed".into()),
+        ] {
+            assert!(matches!(
+                send_failure(RpcClientError::from(answered)),
+                ForestError::TxFailed(_)
+            ));
         }
     }
 

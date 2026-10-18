@@ -12,7 +12,7 @@ pub use get_merkle_proofs::get_merkle_proofs;
 pub use get_non_inclusion_proofs::get_non_inclusion_proofs;
 pub use get_nullifier_queue_elements::get_nullifier_queue_elements;
 pub use get_shielded_transactions_by_signature::get_shielded_transactions_by_signature;
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 pub(crate) use get_shielded_transactions_by_signature::shielded_transaction_at;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_nullifiers;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;

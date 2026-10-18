@@ -1,5 +1,5 @@
 use std::sync::Arc;
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 use zolana_indexer_api::{
     method::{GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord},
     GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
@@ -7,8 +7,8 @@ use zolana_indexer_api::{
 };
 
 use crate::api::root_index_cache::RootIndexCache;
-#[cfg(feature = "ring-projection")]
-use crate::ring_projection::{key_registry, spend_record};
+#[cfg(feature = "custom-rings")]
+use crate::custom_rings::{key_registry, spend_record};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -41,8 +41,8 @@ use super::{
     },
 };
 pub struct PhotonApi {
-    #[cfg(feature = "ring-projection")]
-    ring_projection: bool,
+    #[cfg(feature = "custom-rings")]
+    custom_rings: bool,
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     root_index_cache: Arc<RootIndexCache>,
@@ -70,24 +70,25 @@ where
 impl PhotonApi {
     pub fn new(db_conn: Arc<DatabaseConnection>, rpc_client: Arc<RpcClient>) -> Self {
         Self {
-            #[cfg(feature = "ring-projection")]
-            ring_projection: false,
+            #[cfg(feature = "custom-rings")]
+            custom_rings: true,
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
         }
     }
 
-    #[cfg(feature = "ring-projection")]
+    /// Serve the shielded pool methods only.
+    #[cfg(feature = "custom-rings")]
     #[must_use]
-    pub fn with_ring_projection(mut self) -> Self {
-        self.ring_projection = true;
+    pub fn without_custom_rings(mut self) -> Self {
+        self.custom_rings = false;
         self
     }
 
-    #[cfg(feature = "ring-projection")]
-    pub(crate) fn ring_projection_enabled(&self) -> bool {
-        self.ring_projection
+    #[cfg(feature = "custom-rings")]
+    pub(crate) fn custom_rings_enabled(&self) -> bool {
+        self.custom_rings
     }
 
     /// Start the task that keeps the root-index ring current.
@@ -188,7 +189,7 @@ impl PhotonApi {
         get_user_records(self.db_conn.as_ref(), &self.rpc_client, request).await
     }
 
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     pub async fn get_ring_spend_record(
         &self,
         request: RingSpendRecordRequest,
@@ -196,7 +197,7 @@ impl PhotonApi {
         spend_record::lookup(&self.db_conn, &self.rpc_client, request).await
     }
 
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     pub async fn get_ring_key_registry_entry(
         &self,
         request: RingMemberProofRequest,
@@ -204,7 +205,7 @@ impl PhotonApi {
         key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
     }
 
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     pub async fn get_ring_key_registry_register_proof(
         &self,
         request: RingMemberProofRequest,
@@ -222,11 +223,11 @@ impl PhotonApi {
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
             method_api_spec::<GetUserRecords>(),
-            #[cfg(feature = "ring-projection")]
+            #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingKeyRegistryEntry>(),
-            #[cfg(feature = "ring-projection")]
+            #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingKeyRegistryRegisterProof>(),
-            #[cfg(feature = "ring-projection")]
+            #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingSpendRecord>(),
         ]
     }

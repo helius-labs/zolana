@@ -3,6 +3,11 @@ use super::{
     *,
 };
 use crate::{
+    custom_rings::{
+        storage::{BlockJournal, BlockUndo},
+        tests::{field, indexer, member},
+        Invocations, StartSlot,
+    },
     ingester::{
         parser::state_update::{RingsMessageUpdate, RingsOutputUpdate, RingsTransactionUpdate},
         typedefs::block_info::{
@@ -10,11 +15,6 @@ use crate::{
         },
     },
     migration::{MigratorTrait, RingsMigrator},
-    ring_projection::{
-        storage::{BlockJournal, BlockUndo},
-        tests::{field, member, projector},
-        Invocations, StartSlot,
-    },
 };
 use jsonrpsee::server::ServerHandle;
 use sea_orm::Database;
@@ -27,10 +27,10 @@ use zolana_ring_policy::{
 
 const PROGRAM: [u8; 32] = [11; 32];
 
-async fn fixture() -> (DatabaseConnection, ProjectionCursor) {
+async fn fixture() -> (DatabaseConnection, CustomRingCursor) {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
-    let cursor = ProjectionCursor::new(0);
+    let cursor = CustomRingCursor::new(0);
     storage::save_cursor(&db, &cursor).await.unwrap();
     SpendStore::new(&db, PROGRAM).open().await.unwrap();
     (db, cursor)
@@ -88,7 +88,7 @@ async fn register_then_transfers_keep_only_the_latest_record_until_rollback() {
         );
     }
     assert_eq!(store.record(&member(5)).await.unwrap(), Some(row(5, 2)));
-    // A replayed transfer spends a record the projection no longer holds.
+    // A replayed transfer spends a record the index no longer holds.
     for version in 0..2 {
         assert!(store
             .spent_by(&[row(5, version).nullifier])
@@ -141,7 +141,7 @@ async fn a_replayed_registration_is_idempotent_and_a_second_one_is_refused() {
         .is_none());
     assert!(matches!(
         Update::Register(row(5, 1)).apply(&store).await,
-        Err(ProjectError::Fault(_))
+        Err(ApplyError::Fault(_))
     ));
     assert_eq!(store.record(&member(5)).await.unwrap(), Some(row(5, 0)));
 }
@@ -161,13 +161,13 @@ async fn a_transfer_cannot_move_another_members_record_or_spend_two() {
         }
         .apply(&store)
         .await,
-        Err(ProjectError::Fault(_))
+        Err(ApplyError::Fault(_))
     ));
     assert!(matches!(
         store
             .spent_by(&[row(5, 0).nullifier, row(6, 0).nullifier])
             .await,
-        Err(ProjectError::Fault(_))
+        Err(ApplyError::Fault(_))
     ));
     // Records are scoped to their ring.
     assert!(SpendStore::new(&tx, [12; 32])
@@ -202,20 +202,17 @@ async fn a_malformed_record_update_quarantines_only_its_ring_until_rollback() {
             garbage(healthy, Some("failed".into())),
         ],
     };
-    let projector = projector(&db, StartSlot::Derived(0));
+    let indexer = indexer(&db, StartSlot::Derived(0));
     let tx = db.begin().await.unwrap();
-    projector
-        .apply_block(&tx, &block, &mut cursor)
-        .await
-        .unwrap();
+    indexer.apply_block(&tx, &block, &mut cursor).await.unwrap();
     tx.commit().await.unwrap();
     assert!(fault_of(&db, PROGRAM).await.is_some());
     assert!(fault_of(&db, healthy).await.is_none());
     cursor.resume(&db).await.unwrap();
     assert!(matches!(
-        lookup(&db, &projector.rpc, request(PROGRAM, 4)).await,
-        Err(PhotonApiError::RingProjection(
-            RingProjectionError::SpendRecordOutOfSync(_)
+        lookup(&db, &indexer.rpc, request(PROGRAM, 4)).await,
+        Err(PhotonApiError::CustomRing(
+            CustomRingError::SpendRecordOutOfSync(_)
         ))
     ));
 
@@ -263,13 +260,13 @@ async fn chain_at(tip: BlockMetadata) -> (RpcClient, ServerHandle) {
 }
 
 #[tokio::test]
-async fn lookups_report_the_projection_tip_and_refuse_unindexed_state() {
+async fn lookups_report_the_index_tip_and_refuse_unindexed_state() {
     let (db, mut cursor) = fixture().await;
     let (rpc, handle) = chain_at(block(7)).await;
     assert!(matches!(
         lookup(&db, &rpc, request(PROGRAM, 4)).await,
-        Err(PhotonApiError::RingProjection(
-            RingProjectionError::SpendRecordOutOfSync(_)
+        Err(PhotonApiError::CustomRing(
+            CustomRingError::SpendRecordOutOfSync(_)
         ))
     ));
     cursor.tip = Some(block(7));
@@ -289,8 +286,8 @@ async fn lookups_report_the_projection_tip_and_refuse_unindexed_state() {
         .unwrap();
     assert!(matches!(
         lookup(&db, &rpc, request(PROGRAM, 4)).await,
-        Err(PhotonApiError::RingProjection(
-            RingProjectionError::SpendRecordOutOfSync(_)
+        Err(PhotonApiError::CustomRing(
+            CustomRingError::SpendRecordOutOfSync(_)
         ))
     ));
     assert!(matches!(
@@ -310,16 +307,13 @@ async fn lookups_report_the_projection_tip_and_refuse_unindexed_state() {
 }
 
 #[test]
-fn projection_errors_keep_their_wire_codes() {
+fn custom_ring_errors_keep_their_wire_codes() {
     for (error, code) in [
-        (RingProjectionError::OutOfSync(String::new()), -32070),
-        (RingProjectionError::RootChanged, -32071),
-        (RingProjectionError::MemberUnregistered, -32072),
-        (RingProjectionError::MemberAlreadyRegistered, -32073),
-        (
-            RingProjectionError::SpendRecordOutOfSync(String::new()),
-            -32074,
-        ),
+        (CustomRingError::OutOfSync(String::new()), -32070),
+        (CustomRingError::RootChanged, -32071),
+        (CustomRingError::MemberUnregistered, -32072),
+        (CustomRingError::MemberAlreadyRegistered, -32073),
+        (CustomRingError::SpendRecordOutOfSync(String::new()), -32074),
     ] {
         assert_eq!(
             jsonrpsee::types::ErrorObjectOwned::from(PhotonApiError::from(error)).code(),

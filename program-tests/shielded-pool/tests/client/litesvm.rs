@@ -15,12 +15,15 @@ use zolana_client::{
     IndexerRequirement, MergeSubmission, ProofDataSource, ProverClient, Rpc,
     SignedPrivateTransaction, Submission,
 };
-use zolana_interface::state::read_tree_id;
+use zolana_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::prover::spawn_workspace_prover;
 use zolana_transaction::{
-    instructions::{merge::MergeTransaction, transact::ConfidentialTransaction},
+    instructions::{
+        merge::MergeTransaction,
+        transact::{ConfidentialTransaction, Shape},
+    },
     WalletUtxo,
 };
 use zolana_user_registry_interface::{user_record_pda, UserRecord, USER_REGISTRY_PROGRAM_ID};
@@ -84,7 +87,7 @@ fn shield(
 }
 
 #[test]
-fn a_client_over_the_harness_proves_and_sends_a_transfer() {
+fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
     spawn_workspace_prover(IndexerRequirement::Optional);
     let (mut harness, tree, tree_id) = harness_with_tree();
     let payer = harness.payer.insecure_clone();
@@ -93,15 +96,56 @@ fn a_client_over_the_harness_proves_and_sends_a_transfer() {
     let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
     let input = shield(&mut harness, &tree, tree_id, &sender, 1_000_000);
     let nullifier = input.nullifier;
+    let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+    let sender_address = sender.shielded_address().expect("sender address");
+    let mut transaction =
+        ConfidentialTransaction::new(vec![input], payer.pubkey()).expect("transaction");
+    transaction
+        .transfer_sol(
+            &recipient.shielded_address().expect("recipient address"),
+            400_000,
+        )
+        .expect("transfer");
+    transaction
+        .pad_utxos(Shape::IN1_OUT4, &sender_address)
+        .expect("pad transaction");
+    let transaction = transaction.encrypt(&sender).expect("encrypt");
+    assert_eq!(transaction.output_utxos.len(), 4);
+    assert_eq!(transaction.external_data.outputs.len(), 4);
+    assert_eq!(
+        transaction
+            .output_utxos
+            .iter()
+            .filter(|output| output.is_dummy())
+            .count(),
+        2
+    );
+    let expected_tags = vec![
+        OwnerTag::Inline(
+            recipient
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("recipient tag"),
+        ),
+        OwnerTag::Account(0), // Change.
+        OwnerTag::Account(0), // Padding.
+        OwnerTag::Account(0), // Padding.
+    ];
+    assert_eq!(
+        transaction
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.owner_tag)
+            .collect::<Vec<_>>(),
+        expected_tags
+    );
 
     let client = harness
         .into_client(ProverClient::local())
         .with_proof_data_source(ProofDataSource::Client);
     let signed = SignedPrivateTransaction {
-        transaction: ConfidentialTransaction::new(vec![input], payer.pubkey())
-            .expect("transaction")
-            .encrypt(&sender)
-            .expect("encrypt"),
+        transaction,
         settlement_transfers: Vec::new(),
     };
     let signature = Submission::new(&signed, payer.pubkey(), &sender)

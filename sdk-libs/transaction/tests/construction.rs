@@ -775,6 +775,7 @@ fn assert_dummies(
     proof: &SppProofInputs,
     real: usize,
     tag: [u8; 32],
+    encoding: OwnerTag,
     ring: Option<Address>,
     real_len: usize,
 ) {
@@ -806,7 +807,7 @@ fn assert_dummies(
             ),
             (
                 output.hash(proof.output_tree_id).unwrap(),
-                OwnerTag::Inline(tag),
+                encoding,
                 Some(&tag),
                 Some(real_len)
             )
@@ -948,7 +949,19 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
         );
         assert_recovery(&proof, &tx_key, &[&owner, &recipient], &expected);
         if expected.len() < expected_shape.n_outputs() {
-            assert_dummies(&proof, expected.len(), dummy_tag, None, slot_len(&proof, 0));
+            let encoding = if sol_change > 0 || spl_change > 0 {
+                OwnerTag::Account(0)
+            } else {
+                OwnerTag::Inline(dummy_tag)
+            };
+            assert_dummies(
+                &proof,
+                expected.len(),
+                dummy_tag,
+                encoding,
+                None,
+                slot_len(&proof, 0),
+            );
         }
     }
 }
@@ -995,6 +1008,11 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
             &proof,
             expected.len(),
             sender.confidential_view_tag().unwrap(),
+            if relayed {
+                OwnerTag::Inline(sender.confidential_view_tag().unwrap())
+            } else {
+                OwnerTag::Account(0)
+            },
             Some(ring),
             slot_len(&proof, 0),
         );
@@ -1050,11 +1068,73 @@ fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_cha
         OwnerTag::Account(0)
     );
     let real_len = slot_len(&self_paid, 0);
-    assert_dummies(&self_paid, 1, tag, None, real_len);
+    assert_dummies(&self_paid, 1, tag, OwnerTag::Account(0), None, real_len);
 
     let (relayed, _) = withdrawal(Address::new_from_array([99; 32]));
     assert_eq!(relayed.check_shape().unwrap(), Shape::IN1_OUT2);
-    assert_dummies(&relayed, 0, tag, None, real_len);
+    assert_dummies(&relayed, 0, tag, OwnerTag::Inline(tag), None, real_len);
+}
+
+#[test]
+fn padding_tags_match_real_outputs_in_shared_vectors() {
+    #[derive(serde::Deserialize)]
+    struct Vectors {
+        sender_seed: u8,
+        recipient_seed: u8,
+        input_amount: u64,
+        outputs: usize,
+        cases: Vec<Case>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Case {
+        name: String,
+        payer_seed: u8,
+        send_amount: u64,
+        owner_tag_kind: String,
+        resolved: String,
+    }
+    let vectors: Vectors =
+        serde_json::from_str(include_str!("../../../test-vectors/dummy_owner_tags.json")).unwrap();
+    let owner = keypair(vectors.sender_seed);
+    let sender = owner.shielded_address().unwrap();
+    let recipient = keypair(vectors.recipient_seed).shielded_address().unwrap();
+    for case in vectors.cases {
+        let mut tx = ConfidentialTransaction::new(
+            vec![wallet_utxo(&owner, Mint::SOL, vectors.input_amount, 7, 1)],
+            payer(&keypair(case.payer_seed)),
+        )
+        .unwrap();
+        tx.transfer_sol(&recipient, case.send_amount).unwrap();
+        tx.pad_utxos(Shape::new(1, vectors.outputs), &sender)
+            .unwrap();
+        let proof = tx.encrypt(&owner).unwrap();
+        let resolved: [u8; 32] = hex::decode(&case.resolved).unwrap().try_into().unwrap();
+        let encoding = match case.owner_tag_kind.as_str() {
+            "account" => OwnerTag::Account(0),
+            "inline" => OwnerTag::Inline(resolved),
+            _ => panic!("invalid vector owner tag"),
+        };
+        let real = if case.send_amount < vectors.input_amount {
+            2
+        } else {
+            1
+        };
+        assert_eq!(proof.output_utxos.len(), vectors.outputs, "{}", case.name);
+        assert_dummies(&proof, real, resolved, encoding, None, slot_len(&proof, 0));
+        // The participant whose tag the padding borrows has the same encoding.
+        let participant = proof
+            .output_utxos
+            .iter()
+            .zip(&proof.external_data.outputs)
+            .find(|(output, _)| {
+                output
+                    .owner_address
+                    .is_some_and(|address| address.confidential_view_tag().unwrap() == resolved)
+            })
+            .unwrap()
+            .1;
+        assert_eq!(participant.owner_tag, encoding, "{}", case.name);
+    }
 }
 
 /// `new_compact` pads with compact slots: input slot 1 publishes nullifier 0 in

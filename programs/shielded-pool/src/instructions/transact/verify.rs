@@ -445,12 +445,9 @@ impl<'a> TransactProof<'a> {
         } else {
             1
         };
-        let signer_pk_hashes = self
+        let unique_signer_pk_hashes = self
             .derived
             .signer_pk_hashes
-            .get(..signer_width)
-            .ok_or(shape)?;
-        let unique_signer_pk_hashes = signer_pk_hashes
             .get(..usize::from(self.derived.unique_owner_signer_count))
             .ok_or(shape)?;
         let output_owner_pk_hashes = self

@@ -55,7 +55,7 @@ type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
 use crate::{
     config::ForesterConfig,
-    forest::{batch_update_nullifier_tree_once, ForestParams},
+    forest::{batch_update_nullifier_tree_once, ForestError, ForestParams},
 };
 use zolana_api::{BlockingZolanaApi, SerializablePubkey, PAGE_LIMIT};
 
@@ -156,12 +156,6 @@ impl fmt::Display for PhotonIndexNotReady {
 
 impl std::error::Error for PhotonIndexNotReady {}
 
-enum DrainOutcome {
-    ProverNotReady { submitted: u64 },
-    Drained(u64),
-    NotReady(PhotonIndexNotReady),
-}
-
 fn indexed_value_shortage(
     returned: usize,
     needed: u64,
@@ -190,6 +184,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         .settings
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
     let member = config.signer()?;
+    let tree_label = opts.tree.to_string();
     // Batch proofs carry only public tree data, so the forester's prover runs
     // outside an enclave.
     let prover = ProverClient::new(prover_url)
@@ -202,7 +197,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
-    let mut submitted_total: u64 = 0;
+    let submitted_total = AtomicU64::new(0);
     let mut keys_checked = false;
     let mut indexed_checked = prover.proof_data_source() == ProofDataSource::Client;
     // Carried across passes: see ReferenceCache.
@@ -224,36 +219,35 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
                     tracing::info!(prefix = %keys.prefix, "prover proving keys match the verifying keys");
                     keys_checked = true;
                 }
-                Err(err) if opts.watch && prover_unavailable(&err) => {
-                    wait_for_prover(&err, opts.poll_secs);
+                Err(err) => {
+                    let err = anyhow::Error::new(err).context("prover proving-key check failed");
+                    wait_or_fail(&opts, err)?;
                     continue;
                 }
-                Err(err) => bail!("prover proving-key check failed: {err}"),
             }
         }
         if !indexed_checked {
             match prover.check_indexed() {
                 Ok(()) => indexed_checked = true,
-                Err(err) if opts.watch && prover_unavailable(&err) => {
-                    wait_for_prover(&err, opts.poll_secs);
-                    continue;
-                }
                 Err(ClientError::ProverIndexerUnconfigured) => bail!(
                     "prover serves no indexed proofs, restart it with an indexer or pass --client-proof-data"
                 ),
-                Err(err) => bail!("prover indexed check failed: {err}"),
+                Err(err) => {
+                    let err = anyhow::Error::new(err).context("prover indexed check failed");
+                    wait_or_fail(&opts, err)?;
+                    continue;
+                }
             }
         }
 
-        let remaining = opts
-            .max_batches
-            .map(|max| max.saturating_sub(submitted_total));
+        let before = submitted_total.load(Ordering::Relaxed);
+        let remaining = opts.max_batches.map(|max| max.saturating_sub(before));
         if matches!(remaining, Some(0)) {
-            tracing::info!(submitted_total, "reached --max-batches cap");
+            tracing::info!(submitted_total = before, "reached --max-batches cap");
             break;
         }
 
-        let outcome = match drain_once(
+        let outcome = drain_once(
             &rpc_url,
             &prover,
             &photon,
@@ -264,80 +258,77 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             remaining,
             opts.proof_concurrency,
             &mut cache,
-        ) {
-            Ok(outcome) => outcome,
-            // The same scale-to-zero reason: a batch can fill after the prover
-            // was released, and waiting keeps the forester reporting it.
-            Err(err) if opts.watch && prover_unavailable_in(&err) => {
-                // Witnesses built before the failure advanced the reference tree
-                // without the count recording it; rebuild rather than trust it.
-                cache.invalidate();
-                wait_for_prover(&err, opts.poll_secs);
-                continue;
-            }
-            Err(err) => return Err(err),
-        };
-        let submitted = match outcome {
-            DrainOutcome::Drained(submitted) => submitted,
-            DrainOutcome::ProverNotReady { submitted } => {
-                crate::metrics::count_batches_submitted(&opts.tree.to_string(), submitted);
-                submitted_total += submitted;
-                crate::metrics::count_failure("prover_indexer_not_ready");
-                if !opts.watch {
-                    return Err(zolana_client::ClientError::IndexerProofDataNotReady.into());
-                }
-                tracing::warn!(submitted, "prover indexer preparation pending");
-                thread::sleep(Duration::from_secs(opts.poll_secs));
-                continue;
-            }
-            DrainOutcome::NotReady(not_ready) => {
-                crate::metrics::count_failure("photon_index_not_ready");
-                if opts.watch {
-                    tracing::warn!(
-                        %not_ready,
-                        poll_secs = opts.poll_secs,
-                        "photon has not indexed enough nullifier queue elements; retrying"
-                    );
-                    thread::sleep(Duration::from_secs(opts.poll_secs));
-                    continue;
-                }
-                bail!("{not_ready}");
-            }
-        };
-        crate::metrics::count_batches_submitted(&opts.tree.to_string(), submitted);
-        submitted_total += submitted;
+            &submitted_total,
+        );
+        let landed = submitted_total.load(Ordering::Relaxed) - before;
+        crate::metrics::count_batches_submitted(&tree_label, landed);
+        if let Err(err) = outcome {
+            wait_or_fail(&opts, err)?;
+            continue;
+        }
 
         if !opts.watch {
             break;
         }
-        if submitted == 0 {
+        if landed == 0 {
             thread::sleep(Duration::from_secs(opts.poll_secs));
         }
     }
 
-    tracing::info!(submitted_total, "forester run complete");
+    tracing::info!(
+        submitted_total = submitted_total.into_inner(),
+        "forester run complete"
+    );
     Ok(())
 }
 
-/// The prover failed as a service: unreachable, starting, or answering with an
-/// error. A proving-key mismatch or a bad witness is not this, and still stops
-/// the forester.
-fn prover_unavailable(err: &ClientError) -> bool {
-    matches!(err, ClientError::ProverServer(_))
-}
+/// A Solana RPC read failed: the node was unreachable or answered with an
+/// error.
+#[derive(Debug, thiserror::Error)]
+#[error("solana rpc unavailable: {0}")]
+struct RpcUnavailable(String);
 
-fn prover_unavailable_in(err: &anyhow::Error) -> bool {
-    err.chain().any(|cause| {
-        cause
-            .downcast_ref::<ClientError>()
-            .is_some_and(prover_unavailable)
+/// What a watching forester waits out, as the failure metric's `reason`: the
+/// prover, its indexer, photon or the Solana RPC not being ready. The batch
+/// prover scales to zero, and waiting on it is what keeps the forester
+/// reporting the ready queue that scales it back up. A proving-key mismatch,
+/// a bad witness or a rejected transaction stops the run.
+fn retry_reason(err: &anyhow::Error) -> Option<&'static str> {
+    err.chain().find_map(|cause| {
+        if cause.is::<PhotonIndexNotReady>() {
+            return Some("photon_index_not_ready");
+        }
+        if cause.is::<RpcUnavailable>()
+            || matches!(
+                cause.downcast_ref::<ForestError>(),
+                Some(ForestError::Rpc(_))
+            )
+        {
+            return Some("rpc_unavailable");
+        }
+        match cause.downcast_ref::<ClientError>()? {
+            ClientError::IndexerProofDataNotReady => Some("prover_indexer_not_ready"),
+            ClientError::ProverServer(_) => Some("prover_unavailable"),
+            _ => None,
+        }
     })
 }
 
-fn wait_for_prover(err: &dyn fmt::Display, poll_secs: u64) {
-    crate::metrics::count_failure("prover_unavailable");
-    tracing::warn!(%err, poll_secs, "prover unavailable; waiting for it to come up");
-    thread::sleep(Duration::from_secs(poll_secs));
+/// Waits out a failure a watching forester retries. Any other failure, and
+/// every failure outside `--watch`, comes back.
+fn wait_or_fail(opts: &RunOptions, err: anyhow::Error) -> Result<()> {
+    let Some(reason) = retry_reason(&err).filter(|_| opts.watch) else {
+        return Err(err);
+    };
+    crate::metrics::count_failure(reason);
+    tracing::warn!(
+        reason,
+        err = %format_args!("{err:#}"),
+        poll_secs = opts.poll_secs,
+        "retrying"
+    );
+    thread::sleep(Duration::from_secs(opts.poll_secs));
+    Ok(())
 }
 
 /// Publish queue depth, queue capacity, and payer balance for this iteration.
@@ -391,7 +382,7 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
     let rpc = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
     let mut data = rpc
         .get_account_with_commitment(&tree, CommitmentConfig::confirmed())
-        .map_err(|err| anyhow!("fetch tree account {tree}: {err}"))?
+        .map_err(|err| RpcUnavailable(format!("fetch tree account {tree}: {err}")))?
         .value
         .ok_or_else(|| anyhow!("tree account not found: {tree}"))?
         .data;
@@ -682,7 +673,7 @@ impl PendingBatch {
 }
 
 /// One drain pass: prove+submit the pending batch's ready zkp-batches (capped by
-/// `limit`). Returns how many were submitted.
+/// `limit`), counting each that lands in `submitted`.
 #[allow(clippy::too_many_arguments)]
 fn drain_once(
     rpc_url: &str,
@@ -695,11 +686,12 @@ fn drain_once(
     limit: Option<u64>,
     proof_concurrency: usize,
     cache: &mut ReferenceCache,
-) -> Result<DrainOutcome> {
+    submitted: &AtomicU64,
+) -> Result<()> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
         tracing::info!("no ready zkp-batches to forest");
-        return Ok(DrainOutcome::Drained(0));
+        return Ok(());
     }
     tracing::info!(
         ready = snapshot.ready,
@@ -710,18 +702,11 @@ fn drain_once(
     let applied = applied_count(&snapshot)?;
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
     let values = if prover.proof_data_source() == ProofDataSource::Client {
-        let values = match reconstruct_and_verify(photon, tree, &snapshot, needed, cache) {
-            Ok(values) => values,
-            Err(err) => {
-                return Ok(DrainOutcome::NotReady(
-                    err.downcast::<PhotonIndexNotReady>()?,
-                ))
-            }
-        };
+        let values = reconstruct_and_verify(photon, tree, &snapshot, needed, cache)?;
         if let Some(not_ready) =
             indexed_value_shortage(values.len(), needed, format!("applied {applied}"))
         {
-            return Ok(DrainOutcome::NotReady(not_ready));
+            return Err(not_ready.into());
         }
         Some(values)
     } else {
@@ -781,7 +766,6 @@ fn drain_once(
     // one at a time: building a group's witnesses pegged the forester's single
     // core while the prover idled, then the prover ran while the forester idled.
     // Overlapping them is the entire point.
-    let submitted = AtomicU64::new(0);
     let result = thread::scope(|scope| -> Result<()> {
         let mut in_flight = VecDeque::with_capacity(concurrency);
         for i in 0..cap {
@@ -847,7 +831,6 @@ fn drain_once(
 
             // Scoped threads rather than an async runtime: the prover client is
             // blocking, and `run` is documented to run on a plain thread.
-            let submitted = &submitted;
             in_flight.push_back(scope.spawn(move || {
                 // Kept typed, so the run loop can tell an unavailable prover apart.
                 let ProvenIndexedBatch {
@@ -874,7 +857,7 @@ fn drain_once(
                         proof: batch_update_proof,
                     },
                 })
-                .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
+                .with_context(|| format!("submit zkp-batch {zkp_index}"))?;
 
                 submitted.fetch_add(1, Ordering::Relaxed);
                 tracing::info!(
@@ -890,28 +873,15 @@ fn drain_once(
         in_flight.into_iter().try_for_each(join_proof)
     });
 
-    // Every witness built advanced the tree, whether or not its batch landed.
-    // Recording that is what lets the next pass tell "extend" from "rebuild".
+    // Every witness built advanced the tree, whether or not its batch landed:
+    // a full pass by `cap` batches, an interrupted one by an unknown number.
     if values.is_some() {
-        cache.advanced_by(cap * snapshot.zkp_batch_size);
-    }
-
-    drain_result(result, submitted.into_inner())
-}
-
-fn drain_result(result: Result<()>, submitted: u64) -> Result<DrainOutcome> {
-    match result {
-        Ok(()) => Ok(DrainOutcome::Drained(submitted)),
-        Err(error)
-            if matches!(
-                error.downcast_ref::<zolana_client::ClientError>(),
-                Some(zolana_client::ClientError::IndexerProofDataNotReady)
-            ) =>
-        {
-            Ok(DrainOutcome::ProverNotReady { submitted })
+        match &result {
+            Ok(()) => cache.advanced_by(cap * snapshot.zkp_batch_size),
+            Err(_) => cache.invalidate(),
         }
-        Err(error) => Err(error),
     }
+    result
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -1044,19 +1014,6 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn indexer_retry_preserves_completed_submissions() {
-        use super::*;
-        let result =
-            Err(anyhow::Error::new(ClientError::IndexerProofDataNotReady)
-                .context("prove zkp-batch 3"));
-        assert!(matches!(
-            drain_result(result, 2).unwrap(),
-            DrainOutcome::ProverNotReady { submitted: 2 }
-        ));
-        assert!(drain_result(Err(anyhow!("permanent proving failure")), 2).is_err());
-    }
-
     use super::*;
     use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
@@ -1066,41 +1023,65 @@ mod tests {
         value
     }
 
-    // The batch prover scales to zero. Waiting on it is what keeps the forester
-    // reporting the ready queue that scales it back up; exiting deadlocked
-    // devnet-c for four days. Anything else still stops the run.
     #[test]
-    fn only_an_unavailable_prover_is_waited_for() {
-        let unreachable = ClientError::ProverServer("request failed after 3 attempt(s)".into());
-        assert!(prover_unavailable(&unreachable));
-        for fatal in [
-            ClientError::ProverProvingKeysMismatch {
+    fn a_watching_forester_waits_out_only_what_can_come_back() {
+        let retried = [
+            (
+                anyhow::Error::new(RpcUnavailable("fetch tree account x: 530".into())),
+                "rpc_unavailable",
+            ),
+            (
+                anyhow::Error::new(ForestError::Rpc("530".into())).context("submit zkp-batch 0"),
+                "rpc_unavailable",
+            ),
+            (
+                anyhow::Error::new(ClientError::ProverServer("request failed".into()))
+                    .context("prove zkp-batch 3"),
+                "prover_unavailable",
+            ),
+            (
+                anyhow::Error::new(ClientError::IndexerProofDataNotReady)
+                    .context("prove zkp-batch 3"),
+                "prover_indexer_not_ready",
+            ),
+            (
+                PhotonIndexNotReady::new(1, 2, "ready zkp-batch").into(),
+                "photon_index_not_ready",
+            ),
+        ];
+        for (err, reason) in retried {
+            assert_eq!(retry_reason(&err), Some(reason), "{err:#}");
+        }
+        let fatal = [
+            anyhow::Error::new(ForestError::TxFailed("custom program error".into()))
+                .context("submit zkp-batch 0"),
+            anyhow::Error::new(ClientError::ProverProvingKeysMismatch {
                 mismatches: vec!["transfer_ring_2_2.key".into()],
-            },
-            ClientError::ProvingKeyMismatch {
+            }),
+            anyhow::Error::new(ClientError::ProvingKeyMismatch {
                 key: "batch_address-append_40_4999.key".into(),
                 expected: "aa".into(),
                 reported: "bb".into(),
-            },
-            ClientError::Prover("failed to start prover".into()),
-        ] {
-            assert!(!prover_unavailable(&fatal), "{fatal}");
+            }),
+            anyhow::Error::new(ClientError::Prover("failed to start prover".into())),
+            anyhow!("parse tree account x: InvalidAccountData"),
+            anyhow!("tree account not found: x"),
+            anyhow!("reconstructed nullifier root does not match on-chain root"),
+        ];
+        for err in fatal {
+            assert_eq!(retry_reason(&err), None, "{err:#}");
         }
     }
 
     #[test]
-    fn a_proof_error_keeps_its_cause_and_its_message() {
+    fn a_proof_error_prints_its_context_and_cause_on_one_line() {
         let err = anyhow::Error::new(ClientError::ProverServer("request failed".into()))
             .context("prove zkp-batch 3");
-        assert!(prover_unavailable_in(&err));
         // main prints `{err:#}`; the log line reads as it did before.
         assert_eq!(
             format!("{err:#}"),
             "prove zkp-batch 3: prover server error: request failed"
         );
-        assert!(!prover_unavailable_in(&anyhow!(
-            "reconstructed nullifier root does not match on-chain root"
-        )));
     }
 
     #[test]

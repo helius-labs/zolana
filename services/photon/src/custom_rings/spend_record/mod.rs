@@ -16,12 +16,12 @@ use zolana_ring_key_registry::FIELD_MAX;
 use super::{
     api::{canonical_context, internal},
     fault,
-    storage::{self, statement, ProjectionCursor},
-    BlockEnv, Invocation, ProjectError,
+    storage::{self, statement, CustomRingCursor},
+    ApplyError, BlockEnv, Invocation,
 };
 use crate::{
     api::{
-        error::{PhotonApiError, RingProjectionError},
+        error::{CustomRingError, PhotonApiError},
         method::rings::shielded_transaction_at,
         set_transaction_isolation_if_needed,
     },
@@ -78,7 +78,7 @@ impl Update {
     pub(super) async fn apply(
         self,
         store: &SpendStore<'_, DatabaseTransaction>,
-    ) -> Result<Option<SpendUndo>, ProjectError> {
+    ) -> Result<Option<SpendUndo>, ApplyError> {
         let (successor, before) = match self {
             Self::Register(successor) => match store.record(&successor.member).await? {
                 // A replayed registration is already applied.
@@ -140,8 +140,8 @@ pub(crate) async fn lookup(
     let cursor = storage::cursor(&tx)
         .await
         .map_err(internal)?
-        .filter(ProjectionCursor::is_ready)
-        .ok_or_else(|| out_of_sync("projector is catching up or recovering"))?;
+        .filter(CustomRingCursor::is_ready)
+        .ok_or_else(|| out_of_sync("custom ring indexer is catching up or recovering"))?;
     let program = request.ring_program_id.0.to_bytes();
     if storage::pending_ring(&tx, &program)
         .await
@@ -273,10 +273,7 @@ impl<'c, C: ConnectionTrait> SpendStore<'c, C> {
     }
 
     /// The member record among `nullifiers`, at most one per transfer.
-    pub async fn spent_by(
-        &self,
-        nullifiers: &[[u8; 32]],
-    ) -> Result<Option<RecordRow>, ProjectError> {
+    pub async fn spent_by(&self, nullifiers: &[[u8; 32]]) -> Result<Option<RecordRow>, ApplyError> {
         if nullifiers.is_empty() {
             return Ok(None);
         }
@@ -352,7 +349,7 @@ impl SpendStore<'_, DatabaseTransaction> {
         &self,
         invocation: &Invocation<'_>,
         env: &mut BlockEnv<'_>,
-    ) -> Result<Option<SpendUndo>, ProjectError> {
+    ) -> Result<Option<SpendUndo>, ApplyError> {
         let Some(rail) = parser::decode(invocation.instruction).map_err(invalid)? else {
             return Ok(None);
         };
@@ -421,12 +418,12 @@ fn record_row(row: &QueryResult) -> Result<RecordRow> {
     })
 }
 
-fn invalid(error: anyhow::Error) -> ProjectError {
+fn invalid(error: anyhow::Error) -> ApplyError {
     fault(format!("{error:#}"))
 }
 
 fn out_of_sync(reason: impl std::fmt::Display) -> PhotonApiError {
-    RingProjectionError::SpendRecordOutOfSync(reason.to_string()).into()
+    CustomRingError::SpendRecordOutOfSync(reason.to_string()).into()
 }
 
 #[cfg(test)]

@@ -102,11 +102,11 @@ are full. Save `scannedThrough` from the terminal page to resume after new index
 Ciphertexts stay opaque to Photon. Auditor recovery decrypts the returned deposit
 capsules and transfer messages client-side.
 
-### Ring projections
+### Custom rings
 
 `getRingSpendRecord` takes the ring program and a member. It answers the SPP
 transaction and output index of the member's newest spend record, or `null`
-when the member has not registered. `context.slot` is the projection tip, so a
+when the member has not registered. `context.slot` is the custom ring tip, so a
 client waits until it reaches the slot of its own record update. The record is
 the event of `register_spend` or of the latest windowed transfer that spent the
 previous record. A stale answer cannot move funds, SPP refuses a spent record.
@@ -114,30 +114,32 @@ previous record. A stale answer cannot move funds, SPP refuses a spent record.
 program, member, and the exact root and append index read from the ring's
 key-registry PDA.
 
-One ring projector serves spend records and the key registry. It runs alongside
-SPP indexing with its own durable cursor and undo journal and applies confirmed
-blocks in order. On a fork it suspends lookups, rewinds its own rows, and
-replays canonical blocks. SPP tables stay untouched. An SPP indexer fork or
-archive gap can still prevent an ordinary SPP proof from being obtained. A spend
-record lookup also needs the SPP indexer to hold the record's transaction.
+One custom ring indexer serves spend records and the key registry. It runs
+alongside SPP indexing with its own durable cursor and undo journal, fetches
+blocks with `--max-concurrent-block-fetches`, and applies confirmed blocks in
+order. On a fork it suspends lookups, rewinds its own rows, and replays
+canonical blocks. SPP tables stay untouched. An SPP indexer fork or archive gap
+can still prevent an ordinary SPP proof from being obtained. A spend record
+lookup also needs the SPP indexer to hold the record's transaction.
 
 A ring whose instruction fails validation, or whose root or policy account is
 missing, is quarantined. Its lookups stay unavailable, every other ring keeps
 serving, and a rollback of the fault's journaled block lifts the quarantine.
-An otherwise valid root ahead of the projector is retried, not quarantined.
+An otherwise valid root ahead of the indexer is retried, not quarantined.
 Late activation resumes from the ring's durable checkpoint after interruption.
-Lookups wait until replay reaches the global projection tip.
+Lookups wait until replay reaches the global custom ring tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
-The default temporary database is discarded on startup. For a fresh ring,
-`--ring-projection-start-slot` may name its creation slot and must repeat the
-stored value on every restart. Do not start after the ring's first
+The default temporary database is discarded on startup. Without
+`--custom-rings-start-slot` the index starts where SPP indexing starts or
+resumes, so rings created earlier are not served. An explicit slot may name a
+ring's creation slot and must repeat the stored value on every restart. Do not start after the ring's first
 `register_spend` or its `CREATE_KEY_REGISTRY_ROOT` instruction. Keep RPC history
 available from that slot, and back up the database and its undo journal.
 
-Error `-32074` means the spend-record projection is unavailable, quarantined,
+Error `-32074` means the spend-record index is unavailable, quarantined,
 or ahead of the SPP indexer. Wait for indexing or recovery. The key registry
-answers `-32070` for an unavailable projection and `-32071` for a changed root
+answers `-32070` for an unavailable index and `-32071` for a changed root
 or cursor. A key-registry lookup answers `-32072` for an unregistered member
 and `-32073` for one already registered.
 
@@ -161,6 +163,9 @@ Two channels. `release` requires the tag to name the commit
 the imported crate's upstream version is not a Zolana release version. `preview`
 takes any branch and any tag, and refuses a `-zolana-` tag so a preview cannot
 claim a release name. Both are attested and immutable.
+
+The photon image is built with the `custom-rings` feature, so custom ring
+indexing runs unless photon is started with `--disable-custom-rings`.
 
 The registry is private ECR with `IMMUTABLE` tags, so the registry itself refuses
 to move a published tag. The workflow also serializes publishes per service,

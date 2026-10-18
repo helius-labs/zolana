@@ -18,7 +18,7 @@ use zolana_program_test::{
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
     next_tree_id, workspace_path,
 };
-use zolana_test_utils::smart_account::{self, StandardSigners};
+use zolana_test_utils::smart_account::{self, ProtocolSigners, StandardSigners};
 use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merge_encryption, RegisterData},
@@ -86,13 +86,15 @@ pub fn setup() -> Result<SetupContext> {
     rpc.assert_executable(&Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID))?;
 
     let payer = Keypair::new();
-    let authority = Keypair::new();
+    let authority = ProtocolSigners::new();
     let forester_authority = Keypair::new();
     let merge_authority = Keypair::new();
     let tree_creation_authority = Keypair::new();
     let ring_creation_authority = Keypair::new();
     rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
-    rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
+    for member in authority.pubkeys() {
+        rpc.airdrop(&member, 1_000_000_000)?;
+    }
     rpc.airdrop(&forester_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&merge_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&tree_creation_authority.pubkey(), 1_000_000_000)?;
@@ -104,7 +106,7 @@ pub fn setup() -> Result<SetupContext> {
     for ix in accounts.create_ixs(
         &payer.pubkey(),
         StandardSigners {
-            protocol: authority.pubkey(),
+            protocol: authority.pubkeys(),
             forester: forester_authority.pubkey(),
             merge: merge_authority.pubkey(),
             tree: tree_creation_authority.pubkey(),
@@ -134,16 +136,12 @@ pub fn setup() -> Result<SetupContext> {
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();
-    let create_config_sync = smart_account::execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[create_config_ix],
-    );
+    let create_config_sync =
+        authority.execute_sync(&accounts.protocol_settings, &[create_config_ix]);
     rpc.create_and_send_transaction(
         &[create_config_sync],
         payer_address,
-        &[&payer, &authority],
+        &authority.dyn_with_fee_payer(&payer),
         ComputeBudgetConfig::for_instruction_count(1),
     )?;
 

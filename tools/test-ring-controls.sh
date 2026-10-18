@@ -15,7 +15,6 @@ export SURFPOOL_BIN="${SURFPOOL_BIN:-$repo_root/target/tools/surfpool}"
 export ZOLANA_PROCESS_SCOPE_DIR
 ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d -t zolana-ring-tests.XXXXXX)"
 export ZOLANA_RING_SURFPOOL_FIXTURE=1
-export ZOLANA_PHOTON_RING_PROJECTION=true
 export ZOLANA_CLI_BIN="$repo_root/target/debug/zolana"
 export ZOLANA_PHOTON_BIN="$repo_root/target/debug/photon"
 export PROVER_BIN="$repo_root/target/prover-server"
@@ -82,7 +81,7 @@ if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
     [[ -x "$binary" ]] || { echo "Missing prebuilt executable $binary, unset ZOLANA_PREBUILT to build it" >&2; exit 1; }
   done
 else
-  cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,ring-projection
+  cargo build --locked -p photon-indexer --bin photon --features surfpool-fixture,custom-rings
   cargo build --locked -p custom-ring-cli
 fi
 ignored=()

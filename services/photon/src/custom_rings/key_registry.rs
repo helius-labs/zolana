@@ -11,15 +11,13 @@ use super::{
     api::{self, Insertion, MemberPath},
     fault, instruction_view, proof,
     storage::{LeafWrite, MemberRestore, RingRoot, RingStore, Undo},
-    Invocation, ProjectError, Step,
+    ApplyError, Invocation, Step,
 };
 use crate::{api::error::PhotonApiError, rpc::RpcClient};
 
 pub(crate) use zolana_ring_indexer::key_registry::{MemberKey, Registration};
 
-pub(crate) fn transition(
-    invocation: &Invocation<'_>,
-) -> Result<Option<Registration>, ProjectError> {
+pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Registration>, ApplyError> {
     zolana_ring_indexer::key_registry::registration(instruction_view(invocation.instruction))
         .map_err(|error| fault(format!("{error:#}")))
 }
@@ -27,7 +25,7 @@ pub(crate) fn transition(
 pub(crate) async fn apply(
     store: &RingStore<'_, DatabaseTransaction>,
     step: Step<'_>,
-) -> Result<Undo, ProjectError> {
+) -> Result<Undo, ApplyError> {
     let Step {
         root,
         transition,
@@ -173,13 +171,13 @@ pub(crate) async fn lookup(
 mod tests {
     use super::*;
     use crate::{
-        api::error::RingProjectionError,
-        ingester::typedefs::block_info::BlockMetadata,
-        ring_projection::{
+        api::error::CustomRingError,
+        custom_rings::{
             proof,
             storage::{self, BlockJournal, BlockUndo},
             tests::{field, fixture, member},
         },
+        ingester::typedefs::block_info::BlockMetadata,
     };
     use custom_ring_interface::RegisteredKey;
     use sea_orm::TransactionTrait;
@@ -344,7 +342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn key_lookup_fails_closed_before_rpc_when_projection_or_root_is_stale() {
+    async fn key_lookup_fails_closed_before_rpc_when_index_or_root_is_stale() {
         let (db, root, mut cursor) = fixture().await;
         let rpc = RpcClient::new("http://127.0.0.1:1".into());
         let request = RingMemberProofRequest {
@@ -355,20 +353,18 @@ mod tests {
         };
         assert!(matches!(
             lookup(&db, &rpc, request.clone()).await,
-            Err(PhotonApiError::RingProjection(
-                RingProjectionError::OutOfSync(_)
-            ))
+            Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
         ));
         cursor.resume(&db).await.unwrap();
         let mut stale = request.clone();
         stale.expected_next_index = 2;
         assert_eq!(
             lookup(&db, &rpc, stale).await,
-            Err(RingProjectionError::RootChanged.into())
+            Err(CustomRingError::RootChanged.into())
         );
         assert_eq!(
             lookup(&db, &rpc, request).await,
-            Err(RingProjectionError::MemberUnregistered.into())
+            Err(CustomRingError::MemberUnregistered.into())
         );
     }
 }

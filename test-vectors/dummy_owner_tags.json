@@ -1,0 +1,29 @@
+{
+  "sender_seed": 1,
+  "recipient_seed": 2,
+  "input_amount": 10,
+  "outputs": 8,
+  "cases": [
+    {
+      "name": "self-paid with change",
+      "payer_seed": 1,
+      "send_amount": 4,
+      "owner_tag_kind": "account",
+      "resolved": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+    },
+    {
+      "name": "sponsored with change",
+      "payer_seed": 3,
+      "send_amount": 4,
+      "owner_tag_kind": "inline",
+      "resolved": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+    },
+    {
+      "name": "self-paid without change",
+      "payer_seed": 1,
+      "send_amount": 10,
+      "owner_tag_kind": "inline",
+      "resolved": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+    }
+  ]
+}

@@ -20,7 +20,8 @@ Breaking
   run, or a policy of its own.
 - `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
   through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
-  refuses `"prover"` → set `proverUrl` to keep another prover.
+  refuses `"prover"` (`ProverClient.hasIndexedRoute` identifies indexer-backed
+  provers and is false for this gateway) → set `proverUrl` to keep another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
 - `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
@@ -69,8 +70,6 @@ Added
 - `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
   `WALLET_INVALID_PAYMENT` for invalid payment lists and
   `WALLET_INVALID_MERGE_ENCRYPTION_SCHEME` for an unsupported merge scheme.
-- `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
-  its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
 - `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
   tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
   tree creation step that differs from the step that started it, and
@@ -94,6 +93,10 @@ Fixed
   wallet state and cursors instead of committing past it.
 - `Merge.fromKeypair`, wallet merge building, wallet sync and ring recovery
   now wipe temporary merge output keys on both success and failure.
+
+- `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
+  differently from the sender's change, so an observer could tell them apart;
+  padding now uses the same encoding as change.
 
 ## 0.4.1-alpha — 2026-10-08
 
