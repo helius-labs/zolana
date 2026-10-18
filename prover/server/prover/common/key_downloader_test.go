@@ -527,6 +527,13 @@ func TestEmbeddedManifestLoads(t *testing.T) {
 	if len(m.Keys) == 0 {
 		t.Fatalf("embedded manifest has no keys")
 	}
+	wantDeployedTreeKey := lockEntry{
+		Sha256: "aacd3c81c4681acf0eb21e395df4f566738412da158153b1dee7ac83219dc425",
+		Size:   3752013184,
+	}
+	if got := m.Keys["batch_address-append_40_250.key"]; got != wantDeployedTreeKey {
+		t.Fatalf("deployed tree proving key = %+v, want %+v", got, wantDeployedTreeKey)
+	}
 	for name, entry := range m.Keys {
 		if len(entry.Sha256) != 64 {
 			t.Fatalf("key %s sha256 = %q, want 64 hex chars", name, entry.Sha256)

@@ -2,7 +2,7 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`verify_batch_update`] | Verify batch address update (10 or 4999) |
+//! | [`verify_batch_update`] | Verify batch address update (10, 250 or 4999) |
 //! | [`verify`] | Generic Groth16 proof verification |
 
 use groth16_solana::{
@@ -65,6 +65,11 @@ pub fn verify_batch_update(
             &[public_input_hash],
             proof,
             &batch_address_append_40_10::VERIFYINGKEY,
+        ),
+        250 => verify::<1>(
+            &[public_input_hash],
+            proof,
+            &batch_address_append_40_250::VERIFYINGKEY,
         ),
         4999 => verify::<1>(
             &[public_input_hash],

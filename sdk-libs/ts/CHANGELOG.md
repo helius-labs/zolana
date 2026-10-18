@@ -2,8 +2,8 @@
 
 ## 0.4.0-alpha — 2026-10-07
 
-The `release/0.4` branch backports 4,999-nullifier proofs and the
-smaller tree account layout; these changes require a matching deployment.
+The `release/0.4` branch backports 4,999-nullifier proofs while preserving
+the 100-slot root history, account layout, and support for 250-nullifier proofs.
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
 client's indexer round trip before each proof, and the client route stays
@@ -19,14 +19,10 @@ covers the external data, which P-256 owners now sign alongside it.
 Breaking
 
 - On this release branch, `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE` is
-  4999 (was 250) and `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 24,995
-  (was 25,000), so `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 5,
-  `TREE_ACCOUNT_SIZE` is 18,608 and `TREE_CREATION_STEP_COUNT` is 2 →
-  point the client at a deployment created with this layout, since tree
-  accounts of the previous layout no longer decode.
-- On this release branch, proofs require
-  `batch_address-append_40_4999.key` in place of
-  `batch_address-append_40_250.key` → run a prover with the matching key set.
+  4999 (was 250) and `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900
+  (was 25,000) for newly created trees → use the upgraded program and a
+  prover serving the 4,999 key; existing trees keep their 250-batch key and
+  stored queue parameters.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for transfers,
   merges, caches, ring policy proofs and escrowed deposit audits,
   `MergeAssembler.proveMerge` no longer takes `indexer`, `MergeClient`,

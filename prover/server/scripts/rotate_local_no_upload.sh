@@ -39,7 +39,7 @@ xtask="$repo_root/target/debug/xtask"
 rustfmt "$vkey_dir/policy_verifying_key.rs"
 
 echo "==> generating batch address-append proving keys"
-for spec in "10" "4999"; do
+for spec in "10" "250" "4999"; do
     ./light-prover setup \
         --circuit address-append \
         --address-append-tree-height 40 \
@@ -52,7 +52,7 @@ echo "==> regenerating interface verifying keys"
 bash scripts/regenerate_all_vkeys.sh "$keys_dir"
 
 echo "==> regenerating nullifier-tree verifying keys (address-append)"
-for spec in "10" "4999"; do
+for spec in "10" "250" "4999"; do
     stem="batch_address-append_40_${spec}"
     module="batch_address_append_40_${spec}"
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null

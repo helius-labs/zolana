@@ -1,4 +1,5 @@
 pub mod batch_address_append_40_10;
+pub mod batch_address_append_40_250;
 pub mod batch_address_append_40_4999;
 
 /// Proving key file name, as in proving-keys.lock and the prover's
@@ -8,6 +9,10 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "batch_address-append_40_10.key",
         batch_address_append_40_10::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "batch_address-append_40_250.key",
+        batch_address_append_40_250::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "batch_address-append_40_4999.key",

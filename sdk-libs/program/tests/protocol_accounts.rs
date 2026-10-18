@@ -52,7 +52,7 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
     };
     let instructions = builder.instructions();
 
-    assert_eq!(instructions.len(), 2);
+    assert_eq!(instructions.len(), 4);
     assert!(instructions
         .iter()
         .all(|step| *step == builder.allocation_step()));

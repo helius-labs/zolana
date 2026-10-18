@@ -50,7 +50,7 @@ bash scripts/generate_keys_custom_ring.sh "$keys_dir"
 # just like transfer/merge, so a gadget change rotates them too. Their vkeys are
 # committed in the tree crate.
 echo "==> generating batch address-append proving keys"
-for spec in "10" "4999"; do
+for spec in "10" "250" "4999"; do
     ./light-prover setup \
         --circuit address-append \
         --address-append-tree-height 40 \
@@ -66,7 +66,7 @@ echo "==> regenerating nullifier-tree verifying keys (address-append)"
 bmt_vk_dir="$repo_root/program-libs/tree/src/nullifier_tree/verify/verifying_keys"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
-for spec in "10" "4999"; do
+for spec in "10" "250" "4999"; do
     stem="batch_address-append_40_${spec}"
     module="batch_address_append_40_${spec}"
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null

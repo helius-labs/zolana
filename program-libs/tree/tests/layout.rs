@@ -18,8 +18,8 @@ type NullifierBatch = Batch<NULLIFIER_TREE_ZKP_BATCHES>;
 
 #[test]
 fn account_layout_is_pinned() {
-    assert_eq!(size_of::<Layout>(), 18_608);
-    assert_eq!(TreeAccount::account_size(), 18_608);
+    assert_eq!(size_of::<Layout>(), 40_080);
+    assert_eq!(TreeAccount::account_size(), 40_080);
     assert_eq!(offset_of!(Layout, tree_id), 2);
     assert_eq!(offset_of!(Layout, fees), 8);
     assert_eq!(offset_of!(Layout, fee_balance), 32);
@@ -40,12 +40,12 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(UtxoLayout, subtrees), 56);
     assert_eq!(offset_of!(UtxoLayout, root_history), 1_080);
 
-    assert_eq!(size_of::<NullifierLayout>(), 1_456);
+    assert_eq!(size_of::<NullifierLayout>(), 22_928);
     assert_eq!(offset_of!(NullifierLayout, root_history), 72);
     assert_eq!(offset_of!(NullifierRoots, current_index), 0);
     assert_eq!(offset_of!(NullifierRoots, roots), 8);
-    assert_eq!(offset_of!(NullifierLayout, batches), 240);
-    assert_eq!(size_of::<NullifierBatch>(), 608);
+    assert_eq!(offset_of!(NullifierLayout, batches), 3_280);
+    assert_eq!(size_of::<NullifierBatch>(), 9_824);
     assert_eq!(offset_of!(NullifierBatch, start_index), 48);
 }
 

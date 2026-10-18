@@ -41,6 +41,22 @@ func batchFixture(t *testing.T) (BatchRequest, []Hash) {
 	return BatchRequest{CircuitType: common.BatchAddressAppendCircuitType, Tree: (Hash{}).String(), TreeHeight: 40, BatchSize: 10, StartIndex: 1, AnchorIndex: 1, AnchorRoot: common.FeHex(&root), HashchainHash: common.FeHex(chain)}, hashes
 }
 
+func TestIndexedBatchAcceptsExistingAndNewTreeShapes(t *testing.T) {
+	request, _ := batchFixture(t)
+	for _, size := range []uint32{10, 250, 4999} {
+		request.BatchSize = size
+		if _, err := decodeBatch(encoded(t, request)); err != nil {
+			t.Errorf("batch size %d rejected: %v", size, err)
+		}
+	}
+	for _, size := range []uint32{0, 100, 5000} {
+		request.BatchSize = size
+		if _, err := decodeBatch(encoded(t, request)); err == nil {
+			t.Errorf("unsupported batch size %d accepted", size)
+		}
+	}
+}
+
 func batchIndexer(t *testing.T, values []Hash, corrupt string) *Resolver {
 	t.Helper()
 	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})

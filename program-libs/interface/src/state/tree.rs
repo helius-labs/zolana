@@ -7,11 +7,13 @@ pub const STATE_HEIGHT: usize = 32;
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
 // Production nullifier-tree parameters.
-pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 24_995;
-pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 4999;
+pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 =
+    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_BATCH_SIZE;
+pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 =
+    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_ZKP_BATCH_SIZE;
 pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
-    (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as u32;
+    zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
 
 /// What one nullifier-tree batch append reimburses by default: nothing. The
 /// protocol sponsors nullifier-tree maintenance.
@@ -173,11 +175,11 @@ mod tests {
         let canonical = nullifier_tree_params().input_queue_batch_size;
         assert_eq!(
             tree_working_capital_lamports(canonical, nullifier_pda_rent),
-            Some(3 * 24_995 * 960_480)
+            Some(3 * 499_900 * 960_480)
         );
         assert_eq!(
             tree_working_capital_lamports(canonical / 2, nullifier_pda_rent),
-            Some(3 * 12_497 * 960_480)
+            Some(3 * 249_950 * 960_480)
         );
         assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
     }
@@ -209,11 +211,11 @@ mod tests {
     }
 
     #[test]
-    fn tree_creation_takes_two_allocation_steps() {
+    fn tree_creation_takes_four_allocation_steps() {
         assert_eq!(STATE_ROOT_HISTORY_CAPACITY, 500);
-        assert_eq!(tree_account_size(), 18_608);
-        assert_eq!(tree_creation_step_count(), 2);
-        assert!(tree_account_size() > TREE_ALLOCATION_STEP);
-        assert!(tree_account_size() <= 2 * TREE_ALLOCATION_STEP);
+        assert_eq!(tree_account_size(), 40_080);
+        assert_eq!(tree_creation_step_count(), 4);
+        assert!(tree_account_size() > 3 * TREE_ALLOCATION_STEP);
+        assert!(tree_account_size() <= 4 * TREE_ALLOCATION_STEP);
     }
 }

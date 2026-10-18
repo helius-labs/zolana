@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -87,6 +88,15 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 	} {
 		if file != "" {
 			t.Errorf("%s: got %q", name, file)
+		}
+	}
+}
+
+func TestBatchKeysSupportExistingAndNewTrees(t *testing.T) {
+	for _, size := range []uint32{10, 250, 4999} {
+		want := fmt.Sprintf("batch_address-append_40_%d.key", size)
+		if got := BatchKeyFile(BatchAddressAppendCircuitType, 40, size); got != want {
+			t.Errorf("batch size %d: got %q, want %q", size, got, want)
 		}
 	}
 }
