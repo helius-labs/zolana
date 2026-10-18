@@ -2,7 +2,7 @@
 
 ## 0.4.0-alpha — 2026-10-07
 
-The `release/0.4.0-alpha` branch backports 4,999-nullifier proofs and the
+The `release/0.4` branch backports 4,999-nullifier proofs and the
 smaller tree account layout; these changes require a matching deployment.
 
 SDK proofs fetch their Merkle data on the prover by default, which removes the
