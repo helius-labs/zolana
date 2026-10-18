@@ -149,8 +149,8 @@ impl ZolanaProgramTest {
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        // Working capital for recoverable nullifier-PDA rent.
-        svm.airdrop(&payer.pubkey(), 1_000_000_000_000)
+        // Working capital for multiple 499,900-entry nullifier queues.
+        svm.airdrop(&payer.pubkey(), 10_000_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {
