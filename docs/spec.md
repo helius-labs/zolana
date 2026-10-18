@@ -1903,54 +1903,57 @@ Five legs in this table are a transaction-size datapoint, not a protocol
 maximum. Every transaction has to fit the 4,096-byte transaction v1 limit.
 
 Complete builder layouts, with one writable nullifier PDA per input, one input
-tree also used for outputs, no extra owner signers, and no public legs. A
-compact row sends fewer slots than its circuit has and fills the rest with
+tree also used for outputs, the payer as the sole owner signer on transact rows,
+and no public legs. The payer's owner-signer entry adds one instruction account
+index byte without adding a message address or signature. Merge instruction
+sizes include the one-byte `MergeOutputEncryption` tag. A compact row sends
+fewer slots than its circuit has and fills the rest with
 [compact padding](#compact-padding); the ring compact rows hold the most real
 inputs that fit. In a direct merge the merge payer signs and pays the fee, and
 OVER marks a layout above the 4,096-byte limit:
 
 | Transaction | ix data (B) | transaction v1 (B) | addresses |
 | --- | --- | --- | --- |
-| Transact 2 in 4 out | 961 | 1278 | 6 |
-| Transact 3 in 4 out | 994 | 1344 | 7 |
-| Transact 5 in 4 out | 1060 | 1476 | 9 |
-| Transact 24 in 4 out | 1687 | 2730 | 28 |
-| Transact 16 in 8 out | 2051 | 2830 | 20 |
-| Transact 8 in 16 out | 3043 | 3558 | 12 |
-| Transact 49 in 2 out | 2198 | 4066 | 53 |
-| Transact 9 in 2 out, 49x2 compact | 878 | 1426 | 13 |
-| Transact 1 in 3 out, 2x4 compact | 771 | 1055 | 5 |
-| Ring transact EdDSA 24 in 4 out | 1815 | 2923 | 30 |
-| Ring transact P256 24 in 4 out | 1912 | 3020 | 30 |
-| Ring transact EdDSA 16 in 8 out | 2307 | 3151 | 22 |
-| Ring transact P256 16 in 8 out | 2404 | 3248 | 22 |
-| Ring transact EdDSA 8 in 16 out | 3555 | 4135 OVER | 14 |
-| Ring transact P256 8 in 16 out | 3652 | 4232 OVER | 14 |
-| Ring transact EdDSA 49 in 2 out | 2262 | 4195 OVER | 55 |
-| Ring transact P256 49 in 2 out | 2359 | 4292 OVER | 55 |
-| Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
-| Ring transact P256 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
-| Merge 8 in 1 out, direct | 640 | 1188 | 13 |
-| Merge 8 in 1 out, execute_sync | 674 | 1320 | 16 |
-| Ring merge 8 in 1 out | 672 | 1252 | 14 |
-| Merge 24 in 1 out, direct | 1152 | 2228 | 29 |
-| Merge 24 in 1 out, execute_sync | 1202 | 2376 | 32 |
-| Ring merge 24 in 1 out | 1184 | 2292 | 30 |
-| Merge 52 in 1 out, direct | 2048 | 4048 | 57 |
-| Merge 52 in 1 out, execute_sync | 2126 | 4224 OVER | 60 |
-| Ring merge 52 in 1 out | 2080 | 4112 OVER | 58 |
-| Merge 3 in 1 out, 8 compact, direct | 480 | 863 | 8 |
-| Merge 3 in 1 out, 8 compact, execute_sync | 509 | 990 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 512 | 927 | 9 |
-| Merge 9 in 1 out, 24 compact, direct | 672 | 1253 | 14 |
-| Merge 9 in 1 out, 24 compact, execute_sync | 707 | 1386 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 704 | 1317 | 15 |
-| Merge 25 in 1 out, 52 compact, direct | 1184 | 2293 | 30 |
-| Merge 25 in 1 out, 52 compact, execute_sync | 1235 | 2442 | 33 |
-| Ring merge 25 in 1 out, 52 compact | 1216 | 2357 | 31 |
-| Merge 51 in 1 out, 52 compact, direct | 2016 | 3983 | 56 |
-| Merge 51 in 1 out, 52 compact, execute_sync | 2093 | 4158 OVER | 59 |
-| Ring merge 51 in 1 out, 52 compact | 2048 | 4047 | 57 |
+| Transact 2 in 4 out | 961 | 1279 | 6 |
+| Transact 3 in 4 out | 994 | 1345 | 7 |
+| Transact 5 in 4 out | 1060 | 1477 | 9 |
+| Transact 24 in 4 out | 1687 | 2731 | 28 |
+| Transact 16 in 8 out | 2051 | 2831 | 20 |
+| Transact 8 in 16 out | 3043 | 3559 | 12 |
+| Transact 49 in 2 out | 2198 | 4067 | 53 |
+| Transact 9 in 2 out, 49x2 compact | 878 | 1427 | 13 |
+| Transact 1 in 3 out, 2x4 compact | 771 | 1056 | 5 |
+| Ring transact EdDSA 24 in 4 out | 1815 | 2924 | 30 |
+| Ring transact P256 24 in 4 out | 1912 | 3021 | 30 |
+| Ring transact EdDSA 16 in 8 out | 2307 | 3152 | 22 |
+| Ring transact P256 16 in 8 out | 2404 | 3249 | 22 |
+| Ring transact EdDSA 8 in 16 out | 3555 | 4136 OVER | 14 |
+| Ring transact P256 8 in 16 out | 3652 | 4233 OVER | 14 |
+| Ring transact EdDSA 49 in 2 out | 2262 | 4196 OVER | 55 |
+| Ring transact P256 49 in 2 out | 2359 | 4293 OVER | 55 |
+| Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4064 | 53 |
+| Ring transact P256 46 in 2 out, 49x2 compact | 2260 | 4095 | 52 |
+| Merge 8 in 1 out, direct | 641 | 1189 | 13 |
+| Merge 8 in 1 out, execute_sync | 675 | 1321 | 16 |
+| Ring merge 8 in 1 out | 673 | 1253 | 14 |
+| Merge 24 in 1 out, direct | 1153 | 2229 | 29 |
+| Merge 24 in 1 out, execute_sync | 1203 | 2377 | 32 |
+| Ring merge 24 in 1 out | 1185 | 2293 | 30 |
+| Merge 52 in 1 out, direct | 2049 | 4049 | 57 |
+| Merge 52 in 1 out, execute_sync | 2127 | 4225 OVER | 60 |
+| Ring merge 52 in 1 out | 2081 | 4113 OVER | 58 |
+| Merge 3 in 1 out, 8 compact, direct | 481 | 864 | 8 |
+| Merge 3 in 1 out, 8 compact, execute_sync | 510 | 991 | 11 |
+| Ring merge 3 in 1 out, 8 compact | 513 | 928 | 9 |
+| Merge 9 in 1 out, 24 compact, direct | 673 | 1254 | 14 |
+| Merge 9 in 1 out, 24 compact, execute_sync | 708 | 1387 | 17 |
+| Ring merge 9 in 1 out, 24 compact | 705 | 1318 | 15 |
+| Merge 25 in 1 out, 52 compact, direct | 1185 | 2294 | 30 |
+| Merge 25 in 1 out, 52 compact, execute_sync | 1236 | 2443 | 33 |
+| Ring merge 25 in 1 out, 52 compact | 1217 | 2358 | 31 |
+| Merge 51 in 1 out, 52 compact, direct | 2017 | 3984 | 56 |
+| Merge 51 in 1 out, 52 compact, execute_sync | 2094 | 4159 OVER | 59 |
+| Ring merge 51 in 1 out, 52 compact | 2049 | 4048 | 57 |
 
 A full 52-input merge fits when sent directly. Through Squads
 `execute_transaction_sync` it exceeds 4,096 bytes, and the smart account runs
