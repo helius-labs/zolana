@@ -23,8 +23,11 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
+  RingMemberRecordsRequest,
+  RingMemberRecordsResponse,
   RingMemberRequest,
   RingMemberRecordResponse,
+  RingMemberRecordView,
   RingMemberRegistryTip,
   UserRecord,
 } from "./types.js";
@@ -65,6 +68,21 @@ export function encodeRingMemberProofRequest(
   };
 }
 
+export function encodeRingMemberRecordsRequest(value: RingMemberRecordsRequest): WireObject {
+  return {
+    ringProgramId: checkedAddress(value.ringProgramId, "ringProgramId"),
+    expectedRoot: checkedHash(value.expectedRoot, "expectedRoot"),
+    expectedNextIndex: toWireInteger(
+      value.expectedNextIndex,
+      "expectedNextIndex",
+      1n,
+      MEMBER_REGISTRY_CAPACITY,
+    ),
+    startIndex: toWireInteger(value.startIndex, "startIndex", 1n, value.expectedNextIndex),
+    limit: toWireInteger(BigInt(value.limit), "limit", 1n, 100n),
+  };
+}
+
 function indexedPath(value: unknown, path: string) {
   const proof = array(value, path, checkedHash);
   if (proof.length !== MEMBER_REGISTRY_HEIGHT) {
@@ -84,6 +102,41 @@ function memberContext(record: WireObject) {
     root: checkedHash(record["root"], "root"),
     rootIndex: Number(wireInteger(record["rootIndex"], "rootIndex", 0n, 31n)),
     nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, MEMBER_REGISTRY_CAPACITY),
+  };
+}
+
+function memberFields(record: WireObject) {
+  return {
+    member: checkedHash(record["member"], "member"),
+    next: checkedHash(record["next"], "next"),
+    lists: wireInteger(record["lists"], "lists", 0n, (1n << 64n) - 1n),
+    escrowKey: checkedHash(record["escrowKey"], "escrowKey"),
+  };
+}
+
+function sealedMemberRecord(value: unknown, path: string): RingMemberRecordView {
+  const record = object(value, path, [
+    "member",
+    "next",
+    "lists",
+    "escrowKey",
+    "ownerPubkey",
+    "ephPk",
+    "ciphertext",
+  ]);
+  const ephPk = record["ephPk"] == null ? null : checkedBase64(record["ephPk"], `${path}.ephPk`);
+  const ciphertext =
+    record["ciphertext"] == null ? null : checkedBase64(record["ciphertext"], `${path}.ciphertext`);
+  if ((ephPk === null) !== (ciphertext === null))
+    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "paired sealed key", record);
+  return {
+    ...memberFields(record),
+    ownerPubkey:
+      record["ownerPubkey"] == null
+        ? null
+        : checkedAddress(record["ownerPubkey"], `${path}.ownerPubkey`),
+    ephPk,
+    ciphertext,
   };
 }
 
@@ -123,36 +176,15 @@ export function decodeRingMemberRecord(value: unknown): RingMemberRecordResponse
   const path = present ? indexedPath(row["path"], "path") : array(row["path"], "path", checkedHash);
   if (!present && path.length !== 0)
     return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "path", "empty path", row["path"]);
-  const fields = (record: WireObject) => ({
-    member: checkedHash(record["member"], "member"),
-    next: checkedHash(record["next"], "next"),
-    lists: wireInteger(record["lists"], "lists", 0n, (1n << 64n) - 1n),
-    escrowKey: checkedHash(record["escrowKey"], "escrowKey"),
-  });
   if (present) {
     if (row["low"] !== null)
       return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "low", "null", row["low"]);
-    const record = object(row["record"], "record", [
-      "member",
-      "next",
-      "lists",
-      "escrowKey",
-      "ephPk",
-      "ciphertext",
-    ]);
-    const ephPk = record["ephPk"] == null ? null : checkedBase64(record["ephPk"], "record.ephPk");
-    const ciphertext =
-      record["ciphertext"] == null
-        ? null
-        : checkedBase64(record["ciphertext"], "record.ciphertext");
-    if ((ephPk === null) !== (ciphertext === null))
-      return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "record", "paired sealed key", record);
     return {
       ...common,
       present,
       index,
       path,
-      record: { ...fields(record), ephPk, ciphertext },
+      record: sealedMemberRecord(row["record"], "record"),
       low: null,
     };
   }
@@ -166,11 +198,38 @@ export function decodeRingMemberRecord(value: unknown): RingMemberRecordResponse
     path,
     record: null,
     low: {
-      ...fields(low),
+      ...memberFields(low),
       index: wireInteger(low["index"], "low.index", 0n, common.nextIndex - 1n),
       path: indexedPath(low["path"], "low.path"),
     },
   };
+}
+
+export function decodeRingMemberRecords(value: unknown): RingMemberRecordsResponse {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "rootIndex",
+    "nextIndex",
+    "records",
+    "nextLeafIndex",
+  ]);
+  const common = memberContext(row);
+  const records = array(row["records"], "records", (entry, path) => {
+    const item = object(entry, path, ["index", "record", "path"]);
+    return {
+      index: wireInteger(item["index"], `${path}.index`, 1n, common.nextIndex - 1n),
+      record: sealedMemberRecord(item["record"], `${path}.record`),
+      path: indexedPath(item["path"], `${path}.path`),
+    };
+  });
+  if (records.length > 100)
+    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "records", "at most 100", row["records"]);
+  const nextLeafIndex =
+    row["nextLeafIndex"] === null
+      ? null
+      : wireInteger(row["nextLeafIndex"], "nextLeafIndex", 1n, common.nextIndex);
+  return { ...common, records, nextLeafIndex };
 }
 
 export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObject {

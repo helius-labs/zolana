@@ -6,6 +6,7 @@ import (
 
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -38,6 +39,19 @@ func (p *MergeParameters) ValidateShape() error {
 	// an unassigned witness rather than a defaultable zero.
 	if p.OutputTreeID == nil {
 		return fmt.Errorf("merge: outputTreeId is required")
+	}
+	if p.CircuitType == common.MergeRingCircuitType {
+		if p.MemberRegistryRoot == nil || p.MemberRegistryRoot.Sign() == 0 ||
+			p.RegisteredCiphertextHash == nil || p.RegisteredCiphertextHash.Sign() == 0 ||
+			p.MemberRecord == nil || len(p.MemberRecord.Path) != registry.Height ||
+			p.MemberRecord.Next.Int == nil || p.MemberRecord.EscrowKey.Int == nil {
+			return fmt.Errorf("merge ring: complete recovery registration is required")
+		}
+		for i, field := range p.MemberRecord.Path {
+			if field.Int == nil {
+				return fmt.Errorf("merge ring: member record path %d is missing", i)
+			}
+		}
 	}
 	return nil
 }

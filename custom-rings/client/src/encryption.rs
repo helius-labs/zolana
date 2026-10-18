@@ -431,9 +431,6 @@ impl AnonymousDisclosure {
             rest = tail;
             Ok::<_, AuditError>(slot)
         };
-        let word = |slot: &[u8], at: usize| -> [u8; 32] {
-            slot[at..at + 32].try_into().expect("fixed slot layout")
-        };
         let mut inputs = Vec::with_capacity(shape.inputs);
         for _ in 0..shape.inputs {
             let slot = take(DISCLOSURE_INPUT_LEN)?;
@@ -442,9 +439,9 @@ impl AnonymousDisclosure {
             }
             inputs.push(AuditInputOpening {
                 tree_id: u16::from_be_bytes([slot[0], slot[1]]),
-                amount: u64::from_be_bytes(slot[2..10].try_into().expect("fixed slot layout")),
-                asset: word(slot, 10),
-                blinding: word(slot, 42),
+                amount: u64::from_be_bytes(disclosure_bytes(slot, 2)?),
+                asset: disclosure_bytes(slot, 10)?,
+                blinding: disclosure_bytes(slot, 42)?,
             });
         }
         let mut outputs = Vec::with_capacity(shape.outputs);
@@ -455,14 +452,14 @@ impl AnonymousDisclosure {
             }
             outputs.push(AnonymousOutputOpening {
                 identity_tag: slot[0],
-                identity_key: word(slot, 1),
-                viewing_pk: slot[33..66].try_into().expect("fixed slot layout"),
-                nullifier_pk: word(slot, 66),
-                amount: u64::from_be_bytes(slot[98..106].try_into().expect("fixed slot layout")),
-                asset: word(slot, 106),
-                blinding: word(slot, 138),
-                data_hash: word(slot, 170),
-                ring_data_hash: word(slot, 202),
+                identity_key: disclosure_bytes(slot, 1)?,
+                viewing_pk: disclosure_bytes(slot, 33)?,
+                nullifier_pk: disclosure_bytes(slot, 66)?,
+                amount: u64::from_be_bytes(disclosure_bytes(slot, 98)?),
+                asset: disclosure_bytes(slot, 106)?,
+                blinding: disclosure_bytes(slot, 138)?,
+                data_hash: disclosure_bytes(slot, 170)?,
+                ring_data_hash: disclosure_bytes(slot, 202)?,
                 ring_note: slot[234],
             });
         }
@@ -470,11 +467,18 @@ impl AnonymousDisclosure {
             return Err(AuditError::DisclosureShape);
         }
         Ok(Self {
-            sender: header[1..33].try_into().expect("fixed header layout"),
+            sender: disclosure_bytes(header, 1)?,
             inputs,
             outputs,
         })
     }
+}
+
+/// Reads a fixed-width field only after the disclosure shape has been checked.
+fn disclosure_bytes<const N: usize>(slot: &[u8], at: usize) -> Result<[u8; N]> {
+    slot.get(at..at + N)
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or(AuditError::DisclosureShape)
 }
 
 /// The circuit's disclosure keystream, one chained two-input Poseidon per field.

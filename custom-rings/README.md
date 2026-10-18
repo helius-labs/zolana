@@ -152,19 +152,14 @@ Enough updates between proving and landing overwrite that slot and the
 program rejects the proof. The SDK submissions
 then read the history, find another root at the slot and prove again.
 
-Deposit auditing is optional and defaults to off. `deploy --deposit-audit`
-records the choice in `ring.toml`, and `init` applies it when creating the
-ring config. The config authority can change it with `deposit-audit set
---required true` or `false`. The setting lives in a separate `deposit_audit`
-PDA, without resizing the config or changing the auditor key.
-
-When enabled, a direct deposit must prove that each auditor ciphertext opens
-the owner commitment accepted by SPP. The ciphertext carries the owner hash
-and blinding. Mint, amount and data commitments remain public. One proof covers
-up to eight outputs, subject to the transaction size limit. The program checks
-the pinned auditor, destination tree and exact deposit bytes before settlement.
-Disabling the setting permits proofless deposits again. Existing deposits gain
-no disclosure when the setting changes.
+Every ring deposit now requires an audit proof. The ciphertext carries the
+owner hash and blinding. The proof binds it to the deposit SPP accepts. Mint,
+amount and data commitments remain public. One proof covers up to eight outputs,
+subject to the transaction size limit. The program checks the pinned auditor,
+destination tree and exact deposit bytes before settlement. The old
+`deposit_audit` setting remains readable and writable for wire compatibility,
+but it cannot turn this requirement off. Historical proofless deposits gain no
+disclosure from the change.
 
 Asset screening uses registry lists, just like owner screening. For example,
 `subject = "asset"` with `require = "allow"` checks the mint's Allow bit.
@@ -568,15 +563,14 @@ full.
 
 Current transfers prove their dedicated auditor disclosure against the
 committed outputs. Historical slots in another encoding may be undecryptable.
-Direct deposits expose mint and amount, but auditor recovery also needs the
-optional verified disclosure. A ring deposit
+Direct deposits expose mint and amount and require verified auditor disclosure. A ring deposit
 carries no list-policy proof.
 The program still checks scoped co-signing and public deposit caps before
 authorizing it. List rules apply when the note is transferred.
 Both deposit instructions require the canonical deposit audit account after
-the co-signer slots. Upgrade the ring clients with the program. The proofless
-instruction is rejected while disclosure is required. An audited instruction
-always verifies its proof, including when the setting is off.
+the co-signer slots. Upgrade the ring clients with the program. The ring
+rejects the proofless instruction in every mode. An audited instruction
+always verifies its proof, including when the old setting is off.
 Ring merge publishes the merged note's amount and mint as a proof-bound
 ciphertext that the owner decrypts with its nullifier key, so the owner rebuilds the note from the
 merge transaction alone. Its 52-slot proof combines notes of one owner, asset and
@@ -589,9 +583,12 @@ or signatures can lower the cap. SDKs compile the complete account layout with
 a placeholder proof before proving and check the final transaction again.
 The SDKs fill the merge proof's unused slots with
 compact padding, which the transaction leaves out, so a merge reveals how many
-notes it combines. It is not in
-the auditor-tag scan. Any later transfer of the merged value still takes the
-normal audited policy path. Legacy merge instruction formats need migration.
+notes it combines. It is not in the auditor-tag scan. Auditors use the
+authenticated member registry and the ring-history scan to open its amount and
+mint and check the settled commitment. The signed `getAuditedMerges` RPC method
+pages these openings for authorized readers and reports any commitment it
+cannot open. Any later transfer of the merged value still takes the normal
+audited policy path. Legacy merge instruction formats need migration.
 The built-in confirmed-origin reader rejects them. A trusted adapter may
 reconstruct legacy events, but ciphertext-free outputs remain unresolved.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced

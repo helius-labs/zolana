@@ -10,8 +10,8 @@ use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
         cursor_in_bounds, limit_in_bounds, Attestation, AuthorityAuth, DecryptedTransaction,
-        DecryptedTransactionsPage, GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth,
-        SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        DecryptedTransactionsPage, GetAuditedMergesResponse, GetDecryptedTransactionsResponse,
+        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     AuditError, AuditedTransaction, RingOrigin, TransactionAudit,
 };
@@ -293,6 +293,29 @@ impl<S: TransactionSource> AuthorizedRead<'_, S> {
         self.service
             .decrypted_transactions(self.page, self.mode)
             .await
+    }
+
+    pub(crate) async fn execute_merges(self) -> Result<GetAuditedMergesResponse, RingRpcError> {
+        self.service.shared.replay.accept(self.replay)?;
+        let page = self
+            .service
+            .shared
+            .source
+            .merge_audit_page(
+                self.service.ring,
+                &self.service.auditor,
+                self.page.cursor().map(ToOwned::to_owned),
+                self.page.limit(),
+            )
+            .await?;
+        if page
+            .next_cursor
+            .as_deref()
+            .is_some_and(|cursor| !cursor_in_bounds(cursor))
+        {
+            return Err(RingRpcError::InvalidIndexerResponse);
+        }
+        Ok(page.into())
     }
 }
 

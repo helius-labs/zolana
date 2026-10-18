@@ -56,8 +56,8 @@ pub struct PreparedRingDeposit {
     cosigner: Option<Address>,
     deposit: RingAssetDeposit,
     utxo: Utxo,
-    /// `None` for an undisclosed deposit.
-    disclosure: Option<DepositDisclosure>,
+    /// Every ring deposit carries a proof-bound auditor disclosure.
+    disclosure: DepositDisclosure,
 }
 
 struct DepositDisclosure {
@@ -85,7 +85,7 @@ struct EscrowedRecord {
     ct_hash: [u8; 32],
 }
 
-/// An enabled deposit audit requires a proof bound to the exact SPP payload.
+/// A ring deposit requires a proof bound to the exact SPP payload.
 #[must_use]
 pub struct Deposit {
     pub ring: CustomRing,
@@ -144,52 +144,48 @@ impl RingDeposit<'_> {
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
         let escrow = config.mode == RingMode::Registry;
-        let disclosure = if anonymous || escrow || self.ring.deposit_audit(rpc).await? {
-            let address = self.recipient.shielded_address()?;
-            let owner_key = anonymous
-                .then(|| address.signing_pubkey.as_ed25519())
-                .transpose()?;
-            let opening = DepositOpening {
-                owner_hash,
-                blinding: Zeroizing::new(blinding),
-                owner_key,
-            };
-            let encryption = seal_deposits(&[opening], &config.auditor_pubkey)?;
-            deposit.encrypted.ciphertext = RingDepositAuditCapsule {
-                slot_index: 0,
-                eph_pk: encryption.ephemeral_pk.as_bytes(),
-                ciphertext: &encryption.ciphertexts[0],
-                recipient_ciphertext: &deposit.encrypted.ciphertext,
+        let address = self.recipient.shielded_address()?;
+        let owner_key = anonymous
+            .then(|| address.signing_pubkey.as_ed25519())
+            .transpose()?;
+        let opening = DepositOpening {
+            owner_hash,
+            blinding: Zeroizing::new(blinding),
+            owner_key,
+        };
+        let encryption = seal_deposits(&[opening], &config.auditor_pubkey)?;
+        deposit.encrypted.ciphertext = RingDepositAuditCapsule {
+            slot_index: 0,
+            eph_pk: encryption.ephemeral_pk.as_bytes(),
+            ciphertext: &encryption.ciphertexts[0],
+            recipient_ciphertext: &deposit.encrypted.ciphertext,
+        }
+        .encode();
+        // The proof binds the ring, the tree and the exact forwarded SPP bytes.
+        let spp = zolana_program::instruction::RingDeposit {
+            tree: self.tree,
+            depositor: self.payer.pubkey(),
+            ring_program_id: self.ring.program_id(),
+            deposits: vec![deposit.clone()],
+        }
+        .instruction()?;
+        let disclosure = DepositDisclosure {
+            owner_key,
+            context_hash: DepositContext {
+                program_id: self.ring.program_id().as_array(),
+                tree: self.tree.as_array(),
+                spp_data: &spp.data,
             }
-            .encode();
-            // The proof binds the ring, the tree and the exact forwarded SPP bytes.
-            let spp = zolana_program::instruction::RingDeposit {
-                tree: self.tree,
-                depositor: self.payer.pubkey(),
-                ring_program_id: self.ring.program_id(),
-                deposits: vec![deposit.clone()],
-            }
-            .instruction()?;
-            Some(DepositDisclosure {
-                owner_key,
-                context_hash: DepositContext {
-                    program_id: self.ring.program_id().as_array(),
-                    tree: self.tree.as_array(),
-                    spp_data: &spp.data,
-                }
-                .hash()?,
-                owner_utxo_hash: deposit.owner_utxo_hash,
-                key: OutputKey {
-                    owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
-                    nullifier_pk: address.nullifier_pubkey,
-                },
-                blinding: Zeroizing::new(blinding),
-                encryption,
-                auditor: config.auditor_pubkey,
-                escrow,
-            })
-        } else {
-            None
+            .hash()?,
+            owner_utxo_hash: deposit.owner_utxo_hash,
+            key: OutputKey {
+                owner_pk_hash: address.signing_pubkey.owner_proof_input_hash()?,
+                nullifier_pk: address.nullifier_pubkey,
+            },
+            blinding: Zeroizing::new(blinding),
+            encryption,
+            auditor: config.auditor_pubkey,
+            escrow,
         };
         Ok(PreparedRingDeposit {
             ring: self.ring,
@@ -245,11 +241,7 @@ impl PreparedRingDeposit {
         &self,
         signers: impl IntoIterator<Item = Address>,
     ) -> Result<(), RingError> {
-        if let Some(owner) = self
-            .disclosure
-            .as_ref()
-            .and_then(|disclosure| disclosure.owner_key)
-        {
+        if let Some(owner) = self.disclosure.owner_key {
             if signers.into_iter().any(|signer| signer.to_bytes() == owner) {
                 return Err(RingError::AnonymousPublicSignerLinksOwner);
             }
@@ -262,12 +254,9 @@ impl PreparedRingDeposit {
     }
 
     pub fn budget(&self) -> ComputeBudgetConfig {
-        match self.disclosure {
-            Some(_) => ComputeBudgetConfig::new(custom_ring_interface::compute_unit_limit(
-                custom_ring_interface::InstructionTag::AuditedDeposit,
-            )),
-            None => ComputeBudgetConfig::for_instruction_count(1),
-        }
+        ComputeBudgetConfig::new(custom_ring_interface::compute_unit_limit(
+            custom_ring_interface::InstructionTag::AuditedDeposit,
+        ))
     }
 
     /// A stale registry root re-proves the prepared note under a fresh root.
@@ -283,9 +272,7 @@ impl PreparedRingDeposit {
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<(Instruction, Option<BoundRoot>), RingError> {
-        let Some(disclosure) = &self.disclosure else {
-            return self.instruction(None, None);
-        };
+        let disclosure = &self.disclosure;
         retry_projection_lag(|| async {
             let indexed = client.indexed_prover();
             // An escrowed ring proves the recipient's record escrows the note's key.
@@ -429,7 +416,7 @@ impl DepositDisclosure {
 
 impl Deposit {
     pub fn instruction(self) -> Result<Instruction, RingError> {
-        if self.proof.is_none() && self.escrow != EscrowBinding::Off {
+        if self.proof.is_none() {
             return Err(RingError::AuditRequired);
         }
         if self.proof.is_some() && self.deposits.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {

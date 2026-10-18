@@ -29,11 +29,11 @@ use super::{
 use crate::{
     prover::{
         field::{right_align, right_align_slice},
-        json::MergeOutputParamsJson,
+        json::{merge_registration_to_json, MergeOutputParamsJson, MergeRegistrationJson},
         merge::check_output_ciphertext,
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
-        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
+        ExpectedProvingKey, MergeRegistration, Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
 };
@@ -47,6 +47,7 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
+    member_registry_root: Option<[u8; 32]>,
 }
 
 pub enum ProvenIndexedMerge {
@@ -56,19 +57,27 @@ pub enum ProvenIndexedMerge {
 
 impl IndexedMergePreparation {
     pub fn prepare(self) -> Result<PreparedIndexedMerge, ClientError> {
-        self.prepare_with_cache(None)
+        self.prepare_with_cache(None, None)
+    }
+
+    pub fn prepare_registered(
+        self,
+        registration: MergeRegistration,
+    ) -> Result<PreparedIndexedMerge, ClientError> {
+        self.prepare_with_cache(None, Some(registration))
     }
 
     pub fn prepare_for_cache(
         self,
         cache: crate::prover::MergeCacheTarget,
     ) -> Result<PreparedIndexedMerge, ClientError> {
-        self.prepare_with_cache(Some(cache))
+        self.prepare_with_cache(Some(cache), None)
     }
 
     fn prepare_with_cache(
         self,
         cache: Option<crate::prover::MergeCacheTarget>,
+        registration: Option<MergeRegistration>,
     ) -> Result<PreparedIndexedMerge, ClientError> {
         if cache.is_some_and(|target| {
             usize::from(target.slot) >= zolana_interface::state::cache::CACHE_CAPACITY
@@ -84,6 +93,12 @@ impl IndexedMergePreparation {
         let ring_hash =
             zolana_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
+        if merge.ring_program_id.is_some() && registration.is_none() {
+            return Err(ClientError::RingMemberUnregistered);
+        }
+        if merge.ring_program_id.is_none() && registration.is_some() {
+            return Err(invalid());
+        }
         let first = merge
             .input_utxos
             .first()
@@ -195,7 +210,7 @@ impl IndexedMergePreparation {
         .hash()?;
         let salt = right_align(&merge.output_ciphertext_salt);
         let [ciphertext_0, ciphertext_1, ciphertext_2] = merge.output_ciphertext;
-        let public_inputs = vec![
+        let mut public_inputs = vec![
             create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
             output_hash,
             tree_id_field(merge.output_tree_id),
@@ -217,6 +232,9 @@ impl IndexedMergePreparation {
             ciphertext_1,
             ciphertext_2,
         ];
+        if let Some(registered) = &registration {
+            public_inputs.insert(8, registered.root);
+        }
         let [mint_chunk_0, mint_chunk_1] =
             pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
         let witness = PreparedMergeJson {
@@ -243,6 +261,7 @@ impl IndexedMergePreparation {
             allow_dummy_inputs: "0x1",
             output_ring_data_hash: hex_field(&ring_data_hash),
             ring_program_id: hex_field(&ring_hash),
+            registration: registration.as_ref().map(merge_registration_to_json),
         };
         let request = IndexedProofRequest::new(IndexedProofData {
             witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
@@ -274,6 +293,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
+            member_registry_root: registration.map(|registered| registered.root),
         })
     }
 }
@@ -325,6 +345,7 @@ impl Request for PreparedIndexedMerge {
         Ok(match self.ring_data_hash {
             Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
                 output_ring_data_hash,
+                member_registry_root: self.member_registry_root.ok_or_else(invalid_resolution)?,
                 merge: data,
             }),
             None => ProvenIndexedMerge::Merge(data),
@@ -360,6 +381,8 @@ struct PreparedMergeJson {
     allow_dummy_inputs: &'static str,
     output_ring_data_hash: String,
     ring_program_id: String,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    registration: Option<MergeRegistrationJson>,
 }
 
 #[cfg(test)]
@@ -416,12 +439,23 @@ mod tests {
             .unwrap()
             .encrypt(&owner)
             .unwrap();
-        IndexedMergePreparation {
+        let registration = MergeRegistration {
+            root: [1; 32],
+            ciphertext_hash: [2; 32],
+            next: [3; 32],
+            lists: 0,
+            escrow_key: [4; 32],
+            index: 1,
+            path: vec![[0; 32]; 20],
+        };
+        let indexed = IndexedMergePreparation {
             merge: prepared.clone(),
             nullifier_key: owner.nullifier_key(),
         }
-        .prepare()
+        .prepare_registered(registration.clone())
         .unwrap();
+        assert_eq!(indexed.request.data.public_inputs.len(), 13);
+        assert_eq!(indexed.request.data.public_inputs[8], registration.root);
         for change_input in [false, true] {
             let mut merge = prepared.clone();
             if change_input {
@@ -434,7 +468,7 @@ mod tests {
                     merge: merge.clone(),
                     nullifier_key: owner.nullifier_key(),
                 }
-                .prepare(),
+                .prepare_registered(registration.clone()),
                 Err(ClientError::Transaction(
                     zolana_transaction::TransactionError::MergeOutputRingDataMismatch
                 ))

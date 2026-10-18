@@ -51,6 +51,8 @@ pub enum AuditError {
     DepositOpeningMismatch,
     #[error("recovered nullifier key does not match the source member identity")]
     NullifierKeyMismatch,
+    #[error("member registry root or paged record opening is invalid")]
+    InvalidMemberRegistry,
     #[error("ring history exceeds the scan bound, spent notes cannot be excluded")]
     IncompleteScan,
     #[error("audited output slot index {0} is absent from its transaction")]

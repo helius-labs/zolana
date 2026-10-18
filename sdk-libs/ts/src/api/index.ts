@@ -15,6 +15,8 @@ import type {
   GetUserRecordsResponse,
   RingMemberProofRequest,
   RingMemberRecordResponse,
+  RingMemberRecordsRequest,
+  RingMemberRecordsResponse,
   RingMemberRegistryTip,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
@@ -27,6 +29,7 @@ import {
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
   getRingMemberRecordMethod,
+  getRingMemberRecordsMethod,
   getRingMemberRegistryRootMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
@@ -109,6 +112,13 @@ export class ZolanaApi {
     context?: RequestContext,
   ): Promise<RingMemberRecordResponse> {
     return this.#call(getRingMemberRecordMethod, request, context);
+  }
+
+  getRingMemberRecords(
+    request: RingMemberRecordsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberRecordsResponse> {
+    return this.#call(getRingMemberRecordsMethod, request, context);
   }
 
   getRingMemberRegistryRoot(

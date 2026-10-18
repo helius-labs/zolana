@@ -797,10 +797,12 @@ async fn merge_sizes_are_checked_before_rpc_or_proving() {
     let input_tree = Address::new_from_array([212; 32]);
     for (count, cosigner, split_trees, fits) in [
         (50, false, false, true),
-        (50, false, true, true),
+        (50, false, true, false),
+        (49, false, true, true),
         (50, true, false, false),
         (50, true, true, false),
-        (49, true, false, true),
+        (49, true, false, false),
+        (48, true, false, true),
     ] {
         let inputs = (0..count)
             .map(|i| note(&sender, i + 1, 0, Some(ring().program_id())))

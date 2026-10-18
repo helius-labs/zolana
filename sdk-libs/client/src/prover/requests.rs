@@ -85,6 +85,9 @@ pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError>
 
 pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     validate_merge_state(inputs)?;
+    if inputs.registration.is_none() {
+        return Err(ClientError::RingMemberUnregistered);
+    }
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
     Ok(in_response(to_json_merge_ring(inputs), key))
 }

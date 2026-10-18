@@ -59,8 +59,8 @@ pub struct MergeTransactIxData {
     /// of the merge proof.
     pub output_ciphertext_salt: [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
     pub output_ciphertext: [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
-    /// Retained wire flag. Must be true to bind the registry
-    /// owner identity for Ed25519 keys and PDAs.
+    /// Default merge uses this to select its Ed25519 registry owner binding.
+    /// Ring merge does not use a user record and requires false.
     pub eddsa_owner: bool,
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
@@ -113,7 +113,7 @@ pub struct MergeTransactIxDataRef<'a> {
 
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
         parsed.validate_shape()?;
         Ok(parsed)
     }

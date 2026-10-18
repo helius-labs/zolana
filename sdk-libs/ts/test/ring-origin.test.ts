@@ -733,6 +733,13 @@ describe("RpcTransactionOrigin", () => {
         bytes(fixture["eventDataHex"]),
       );
       const origin = new RpcTransactionOrigin(rpcWith(confirmed));
+      expect(await origin.confirmedEventKind(indexed, ring)).toBe(
+        name === "confirmed-merge-event"
+          ? "merge"
+          : name === "confirmed-deposit-event"
+            ? "deposit"
+            : "transfer",
+      );
       await expect(origin.confirmedTransaction(indexed, ring)).resolves.toEqual({
         ...indexed,
         ...(hasViewingKey ? { salt: bytes(expected["saltHex"]) } : {}),
@@ -890,6 +897,27 @@ describe("RpcTransactionOrigin", () => {
     await expect(origin.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(false);
   });
 
+  it("does not share a caller-scoped RPC cancellation", async () => {
+    let calls = 0;
+    const transaction = confirmedTransaction({ writable: [], readonly: [] });
+    const origin = new RpcTransactionOrigin(
+      solanaRpcReads({
+        getTransaction: () => ({
+          send: async () => {
+            calls += 1;
+            return transaction;
+          },
+        }),
+      }),
+    );
+    const signal = new AbortController().signal;
+    await origin.ringInvoked(SIGNATURE, 0, RING, { signal });
+    await origin.ringInvoked(SIGNATURE, 0, RING, { signal });
+    await origin.ringInvoked(SIGNATURE, 0, RING);
+    await origin.ringInvoked(SIGNATURE, 0, RING);
+    expect(calls).toBe(3);
+  });
+
   it("treats an unknown signature and an RPC failure as errors", async () => {
     for (const result of [null, new Error("rpc down")]) {
       const origin = new RpcTransactionOrigin(rpcWith(result));
@@ -933,5 +961,21 @@ describe("CachedTransactionOrigin", () => {
     await expect(cached.confirmedTransaction(indexed, RING)).resolves.toBeUndefined();
     await expect(cached.confirmedTransaction(indexed, RING)).resolves.toBeUndefined();
     expect(auditCalls).toBe(2);
+  });
+
+  it("bounds origin decisions during long scans", async () => {
+    let calls = 0;
+    const cached = new CachedTransactionOrigin({
+      ringInvoked: async () => {
+        calls += 1;
+        return true;
+      },
+      confirmedTransaction: async () => undefined,
+    });
+    for (let eventIndex = 0; eventIndex <= 4096; eventIndex++) {
+      await cached.ringInvoked(SIGNATURE, eventIndex, RING);
+    }
+    await cached.ringInvoked(SIGNATURE, 0, RING);
+    expect(calls).toBe(4098);
   });
 });

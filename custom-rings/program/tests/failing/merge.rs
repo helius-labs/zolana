@@ -1,11 +1,11 @@
-use custom_ring_interface::CustomRingError;
+use custom_ring_interface::{CustomRingError, CustomRingMergeIxData};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::common::{
     anonymous_config_account, auditor_pubkey, authority, escrowed_config_account,
-    initialized_config_account, legacy_auditor_pubkey, merge_fixture, merge_fixture_with,
-    merge_ring_data, ring_auth_pda, setup_mollusk,
+    initialized_config_account, legacy_auditor_pubkey, member_registry_root_account, merge_fixture,
+    merge_fixture_with, merge_ring_data, ring_auth_pda, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -16,6 +16,52 @@ fn custom(error: CustomRingError) -> ProgramError {
 fn merge_reaches_the_spp_cpi() {
     let (mollusk, _) = setup_mollusk();
     merge_fixture().expect_spp_cpi(&mollusk);
+}
+
+#[test]
+fn merge_requires_the_canonical_member_registry_root() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = merge_fixture();
+    fixture.substitute("member_registry_root", Pubkey::new_from_array([73; 32]));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidMemberRegistryRoot));
+}
+
+#[test]
+fn merge_rejects_an_unwritten_or_zero_root() {
+    let (mollusk, _) = setup_mollusk();
+    let mut unwritten = merge_fixture();
+    unwritten.data_mut()[1] = 1;
+    unwritten.expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
+
+    let mut zero = merge_fixture();
+    zero.set_account(
+        "member_registry_root",
+        member_registry_root_account([0; 32], 1),
+    );
+    zero.expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
+}
+
+#[test]
+fn merge_rejects_trailing_or_truncated_compact_data() {
+    let (mollusk, _) = setup_mollusk();
+    let mut trailing = merge_fixture();
+    trailing.push_data(0);
+    trailing.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+
+    let mut truncated = merge_fixture();
+    truncated.data_mut().truncate(33);
+    truncated.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+}
+
+#[test]
+fn merge_rejects_the_default_owner_registry_flag() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = merge_fixture();
+    let mut request = CustomRingMergeIxData::deserialize(&fixture.instruction().data[1..]).unwrap();
+    request.merge.eddsa_owner = true;
+    let tag = fixture.instruction().data[0];
+    *fixture.data_mut() = [vec![tag], request.serialize().unwrap()].concat();
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
 
 #[test]
@@ -46,7 +92,7 @@ fn a_policy_merge_keeps_its_tree_choice() {
     merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
 }
 
-/// A merge has no auditor proof and must not enter an anonymous ring.
+/// Anonymous members have no registered key for the proved merge ciphertext.
 #[test]
 fn an_anonymous_merge_is_rejected() {
     let (mollusk, _) = setup_mollusk();

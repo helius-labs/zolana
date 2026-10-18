@@ -6,7 +6,30 @@ use crate::{
 };
 use sea_orm::Database;
 use solana_signature::Signature;
-use zolana_indexer_api::{GetRingMemberRecordRequest, Hash};
+use zolana_indexer_api::{GetRingMemberRecordRequest, GetRingMemberRecordsRequest, Hash};
+
+#[tokio::test]
+async fn member_page_reports_a_missing_leaf_instead_of_skipping_it() {
+    let (db, mut root, mut cursor) = fixture().await;
+    root.next_index = 2;
+    RingStore::new(&db, root.program)
+        .save_root(&root)
+        .await
+        .unwrap();
+    cursor.resume(&db).await.unwrap();
+    let request = GetRingMemberRecordsRequest {
+        ring_program_id: Pubkey::new_from_array(root.program).into(),
+        expected_root: Hash(root.root),
+        expected_next_index: 2,
+        start_index: 1,
+        limit: 1,
+    };
+    assert!(matches!(
+        member_registry::member_records(&db, &indexer(&db, StartSlot::Derived(0)).rpc, request)
+            .await,
+        Err(PhotonApiError::CustomRing(CustomRingError::PageGap))
+    ));
+}
 
 pub(super) fn field(value: u8) -> [u8; 32] {
     let mut field = [0; 32];

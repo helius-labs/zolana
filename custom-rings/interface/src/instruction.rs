@@ -58,7 +58,7 @@ instruction_tags! {
     CreateConfig = CREATE_CONFIG: 1 => ACCOUNT_UNITS,
     InitSppRingConfig = INIT_SPP_RING_CONFIG: 2 => ACCOUNT_UNITS,
     Transact = TRANSACT: 3 => PROOF_UNITS,
-    /// Rejected when verified deposit disclosure is required.
+    /// Retained tag, always rejected. Use `AuditedDeposit`.
     Deposit = DEPOSIT: zolana_interface::instruction::tag::RING_DEPOSIT => 200_000,
     Merge = MERGE: zolana_interface::instruction::tag::RING_MERGE_TRANSACT => PROOF_UNITS,
     GrantReadAccess = GRANT_READ_ACCESS: 4 => ACCOUNT_UNITS,
@@ -91,7 +91,8 @@ instruction_tags! {
     DelegateTransactShapedSubtree = DELEGATE_TRANSACT_SHAPED_SUBTREE: 38 => PROOF_UNITS,
 }
 
-/// Config-authority change to the direct-deposit disclosure requirement.
+/// Config-authority write to the retained setting. It cannot waive the
+/// audited-deposit requirement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetDepositAuditIxData {
     pub required: bool,
@@ -263,8 +264,9 @@ pub struct SetPolicySourceIxData {
 /// Selects the policy proof family. The settlement circuit determines its capacity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PolicyProofKind {
+    /// Base audit proof, or policy proof with its rule table inside the witness.
     #[default]
-    Legacy,
+    Base,
     TwoByThree,
     General,
     Subtree,
@@ -272,7 +274,7 @@ pub enum PolicyProofKind {
 
 impl PolicyProofKind {
     pub const fn public_table(self) -> bool {
-        !matches!(self, Self::Legacy)
+        !matches!(self, Self::Base)
     }
 
     pub const fn shaped(self) -> bool {

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
-	"strings"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 var errNotCanonical = errors.New("custom-ring: a value is not canonical lowercase 0x hex")
@@ -54,8 +54,8 @@ func (b *Bytes) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	decoded, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
-	if err != nil || !strings.HasPrefix(s, "0x") || strings.ToLower(s) != s {
+	decoded, err := common.DecodeCanonicalHex(s)
+	if err != nil {
 		return errNotCanonical
 	}
 	*b = decoded

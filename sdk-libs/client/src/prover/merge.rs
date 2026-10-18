@@ -36,7 +36,7 @@ use crate::{
             },
             witness::{attach_input_proofs, SpendProof},
         },
-        MergeInputs, TreeSlotFields,
+        MergeInputs, MergeRegistration, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
@@ -81,9 +81,31 @@ pub struct MergeProofResult {
     pub output_ring_data_hash: [u8; 32],
     pub output_ciphertext_salt: Salt,
     pub output_ciphertext: MergeOutputCiphertext,
+    /// Public-hash preimage retained so ring registration can be bound after
+    /// the common SPP merge statement is assembled.
+    hash_elements: Vec<[u8; 32]>,
 }
 
 impl MergeProofResult {
+    /// Bind the ring proof to the owner's auditor-recoverable registered key.
+    /// The ring SDK verifies the record against the selected chain root before
+    /// passing it here. The circuit repeats that membership and key relation.
+    pub fn with_registration(
+        mut self,
+        registration: MergeRegistration,
+    ) -> Result<Self, ClientError> {
+        if self.ring_program_id.is_none() || registration.root == [0; 32] {
+            return Err(ClientError::RingMemberUnregistered);
+        }
+        // The first seven common elements are followed by ring data and the
+        // ring program ID. Insert the root before the salt and ciphertext.
+        self.hash_elements.insert(9, registration.root);
+        self.public_input_hash = create_hash_chain_4_from_slice(&self.hash_elements)?;
+        self.inputs.public_input_hash = be(&self.public_input_hash);
+        self.inputs.registration = Some(registration);
+        Ok(self)
+    }
+
     /// Assemble the `merge_transact` instruction data from this proof result and
     /// the proof (`ProofCompressed::to_merge_proof`). The caller passes the
     /// result to the `MergeTransact` builder with the tree / protocol_config /
@@ -111,6 +133,11 @@ impl MergeProofResult {
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
         MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
+            member_registry_root: self
+                .inputs
+                .registration
+                .as_ref()
+                .map_or([0; 32], |registered| registered.root),
             merge: self.instruction_data(proof),
         }
     }
@@ -140,6 +167,13 @@ pub(crate) fn check_output_ciphertext(
 }
 
 impl MergeProver {
+    pub fn build_registered(
+        self,
+        registration: MergeRegistration,
+    ) -> Result<MergeProofResult, ClientError> {
+        self.build()?.with_registration(registration)
+    }
+
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let tx = &self.transaction;
         let n_inputs = tx.input_utxos.len();
@@ -281,9 +315,15 @@ impl MergeProver {
         elements.push(right_align(&output_ciphertext_salt));
         elements.extend(output_ciphertext);
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
-        let eddsa_owner = match signing_pubkey.curve()? {
-            Curve::Ed25519 | Curve::Pda => true,
-            Curve::P256 => false,
+        // The default rail loads the owner's identity from the user registry.
+        // The ring rail proves ownership privately and must carry a false flag.
+        let eddsa_owner = if ring_program_id.is_some() {
+            false
+        } else {
+            match signing_pubkey.curve()? {
+                Curve::Ed25519 | Curve::Pda => true,
+                Curve::P256 => false,
+            }
         };
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
@@ -307,6 +347,7 @@ impl MergeProver {
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
+            registration: None,
         };
         Ok(MergeProofResult {
             inputs,
@@ -324,6 +365,7 @@ impl MergeProver {
             output_ring_data_hash,
             output_ciphertext_salt,
             output_ciphertext,
+            hash_elements: elements,
         })
     }
 }

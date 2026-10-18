@@ -1,0 +1,97 @@
+/** Circuit-facing codecs, registry proofs, and policy primitives. */
+export {
+  auditorMessageData,
+  auditorViewTag,
+  auditDisclosureLength,
+  auditPublicInputHash,
+  policyPublicInputHash,
+  auditSharedSecret,
+  AUDIT_ENC_INFO,
+  AUDIT_INPUT_SLOTS,
+  AUDITOR_MESSAGE_LENGTH,
+  anonymousAuditDisclosureShape,
+  decryptTransactionViewingSecret,
+  encryptTransactionViewingSecret,
+  isDummyAnonymousOutput,
+  openAnonymousAuditDisclosure,
+  openAuditOutputDisclosure,
+  parseAuditorMessage,
+} from "../keypair/audit.js";
+export type {
+  AnonymousAuditDisclosure,
+  AnonymousOutputOpening,
+  AuditDisclosureInput,
+  AuditDisclosureShape,
+  AuditInputOpening,
+  AuditOutputOpening,
+  AuditorEncryption,
+  AuditorMessage,
+  CustomRingBasePublicInput,
+} from "../keypair/audit.js";
+
+export {
+  MEMBER_REGISTRY_HEIGHT,
+  MEMBER_REGISTRY_CAPACITY,
+  memberRegistryLeaf,
+  memberRegistryRootFromProof,
+  verifyMemberOpening,
+  verifyMemberRegistryInsert,
+  updateMemberRecord,
+  updateMembersPublicInputHash,
+  MemberRegistryOverlay,
+  MAX_MEMBER_BATCH,
+} from "./member-registry-tree.js";
+export type {
+  MemberOpening,
+  MemberRegistryInsertProofInput,
+  MemberUpdate,
+  RecordUpdateWitness,
+  MemberRecord,
+  MemberRegistryPath,
+} from "./member-registry-tree.js";
+
+export {
+  encodeRingDepositCapsule,
+  readRingDepositCapsule,
+  RING_DEPOSIT_AUDIT_SLOTS,
+  RING_DEPOSIT_OPENING_LENGTH,
+  type RingDepositCapsule,
+} from "./deposit-capsule.js";
+
+export {
+  LIST_IDS,
+  ListId,
+  RING_POLICY_VERSION,
+  buildRuleTable,
+  decodeRule,
+  decodeRuleTable,
+  encodeRule,
+  encodeRuleTable,
+  listIdFromByte,
+  listSet,
+  listWriter,
+  memberOfAsset,
+  memberOfIdentity,
+  memberOfTag,
+  policySourceOwners,
+  referencedLists,
+  ringNamespaceOwnerHash,
+  ringPolicyHash,
+  ruleAlternatives,
+  verifiedRuleTable,
+} from "./policy.js";
+export type {
+  EncodedRuleTable,
+  EntryState,
+  LeafTree,
+  ListWriter,
+  Member,
+  Rule,
+  RuleAlternative,
+  RuleGuard,
+  RuleMode,
+  RuleSource,
+  RuleSubject,
+  RuleTable,
+  RuleTableInput,
+} from "./policy.js";

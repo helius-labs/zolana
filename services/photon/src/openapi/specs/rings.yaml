@@ -532,6 +532,455 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /getRingMemberRecord:
+    summary: getRingMemberRecord
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingMemberRecord
+                params:
+                  type: object
+                  description: A record read at the exact root and append cursor the caller saw on chain.
+                  required:
+                  - ringProgramId
+                  - member
+                  - expectedRoot
+                  - expectedNextIndex
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    member:
+                      $ref: '#/components/schemas/Hash'
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    description: |-
+                      Present: `record`, `index` and `path` open the member. Absent: `low` opens the
+                      bracketing record, `index` is 0 and `path` empty.
+                    required:
+                    - context
+                    - root
+                    - rootIndex
+                    - nextIndex
+                    - present
+                    - index
+                    - path
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      index:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      low:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/RingLowRecordView'
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      path:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      present:
+                        type: boolean
+                      record:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/RingMemberRecordView'
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                      rootIndex:
+                        type: integer
+                        format: u-int8
+                        description: The on-chain history slot of `root`.
+                        minimum: 0
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+  /getRingMemberRecords:
+    summary: getRingMemberRecords
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingMemberRecords
+                params:
+                  type: object
+                  description: |-
+                    Page real member leaves at one current, on-chain-checked registry root.
+                    Leaf 0 is the sentinel. Start at 1 and pass `next_leaf_index` to continue.
+                  required:
+                  - ringProgramId
+                  - expectedRoot
+                  - expectedNextIndex
+                  - startIndex
+                  - limit
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    limit:
+                      type: integer
+                      format: u-int64
+                      description: Between 1 and [`MAX_RING_MEMBER_PAGE_LIMIT`].
+                      minimum: 0
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                    startIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    description: |-
+                      A complete leaf-index range. An indexer gap fails the call instead of
+                      shortening the page. A changed root also fails, so pages cannot mix states.
+                    required:
+                    - context
+                    - root
+                    - rootIndex
+                    - nextIndex
+                    - records
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      nextLeafIndex:
+                        type:
+                        - integer
+                        - 'null'
+                        format: u-int64
+                        minimum: 0
+                      records:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RingIndexedMemberRecordView'
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                      rootIndex:
+                        type: integer
+                        format: u-int8
+                        minimum: 0
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+  /getRingMemberRegistryRoot:
+    summary: getRingMemberRegistryRoot
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingMemberRegistryRoot
+                params:
+                  type: object
+                  required:
+                  - ringProgramId
+                  properties:
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    description: The projected registry at its tip, `append_path` opens the empty leaf at `next_index`.
+                    required:
+                    - context
+                    - root
+                    - rootIndex
+                    - nextIndex
+                    - appendPath
+                    properties:
+                      appendPath:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                      rootIndex:
+                        type: integer
+                        format: u-int8
+                        description: The on-chain history slot of `root`.
+                        minimum: 0
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
   /getShieldedTransactionsByNullifiers:
     summary: getShieldedTransactionsByNullifiers
     post:
@@ -1259,6 +1708,93 @@ components:
           minimum: 0
         value:
           $ref: '#/components/schemas/Hash'
+      additionalProperties: false
+    RingIndexedMemberRecordView:
+      type: object
+      description: One contiguous member leaf and its authentication path at `root`.
+      required:
+      - index
+      - record
+      - path
+      properties:
+        index:
+          type: integer
+          format: u-int64
+          minimum: 0
+        path:
+          type: array
+          items:
+            $ref: '#/components/schemas/Hash'
+        record:
+          $ref: '#/components/schemas/RingMemberRecordView'
+      additionalProperties: false
+    RingLowRecordView:
+      type: object
+      description: The record bracketing an absent member, `member < absent < next`.
+      required:
+      - member
+      - next
+      - lists
+      - escrowKey
+      - index
+      - path
+      properties:
+        escrowKey:
+          $ref: '#/components/schemas/Hash'
+        index:
+          type: integer
+          format: u-int64
+          minimum: 0
+        lists:
+          type: integer
+          format: u-int64
+          minimum: 0
+        member:
+          $ref: '#/components/schemas/Hash'
+        next:
+          $ref: '#/components/schemas/Hash'
+        path:
+          type: array
+          items:
+            $ref: '#/components/schemas/Hash'
+      additionalProperties: false
+    RingMemberRecordView:
+      type: object
+      description: A member's record, with the sealed nullifier key once the member registered one.
+      required:
+      - member
+      - next
+      - lists
+      - escrowKey
+      properties:
+        ciphertext:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Base64String'
+            description: AES-256-CTR ciphertext of the nullifier secret, 32 bytes.
+        ephPk:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Base64String'
+            description: Tagged X25519 ephemeral key of the sealed nullifier secret, 33 bytes.
+        escrowKey:
+          $ref: '#/components/schemas/Hash'
+        lists:
+          type: integer
+          format: u-int64
+          description: Bit `i` marks list id `i + 1`.
+          minimum: 0
+        member:
+          $ref: '#/components/schemas/Hash'
+        next:
+          $ref: '#/components/schemas/Hash'
+        ownerPubkey:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SerializablePubkey'
+            description: |-
+              The RegisterKey signer whose owner tag hashes to `member`. Absent for
+              records indexed before signer projection was added.
       additionalProperties: false
     RingsMessage:
       type: object

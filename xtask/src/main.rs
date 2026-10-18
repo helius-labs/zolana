@@ -959,13 +959,16 @@ fn tx_size(args: Vec<String>) {
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
+        let mut ring_data = data.clone();
+        ring_data.eddsa_owner = false;
         let ring_merge_ix = MergeRing {
             input_tree: tree,
             output_tree: tree,
             ring_program_id: ring_config,
             payer: payer_pk,
-            data: data.clone(),
+            data: ring_data,
             output_ring_data_hash: [0u8; 32],
+            member_registry_root: [1u8; 32],
             cache: None,
         }
         .instruction();

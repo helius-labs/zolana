@@ -69,6 +69,18 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
+	circuit.MemberRegistryRoot = p.MemberRegistryRoot
+	circuit.RegisteredCiphertextHash = p.RegisteredCiphertextHash
+	if p.MemberRecord == nil || len(p.MemberRecord.Path) != len(circuit.MemberRecord.Path) {
+		return nil, fmt.Errorf("merge ring: member record path must have %d elements", len(circuit.MemberRecord.Path))
+	}
+	circuit.MemberRecord.Next = p.MemberRecord.Next.Int
+	circuit.MemberRecord.Lists = p.MemberRecord.Lists
+	circuit.MemberRecord.EscrowKey = p.MemberRecord.EscrowKey.Int
+	circuit.MemberRecord.Index = p.MemberRecord.Index
+	for i, field := range p.MemberRecord.Path {
+		circuit.MemberRecord.Path[i] = field.Int
+	}
 	circuit.PublicInputHash = p.PublicInputHash
 
 	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {

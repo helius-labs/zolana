@@ -7,9 +7,11 @@ import {
   decodeShieldedTransactionsBySignatureResponse,
   encodeRingsByTagsRequest,
   decodeRingMemberRecord,
+  decodeRingMemberRecords,
   decodeRingMemberRegistryRoot,
   decodeUserRecordsResponse,
   encodeRingMemberProofRequest,
+  encodeRingMemberRecordsRequest,
   encodeUserRecordsRequest,
 } from "../src/indexer/codec.js";
 import { MAX_USER_RECORD_OWNERS } from "../src/interface/indexer-limits.js";
@@ -87,6 +89,58 @@ describe("key registry wire", () => {
       { present: false },
     ])
       expect(() => decodeRingMemberRecord({ ...entry, ...changed })).toThrow();
+  });
+
+  it("decodes contiguous member pages and rejects gaps", async () => {
+    const request = {
+      ringProgramId: RING,
+      expectedRoot: TAG,
+      expectedNextIndex: 2n,
+      startIndex: 1n,
+      limit: 100,
+    };
+    expect(encodeRingMemberRecordsRequest(request)).toMatchObject({
+      startIndex: 1,
+      limit: 100,
+    });
+    const page = {
+      context: entry.context,
+      root: TAG,
+      rootIndex: 0,
+      nextIndex: 2,
+      records: [{ index: 1, record: { ...entry.record, ownerPubkey: RING }, path: entry.path }],
+      nextLeafIndex: null,
+    };
+    expect(decodeRingMemberRecords(page).records).toHaveLength(1);
+    const indexerFor = (result: unknown) =>
+      new ZolanaIndexer(
+        new ZolanaApi({
+          url: "https://indexer.example",
+          fetch: async () => Response.json({ jsonrpc: "2.0", id: "test-account", result }),
+        }),
+      );
+    const decodedPage = await indexerFor(page).getRingMemberRecords({
+      ...request,
+      expectedRoot: new Uint8Array(32) as Bytes32,
+    });
+    expect(decodedPage.records[0]?.record.ciphertext).toEqual(new Uint8Array(32).fill(7));
+    expect(decodedPage.records[0]?.record.ownerPublicKey).toBe(RING);
+    for (const changed of [
+      { records: [] },
+      { records: [{ ...page.records[0], index: 2 }] },
+      { nextLeafIndex: 2 },
+      {
+        records: [
+          { ...page.records[0], record: { ...page.records[0]!.record, ownerPubkey: "bad" } },
+        ],
+      },
+    ])
+      await expect(
+        indexerFor({ ...page, ...changed }).getRingMemberRecords({
+          ...request,
+          expectedRoot: new Uint8Array(32) as Bytes32,
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
   });
 
   it("distinguishes every typed registry RPC failure and rejects a malformed entry", async () => {

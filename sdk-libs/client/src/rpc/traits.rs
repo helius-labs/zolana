@@ -18,7 +18,8 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+        GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
         GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
         GetUserRecordsResponse, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
@@ -224,6 +225,13 @@ pub trait Rpc {
         request: GetRingMemberRecordRequest,
     ) -> Result<GetRingMemberRecordResponse, ClientError> {
         Err(unsupported("get_ring_member_record"))
+    }
+
+    fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        Err(unsupported("get_ring_member_records"))
     }
 
     fn get_ring_member_registry_root(
@@ -455,6 +463,13 @@ pub trait AsyncRpc: Send + Sync {
         request: GetRingMemberRecordRequest,
     ) -> Result<GetRingMemberRecordResponse, ClientError> {
         Err(unsupported("get_ring_member_record"))
+    }
+
+    async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        Err(unsupported("get_ring_member_records"))
     }
 
     async fn get_ring_member_registry_root(

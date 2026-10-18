@@ -136,7 +136,8 @@ le_getters! {
     PolicyConfig { address_tree_id: u16, generation: u32, generation_slot: u64 }
 }
 
-/// Optional ring setting requiring proven auditor disclosure on direct deposits.
+/// Retained setting for the existing account and instruction ABI. All custom-ring
+/// deposits require proven auditor disclosure regardless of `required`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct DepositAudit {

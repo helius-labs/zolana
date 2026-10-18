@@ -10,6 +10,7 @@ use crate::{
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+        GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
         GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
@@ -317,6 +318,16 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetRingMemberRecordResponse, ClientError> {
         self.api
             .get_ring_member_record(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.api
+            .get_ring_member_records(request)
             .await
             .map_err(indexer_error)
     }

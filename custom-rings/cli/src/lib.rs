@@ -341,7 +341,7 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
-    /// Record whether first init must require an auditor disclosure proof for deposits.
+    /// Store the legacy setting at first init. All deposits require an audit proof.
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
@@ -353,18 +353,18 @@ pub struct DeployArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum DepositAuditCommand {
-    /// Set the requirement for future deposits and save it in ring.toml.
+    /// Store the legacy setting. All deposits still require an audit proof.
     Set {
         #[arg(long, action = clap::ArgAction::Set, required = true)]
         required: bool,
     },
-    /// Read the current requirement from the ring.
+    /// Read the stored legacy setting from the ring.
     Show,
 }
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Override the deposit proof requirement, ring.toml applies only on first init.
+    /// Override the stored legacy setting. All deposits require an audit proof.
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub deposit_audit: Option<bool>,
     /// Hex tagged X25519 auditor key, created by the ring RPC and written here when absent.

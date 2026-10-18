@@ -1,19 +1,23 @@
 //! The custom-ring binding of SPP's owner-preserving merge.
 
-use custom_ring_interface::RingMode;
+use custom_ring_interface::{CustomRingMergeIxData, RingMode};
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_instruction::{AccountMeta, Instruction};
 use zolana_client::{
     prover::{
         indexed::{IndexedMergePreparation, ProvenIndexedMerge},
-        requests,
+        requests, MergeRegistration,
     },
     AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, MergeProver,
     ProofCompressed,
 };
-use zolana_interface::instruction::instruction_data::{
-    merge_ring::MergeRingIxData,
-    merge_transact::{MergeProof, MergeTransactIxData},
+use zolana_interface::{
+    instruction::instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeProof, MergeTransactIxData},
+    },
+    instruction::tag::RING_MERGE_TRANSACT,
+    merge_utils::ciphertext_hash,
 };
 use zolana_keypair::NullifierKey;
 use zolana_program::instruction::MergeRing;
@@ -29,7 +33,13 @@ pub use zolana_transaction::instructions::merge::MERGE_DEFAULT_INPUT_COUNT;
 /// The proof still uses the shared 52-slot circuit with compact padding.
 pub const MAX_MERGE_INPUTS: usize = 50;
 
-use crate::{transact_ix::ring_prefix, tree_id, CustomRing, RingError};
+use zolana_ring_policy::Member;
+
+use crate::{
+    member_registry::{ReadMemberRecord, RecordOpening},
+    transact_ix::ring_prefix,
+    tree_id, CustomRing, RingError,
+};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
 #[must_use]
@@ -97,10 +107,51 @@ pub struct ProvenCustomRingMerge {
     output_tree: Address,
     ring: CustomRing,
     cosigner: Option<Address>,
-    pub data: MergeRingIxData,
+    pub data: CustomRingMergeIxData,
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
+}
+
+struct RegisteredMerge {
+    root_index: u8,
+    proof: MergeRegistration,
+}
+
+async fn registered_merge<R: AsyncRpc, I: AsyncIndexer>(
+    ring: CustomRing,
+    inputs: &MergeProofInputs,
+    nullifier_key: &NullifierKey,
+    client: &AsyncZolanaClient<R, I>,
+) -> Result<RegisteredMerge, RingError> {
+    let member = Member::from_bytes(inputs.signing_pubkey.owner_proof_input_hash()?)?;
+    let read = ReadMemberRecord { ring, member }
+        .read(client)
+        .await?
+        .ok_or(RingError::MissingMemberRegistry)?;
+    let sealed = read.sealed_key().ok_or(RingError::InvalidRecordOpening)?;
+    sealed.verify_nullifier_pubkey(&nullifier_key.pubkey()?)?;
+    let RecordOpening::Present {
+        record,
+        index,
+        path,
+        ..
+    } = read.opening
+    else {
+        return Err(RingError::InvalidRecordOpening);
+    };
+    Ok(RegisteredMerge {
+        root_index: read.root.history_index,
+        proof: MergeRegistration {
+            root: read.root.root,
+            ciphertext_hash: ciphertext_hash(&sealed.sealed.ciphertext)?,
+            next: record.next,
+            lists: record.lists,
+            escrow_key: record.escrow_key,
+            index,
+            path,
+        },
+    })
 }
 
 impl PreparedCustomRingMerge {
@@ -130,7 +181,8 @@ impl PreparedCustomRingMerge {
             output_tree: input.output_tree,
             payer,
             cosigner,
-            data: MergeRingIxData {
+            data: CustomRingMergeIxData {
+                registry_root_index: 0,
                 output_ring_data_hash: self.inner.output_utxo.ring_data_hash.unwrap_or_default(),
                 merge: MergeTransactIxData {
                     expiry_unix_ts: self.inner.expiry_unix_ts,
@@ -166,7 +218,8 @@ impl PreparedCustomRingMerge {
             .config(client)
             .await?
             .ok_or(RingError::MissingRingConfig)?;
-        // A merge carries no auditor proof, an anonymous ring would hide its balance change.
+        // Merge disclosure uses a registered recovery key and proof-bound output
+        // ciphertext. Anonymous members have no identity to register that key.
         if config.mode == RingMode::Anonymous {
             return Err(RingError::AnonymousRingRefused);
         }
@@ -180,13 +233,15 @@ impl PreparedCustomRingMerge {
             return Err(RingError::InputTreeMismatch);
         }
         self.inner.output_tree_id = tree_id(client, input.output_tree).await?;
-        let data = match client.indexed_prover() {
+        let registered =
+            registered_merge(self.ring, &self.inner, &input.nullifier_key, client).await?;
+        let data: MergeRingIxData = match client.indexed_prover() {
             Some(prover) => {
                 let prepared = IndexedMergePreparation {
                     merge: self.inner.clone(),
                     nullifier_key: input.nullifier_key.clone(),
                 }
-                .prepare()?;
+                .prepare_registered(registered.proof.clone())?;
                 match prover.prove_indexed(&prepared).await? {
                     ProvenIndexedMerge::Ring(data) => data,
                     _ => return Err(ClientError::InvalidIndexedRequest.into()),
@@ -208,12 +263,17 @@ impl PreparedCustomRingMerge {
                     dummy_nullifier_proofs: witnesses.dummy_nullifier_proofs,
                     cache: None,
                 }
-                .build()?;
+                .build_registered(registered.proof.clone())?;
                 let proof = client
                     .prove_request(&requests::merge_ring(&result.inputs)?)
                     .await?;
                 result.ring_instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?)
             }
+        };
+        let data = CustomRingMergeIxData {
+            registry_root_index: registered.root_index,
+            output_ring_data_hash: data.output_ring_data_hash,
+            merge: data.merge,
         };
         let inner = self.inner;
         Ok(ProvenCustomRingMerge {
@@ -261,11 +321,15 @@ pub struct CustomRingMergeInstruction {
     pub output_tree: Address,
     pub payer: Address,
     pub cosigner: Option<Address>,
-    pub data: MergeRingIxData,
+    pub data: CustomRingMergeIxData,
 }
 
 impl CustomRingMergeInstruction {
     pub fn instruction(self) -> Instruction {
+        let compact_data = self
+            .data
+            .serialize()
+            .expect("fixed merge request serializes");
         let mut instruction = MergeRing {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
@@ -273,12 +337,20 @@ impl CustomRingMergeInstruction {
             payer: self.payer,
             data: self.data.merge,
             output_ring_data_hash: self.data.output_ring_data_hash,
+            member_registry_root: [0; 32],
             cache: None,
         }
         .instruction();
+        instruction.data.clear();
+        instruction.data.push(RING_MERGE_TRANSACT);
+        instruction.data.extend_from_slice(&compact_data);
         instruction
             .accounts
             .splice(0..0, ring_prefix(self.ring, self.cosigner));
+        instruction.accounts.insert(
+            3,
+            AccountMeta::new_readonly(self.ring.member_registry_root_pda(), false),
+        );
         instruction
     }
 }

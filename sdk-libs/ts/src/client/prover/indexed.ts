@@ -7,6 +7,10 @@ import {
 import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
+import {
+  MEMBER_REGISTRY_CAPACITY,
+  MEMBER_REGISTRY_HEIGHT,
+} from "../../interface/member-registry.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   inputTreeSlots,
@@ -17,6 +21,7 @@ import {
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import { hashChain } from "../../transaction/internal.js";
+import { U64_MAX } from "../../transaction/internal.js";
 import type {
   IndexedPolicyInputs,
   IndexedProofAuthority,
@@ -36,7 +41,13 @@ import {
   hasIndexedMethod,
 } from "../internal.js";
 import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js";
-import type { CircuitUtxo, TransferOutput, Field, Proof } from "./types.js";
+import type {
+  CircuitUtxo,
+  CustomRingRecordWitness,
+  TransferOutput,
+  Field,
+  Proof,
+} from "./types.js";
 import { compressProof, parseCheckedProof } from "./proof.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -113,6 +124,22 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     if (chunk0 === undefined || chunk1 === undefined || rest.length !== 0) throw invalid();
     return [chunk0, chunk1];
   };
+  const mergeRegistry = () => {
+    if (common.ringProgramId === 0n) {
+      if (
+        payload["memberRegistryRoot"] !== undefined ||
+        payload["registeredCiphertextHash"] !== undefined ||
+        payload["memberRecord"] !== undefined
+      )
+        throw invalid();
+      return {};
+    }
+    return {
+      memberRegistryRoot: field("memberRegistryRoot"),
+      registeredCiphertextHash: field("registeredCiphertextHash"),
+      memberRecord: decodeMergeMemberRecord(payload["memberRecord"]),
+    };
+  };
   const result: IndexedProofInputs =
     circuit === "merge"
       ? {
@@ -130,6 +157,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
             outputRingDataHash: field("outputRingDataHash"),
+            ...mergeRegistry(),
           },
         }
       : {
@@ -327,6 +355,33 @@ function requestField(value: unknown): Field {
   return asField(value);
 }
 
+function decodeMergeMemberRecord(value: unknown): CustomRingRecordWitness {
+  const record = requestDecoder.record(value, "memberRecord");
+  const bytes = (name: string): Bytes32 => {
+    const value = checkedBytes(record[name], 32, name);
+    bytesField(value, name);
+    return value;
+  };
+  const integer = (name: string, maximum: bigint): bigint => {
+    const value = record[name];
+    if (typeof value !== "bigint" || value < 0n || value >= maximum) throw invalid();
+    return value;
+  };
+  const path = requestDecoder.list(record["path"], "memberRecord.path").map((value) => {
+    const node = checkedBytes(value, 32, "memberRecord.path");
+    bytesField(node, "memberRecord.path");
+    return node;
+  });
+  if (path.length !== MEMBER_REGISTRY_HEIGHT) throw invalid();
+  return {
+    next: bytes("next"),
+    lists: integer("lists", U64_MAX + 1n),
+    escrowKey: bytes("escrowKey"),
+    index: integer("index", MEMBER_REGISTRY_CAPACITY),
+    path,
+  };
+}
+
 /** Rejects a request the prover would refuse or resolve against other trees. */
 function checkStatement(inputs: IndexedProofInputs): void {
   if (
@@ -334,7 +389,13 @@ function checkStatement(inputs: IndexedProofInputs): void {
     inputs.trees.length > 2 ||
     inputs.lookups.length !== inputs.payload.inputs.length ||
     inputs.publicInputs.length !==
-      (inputs.circuit === "merge" ? 12 : inputs.circuit === "transferRingAuthority" ? 14 : 17)
+      (inputs.circuit === "merge"
+        ? inputs.payload.ringProgramId === 0n
+          ? 12
+          : 13
+        : inputs.circuit === "transferRingAuthority"
+          ? 14
+          : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {

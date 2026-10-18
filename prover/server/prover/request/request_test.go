@@ -100,7 +100,7 @@ func TestParseStrictRejectsAdversarialInput(t *testing.T) {
 			t.Fatalf("case %d accepted: %v", index, err)
 		}
 	}
-	for _, circuit := range []string{"transfer-p256-ring", "custom-ring-policy", "address-append", "unknown", ""} {
+	for _, circuit := range []string{"transfer-obsolete-ring", "custom-ring-policy", "address-append", "unknown", ""} {
 		input := strings.Replace(body, `"transfer-confidential"`, `"`+circuit+`"`, 1)
 		if _, err := ParseStrict([]byte(input)); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("circuit %q: %v", circuit, err)

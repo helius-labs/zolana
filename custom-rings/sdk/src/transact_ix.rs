@@ -164,7 +164,7 @@ impl CustomRingTransact {
         self.instruction_with_policy_kind(if two_by_three {
             custom_ring_interface::PolicyProofKind::TwoByThree
         } else {
-            custom_ring_interface::PolicyProofKind::Legacy
+            custom_ring_interface::PolicyProofKind::Base
         })
     }
 
@@ -200,7 +200,7 @@ impl CustomRingTransact {
         }
         .instruction(
             match kind {
-                custom_ring_interface::PolicyProofKind::Legacy => tag::TRANSACT,
+                custom_ring_interface::PolicyProofKind::Base => tag::TRANSACT,
                 custom_ring_interface::PolicyProofKind::TwoByThree => tag::TRANSACT_TWO_BY_THREE,
                 custom_ring_interface::PolicyProofKind::General => tag::TRANSACT_SHAPED,
                 custom_ring_interface::PolicyProofKind::Subtree => tag::TRANSACT_SHAPED_SUBTREE,
@@ -224,7 +224,7 @@ impl CustomRingDelegateTransact {
         self.instruction_with_policy_kind(if two_by_three {
             custom_ring_interface::PolicyProofKind::TwoByThree
         } else {
-            custom_ring_interface::PolicyProofKind::Legacy
+            custom_ring_interface::PolicyProofKind::Base
         })
     }
 
@@ -261,7 +261,7 @@ impl CustomRingDelegateTransact {
         }
         .instruction(
             match kind {
-                custom_ring_interface::PolicyProofKind::Legacy => tag::DELEGATE_TRANSACT,
+                custom_ring_interface::PolicyProofKind::Base => tag::DELEGATE_TRANSACT,
                 custom_ring_interface::PolicyProofKind::TwoByThree => {
                     tag::DELEGATE_TRANSACT_TWO_BY_THREE
                 }

@@ -18,6 +18,10 @@ fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
 }
 
+fn canonical_field_to_string(bytes: &[u8; 32]) -> String {
+    format!("0x{}", hex::encode(bytes))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct UtxoParamsJson {
     #[serde(rename = "domain")]
@@ -325,6 +329,46 @@ pub(crate) struct MergeParametersJson {
     /// the ring's pk_field for merge-ring (the circuit's top-level public input).
     #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub registration: Option<MergeRegistrationJson>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MergeRegistrationJson {
+    member_registry_root: String,
+    registered_ciphertext_hash: String,
+    member_record: MergeMemberRecordJson,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MergeMemberRecordJson {
+    next: String,
+    lists: u64,
+    escrow_key: String,
+    index: u64,
+    path: Vec<String>,
+}
+
+pub(crate) fn merge_registration_to_json(
+    registration: &super::MergeRegistration,
+) -> MergeRegistrationJson {
+    MergeRegistrationJson {
+        member_registry_root: fe_to_string(&registration.root),
+        registered_ciphertext_hash: fe_to_string(&registration.ciphertext_hash),
+        member_record: MergeMemberRecordJson {
+            next: canonical_field_to_string(&registration.next),
+            lists: registration.lists,
+            escrow_key: canonical_field_to_string(&registration.escrow_key),
+            index: registration.index,
+            path: registration
+                .path
+                .iter()
+                .map(canonical_field_to_string)
+                .collect(),
+        },
+    }
 }
 
 /// Serialize a merge witness under the given circuit type. The default merge and
@@ -380,6 +424,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
+        registration: inputs.registration.as_ref().map(merge_registration_to_json),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
@@ -660,6 +705,7 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
+            registration: None,
         }
     }
 
@@ -689,6 +735,15 @@ mod merge_tests {
         inputs.inputs[0].utxo.ring_data_hash = fe(3);
         inputs.output.utxo.ring_data_hash = fe(3);
         inputs.output_ring_data_hash = BigUint::from(3u8);
+        inputs.registration = Some(crate::prover::MergeRegistration {
+            root: [1; 32],
+            ciphertext_hash: [2; 32],
+            next: [3; 32],
+            lists: 0,
+            escrow_key: [4; 32],
+            index: 1,
+            path: vec![[0; 32]; 20],
+        });
         // Padding's ring data does not govern the live merge state.
         inputs.inputs[1].utxo.ring_data_hash = fe(7);
         requests::merge_ring(&inputs).unwrap();

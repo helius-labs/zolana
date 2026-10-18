@@ -26,14 +26,7 @@ func policyCircuit(circuit common.CircuitType) bool {
 func decodePolicy(request Request) (*preparedProof, error) {
 	var value any
 	var p *ring.PolicyParams
-	shape, _ := common.ParseRingPolicyShape(request.CircuitType)
-	if request.CircuitType == common.CustomRingDelegatePolicyCircuitType || shape.Delegate {
-		wrapper := &ring.DelegatePolicyParams{}
-		value, p = wrapper, &wrapper.Policy
-	} else {
-		p = &ring.PolicyParams{}
-		value = p
-	}
+	value, p = ring.NewPolicyParams(request.CircuitType)
 	if err := ring.Unmarshal(request.Prepared, value); err != nil {
 		return nil, fmt.Errorf("invalid prepared policy: %w", err)
 	}

@@ -26,7 +26,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use zolana_ring_client::rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
     GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest, RingDepositsResponse,
-    RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
+    RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY, GET_AUDITED_MERGES,
     GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 
@@ -199,6 +199,24 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             drop(authentication);
             let _slot = hub.admit(Lane::Read)?;
             read.execute().await
+        },
+    )?;
+    method(
+        &mut module,
+        GET_AUDITED_MERGES,
+        |hub, request: GetDecryptedTransactionsRequest| async move {
+            let authentication = hub.admit(Lane::Authentication)?;
+            let service = hub.service(request.ring_program_id.map(|ring| ring.0))?;
+            let page = Page::new(request.cursor, request.limit)?;
+            let read = service
+                .authorize(AuditRead {
+                    auth: &request.auth,
+                    page: &page,
+                })
+                .await?;
+            drop(authentication);
+            let _slot = hub.admit(Lane::Read)?;
+            read.execute_merges().await
         },
     )?;
     Ok(module)

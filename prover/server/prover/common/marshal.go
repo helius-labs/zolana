@@ -279,12 +279,14 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	// Classify by file name only, a parent directory name must not pick the rail.
-	name := strings.ToLower(filepath.Base(path))
-	if strings.Contains(name, "p256") {
+	// Only canonical catalog names select a circuit. An unknown or retired key
+	// cannot be misclassified by a substring in its filename or parent path.
+	name := filepath.Base(path)
+	circuitType := KeyFileCircuit(name)
+	if circuitType == "" {
 		return nil, fmt.Errorf("unsupported proving key %q", filepath.Base(path))
 	}
-	if circuitType, ok := ringCircuitOfKeyFile(name); ok {
+	if circuitType.IsRing() {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,
 		}
@@ -294,70 +296,28 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.ProvingKeySha256 = digest
 		return ps, nil
-	} else if strings.Contains(name, "transfer") {
-		ps := new(TransferProofSystem)
-		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
-		if err != nil {
-			return nil, err
-		}
-		ps.ProvingKeySha256 = digest
-		// Transfer variants are resolved from canonical key filenames. The
-		// HasCommitment header is retained as a consistency check for P256 keys.
-		ring := strings.Contains(name, "ring")
-		ed25519Ring := strings.Contains(name, "ed25519_ring")
-		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
-		// anonymous). Detect it before the plain "ring" case: the name contains both
-		// "transfer" (matched this branch) and "ring".
-		ringAuthority := strings.Contains(name, "ring_authority")
-		switch {
-		case ringAuthority:
-			ps.CircuitType = TransferRingAuthorityCircuitType
-		case ed25519Ring:
-			ps.CircuitType = TransferAnonymousRingEd25519CircuitType
-		case ring:
-			ps.CircuitType = TransferRingCircuitType
-		default:
-			ps.CircuitType = TransferConfidentialCircuitType
-		}
-		ps.Confidential = !ringAuthority
-		return ps, nil
-	} else if strings.Contains(name, "merge") {
-		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
-		// (merge_24_1.key) carries no "transfer" substring, so it needs its own
-		// branch or it would fall through to the unrecognized-file error.
-		ps := new(TransferProofSystem)
-		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
-		if err != nil {
-			return nil, err
-		}
-		ps.ProvingKeySha256 = digest
-		// merge_ring_24_1.key is the policy-ring variant; the default merge file is
-		// merge_24_1.key.
-		if strings.Contains(name, "ring") {
-			ps.CircuitType = MergeRingCircuitType
-		} else {
-			ps.CircuitType = MergeCircuitType
-		}
-		return ps, nil
-	} else if strings.Contains(name, "address-append") {
-		ps := new(BatchProofSystem)
-		ps.CircuitType = BatchAddressAppendCircuitType
-		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
-		if err != nil {
-			return nil, err
-		}
-		ps.ProvingKeySha256 = digest
-		return ps, nil
-	} else {
-		return nil, fmt.Errorf("unrecognized proving key file: %s", path)
 	}
-}
-
-func ringCircuitOfKeyFile(name string) (CircuitType, bool) {
-	for _, circuit := range RingCircuitTypes {
-		if RingKeyFile(circuit) == name {
-			return circuit, true
+	if circuitType == BatchAddressAppendCircuitType {
+		ps := &BatchProofSystem{CircuitType: circuitType}
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
+		if err != nil {
+			return nil, err
 		}
+		ps.ProvingKeySha256 = digest
+		return ps, nil
 	}
-	return "", false
+	ps := new(TransferProofSystem)
+	digest, err := readKeyFile(path, ps.UnsafeReadFrom)
+	if err != nil {
+		return nil, err
+	}
+	ps.ProvingKeySha256 = digest
+	if TransferKeyFile(circuitType, ps.NInputs, ps.NOutputs) != name {
+		return nil, fmt.Errorf("proving key %q header shape does not match its catalog name", name)
+	}
+	ps.CircuitType = circuitType
+	ps.Confidential = circuitType == TransferConfidentialCircuitType ||
+		circuitType == TransferRingCircuitType ||
+		circuitType == TransferAnonymousRingEd25519CircuitType
+	return ps, nil
 }

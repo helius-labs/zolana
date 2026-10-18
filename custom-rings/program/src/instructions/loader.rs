@@ -99,7 +99,8 @@ pub fn load_audited_config(
     })
 }
 
-/// A foreign-owned empty setting cannot switch the requirement off either.
+/// Validate the retained account slot, even though its bit no longer changes
+/// the mandatory audited-deposit path.
 pub fn load_deposit_audit<'a>(
     program_id: &Address,
     account: &'a AccountView,

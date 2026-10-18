@@ -15,6 +15,8 @@ pub enum ClientError {
     RingRegistryOutOfSync,
     #[error("the ring member registry root has changed")]
     RingRegistryRootChanged,
+    #[error("the ring member registry page has an index gap or inconsistent leaf")]
+    RingRegistryPageGap,
     #[error("the member has no record in the ring member registry")]
     RingMemberUnregistered,
     #[error("deposit builder error: {0}")]

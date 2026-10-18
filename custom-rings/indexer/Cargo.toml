@@ -16,3 +16,6 @@ zolana-hasher.workspace = true
 zolana-indexer-api.workspace = true
 zolana-interface = { workspace = true, features = ["tree"] }
 zolana-ring-policy.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

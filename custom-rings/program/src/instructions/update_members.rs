@@ -33,7 +33,13 @@ pub fn process_update_members_ix(
         return Err(CustomRingError::MemberBatchTooLarge.into());
     }
     let authority = load::<RingProgramConfig>(program_id, config)?.authority;
-    let signers = Signers::collect(signers, &authority)?;
+    let signers = Signers::collect(
+        signers
+            .iter()
+            .filter(|account| account.is_signer())
+            .map(|account| account.address()),
+        &authority,
+    )?;
     let mut root = load_mut::<MemberRegistryRoot>(program_id, root_account)?;
     let next_index = root.next_index();
     let mut inserts = 0u64;
@@ -92,15 +98,18 @@ struct Signers {
 }
 
 impl Signers {
-    fn collect(accounts: &[AccountView], authority: &Address) -> Result<Self, CustomRingError> {
+    fn collect<'a>(
+        accounts: impl Iterator<Item = &'a Address>,
+        authority: &Address,
+    ) -> Result<Self, CustomRingError> {
         let mut signers = Self {
             authority: false,
-            members: Vec::with_capacity(accounts.len()),
+            members: Vec::new(),
         };
-        for account in accounts.iter().filter(|account| account.is_signer()) {
-            signers.authority |= account.address() == authority;
+        for address in accounts {
+            signers.authority |= address == authority;
             signers.members.push(
-                Member::owner_tag(account.address().as_array())
+                Member::owner_tag(address.as_array())
                     .map_err(|_| CustomRingError::HashingFailed)?,
             );
         }

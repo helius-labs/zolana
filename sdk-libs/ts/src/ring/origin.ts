@@ -54,6 +54,12 @@ export interface TransactionOrigin {
     ring: Address,
     context?: RequestContext,
   ): Promise<IndexedShieldedTransaction | undefined>;
+  /** Exact settled instruction kind for scanners that must distinguish merge from transfer. */
+  confirmedEventKind?(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<"transfer" | "deposit" | "merge" | undefined>;
 }
 
 /** Confirmed audited-deposit data, separate from a boolean ring-origin check. */
@@ -387,6 +393,7 @@ export function senderOf(
 export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSource {
   readonly #rpc: SolanaRpc;
   readonly #transactions = new Map<Signature, Promise<unknown>>();
+  static readonly #MAX_TRANSACTIONS = 4096;
 
   constructor(rpc: SolanaRpc) {
     this.#rpc = rpc;
@@ -428,13 +435,42 @@ export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSo
     return bindConfirmedTransaction(confirmed, transaction, ring);
   }
 
+  async confirmedEventKind(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<"transfer" | "deposit" | "merge" | undefined> {
+    if (transaction.eventIndex === undefined) throw invalid("eventIndex");
+    const confirmed = await this.#transaction(transaction.txSignature, context);
+    const found = ringEventIn(confirmedInstructionGroups(confirmed), transaction.eventIndex, ring);
+    if (found === undefined) return undefined;
+    switch (found.source.data[0]) {
+      case InstructionTag.ringTransact:
+      case InstructionTag.ringAuthorityTransact:
+        return "transfer";
+      case InstructionTag.ringDeposit:
+        return "deposit";
+      case InstructionTag.ringMergeTransact:
+        return "merge";
+      default:
+        return undefined;
+    }
+  }
+
   #transaction(signature: Signature, context?: RequestContext): Promise<unknown> {
+    // A caller's cancellation or timeout must not govern another caller's read.
+    if (context?.signal !== undefined || context?.timeoutMs !== undefined)
+      return this.#fetch(signature, context);
     const known = this.#transactions.get(signature);
     if (known !== undefined) return known;
     const pending = this.#fetch(signature, context).catch((error: unknown) => {
-      this.#transactions.delete(signature);
+      if (this.#transactions.get(signature) === pending) this.#transactions.delete(signature);
       throw error;
     });
+    if (this.#transactions.size >= RpcTransactionOrigin.#MAX_TRANSACTIONS) {
+      const oldest = this.#transactions.keys().next().value;
+      if (oldest !== undefined) this.#transactions.delete(oldest);
+    }
     this.#transactions.set(signature, pending);
     return pending;
   }
@@ -466,6 +502,7 @@ export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSo
 export class CachedTransactionOrigin implements TransactionOrigin {
   readonly #origin: TransactionOrigin;
   readonly #known = new Map<string, boolean>();
+  static readonly #MAX_KNOWN = 4096;
 
   constructor(origin: TransactionOrigin) {
     this.#origin = origin;
@@ -481,6 +518,10 @@ export class CachedTransactionOrigin implements TransactionOrigin {
     const known = this.#known.get(key);
     if (known !== undefined) return known;
     const invoked = await this.#origin.ringInvoked(signature, eventIndex, ring, context);
+    if (this.#known.size >= CachedTransactionOrigin.#MAX_KNOWN) {
+      const oldest = this.#known.keys().next().value;
+      if (oldest !== undefined) this.#known.delete(oldest);
+    }
     this.#known.set(key, invoked);
     return invoked;
   }
@@ -492,6 +533,18 @@ export class CachedTransactionOrigin implements TransactionOrigin {
   ): Promise<IndexedShieldedTransaction | undefined> {
     // Recheck every supplied indexed record, even when its signature was seen before.
     return this.#origin.confirmedTransaction(transaction, ring, context);
+  }
+
+  confirmedEventKind(
+    transaction: IndexedShieldedTransaction,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<"transfer" | "deposit" | "merge" | undefined> {
+    if (this.#origin.confirmedEventKind === undefined)
+      throw new RingError("RING_ORIGIN_DECODE", {
+        details: { reason: "confirmed event kind unavailable" },
+      });
+    return this.#origin.confirmedEventKind(transaction, ring, context);
   }
 }
 
@@ -536,6 +589,7 @@ function readConfirmedEvent(
     if (kind !== 3) throw invalid("event.kind");
     const data = new Reader(source.data.slice(1));
     const ringDataHash = data.bytes(32, "merge.ringDataHash") as Bytes32;
+    data.bytes(32, "merge.memberRegistryRoot");
     data.u64("merge.expiry");
     data.bytes(192, "merge.proof");
     const hash = data.bytes(32, "merge.outputHash") as Bytes32;

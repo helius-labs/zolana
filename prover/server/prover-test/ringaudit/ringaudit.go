@@ -70,14 +70,14 @@ func (k Keys) WithRawTxScalar(t testing.TB, secret [32]byte) Keys {
 	return k
 }
 
-// WithLegacyTxTag publishes the viewing key under a SEC1 P-256 tag.
-func (k Keys) WithLegacyTxTag() Keys {
+// WithInvalidTxTag uses a tag the X25519 viewing-key decoder must reject.
+func (k Keys) WithInvalidTxTag() Keys {
 	k.txPk[0] = 2
 	return k
 }
 
-// WithLegacyEphTag seals the envelope under a SEC1 P-256 tag.
-func (k Keys) WithLegacyEphTag() Keys {
+// WithInvalidEphTag uses a tag the auditor envelope decoder must reject.
+func (k Keys) WithInvalidEphTag() Keys {
 	k.ephPk[0] = 2
 	return k
 }

@@ -1,6 +1,5 @@
 import { withProofDataRetry } from "../client/retry.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
 import type { IndexedDepositClient, Prover, RingMemberRegistryReader } from "../client/ports.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
@@ -19,12 +18,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
-import {
-  checkBuildableRingMode,
-  fetchRingCoSigner,
-  fetchRingDepositAudit,
-  fetchRingProgramConfig,
-} from "./config.js";
+import { checkBuildableRingMode, fetchRingCoSigner, fetchRingProgramConfig } from "./config.js";
 import { DEPOSIT_DEMAND, checkRingCoSigner } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
 import { openRingEscrowedKeys, unregisteredOutputKey } from "./key-escrow.js";
@@ -60,7 +54,7 @@ export interface RingDepositTransactionParams {
   readonly cosigner?: SignerAccount;
 }
 
-/** Mirrors Rust `RingDeposit`, a ring that escrows keys always audits. */
+/** Builds a ring deposit with proof-bound auditor disclosure. */
 export async function buildRingDepositTransaction(
   input: RingDepositTransactionParams,
   context?: RequestContext,
@@ -85,18 +79,20 @@ async function buildRingDepositOnce(
     { rpc: input.client, recipient: input.recipient },
     (unregistered) =>
       new RingError("RING_BUILD_DEPOSIT", {
-        details: { reason: "recipient not registered", recipient: unregistered },
+        details: {
+          reason: "recipient not registered",
+          recipient: unregistered,
+        },
       }),
     context,
   );
   const depositor = input.depositor;
   const tree = input.tree ?? input.client.tree;
   const asset = input.asset ?? SOL_MINT;
-  // 1. Read the ring's signature, deposit disclosure and key escrow requirements.
-  const [config, coSigner, depositAudit] = await Promise.all([
+  // 1. Read the ring's signature and key escrow requirements.
+  const [config, coSigner] = await Promise.all([
     fetchRingProgramConfig(input.client, input.ringProgramId, context),
     fetchRingCoSigner(input.client, input.ringProgramId, context),
-    fetchRingDepositAudit(input.client, input.ringProgramId, context),
   ]);
   checkBuildableRingMode(config, "deposit");
   const { auditorPublicKey, keyEscrow } = config;
@@ -114,7 +110,10 @@ async function buildRingDepositOnce(
       ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
     },
-    () => new RingError("RING_BUILD_DEPOSIT", { details: { reason: "missing token account" } }),
+    () =>
+      new RingError("RING_BUILD_DEPOSIT", {
+        details: { reason: "missing token account" },
+      }),
   );
   const owner = {
     ownerPkHash: recipient.signingPublicKey.ownerProofInputHash(),
@@ -131,7 +130,6 @@ async function buildRingDepositOnce(
         context,
       )
     : undefined;
-  const audited = depositAudit || escrow !== undefined;
   const blinding = randomBlinding();
   const ownerHash = recipient.ownerHash();
   const envelope = ViewingKey.generate();
@@ -147,17 +145,16 @@ async function buildRingDepositOnce(
     });
     const ciphertext = envelope.encryptRingDeposit(recipient.viewingPublicKey, plaintext, salt);
     // 2. Keep recipient ciphertext and add required auditor disclosure.
-    const sealed = audited
-      ? sealRingDepositOpenings(
-          [{ ownerHash, blinding, recipientCiphertext: ciphertext }],
-          auditorPublicKey,
-        )
-      : undefined;
-    ephemeralSecret = sealed?.ephemeralSecret;
-    const capsule = sealed?.payloads[0] ?? ciphertext;
+    const sealed = sealRingDepositOpenings(
+      [{ ownerHash, blinding, recipientCiphertext: ciphertext }],
+      auditorPublicKey,
+    );
+    ephemeralSecret = sealed.ephemeralSecret;
+    const capsule = sealed.payloads[0];
+    if (capsule === undefined) throw new RingError("RING_BUILD_DEPOSIT");
     const ownerCommitment = ownerUtxoHash(ownerHash, blinding);
     instruction = await ringDepositInstruction({
-      ...(sealed === undefined ? {} : { proof: new Uint8Array(CUSTOM_RING_PROOF_LENGTH) }),
+      proof: new Uint8Array(CUSTOM_RING_PROOF_LENGTH),
       ringProgramId: input.ringProgramId,
       tree,
       depositor,
@@ -179,64 +176,60 @@ async function buildRingDepositOnce(
       ],
     });
     // 3. Bind disclosure to the SPP payload and destination tree.
-    if (sealed !== undefined) {
-      const wire = instruction.data;
-      if (wire === undefined) throw new RingError("RING_BUILD_DEPOSIT");
-      // The SPP wire follows the proof and the registry root index.
-      const contextHash = ringDepositContextHash(
-        input.ringProgramId,
-        tree,
-        wire.slice(2 + CUSTOM_RING_PROOF_LENGTH),
-      );
-      const firstSlot = <T>(value: T, zero: T): readonly T[] =>
-        Array.from({ length: RING_DEPOSIT_AUDIT_SLOTS }, (_, index) =>
-          index === 0 ? value : zero,
-        );
-      const proofInputs = {
-        publicInputHash: ringDepositPublicInputHash({
-          contextHash,
-          ownerCommitments: [ownerCommitment],
-          capsules: sealed.capsules,
-          auditorPublicKey,
-          ...(escrow === undefined ? {} : { memberRegistryRoot: escrow.root }),
-        }),
+    const wire = instruction.data;
+    if (wire === undefined) throw new RingError("RING_BUILD_DEPOSIT");
+    // The SPP wire follows the proof and the registry root index.
+    const contextHash = ringDepositContextHash(
+      input.ringProgramId,
+      tree,
+      wire.slice(2 + CUSTOM_RING_PROOF_LENGTH),
+    );
+    const firstSlot = <T>(value: T, zero: T): readonly T[] =>
+      Array.from({ length: RING_DEPOSIT_AUDIT_SLOTS }, (_, index) => (index === 0 ? value : zero));
+    const proofInputs = {
+      publicInputHash: ringDepositPublicInputHash({
         contextHash,
-        count: 1,
-        ownerPkHashes: firstSlot(owner.ownerPkHash, ZERO_32),
-        nullifierPks: firstSlot(owner.nullifierPk, ZERO_32),
-        blindings: firstSlot(blinding, ZERO_32),
-        members: firstSlot(escrow?.keys[0], undefined),
-        ctHashes: firstSlot(escrow?.keys[0]?.ctHash ?? ZERO_32, ZERO_32),
-        ephemeralSecret: sealed.ephemeralSecret,
-        auditorPublicKey: auditorPublicKey.u(),
+        ownerCommitments: [ownerCommitment],
+        capsules: sealed.capsules,
+        auditorPublicKey,
         ...(escrow === undefined ? {} : { memberRegistryRoot: escrow.root }),
-      };
-      let proof: Uint8Array;
-      if (escrow !== undefined && input.client.proofDataSource === "prover") {
-        if (input.client.proveIndexedRingDeposit === undefined || escrow.nextIndex === undefined)
-          throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
-        try {
-          proof = await input.client.proveIndexedRingDeposit(
-            {
-              deposit: proofInputs,
-              registry: {
-                ringProgramId: input.ringProgramId,
-                root: escrow.root,
-                nextIndex: escrow.nextIndex,
-              },
+      }),
+      contextHash,
+      count: 1,
+      ownerPkHashes: firstSlot(owner.ownerPkHash, ZERO_32),
+      nullifierPks: firstSlot(owner.nullifierPk, ZERO_32),
+      blindings: firstSlot(blinding, ZERO_32),
+      members: firstSlot(escrow?.keys[0], undefined),
+      ctHashes: firstSlot(escrow?.keys[0]?.ctHash ?? ZERO_32, ZERO_32),
+      ephemeralSecret: sealed.ephemeralSecret,
+      auditorPublicKey: auditorPublicKey.u(),
+      ...(escrow === undefined ? {} : { memberRegistryRoot: escrow.root }),
+    };
+    let proof: Uint8Array;
+    if (escrow !== undefined && input.client.proofDataSource === "prover") {
+      if (input.client.proveIndexedRingDeposit === undefined || escrow.nextIndex === undefined)
+        throw new RingError("RING_ENTRY_PROOF_INCOMPLETE");
+      try {
+        proof = await input.client.proveIndexedRingDeposit(
+          {
+            deposit: proofInputs,
+            registry: {
+              ringProgramId: input.ringProgramId,
+              root: escrow.root,
+              nextIndex: escrow.nextIndex,
             },
-            context,
-          );
-        } catch (cause) {
-          throw unregisteredOutputKey(cause, [owner]);
-        }
-      } else {
-        proof = await input.client.proveCustomRingDeposit(proofInputs, context);
+          },
+          context,
+        );
+      } catch (cause) {
+        throw unregisteredOutputKey(cause, [owner]);
       }
-      const data = new Uint8Array(wire);
-      data.set(copyBytes(proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"), 1);
-      instruction = Object.freeze({ ...instruction, data });
+    } else {
+      proof = await input.client.proveCustomRingDeposit(proofInputs, context);
     }
+    const data = new Uint8Array(wire);
+    data.set(copyBytes(proof, CUSTOM_RING_PROOF_LENGTH, "deposit proof"), 1);
+    instruction = Object.freeze({ ...instruction, data });
   } finally {
     envelope.destroy();
     blinding.fill(0);
@@ -248,7 +241,7 @@ async function buildRingDepositOnce(
   return compileUnsignedTransaction({
     feePayer: input.feePayer ?? input.depositor,
     lifetime,
-    computeUnitLimit: audited ? RING_DEPOSIT_COMPUTE_UNIT_LIMIT : DEFAULT_COMPUTE_UNIT_LIMIT,
+    computeUnitLimit: RING_DEPOSIT_COMPUTE_UNIT_LIMIT,
     instructions: [instruction],
   });
 }

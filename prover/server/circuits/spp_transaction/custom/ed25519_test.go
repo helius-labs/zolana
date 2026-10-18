@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -13,20 +14,20 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-// bytes32FromBitsCircuit hashes the reassembled bytes untagged, the way the
+// ed25519DigestCircuit hashes the reassembled bytes untagged, the way the
 // Ed25519 message digest enters the public input hash.
-type bytes32FromBitsCircuit struct {
+type ed25519DigestCircuit struct {
 	Bits     [256]frontend.Variable
 	Expected frontend.Variable
 }
 
-func (c *bytes32FromBitsCircuit) Define(api frontend.API) error {
-	bytes := bytes32FromBits(api, c.Bits[:])
-	api.AssertIsEqual(gadget.HashBytes(api, bytes[:]), c.Expected)
+func (c *ed25519DigestCircuit) Define(api frontend.API) error {
+	bytes := checked.BitsToBytesBE(api, c.Bits[:])
+	api.AssertIsEqual(gadget.HashBytes(api, bytes), c.Expected)
 	return nil
 }
 
-func TestBytes32FromBitsMatchesProtocolByteOrder(t *testing.T) {
+func TestEd25519DigestMatchesProtocolByteOrder(t *testing.T) {
 	digest := [32]byte{
 		0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
 		0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
@@ -51,15 +52,15 @@ func TestBytes32FromBitsMatchesProtocolByteOrder(t *testing.T) {
 	// The circuit decomposes the two digest limbs into little-endian bits;
 	// the helper must restore the original big-endian digest bytes.
 	value := new(big.Int).SetBytes(digest[:])
-	assignment := bytes32FromBitsCircuit{Expected: expected}
+	assignment := ed25519DigestCircuit{Expected: expected}
 	for i := range assignment.Bits {
 		assignment.Bits[i] = value.Bit(i)
 	}
 	if err := test.IsSolved(
-		&bytes32FromBitsCircuit{},
+		&ed25519DigestCircuit{},
 		&assignment,
 		ecc.BN254.ScalarField(),
 	); err != nil {
-		t.Fatalf("solve bytes32FromBits circuit: %v", err)
+		t.Fatalf("solve Ed25519 digest circuit: %v", err)
 	}
 }

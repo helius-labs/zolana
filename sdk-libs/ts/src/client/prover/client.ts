@@ -782,6 +782,21 @@ function mergeProverRequest(
   secret: SecretEncoder,
 ): ProverRequestBody {
   checkMergeRingData(inputs.inputs, inputs.output, inputs.outputRingDataHash);
+  const ring = mergeCircuit(inputs) === "merge-ring";
+  const registry =
+    inputs.memberRegistryRoot !== undefined &&
+    inputs.registeredCiphertextHash !== undefined &&
+    inputs.memberRecord !== undefined
+      ? {
+          memberRegistryRoot: hex(inputs.memberRegistryRoot, "memberRegistryRoot"),
+          registeredCiphertextHash: hex(
+            inputs.registeredCiphertextHash,
+            "registeredCiphertextHash",
+          ),
+          memberRecord: registryKeyJson(inputs.memberRecord),
+        }
+      : undefined;
+  if (ring !== (registry !== undefined)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   return Object.freeze({
     circuitType: mergeCircuit(inputs),
     inputs: inputs.inputs.map(mergeInputJson),
@@ -803,6 +818,7 @@ function mergeProverRequest(
     allowDummyInputs: hex(inputs.allowDummyInputs, "allowDummyInputs"),
     outputRingDataHash: hex(inputs.outputRingDataHash, "outputRingDataHash"),
     ringProgramId: hex(inputs.ringProgramId, "ringProgramId"),
+    ...registry,
   });
 }
 

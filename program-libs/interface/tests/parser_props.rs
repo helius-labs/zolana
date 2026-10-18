@@ -360,6 +360,7 @@ proptest! {
         clear_nullifiers in any::<bool>(),
     ) {
         let mut owned = MergeRingIxData {
+            member_registry_root: [9; 32],
             output_ring_data_hash: view_tag,
             merge,
         };

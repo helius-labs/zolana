@@ -9,7 +9,7 @@ use super::{
     ApplyError, Invocation,
 };
 
-pub(crate) use super::api::{member_record, registry_root};
+pub(crate) use super::api::{member_record, member_records, registry_root};
 pub(crate) use zolana_ring_indexer::member_registry::{Batch, MemberRecordRow};
 
 pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Batch>, ApplyError> {
@@ -272,6 +272,7 @@ mod tests {
                 seal: Some(SealedKey {
                     eph_pk: [5; 33],
                     ciphertext: [5; 32],
+                    owner_pubkey: None,
                 }),
             },
             cursor.advance_revision().unwrap(),
@@ -329,6 +330,7 @@ mod tests {
                 seal: Some(SealedKey {
                     eph_pk: [5; 33],
                     ciphertext: [5; 32],
+                    owner_pubkey: None,
                 }),
             },
             cursor.advance_revision().unwrap(),

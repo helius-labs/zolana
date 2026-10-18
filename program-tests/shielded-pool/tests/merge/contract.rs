@@ -331,6 +331,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(99),
+        member_registry_root: fe(1),
         cache: None,
     }
     .cpi_instruction();
@@ -525,6 +526,7 @@ fn merge_ring_cpi_instruction(
         payer: rpc.payer.pubkey(),
         data,
         output_ring_data_hash,
+        member_registry_root: fe(1),
         cache: None,
     }
     .cpi_instruction()
@@ -617,6 +619,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         payer: outsider,
         data: merge_ix_data(true),
         output_ring_data_hash: fe(92),
+        member_registry_root: fe(1),
         cache: None,
     }
     .cpi_instruction();
@@ -713,6 +716,7 @@ fn merge_ring_rejects_a_paused_tree() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
         output_ring_data_hash: fe(95),
+        member_registry_root: fe(1),
         cache: None,
     }
     .instruction();

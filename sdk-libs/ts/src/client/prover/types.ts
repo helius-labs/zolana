@@ -115,6 +115,10 @@ export interface MergeInputs {
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;
+  /** A ring merge proves a registered, auditor-recoverable owner key. Absent on plain merges. */
+  readonly memberRegistryRoot?: Field;
+  readonly registeredCiphertextHash?: Field;
+  readonly memberRecord?: CustomRingRecordWitness;
 }
 
 export type ProverInputs = Readonly<{

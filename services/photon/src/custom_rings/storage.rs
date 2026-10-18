@@ -370,6 +370,19 @@ impl<'c, C: ConnectionTrait> RingStore<'c, C> {
         self.read(sql, vec![member.to_vec().into()]).await
     }
 
+    /// Current member leaves in `[start, end)`, ordered by their append index.
+    /// The caller checks that every requested index is present before replying.
+    pub async fn members_by_index(&self, start: u64, end: u64) -> Result<Vec<MemberRecordRow>> {
+        let sql = "SELECT state FROM ring_member_registry_members \
+                   WHERE program=$1 AND leaf_index >= $2 AND leaf_index < $3 \
+                   ORDER BY leaf_index";
+        let rows = self
+            .conn
+            .query_all(self.statement(sql, vec![int(start)?, int(end)?]))
+            .await?;
+        rows.iter().map(state).collect()
+    }
+
     pub async fn predecessor(
         &self,
         member: &[u8; 32],

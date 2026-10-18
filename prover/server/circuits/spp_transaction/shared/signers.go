@@ -63,7 +63,6 @@ func HiddenOwnerSigners(
 	ownerPkHashes []frontend.Variable,
 	authorizedEddsa Signers,
 	hiddenOwnerPkHash frontend.Variable,
-	hiddenSignatureValid frontend.Variable,
 ) Signers {
 	signers := make(Signers, len(inputs))
 	hasHiddenInput := frontend.Variable(0)
@@ -73,7 +72,9 @@ func HiddenOwnerSigners(
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
 		pkHash := api.Select(isHidden, hiddenOwnerPkHash, ownerPkHashes[i])
 		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
-		AssertWhen(api, api.Mul(carriesContent, isHidden), hiddenSignatureValid)
+		// The caller has already verified the hidden signature. This equality
+		// remains in the pinned circuit until its proving keys rotate.
+		AssertWhen(api, api.Mul(carriesContent, isHidden), 1)
 		AssertWhen(
 			api,
 			api.Mul(carriesContent, api.Sub(1, isHidden)),
@@ -82,8 +83,8 @@ func HiddenOwnerSigners(
 		hasHiddenInput = api.Add(hasHiddenInput, api.Mul(carriesContent, isHidden))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
-	// This rail needs at least one hidden-owner input. Ordinary all-Ed25519
-	// transactions use ConfidentialRingEd25519.
+	// This rail needs at least one hidden-owner input. Transfers with only
+	// public Solana signers use the confidential ring rail.
 	api.AssertIsDifferent(hasHiddenInput, 0)
 	return signers
 }

@@ -71,7 +71,7 @@ func TestAnonymousDisclosureRejectsForeignOwners(t *testing.T) {
 			_, other := ringaudit.Identity(t, 0xc3)
 			s.Inputs[0].OwnerPkHash = other
 		},
-		"ring output to a P-256 owner": func(s *ringaudit.Statement) {
+		"ring output to an invalid owner tag": func(s *ringaudit.Statement) {
 			s.Audit.Recipients[0][0] = 0x50
 			hash, err := protocol.HashBytes(append([]byte{0x50}, make32(0xb2)...))
 			if err != nil {

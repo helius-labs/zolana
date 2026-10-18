@@ -4,15 +4,16 @@
 use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::CustomRingError;
 use custom_ring_interface::{
-    tag, CoSignScope, CoSigner, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData,
-    Delegate, EscrowKey, MemberRegistryRoot, MemberUpdate, PlainGroth16Proof, PolicyConfig,
-    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterKeyIxData, RingProgramConfig,
-    SetCoSignerIxData, SetPausedIxData, SourceSlot, SourceSpec, UpdateMembersIxData,
-    WithdrawalThreshold, WithdrawalThresholdRow, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
-    DELEGATE, DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, MEMBER_REGISTRY_EMPTY_ROOT,
-    MEMBER_REGISTRY_ROOT, MEMBER_REGISTRY_ROOT_HISTORY, MEMBER_REGISTRY_ROOT_PDA_SEED, N_FOREIGN,
-    N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256,
-    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    tag, CoSignScope, CoSigner, CreateConfigIxData, CustomRingMergeIxData, CustomRingProof,
+    CustomRingTransactIxData, Delegate, EscrowKey, MemberRegistryRoot, MemberUpdate,
+    PlainGroth16Proof, PolicyConfig, PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes,
+    RegisterKeyIxData, RingProgramConfig, SetCoSignerIxData, SetPausedIxData, SourceSlot,
+    SourceSpec, UpdateMembersIxData, WithdrawalThreshold, WithdrawalThresholdRow, CONFIG_PDA_SEED,
+    CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS,
+    MEMBER_REGISTRY_EMPTY_ROOT, MEMBER_REGISTRY_ROOT, MEMBER_REGISTRY_ROOT_HISTORY,
+    MEMBER_REGISTRY_ROOT_PDA_SEED, N_FOREIGN, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use custom_ring_interface::{DisclosureShape, RingMode, AUDITOR_MESSAGE_PREFIX_LEN};
 use mollusk_svm::{
@@ -29,7 +30,6 @@ use zolana_interface::{
         deposit::{
             DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         },
-        merge_ring::MergeRingIxData,
         merge_transact::{MergeProof, MergeTransactIxData},
         transact::{TransactIxData, TreeContext},
     },
@@ -1622,6 +1622,7 @@ pub fn deposit_fixture() -> Fixture {
 
 pub fn merge_fixture_with(config: Account) -> Fixture {
     let mut slots = forward_prefix(config);
+    slots.push(member_registry_root_slot());
     slots.extend(sol_merge_slots());
     Fixture::new(merge_ring_data(None), slots)
 }
@@ -1631,7 +1632,8 @@ pub fn merge_fixture_with(config: Account) -> Fixture {
 pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
     let mut data = vec![tag::MERGE];
     data.extend(
-        MergeRingIxData {
+        CustomRingMergeIxData {
+            registry_root_index: 0,
             output_ring_data_hash: [8; 32],
             merge: MergeTransactIxData {
                 expiry_unix_ts: u64::MAX,
@@ -1639,7 +1641,7 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
                 output_utxo_hash: [1; 32],
                 output_ciphertext_salt: [2; 16],
                 output_ciphertext: [[3; 32]; 3],
-                eddsa_owner: true,
+                eddsa_owner: false,
                 private_tx_hash: [3; 32],
                 nullifiers: vec![[5; 32]; 8],
                 utxo_tree_root_index: 0,

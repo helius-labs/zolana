@@ -99,6 +99,9 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		if json.Unmarshal(request.Prepared, &value) != nil {
 			return nil, fmt.Errorf("invalid prepared merge")
 		}
+		if value.CircuitType != request.CircuitType {
+			return nil, fmt.Errorf("prepared merge circuit type mismatch")
+		}
 		shape.Inputs, shape.Outputs = uint32(len(value.Inputs)), 1
 		inputs := make([]inputTarget, len(value.Inputs))
 		for index := range value.Inputs {

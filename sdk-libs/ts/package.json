@@ -37,6 +37,10 @@
       "types": "./dist/ring.d.ts",
       "import": "./dist/ring.js"
     },
+    "./ring/advanced": {
+      "types": "./dist/ring-advanced.d.ts",
+      "import": "./dist/ring-advanced.js"
+    },
     "./transaction": {
       "types": "./dist/transaction/index.d.ts",
       "import": "./dist/transaction/index.js"

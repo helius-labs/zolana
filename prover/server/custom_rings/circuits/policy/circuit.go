@@ -30,8 +30,8 @@ type CustomRingPolicyCircuit struct {
 
 	NIn               frontend.Variable
 	NOut              frontend.Variable
-	Inputs            [NInputs]UtxoWires
-	Outputs           [NOutputs]OutputWires
+	Inputs            [NInputs]UtxoWires    `shape:"dynamic"`
+	Outputs           [NOutputs]OutputWires `shape:"dynamic"`
 	AddressChain      frontend.Variable
 	PrivateTxBlinding frontend.Variable
 
@@ -57,10 +57,10 @@ type CustomRingPolicyCircuit struct {
 
 	MemberRegistryRoot frontend.Variable
 	// Subjects open input owners, output owners, then output assets in the own registry.
-	Subjects [NSubjects]registry.MemberOpening
+	Subjects [NSubjects]registry.MemberOpening `shape:"dynamic"`
 	// ForeignRoot is the curator registry the sources name, zero without one.
 	ForeignRoot     frontend.Variable
-	ForeignSubjects [NSubjects]registry.MemberOpening
+	ForeignSubjects [NSubjects]registry.MemberOpening `shape:"dynamic"`
 }
 
 type SourceWires struct {

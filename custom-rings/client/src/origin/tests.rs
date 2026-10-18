@@ -981,13 +981,14 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
         });
     let data = MergeRingIxData {
         output_ring_data_hash: [13; 32],
+        member_registry_root: [14; 32],
         merge: MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [6; 32],
             output_ciphertext_salt: [7; 16],
             output_ciphertext: [[0; 32]; 3],
-            eddsa_owner: true,
+            eddsa_owner: false,
             private_tx_hash: [0; 32],
             nullifiers: indexed.nullifiers.clone(),
             utxo_tree_root_index: 0,

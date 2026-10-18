@@ -46,6 +46,7 @@ pub(crate) fn response(
                 next: Hash(record.next),
                 lists: record.lists,
                 escrow_key: Hash(record.escrow_key),
+                owner_pubkey: None,
                 eph_pk: sealed.map(|sealed| Base64String(sealed.eph_pk.as_bytes().to_vec())),
                 ciphertext: sealed.map(|sealed| Base64String(sealed.ciphertext.to_vec())),
             }),

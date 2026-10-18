@@ -1,8 +1,10 @@
 package transaction
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 
@@ -70,11 +72,9 @@ type ProofInputRequest struct {
 }
 
 type ProofUtxoRequest struct {
-	Domain            string `json:"domain"`
-	Owner             string `json:"owner"`
-	OwnerSolanaPubkey string `json:"owner_solana_pubkey"`
-	// Reserved legacy field, rejected before any owner or witness is accepted.
-	OwnerP256Pubkey      string `json:"owner_p256_pubkey,omitempty"`
+	Domain               string `json:"domain"`
+	Owner                string `json:"owner"`
+	OwnerSolanaPubkey    string `json:"owner_solana_pubkey"`
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
 	Asset                string `json:"asset"`
 	Amount               string `json:"amount"`
@@ -148,8 +148,8 @@ func WriteProofBundle(ps *ProofSystem, requestPath string, outputPath string) er
 	if err != nil {
 		return err
 	}
-	var request ProofBundleRequest
-	if err := json.Unmarshal(bytes, &request); err != nil {
+	request, err := decodeProofBundleRequest(bytes)
+	if err != nil {
 		return err
 	}
 	bundle, err := BuildProofBundle(ps, request)
@@ -169,8 +169,8 @@ func WriteProofSigningPayload(ps *ProofSystem, requestPath string, outputPath st
 	if err != nil {
 		return err
 	}
-	var request ProofBundleRequest
-	if err := json.Unmarshal(bytes, &request); err != nil {
+	request, err := decodeProofBundleRequest(bytes)
+	if err != nil {
 		return err
 	}
 	bundle, err := BuildProofSigningPayload(ps, request)
@@ -183,6 +183,19 @@ func WriteProofSigningPayload(ps *ProofSystem, requestPath string, outputPath st
 	}
 	out = append(out, '\n')
 	return os.WriteFile(outputPath, out, 0644)
+}
+
+func decodeProofBundleRequest(data []byte) (ProofBundleRequest, error) {
+	var request ProofBundleRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return request, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return request, fmt.Errorf("unexpected trailing proof bundle data")
+	}
+	return request, nil
 }
 
 func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle, error) {

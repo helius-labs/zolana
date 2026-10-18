@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
 
 // InputParams mirrors merge.Input. Only the free per-slot UTXO fields are
@@ -88,6 +89,12 @@ type MergeParameters struct {
 	// Output.RingDataHash and folds it into the public-input hash. Zero on the
 	// default rail.
 	OutputRingDataHash *big.Int
+	// A ring merge requires the owner's registered recovery key. The proof
+	// authenticates this record against MemberRegistryRoot and binds its escrow
+	// commitment to UserNullifierPk and RegisteredCiphertextHash.
+	MemberRegistryRoot       *big.Int
+	RegisteredCiphertextHash *big.Int
+	MemberRecord             *customring.RecordOpening
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int

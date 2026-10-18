@@ -24,13 +24,16 @@ import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
+import { MAX_MERGE_INPUTS } from "../interface/constants.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
+import { KeypairError } from "../keypair/error.js";
 
 import { auditOpeningHash, type DecryptedAnonymousRingTrace } from "./audit.js";
 import type { AuditOutputOpening } from "../keypair/audit.js";
 import { bytesToBigInt, equal, ZERO_32 } from "../transaction/internal.js";
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
+import { memberOfTag } from "./policy.js";
 
 const base58Decoder = getBase58Decoder();
 const base64Decoder = getBase64Decoder();
@@ -359,6 +362,36 @@ export interface DecryptedRingTransactionsPage {
   readonly cursor?: Uint8Array;
 }
 
+/** A ring merge opened by the service from a registered recovery key. */
+export interface AuditedMergeRecord {
+  readonly signature: Signature;
+  readonly eventIndex: number;
+  readonly outputCommitment: Bytes32;
+  readonly ownerMember: Bytes32;
+  /** Confirmed RegisterKey signer, when the indexer retained that lineage. */
+  readonly ownerPubkey?: Address;
+  readonly mint: Address;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly inputNullifiers: readonly Bytes32[];
+  readonly nullifier: Bytes32;
+}
+
+export interface UnresolvedMergeRecord {
+  readonly signature: Signature;
+  readonly eventIndex: number;
+  readonly outputCommitment: Bytes32;
+}
+
+export interface AuditedMergesPage {
+  readonly slot: bigint;
+  readonly blockTime: bigint;
+  readonly opened: readonly AuditedMergeRecord[];
+  readonly unresolved: readonly UnresolvedMergeRecord[];
+  readonly cursor?: Uint8Array;
+}
+
 export interface RingRpcOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Even loopback needs it for plain HTTP. */
@@ -544,38 +577,106 @@ export class RingRpc {
     return this.readSigned(await request.sign(input.signer), context);
   }
 
+  /** The server opens confirmed ring merges with its auditor key. */
+  async getAuditedMerges(
+    input: Readonly<{
+      ringProgramId: Address;
+      signer: RingReadSigner;
+      cursor?: Uint8Array;
+      limit?: bigint;
+      timestamp?: bigint;
+    }>,
+    context?: RequestContext,
+  ): Promise<AuditedMergesPage> {
+    let request = RingReadRequest.read(input.ringProgramId);
+    if (input.cursor !== undefined) request = request.withCursor(input.cursor);
+    if (input.limit !== undefined) request = request.withLimit(input.limit);
+    if (input.timestamp !== undefined) request = request.at(input.timestamp);
+    return this.readSignedMerges(await request.sign(input.signer), context);
+  }
+
+  async readSignedMerges(
+    read: SignedRingRead,
+    context?: RequestContext,
+  ): Promise<AuditedMergesPage> {
+    await initializePoseidon();
+    const wire = record(
+      await this.#call("getAuditedMerges", signedReadParams(checkedSignedRead(read)), context),
+      "result",
+    );
+    const wireContext = record(wire["context"], "result.context");
+    const value = record(wire["value"], "result.value");
+    const cursor = value["cursor"];
+    const field = (input: unknown, path: string): Bytes32 => {
+      const bytes = hash(input, path);
+      if (bytesToBigInt(bytes) >= BN254_SCALAR_ORDER) throw invalid(path);
+      return bytes;
+    };
+    const identity = (item: Record<string, unknown>, path: string) => ({
+      signature: signature(item["txSignature"], `${path}.txSignature`),
+      eventIndex: u16(item["eventIndex"], `${path}.eventIndex`),
+      outputCommitment: field(item["outputCommitment"], `${path}.outputCommitment`),
+    });
+    const opened = list(value["opened"], "result.value.opened");
+    const unresolved = list(value["unresolved"], "result.value.unresolved");
+    if (opened.length + unresolved.length > Number(RING_READ_PAGE_LIMIT))
+      throw invalid("result.value");
+    return Object.freeze({
+      slot: integer(wireContext["slot"], "result.context.slot"),
+      blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
+      opened: Object.freeze(
+        opened.map((entry, index) => {
+          const path = `result.value.opened[${index}]`;
+          const item = record(entry, path);
+          const inputNullifiers = list(item["inputNullifiers"], `${path}.inputNullifiers`);
+          if (inputNullifiers.length < 2 || inputNullifiers.length > MAX_MERGE_INPUTS)
+            throw invalid(`${path}.inputNullifiers`);
+          const ownerMember = field(item["ownerMember"], `${path}.ownerMember`);
+          const ownerPubkey = item["ownerPubkey"];
+          const owner =
+            ownerPubkey === undefined || ownerPubkey === null
+              ? undefined
+              : address(ownerPubkey, `${path}.ownerPubkey`);
+          if (owner !== undefined && !equal(memberOfTag(addressBytes(owner)), ownerMember))
+            throw invalid(`${path}.ownerPubkey`);
+          return Object.freeze({
+            ...identity(item, path),
+            ownerMember,
+            ...(owner === undefined ? {} : { ownerPubkey: owner }),
+            mint: address(item["mint"], `${path}.mint`),
+            amount: u64(item["amount"], `${path}.amount`),
+            blinding: field(item["blinding"], `${path}.blinding`),
+            ringDataHash: field(item["ringDataHash"], `${path}.ringDataHash`),
+            inputNullifiers: Object.freeze(
+              inputNullifiers.map((nullifier) => field(nullifier, `${path}.inputNullifiers`)),
+            ),
+            nullifier: field(item["nullifier"], `${path}.nullifier`),
+          });
+        }),
+      ),
+      unresolved: Object.freeze(
+        unresolved.map((entry, index) =>
+          Object.freeze(
+            identity(
+              record(entry, `result.value.unresolved[${index}]`),
+              `result.value.unresolved[${index}]`,
+            ),
+          ),
+        ),
+      ),
+      ...(cursor === undefined || cursor === null
+        ? {}
+        : { cursor: base64(cursor, "result.value.cursor") }),
+    });
+  }
+
   async readSigned(
     read: SignedRingRead,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     const checked = checkedSignedRead(read);
-    const { signature } = checked;
     const wire = record(
-      await this.#call(
-        "getDecryptedTransactions",
-        {
-          ringProgramId: checked.ringProgramId,
-          ...(checked.cursor === undefined ? {} : { cursor: base64Decoder.decode(checked.cursor) }),
-          ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
-          auth: {
-            reader: base64Decoder.decode(checked.reader),
-            ...authWire({
-              timestamp: checked.timestamp,
-              nonce: checked.nonce,
-              signature: signature instanceof Uint8Array ? signature : signature.signature,
-            }),
-            ...(signature instanceof Uint8Array
-              ? {}
-              : {
-                  webauthn: {
-                    authenticatorData: base64Decoder.decode(signature.authenticatorData),
-                    clientDataJson: base64Decoder.decode(signature.clientDataJSON),
-                  },
-                }),
-          },
-        },
-        context,
-      ),
+      await this.#call("getDecryptedTransactions", signedReadParams(checked), context),
       "result",
     );
     const wireContext = record(wire["context"], "result.context");
@@ -651,6 +752,31 @@ function authWire(
     timestamp: Number(auth.timestamp),
     nonce: base64Decoder.decode(auth.nonce),
     signature: base64Decoder.decode(auth.signature),
+  };
+}
+
+function signedReadParams(checked: SignedRingRead): Record<string, unknown> {
+  const { signature } = checked;
+  return {
+    ringProgramId: checked.ringProgramId,
+    ...(checked.cursor === undefined ? {} : { cursor: base64Decoder.decode(checked.cursor) }),
+    ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
+    auth: {
+      reader: base64Decoder.decode(checked.reader),
+      ...authWire({
+        timestamp: checked.timestamp,
+        nonce: checked.nonce,
+        signature: signature instanceof Uint8Array ? signature : signature.signature,
+      }),
+      ...(signature instanceof Uint8Array
+        ? {}
+        : {
+            webauthn: {
+              authenticatorData: base64Decoder.decode(signature.authenticatorData),
+              clientDataJson: base64Decoder.decode(signature.clientDataJSON),
+            },
+          }),
+    },
   };
 }
 
@@ -1031,7 +1157,8 @@ function x25519Key(value: unknown, path: string): X25519PublicKey {
   if (bytes.length !== 33) throw invalid(path);
   try {
     return X25519PublicKey.fromBytes(bytes as Bytes33);
-  } catch {
+  } catch (cause) {
+    if (!(cause instanceof KeypairError)) throw cause;
     throw invalid(path);
   }
 }

@@ -1,6 +1,7 @@
 use crate::error::ClientError;
 use zolana_indexer_api::error_code::{
-    RING_MEMBER_UNREGISTERED, RING_REGISTRY_OUT_OF_SYNC, RING_REGISTRY_ROOT_CHANGED,
+    RING_MEMBER_UNREGISTERED, RING_REGISTRY_OUT_OF_SYNC, RING_REGISTRY_PAGE_GAP,
+    RING_REGISTRY_ROOT_CHANGED,
 };
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
@@ -46,6 +47,7 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
         } => match code {
             RING_REGISTRY_OUT_OF_SYNC => ClientError::RingRegistryOutOfSync,
             RING_REGISTRY_ROOT_CHANGED => ClientError::RingRegistryRootChanged,
+            RING_REGISTRY_PAGE_GAP => ClientError::RingRegistryPageGap,
             RING_MEMBER_UNREGISTERED => ClientError::RingMemberUnregistered,
             JSON_RPC_INTERNAL_ERROR => ClientError::IndexerUnavailable(message),
             _ => ClientError::Indexer(message),
@@ -89,6 +91,7 @@ mod tests {
                 RING_REGISTRY_ROOT_CHANGED,
                 ClientError::RingRegistryRootChanged,
             ),
+            (RING_REGISTRY_PAGE_GAP, ClientError::RingRegistryPageGap),
             (
                 RING_MEMBER_UNREGISTERED,
                 ClientError::RingMemberUnregistered,

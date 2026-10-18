@@ -1,11 +1,11 @@
-use custom_ring_interface::{RingProgramConfig, RING_PROGRAM_CONFIG};
+use custom_ring_interface::{
+    CustomRingMergeIxData, CustomRingMergeIxDataRef, RingProgramConfig, RING_PROGRAM_CONFIG,
+};
 use solana_address::Address;
 use zolana_client::{AsyncProverClient, AsyncZolanaClient};
 use zolana_interface::{
     instruction::{
-        instruction_data::{merge_ring::MergeRingIxData, merge_transact::MergeProof},
-        tag::RING_MERGE_TRANSACT,
-        MergeTransactIxData,
+        instruction_data::merge_transact::MergeProof, tag::RING_MERGE_TRANSACT, MergeTransactIxData,
     },
     pda,
 };
@@ -56,7 +56,8 @@ fn notes_of_another_ring_are_not_merged_into_this_one() {
 
 #[test]
 fn instruction_targets_the_same_ring_and_uses_its_authority() {
-    let data = MergeRingIxData {
+    let data = CustomRingMergeIxData {
+        registry_root_index: 0,
         output_ring_data_hash: [7; 32],
         merge: MergeTransactIxData {
             cache_slot: None,
@@ -88,11 +89,20 @@ fn instruction_targets_the_same_ring_and_uses_its_authority() {
     assert_eq!(instruction.accounts[2].pubkey, cosigner);
     assert!(instruction.accounts[2].is_signer);
     assert_eq!(
-        instruction.accounts[5].pubkey,
+        instruction.accounts[3].pubkey,
+        ring().member_registry_root_pda()
+    );
+    assert!(!instruction.accounts[3].is_signer);
+    assert_eq!(
+        instruction.accounts[6].pubkey,
         pda::ring_auth(&ring().program_id()).0
     );
     assert!(!instruction.accounts[5].is_signer);
     assert_eq!(instruction.data.first(), Some(&RING_MERGE_TRANSACT));
+    let parsed = CustomRingMergeIxDataRef::from_bytes(&instruction.data[1..]).unwrap();
+    assert_eq!(parsed.registry_root_index, 0);
+    assert_eq!(parsed.output_ring_data_hash, &[7; 32]);
+    assert_eq!(parsed.merge.nullifiers.len(), MERGE_DEFAULT_INPUT_COUNT);
 }
 
 struct NoIndexer;

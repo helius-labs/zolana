@@ -1,10 +1,6 @@
-//! Ring-deposit forwarder negatives.
-//!
-//! The forwarder's only work is validation plus the CPI into SPP, which mollusk
-//! cannot execute (SPP is not loaded here), so both assertable failures are
-//! pre-CPI. The successful forward is covered by the localnet end-to-end test.
+//! Ring-deposit forwarder negatives and proof-bound CPI checks.
 
-use custom_ring_interface::CustomRingError;
+use custom_ring_interface::{CustomRingError, RingProgramConfig};
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
@@ -14,9 +10,10 @@ use mollusk_svm::result::ProgramResult;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
 use crate::common::{
-    account, auditor_pubkey, authority, deposit_fixture, deposit_fixture_with,
-    escrowed_config_account, initialized_config_account, ring_auth_pda, setup_mollusk, Slot,
+    account, deposit_fixture, deposit_fixture_with, escrowed_config_account, ring_auth_pda,
+    setup_mollusk, Slot,
 };
+use crate::deposit_audit::{audited_fixture, proven_fixture};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -25,7 +22,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 #[test]
 fn impostor_shielded_pool_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = deposit_fixture();
+    let mut fixture = audited_fixture(1);
     fixture.substitute("spp_program", Pubkey::new_from_array([71; 32]));
     fixture.expect_err(
         &mollusk,
@@ -36,7 +33,7 @@ fn impostor_shielded_pool_program_is_rejected_exactly() {
 #[test]
 fn missing_ring_auth_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = deposit_fixture();
+    let mut fixture = proven_fixture(2);
     fixture.substitute("ring_config", Pubkey::new_from_array([72; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingRingAuth));
 }
@@ -44,7 +41,7 @@ fn missing_ring_auth_is_rejected_exactly() {
 #[test]
 fn oversized_account_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = deposit_fixture();
+    let mut fixture = proven_fixture(2);
     let mut filler = 100u8;
     let forwarded = fixture.position("tree");
     while fixture.instruction().accounts.len() - forwarded <= MAX_CPI_ACCOUNTS {
@@ -63,7 +60,7 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
     let (mut mollusk, _) = setup_mollusk();
     let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     mollusk.add_program(&spp_id, "spp_recorder_program");
-    let mut fixture = deposit_fixture();
+    let mut fixture = proven_fixture(2);
     let metas = fixture.instruction().accounts.clone();
     let tree_key = fixture.account_key("tree");
     let forwarded = metas
@@ -98,8 +95,17 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
 #[test]
 fn a_policy_deposit_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
-    deposit_fixture_with(initialized_config_account(authority(), auditor_pubkey(4)))
-        .expect_spp_cpi(&mollusk);
+    let mut fixture = proven_fixture(2);
+    let mut config = fixture
+        .accounts()
+        .iter()
+        .find(|(key, _)| key == &fixture.account_key("config"))
+        .unwrap()
+        .1
+        .clone();
+    bytemuck::from_bytes_mut::<RingProgramConfig>(&mut config.data).has_policy = 1;
+    fixture.set_account("config", config);
+    fixture.expect_spp_cpi(&mollusk);
 }
 
 #[test]
@@ -110,9 +116,9 @@ fn an_escrowed_ring_refuses_the_proofless_deposit() {
 }
 
 #[test]
-fn an_audit_only_deposit_keeps_its_tree_choice() {
+fn an_audit_only_ring_rejects_a_proofless_deposit() {
     let (mollusk, _) = setup_mollusk();
-    deposit_fixture().expect_spp_cpi(&mollusk);
+    deposit_fixture().expect_err(&mollusk, custom(CustomRingError::DepositAuditRequired));
 }
 
 /// The forwarder raises every `ring_auth` occurrence to a signer,
@@ -121,7 +127,7 @@ fn an_audit_only_deposit_keeps_its_tree_choice() {
 #[test]
 fn ring_auth_as_the_depositor_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = deposit_fixture();
+    let mut fixture = proven_fixture(2);
     fixture.substitute("depositor", ring_auth_pda().0);
     fixture.unsign("depositor");
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
@@ -130,7 +136,7 @@ fn ring_auth_as_the_depositor_is_rejected_exactly() {
 #[test]
 fn an_unsigned_depositor_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = deposit_fixture();
+    let mut fixture = proven_fixture(2);
     fixture.unsign("depositor");
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
 }

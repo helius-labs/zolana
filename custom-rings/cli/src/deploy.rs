@@ -26,7 +26,7 @@ use crate::{
     config::{expand_tilde, RingConfig},
     file, line,
     release::RingProgram,
-    status::audit_label,
+    status::stored_audit_flag,
     tool::SOLANA,
     workspace::Workspace,
     Context, DeployArgs, Target,
@@ -46,11 +46,7 @@ pub(crate) struct ProgramBinary {
 }
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
-    let prompt = "require an auditor disclosure proof on direct deposits?";
-    let deposit_audit = match args.deposit_audit {
-        Some(required) => required,
-        None => ctx.ask_yes(prompt, ctx.config.deposit_audit)?,
-    };
+    let deposit_audit = args.deposit_audit.unwrap_or(ctx.config.deposit_audit);
     let workspace = Workspace::from_env()?;
     ensure!(
         workspace.is_none() || ctx.config.target == Target::Localnet,
@@ -72,8 +68,9 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
     let outcome = upload(ctx, &authority, &program_keypair, &program_so)?;
     RingConfig::set_deposit_audit(&ctx.config_path, deposit_audit)?;
     ctx.config.deposit_audit = deposit_audit;
-    let audit = audit_label(deposit_audit);
-    line("deposit audit", format_args!("{audit} on first init"));
+    let flag = stored_audit_flag(deposit_audit);
+    line("legacy deposit flag", format_args!("{flag} on first init"));
+    line("deposit audit", "required");
     let program = ctx.ring.program_id();
     println!("{outcome} {program} under {}", authority.pubkey());
     Ok(())

@@ -37,6 +37,9 @@ pub enum MergeOwnerBinding {
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
+        /// A root selected from the calling ring's authenticated history.
+        /// The ring proof opens the owner's registered recovery key under it.
+        member_registry_root: [u8; 32],
     },
 }
 
@@ -132,12 +135,13 @@ impl<'a> MergeProof<'a> {
     /// hash, tree slot chain, output tree id, private tx hash, external data
     /// hash, dummy-input policy); the default merge then appends the owner's
     /// signing identity and nullifier public key (from the registry), while the
-    /// policy-ring merge omits that identity (no registry to bind it against) and
-    /// appends the output `ring_data_hash` and `ring_program_id`. Both then end
-    /// with the output ciphertext salt and the three ciphertext elements. The
+    /// policy-ring merge proves a member record for that identity under its
+    /// registry root and appends the output `ring_data_hash`, `ring_program_id`
+    /// and authenticated root. Both end with the output ciphertext salt and
+    /// the three ciphertext elements. The
     /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
-    /// without padding. Continuing from its hash with the six-element tail is
-    /// therefore equivalent to folding all 13 elements together.
+    /// without padding. Continuing from its hash with the variant tail folds
+    /// 13 default elements or 14 ring elements into the same hash chain.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -150,26 +154,36 @@ impl<'a> MergeProof<'a> {
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
         ])?;
-        let (tail_0, tail_1) = match &self.derived.owner_binding {
+        let [ciphertext_0, ciphertext_1, ciphertext_2] = *self.ix.output_ciphertext;
+        let salt = right_align(self.ix.output_ciphertext_salt);
+        match &self.derived.owner_binding {
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
-            } => (*output_ring_data_hash, *ring_program_id),
+                member_registry_root,
+            } => create_hash_chain_4_from_slice(&[
+                prefix_hash,
+                *output_ring_data_hash,
+                *ring_program_id,
+                *member_registry_root,
+                salt,
+                ciphertext_0,
+                ciphertext_1,
+                ciphertext_2,
+            ]),
             MergeOwnerBinding::Default {
                 signing_pk_field,
                 nullifier_pk,
-            } => (*signing_pk_field, *nullifier_pk),
-        };
-        let [ciphertext_0, ciphertext_1, ciphertext_2] = *self.ix.output_ciphertext;
-        create_hash_chain_4_from_slice(&[
-            prefix_hash,
-            tail_0,
-            tail_1,
-            right_align(self.ix.output_ciphertext_salt),
-            ciphertext_0,
-            ciphertext_1,
-            ciphertext_2,
-        ])
+            } => create_hash_chain_4_from_slice(&[
+                prefix_hash,
+                *signing_pk_field,
+                *nullifier_pk,
+                salt,
+                ciphertext_0,
+                ciphertext_1,
+                ciphertext_2,
+            ]),
+        }
         .map_err(Into::into)
     }
 }

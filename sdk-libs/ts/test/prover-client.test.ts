@@ -584,7 +584,19 @@ describe("prover request routing", () => {
 
   it("expects the merge-ring key for a merge inside a custom ring", async () => {
     const json = { "content-type": "application/json" };
-    const ringMerge = { ...mergeInputs(), ringProgramId: asField(7n) };
+    const ringMerge = {
+      ...mergeInputs(),
+      ringProgramId: asField(7n),
+      memberRegistryRoot: asField(2n),
+      registeredCiphertextHash: asField(3n),
+      memberRecord: {
+        next: bytes(4),
+        lists: 0n,
+        escrowKey: bytes(5),
+        index: 1n,
+        path: Array.from({ length: 20 }, () => bytes(0)),
+      },
+    };
     let posted: unknown;
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       posted = JSON.parse(String(init?.body));

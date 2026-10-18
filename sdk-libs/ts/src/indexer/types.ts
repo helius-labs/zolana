@@ -40,6 +40,7 @@ export interface RingMemberRecordView {
   readonly next: Hash;
   readonly lists: bigint;
   readonly escrowKey: Hash;
+  readonly ownerPubkey?: Address | null;
   readonly ephPk: Base64String | null;
   readonly ciphertext: Base64String | null;
 }
@@ -61,6 +62,29 @@ export interface RingMemberRecordResponse {
   readonly index: bigint;
   readonly path: readonly Hash[];
   readonly low: RingLowRecordView | null;
+}
+
+export interface RingMemberRecordsRequest {
+  readonly ringProgramId: Address;
+  readonly expectedRoot: Hash;
+  readonly expectedNextIndex: bigint;
+  readonly startIndex: bigint;
+  readonly limit: number;
+}
+
+export interface RingIndexedMemberRecordView {
+  readonly index: bigint;
+  readonly record: RingMemberRecordView;
+  readonly path: readonly Hash[];
+}
+
+export interface RingMemberRecordsResponse {
+  readonly context: IndexerContext;
+  readonly root: Hash;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly records: readonly RingIndexedMemberRecordView[];
+  readonly nextLeafIndex: bigint | null;
 }
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];

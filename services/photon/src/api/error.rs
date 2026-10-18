@@ -6,7 +6,8 @@ use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
 #[cfg(feature = "custom-rings")]
 use zolana_indexer_api::error_code::{
-    RING_MEMBER_UNREGISTERED, RING_REGISTRY_OUT_OF_SYNC, RING_REGISTRY_ROOT_CHANGED,
+    RING_MEMBER_UNREGISTERED, RING_REGISTRY_OUT_OF_SYNC, RING_REGISTRY_PAGE_GAP,
+    RING_REGISTRY_ROOT_CHANGED,
 };
 use zolana_indexer_api::ParseHashError;
 
@@ -42,6 +43,8 @@ pub enum CustomRingError {
     RootChanged,
     #[error("member has no record in the member registry")]
     MemberUnregistered,
+    #[error("member registry page has an index gap or inconsistent leaf")]
+    PageGap,
 }
 
 #[cfg(feature = "custom-rings")]
@@ -51,6 +54,7 @@ impl CustomRingError {
             Self::OutOfSync(_) => const { wire_code(RING_REGISTRY_OUT_OF_SYNC) },
             Self::RootChanged => const { wire_code(RING_REGISTRY_ROOT_CHANGED) },
             Self::MemberUnregistered => const { wire_code(RING_MEMBER_UNREGISTERED) },
+            Self::PageGap => const { wire_code(RING_REGISTRY_PAGE_GAP) },
         }
     }
 }

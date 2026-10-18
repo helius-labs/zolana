@@ -10,7 +10,9 @@ import {
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
   encodeRingMemberProofRequest,
+  encodeRingMemberRecordsRequest,
   decodeRingMemberRecord,
+  decodeRingMemberRecords,
   decodeRingMemberRegistryRoot,
   encodeRingMemberRegistryRootRequest,
   decodeUserRecordsResponse,
@@ -21,6 +23,7 @@ import {
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
   GET_RING_MEMBER_RECORD,
+  GET_RING_MEMBER_RECORDS,
   GET_RING_MEMBER_REGISTRY_ROOT,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
@@ -43,6 +46,8 @@ import type {
   GetUserRecordsResponse,
   RingMemberProofRequest,
   RingMemberRecordResponse,
+  RingMemberRecordsRequest,
+  RingMemberRecordsResponse,
   RingMemberRegistryTip,
 } from "../types.js";
 
@@ -59,6 +64,14 @@ export const getRingMemberRecordMethod: MethodDescriptor<
   name: GET_RING_MEMBER_RECORD,
   encodeRequest: encodeRingMemberProofRequest,
   decodeResponse: decodeRingMemberRecord,
+};
+export const getRingMemberRecordsMethod: MethodDescriptor<
+  RingMemberRecordsRequest,
+  RingMemberRecordsResponse
+> = {
+  name: GET_RING_MEMBER_RECORDS,
+  encodeRequest: encodeRingMemberRecordsRequest,
+  decodeResponse: decodeRingMemberRecords,
 };
 export const getRingMemberRegistryRootMethod: MethodDescriptor<
   Readonly<{ ringProgramId: import("../../interface/types.js").Address }>,

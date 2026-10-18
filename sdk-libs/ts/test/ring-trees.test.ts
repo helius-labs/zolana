@@ -28,6 +28,23 @@ describe("ringTreeIdResolver", () => {
     await expect(resolve(tree)).resolves.toBe(2);
     expect(getAccount).toHaveBeenCalledTimes(2);
   });
+
+  it("does not share a cancellable lookup between callers", async () => {
+    const tree = treeAddress(2);
+    const pending: Array<(account: RpcAccount) => void> = [];
+    const getAccount = vi.fn(() => new Promise<RpcAccount>((resolve) => pending.push(resolve)));
+    const controller = new AbortController();
+    const resolve = ringTreeIdResolver({ getAccount }, [], { signal: controller.signal });
+    const first = resolve(tree);
+    const second = resolve(tree);
+    expect(getAccount).toHaveBeenCalledTimes(2);
+    pending[0]?.(treeWithId(2));
+    pending[1]?.(treeWithId(2));
+    await expect(first).resolves.toBe(2);
+    await expect(second).resolves.toBe(2);
+    await expect(resolve(tree)).resolves.toBe(2);
+    expect(getAccount).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("readTreeHeads", () => {

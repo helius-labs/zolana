@@ -31,7 +31,7 @@ pub fn process_instruction(
             process_init_spp_ring_config_ix(program_id, accounts, ix_data)
         }
         InstructionTag::Transact => {
-            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Legacy)
+            process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Base)
         }
         InstructionTag::TransactTwoByThree => {
             process_transact_ix(program_id, accounts, ix_data, PolicyProofKind::TwoByThree)
@@ -71,7 +71,7 @@ pub fn process_instruction(
             process_set_deposit_audit_ix(program_id, accounts, ix_data)
         }
         InstructionTag::DelegateTransact => {
-            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Legacy)
+            process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::Base)
         }
         InstructionTag::DelegateTransactTwoByThree => {
             process_delegate_transact_ix(program_id, accounts, ix_data, PolicyProofKind::TwoByThree)

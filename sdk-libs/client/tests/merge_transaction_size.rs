@@ -135,6 +135,7 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
                 ring_program_id: ring,
                 payer,
                 output_ring_data_hash: data.output_ring_data_hash,
+                member_registry_root: data.member_registry_root,
                 data: data.merge,
                 cache: None,
             }

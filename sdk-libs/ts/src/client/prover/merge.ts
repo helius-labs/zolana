@@ -24,6 +24,7 @@ import type {
   ProofReader,
   IndexedProofInputs,
   PreparedMergeInputs,
+  RingMergeRegistryProof,
 } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
@@ -70,6 +71,7 @@ export async function assembleMerge(
   tree: Address,
   context?: RequestContext,
   cache?: MergeCacheTarget,
+  ringRegistry?: RingMergeRegistryProof,
 ): Promise<MergeAssembly> {
   try {
     validatePreparedMerge(prepared);
@@ -81,7 +83,14 @@ export async function assembleMerge(
         ? Promise.resolve(undefined)
         : indexer.getNonInclusionProofs(tree, dummyNullifiers, undefined, context),
     ]);
-    return assembleMergeUnchecked(prepared, proofs, dummyResponse?.proofs ?? [], tree, target);
+    return assembleMergeUnchecked(
+      prepared,
+      proofs,
+      dummyResponse?.proofs ?? [],
+      tree,
+      target,
+      ringRegistry,
+    );
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -93,6 +102,7 @@ export function assembleMergeWithProofs(
   tree: Address,
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
   cache?: MergeCacheTarget,
+  ringRegistry?: RingMergeRegistryProof,
 ): MergeAssembly {
   try {
     return assembleMergeUnchecked(
@@ -101,6 +111,7 @@ export function assembleMergeWithProofs(
       dummyNullifierProofs,
       tree,
       cache === undefined ? undefined : checkedMergeCacheTarget(cache),
+      ringRegistry,
     );
   } catch (cause) {
     throw fromClientCause(cause);
@@ -136,6 +147,7 @@ function assembleMergeUnchecked(
   dummyNullifierProofs: readonly NonInclusionProof[],
   tree: Address,
   cache: MergeCacheTarget | undefined,
+  ringRegistry: RingMergeRegistryProof | undefined,
 ): MergeAssembly {
   validateMergeTree(prepared, tree);
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
@@ -248,7 +260,7 @@ function assembleMergeUnchecked(
   }
   if (inputTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
 
-  const local = prepareMerge(prepared, tree, cache);
+  const local = prepareMerge(prepared, tree, cache, ringRegistry);
   const complete = local.finish(inputTree);
   return Object.freeze({
     ...complete,
@@ -273,6 +285,8 @@ interface MergePublicInputFields {
    * rail, the output ring data hash and ring program id on a ring merge.
    */
   readonly owner: readonly [bigint, bigint];
+  /** Present only on a ring merge, after its ring id and before the ciphertext. */
+  readonly memberRegistryRoot?: bigint;
   /** The output ciphertext's salt as a field element, then its three elements. */
   readonly outputCiphertextSalt: bigint;
   readonly outputCiphertext: readonly [bigint, bigint, bigint];
@@ -294,6 +308,7 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.externalDataHash,
     1n,
     ...input.owner,
+    ...(input.memberRegistryRoot === undefined ? [] : [input.memberRegistryRoot]),
     input.outputCiphertextSalt,
     ...input.outputCiphertext,
   ];
@@ -311,8 +326,11 @@ export function prepareMerge(
   prepared: PreparedMerge,
   tree: Address,
   cacheTarget?: MergeCacheTarget,
+  ringRegistry?: RingMergeRegistryProof,
 ): PreparedMergeAssembly {
   validateMergeTree(prepared, tree);
+  const ring = prepared.output.ringProgramId !== undefined;
+  if (ring !== (ringRegistry !== undefined)) throw new ClientError("CLIENT_INVALID_MERGE");
   const cache = cacheTarget === undefined ? undefined : checkedMergeCacheTarget(cacheTarget);
   const expiryUnixTs = prepared.expiryUnixTs;
   // 1. Reuse commitments within one call to keep mutable input bytes bound to the statement.
@@ -410,6 +428,9 @@ export function prepareMerge(
             bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
           ]
         : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+    ...(ringRegistry === undefined
+      ? {}
+      : { memberRegistryRoot: bytesField(ringRegistry.root, "member registry root") }),
     outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
     outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
   }).map(asField);
@@ -428,6 +449,15 @@ export function prepareMerge(
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
+    ...(ringRegistry === undefined
+      ? {}
+      : {
+          memberRegistryRoot: asField(bytesField(ringRegistry.root, "member registry root")),
+          registeredCiphertextHash: asField(
+            bytesField(ringRegistry.key.ctHash, "registered ciphertext hash"),
+          ),
+          memberRecord: ringRegistry.key,
+        }),
   });
   return Object.freeze({
     inputs: Object.freeze({

@@ -13,10 +13,11 @@ use zolana_interface::instruction::InterfaceTransfer;
 
 use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
-    clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, custom, deposit_fixture,
-    merge_fixture, rent_recipient, ring_auth_pda, set_cosigner_data, set_cosigner_fixture,
-    setup_mollusk, sol_settlement, spl_settlement, stored, Fixture, Slot, SOL, USDC,
+    clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, custom, merge_fixture,
+    rent_recipient, ring_auth_pda, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
+    sol_settlement, spl_settlement, stored, Fixture, Slot, SOL, USDC,
 };
+use crate::deposit_audit::proven_fixture;
 use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
 fn stored_cosigner(result: &InstructionResult) -> CoSigner {
@@ -457,19 +458,19 @@ fn a_withdrawn_mint_without_a_threshold_row_needs_the_cosigner() {
 fn a_deposit_scope_gates_the_ring_deposit() {
     let (mollusk, _) = setup_mollusk();
     with_cosigner(
-        deposit_fixture(),
+        proven_fixture(2),
         cosigner_account(CoSignScope::TRANSFERS, &[]),
         false,
     )
     .expect_spp_cpi(&mollusk);
     with_cosigner(
-        deposit_fixture(),
+        proven_fixture(2),
         cosigner_account(CoSignScope::DEPOSITS, &[]),
         false,
     )
     .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
     with_cosigner(
-        deposit_fixture(),
+        proven_fixture(2),
         cosigner_account(CoSignScope::DEPOSITS, &[]),
         true,
     )

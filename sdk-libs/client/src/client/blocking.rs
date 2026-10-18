@@ -14,6 +14,7 @@ use crate::{
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+        GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
         GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
@@ -223,6 +224,13 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
         request: GetRingMemberRecordRequest,
     ) -> Result<GetRingMemberRecordResponse, ClientError> {
         self.block_on(self.client.get_ring_member_record(request))
+    }
+
+    fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.block_on(self.client.get_ring_member_records(request))
     }
 
     fn get_ring_member_registry_root(

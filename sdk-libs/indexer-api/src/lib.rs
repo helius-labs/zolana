@@ -19,7 +19,10 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransaction
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
 pub const GET_RING_MEMBER_RECORD: &str = "getRingMemberRecord";
+pub const GET_RING_MEMBER_RECORDS: &str = "getRingMemberRecords";
 pub const GET_RING_MEMBER_REGISTRY_ROOT: &str = "getRingMemberRegistryRoot";
+/// Pages include one authentication path per record.
+pub const MAX_RING_MEMBER_PAGE_LIMIT: u64 = 100;
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 pub const GET_USER_RECORDS: &str = "getUserRecords";
@@ -35,6 +38,7 @@ pub mod error_code {
     pub const RING_REGISTRY_OUT_OF_SYNC: i64 = -32070;
     pub const RING_REGISTRY_ROOT_CHANGED: i64 = -32071;
     pub const RING_MEMBER_UNREGISTERED: i64 = -32072;
+    pub const RING_REGISTRY_PAGE_GAP: i64 = -32075;
     // -32073 retired with the register proof endpoint.
     // -32074 retired with the ring spend records.
 }
@@ -55,6 +59,7 @@ pub mod method {
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
     pub struct GetRingMemberRecord;
+    pub struct GetRingMemberRecords;
     pub struct GetRingMemberRegistryRoot;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
@@ -94,6 +99,12 @@ pub mod method {
         const NAME: &'static str = GET_RING_MEMBER_RECORD;
         type Request = GetRingMemberRecordRequest;
         type Response = GetRingMemberRecordResponse;
+    }
+
+    impl RpcMethod for GetRingMemberRecords {
+        const NAME: &'static str = GET_RING_MEMBER_RECORDS;
+        type Request = GetRingMemberRecordsRequest;
+        type Response = GetRingMemberRecordsResponse;
     }
 
     impl RpcMethod for GetRingMemberRegistryRoot {
@@ -751,6 +762,44 @@ pub struct GetRingMemberRecordRequest {
     pub expected_next_index: u64,
 }
 
+/// Page real member leaves at one current, on-chain-checked registry root.
+/// Leaf 0 is the sentinel. Start at 1 and pass `next_leaf_index` to continue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRecordsRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub expected_root: Hash,
+    pub expected_next_index: u64,
+    pub start_index: u64,
+    /// Between 1 and [`MAX_RING_MEMBER_PAGE_LIMIT`].
+    pub limit: u64,
+}
+
+/// One contiguous member leaf and its authentication path at `root`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingIndexedMemberRecordView {
+    pub index: u64,
+    pub record: RingMemberRecordView,
+    pub path: Vec<Hash>,
+}
+
+/// A complete leaf-index range. An indexer gap fails the call instead of
+/// shortening the page. A changed root also fails, so pages cannot mix states.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRecordsResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub root_index: u8,
+    pub next_index: u64,
+    pub records: Vec<RingIndexedMemberRecordView>,
+    pub next_leaf_index: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -781,6 +830,10 @@ pub struct RingMemberRecordView {
     /// Bit `i` marks list id `i + 1`.
     pub lists: u64,
     pub escrow_key: Hash,
+    /// The RegisterKey signer whose owner tag hashes to `member`. Absent for
+    /// records indexed before signer projection was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_pubkey: Option<SerializablePubkey>,
     /// Tagged X25519 ephemeral key of the sealed nullifier secret, 33 bytes.
     #[serde(default)]
     pub eph_pk: Option<Base64String>,

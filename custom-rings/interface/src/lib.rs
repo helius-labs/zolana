@@ -9,6 +9,7 @@ pub mod error;
 pub mod instruction;
 pub mod key_catalog;
 pub mod member_registry;
+pub mod merge;
 pub mod policy_public_input;
 pub mod public_table;
 #[cfg(feature = "verifying-keys")]
@@ -35,6 +36,7 @@ pub use disclosure::*;
 pub use error::CustomRingError;
 pub use instruction::*;
 pub use member_registry::*;
+pub use merge::*;
 pub use policy_public_input::{CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS};
 pub use public_table::*;
 pub use state::*;

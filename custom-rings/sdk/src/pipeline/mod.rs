@@ -185,7 +185,7 @@ impl<R: Rail> RingTransfer<R> {
             return Err(RingError::ApprovalWithoutCoSigner);
         }
         let preview = ProvenRingTransfer {
-            policy_kind: custom_ring_interface::PolicyProofKind::Legacy,
+            policy_kind: custom_ring_interface::PolicyProofKind::Base,
             tx_viewing_key: staged.tx_viewing_key.clone(),
             data: spp.preview(inputs)?,
             proof: CustomRingProof {
@@ -500,7 +500,7 @@ impl Tier {
                 client.prove_request(&RingRequest(&*body)).await?,
                 None,
                 false,
-                custom_ring_interface::PolicyProofKind::Legacy,
+                custom_ring_interface::PolicyProofKind::Base,
             )),
             Self::Policy(request) => {
                 let approval_required = request.approval_required;

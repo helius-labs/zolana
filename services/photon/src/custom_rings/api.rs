@@ -8,9 +8,11 @@ use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
 use zolana_indexer_api::{
     Base64String, Context as ApiContext, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
-    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse, Hash, RingLowRecordView,
-    RingMemberRecordView, SerializablePubkey,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, Hash, RingIndexedMemberRecordView, RingLowRecordView,
+    RingMemberRecordView, SerializablePubkey, MAX_RING_MEMBER_PAGE_LIMIT,
 };
+use zolana_ring_policy::Member;
 
 use super::{
     load_root, member_registry_root_pda, proof,
@@ -49,20 +51,7 @@ pub(crate) async fn member_record(
             if row.hash().map_err(internal)? != path.leaf {
                 return Err(internal("member record disagrees with its leaf"));
             }
-            let view = RingMemberRecordView {
-                member: Hash(row.member),
-                next: Hash(row.next),
-                lists: row.lists,
-                escrow_key: Hash(row.escrow_key),
-                eph_pk: row
-                    .seal
-                    .as_ref()
-                    .map(|seal| Base64String(seal.eph_pk.to_vec())),
-                ciphertext: row
-                    .seal
-                    .as_ref()
-                    .map(|seal| Base64String(seal.ciphertext.to_vec())),
-            };
+            let view = record_view(&row).map_err(internal)?;
             (true, Some(view), row.index, hashes(path.siblings), None)
         }
         None => {
@@ -104,6 +93,91 @@ pub(crate) async fn member_record(
         index,
         path,
         low,
+    })
+}
+
+/// Contiguous, authenticated member leaves at a root pinned for the whole scan.
+pub(crate) async fn member_records(
+    db: &DatabaseConnection,
+    rpc: &RpcClient,
+    request: GetRingMemberRecordsRequest,
+) -> Result<GetRingMemberRecordsResponse, PhotonApiError> {
+    if request.limit == 0 || request.limit > MAX_RING_MEMBER_PAGE_LIMIT {
+        return Err(validation("invalid member registry page limit"));
+    }
+    if request.start_index == 0 || request.start_index > request.expected_next_index {
+        return Err(validation("invalid member registry page start"));
+    }
+    let expected = Expected {
+        root: request.expected_root.0,
+        next_index: request.expected_next_index,
+    };
+    let (tx, snapshot) = snapshot(db, &request.ring_program_id, Some(expected)).await?;
+    let root = &snapshot.root;
+    let end = request
+        .start_index
+        .saturating_add(request.limit)
+        .min(root.next_index);
+    let store = RingStore::new(&tx, root.program);
+    let rows = store
+        .members_by_index(request.start_index, end)
+        .await
+        .map_err(internal)?;
+    if rows.len() as u64 != end - request.start_index {
+        return Err(CustomRingError::PageGap.into());
+    }
+    let mut records = Vec::with_capacity(rows.len());
+    for (offset, row) in rows.iter().enumerate() {
+        let index = request.start_index + offset as u64;
+        if row.index != index || (row.escrow_key != [0; 32] && row.seal.is_none()) {
+            return Err(CustomRingError::PageGap.into());
+        }
+        let path = proof::path(&tx, root, index).await.map_err(internal)?;
+        if row.hash().map_err(internal)? != path.leaf {
+            return Err(CustomRingError::PageGap.into());
+        }
+        records.push(RingIndexedMemberRecordView {
+            index,
+            record: record_view(row).map_err(|_| CustomRingError::PageGap)?,
+            path: hashes(path.siblings),
+        });
+    }
+    tx.commit().await?;
+    let (context, chain) = confirm(rpc, &snapshot).await?;
+    Ok(GetRingMemberRecordsResponse {
+        context,
+        root: Hash(root.root),
+        root_index: chain.history_cursor,
+        next_index: root.next_index,
+        records,
+        next_leaf_index: (end < root.next_index).then_some(end),
+    })
+}
+
+fn record_view(
+    row: &super::member_registry::MemberRecordRow,
+) -> anyhow::Result<RingMemberRecordView> {
+    let owner_pubkey = row.seal.as_ref().and_then(|seal| seal.owner_pubkey);
+    if let Some(owner) = owner_pubkey {
+        anyhow::ensure!(
+            Member::owner_tag(&owner)?.as_bytes() == &row.member,
+            "projected owner public key disagrees with its member tag"
+        );
+    }
+    Ok(RingMemberRecordView {
+        member: Hash(row.member),
+        next: Hash(row.next),
+        lists: row.lists,
+        escrow_key: Hash(row.escrow_key),
+        owner_pubkey: owner_pubkey.map(|owner| Pubkey::new_from_array(owner).into()),
+        eph_pk: row
+            .seal
+            .as_ref()
+            .map(|seal| Base64String(seal.eph_pk.to_vec())),
+        ciphertext: row
+            .seal
+            .as_ref()
+            .map(|seal| Base64String(seal.ciphertext.to_vec())),
     })
 }
 
@@ -257,4 +331,34 @@ pub(super) fn validation(reason: impl Display) -> PhotonApiError {
 
 pub(super) fn internal(error: impl Display) -> PhotonApiError {
     PhotonApiError::UnexpectedError(format!("{error:#}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_ring_indexer::member_registry::SealedKey;
+
+    #[test]
+    fn projected_signer_must_match_authenticated_member() {
+        let owner = [42u8; 32];
+        let member = *Member::owner_tag(&owner).unwrap().as_bytes();
+        let mut row = super::super::member_registry::MemberRecordRow {
+            member,
+            index: 1,
+            next: custom_ring_interface::FIELD_MAX,
+            lists: 0,
+            escrow_key: [7; 32],
+            seal: Some(SealedKey {
+                eph_pk: [4; 33],
+                ciphertext: [9; 32],
+                owner_pubkey: Some(owner),
+            }),
+        };
+        assert_eq!(
+            record_view(&row).unwrap().owner_pubkey,
+            Some(Pubkey::new_from_array(owner).into())
+        );
+        row.seal.as_mut().unwrap().owner_pubkey = Some([43; 32]);
+        assert!(record_view(&row).is_err());
+    }
 }

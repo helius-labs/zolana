@@ -1,6 +1,7 @@
 import { blockhash } from "@solana/kit";
 import { ZERO_32 } from "../transaction/internal.js";
 import { RING_POLICY_MAX_INPUTS, validateRingPolicyShape, type Shape } from "../interface/shape.js";
+import { InterfaceError } from "../interface/errors.js";
 import { shareMemberSubtree } from "../interface/member-registry.js";
 import { withProofDataRetry } from "../client/retry.js";
 import type {
@@ -85,8 +86,13 @@ import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
-import { RING_COSIGN_TRANSFERS, RING_COSIGN_WITHDRAWALS, type RingPolicyConfig } from "./codecs.js";
-import { provePolicyAnswers, type RingPolicyAnswerClient } from "./answers.js";
+import {
+  RING_COSIGN_TRANSFERS,
+  RING_COSIGN_WITHDRAWALS,
+  type RingPolicyConfig,
+  type RingProgramConfig,
+} from "./codecs.js";
+import { provePolicyAnswers, type PolicyAnswers, type RingPolicyAnswerClient } from "./answers.js";
 import {
   memberOfAsset,
   memberOfIdentity,
@@ -714,7 +720,9 @@ async function proveRingTransferStatement(
   if (policy !== undefined) {
     try {
       validateRingPolicyShape(prepared.shape.inputs, prepared.shape.outputs, prepared.shape);
-    } catch {
+    } catch (cause) {
+      if (!(cause instanceof InterfaceError) || cause.code !== "INTERFACE_INVALID_SHAPE")
+        throw cause;
       throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
     }
   }
@@ -795,78 +803,14 @@ async function proveRingTransferStatement(
       policyRound !== undefined && config.keyEscrow
         ? ringEscrowedOwners(openings.outputs, policyRound.config.namespaceOwnerHash)
         : undefined;
-    // Proof bytes have a fixed length, so this catches oversized payloads before either prover runs.
-    const preparedProof = prepareTransfer(proofInputs, {
-      kind: flow.kind === "delegate" ? "ringAuthority" : "ring",
-      ring: input.ringProgramId,
-    });
-    const preview = preparedProof.finish(
-      prepared.inputTreeIds.map((id) => ({
-        treeId: id,
-        slot: { id, utxoRoot: ZERO_32, nullifierRoot: ZERO_32 },
-        utxoRootIndex: 0,
-        nullifierRootIndex: 0,
-      })),
-    );
-    const previewData = preview.withProof({
-      a: ZERO_32,
-      b: new Uint8Array(128) as Bytes128,
-      c: ZERO_32,
-    });
-    const previewPolicy =
-      policyRound === undefined
-        ? undefined
-        : {
-            trees: policyRound.policyTrees,
-            treeContexts: policyRound.treeContexts,
-            memberRegistryRootIndex: policyRound.rootIndex,
-            memberRegistryRoot: policyRound.registry.root,
-            ...(policyRound.foreign === undefined
-              ? {}
-              : {
-                  foreignRegistry: policyRound.foreign.registry,
-                  foreignRootIndex: policyRound.foreign.rootIndex,
-                  foreignRoot: policyRound.foreign.indexed.root,
-                }),
-          };
-    const previewCommon = {
-      ringProgramId: input.ringProgramId,
-      payer: prepared.payer,
-      inputTrees: prepared.inputTreeIds.map((id) => inputTreeAddress(flow.client, id)),
-      outputTree: outputTree.tree,
-      proof: new Uint8Array(192),
-      data: previewData,
+    await assertRingTransferFits({
+      input,
+      flow,
+      prepared,
+      proofInputs,
+      outputTree,
+      policyRound,
       approvalRequired,
-      ...(previewPolicy === undefined ? {} : { policy: previewPolicy }),
-      ...(input.transaction?.cosigner === undefined
-        ? {}
-        : { cosigner: input.transaction.cosigner }),
-    };
-    const previewInstruction =
-      flow.kind === "delegate"
-        ? await ringDelegateTransactInstruction({
-            ...previewCommon,
-            delegate: input.transaction?.delegate ?? prepared.payer,
-          })
-        : await ringTransactInstruction({
-            ...previewCommon,
-            ownerSigners: ownerSignerAddresses(prepared.inputs),
-            ...(input.transaction?.withdrawal === undefined
-              ? {}
-              : { withdrawal: input.transaction.withdrawal }),
-          });
-    compileUnsignedTransaction({
-      feePayer: prepared.payer,
-      lifetime: {
-        blockhash: blockhash("11111111111111111111111111111111"),
-        lastValidBlockHeight: 0n,
-      },
-      instructions: [...(input.transaction?.setupInstructions ?? []), previewInstruction],
-      computeUnitLimit: RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-      ...(input.transaction?.priorityFeeLamports === undefined
-        ? {}
-        : { priorityFeeLamports: input.transaction.priorityFeeLamports }),
-      sizeShape: prepared.shape,
     });
     // 4. Prove the SPP spend and bind the ring proof to that same transaction.
     const { data } =
@@ -926,81 +870,19 @@ async function proveRingTransferStatement(
       return Object.freeze({ ...common, proof, approvalRequired });
     }
 
-    const limitProofInput =
-      limits ??
-      outflowLimitsOff({
-        ringId,
-        namespaceOwnerHash: policyRound.config.namespaceOwnerHash,
-      });
-    const memberRegistryRoot = {
-      keyEscrow: config.keyEscrow,
-      memberRegistryRoot: policyRound.registry.root,
-      foreignRoot: policyRound.foreign?.indexed.root ?? ZERO_32,
-    };
-    const statement = {
-      privateTxHash: data.privateTxHash,
-      txViewingPublicKey: encrypted.txViewingPublicKey,
-      auditorPublicKey: config.auditorPublicKey,
+    const { statement, policyRequest, twoByThree, policyShape } = buildPolicyProofRequest({
+      policyRound,
+      config,
+      data,
+      encrypted,
+      openings,
+      proofInputs,
+      limits,
+      ringId,
+      shape,
       message,
-      outputHashes: publishedOutputHashes(proofInputs),
-      salt: encrypted.salt,
-      policyHash: policyRound.config.policyHash,
-      treeSlots: policyRound.treeSlots,
-      addressTreeId: policyRound.config.addressTreeId,
-      ringId: limitProofInput.ringId,
-      namespaceOwnerHash: limitProofInput.namespaceOwnerHash,
-      approvalRequired: limitProofInput.approvalRequired,
-      ...memberRegistryRoot,
-    };
-    const privateTxPreimage = sppPrivateTxHashInput(proofInputs);
-    const registrySubtree =
-      flow.client.proofDataSource !== "prover" &&
-      [policyRound.subjects, policyRound.foreignSubjects].every((subjects) =>
-        shareMemberSubtree(
-          subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
-        ),
-      );
-    const twoByThree = registrySubtree && openings.nIn === 2 && openings.nOut === 3;
-    const requestOpenings = twoByThree ? ringOpenings(proofInputs) : openings;
-    const requestSubjects = (subjects: readonly (CustomRingSubjectWitness | undefined)[]) =>
-      twoByThree && shape !== undefined ? legacyPolicySubjects(subjects, shape) : subjects;
-    const policyShape = twoByThree ? undefined : registrySubtree ? "subtree" : "general";
-    const policyRequest: CustomRingPolicyProofRequest = {
-      twoByThree,
-      ...(twoByThree || shape === undefined ? {} : { shape, registrySubtree }),
-      publicInputHash: policyPublicInputHash(statement),
-      privateTxHash: data.privateTxHash,
-      txViewingSecret: encrypted.audit.txViewingSecret,
-      ephemeralSecret: encrypted.audit.ephemeralSecret,
-      auditorPublicKey: config.auditorPublicKey.u(),
-      salt: encrypted.salt,
-      nIn: openings.nIn,
-      nOut: openings.nOut,
-      inputs: requestOpenings.inputs,
-      outputs: requestOpenings.outputs.map((opening, index) => ({
-        ...opening,
-        ctHash: policyRound.ctHashes[index] ?? ZERO_32,
-      })),
-      addressChain: privateTxAddressChain(privateTxPreimage),
-      privateTxBlinding: privateTxPreimage.blinding,
-      sources: policyRound.sources,
-      policyLen: policyRound.config.ruleCount,
-      rules: paddedRows(policyRound.config.rules, RING_RULE_SLOTS),
-      inlineAssets: paddedRows(policyRound.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
-      inlineLimits: Object.freeze(
-        Array.from(
-          { length: RING_INLINE_ASSET_SLOTS },
-          (_, index) => policyRound.config.inlineLimits[index] ?? 0n,
-        ),
-      ),
-      inlineCount: policyRound.config.inlineCount,
-      treeSlots: policyRound.treeSlots,
-      addressTreeId: policyRound.config.addressTreeId,
-      limits: limitProofInput,
-      ...memberRegistryRoot,
-      subjects: requestSubjects(policyRound.subjects),
-      foreignSubjects: requestSubjects(policyRound.foreignSubjects),
-    };
+      proofDataSource: flow.client.proofDataSource,
+    });
     let indexed:
       | Awaited<ReturnType<NonNullable<typeof flow.client.proveIndexedRingPolicy>>>
       | undefined;
@@ -1070,7 +952,206 @@ async function proveRingTransferStatement(
   }
 }
 
-function legacyPolicySubjects(
+/** Check the final instruction size before invoking either prover. */
+async function assertRingTransferFits({
+  input,
+  flow,
+  prepared,
+  proofInputs,
+  outputTree,
+  policyRound,
+  approvalRequired,
+}: Readonly<{
+  input: Omit<CustomRingTransferParams, "client" | "keys">;
+  flow: Readonly<{ kind: "member" | "delegate"; client: TreeContext }>;
+  prepared: PreparedTransfer;
+  proofInputs: SppProofInputs;
+  outputTree: TreeContext;
+  policyRound: PolicyRound | undefined;
+  approvalRequired: boolean;
+}>): Promise<void> {
+  // Proof bytes have a fixed length, so this catches oversized payloads before either prover runs.
+  const preparedProof = prepareTransfer(proofInputs, {
+    kind: flow.kind === "delegate" ? "ringAuthority" : "ring",
+    ring: input.ringProgramId,
+  });
+  const preview = preparedProof.finish(
+    prepared.inputTreeIds.map((id) => ({
+      treeId: id,
+      slot: { id, utxoRoot: ZERO_32, nullifierRoot: ZERO_32 },
+      utxoRootIndex: 0,
+      nullifierRootIndex: 0,
+    })),
+  );
+  const previewData = preview.withProof({
+    a: ZERO_32,
+    b: new Uint8Array(128) as Bytes128,
+    c: ZERO_32,
+  });
+  const previewPolicy =
+    policyRound === undefined
+      ? undefined
+      : {
+          trees: policyRound.policyTrees,
+          treeContexts: policyRound.treeContexts,
+          memberRegistryRootIndex: policyRound.rootIndex,
+          memberRegistryRoot: policyRound.registry.root,
+          ...(policyRound.foreign === undefined
+            ? {}
+            : {
+                foreignRegistry: policyRound.foreign.registry,
+                foreignRootIndex: policyRound.foreign.rootIndex,
+                foreignRoot: policyRound.foreign.indexed.root,
+              }),
+        };
+  const previewCommon = {
+    ringProgramId: input.ringProgramId,
+    payer: prepared.payer,
+    inputTrees: prepared.inputTreeIds.map((id) => inputTreeAddress(flow.client, id)),
+    outputTree: outputTree.tree,
+    proof: new Uint8Array(192),
+    data: previewData,
+    approvalRequired,
+    ...(previewPolicy === undefined ? {} : { policy: previewPolicy }),
+    ...(input.transaction?.cosigner === undefined ? {} : { cosigner: input.transaction.cosigner }),
+  };
+  const previewInstruction =
+    flow.kind === "delegate"
+      ? await ringDelegateTransactInstruction({
+          ...previewCommon,
+          delegate: input.transaction?.delegate ?? prepared.payer,
+        })
+      : await ringTransactInstruction({
+          ...previewCommon,
+          ownerSigners: ownerSignerAddresses(prepared.inputs),
+          ...(input.transaction?.withdrawal === undefined
+            ? {}
+            : { withdrawal: input.transaction.withdrawal }),
+        });
+  compileUnsignedTransaction({
+    feePayer: prepared.payer,
+    lifetime: {
+      blockhash: blockhash("11111111111111111111111111111111"),
+      lastValidBlockHeight: 0n,
+    },
+    instructions: [...(input.transaction?.setupInstructions ?? []), previewInstruction],
+    computeUnitLimit: RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+    ...(input.transaction?.priorityFeeLamports === undefined
+      ? {}
+      : { priorityFeeLamports: input.transaction.priorityFeeLamports }),
+    sizeShape: prepared.shape,
+  });
+}
+
+/** Build the policy statement and witness from the pinned spend and registry reads. */
+function buildPolicyProofRequest({
+  policyRound,
+  config,
+  data,
+  encrypted,
+  openings,
+  proofInputs,
+  limits,
+  ringId,
+  shape,
+  message,
+  proofDataSource,
+}: Readonly<{
+  policyRound: PolicyRound;
+  config: RingProgramConfig;
+  data: TransactInstructionData;
+  encrypted: EncryptedCustomRingTransfer;
+  openings: ReturnType<typeof ringOpenings>;
+  proofInputs: SppProofInputs;
+  limits: CustomRingOutflowLimitProofInput | undefined;
+  ringId: Bytes32;
+  shape: Shape | undefined;
+  message: ReturnType<typeof parseAuditorMessage>;
+  proofDataSource: RingTransferClient["proofDataSource"];
+}>) {
+  const limitProofInput =
+    limits ??
+    outflowLimitsOff({
+      ringId,
+      namespaceOwnerHash: policyRound.config.namespaceOwnerHash,
+    });
+  const memberRegistryRoot = {
+    keyEscrow: config.keyEscrow,
+    memberRegistryRoot: policyRound.registry.root,
+    foreignRoot: policyRound.foreign?.indexed.root ?? ZERO_32,
+  };
+  const statement = {
+    privateTxHash: data.privateTxHash,
+    txViewingPublicKey: encrypted.txViewingPublicKey,
+    auditorPublicKey: config.auditorPublicKey,
+    message,
+    outputHashes: publishedOutputHashes(proofInputs),
+    salt: encrypted.salt,
+    policyHash: policyRound.config.policyHash,
+    treeSlots: policyRound.treeSlots,
+    addressTreeId: policyRound.config.addressTreeId,
+    ringId: limitProofInput.ringId,
+    namespaceOwnerHash: limitProofInput.namespaceOwnerHash,
+    approvalRequired: limitProofInput.approvalRequired,
+    ...memberRegistryRoot,
+  };
+  const privateTxPreimage = sppPrivateTxHashInput(proofInputs);
+  const registrySubtree =
+    proofDataSource !== "prover" &&
+    [policyRound.subjects, policyRound.foreignSubjects].every((subjects) =>
+      shareMemberSubtree(
+        subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
+      ),
+    );
+  const twoByThree = registrySubtree && openings.nIn === 2 && openings.nOut === 3;
+  const requestOpenings = twoByThree ? ringOpenings(proofInputs) : openings;
+  const requestSubjects = (subjects: readonly (CustomRingSubjectWitness | undefined)[]) =>
+    twoByThree && shape !== undefined ? twoByThreePolicySubjects(subjects, shape) : subjects;
+  const policyShape: ProvenRingTransfer["policyShape"] = twoByThree
+    ? undefined
+    : registrySubtree
+      ? "subtree"
+      : "general";
+  const policyRequest: CustomRingPolicyProofRequest = {
+    twoByThree,
+    ...(twoByThree || shape === undefined ? {} : { shape, registrySubtree }),
+    publicInputHash: policyPublicInputHash(statement),
+    privateTxHash: data.privateTxHash,
+    txViewingSecret: encrypted.audit.txViewingSecret,
+    ephemeralSecret: encrypted.audit.ephemeralSecret,
+    auditorPublicKey: config.auditorPublicKey.u(),
+    salt: encrypted.salt,
+    nIn: openings.nIn,
+    nOut: openings.nOut,
+    inputs: requestOpenings.inputs,
+    outputs: requestOpenings.outputs.map((opening, index) => ({
+      ...opening,
+      ctHash: policyRound.ctHashes[index] ?? ZERO_32,
+    })),
+    addressChain: privateTxAddressChain(privateTxPreimage),
+    privateTxBlinding: privateTxPreimage.blinding,
+    sources: policyRound.sources,
+    policyLen: policyRound.config.ruleCount,
+    rules: paddedRows(policyRound.config.rules, RING_RULE_SLOTS),
+    inlineAssets: paddedRows(policyRound.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
+    inlineLimits: Object.freeze(
+      Array.from(
+        { length: RING_INLINE_ASSET_SLOTS },
+        (_, index) => policyRound.config.inlineLimits[index] ?? 0n,
+      ),
+    ),
+    inlineCount: policyRound.config.inlineCount,
+    treeSlots: policyRound.treeSlots,
+    addressTreeId: policyRound.config.addressTreeId,
+    limits: limitProofInput,
+    ...memberRegistryRoot,
+    subjects: requestSubjects(policyRound.subjects),
+    foreignSubjects: requestSubjects(policyRound.foreignSubjects),
+  };
+  return { statement, policyRequest, twoByThree, policyShape };
+}
+
+function twoByThreePolicySubjects(
   subjects: readonly (CustomRingSubjectWitness | undefined)[],
   shape: Shape,
 ): readonly (CustomRingSubjectWitness | undefined)[] {
@@ -1152,6 +1233,8 @@ function senderOutflow(
 }
 
 const U64_MAX = (1n << 64n) - 1n;
+
+type PolicyRound = PolicyContext & PolicyAnswers;
 
 interface PolicyContext {
   readonly config: RingPolicyConfig;

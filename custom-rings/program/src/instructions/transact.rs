@@ -2,8 +2,8 @@ use custom_ring_interface::{
     base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
     delegate_policy_verifying_key, policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key,
     policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
-    CustomRingPolicyPublicInput, CustomRingTransactIxData, DisclosureShape, PolicyConfig,
-    PolicyProofKind, RingMode, N_FOREIGN, TAGGED_X25519_KEY_LEN,
+    CustomRingPolicyPublicInput, CustomRingProof, CustomRingTransactIxData, DisclosureShape,
+    PolicyConfig, PolicyProofKind, RingMode, N_FOREIGN, TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -15,6 +15,7 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData, TransactIxData,
 };
+use zolana_interface::TRANSACT_ACCOUNT_PREFIX_LEN;
 use zolana_ring_policy::ring_id_field;
 
 use crate::{
@@ -22,10 +23,11 @@ use crate::{
         cosign::{approval_cosigner, demanded_cosigner},
         loader::{
             load, load_audited_config, load_curator_root, load_registry_root, validate_spp_program,
+            AuditedConfig,
         },
         policy_trees::PolicyTrees,
         public_legs::PublicLegs,
-        shared::{check_funding_signer, cpi_spp, parse},
+        shared::{cpi_spp, parse},
         verifier::{verify_groth16, verify_groth16_inputs},
     },
     state::is_x25519_viewing_key,
@@ -79,15 +81,8 @@ impl Rail {
         kind: PolicyProofKind,
     ) -> ProgramResult {
         let decoded: Box<CustomRingTransactIxData> = parse(data)?;
-        let CustomRingTransactIxData {
-            proof,
-            policy_trees,
-            registry_root_index,
-            foreign_root_indexes,
-            approval_required,
-            transact,
-        } = &*decoded;
-        let approval_required = *approval_required;
+        let transact = &decoded.transact;
+        let approval_required = decoded.approval_required;
         if self == Rail::Delegate && !transact.interface_transfers.is_empty() {
             return Err(CustomRingError::DelegatePublicLeg.into());
         }
@@ -107,72 +102,103 @@ impl Rail {
         {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
-        let anonymous = config.mode == RingMode::Anonymous;
-        let policy = if config.has_policy {
-            let binding =
-                PolicyBinding::load(program_id, rest.next_account("policy_config")?, kind)?;
-            let trees = PolicyTrees::load(&mut rest, policy_trees)?;
-            if self == Rail::Delegate && config.mode != RingMode::Registry {
-                return Err(if anonymous {
-                    CustomRingError::AnonymousRingRefused
-                } else {
-                    CustomRingError::InvalidMemberRegistryRoot
-                }
-                .into());
-            }
-            let roots = RegistryRoots::load(
-                program_id,
-                &mut rest,
-                binding.curator.as_ref(),
-                *registry_root_index,
-                foreign_root_indexes,
-            )?;
-            Some((binding, trees, roots))
-        } else {
-            if self == Rail::Delegate {
-                return Err(CustomRingError::DelegateRequiresPolicy.into());
-            }
-            if !policy_trees.is_empty() {
-                return Err(CustomRingError::InvalidPolicyTrees.into());
-            }
-            if *registry_root_index != 0 || *foreign_root_indexes != [0; N_FOREIGN] {
-                return Err(CustomRingError::UnexpectedMemberRegistryRoot.into());
-            }
-            None
-        };
+        let policy = PolicyContext::load(program_id, self, &config, &mut rest, &decoded, kind)?;
         // The delegate rail proves approval off, its statement never demands the co-signer.
         let limited = self == Rail::Member
             && policy
                 .as_ref()
-                .is_some_and(|(binding, ..)| binding.has_limits);
+                .is_some_and(|policy| policy.binding.has_limits);
         if approval_required && !limited {
             return Err(CustomRingError::UnexpectedApproval.into());
         }
 
         let spp_accounts = rest.remaining_mut()?;
-        validate_spp_program(spp_accounts)?;
-        check_funding_signer(spp_accounts, 0)?;
-        if anonymous {
-            check_anonymous_settlement(transact, spp_accounts)?;
+        let legs = self.authorize_accounts(config.mode, transact, spp_accounts)?;
+        Self::authorize_cosigner(program_id, controls, approval_required, &legs)?;
+
+        RingStatement {
+            rail: self,
+            program_id,
+            config: &config,
+            kind,
+            proof: &decoded.proof,
+            transact,
+            policy,
+            approval_required,
         }
-        let settlement_len: usize = transact
-            .interface_transfers
-            .iter()
-            .map(|leg| leg.settlement_account_count())
-            .sum();
-        let settlements = spp_accounts
-            .len()
-            .checked_sub(settlement_len)
-            .and_then(|start| spp_accounts.get(start..))
-            .ok_or(CustomRingError::InvalidSettlementAccounts)?;
-        if self == Rail::Member {
-            check_owner_signers_on_entry(transact, spp_accounts, settlement_len)?;
+        .verify()?;
+
+        self.forward_spp(program_id, spp_accounts, transact)
+    }
+
+    /// Check the original instruction's signer bits before the ring PDA signs
+    /// its SPP CPI. Keep this processor stage out of line for SBF stack space.
+    #[inline(never)]
+    fn authorize_accounts<'a>(
+        self,
+        mode: RingMode,
+        transact: &TransactIxData,
+        spp_accounts: &'a [AccountView],
+    ) -> Result<PublicLegs<'a>, ProgramError> {
+        let spp = SppTransactAccounts::split(transact, spp_accounts)?;
+        if !spp.payer.is_signer() {
+            return Err(CustomRingError::MissingFundingSigner.into());
         }
-        let legs = PublicLegs::from_transact(&transact.interface_transfers, settlements)?;
+        if mode == RingMode::Anonymous {
+            if spp_accounts[1..]
+                .iter()
+                .any(|account| account.is_signer() && account.address() != spp.payer.address())
+            {
+                return Err(CustomRingError::InvalidAnonymousSigner.into());
+            }
+            if transact
+                .outputs
+                .iter()
+                .any(|output| output.owner_tag != OwnerTag::Inline([0; 32]))
+            {
+                return Err(CustomRingError::InvalidAnonymousOutput.into());
+            }
+        }
+        if self == Rail::Member && spp.owners.iter().any(|account| !account.is_signer()) {
+            return Err(CustomRingError::MissingOwnerSigner.into());
+        }
+        let mut settlement_offset = 0usize;
+        for leg in &transact.interface_transfers {
+            let width = leg.settlement_account_count();
+            let end = settlement_offset
+                .checked_add(width)
+                .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+            let group = spp
+                .settlements
+                .get(settlement_offset..end)
+                .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+            let funder_index = match leg {
+                zolana_interface::instruction::instruction_data::transact::InterfaceTransfer::SolDeposit { .. } => Some(1),
+                zolana_interface::instruction::instruction_data::transact::InterfaceTransfer::SplDeposit { .. } => Some(2),
+                _ => None,
+            };
+            if let Some(index) = funder_index {
+                let funder = group.get(index).ok_or(ProgramError::NotEnoughAccountKeys)?;
+                if !funder.is_signer() {
+                    return Err(CustomRingError::MissingFundingSigner.into());
+                }
+            }
+            settlement_offset = end;
+        }
+        PublicLegs::from_transact(&transact.interface_transfers, spp.settlements)
+    }
+
+    #[inline(never)]
+    fn authorize_cosigner(
+        program_id: &Address,
+        controls: Controls<'_>,
+        approval_required: bool,
+        legs: &PublicLegs<'_>,
+    ) -> ProgramResult {
         let demanded = if approval_required {
             Some(approval_cosigner(program_id, controls.cosigner_pda)?)
         } else {
-            demanded_cosigner(program_id, controls.cosigner_pda, legs.classes(), &legs)?
+            demanded_cosigner(program_id, controls.cosigner_pda, legs.classes(), legs)?
         };
         if let Some(expected) = demanded {
             if !controls.cosigner.is_signer() {
@@ -182,100 +208,16 @@ impl Rail {
                 return Err(CustomRingError::UnauthorizedCoSigner.into());
             }
         }
+        Ok(())
+    }
 
-        if !self.accepts(transact.circuit, config.mode) {
-            return Err(CustomRingError::UnsupportedCircuit.into());
-        }
-        if transact.outputs.iter().any(|output| {
-            !output
-                .data
-                .as_deref()
-                .is_some_and(|data| is_valid_confidential_output(data, anonymous))
-        }) {
-            return Err(CustomRingError::UnsupportedOutputScheme.into());
-        }
-        let shape = DisclosureShape {
-            anonymous,
-            inputs: transact.inputs.len(),
-            outputs: transact.outputs.len(),
-        };
-        let message = select_auditor_message(&transact.messages, &config.auditor_pubkey, shape)?;
-        let output_hashes: Vec<[u8; 32]> = transact
-            .outputs
-            .iter()
-            .map(|output| output.utxo_hash)
-            .collect();
-        let audit = CustomRingBasePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            tx_viewing_pk: &transact.tx_viewing_pk,
-            auditor_pk: &config.auditor_pubkey,
-            eph_pk: message.eph_pk,
-            ciphertext: message.ciphertext,
-            output_hashes: &output_hashes,
-            salt: &transact.salt,
-            disclosure: message.disclosure,
-            anonymous,
-        };
-
-        match policy {
-            Some((binding, trees, roots)) => {
-                let ring_id =
-                    ring_id_field(program_id.as_array()).map_err(CustomRingError::from)?;
-                let input = CustomRingPolicyPublicInput {
-                    audit,
-                    policy_hash: &binding.policy_hash,
-                    tree_slots: trees.slots(),
-                    address_tree_id: binding.address_tree_id,
-                    ring_id: &ring_id,
-                    namespace_owner_hash: &binding.namespace_owner_hash,
-                    approval_required,
-                    key_escrow: config.mode == RingMode::Registry,
-                    member_registry_root: &roots.own,
-                    foreign_root: &roots.foreign,
-                };
-                if let Some(table) = binding.table {
-                    let tree_hash =
-                        zolana_interface::tree_slot::populated_tree_slots_hash_chain(trees.slots())
-                            .map_err(CustomRingError::from)?;
-                    let inputs = table.public_table_inputs(
-                        input.hash().map_err(CustomRingError::from)?,
-                        tree_hash,
-                    )?;
-                    let key = if kind.shaped() {
-                        custom_ring_interface::shaped_verifying_keys::policy_shape_key(
-                            usize::from(transact.circuit.num_inputs()),
-                            usize::from(transact.circuit.num_outputs()),
-                            anonymous,
-                            self == Rail::Delegate,
-                            kind == PolicyProofKind::Subtree,
-                        )
-                        .ok_or(CustomRingError::UnsupportedCircuit)?
-                    } else {
-                        match (self, anonymous) {
-                            (Rail::Delegate, _) => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
-                            (Rail::Member, true) => {
-                                &policy_2x3_anonymous_verifying_key::VERIFYINGKEY
-                            }
-                            (Rail::Member, false) => &policy_2x3_verifying_key::VERIFYINGKEY,
-                        }
-                    };
-                    verify_groth16_inputs(proof, &inputs, key)?;
-                } else {
-                    let (public_input, key) = self.policy_statement(input)?;
-                    verify_groth16(proof, public_input, key)?;
-                }
-            }
-            None => verify_groth16(
-                proof,
-                audit.hash().map_err(CustomRingError::from)?,
-                if anonymous || transact.outputs.len() != 2 {
-                    &base_verifying_key::VERIFYINGKEY
-                } else {
-                    &base_confidential_verifying_key::VERIFYINGKEY
-                },
-            )?,
-        }
-
+    #[inline(never)]
+    fn forward_spp(
+        self,
+        program_id: &Address,
+        spp_accounts: &[AccountView],
+        transact: &TransactIxData,
+    ) -> ProgramResult {
         let mut instruction_data = vec![self.spp_tag()];
         instruction_data.extend_from_slice(
             &transact
@@ -318,28 +260,218 @@ impl Rail {
     }
 }
 
-/// SPP reads the owner signer run after its fixed prefix, trees and nullifier
-/// accounts. The ring PDA must not become an owner signer only in the CPI.
-fn check_owner_signers_on_entry(
-    transact: &TransactIxData,
-    spp_accounts: &[AccountView],
-    settlement_len: usize,
-) -> ProgramResult {
-    let first = 5usize
-        .checked_add(transact.tree_contexts.len())
-        .and_then(|count| count.checked_add(transact.inputs.len()))
-        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
-    let last = spp_accounts
-        .len()
-        .checked_sub(settlement_len)
-        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
-    let signers = spp_accounts
-        .get(first..last)
-        .ok_or(CustomRingError::InvalidSettlementAccounts)?;
-    if signers.iter().any(|account| !account.is_signer()) {
-        return Err(CustomRingError::MissingOwnerSigner.into());
+/// Proof inputs assembled only from the decoded SPP transaction and loaded
+/// ring accounts. Keeping this out of the processor limits the SBF stack frame.
+struct RingStatement<'a> {
+    rail: Rail,
+    program_id: &'a Address,
+    config: &'a AuditedConfig,
+    kind: PolicyProofKind,
+    proof: &'a CustomRingProof,
+    transact: &'a TransactIxData,
+    policy: Option<PolicyContext>,
+    approval_required: bool,
+}
+
+impl RingStatement<'_> {
+    #[inline(never)]
+    fn verify(self) -> ProgramResult {
+        let anonymous = self.config.mode == RingMode::Anonymous;
+        if !self.rail.accepts(self.transact.circuit, self.config.mode) {
+            return Err(CustomRingError::UnsupportedCircuit.into());
+        }
+        if self.transact.outputs.iter().any(|output| {
+            !output
+                .data
+                .as_deref()
+                .is_some_and(|data| is_valid_confidential_output(data, anonymous))
+        }) {
+            return Err(CustomRingError::UnsupportedOutputScheme.into());
+        }
+        let message = select_auditor_message(
+            &self.transact.messages,
+            &self.config.auditor_pubkey,
+            DisclosureShape {
+                anonymous,
+                inputs: self.transact.inputs.len(),
+                outputs: self.transact.outputs.len(),
+            },
+        )?;
+        let output_hashes: Vec<[u8; 32]> = self
+            .transact
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash)
+            .collect();
+        let audit = CustomRingBasePublicInput {
+            private_tx_hash: &self.transact.private_tx_hash,
+            tx_viewing_pk: &self.transact.tx_viewing_pk,
+            auditor_pk: &self.config.auditor_pubkey,
+            eph_pk: message.eph_pk,
+            ciphertext: message.ciphertext,
+            output_hashes: &output_hashes,
+            salt: &self.transact.salt,
+            disclosure: message.disclosure,
+            anonymous,
+        };
+        match self.policy.as_ref() {
+            Some(policy) => self.verify_policy(audit, policy),
+            None => verify_groth16(
+                self.proof,
+                audit.hash().map_err(CustomRingError::from)?,
+                if anonymous || self.transact.outputs.len() != 2 {
+                    &base_verifying_key::VERIFYINGKEY
+                } else {
+                    &base_confidential_verifying_key::VERIFYINGKEY
+                },
+            ),
+        }
     }
-    Ok(())
+
+    /// The policy table and roots come from program-owned accounts, never the prover.
+    #[inline(never)]
+    fn verify_policy(
+        &self,
+        audit: CustomRingBasePublicInput<'_>,
+        policy: &PolicyContext,
+    ) -> ProgramResult {
+        let ring_id = ring_id_field(self.program_id.as_array()).map_err(CustomRingError::from)?;
+        let PolicyContext {
+            binding,
+            trees,
+            roots,
+        } = policy;
+        let input = CustomRingPolicyPublicInput {
+            audit,
+            policy_hash: &binding.policy_hash,
+            tree_slots: trees.slots(),
+            address_tree_id: binding.address_tree_id,
+            ring_id: &ring_id,
+            namespace_owner_hash: &binding.namespace_owner_hash,
+            approval_required: self.approval_required,
+            key_escrow: self.config.mode == RingMode::Registry,
+            member_registry_root: &roots.own,
+            foreign_root: &roots.foreign,
+        };
+        if let Some(table) = binding.table.as_ref() {
+            let tree_hash =
+                zolana_interface::tree_slot::populated_tree_slots_hash_chain(trees.slots())
+                    .map_err(CustomRingError::from)?;
+            let inputs = table
+                .public_table_inputs(input.hash().map_err(CustomRingError::from)?, tree_hash)?;
+            let key = if self.kind.shaped() {
+                custom_ring_interface::shaped_verifying_keys::policy_shape_key(
+                    usize::from(self.transact.circuit.num_inputs()),
+                    usize::from(self.transact.circuit.num_outputs()),
+                    self.config.mode == RingMode::Anonymous,
+                    self.rail == Rail::Delegate,
+                    self.kind == PolicyProofKind::Subtree,
+                )
+                .ok_or(CustomRingError::UnsupportedCircuit)?
+            } else {
+                match (self.rail, self.config.mode == RingMode::Anonymous) {
+                    (Rail::Delegate, _) => &delegate_policy_2x3_verifying_key::VERIFYINGKEY,
+                    (Rail::Member, true) => &policy_2x3_anonymous_verifying_key::VERIFYINGKEY,
+                    (Rail::Member, false) => &policy_2x3_verifying_key::VERIFYINGKEY,
+                }
+            };
+            verify_groth16_inputs(self.proof, &inputs, key)
+        } else {
+            let (public_input, key) = self.rail.policy_statement(input)?;
+            verify_groth16(self.proof, public_input, key)
+        }
+    }
+}
+
+/// Structural slices of SPP accounts. The processor checks every signer bit.
+struct SppTransactAccounts<'a> {
+    payer: &'a AccountView,
+    owners: &'a [AccountView],
+    settlements: &'a [AccountView],
+}
+
+impl<'a> SppTransactAccounts<'a> {
+    fn split(transact: &TransactIxData, accounts: &'a [AccountView]) -> Result<Self, ProgramError> {
+        validate_spp_program(accounts)?;
+        let payer = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let settlement_len: usize = transact
+            .interface_transfers
+            .iter()
+            .map(|leg| leg.settlement_account_count())
+            .sum();
+        let last = accounts
+            .len()
+            .checked_sub(settlement_len)
+            .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+        // SPP reads owners after its fixed prefix, tree and nullifier accounts.
+        let first = TRANSACT_ACCOUNT_PREFIX_LEN
+            .checked_add(transact.tree_contexts.len())
+            .and_then(|count| count.checked_add(transact.inputs.len()))
+            .ok_or(CustomRingError::InvalidSettlementAccounts)?;
+        Ok(Self {
+            payer,
+            owners: accounts
+                .get(first..last)
+                .ok_or(CustomRingError::InvalidSettlementAccounts)?,
+            settlements: accounts
+                .get(last..)
+                .ok_or(CustomRingError::InvalidSettlementAccounts)?,
+        })
+    }
+}
+
+/// Copied out, no account borrow may live across the SPP CPI.
+struct PolicyContext {
+    binding: PolicyBinding,
+    trees: PolicyTrees,
+    roots: RegistryRoots,
+}
+
+impl PolicyContext {
+    #[inline(never)]
+    fn load(
+        program_id: &Address,
+        rail: Rail,
+        config: &AuditedConfig,
+        rest: &mut AccountIterator<'_>,
+        decoded: &CustomRingTransactIxData,
+        kind: PolicyProofKind,
+    ) -> Result<Option<Self>, ProgramError> {
+        if !config.has_policy {
+            if rail == Rail::Delegate {
+                return Err(CustomRingError::DelegateRequiresPolicy.into());
+            }
+            if !decoded.policy_trees.is_empty() {
+                return Err(CustomRingError::InvalidPolicyTrees.into());
+            }
+            if decoded.registry_root_index != 0 || decoded.foreign_root_indexes != [0; N_FOREIGN] {
+                return Err(CustomRingError::UnexpectedMemberRegistryRoot.into());
+            }
+            return Ok(None);
+        }
+        let binding = PolicyBinding::load(program_id, rest.next_account("policy_config")?, kind)?;
+        let trees = PolicyTrees::load(rest, &decoded.policy_trees)?;
+        if rail == Rail::Delegate && config.mode != RingMode::Registry {
+            return Err(if config.mode == RingMode::Anonymous {
+                CustomRingError::AnonymousRingRefused
+            } else {
+                CustomRingError::InvalidMemberRegistryRoot
+            }
+            .into());
+        }
+        let roots = RegistryRoots::load(
+            program_id,
+            rest,
+            binding.curator.as_ref(),
+            decoded.registry_root_index,
+            &decoded.foreign_root_indexes,
+        )?;
+        Ok(Some(Self {
+            binding,
+            trees,
+            roots,
+        }))
+    }
 }
 
 /// Copied out, no account borrow may live across the SPP CPI.
@@ -437,30 +569,6 @@ fn is_valid_confidential_output(data: &[u8], anonymous: bool) -> bool {
         .or_else(|| ring_confidential_encrypted_output_body(data))
         .and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
         .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty())
-}
-
-/// The SPP payer is the only signer SPP sees, and no output names its owner.
-fn check_anonymous_settlement(
-    transact: &TransactIxData,
-    spp_accounts: &[AccountView],
-) -> Result<(), CustomRingError> {
-    let (payer, rest) = spp_accounts
-        .split_first()
-        .ok_or(CustomRingError::InvalidAnonymousSigner)?;
-    if rest
-        .iter()
-        .any(|account| account.is_signer() && account.address() != payer.address())
-    {
-        return Err(CustomRingError::InvalidAnonymousSigner);
-    }
-    if transact
-        .outputs
-        .iter()
-        .any(|output| output.owner_tag != OwnerTag::Inline([0; 32]))
-    {
-        return Err(CustomRingError::InvalidAnonymousOutput);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

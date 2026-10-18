@@ -1,5 +1,6 @@
 use std::{future::Future, time::Duration};
 
+use async_trait::async_trait;
 use custom_ring_interface::{ReadAccessRecord, RingAccount, RingMode, RingProgramConfig};
 use solana_account::Account;
 use solana_address::Address;
@@ -10,15 +11,19 @@ use solana_rpc_client::{
     rpc_client::GetConfirmedSignaturesForAddress2Config,
 };
 use solana_signature::Signature;
+use std::num::NonZeroU32;
 use zolana_api::ZolanaApi;
 use zolana_client::{
     program_data, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
-    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction,
+    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, IndexerRpcConfig,
+    RingHistoryOptions,
 };
+use zolana_indexer_api::{GetRingMemberRecordsRequest, GetRingMemberRecordsResponse};
 use zolana_interface::BPF_LOADER_UPGRADEABLE_ID;
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
-    ring_deposits_in, AuditError, ConfirmedEventKind, ReaderKey, RingOrigin, TransactionOrigin,
+    ring_deposits_in, AuditError, ConfirmedEventKind, MergeAudit, MergeAuditPage, ReaderKey,
+    RingOrigin, TransactionOrigin,
 };
 use zolana_transaction::AssetRegistry;
 
@@ -31,6 +36,16 @@ pub trait TransactionSource: Send + Sync {
         &self,
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send;
+
+    fn merge_audit_page<'a>(
+        &'a self,
+        _ring: Address,
+        _auditor: &'a zolana_keypair::X25519Secret,
+        _cursor: Option<Vec<u8>>,
+        _limit: NonZeroU32,
+    ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a {
+        async { Err(AuditError::InvalidMemberRegistry) }
+    }
 
     fn transaction_origin(
         &self,
@@ -131,6 +146,35 @@ pub struct ChainSource {
     rpc: AsyncSolanaRpc,
 }
 
+struct MergeAuditSource<'a> {
+    rpc: &'a AsyncSolanaRpc,
+    indexer: &'a AsyncZolanaIndexer,
+}
+
+#[async_trait]
+impl AsyncRpc for MergeAuditSource<'_> {
+    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        self.rpc.get_account(address).await
+    }
+
+    async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.indexer.get_ring_member_records(request).await
+    }
+
+    async fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.indexer
+            .get_shielded_transactions_by_ring(options, config)
+            .await
+    }
+}
+
 impl ChainSource {
     pub fn connect(upstreams: Upstreams<'_>) -> Result<Self, ClientError> {
         let http = reqwest::Client::builder()
@@ -172,6 +216,26 @@ impl ChainSource {
 }
 
 impl TransactionSource for ChainSource {
+    async fn merge_audit_page<'a>(
+        &'a self,
+        ring: Address,
+        auditor: &'a zolana_keypair::X25519Secret,
+        cursor: Option<Vec<u8>>,
+        limit: NonZeroU32,
+    ) -> Result<MergeAuditPage, AuditError> {
+        MergeAudit::new(ring, auditor)
+            .with_cursor(cursor)
+            .with_page_size(limit)
+            .page(
+                &MergeAuditSource {
+                    rpc: &self.rpc,
+                    indexer: &self.indexer,
+                },
+                &self.rpc,
+            )
+            .await
+    }
+
     fn transactions_by_tag(
         &self,
         request: TransactionPage<'_>,

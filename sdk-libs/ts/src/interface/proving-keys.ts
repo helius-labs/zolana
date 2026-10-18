@@ -13,16 +13,16 @@ import { InterfaceError } from "./errors.js";
  */
 export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.freeze({
   ...RING_PROVING_KEY_SHA256S,
-  "merge_52_1.key": "641f97f7129b5068847665f7911f570a75b4f89d70733aabe2aa979b22d66225",
-  "merge_ring_52_1.key": "8fff8c276aae82b23512d3fe112f9540a4c8d7d4e571468bb408584fdafce4ff",
+  "merge_52_1.key": "f84505118f01094c89cbb3d14e59df3af309374140ba31a0d8262ccba94c83a0",
+  "merge_ring_52_1.key": "0b73061a902ee63bcbd8964715258ff7d830a9e439a6020811bfcf21889b7dd0",
   "batch_address-append_40_10.key":
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "merge_24_1.key": "1e0720495e3051cf56f6466b933965e910c18437e8cca853c75af637f3908d48",
-  "merge_8_1.key": "6a4cca6281710632dfd440e6eefd1bbf36bbf911301ccf2b4d17b8c0df5cb5e0",
-  "merge_ring_24_1.key": "8121aefe4c3510faddaf0d76372ff69f5869cc57a1c9538f2008516093a7154f",
-  "merge_ring_8_1.key": "3e735e442819f981927124a8c9fbbb65243027d55c7509777aa63b01666206a7",
+  "merge_24_1.key": "fdcc01acdc72e7b472641ac8782af5261a82729bd31af869ac9cba5950efc67c",
+  "merge_8_1.key": "77008892dbd5b902f9fa2a42cfe8957966a96227fa6b1de11d88f215dd44e9bb",
+  "merge_ring_24_1.key": "7b364816db34c03d1e5411df575662b1951f31a9c2b240d2ac0dfca6035b5873",
+  "merge_ring_8_1.key": "cd6109e8a401d35f94830b5e2a624dca7421ac708116dabd639cc98f040fe9f4",
   "transfer_confidential_12_2.key":
     "f97bd750648a767ea2f660f713f1e9139d7355f41f26dce274f50ac9bc3a1b9c",
   "transfer_confidential_12_4.key":

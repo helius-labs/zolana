@@ -20,6 +20,15 @@ import (
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestIndexedMergePublicInputWidths(t *testing.T) {
+	if got := expectedPublicInputCount(common.MergeCircuitType); got != 12 {
+		t.Fatalf("default merge: got %d public inputs, want 12", got)
+	}
+	if got := expectedPublicInputCount(common.MergeRingCircuitType); got != 13 {
+		t.Fatalf("ring merge: got %d public inputs, want 13", got)
+	}
+}
+
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
 }

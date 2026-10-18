@@ -30,8 +30,9 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingMemberRecord, GetRingMemberRegistryRoot, GetShieldedTransactionsByNullifiers,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags, GetUserRecords,
+        GetRingMemberRecord, GetRingMemberRecords, GetRingMemberRegistryRoot,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags, GetUserRecords,
     },
     RpcMethod,
 };
@@ -41,8 +42,8 @@ pub use zolana_indexer_api::{
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
-    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
-    GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
@@ -636,6 +637,13 @@ impl ZolanaApi {
         self.call::<GetRingMemberRecord>(request).await
     }
 
+    pub async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ApiError> {
+        self.call::<GetRingMemberRecords>(request).await
+    }
+
     pub async fn get_ring_member_registry_root(
         &self,
         request: GetRingMemberRegistryRootRequest,
@@ -834,6 +842,14 @@ impl BlockingZolanaApi {
     ) -> Result<GetRingMemberRecordResponse, ApiError> {
         self.runtime
             .block_on(self.api.get_ring_member_record(request))
+    }
+
+    pub fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ApiError> {
+        self.runtime
+            .block_on(self.api.get_ring_member_records(request))
     }
 
     pub fn get_ring_member_registry_root(

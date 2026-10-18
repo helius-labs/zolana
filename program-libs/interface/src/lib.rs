@@ -54,6 +54,12 @@ pub const MAX_OUTPUTS: usize = 16;
 /// Maximum number of inputs any supported transact circuit shape spends.
 pub const MAX_TRANSACT_INPUTS: usize = 49;
 
+/// Accounts before the input trees in an SPP transact account list.
+pub const TRANSACT_ACCOUNT_PREFIX_LEN: usize = 5;
+
+/// Accounts before the asset settlement groups in an SPP ring deposit.
+pub const RING_DEPOSIT_ACCOUNT_PREFIX_LEN: usize = 4;
+
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
 /// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).

@@ -66,6 +66,45 @@ func TestMergeRingCircuitRejectsWrongOutputRingDataHash(t *testing.T) {
 	}
 }
 
+// A merge must use the key registration of the exact owner and nullifier key
+// that authenticate its spent notes. Rehash the public statement when changing
+// the root so the membership relation, not a stale public hash, rejects it.
+func TestMergeRingBindsRecoveryRegistration(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*testing.T, *mergeWitnessFixture)
+	}{
+		{"wrong root", func(t *testing.T, f *mergeWitnessFixture) {
+			f.memberRegistryRoot = new(big.Int).Add(f.memberRegistryRoot, big.NewInt(1))
+			refreshRingPublicInputHash(t, f)
+		}},
+		{"wrong escrow key", func(_ *testing.T, f *mergeWitnessFixture) {
+			f.memberRecord.EscrowKey = new(big.Int).Add(f.memberRecord.EscrowKey.(*big.Int), big.NewInt(1))
+		}},
+		{"wrong ciphertext hash", func(_ *testing.T, f *mergeWitnessFixture) {
+			f.registeredCtHash = new(big.Int).Add(f.registeredCtHash, big.NewInt(1))
+		}},
+		{"zero ciphertext hash", func(_ *testing.T, f *mergeWitnessFixture) {
+			f.registeredCtHash = big.NewInt(0)
+		}},
+		{"wrong record index", func(_ *testing.T, f *mergeWitnessFixture) {
+			f.memberRecord.Index = 2
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := buildMergeFixture(t, mergeFixtureOptions{
+				rail: ringFixtureRail, ringProgramID: big.NewInt(0x5A0E),
+				inputRingData: []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)}, outputRingData: big.NewInt(0xD0),
+			})
+			tc.mutate(t, f)
+			assignment := f.ringCircuit()
+			if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("merge accepted a mismatched recovery registration")
+			}
+		})
+	}
+}
+
 // Build each opening and transcript from scratch so only state preservation,
 // rather than a stale commitment or public hash, can reject the mutation.
 func TestMergeRingPreservesEveryRealInputRingData(t *testing.T) {

@@ -125,7 +125,7 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 ### User
 
-Operations 1-4 run against the default ring via [`transact`](#transact) (or [`deposit`](#deposit)), or against a policy ring via the ring program's CPI into `ring_transact` (or [`ring_deposit`](#ring_deposit) for proofless deposits).
+Operations 1-4 run against the default ring via [`transact`](#transact) (or [`deposit`](#deposit)), or against a policy ring via the ring program's CPI into `ring_transact` or an audited [`ring_deposit`](#ring_deposit).
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
@@ -1417,7 +1417,7 @@ The reference custom ring further restricts it to the payer.
 
 # Merge Proof - Merge ZK Proof
 
-ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_<N>_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_<N>_1`) binds the calling ring's `program_id` and the common input `ring_data_hash` preserved by the output. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
+ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`). The default merge binds the owner's identity from the user registry record. The ring merge binds the calling ring's `program_id`, the ring data preserved by the output, and a member registration that lets the auditor recover the owner's nullifier key. The default rail checks `merging_enabled` in the user record. The ring rail is authorized by the ring program.
 
 The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The output blinding is derived in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), and the proof encrypts the output's amount and mint for the owner (see [Merge](#merge)), so the owner rebuilds the output from the merge transaction alone.
 
@@ -1425,7 +1425,7 @@ The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 13 elements below: a shared 7-element prefix, the two-element variant tail, then `output_ciphertext_salt` and the three `output_ciphertext` elements on both variants. The prefix ends on a complete HashChain4 group, so extending its hash with the six remaining elements is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over 13 elements for a default merge or 14 for a ring merge. Both use a shared seven-element prefix. The default tail has two owner fields. The ring tail has the ring data hash, program ID and member registry root. The salt and three ciphertext elements follow either tail. The SPP verifier and the circuit hash them in the same order.
 
 | Element | Source |
 | --- | --- |
@@ -1437,7 +1437,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real or compact padding |
 | variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry Solana signing identity (`eddsa_owner` must be true) and registered nullifier public key. Both must equal the witnessed keys |
-| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the common committed ring data hash. The circuit requires it on every real input and on the output. |
+| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id`, `member_registry_root` | The ring program signs for `ring_program_id` and reads the selected root from its own registry PDA. The circuit requires the data hash on every real input and the output, then authenticates the owner's registration against that root. |
 | `output_ciphertext_salt` | instruction data, right-aligned in a field element; 16 bytes are canonical without a check |
 | `output_ciphertext` (three elements) | instruction data; computed by the proof as defined under [Merge](#merge). SPP rejects an element that is not a canonical BN254 field element (`NonCanonicalMergeCiphertext`) before verifying the proof. |
 
@@ -1455,10 +1455,11 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 
 | Input | Description |
 | --- | --- |
-| `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit requires it to equal the registry identity; the ring circuit has no registry check. Neither verifies an owner signature. |
+| `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit requires it to equal the user registry identity. The ring circuit opens the same identity in its member registry. Neither merge circuit verifies an owner signature. |
 | `user_nullifier_pk` | shared owner's nullifier commitment; constrained to `Poseidon(nullifier_secret)` |
 | `nullifier_secret` | owner's symmetric nullifier secret; also seeds the output blinding, the dummy nullifiers, and `merge_output_key` |
 | `mint_chunk_0`, `mint_chunk_1` | the merged mint's `hash_bytes_32` chunks; the circuit derives the single merged `asset = hash_bytes_32(mint)` from them, shared by every real input and the output |
+| Ring member record, path and registered ciphertext hash | The ring circuit proves a present record for `owner_pk_hash` under `member_registry_root`. Its escrow commitment must hash `user_nullifier_pk` with the registered ciphertext hash. Registration proves the ciphertext encrypts that nullifier key to the auditor. |
 
 **Checks**
 
@@ -1481,6 +1482,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Output ciphertext | the public `output_ciphertext` encrypts `[output.amount, mint_chunk_0, mint_chunk_1]` under `merge_output_key(nullifier_secret, first_nullifier)` and the public `output_ciphertext_salt`, as defined under [Merge](#merge). |
 | Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
+| Auditor recovery (ring rail) | A present member record under the selected on-chain root binds `owner_pk_hash`, `user_nullifier_pk` and the registered ciphertext hash. The ring program refuses a missing or stale root. The ciphertext is checked at registration, so the auditor can recover the key that opens the merge output. |
 
 **Circuit shape**
 
@@ -1887,25 +1889,25 @@ OVER marks a layout above the 4,096-byte limit:
 | Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
 | Merge 8 in 1 out, direct | 640 | 1188 | 13 |
 | Merge 8 in 1 out, execute_sync | 674 | 1320 | 16 |
-| Ring merge 8 in 1 out | 672 | 1252 | 14 |
+| Ring merge 8 in 1 out | 704 | 1284 | 14 |
 | Merge 24 in 1 out, direct | 1152 | 2228 | 29 |
 | Merge 24 in 1 out, execute_sync | 1202 | 2376 | 32 |
-| Ring merge 24 in 1 out | 1184 | 2292 | 30 |
+| Ring merge 24 in 1 out | 1216 | 2324 | 30 |
 | Merge 52 in 1 out, direct | 2048 | 4048 | 57 |
 | Merge 52 in 1 out, execute_sync | 2126 | 4224 OVER | 60 |
-| Ring merge 52 in 1 out | 2080 | 4112 OVER | 58 |
+| Ring merge 52 in 1 out | 2112 | 4144 OVER | 58 |
 | Merge 3 in 1 out, 8 compact, direct | 480 | 863 | 8 |
 | Merge 3 in 1 out, 8 compact, execute_sync | 509 | 990 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 512 | 927 | 9 |
+| Ring merge 3 in 1 out, 8 compact | 544 | 959 | 9 |
 | Merge 9 in 1 out, 24 compact, direct | 672 | 1253 | 14 |
 | Merge 9 in 1 out, 24 compact, execute_sync | 707 | 1386 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 704 | 1317 | 15 |
+| Ring merge 9 in 1 out, 24 compact | 736 | 1349 | 15 |
 | Merge 25 in 1 out, 52 compact, direct | 1184 | 2293 | 30 |
 | Merge 25 in 1 out, 52 compact, execute_sync | 1235 | 2442 | 33 |
-| Ring merge 25 in 1 out, 52 compact | 1216 | 2357 | 31 |
+| Ring merge 25 in 1 out, 52 compact | 1248 | 2389 | 31 |
 | Merge 51 in 1 out, 52 compact, direct | 2016 | 3983 | 56 |
 | Merge 51 in 1 out, 52 compact, execute_sync | 2093 | 4158 OVER | 59 |
-| Ring merge 51 in 1 out, 52 compact | 2048 | 4047 | 57 |
+| Ring merge 51 in 1 out, 52 compact | 2080 | 4079 | 57 |
 
 A full 52-input merge fits when sent directly. Through Squads
 `execute_transaction_sync` it exceeds 4,096 bytes, and the smart account runs
@@ -1913,9 +1915,11 @@ out of heap; a vault-signed merge fits up to about 50 real inputs. A 52-input
 bare SPP ring merge fits only with [compact padding](#compact-padding), at most
 51 real inputs. These ring rows measure SPP's `merge_ring` instruction. The
 reference custom-ring wrapper adds accounts and instruction data. Its minimal
-50-input transaction is 4,049 bytes, while 51 inputs require 4,114 bytes. Its
-SDK therefore caps merges at 50 and checks the full serialized layout before
-proving. Extra accounts or signatures can reduce that cap further.
+50-input transaction still fits after adding the registry-root account. Its
+SDK caps merges at 50 and checks the full serialized layout before proving.
+An extra output tree or co-signer can lower that cap. The ring wrapper puts a
+one-byte history selector on the outer transaction and forwards the selected
+32-byte root to SPP. The proof binds that root to the owner's registered key.
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
@@ -2419,7 +2423,7 @@ With discriminator, `N = 24`: `1,152 B` (a `2,228 B` transaction); `N = 52`:
 
 **Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its authorization before CPI. Every real input must have the same committed `ring_data_hash`, and the output preserves it. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_ring`.
 
-The ring program forwards the common input `ring_data_hash`. The merge proof preserves it on the output. The public statement includes it with `ring_program_id`. The indexer republishes it ahead of the output ciphertext in the rebuilt `data` payload ([Merge](#merge)).
+The ring program forwards the common input `ring_data_hash` and an accepted member-registry root. The merge proof preserves the hash on the output. It proves a present owner record under that root and binds its escrow commitment to the nullifier key that encrypts the output. The public statement includes the hash and root with `ring_program_id`. The indexer republishes the ring-data hash ahead of the output ciphertext in the rebuilt `data` payload ([Merge](#merge)).
 
 **Accounts**
 
@@ -2436,22 +2440,25 @@ The ring program forwards the common input `ring_data_hash`. The merge proof pre
 
 **Instruction data**
 
-[`MergeTransactIxData`](#merge_transact) plus an `output_ring_data_hash: [u8; 32]`
-field. It must equal every real input's committed `ring_data_hash`. The merge
-proof preserves it on the output and folds it into the
-public-input hash. The wallet reads it from the rebuilt [`GeneralEvent`](#general-event)
-to rebuild the merged ring output. `merge_ring` indexes the output by the first input's
-published nullifier — there is no instruction-supplied tag. The ring program
-authorizes the merge, so there is no `user_record` account or registry check; the
-owner identity comes from the witnessed signing key as bound by the input UTXOs.
-The merge proof's circuit branch enforces the policy-ring variant of the
-cleanliness and output-well-formed rules.
+[`MergeTransactIxData`](#merge_transact) plus `output_ring_data_hash: [u8; 32]`
+and `member_registry_root: [u8; 32]`. The reference ring's compact wrapper
+carries a history index and the ring-data hash. Its program loads that root
+from its registry PDA and forwards the full root to SPP. The ring-data hash
+must equal every real input's committed hash. The merge proof preserves it on
+the output and folds it into the public-input hash with the selected root.
+The wallet reads the hash from the rebuilt [`GeneralEvent`](#general-event)
+to rebuild the merged ring output. `merge_ring` indexes the output by the first
+input's published nullifier. There is no instruction-supplied tag. SPP does
+not load a user record. The proof instead checks the owner record against the
+root selected by the ring program. It binds that record's registered auditor
+ciphertext hash to the owner's nullifier key. The merge circuit also enforces
+the policy-ring cleanliness and output-well-formed rules.
 
 **Checks**
 
 1. The `ring_config` account (account #3) must sign and be unpaused; SPP loads it by owner + discriminator and reads its `program_id`.
 2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale in `input_tree`; both tree accounts permit their respective writes (`merge_transact` checks 1–3). Authorization is the ring program's responsibility; SPP does not check the registry `merging_enabled` flag here.
-3. Proof verifies against public inputs, after the `output_ciphertext` canonicality check (the policy-ring variant: inputs share `ring_program_id` = `ring_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
+3. Proof verifies against public inputs, after the `output_ciphertext` and member-root canonicality checks. The member root must be nonzero. The policy-ring variant requires inputs to share `ring_program_id` = `ring_config.program_id`, preserves it on the output, and sets `data_hash = 0` on every non-dummy input and the output. It also proves the registered member and ciphertext hash under the selected root.
 4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 5. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
 6. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = nullifiers[0]`. The reconstructed [`GeneralEvent`](#general-event) is as for [`merge_transact`](#merge_transact) with `output_ring_data_hash` leading the output's [merge output encoding](#merge).
@@ -2485,13 +2492,17 @@ UTXOs may carry `ring_data`. The ring interprets it and commits it through
 | --- | --- | --- | --- |
 | Member transfer | Confidential ring settlement | Confidential ring settlement with output key escrow | Hidden Ed25519 sender and full audit disclosure |
 | Delegate transfer | Refused | Requires policy and delegate signature | Refused |
-| Plain deposit | Allowed unless deposit audit is required | Refused | Refused |
+| Plain deposit | Refused | Refused | Refused |
 | Audited deposit | Allowed | Also proves key escrow | Also discloses the deposit owner |
 | Merge | Allowed | Allowed | Refused |
 | Register nullifier key | Allowed | Allowed | Refused |
 | Set delegate | Changes mode to Registry | Allowed | Refused |
 
-Every transfer proves the dedicated auditor disclosure. A configured policy
+Every transfer proves the dedicated auditor disclosure. Every ring deposit
+proves its auditor opening, regardless of the retained `deposit_audit` setting.
+Every permitted ring merge proves an owner key registration, including in Off
+mode. The auditor opens its committed amount and mint with that registered key.
+A configured policy
 reads its own registry and any curator registry in every mode. Registry mode
 also requires every real output owner's escrowed key to match the note's
 nullifier public key. Anonymous transfers allow only the payer as a public

@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use custom_ring_interface::member_registry::EscrowKey;
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use num_bigint::BigUint;
 use solana_account::Account;
@@ -7,8 +8,9 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::MergeCacheTarget, MergeProver, MerkleContext, MerkleProof, NonInclusionProof,
-    ProofCompressed, ProverClient, ProverExt, SpendProof, STATE_TREE_HEIGHT,
+    prover::{MergeCacheTarget, MergeRegistration},
+    MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
+    ProverExt, SpendProof, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -16,6 +18,7 @@ use zolana_interface::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRingIxData,
         MergeTransactIxData,
     },
+    merge_utils::ciphertext_hash,
     verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
 };
 use zolana_keypair::{
@@ -27,6 +30,7 @@ use zolana_merkle_tree::indexed::{
 use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
 use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use zolana_ring_member_registry::{MemberRegistryTree, Opening};
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use zolana_user_registry_interface::{
@@ -575,6 +579,7 @@ impl RealRingMerge {
             payer: pool.rpc.payer.pubkey(),
             data: self.data.merge.clone(),
             output_ring_data_hash: self.data.output_ring_data_hash,
+            member_registry_root: self.data.member_registry_root,
             cache: self.cache.map(|cache| CacheWriteAccounts {
                 cache,
                 writer: pool.rpc.payer.pubkey(),
@@ -599,6 +604,22 @@ impl RealRingMergeProof {
     }
 
     fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealRingMerge {
+        self.build_with(pool, cache, false)
+    }
+
+    /// Compact padding remains inside the proof but does not spend dummy
+    /// nullifiers or occupy their transaction accounts.
+    pub fn build_compact(self, pool: &mut Pool) -> RealRingMerge {
+        self.build_with(pool, None, true)
+    }
+
+    fn build_with(
+        self,
+        pool: &mut Pool,
+        cache: Option<MergeCacheTarget>,
+        compact: bool,
+    ) -> RealRingMerge {
+        let ring_program_id = activate_ring_test_program(pool);
         let RealRingMergeProof {
             input_count,
             real_input_count,
@@ -612,7 +633,6 @@ impl RealRingMergeProof {
             "{real_input_count} real inputs do not fit a {input_count}-input merge"
         );
 
-        let ring_program_id = activate_ring_test_program(pool);
         let payer = pool.rpc.payer.insecure_clone();
         let depositor = pool.funded_signer(5_000_000_000);
         let tree = pool.tree;
@@ -644,8 +664,44 @@ impl RealRingMergeProof {
             tree_id,
             input_count,
             Some(ring_program_id),
-            false,
+            compact,
         );
+
+        // SPP's ring stub forwards the selected root but has no member registry.
+        // Build a real authenticated opening for the proof and its public input.
+        let ciphertext = [7u8; 32];
+        let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+        let escrow_key = EscrowKey {
+            nullifier_pk: &nullifier_pk,
+            ciphertext: &ciphertext,
+        }
+        .hash()
+        .expect("escrow commitment");
+        let member = owner_public_key
+            .owner_proof_input_hash()
+            .expect("owner member hash");
+        let mut members = MemberRegistryTree::new().expect("member registry");
+        let item = members
+            .register_item(&member, escrow_key)
+            .expect("registration item");
+        members.apply(&[item]).expect("registered member");
+        let Opening::Present {
+            record,
+            index,
+            path,
+        } = members.opening(&member).expect("member opening")
+        else {
+            panic!("registered member must be present");
+        };
+        let registration = MergeRegistration {
+            root: members.root(),
+            ciphertext_hash: ciphertext_hash(&ciphertext).expect("ciphertext hash"),
+            next: record.next,
+            lists: record.lists,
+            escrow_key: record.escrow_key,
+            index,
+            path,
+        };
 
         let result = MergeProver {
             transaction,
@@ -654,8 +710,9 @@ impl RealRingMergeProof {
             dummy_nullifier_proofs,
             cache,
         }
-        .build()
+        .build_registered(registration)
         .expect("build ring merge witness");
+        assert!(!result.eddsa_owner, "ring merge owner stays private");
         assert_eq!(
             result.nullifiers.len(),
             input_count,

@@ -394,3 +394,48 @@ func TestEd25519TransferKeepsRingWitnessPrivate(t *testing.T) {
 		t.Fatal("validated published owner hashes")
 	}
 }
+
+func TestEd25519OwnerWireIsCanonical(t *testing.T) {
+	params := AnonymousEd25519TransferParameters{
+		TransferParameters: *sampleTransferParams(RingVariant),
+		MessageHashLow:     big.NewInt(7), MessageHashHigh: big.NewInt(9),
+	}
+	params.PublishedOutputOwnerPkHashes = nil
+	data, err := json.Marshal(&params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical map[string]any
+	if err := json.Unmarshal(data, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"ownerPublicKey", "ownerSignature", "messageHashLow", "messageHashHigh"} {
+		original := canonical[field].(string)
+		for _, spelling := range []string{
+			strings.TrimPrefix(original, "0x"),
+			strings.ToUpper(original),
+			original + "00",
+			original[:len(original)-2],
+		} {
+			t.Run(field+"/"+spelling[:min(len(spelling), 8)], func(t *testing.T) {
+				mutated := make(map[string]any, len(canonical))
+				for k, v := range canonical {
+					mutated[k] = v
+				}
+				mutated[field] = spelling
+				wire, err := json.Marshal(mutated)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var decoded AnonymousEd25519TransferParameters
+				if err := json.Unmarshal(wire, &decoded); err == nil {
+					t.Fatalf("accepted noncanonical %s", field)
+				}
+			})
+		}
+	}
+	params.MessageHashLow = new(big.Int).Lsh(big.NewInt(1), 128)
+	if _, err := json.Marshal(&params); err == nil {
+		t.Fatal("encoded a message-hash limb outside 128 bits")
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"strings"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
@@ -59,9 +58,16 @@ func (p *AnonymousEd25519TransferParameters) MarshalJSON() ([]byte, error) {
 		TransferParametersJSON: p.base().CreateTransferParametersJSON(),
 		OwnerPublicKey:         "0x" + hex.EncodeToString(p.OwnerPublicKey[:]),
 		OwnerSignature:         "0x" + hex.EncodeToString(p.OwnerSignature[:]),
-		MessageHashLow:         common.FeHex(p.MessageHashLow),
-		MessageHashHigh:        common.FeHex(p.MessageHashHigh),
 	}
+	var low, high [16]byte
+	if err := digestLimbBytes(low[:], p.MessageHashLow); err != nil {
+		return nil, fmt.Errorf("messageHashLow: %w", err)
+	}
+	if err := digestLimbBytes(high[:], p.MessageHashHigh); err != nil {
+		return nil, fmt.Errorf("messageHashHigh: %w", err)
+	}
+	params.MessageHashLow = "0x" + hex.EncodeToString(low[:])
+	params.MessageHashHigh = "0x" + hex.EncodeToString(high[:])
 	params.CircuitType = common.TransferAnonymousRingEd25519CircuitType
 	return json.Marshal(params)
 }
@@ -92,24 +98,28 @@ func (p *AnonymousEd25519TransferParameters) UnmarshalJSON(data []byte) error {
 	if err := exactBytes(p.OwnerSignature[:], params.OwnerSignature); err != nil {
 		return fmt.Errorf("ownerSignature: %w", err)
 	}
-	var err error
-	if p.MessageHashLow, err = common.FeFromHex(params.MessageHashLow); err != nil {
-		return err
+	var low, high [16]byte
+	if err := exactBytes(low[:], params.MessageHashLow); err != nil {
+		return fmt.Errorf("messageHashLow: %w", err)
 	}
-	p.MessageHashHigh, err = common.FeFromHex(params.MessageHashHigh)
-	return err
+	if err := exactBytes(high[:], params.MessageHashHigh); err != nil {
+		return fmt.Errorf("messageHashHigh: %w", err)
+	}
+	p.MessageHashLow = new(big.Int).SetBytes(low[:])
+	p.MessageHashHigh = new(big.Int).SetBytes(high[:])
+	return nil
 }
 
-// exactBytes decodes a 0x-prefixed hex string of exactly len(out) bytes.
+// exactBytes accepts only one spelling of a fixed-width byte string.
 func exactBytes(out []byte, encoded string) error {
-	decoded, err := hex.DecodeString(strings.TrimPrefix(encoded, "0x"))
-	if err != nil {
-		return err
+	return common.DecodeCanonicalHexInto(out, encoded)
+}
+
+func digestLimbBytes(out []byte, value *big.Int) error {
+	if value == nil || value.Sign() < 0 || value.BitLen() > len(out)*8 {
+		return fmt.Errorf("expected a %d-bit unsigned limb", len(out)*8)
 	}
-	if len(decoded) != len(out) {
-		return fmt.Errorf("got %d bytes, want %d", len(decoded), len(out))
-	}
-	copy(out, decoded)
+	value.FillBytes(out)
 	return nil
 }
 

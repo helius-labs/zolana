@@ -21,6 +21,7 @@ import {
   writeTreeContext,
 } from "../interface/codecs/index.js";
 import { validateRingPolicyShape, type Shape } from "../interface/shape.js";
+import { InterfaceError } from "../interface/errors.js";
 import { shapedPolicyCircuit } from "../interface/proving-keys.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
@@ -300,7 +301,9 @@ function transactData(
         tag === RingProgramTag.delegateTransactShaped ||
           tag === RingProgramTag.delegateTransactSubtree,
       );
-    } catch {
+    } catch (cause) {
+      if (!(cause instanceof InterfaceError) || cause.code !== "INTERFACE_INVALID_SHAPE")
+        throw cause;
       throw new RingError("RING_POLICY_SHAPE_UNSUPPORTED");
     }
   }
@@ -613,12 +616,14 @@ export async function ringMergeInstruction(
     payer: SignerAccount;
     data: MergeTransactInstructionData;
     outputRingDataHash: Bytes32;
+    memberRegistryRootIndex: number;
     cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
-  const [config, cosigner, auth, nullifiers] = await Promise.all([
+  const [config, cosigner, registry, auth, nullifiers] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
+    ringMemberRegistryRootAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     Promise.all(input.data.nullifiers.map((value) => nullifierPdaAddress(input.inputTree, value))),
   ]);
@@ -627,6 +632,7 @@ export async function ringMergeInstruction(
     accounts: [
       meta(config, false, false),
       ...ringCoSignerMetas(cosigner, input.cosigner),
+      meta(registry, false, false),
       meta(input.inputTree, false, true),
       meta(input.outputTree, false, true),
       meta(auth, false, false),
@@ -637,6 +643,7 @@ export async function ringMergeInstruction(
     ],
     data: new Writer()
       .u8(InstructionTag.ringMergeTransact, "instructionTag")
+      .u8(input.memberRegistryRootIndex, "memberRegistryRootIndex")
       .bytes(input.outputRingDataHash, 32, "outputRingDataHash")
       .bytes(encodeMergeTransactInstructionData(input.data))
       .finish(),

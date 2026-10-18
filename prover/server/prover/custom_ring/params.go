@@ -183,7 +183,7 @@ type UpdateMembersParams struct {
 	Items           []*MemberUpdate `json:"items"`
 }
 
-// OwnerKeys are the Ed25519 owner keys of an anonymous ring, absent or zero outside it.
+// DepositParams carries Ed25519 owner keys only for anonymous deposits.
 type DepositParams struct {
 	CircuitType        string           `json:"circuitType"`
 	PublicInputHash    Field            `json:"publicInputHash"`

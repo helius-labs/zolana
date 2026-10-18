@@ -10,6 +10,8 @@ const METHODS: &[&str] = &[
     #[cfg(feature = "custom-rings")]
     "getRingMemberRecord",
     #[cfg(feature = "custom-rings")]
+    "getRingMemberRecords",
+    #[cfg(feature = "custom-rings")]
     "getRingMemberRegistryRoot",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",

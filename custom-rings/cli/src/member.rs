@@ -147,6 +147,7 @@ mod tests {
                     next: Hash(record.next),
                     lists: record.lists,
                     escrow_key: Hash(record.escrow_key),
+                    owner_pubkey: None,
                     eph_pk: sealed.map(|key| Base64String(key.eph_pk.as_bytes().to_vec())),
                     ciphertext: sealed.map(|key| Base64String(key.ciphertext.to_vec())),
                 }),

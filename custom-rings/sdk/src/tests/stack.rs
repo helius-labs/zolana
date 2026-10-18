@@ -39,7 +39,7 @@ use super::support::{account, member, note, pinned, ring, tree_account, Accounts
 use crate::{
     CustomRingMerge, CustomRingTransfer, CustomRingTransferInput, DelegateOutput, DelegateTransfer,
     DelegateTransferInput, DepositAsset, MemberWrite, MergeProofInput, PoolTree, RegisterKey,
-    RingDeposit, RingError, RingOperation, RingSubmission, UpdateMembers,
+    RingDeposit, RingOperation, RingSubmission, UpdateMembers,
 };
 
 /// A blocking caller and each Tokio frame under it hold the future by value.
@@ -342,10 +342,8 @@ fn a_deposit_submission_polls_within_a_bounded_stack() {
     let client = client(policy_ring(), &depth);
     let payer = ShieldedKeypair::new_ed25519().unwrap();
     let (polled, result) = poll_depth(&depth, deposit(&payer).send(&client));
-    assert!(matches!(
-        result,
-        Err(RingError::Client(ClientError::NoInputs))
-    ));
+    assert!(result.is_err());
+    assert!(depth.prover_calls.load(Ordering::Relaxed) > 0);
     assert!(
         polled <= MAX_POLL_DEPTH,
         "a deposit submission polls {polled} bytes deep"

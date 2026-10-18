@@ -30,6 +30,7 @@ import {
 } from "../transaction/wallet/intent.js";
 import { equalBytes } from "../wallet/internal.js";
 import { fetchRingCoSigner } from "./config.js";
+import { openRingEscrowedKeys } from "./key-escrow.js";
 import { checkRingCoSigner, TRANSFER_DEMAND } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringMergeInstruction } from "./instructions.js";
@@ -73,6 +74,7 @@ export function createRingMergeSubmission(
     {
       wallet: params.wallet,
       build: (retry, context) => buildRingMerge(params, retry, context),
+      registry: params.client,
     },
     context,
   );
@@ -125,6 +127,24 @@ async function buildRingMerge(
     retry.entries = entries;
     retry.reservation ??= reserveEntries(params.wallet, entries, retry.lifetime);
     const owner = params.keys.address();
+    const escrow = await openRingEscrowedKeys(
+      {
+        client: params.client,
+        ringProgramId: params.ringProgramId,
+        owners: [
+          {
+            ownerPkHash: owner.signingPublicKey.ownerProofInputHash(),
+            nullifierPk: owner.nullifierPublicKey,
+          },
+        ],
+        // A merge needs the opening even when the spend paths come from the prover.
+        proofDataSource: "client",
+      },
+      context,
+    );
+    const key = escrow.keys[0];
+    if (key === undefined) throw new RingError("RING_UNREGISTERED_OUTPUT_KEY");
+    const ringRegistry = { root: escrow.root, key };
     const feePayer = params.feePayer ?? owner.solanaAddress();
     const inputs = entries.map((entry) => ringProofInput(entry, owner, params.client));
     const prepared = await prepareMerge(
@@ -153,6 +173,7 @@ async function buildRingMerge(
             payer: feePayer,
             data,
             outputRingDataHash: prepared.output.ringDataHash ?? ZERO_32,
+            memberRegistryRootIndex: escrow.rootIndex,
             ...(params.cosigner === undefined ? {} : { cosigner: params.cosigner }),
           }),
         ],
@@ -161,11 +182,13 @@ async function buildRingMerge(
     // Compile the real account layout with fixed-size proof placeholders before
     // requesting a proof. A co-signer or separate tree can exceed the byte limit
     // even when the input count fits. Final assembly uses the same compiler.
-    const preview = prepareMergeProof(prepared, params.client.tree).finish({
-      slot: { id: prepared.inputTreeId, utxoRoot: ZERO_32, nullifierRoot: ZERO_32 },
-      utxoRootIndex: 0,
-      nullifierRootIndex: 0,
-    });
+    const preview = prepareMergeProof(prepared, params.client.tree, undefined, ringRegistry).finish(
+      {
+        slot: { id: prepared.inputTreeId, utxoRoot: ZERO_32, nullifierRoot: ZERO_32 },
+        utxoRootIndex: 0,
+        nullifierRootIndex: 0,
+      },
+    );
     await compile(
       preview.instructionData({ a: ZERO_32, b: new Uint8Array(128) as Bytes128, c: ZERO_32 }),
       { blockhash: blockhash("11111111111111111111111111111111"), lastValidBlockHeight: 0n },
@@ -190,7 +213,7 @@ async function buildRingMerge(
     checkIntentApproval(approval, intent, ringIntentMismatch);
     const { data } = await withProofDataRetry(
       params.client.proofDataSource,
-      (attempt) => params.client.proveMerge({ prepared, keys: params.keys }, attempt),
+      (attempt) => params.client.proveMerge({ prepared, keys: params.keys, ringRegistry }, attempt),
       context,
     );
     if (!equalBytes(data.outputUtxoHash, expectedHash)) throw ringIntentMismatch("output");
@@ -200,6 +223,11 @@ async function buildRingMerge(
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
       intentHash: planned,
       ringInstructionIndex: 0,
+      memberRegistryRoot: {
+        ringProgramId: params.ringProgramId,
+        index: escrow.rootIndex,
+        root: escrow.root,
+      },
     };
   } catch (cause) {
     if (retry.reservation !== undefined) params.wallet._releaseReservation(retry.reservation.id);

@@ -1,9 +1,10 @@
 import { auditOpeningHash } from "../src/ring/audit.js";
-import { hashBytes } from "../src/hasher/index.js";
+import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { bigIntBytes, ZERO_32 } from "../src/transaction/internal.js";
 import { UTXO_DOMAIN } from "../src/interface/program.js";
 import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
+import { memberOfTag } from "../src/ring/policy.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { readFileSync } from "node:fs";
 import {
@@ -1185,6 +1186,80 @@ describe("signed ring request validation", () => {
 });
 
 describe("ring rpc response validation", () => {
+  it("reads signed audited merge pages and rejects malformed field values", async () => {
+    await initializePoseidon();
+    const calls: Record<string, unknown>[] = [];
+    const ownerMember = getBase58Decoder().decode(
+      memberOfTag(new Uint8Array(getAddressEncoder().encode(RING))),
+    );
+    const value = {
+      opened: [
+        {
+          txSignature: signatureOf(1),
+          eventIndex: 2,
+          outputCommitment: addressOf(3),
+          ownerMember,
+          ownerPubkey: RING,
+          mint: SOL_MINT,
+          amount: 7,
+          blinding: addressOf(5),
+          ringDataHash: addressOf(6),
+          inputNullifiers: [addressOf(7), addressOf(8)],
+          nullifier: addressOf(9),
+        },
+      ],
+      unresolved: [
+        { txSignature: signatureOf(10), eventIndex: 3, outputCommitment: addressOf(11) },
+      ],
+      cursor: "AQID",
+    };
+    const fetchPage = (body: unknown) =>
+      (async (_url: URL | string, init?: RequestInit) => {
+        calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { context: { slot: 9, blockTime: 10 }, value: body },
+          }),
+          JSON_HEADERS,
+        );
+      }) as typeof globalThis.fetch;
+    const reader = messageSignerReader(await generateKeyPairSigner());
+    const page = await new RingRpc("http://ring.example", {
+      fetch: fetchPage(value),
+      allowInsecureHttp: true,
+    }).getAuditedMerges({
+      ringProgramId: RING,
+      signer: reader,
+      cursor: Uint8Array.of(1, 2, 3),
+      limit: 5n,
+      timestamp: 1_700_000_000n,
+    });
+    expect(calls[0]?.["method"]).toBe("getAuditedMerges");
+    expect(page.cursor).toEqual(Uint8Array.of(1, 2, 3));
+    expect(page.opened[0]).toMatchObject({
+      signature: signatureOf(1),
+      eventIndex: 2,
+      amount: 7n,
+      mint: SOL_MINT,
+      ownerPubkey: RING,
+      inputNullifiers: [filled(7, 32), filled(8, 32)],
+    });
+    expect(page.unresolved[0]).toMatchObject({ signature: signatureOf(10), eventIndex: 3 });
+    for (const bad of [
+      { ...value, opened: [{ ...value.opened[0]!, inputNullifiers: [addressOf(7)] }] },
+      { ...value, opened: [{ ...value.opened[0]!, eventIndex: 65536 }] },
+      { ...value, opened: [{ ...value.opened[0]!, ownerMember: addressOf(255) }] },
+      { ...value, opened: [{ ...value.opened[0]!, ownerPubkey: addressOf(12) }] },
+    ])
+      await expect(
+        new RingRpc("http://ring.example", {
+          fetch: fetchPage(bad),
+          allowInsecureHttp: true,
+        }).getAuditedMerges({ ringProgramId: RING, signer: reader }),
+      ).rejects.toMatchObject({ code: "RING_RPC" });
+  });
   const rpcWith = (result: unknown) => {
     const fetch = (async () =>
       new Response(

@@ -62,8 +62,8 @@ pub fn announce(config: &RingConfig) {
     line("explorer", explorer_link(config));
 }
 
-pub(crate) fn audit_label(required: bool) -> &'static str {
-    ["optional", "required"][usize::from(required)]
+pub(crate) fn stored_audit_flag(required: bool) -> &'static str {
+    ["false", "true"][usize::from(required)]
 }
 
 fn explorer_link(config: &RingConfig) -> String {
@@ -105,9 +105,10 @@ fn print_chain(ctx: &Context) -> Result<()> {
     match &state {
         Some(state) => {
             line(
-                "deposit audit",
-                audit_label(ctx.block(ring.deposit_audit(chain))?),
+                "legacy deposit flag",
+                stored_audit_flag(ctx.block(ring.deposit_audit(chain))?),
             );
+            line("deposit audit", "required");
             let auditor = hex::encode(state.auditor_pubkey.as_bytes());
             let authority = state.authority;
             line(

@@ -1,4 +1,5 @@
 import { X25519PublicKey } from "../keypair/x25519.js";
+import { KeypairError } from "../keypair/error.js";
 import { isAddress } from "@solana/kit";
 
 import { ZolanaApi, ApiError } from "../api/index.js";
@@ -13,6 +14,7 @@ import type {
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
   UserRecord as WireUserRecord,
+  RingMemberRecordView as WireRingMemberRecordView,
 } from "../indexer/types.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import type {
@@ -30,6 +32,8 @@ import type {
   RegistryRecord,
   RingMemberProofRequest,
   RingMemberRecordResponse,
+  RingMemberRecordsRequest,
+  RingMemberRecordsResponse,
   RingMemberRegistryTip,
   UserRecordsLookup,
 } from "./ports.js";
@@ -174,19 +178,7 @@ export class ZolanaIndexer {
         index: response.index,
         path: response.path.map(hashBytes),
         record:
-          response.record === null
-            ? null
-            : {
-                ...fields(response.record),
-                ephemeralPublicKey:
-                  response.record.ephPk === null
-                    ? null
-                    : decodeX25519(response.record.ephPk, method, "record.ephPk"),
-                ciphertext:
-                  response.record.ciphertext === null
-                    ? null
-                    : decodeCiphertext(response.record.ciphertext, method, "record.ciphertext"),
-              },
+          response.record === null ? null : convertMemberRecord(response.record, method, "record"),
         low:
           response.low === null
             ? null
@@ -195,6 +187,51 @@ export class ZolanaIndexer {
                 index: response.low.index,
                 path: response.low.path.map(hashBytes),
               },
+      };
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingMemberRecords(
+    request: RingMemberRecordsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberRecordsResponse> {
+    const method = "getRingMemberRecords";
+    try {
+      const wire = {
+        ringProgramId: request.ringProgramId,
+        expectedRoot: hash(request.expectedRoot),
+        expectedNextIndex: request.expectedNextIndex,
+        startIndex: request.startIndex,
+        limit: request.limit,
+      };
+      const response = await this.#api.getRingMemberRecords(wire, context);
+      const end =
+        request.startIndex + BigInt(request.limit) < request.expectedNextIndex
+          ? request.startIndex + BigInt(request.limit)
+          : request.expectedNextIndex;
+      if (
+        response.root !== wire.expectedRoot ||
+        response.nextIndex !== wire.expectedNextIndex ||
+        response.records.length !== Number(end - request.startIndex) ||
+        response.records.some(
+          (entry, index) => entry.index !== request.startIndex + BigInt(index),
+        ) ||
+        response.nextLeafIndex !== (end < request.expectedNextIndex ? end : null)
+      )
+        throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path: "$" } });
+      return {
+        context: response.context,
+        root: hashBytes(response.root),
+        rootIndex: response.rootIndex,
+        nextIndex: response.nextIndex,
+        records: response.records.map((entry) => ({
+          index: entry.index,
+          record: convertMemberRecord(entry.record, method, "records.record"),
+          path: entry.path.map(hashBytes),
+        })),
+        nextLeafIndex: response.nextLeafIndex,
       };
     } catch (cause) {
       throw wrapIndexer(cause, method);
@@ -332,6 +369,22 @@ function memberRequest(request: RingMemberProofRequest) {
     expectedRoot: hash(request.expectedRoot),
     expectedNextIndex: request.expectedNextIndex,
   });
+}
+
+function convertMemberRecord(record: WireRingMemberRecordView, method: string, path: string) {
+  return {
+    member: hashBytes(record.member),
+    next: hashBytes(record.next),
+    lists: record.lists,
+    escrowKey: hashBytes(record.escrowKey),
+    ownerPublicKey: record.ownerPubkey ?? null,
+    ephemeralPublicKey:
+      record.ephPk === null ? null : decodeX25519(record.ephPk, method, `${path}.ephPk`),
+    ciphertext:
+      record.ciphertext === null
+        ? null
+        : decodeCiphertext(record.ciphertext, method, `${path}.ciphertext`),
+  };
 }
 
 function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
@@ -596,7 +649,8 @@ function decodeX25519(value: string, method: string, path: string): X25519Public
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
   try {
     return X25519PublicKey.fromBytes(bytes as Bytes33);
-  } catch {
+  } catch (cause) {
+    if (!(cause instanceof KeypairError)) throw cause;
     throw invalidResponse(method, path);
   }
 }

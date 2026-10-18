@@ -27,6 +27,11 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let ix = MergeRingIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
+    // The ring proof derives ownership privately. The registry owner selector
+    // belongs to the default merge rail and has no meaning here.
+    if merge.eddsa_owner {
+        return Err(ShieldedPoolError::InvalidMergeShape.into());
+    }
     validate_field_elements(merge)?;
     check_field_element(
         ix.output_ring_data_hash,
@@ -34,6 +39,15 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         None,
         ShieldedPoolError::NonCanonicalRingDataHash,
     )?;
+    check_field_element(
+        ix.member_registry_root,
+        "member registry root",
+        None,
+        ShieldedPoolError::NonCanonicalRoot,
+    )?;
+    if ix.member_registry_root == &[0; 32] {
+        return Err(ShieldedPoolError::InvalidMergeShape.into());
+    }
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
@@ -41,16 +55,15 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
     let cache = load_merge_cache(merge_accounts.cache, clock.unix_timestamp)?;
 
-    // The ring merge proof binds `ring_program_id` from the signing `ring_config`
-    // and the output `ring_data_hash` the ring program selected, and is verified
-    // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
-    // `user_record` registry, so the `Ring` binding omits owner identity entirely
-    // (see `MergeProof::public_input_hash`); the binding and the declared input
-    // count select the verifying key.
+    // The ring merge proof binds the signing ring program, its accepted member
+    // registry root, and the output ring-data hash. It proves the member record
+    // privately under that root, so no owner identity appears in this statement.
+    // The declared input count selects the `merge_ring_<n_inputs>_1` key.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
+        member_registry_root: *ix.member_registry_root,
     };
 
     // The merged output is indexed by the first input nullifier. The indexer

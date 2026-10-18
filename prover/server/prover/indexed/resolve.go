@@ -66,22 +66,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 			}
 		}
 	}
-	expected := 17
-	switch request.CircuitType {
-	case common.TransferRingAuthorityCircuitType:
-		expected = 14
-	case common.TransferAnonymousRingEd25519CircuitType:
-		expected = 19
-	case common.MergeCircuitType, common.MergeRingCircuitType:
-		// The prefix without the tree hash, the two-element rail tail, the
-		// ciphertext salt and the three ciphertext elements.
-		expected = 12
-	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
-		expected = 8
-	}
-	if policyCircuit(request.CircuitType) {
-		expected = 8
-	}
+	expected := expectedPublicInputCount(request.CircuitType)
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")
 	}
@@ -96,6 +81,26 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	}
 	prepared, err := decodePrepared(request)
 	return request, prepared, err
+}
+
+func expectedPublicInputCount(circuit common.CircuitType) int {
+	if policyCircuit(circuit) {
+		return 8
+	}
+	switch circuit {
+	case common.TransferRingAuthorityCircuitType:
+		return 14
+	case common.TransferAnonymousRingEd25519CircuitType:
+		return 19
+	case common.MergeCircuitType:
+		return 12
+	case common.MergeRingCircuitType:
+		// The ring tail also binds the member registry root.
+		return 13
+	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
+		return 8
+	}
+	return 17
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {

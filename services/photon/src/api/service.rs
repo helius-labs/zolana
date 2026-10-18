@@ -1,8 +1,9 @@
 use std::sync::Arc;
 #[cfg(feature = "custom-rings")]
 use zolana_indexer_api::{
-    method::{GetRingMemberRecord, GetRingMemberRegistryRoot},
-    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+    method::{GetRingMemberRecord, GetRingMemberRecords, GetRingMemberRegistryRoot},
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
     GetRingMemberRegistryRootResponse,
 };
 
@@ -198,6 +199,14 @@ impl PhotonApi {
     }
 
     #[cfg(feature = "custom-rings")]
+    pub async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, PhotonApiError> {
+        member_registry::member_records(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "custom-rings")]
     pub async fn get_ring_member_registry_root(
         &self,
         request: GetRingMemberRegistryRootRequest,
@@ -217,6 +226,8 @@ impl PhotonApi {
             method_api_spec::<GetUserRecords>(),
             #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingMemberRecord>(),
+            #[cfg(feature = "custom-rings")]
+            method_api_spec::<GetRingMemberRecords>(),
             #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingMemberRegistryRoot>(),
         ]

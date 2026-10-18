@@ -7,7 +7,7 @@ import (
 )
 
 // ShapeWires uses the settlement circuit capacities. The witnessed counts select
-// the live prefix. These slices never change the legacy circuit's wire layout.
+// the live prefix. These slices leave the fixed-capacity circuit's wire layout intact.
 type ShapeWires struct {
 	Inputs          []UtxoWires
 	Outputs         []OutputWires

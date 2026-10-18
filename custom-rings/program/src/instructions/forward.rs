@@ -1,18 +1,25 @@
-use custom_ring_interface::{CoSignScope, CustomRingError, RingMode};
+use custom_ring_interface::{
+    CoSignScope, CustomRingError, CustomRingMergeIxDataRef, MemberRegistryRoot, RingMode,
+};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::instruction_data::deposit::RingDepositIxDataRef;
+use zolana_interface::{
+    instruction::instruction_data::deposit::RingDepositIxDataRef, RING_DEPOSIT_ACCOUNT_PREFIX_LEN,
+};
 
 use crate::instructions::{
     cosign::demanded_cosigner,
     deposit_audit::{verify_deposit_disclosure, AuditedDeposit},
-    loader::{load_audited_config, load_deposit_audit, load_escrow_root, validate_spp_program},
+    loader::{
+        load_audited_config, load_deposit_audit, load_escrow_root, load_registry_root,
+        validate_spp_program,
+    },
     public_legs::PublicLegs,
-    shared::{check_funding_signer, cpi_spp},
+    shared::{cpi_spp, verify_pda},
     transact::Controls,
 };
 
-/// Deposit and merge routes sharing ring controls before unchanged SPP settlement.
+/// Deposit and merge routes sharing ring controls before SPP settlement.
 #[derive(Clone, Copy)]
 pub(crate) enum Forward {
     Deposit,
@@ -32,10 +39,11 @@ impl Forward {
         let controls = Controls::next(&mut iter)?;
         let config = load_audited_config(program_id, controls.config)?;
         let anonymous = config.mode == RingMode::Anonymous;
-        if matches!(self, Forward::Deposit) && config.mode != RingMode::Off {
+        if matches!(self, Forward::Deposit) {
             return Err(CustomRingError::DepositAuditRequired.into());
         }
-        // A merge has no auditor proof to disclose an anonymous balance change.
+        // Merge disclosure relies on a proof-bound registry escrow key. Anonymous
+        // members have no registered identity to bind that key to.
         if matches!(self, Forward::Merge) && anonymous {
             return Err(CustomRingError::InvalidMergeDisclosure.into());
         }
@@ -44,11 +52,23 @@ impl Forward {
             _ => None,
         };
         let data = audited.as_ref().map_or(data, |audited| audited.spp_data);
-        if !matches!(self, Forward::Merge) {
-            let audit = load_deposit_audit(program_id, iter.next_account("deposit_audit")?)?;
-            if audit.is_some_and(|audit| audit.required == 1) && audited.is_none() {
-                return Err(CustomRingError::DepositAuditRequired.into());
+        let merge = if matches!(self, Forward::Merge) {
+            let request = CustomRingMergeIxDataRef::from_bytes(
+                data.get(1..)
+                    .ok_or(CustomRingError::InvalidInstructionData)?,
+            )
+            .map_err(|_| CustomRingError::InvalidInstructionData)?;
+            if request.merge.eddsa_owner {
+                return Err(CustomRingError::InvalidInstructionData.into());
             }
+            Some(request)
+        } else {
+            None
+        };
+        if matches!(self, Forward::AuditedDeposit) {
+            // Keep validating the established account slot. Its stored bit can
+            // no longer waive the mandatory disclosure proof.
+            let _audit = load_deposit_audit(program_id, iter.next_account("deposit_audit")?)?;
         }
         let member_registry_root = match &audited {
             Some(audited) => load_escrow_root(
@@ -58,6 +78,22 @@ impl Forward {
                 &mut iter,
             )?,
             None => None,
+        };
+        let merge_root = if let Some(merge) = &merge {
+            let account = iter.next_account("member_registry_root")?;
+            verify_pda(
+                program_id,
+                account.address(),
+                &[MemberRegistryRoot::SEED],
+                CustomRingError::InvalidMemberRegistryRoot,
+            )?;
+            Some(load_registry_root(
+                program_id,
+                account,
+                merge.registry_root_index,
+            )?)
+        } else {
+            None
         };
         let spp_accounts = iter.remaining_mut()?;
         let deposit = match self {
@@ -80,23 +116,10 @@ impl Forward {
             return Err(CustomRingError::InvalidAnonymousOutput.into());
         }
 
-        if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
-            let tree = spp_accounts
-                .first()
-                .ok_or(ProgramError::NotEnoughAccountKeys)?;
-            verify_deposit_disclosure(
-                program_id,
-                tree.address(),
-                &config,
-                member_registry_root.as_ref(),
-                audited,
-                deposit,
-            )?;
-        }
         let (classes, legs) = match &deposit {
             Some(deposit) => {
                 let settlements = spp_accounts
-                    .get(4..)
+                    .get(RING_DEPOSIT_ACCOUNT_PREFIX_LEN..)
                     .ok_or(ProgramError::NotEnoughAccountKeys)?;
                 (
                     CoSignScope::DEPOSITS,
@@ -120,7 +143,37 @@ impl Forward {
             Self::Deposit | Self::AuditedDeposit => 1,
             Self::Merge => 3,
         };
-        check_funding_signer(spp_accounts, funding_signer)?;
-        cpi_spp(program_id, spp_accounts, data)
+        let funder = spp_accounts
+            .get(funding_signer)
+            .ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !funder.is_signer() {
+            return Err(CustomRingError::MissingFundingSigner.into());
+        }
+        if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
+            let tree = spp_accounts
+                .first()
+                .ok_or(ProgramError::NotEnoughAccountKeys)?;
+            verify_deposit_disclosure(
+                program_id,
+                tree.address(),
+                &config,
+                member_registry_root.as_ref(),
+                audited,
+                deposit,
+            )?;
+        }
+        let forwarded_merge = merge.zip(merge_root).map(|(merge, root)| {
+            let mut forwarded = Vec::with_capacity(data.len() + 31);
+            forwarded.push(data[0]);
+            forwarded.extend_from_slice(merge.output_ring_data_hash);
+            forwarded.extend_from_slice(&root);
+            forwarded.extend_from_slice(merge.merge_body);
+            forwarded
+        });
+        cpi_spp(
+            program_id,
+            spp_accounts,
+            forwarded_merge.as_deref().unwrap_or(data),
+        )
     }
 }

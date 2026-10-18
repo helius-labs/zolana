@@ -70,7 +70,7 @@ fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-fn audited_fixture(count: usize) -> Fixture {
+pub(super) fn audited_fixture(count: usize) -> Fixture {
     let mut fixture = deposit_fixture();
     let mut deposit = RingDepositIxData::deserialize(&fixture.instruction().data[1..]).unwrap();
     deposit.deposits = vec![deposit.deposits[0].clone(); count];
@@ -100,7 +100,7 @@ fn mutate_deposit(fixture: &mut Fixture, change: impl FnOnce(&mut RingDepositIxD
     fixture.data_mut().extend(deposit.serialize().unwrap());
 }
 
-fn proven_fixture(count: usize) -> Fixture {
+pub(super) fn proven_fixture(count: usize) -> Fixture {
     let bytes = match count {
         2 => include_bytes!("../fixtures/deposit-audit/2.bin").as_slice(),
         8 => include_bytes!("../fixtures/deposit-audit/8.bin").as_slice(),
@@ -260,22 +260,22 @@ fn enabled_setting_refuses_the_proofless_deposit_tag() {
 }
 
 #[test]
-fn disabled_and_donated_settings_keep_deposits_proofless() {
+fn disabling_the_setting_cannot_restore_proofless_deposits() {
     let (mollusk, _) = setup_mollusk();
     for setting in [account(0), account(1_000_000), audit_account(0)] {
         let mut fixture = deposit_fixture();
         fixture.set_account("deposit_audit", setting);
-        fixture.expect_spp_cpi(&mollusk);
+        fixture.expect_err(&mollusk, custom(CustomRingError::DepositAuditRequired));
     }
 }
 
 #[test]
 fn setting_cannot_be_omitted_or_substituted() {
     let (mollusk, _) = setup_mollusk();
-    let mut omitted = deposit_fixture();
+    let mut omitted = audited_fixture(1);
     omitted.remove("deposit_audit");
     omitted.expect_err(&mollusk, custom(CustomRingError::InvalidDepositAudit));
-    let mut other = deposit_fixture();
+    let mut other = audited_fixture(1);
     other.substitute("deposit_audit", Pubkey::new_from_array([98; 32]));
     other.expect_err(&mollusk, custom(CustomRingError::InvalidDepositAudit));
 }
@@ -287,12 +287,12 @@ fn malformed_or_foreign_empty_settings_do_not_disable_the_requirement() {
     foreign.owner = Pubkey::new_from_array([98; 32]);
     let mut invalid_mode = audit_account(2);
     for invalid in [foreign, invalid_mode.clone()] {
-        let mut fixture = deposit_fixture();
+        let mut fixture = audited_fixture(1);
         fixture.set_account("deposit_audit", invalid);
         fixture.expect_err(&mollusk, custom(CustomRingError::InvalidDepositAudit));
     }
     invalid_mode.data.truncate(2);
-    let mut fixture = deposit_fixture();
+    let mut fixture = audited_fixture(1);
     fixture.set_account("deposit_audit", invalid_mode);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidDepositAudit));
 }

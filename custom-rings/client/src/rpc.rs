@@ -18,8 +18,8 @@ use zolana_secret_file::{
 };
 
 use crate::{
-    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, ReaderKey, ReaderKeyError,
-    RingWithdrawal,
+    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage, ReaderKey,
+    ReaderKeyError, RingWithdrawal,
 };
 
 pub const HEALTH: &str = "health";
@@ -27,6 +27,7 @@ pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
+pub const GET_AUDITED_MERGES: &str = "getAuditedMerges";
 pub const AUDIT_CURSOR_LIMIT: usize = 256;
 pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub const DEPOSITS_PAGE_LIMIT: u32 = 50;
@@ -170,6 +171,89 @@ pub struct GetDecryptedTransactionsRequest {
     #[serde(default)]
     pub limit: Option<Limit>,
     pub auth: ReadAuth,
+}
+
+/// Uses the same signed ring, cursor and limit attestation as transfer reads.
+pub type GetAuditedMergesRequest = GetDecryptedTransactionsRequest;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GetAuditedMergesResponse {
+    pub context: Context,
+    pub value: AuditedMergesPage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuditedMergesPage {
+    pub opened: Vec<AuditedMergeRecord>,
+    pub unresolved: Vec<UnresolvedMergeRecord>,
+    pub cursor: Option<Base64String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuditedMergeRecord {
+    pub tx_signature: SerializableSignature,
+    pub event_index: u16,
+    pub output_commitment: Hash,
+    /// Authenticated registry member hash. The event does not reveal its public signing key.
+    pub owner_member: Hash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_pubkey: Option<SerializablePubkey>,
+    pub mint: SerializablePubkey,
+    pub amount: u64,
+    pub blinding: Hash,
+    pub ring_data_hash: Hash,
+    pub input_nullifiers: Vec<Hash>,
+    pub nullifier: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct UnresolvedMergeRecord {
+    pub tx_signature: SerializableSignature,
+    pub event_index: u16,
+    pub output_commitment: Hash,
+}
+
+impl From<MergeAuditPage> for GetAuditedMergesResponse {
+    fn from(page: MergeAuditPage) -> Self {
+        Self {
+            context: page.context,
+            value: AuditedMergesPage {
+                opened: page
+                    .result
+                    .opened
+                    .into_iter()
+                    .map(|merge| AuditedMergeRecord {
+                        tx_signature: merge.tx_signature.into(),
+                        event_index: merge.event_index,
+                        output_commitment: Hash(merge.output_commitment),
+                        owner_member: Hash(merge.owner_member),
+                        owner_pubkey: merge.owner_pubkey.map(Into::into),
+                        mint: merge.mint.into(),
+                        amount: merge.amount,
+                        blinding: Hash(merge.blinding),
+                        ring_data_hash: Hash(merge.ring_data_hash),
+                        input_nullifiers: merge.input_nullifiers.into_iter().map(Hash).collect(),
+                        nullifier: Hash(merge.nullifier),
+                    })
+                    .collect(),
+                unresolved: page
+                    .result
+                    .unresolved
+                    .into_iter()
+                    .map(|merge| UnresolvedMergeRecord {
+                        tx_signature: merge.tx_signature.into(),
+                        event_index: merge.event_index,
+                        output_commitment: Hash(merge.output_commitment),
+                    })
+                    .collect(),
+                cursor: page.next_cursor.map(Into::into),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

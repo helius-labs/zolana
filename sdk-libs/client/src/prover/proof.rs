@@ -178,22 +178,21 @@ pub(crate) struct GnarkProofJson {
 fn g1_from_hex_pair(pair: &[String]) -> Option<[u8; 64]> {
     let [x, y] = pair else { return None };
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&hex_to_be_32(x));
-    out[32..].copy_from_slice(&hex_to_be_32(y));
+    out[..32].copy_from_slice(&hex_to_be_32(x)?);
+    out[32..].copy_from_slice(&hex_to_be_32(y)?);
     Some(out)
 }
 
-fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
-    let trimmed = hex_str.trim_start_matches("0x");
-    let big_int = num_bigint::BigInt::from_str_radix(trimmed, 16).unwrap_or_default();
-    let bytes = big_int.to_bytes_be().1;
-    let mut result = [0u8; 32];
-    if bytes.len() <= 32 {
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
-    } else {
-        result.copy_from_slice(&bytes[bytes.len() - 32..]);
+fn hex_to_be_32(hex_str: &str) -> Option<[u8; 32]> {
+    let trimmed = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    let big_int = num_bigint::BigUint::from_str_radix(trimmed, 16).ok()?;
+    let bytes = big_int.to_bytes_be();
+    if bytes.len() > 32 {
+        return None;
     }
-    result
+    let mut result = [0u8; 32];
+    result[32 - bytes.len()..].copy_from_slice(&bytes);
+    Some(result)
 }
 
 impl Proof {
@@ -300,6 +299,11 @@ mod tests {
             &format!(r#"{{"ar":{point},"bs":[{point}],"krs":{point}}}"#),
             &format!(
                 r#"{{"ar":{point},"bs":[{point},{point}],"krs":{point},"proofCommitment":{point}}}"#
+            ),
+            &format!(r#"{{"ar":["0xzz","0x2"],"bs":[{point},{point}],"krs":{point}}}"#),
+            &format!(
+                r#"{{"ar":["0x{}","0x2"],"bs":[{point},{point}],"krs":{point}}}"#,
+                "f".repeat(65)
             ),
         ] {
             assert!(

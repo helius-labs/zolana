@@ -1,32 +1,4 @@
-export {
-  auditorMessageData,
-  auditorViewTag,
-  auditDisclosureLength,
-  auditPublicInputHash,
-  policyPublicInputHash,
-  auditSharedSecret,
-  AUDIT_ENC_INFO,
-  AUDIT_INPUT_SLOTS,
-  AUDITOR_MESSAGE_LENGTH,
-  anonymousAuditDisclosureShape,
-  decryptTransactionViewingSecret,
-  encryptTransactionViewingSecret,
-  isDummyAnonymousOutput,
-  openAnonymousAuditDisclosure,
-  openAuditOutputDisclosure,
-  parseAuditorMessage,
-} from "../keypair/audit.js";
-export type {
-  AnonymousAuditDisclosure,
-  AnonymousOutputOpening,
-  AuditDisclosureInput,
-  AuditDisclosureShape,
-  AuditInputOpening,
-  AuditOutputOpening,
-  AuditorEncryption,
-  AuditorMessage,
-  CustomRingBasePublicInput,
-} from "../keypair/audit.js";
+export * from "./advanced.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export {
   ringMemberRegistryRootAddress,
@@ -37,6 +9,14 @@ export { RING_MEMBER_REGISTRY_ROOT_HISTORY, decodeRingMemberRegistryRoot } from 
 export { openRingEscrowedKeys } from "./key-escrow.js";
 export type { RingEscrowedKeys, RingKeyOwner } from "./key-escrow.js";
 export { ringTreeIdResolver } from "./trees.js";
+export { auditRingMerges } from "./audit-merge.js";
+export type {
+  AuditedRingMerge,
+  AuditedRingMergeOpening,
+  RingMergeAuditPage,
+  RingMergeAuditReader,
+  UnresolvedRingMerge,
+} from "./audit-merge.js";
 export type { RingMemberRegistryRoot } from "./codecs.js";
 export {
   NF_KEY_ENC_INFO,
@@ -63,26 +43,6 @@ export type {
 } from "./member-registry.js";
 export { recoverRingMemberNotes } from "./recover.js";
 export type { RecoveredRingNotes, RingRecoveryClient, RingRecoveryParams } from "./recover.js";
-export {
-  MEMBER_REGISTRY_HEIGHT,
-  MEMBER_REGISTRY_CAPACITY,
-  memberRegistryLeaf,
-  memberRegistryRootFromProof,
-  verifyMemberOpening,
-  verifyMemberRegistryInsert,
-  updateMemberRecord,
-  updateMembersPublicInputHash,
-  MemberRegistryOverlay,
-  MAX_MEMBER_BATCH,
-} from "./member-registry-tree.js";
-export type {
-  MemberOpening,
-  MemberRegistryInsertProofInput,
-  MemberUpdate,
-  RecordUpdateWitness,
-  MemberRecord,
-  MemberRegistryPath,
-} from "./member-registry-tree.js";
 export {
   buildRingDelegateRecoveredTransaction,
   buildRingDelegateTransferTransaction,
@@ -121,13 +81,6 @@ export type {
 export { ringTransactAccounts } from "../interface/instructions/index.js";
 export { ringDepositInstruction } from "./deposit-instruction.js";
 export { customRingDepositPayload, decryptRingDepositUtxo } from "./deposit-payload.js";
-export {
-  encodeRingDepositCapsule,
-  readRingDepositCapsule,
-  RING_DEPOSIT_AUDIT_SLOTS,
-  RING_DEPOSIT_OPENING_LENGTH,
-  type RingDepositCapsule,
-} from "./deposit-capsule.js";
 export {
   decodeRingDepositOutput,
   decodeRingDepositPlaintext,
@@ -169,43 +122,6 @@ export {
   ringDepositAuditAddress,
 } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
-export {
-  LIST_IDS,
-  ListId,
-  RING_POLICY_VERSION,
-  buildRuleTable,
-  decodeRule,
-  decodeRuleTable,
-  encodeRule,
-  encodeRuleTable,
-  listIdFromByte,
-  listSet,
-  listWriter,
-  memberOfAsset,
-  memberOfIdentity,
-  memberOfTag,
-  policySourceOwners,
-  referencedLists,
-  ringNamespaceOwnerHash,
-  ringPolicyHash,
-  ruleAlternatives,
-  verifiedRuleTable,
-} from "./policy.js";
-export type {
-  EncodedRuleTable,
-  EntryState,
-  LeafTree,
-  ListWriter,
-  Member,
-  Rule,
-  RuleAlternative,
-  RuleGuard,
-  RuleMode,
-  RuleSource,
-  RuleSubject,
-  RuleTable,
-  RuleTableInput,
-} from "./policy.js";
 export { ringConfigAddress, ringPolicyConfigAddress } from "../interface/pda/index.js";
 export {
   fetchRingConfigs,
@@ -293,6 +209,8 @@ export {
   RING_READ_PAGE_LIMIT,
 } from "./rpc.js";
 export type {
+  AuditedMergeRecord,
+  AuditedMergesPage,
   DecryptedAnonymousRingTrace,
   DecryptedRingOutput,
   DecryptedRingOpening,
@@ -313,6 +231,7 @@ export type {
   SkippedReason,
   SkippedRingTransaction,
   WebAuthnSignature,
+  UnresolvedMergeRecord,
 } from "./rpc.js";
 export {
   auditorMessage,

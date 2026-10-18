@@ -119,7 +119,7 @@ impl RingCircuit {
             Self::Shaped { subtree: true, .. } => PolicyProofKind::Subtree,
             Self::Shaped { .. } => PolicyProofKind::General,
             _ if self.is_two_by_three() => PolicyProofKind::TwoByThree,
-            _ => PolicyProofKind::Legacy,
+            _ => PolicyProofKind::Base,
         }
     }
 

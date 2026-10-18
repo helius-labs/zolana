@@ -5,6 +5,7 @@ use custom_ring_interface::RingMode;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
+    num::NonZeroU32,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -28,15 +29,15 @@ use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
         auditor_key_attestation, unix_now, Attestation, CreateAuditorKeyRequest,
-        CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord,
+        CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord, GetAuditedMergesResponse,
         GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse, KeyMode,
         ReadAttestation, ReadAuth, ReadBuildError, ReadSignature, ReadSigner, RingDepositsRequest,
         RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
-        WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
-        RING_STATUS,
+        WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_DECRYPTED_TRANSACTIONS,
+        HEALTH, RING_DEPOSITS, RING_STATUS,
     },
     AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening, AuditorEncryption,
-    ReaderKey, RingOrigin, RingWithdrawal,
+    MergeAuditPage, MergeAuditResult, ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
     check_read, rpc_module, AuditRead, Clock, DepositHistory, DepositPage, Hub, OriginPolicy,
@@ -332,6 +333,28 @@ impl StaticSource {
 }
 
 impl TransactionSource for StaticSource {
+    fn merge_audit_page<'a>(
+        &'a self,
+        _ring: Address,
+        _auditor: &'a X25519Secret,
+        _cursor: Option<Vec<u8>>,
+        _limit: NonZeroU32,
+    ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a {
+        async {
+            Ok(MergeAuditPage {
+                context: zolana_indexer_api::Context {
+                    block_time: 0,
+                    slot: 99,
+                },
+                result: MergeAuditResult {
+                    opened: Vec::new(),
+                    unresolved: Vec::new(),
+                },
+                next_cursor: None,
+            })
+        }
+    }
+
     fn transactions_by_tag(
         &self,
         request: TransactionPage<'_>,
@@ -1410,6 +1433,19 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         .await
         .expect("read");
     assert_eq!(page.value.items.len(), 1);
+    let merges: GetAuditedMergesResponse = module
+        .call(
+            GET_AUDITED_MERGES,
+            as_object(
+                GetDecryptedTransactionsRequest::read(RING)
+                    .sign(&delegate())
+                    .expect("merge read request"),
+            ),
+        )
+        .await
+        .expect("merge read");
+    assert!(merges.value.opened.is_empty());
+    assert!(merges.value.unresolved.is_empty());
     let item = as_object(&page.value.items[0]);
     assert_eq!(
         item.get("withdrawals"),

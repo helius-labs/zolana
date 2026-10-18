@@ -5,6 +5,7 @@ mod decrypt;
 mod deposit;
 mod encryption;
 mod error;
+mod merge_audit;
 mod opening;
 mod origin;
 mod reader;
@@ -25,6 +26,7 @@ pub use crate::{
         NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::AuditError,
+    merge_audit::{AuditedMerge, MergeAudit, MergeAuditPage, MergeAuditResult, UnresolvedMerge},
     origin::{
         ring_event_origin_in, ConfirmedDeposit, ConfirmedEvent, ConfirmedEventKind, RingOrigin,
         RingWithdrawal, TransactionOrigin,

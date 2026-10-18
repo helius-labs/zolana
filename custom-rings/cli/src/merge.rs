@@ -61,7 +61,7 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
     line("amount", merged_amount);
     line("mint", mint);
     line("tree", tree);
-    println!("merge is value-preserving and has no auditor ciphertext");
+    println!("merge preserves value and binds its ciphertext to registered auditor recovery");
     Ok(())
 }
 

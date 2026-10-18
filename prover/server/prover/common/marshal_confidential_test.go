@@ -86,11 +86,23 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 			t.Fatalf("%s circuit type: got %v, want %v", tc.filename, got.CircuitType, tc.want)
 		}
 	}
+	// A canonical filename cannot reinterpret a key header for another shape.
+	original, err := os.ReadFile(filepath.Join(dir, "transfer_ring_2_4.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongShape := filepath.Join(dir, "transfer_ring_4_2.key")
+	if err := os.WriteFile(wrongShape, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSystemFromFile(wrongShape); err == nil || !strings.Contains(err.Error(), "header shape") {
+		t.Fatalf("accepted a key under a different canonical shape: %v", err)
+	}
 }
 
-// Removed keys must fail before loading, including a filename matching a live rail suffix.
-func TestReadSystemRejectsRemovedOwnerKeys(t *testing.T) {
-	for _, file := range []string{"transfer_p256_ring_2_4.key", "transfer_p256_confidential_2_4.key"} {
+// Unknown names and unsupported shapes fail before any file is loaded.
+func TestReadSystemRejectsUnknownKeyNames(t *testing.T) {
+	for _, file := range []string{"transfer_old_ring_2_4.key", "transfer_confidential_50_2.key"} {
 		if _, err := ReadSystemFromFile(filepath.Join(t.TempDir(), file)); err == nil || !strings.Contains(err.Error(), "unsupported proving key") {
 			t.Fatalf("%s: expected unsupported proving key, got %v", file, err)
 		}

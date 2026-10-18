@@ -67,6 +67,8 @@ import {
   type UserRecordReader,
   type UserRecordsLookup,
   type RingMemberRecordResponse,
+  type RingMemberRecordsRequest,
+  type RingMemberRecordsResponse,
   type RingMemberRegistryTip,
 } from "./ports.js";
 import {
@@ -578,6 +580,13 @@ export class ZolanaClient
     return this.#indexer.getRingMemberRecord(request, context);
   }
 
+  getRingMemberRecords(
+    request: RingMemberRecordsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberRecordsResponse> {
+    return this.#indexer.getRingMemberRecords(request, context);
+  }
+
   getRingMemberRegistryRoot(
     request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
@@ -980,6 +989,7 @@ export class ZolanaClient
       prepared: PreparedMerge;
       keys: ProofAuthority;
       cache?: MergeCacheTarget;
+      ringRegistry?: import("./ports.js").RingMergeRegistryProof;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -993,7 +1003,7 @@ export class ZolanaClient
         throw new ClientError("CLIENT_INVALID_MERGE");
       }
       if (this.#proofDataSource === "prover") {
-        const prepared = prepareMerge(input.prepared, this.tree, input.cache);
+        const prepared = prepareMerge(input.prepared, this.tree, input.cache, input.ringRegistry);
         const { proof, trees } = await proveThroughAuthority(
           input.keys,
           this.#withMinContextSlot(prepared.inputs, undefined),
@@ -1008,7 +1018,14 @@ export class ZolanaClient
           outputHash: new Uint8Array(complete.outputHash) as Bytes32,
         });
       }
-      const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
+      const assembled = await assembleMerge(
+        input.prepared,
+        this,
+        this.tree,
+        context,
+        input.cache,
+        input.ringRegistry,
+      );
       const compressed = compressProof(
         await input.keys.proveMerge(assembled.proverInputs, context),
       );

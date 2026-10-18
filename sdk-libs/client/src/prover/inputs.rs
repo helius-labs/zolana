@@ -111,6 +111,23 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    /// A ring merge proves the owner's auditor-recoverable nullifier key is
+    /// registered under this authenticated root. Absent on the default rail.
+    pub registration: Option<MergeRegistration>,
+}
+
+/// The private member opening and public root of a registered merge owner.
+/// The ciphertext hash is committed by the member record. Registration proves
+/// that its ciphertext opens to the same nullifier key used by the merge.
+#[derive(Debug, Clone)]
+pub struct MergeRegistration {
+    pub root: [u8; 32],
+    pub ciphertext_hash: [u8; 32],
+    pub next: [u8; 32],
+    pub lists: u64,
+    pub escrow_key: [u8; 32],
+    pub index: u64,
+    pub path: Vec<[u8; 32]>,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree

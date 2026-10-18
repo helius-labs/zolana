@@ -140,12 +140,12 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "legacy viewing key tag",
-			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithLegacyTxTag() },
+			name: "invalid viewing key tag",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithInvalidTxTag() },
 		},
 		{
-			name: "legacy envelope key tag",
-			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithLegacyEphTag() },
+			name: "invalid envelope key tag",
+			keys: func(k ringaudit.Keys) ringaudit.Keys { return k.WithInvalidEphTag() },
 		},
 		{
 			name: "legacy ring with a sender",

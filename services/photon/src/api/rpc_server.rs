@@ -190,6 +190,15 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
             },
         )?;
         module.register_async_method(
+            zolana_indexer_api::GET_RING_MEMBER_RECORDS,
+            |params, context, _| async move {
+                context
+                    .get_ring_member_records(params.parse()?)
+                    .await
+                    .map_err(ErrorObjectOwned::from)
+            },
+        )?;
+        module.register_async_method(
             zolana_indexer_api::GET_RING_MEMBER_REGISTRY_ROOT,
             |params, context, _| async move {
                 context
@@ -246,7 +255,11 @@ mod tests {
         }
     }
 
-    const CUSTOM_RING_METHODS: [&str; 2] = ["getRingMemberRecord", "getRingMemberRegistryRoot"];
+    const CUSTOM_RING_METHODS: [&str; 3] = [
+        "getRingMemberRecord",
+        "getRingMemberRecords",
+        "getRingMemberRegistryRoot",
+    ];
 
     async fn test_api() -> PhotonApi {
         let db = Database::connect("sqlite::memory:").await.unwrap();

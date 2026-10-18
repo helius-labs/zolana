@@ -432,7 +432,9 @@ impl IndexedCircuit {
             Self::TransferRingAuthority => 14,
             Self::TransferAnonymousRingEd25519 => 19,
             // Tree-independent prefix, rail tail, salt and three ciphertext fields.
-            Self::Merge | Self::MergeRing => 12,
+            Self::Merge => 12,
+            // The ring statement also binds the selected member-registry root.
+            Self::MergeRing => 13,
         }
     }
 }

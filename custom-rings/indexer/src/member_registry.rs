@@ -15,6 +15,9 @@ pub struct SealedKey {
     #[serde(with = "compressed_key")]
     pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+    /// RegisterKey's actual signer. Old projections may have only the sealed key.
+    #[serde(default)]
+    pub owner_pubkey: Option<[u8; 32]>,
 }
 
 /// One projected record, the sealed key stays with the record its escrow key hashes.
@@ -91,6 +94,7 @@ pub fn batch(instruction: InstructionView<'_>) -> Result<Option<Batch>> {
                 seal: Some(SealedKey {
                     eph_pk: ix.eph_pk,
                     ciphertext: ix.ciphertext,
+                    owner_pubkey: Some(signer.to_bytes()),
                 }),
             };
             (accounts::REGISTER_KEY_ROOT, batch)
@@ -266,8 +270,19 @@ mod tests {
             Some(SealedKey {
                 eph_pk: [8; 33],
                 ciphertext: [9; 32],
+                owner_pubkey: Some(signer.to_bytes()),
             })
         );
         assert!(batch_of(&accounts, &registration([1; 32])).is_err());
+    }
+
+    #[test]
+    fn old_sealed_rows_without_owner_pubkey_still_decode() {
+        let old = serde_json::json!({
+            "eph_pk": vec![8u8; 33],
+            "ciphertext": vec![9u8; 32],
+        });
+        let seal: SealedKey = serde_json::from_value(old).unwrap();
+        assert_eq!(seal.owner_pubkey, None);
     }
 }

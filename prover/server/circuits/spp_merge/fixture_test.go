@@ -9,6 +9,7 @@ import (
 	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -127,6 +128,9 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
+	memberRegistryRoot  *big.Int
+	registeredCtHash    *big.Int
+	memberRecord        registry.RecordOpening
 	outputCiphertext    []*big.Int
 	publicInputPreimage []*big.Int
 	publicInputHash     *big.Int
@@ -404,6 +408,22 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
+	var memberRoot, registeredCtHash *big.Int
+	var memberRecord registry.RecordOpening
+	if options.rail == ringFixtureRail {
+		registeredCtHash = big.NewInt(0xC7)
+		members := spptest.NewMemberRegistry(t, registry.Height)
+		members.RegisterKey(t, ownerKeyHash, userNullifierPk, registeredCtHash)
+		memberRoot = members.Root()
+		opened := members.Opening(ownerKeyHash)
+		memberRecord.Next = opened.Record.Next
+		memberRecord.Lists = opened.Record.Lists
+		memberRecord.EscrowKey = opened.Record.EscrowKey
+		memberRecord.Index = opened.Index
+		for i, value := range opened.Path {
+			memberRecord.Path[i] = new(big.Int).Set(&value)
+		}
+	}
 	publicInputPreimage := []*big.Int{
 		spptest.MustRightHashChain4(t, pubNullifiers),
 		outHash,
@@ -425,6 +445,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 			publicInputPreimage,
 			outputRingData,
 			ringProgramID,
+			memberRoot,
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
@@ -495,6 +516,9 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash:   userSigningPkHash,
 		outputRingDataHash:  outputRingData,
 		ringProgramID:       ringProgramID,
+		memberRegistryRoot:  memberRoot,
+		registeredCtHash:    registeredCtHash,
+		memberRecord:        memberRecord,
 		outputCiphertext:    outputCiphertext,
 		publicInputPreimage: publicInputPreimage,
 		publicInputHash:     publicInputHash,
@@ -530,6 +554,9 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID
+	assignment.MemberRegistryRoot = f.memberRegistryRoot
+	assignment.RegisteredCiphertextHash = f.registeredCtHash
+	assignment.MemberRecord = f.memberRecord
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

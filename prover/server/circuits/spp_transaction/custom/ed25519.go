@@ -119,11 +119,11 @@ func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 		api.ToBinary(c.Public.MessageHashLow, messageLimbBits),
 		api.ToBinary(c.Public.MessageHashHigh, messageLimbBits)...,
 	)
-	message := bytes32FromBits(api, messageBits)
+	message := checked.BitsToBytesBE(api, messageBits)
 	key := ed25519.Verify(api, ed25519.Inputs{
 		PublicKey: c.Private.OwnerPublicKey,
 		Signature: c.Private.OwnerSignature,
-		Message:   message[:],
+		Message:   message,
 	})
 	hiddenOwner := checked.SolanaOwnerIdentity(api, key)
 
@@ -134,7 +134,7 @@ func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 	for i := range publishedOutputOwners {
 		publishedOutputOwners[i] = 0
 	}
-	tx := c.transaction(api, gadget.HashBytes(api, message[:]), publishedOutputOwners)
+	tx := c.transaction(api, gadget.HashBytes(api, message), publishedOutputOwners)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
@@ -167,7 +167,6 @@ func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 		c.Private.InputOwnerPkHashes,
 		authorizedEddsa,
 		hiddenOwner,
-		1,
 	)
 	shared.AssertHiddenRingOwner(
 		api,
@@ -200,13 +199,3 @@ func (c *CustomRingAnonymousEd25519Circuit) Define(api frontend.API) error {
 }
 
 const messageLimbBits = 128
-
-// bytes32FromBits adapts a 256-bit little-endian bit decomposition to the
-// big-endian byte order the byte-oriented hash gadgets expect.
-func bytes32FromBits(api frontend.API, bits []frontend.Variable) [32]frontend.Variable {
-	var bytes [32]frontend.Variable
-	for i := range bytes {
-		bytes[len(bytes)-1-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
-	}
-	return bytes
-}

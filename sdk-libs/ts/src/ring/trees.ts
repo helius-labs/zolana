@@ -18,27 +18,34 @@ export async function resolveRingOutputTree(
   return { tree, treeId };
 }
 
-/** Cached per tree until a read fails, a `known` pair is trusted as given. */
+/** Successful ids are cached. A cancellable read is never shared across callers. */
 export function ringTreeIdResolver(
   client: Pick<ChainReader, "getAccount">,
   known: readonly TreeContext[],
   context?: RequestContext,
 ): (tree: Address) => Promise<TreeId> {
-  const ids = new Map<Address, Promise<TreeId>>(
-    known.map(({ tree, treeId }) => [tree, Promise.resolve(treeId)]),
-  );
+  const ids = new Map<Address, TreeId>(known.map(({ tree, treeId }) => [tree, treeId]));
+  const pending = new Map<Address, Promise<TreeId>>();
   return (tree) => {
     const cached = ids.get(tree);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return Promise.resolve(cached);
+    // The first caller's abort signal must not cancel another caller's lookup.
+    const shared = context?.signal === undefined;
+    const inFlight = shared ? pending.get(tree) : undefined;
+    if (inFlight !== undefined) return inFlight;
     const id = readTreeId(client, tree, context).then((treeId) => {
       if (treeAddress(treeId) !== tree)
         throw new RingError("RING_TREE_MISMATCH", { details: { tree, treeId } });
+      ids.set(tree, treeId);
       return treeId;
     });
-    ids.set(tree, id);
-    void id.catch(() => {
-      if (ids.get(tree) === id) ids.delete(tree);
-    });
+    if (shared) {
+      pending.set(tree, id);
+      const clear = () => {
+        if (pending.get(tree) === id) pending.delete(tree);
+      };
+      void id.then(clear, clear);
+    }
     return id;
   };
 }

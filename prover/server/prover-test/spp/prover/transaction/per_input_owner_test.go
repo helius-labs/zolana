@@ -83,18 +83,16 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	solveAssignment(t, shape, built)
 }
 
-// Legacy key fields must not bypass owner validation through an explicit commitment.
-func TestRejectRemovedOwnerKey(t *testing.T) {
+// Unknown nested owner fields fail while decoding the proof bundle.
+func TestRejectUnknownOwnerField(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
-		input := ProofUtxoRequest{OwnerP256Pubkey: "0x02"}
+		owner := ""
 		if explicit {
-			input.Owner = "1"
+			owner = `,"owner":"1"`
 		}
-		if _, err := parseOwner(input, big.NewInt(1)); err == nil {
-			t.Fatal("removed owner key accepted")
-		}
-		if _, err := ownerComponents(input, big.NewInt(1)); err == nil {
-			t.Fatal("removed owner components accepted")
+		data := []byte(`{"inputs":[{"utxo":{"owner_unknown_key":"0x02"` + owner + `}}]}`)
+		if _, err := decodeProofBundleRequest(data); err == nil {
+			t.Fatal("unknown owner field accepted")
 		}
 	}
 }

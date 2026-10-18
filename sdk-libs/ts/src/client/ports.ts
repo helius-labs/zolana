@@ -131,6 +131,7 @@ export interface RingMemberRecordView {
   readonly next: Bytes32;
   readonly lists: bigint;
   readonly escrowKey: Bytes32;
+  readonly ownerPublicKey?: Address | null;
   readonly ephemeralPublicKey: X25519PublicKey | null;
   readonly ciphertext: Bytes32 | null;
 }
@@ -153,6 +154,26 @@ export interface RingMemberRecordResponse {
   readonly path: readonly Bytes32[];
   readonly low: RingLowRecordView | null;
 }
+export interface RingMemberRecordsRequest {
+  readonly ringProgramId: Address;
+  readonly expectedRoot: Bytes32;
+  readonly expectedNextIndex: bigint;
+  readonly startIndex: bigint;
+  readonly limit: number;
+}
+export interface RingIndexedMemberRecordView {
+  readonly index: bigint;
+  readonly record: RingMemberRecordView;
+  readonly path: readonly Bytes32[];
+}
+export interface RingMemberRecordsResponse {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: Bytes32;
+  readonly rootIndex: number;
+  readonly nextIndex: bigint;
+  readonly records: readonly RingIndexedMemberRecordView[];
+  readonly nextLeafIndex: bigint | null;
+}
 export interface RingMemberRegistryReader {
   getRingMemberRecord(
     request: RingMemberProofRequest,
@@ -162,6 +183,11 @@ export interface RingMemberRegistryReader {
     request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
   ): Promise<RingMemberRegistryTip>;
+  /** Optional for readers backed by an older indexer. Required for complete auditor discovery. */
+  getRingMemberRecords?(
+    request: RingMemberRecordsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberRecordsResponse>;
 }
 
 export type RingSubmissionStatus =
@@ -535,6 +561,12 @@ export interface ProvedMerge {
   readonly outputHash: Bytes32;
 }
 
+/** The registry opening a ring merge binds to its proof and on-chain root history. */
+export interface RingMergeRegistryProof {
+  readonly root: Bytes32;
+  readonly key: import("./prover/types.js").CustomRingRegistryKey;
+}
+
 /** A proved ring transfer with the tree history entries the ring statement binds. */
 export interface ProvenRingTransact {
   readonly data: TransactInstructionData;
@@ -558,6 +590,7 @@ export interface MergeAssembler {
       prepared: PreparedMerge;
       keys: ProofAuthority;
       cache?: MergeCacheTarget;
+      ringRegistry?: RingMergeRegistryProof;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge>;
@@ -574,6 +607,7 @@ export interface MergeAssembler {
 export type RingMergeClient = TreeContext &
   BlockhashProvider &
   Pick<ChainReader, "getAccount"> &
+  Pick<RingMemberRegistryReader, "getRingMemberRecord"> &
   Pick<MergeAssembler, "proveMerge"> &
   ProofDataSourceContext;
 

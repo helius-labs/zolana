@@ -51,24 +51,37 @@ var RingCircuits = []RingCircuit{
 
 func init() {
 	for _, shape := range common.RingPolicyShapes {
-		params := func() any { return new(PolicyParams) }
-		if shape.Delegate {
-			params = func() any { return new(DelegatePolicyParams) }
-		}
-		RingCircuits = append(RingCircuits, RingCircuit{Type: shape.CircuitType(), params: params, Circuit: func() frontend.Circuit {
+		RingCircuits = append(RingCircuits, RingCircuit{Type: shape.CircuitType(), params: policyParamsFactory(shape.CircuitType()), Circuit: func() frontend.Circuit {
 			return policy.NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)
 		}})
 	}
 }
 
 func twoByThreeRing(kind common.CircuitType, anonymous, delegate bool) RingCircuit {
-	params := func() any { return new(PolicyParams) }
-	if delegate {
-		params = func() any { return new(DelegatePolicyParams) }
-	}
-	return RingCircuit{Type: kind, params: params, Circuit: func() frontend.Circuit {
+	return RingCircuit{Type: kind, params: policyParamsFactory(kind), Circuit: func() frontend.Circuit {
 		return &policy.PublicTableTwoByThreeCircuit{Circuit: policy.TwoByThreeCircuit{Anonymous: anonymous, Delegate: delegate}}
 	}}
+}
+
+func policyParamsFactory(circuitType common.CircuitType) func() any {
+	return func() any {
+		value, _ := NewPolicyParams(circuitType)
+		return value
+	}
+}
+
+// NewPolicyParams selects the request wrapper and the contained policy once for
+// both direct proof requests and indexed requests.
+func NewPolicyParams(circuitType common.CircuitType) (any, *PolicyParams) {
+	shape, shaped := common.ParseRingPolicyShape(circuitType)
+	delegate := circuitType == common.CustomRingDelegatePolicyCircuitType ||
+		circuitType == common.CustomRingDelegatePolicyTwoByThreeCircuitType || shaped && shape.Delegate
+	if delegate {
+		wrapper := new(DelegatePolicyParams)
+		return wrapper, &wrapper.Policy
+	}
+	p := new(PolicyParams)
+	return p, p
 }
 
 func Ring(circuitType common.CircuitType) (RingCircuit, error) {
@@ -171,6 +184,14 @@ func assignShapedPolicy(c *policy.ShapeCircuit, params any) (frontend.Circuit, e
 		return nil, fmt.Errorf("invalid shaped policy params %T", params)
 	}
 	dst := reflect.ValueOf(&c.Policy).Elem()
+	shapeType := reflect.TypeOf(c.ShapeWires)
+	for i := 0; i < shapeType.NumField(); i++ {
+		shapeField := shapeType.Field(i)
+		policyField, ok := dst.Type().FieldByName(shapeField.Name)
+		if !ok || policyField.Tag.Get("shape") != "dynamic" || shapeField.Type.Kind() != reflect.Slice || policyField.Type.Kind() != reflect.Array || policyField.Type.Elem() != shapeField.Type.Elem() {
+			return nil, fmt.Errorf("shape wire %s has no matching policy field", shapeField.Name)
+		}
+	}
 	errs := fill(dst, reflect.Value{}, "")
 	src := reflect.ValueOf(p).Elem()
 	for i := 0; i < dst.NumField(); i++ {
@@ -178,9 +199,15 @@ func assignShapedPolicy(c *policy.ShapeCircuit, params any) (frontend.Circuit, e
 		if field.Tag.Get("gnark") == "-" {
 			continue
 		}
-		switch field.Name {
-		case "Inputs", "Outputs", "Subjects", "ForeignSubjects":
+		if field.Tag.Get("shape") == "dynamic" {
+			shapeField, ok := shapeType.FieldByName(field.Name)
+			if !ok || shapeField.Type.Kind() != reflect.Slice || field.Type.Kind() != reflect.Array || shapeField.Type.Elem() != field.Type.Elem() {
+				return nil, fmt.Errorf("shape wire %s has no matching dynamic field", field.Name)
+			}
 			continue
+		}
+		if field.Tag.Get("shape") != "" {
+			return nil, fmt.Errorf("shape wire %s has unknown assignment tag", field.Name)
 		}
 		value := src.FieldByName(field.Name)
 		if field.Anonymous {

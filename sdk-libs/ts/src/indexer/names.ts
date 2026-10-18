@@ -4,6 +4,7 @@ export const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS = "getShieldedTransactionsB
 export const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE = "getShieldedTransactionsBySignature";
 export const GET_MERKLE_PROOFS = "getMerkleProofs";
 export const GET_RING_MEMBER_RECORD = "getRingMemberRecord";
+export const GET_RING_MEMBER_RECORDS = "getRingMemberRecords";
 export const GET_RING_MEMBER_REGISTRY_ROOT = "getRingMemberRegistryRoot";
 export const GET_NON_INCLUSION_PROOFS = "getNonInclusionProofs";
 export const GET_USER_RECORDS = "getUserRecords";

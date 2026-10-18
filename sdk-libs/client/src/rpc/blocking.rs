@@ -21,7 +21,8 @@ use super::{
     traits::{AsyncRpc, Rpc},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
+        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+        GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
         GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
         GetUserRecordsResponse, RingHistoryOptions, ShieldedTransactionStream,
@@ -256,6 +257,14 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         request: GetRingMemberRecordRequest,
     ) -> Result<GetRingMemberRecordResponse, ClientError> {
         self.run(move |rpc| rpc.get_ring_member_record(request))
+            .await
+    }
+
+    async fn get_ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_records(request))
             .await
     }
 

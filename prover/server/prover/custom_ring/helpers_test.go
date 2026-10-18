@@ -32,7 +32,7 @@ func repeat(v Field, n int) []Field {
 	return out
 }
 
-// testScalar is a non zero P256 scalar below the group order.
+// testScalar provides a deterministic nonzero byte seed for X25519 tests.
 func testScalar(seed byte) Bytes {
 	out := make(Bytes, 32)
 	for i := range out {

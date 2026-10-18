@@ -5,6 +5,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
 // Properties:
@@ -42,6 +43,11 @@ type RingCircuit struct {
 	// separate policy proof and cannot replace the authenticated ring state.
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
+	// A merge reuses the owner's recovery registration. The record is bound to
+	// the on-chain root and its key commitment to the secret used by the merge.
+	MemberRegistryRoot       frontend.Variable
+	RegisteredCiphertextHash frontend.Variable
+	MemberRecord             registry.RecordOpening
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -82,9 +88,13 @@ func (c *RingCircuit) Define(api frontend.API) error {
 	}
 	tx.AssertRingDataPreserved(api)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
+	c.MemberRecord.AssertPresent(api, 1, c.MemberRegistryRoot, c.OwnerPkHash)
+	api.AssertIsDifferent(c.RegisteredCiphertextHash, 0)
+	api.AssertIsEqual(c.MemberRecord.EscrowKey,
+		gadget.PoseidonHash(api, []frontend.Variable{c.UserNullifierPk, c.RegisteredCiphertextHash}))
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.MemberRegistryRoot)
 	// Both rails end with the salt, then the output ciphertext.
 	fields = append(fields, c.OutputCiphertextSalt)
 	fields = append(fields, derived.OutputCiphertext...)

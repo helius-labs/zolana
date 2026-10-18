@@ -38,7 +38,7 @@ type disclosureVector struct {
 	DisclosureHash string   `json:"disclosure_hash"`
 }
 
-// The key is below the P-256 order and RFC 7748 clamped, so either viewing key curve accepts it.
+// The pinned viewing key is clamped as required by RFC 7748.
 func vectorKey() (key [32]byte, salt [16]byte) {
 	for i := range key {
 		key[i] = 0x10 + byte(i)

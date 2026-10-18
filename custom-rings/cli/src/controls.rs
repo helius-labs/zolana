@@ -98,7 +98,11 @@ pub fn deposit_audit(ctx: &Context, command: DepositAuditCommand) -> Result<()> 
         }
         DepositAuditCommand::Show => ctx.block(ctx.ring.deposit_audit(ctx.chain()))?,
     };
-    line("deposit audit", crate::status::audit_label(required));
+    line(
+        "legacy deposit flag",
+        crate::status::stored_audit_flag(required),
+    );
+    line("deposit audit", "required");
     Ok(())
 }
 

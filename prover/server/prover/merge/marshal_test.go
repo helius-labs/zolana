@@ -10,7 +10,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
 
 // defaultTestNInputs is the merge shape these parameter tests build. Every
@@ -57,6 +59,50 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	for i := range p.Inputs {
 		if got.Inputs[i].TreeSlot.Cmp(p.Inputs[i].TreeSlot) != 0 {
 			t.Fatalf("input %d tree slot mismatch: got %s want %s", i, got.Inputs[i].TreeSlot, p.Inputs[i].TreeSlot)
+		}
+	}
+}
+
+func TestMergeRingRegistrationWireRoundTrip(t *testing.T) {
+	p := sampleParams()
+	p.CircuitType = common.MergeRingCircuitType
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"memberRegistryRoot", "registeredCiphertextHash", "memberRecord"} {
+		if len(fields[name]) == 0 {
+			t.Fatalf("missing ring recovery field %s", name)
+		}
+	}
+	var decoded MergeParameters
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.ValidateShape(); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.MemberRegistryRoot.Cmp(p.MemberRegistryRoot) != 0 ||
+		decoded.RegisteredCiphertextHash.Cmp(p.RegisteredCiphertextHash) != 0 ||
+		decoded.MemberRecord.EscrowKey.Int.Cmp(p.MemberRecord.EscrowKey.Int) != 0 {
+		t.Fatal("ring recovery registration changed across the wire")
+	}
+	for _, name := range []string{"memberRegistryRoot", "registeredCiphertextHash", "memberRecord"} {
+		mutated := make(map[string]json.RawMessage, len(fields))
+		for k, v := range fields {
+			mutated[k] = v
+		}
+		delete(mutated, name)
+		wire, err := json.Marshal(mutated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(wire, &decoded); err == nil {
+			t.Fatalf("accepted missing ring recovery field %s", name)
 		}
 	}
 }
@@ -219,6 +265,10 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 }
 
 func sampleParams() *MergeParameters {
+	path := make([]customring.Field, registry.Height)
+	for i := range path {
+		path[i] = customring.Field{Int: big.NewInt(0)}
+	}
 	inputs := make([]InputParams, defaultTestNInputs)
 	for i := range inputs {
 		inputs[i] = InputParams{
@@ -252,15 +302,21 @@ func sampleParams() *MergeParameters {
 		NullifierRoot: big.NewInt(13),
 	}
 	return &MergeParameters{
-		Inputs:               inputs,
-		Output:               OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
-		TreeSlots:            treeSlots,
-		OutputTreeID:         big.NewInt(11),
-		MintChunks:           [2]*big.Int{big.NewInt(0x0102), big.NewInt(0x20)},
-		OwnerPkHash:          big.NewInt(0x1212),
-		UserNullifierPk:      big.NewInt(0x3333),
-		UserNullifierSecret:  big.NewInt(0x4444),
-		OutputRingDataHash:   big.NewInt(0),
+		Inputs:                   inputs,
+		Output:                   OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
+		TreeSlots:                treeSlots,
+		OutputTreeID:             big.NewInt(11),
+		MintChunks:               [2]*big.Int{big.NewInt(0x0102), big.NewInt(0x20)},
+		OwnerPkHash:              big.NewInt(0x1212),
+		UserNullifierPk:          big.NewInt(0x3333),
+		UserNullifierSecret:      big.NewInt(0x4444),
+		OutputRingDataHash:       big.NewInt(0),
+		MemberRegistryRoot:       big.NewInt(1),
+		RegisteredCiphertextHash: big.NewInt(2),
+		MemberRecord: &customring.RecordOpening{
+			Next: customring.Field{Int: big.NewInt(3)}, Lists: 0,
+			EscrowKey: customring.Field{Int: big.NewInt(4)}, Index: 1, Path: path,
+		},
 		ExternalDataHash:     big.NewInt(0x6666),
 		PrivateTxHash:        big.NewInt(0x7777),
 		AllowDummyInputs:     big.NewInt(1),

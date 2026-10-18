@@ -15,14 +15,14 @@ import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
-import { U64_MAX, bytesToBigInt, equal } from "../transaction/internal.js";
+import { U64_MAX, bytesToBigInt, equal, poseidon } from "../transaction/internal.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../transaction/serialization/merge.js";
 import { decodeRingDepositOutput } from "../transaction/serialization/ring-deposit.js";
-import { Utxo, type TreeId } from "../transaction/utxo.js";
+import { Utxo, ownerUtxoHash, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
 import { auditRing, type RingAuditReader } from "./audit.js";
@@ -68,7 +68,7 @@ export interface RecoveredRingNotes {
 }
 
 /** Retains a verified note opening while its spend status is resolved. */
-interface Candidate {
+export interface MergeRecoveryCandidate {
   readonly utxo: Utxo;
   readonly outputContext: OutputContext;
   readonly nullifier: Bytes32;
@@ -104,7 +104,7 @@ export async function recoverRingMemberNotes(
   // 2. Rebuild disclosed openings and retain unresolved commitments explicitly.
   const deposits = await recoverDeposits(input, origin, depositSource, treeIds, context);
   const unsupportedDeposits = deposits.unsupported;
-  const candidates: Candidate[] = deposits.candidates;
+  const candidates: MergeRecoveryCandidate[] = deposits.candidates;
   const unopened: Bytes32[] = [];
   const unopenedNullifiers = new Map<string, Bytes32>();
   const seen = new Set(candidates.map((candidate) => bytesKey(candidate.outputContext.hash)));
@@ -241,9 +241,9 @@ async function recoverDeposits(
   depositSource: AuditedDepositSource,
   treeIds: Map<Address, TreeId>,
   context?: RequestContext,
-): Promise<{ unsupported: Bytes32[]; candidates: Candidate[] }> {
+): Promise<{ unsupported: Bytes32[]; candidates: MergeRecoveryCandidate[] }> {
   const found = new Map<string, Bytes32>();
-  const candidates = new Map<string, Candidate>();
+  const candidates = new Map<string, MergeRecoveryCandidate>();
   let cursor: Uint8Array | undefined;
   for (let page = 0; page < (input.maxPages ?? 32); page++) {
     const response = await input.client.getShieldedTransactionsByTags(
@@ -261,17 +261,23 @@ async function recoverDeposits(
       if (transaction === undefined) continue;
       if (!transaction.proofless) continue;
       for (const [slotIndex, slot] of transaction.outputSlots.entries()) {
+        const commitment = slot.outputContext.hash;
         let deposit;
         try {
           const frame = readOutputData(slot.payload);
-          if (frame.scheme !== EncryptedScheme.ringDeposit || frame.encoding !== "encrypted")
+          if (frame.scheme !== EncryptedScheme.ringDeposit || frame.encoding !== "encrypted") {
+            found.set(bytesKey(commitment), commitment);
             continue;
+          }
           deposit = decodeRingDepositOutput(frame.body);
         } catch {
+          found.set(bytesKey(commitment), commitment);
           continue;
         }
-        if (deposit.ringProgramId !== input.ringProgramId || transaction.eventIndex === undefined)
+        if (deposit.ringProgramId !== input.ringProgramId || transaction.eventIndex === undefined) {
+          found.set(bytesKey(commitment), commitment);
           continue;
+        }
         let opening;
         const capsule = readRingDepositCapsule(deposit.encrypted.ciphertext);
         if (capsule !== undefined) {
@@ -383,11 +389,58 @@ async function spendingTransactions(
  * merge's inputs, whichever notes the ring folded in. The cipher is
  * unauthenticated, so the rebuilt output still has to match the commitment.
  */
-async function recoverMerge(
-  input: RingRecoveryParams,
+export async function recoverMerge(
+  input: Pick<RingRecoveryParams, "source" | "nullifierKey" | "ringProgramId" | "resolveTreeId">,
   transaction: IndexedShieldedTransaction,
   treeIds: Map<Address, TreeId>,
-): Promise<Candidate | undefined> {
+): Promise<MergeRecoveryCandidate | undefined> {
+  const opening = await recoverMergeOpening(
+    {
+      member: input.source.signingPublicKey.ownerProofInputHash(),
+      nullifierKey: input.nullifierKey,
+      ringProgramId: input.ringProgramId,
+      resolveTreeId: input.resolveTreeId,
+    },
+    transaction,
+    treeIds,
+  );
+  if (opening === undefined) return undefined;
+  const utxo = new Utxo({
+    owner: input.source.signingPublicKey,
+    asset: opening.asset,
+    amount: opening.amount,
+    blinding: opening.blinding,
+    ringProgramId: input.ringProgramId,
+  });
+  return {
+    utxo,
+    outputContext: opening.outputContext,
+    nullifier: opening.nullifier,
+    ...(opening.ringDataHash === undefined ? {} : { ringDataHash: opening.ringDataHash }),
+  };
+}
+
+/** A verified merge opening when only the registered member hash is known. */
+export interface MergeAuditorOpening {
+  readonly member: Bytes32;
+  readonly asset: Address;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly outputContext: OutputContext;
+  readonly nullifier: Bytes32;
+  readonly ringDataHash?: Bytes32;
+}
+
+export async function recoverMergeOpening(
+  input: Readonly<{
+    member: Bytes32;
+    nullifierKey: NullifierKey;
+    ringProgramId: Address;
+    resolveTreeId: (tree: Address) => Promise<TreeId> | TreeId;
+  }>,
+  transaction: IndexedShieldedTransaction,
+  treeIds: Map<Address, TreeId>,
+): Promise<MergeAuditorOpening | undefined> {
   const firstNullifier = transaction.nullifiers[0];
   const slot = transaction.outputSlots[0];
   if (
@@ -408,13 +461,7 @@ async function recoverMerge(
   } finally {
     outputKey.fill(0);
   }
-  const utxo = new Utxo({
-    owner: input.source.signingPublicKey,
-    asset: plaintext.mint,
-    amount: plaintext.amount,
-    blinding: mergeOutputBlinding(input.nullifierKey, firstNullifier),
-    ringProgramId: input.ringProgramId,
-  });
+  const blinding = mergeOutputBlinding(input.nullifierKey, firstNullifier);
   let treeId = treeIds.get(slot.outputContext.tree);
   if (treeId === undefined) {
     treeId = await input.resolveTreeId(slot.outputContext.tree);
@@ -422,15 +469,26 @@ async function recoverMerge(
   }
   if (
     !equal(
-      utxo.hash(input.source.nullifierPublicKey, treeId, undefined, ringDataHash),
+      ownerUtxoHash({
+        owner: poseidon([input.member, input.nullifierKey.publicKey()]),
+        asset: plaintext.mint,
+        amount: plaintext.amount,
+        blinding,
+        treeId,
+        ringDataHash,
+        ringProgramId: input.ringProgramId,
+      }),
       slot.outputContext.hash,
     )
   )
     return undefined;
   return {
-    utxo,
+    member: input.member,
+    asset: plaintext.mint,
+    amount: plaintext.amount,
+    blinding,
     outputContext: slot.outputContext,
-    nullifier: utxo.nullifier(slot.outputContext.hash, input.nullifierKey),
+    nullifier: input.nullifierKey.nullifier(slot.outputContext.hash, blinding),
     ...(ringDataHash.some((byte) => byte !== 0) ? { ringDataHash } : {}),
   };
 }

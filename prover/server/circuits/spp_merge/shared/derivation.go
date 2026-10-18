@@ -61,6 +61,10 @@ func MergeOutputCiphertext(
 	amount frontend.Variable,
 	mint [2]frontend.Variable,
 ) []frontend.Variable {
+	// The auditor decodes these exact byte widths. Without these bounds, a
+	// valid proof could encrypt a field value that has no 32-byte mint opening.
+	api.ToBinary(mint[0], 31*8)
+	api.ToBinary(mint[1], 8)
 	ctr := gadget.PoseidonCtr{
 		Domain: MergeOutputCiphertextDomain,
 		Key:    MergeOutputKey(api, nullifierSecret, firstNullifier),
