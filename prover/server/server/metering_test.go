@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
@@ -36,41 +37,87 @@ func TestKeyWeightIsTheKeySizeOverTheBaseTransfer(t *testing.T) {
 
 func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
 	mux := proofMux(t, nil)
-	weight, _ := keyWeight("merge_24_1.key")
-	weight = tierUnits(weight)
 	for _, prefix := range []string{"", gatewayPrefix} {
 		for _, path := range []string{"/prove/merge_24_1", "/prove/merge_24_1/indexed"} {
 			response := post(mux, prefix+path, transferRequest(t))
-			if got := response.Header().Get(MeteringUnitsHeader); got != strconv.Itoa(weight) {
-				t.Fatalf("%s%s: %s = %q, want %d", prefix, path, MeteringUnitsHeader, got, weight)
+			if got := response.Header().Get(MeteringUnitsHeader); got != strconv.Itoa(unitsL) {
+				t.Fatalf("%s%s: %s = %q, want %d", prefix, path, MeteringUnitsHeader, got, unitsL)
 			}
 		}
 	}
-	// Status polls bill at their own price, not the key's weight.
+	// Status polls bill at their own price, not the proof's.
 	response := serve(mux, http.MethodGet, "/prove/merge_24_1/status?jobId=x", nil)
 	if got := response.Header().Get(MeteringUnitsHeader); got != "" {
 		t.Fatalf("status poll reported %q", got)
 	}
 }
 
-func TestTiersBillFourPrices(t *testing.T) {
-	for _, test := range []struct{ weight, units int }{
-		{1, 1}, {2, 1}, {3, 4}, {6, 4}, {7, 10}, {14, 10}, {15, 25}, {32, 25}, {33, 25},
+func TestShapeTiers(t *testing.T) {
+	for name, units := range map[string]int{
+		"transfer_confidential_1_2":     unitsS,
+		"transfer_confidential_4_16":    unitsS,
+		"transfer_confidential_5_2":     unitsM,
+		"transfer_confidential_12_8":    unitsM,
+		"transfer_confidential_16_2":    unitsL,
+		"transfer_confidential_32_2":    unitsL,
+		"transfer_confidential_40_2":    unitsXL,
+		"transfer_ring_2_2":             unitsS,
+		"transfer_ring_49_2":            unitsXL,
+		"transfer_ring_authority_4_4":   unitsS,
+		"transfer_p256_ring_1_2":        unitsM,
+		"transfer_p256_ring_6_16":       unitsM,
+		"transfer_p256_ring_8_2":        unitsL,
+		"transfer_p256_ring_24_4":       unitsL,
+		"transfer_p256_ring_32_2":       unitsXL,
+		"merge_8_1":                     unitsM,
+		"merge_ring_24_1":               unitsL,
+		"merge_54_1":                    unitsXL,
+		"custom_ring_base":              unitsM,
+		"custom_ring_deposit":           unitsL,
+		"custom_ring_compressed_policy": unitsXL,
 	} {
-		if units := tierUnits(test.weight); units != test.units {
-			t.Errorf("weight %d bills %d units, want %d", test.weight, units, test.units)
+		if got, ok := shapeUnits(name); !ok || got != units {
+			t.Errorf("%s bills %d units (%v), want %d", name, got, ok, units)
 		}
 	}
-	for file, units := range map[string]int{
-		"transfer_confidential_2_2.key": 1,
-		"transfer_ring_2_2.key":         1,
-		"merge_8_1.key":                 4,
-		"merge_24_1.key":                10,
-		"merge_54_1.key":                25,
-	} {
-		weight, ok := keyWeight(file)
-		if !ok || tierUnits(weight) != units {
-			t.Errorf("%s (weight %d) bills %d units, want %d", file, weight, tierUnits(weight), units)
+	for _, name := range []string{"batch_address-append_40_4999", "transfer_unknown_2_2", "merge", "transfer_confidential_x_2"} {
+		if _, ok := shapeUnits(name); ok {
+			t.Errorf("%s matched a shape rule", name)
 		}
+	}
+}
+
+// Every client key is priced by a shape rule, and the rule never puts a key
+// more than one tier away from where its size would.
+func TestShapeRulesCoverEveryClientKey(t *testing.T) {
+	tier := map[int]int{unitsS: 0, unitsM: 1, unitsL: 2, unitsXL: 3}
+	for _, file := range knownKeyFiles {
+		name := strings.TrimSuffix(file, keyFileSuffix)
+		if strings.HasPrefix(name, "batch_") {
+			continue
+		}
+		byShape, ok := shapeUnits(name)
+		if !ok {
+			t.Errorf("%s has no shape rule", name)
+			continue
+		}
+		weight, _ := keyWeight(file)
+		if gap := tier[byShape] - tier[unitsByWeight(weight)]; gap > 1 || gap < -1 {
+			t.Errorf("%s: shape tier %d units, size tier %d units", name, byShape, unitsByWeight(weight))
+		}
+	}
+}
+
+func TestAKeyWithoutAShapeRuleBillsByWeight(t *testing.T) {
+	file := "batch_address-append_40_10.key"
+	weight, ok := keyWeight(file)
+	if !ok {
+		t.Fatal("batch key not pinned")
+	}
+	if units, ok := proofUnits(file); !ok || units != unitsByWeight(weight) {
+		t.Fatalf("%s bills %d units (%v), want %d", file, units, ok, unitsByWeight(weight))
+	}
+	if _, ok := proofUnits("unknown.key"); ok {
+		t.Fatal("an unknown key bills")
 	}
 }

@@ -11,21 +11,22 @@ A gateway routes and prices on the path alone, so it can send each key to a
 pool of provers sized for it at a price that matches its cost, and send each
 poll to the pool whose queue holds the job.
 
-A proof on a key path answers `X-Helius-Metering-Units` with its key's tier.
-A key's weight is its size in `proving-keys.lock` over
-`transfer_confidential_2_2`'s, rounded up, since proving time and a Groth16
-proving key both grow with the circuit's constraints. The weight picks the tier:
+A proof on a key path answers `X-Helius-Metering-Units` with its tier's units,
+set by the circuit and its number of inputs:
 
-| Tier | Weight      | Units |
-| ---- | ----------- | ----: |
-| S    | 1 to 2      |     1 |
-| M    | 3 to 6      |     4 |
-| L    | 7 to 14     |    10 |
-| XL   | 15 and over |    25 |
+| Proof                          | S, 1 unit  | M, 4 units         | L, 10 units                      | XL, 25 units      |
+| ------------------------------ | ---------- | ------------------ | -------------------------------- | ----------------- |
+| Transfer, confidential or ring | 1-4 inputs | 5-12 inputs        | 16-32 inputs                     | 40-49 inputs      |
+| P256 ring transfer             |            | 1-6 inputs         | 8-24 inputs                      | 32-49 inputs      |
+| Merge, plain or ring           |            | 8 inputs           | 24 inputs                        | 54 inputs         |
+| Ring authority transfer        | all        |                    |                                  |                   |
+| Custom-ring circuit            |            | base, register key | policy, delegate policy, deposit | compressed policy |
 
-A gateway bills the proof at its per-unit price times those units, so
-`transfer_confidential_2_2` bills 1 and `merge_54_1` 25. The header rides the
-plaintext outer answer of an encrypted proof, and a status poll reports none.
+A key no row names bills by its size in `proving-keys.lock` over
+`transfer_confidential_2_2`'s, rounded up: S to 2, M to 6, L to 14, XL above.
+A gateway bills the proof at its per-unit price times the units. The header
+rides the plaintext outer answer of an encrypted proof, and a status poll
+reports none.
 
 `--serve` (or `PROVER_SERVE_KEYS`) limits the keys a deployment proves, as
 patterns over key names such as `transfer_*` or `*_54_*`; the default is
