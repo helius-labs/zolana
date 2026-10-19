@@ -11,13 +11,21 @@ A gateway routes and prices on the path alone, so it can send each key to a
 pool of provers sized for it at a price that matches its cost, and send each
 poll to the pool whose queue holds the job.
 
-A proof on a key path answers `X-Helius-Metering-Units` with its key's weight:
-the key's size in `proving-keys.lock` over `transfer_confidential_2_2`'s,
-rounded up, since proving time and a Groth16 proving key both grow with the
-circuit's constraints. A gateway bills the proof at its per-unit price times
-that weight, so `transfer_confidential_1_2` bills 1 and `merge_54_1` 24. The
-header rides the plaintext outer answer of an encrypted proof, and a status
-poll reports none.
+A proof on a key path answers `X-Helius-Metering-Units` with its key's tier.
+A key's weight is its size in `proving-keys.lock` over
+`transfer_confidential_2_2`'s, rounded up, since proving time and a Groth16
+proving key both grow with the circuit's constraints. The weight picks the tier:
+
+| Tier | Weight      | Units |
+| ---- | ----------- | ----: |
+| S    | 1 to 2      |     1 |
+| M    | 3 to 6      |     4 |
+| L    | 7 to 14     |    10 |
+| XL   | 15 and over |    25 |
+
+A gateway bills the proof at its per-unit price times those units, so
+`transfer_confidential_2_2` bills 1 and `merge_54_1` 25. The header rides the
+plaintext outer answer of an encrypted proof, and a status poll reports none.
 
 `--serve` (or `PROVER_SERVE_KEYS`) limits the keys a deployment proves, as
 patterns over key names such as `transfer_*` or `*_54_*`; the default is
