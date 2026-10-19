@@ -134,7 +134,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-11: anonymous proofs require a valid BSB22 commitment**
   - Statement: AnonymousRingEddsa carries its lookup commitment in the selector. Invalid encodings return 7007 and failed verification returns 7008.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs`
-  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects malformed commitments and PoKs, a well-formed invalid PoK, then spends the unchanged valid proof.
+  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_auditor_access` rejects malformed commitments and PoKs, a well-formed invalid PoK, then spends the unchanged valid proof.
   - Severity: Critical (spend authorization)
 
 - [ ] **INV-TRANSACT-12: both public amounts set is rejected**

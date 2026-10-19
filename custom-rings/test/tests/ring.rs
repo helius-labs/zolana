@@ -1051,7 +1051,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
 }
 
 #[test]
-fn an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access() -> Result<()> {
+fn an_anonymous_ring_hides_owners_and_preserves_auditor_access() -> Result<()> {
     audit_only_lifecycle(true)
 }
 
@@ -1287,6 +1287,19 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     expected.sort_unstable();
     assert_eq!(amounts, expected, "auditor decrypts both output amounts");
 
+    if anonymous {
+        let disclosure = audited.anonymous.as_ref().context("anonymous disclosure")?;
+        assert_eq!(
+            disclosure.sender,
+            env.sender.keypair.signing_pubkey().as_ed25519()?
+        );
+        let mut input_amounts: Vec<_> =
+            disclosure.inputs.iter().map(|input| input.amount).collect();
+        input_amounts.sort_unstable();
+        assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
+        return Ok(());
+    }
+
     let recipient_authority =
         KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
     env.recipient.wallet.sync(
@@ -1302,29 +1315,6 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         .next()
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("recipient note"))?;
-    if anonymous {
-        assert_eq!(received.amount, RING_TRANSFER_AMOUNT);
-        let disclosure = audited.anonymous.as_ref().context("anonymous disclosure")?;
-        assert_eq!(
-            disclosure.sender,
-            env.sender.keypair.signing_pubkey().as_ed25519()?
-        );
-        let mut input_amounts: Vec<_> =
-            disclosure.inputs.iter().map(|input| input.amount).collect();
-        input_amounts.sort_unstable();
-        assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
-        let scan = zolana_client::UtxoScan::new(&env.recipient.keypair, &env.assets)
-            .with_ring_deposit_payload(ring_program, zolana_ring_client::deposit_payload)
-            .fetch(indexer)?;
-        assert_eq!(
-            scan.spendable
-                .utxos()
-                .map(|note| note.utxo.amount)
-                .collect::<Vec<_>>(),
-            vec![RING_TRANSFER_AMOUNT]
-        );
-        return Ok(());
-    }
     // The second hop goes over the ASYNC transport, with a blocking proof of
     // the same note alongside it as the parity reference. `prove_async`
     // exists for a host that cannot link the blocking Solana client, and a

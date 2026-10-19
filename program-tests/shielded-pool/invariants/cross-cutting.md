@@ -127,7 +127,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
   - Statement: the selector chooses the verifying key and commitment handling. A wrong selector family is rejected before account parsing. Retired P-256 selector tags 3 and 6 fail decoding.
   - Covered by: `program-libs/interface/tests/circuit.rs` and `program-tests/shielded-pool/tests/transact/validate_circuit.rs`.
-  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_recipient_and_auditor_access` rejects a valid hidden-owner proof relabeled as ConfidentialRingEddsa and verifies the tree is unchanged.
+  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_auditor_access` rejects a valid hidden-owner proof relabeled as ConfidentialRingEddsa and verifies the tree is unchanged.
   - Severity: Critical (cross-rail grafting)
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**
