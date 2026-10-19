@@ -153,7 +153,7 @@ INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 268 / 295
+- Covered: 267 / 295
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
@@ -165,7 +165,7 @@ Post-PR172 sync (2026-07-31):
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 32/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 31/6/0/5, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 

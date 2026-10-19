@@ -54,7 +54,7 @@ nullifiers.
   - Suggested test: negative; harness: mollusk unit
 
 - [ ] **INV-MERGE-05: retired owner scheme is rejected**
-  - Not applicable, the registry record holds only the Ed25519 `owner` and merge instruction data selects no owner scheme.
+  - Not applicable post-PR164, the registry record holds only the Ed25519 `owner` and merge instruction data selects no owner scheme.
 
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`
