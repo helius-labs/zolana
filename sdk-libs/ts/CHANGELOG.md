@@ -19,6 +19,10 @@ Breaking
   refuses `"prover"` → set `proverUrl` to keep another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
+- `buildDepositTransaction` now reads the chain for an SPL deposit and, when
+  the mint has no vault, adds its creation paid for by the depositor, failing
+  the build when the protocol config cannot be read or forbids it → pass
+  `createSplInterface: false` to keep building the deposit alone.
 
 Added
 
@@ -29,6 +33,12 @@ Added
 - `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
   `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
   fifteen, or holds a malformed payment.
+- `buildDepositTransaction` accepts `setupInstructions`, which it places
+  before every other instruction in the transaction.
+- `WalletErrorCode` adds `WALLET_SPL_INTERFACE_CREATION_RESTRICTED` for a
+  deposit that would create a mint's vault the protocol config does not let
+  the depositor create, and `WALLET_PROTOCOL_CONFIG_NOT_FOUND` for a chain
+  with no protocol config.
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
