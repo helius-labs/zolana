@@ -14,11 +14,11 @@ poll to the pool whose queue holds the job.
 A proof on a key path answers `X-Helius-Metering-Units` with its tier's units,
 set by the circuit and its number of inputs:
 
-| Proof                          | S, 1 unit  | M, 4 units         | L, 10 units                      | XL, 25 units      |
+| Proof                          | S, 1 unit  | M, 2 units         | L, 4 units                       | XL, 8 units       |
 | ------------------------------ | ---------- | ------------------ | -------------------------------- | ----------------- |
 | Transfer, confidential or ring | 1-4 inputs | 5-12 inputs        | 16-32 inputs                     | 40-49 inputs      |
 | P256 ring transfer             |            | 1-6 inputs         | 8-24 inputs                      | 32-49 inputs      |
-| Merge, plain or ring           |            | 8 inputs           | 24 inputs                        | 54 inputs         |
+| Merge, plain or ring           | 8 inputs   | 24 inputs          | 54 inputs                        |                   |
 | Ring authority transfer        | all        |                    |                                  |                   |
 | Custom-ring circuit            |            | base, register key | policy, delegate policy, deposit | compressed policy |
 

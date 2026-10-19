@@ -40,8 +40,8 @@ func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
 	for _, prefix := range []string{"", gatewayPrefix} {
 		for _, path := range []string{"/prove/merge_24_1", "/prove/merge_24_1/indexed"} {
 			response := post(mux, prefix+path, transferRequest(t))
-			if got := response.Header().Get(MeteringUnitsHeader); got != strconv.Itoa(unitsL) {
-				t.Fatalf("%s%s: %s = %q, want %d", prefix, path, MeteringUnitsHeader, got, unitsL)
+			if got := response.Header().Get(MeteringUnitsHeader); got != strconv.Itoa(unitsM) {
+				t.Fatalf("%s%s: %s = %q, want %d", prefix, path, MeteringUnitsHeader, got, unitsM)
 			}
 		}
 	}
@@ -69,9 +69,9 @@ func TestShapeTiers(t *testing.T) {
 		"transfer_p256_ring_8_2":        unitsL,
 		"transfer_p256_ring_24_4":       unitsL,
 		"transfer_p256_ring_32_2":       unitsXL,
-		"merge_8_1":                     unitsM,
-		"merge_ring_24_1":               unitsL,
-		"merge_54_1":                    unitsXL,
+		"merge_8_1":                     unitsS,
+		"merge_ring_24_1":               unitsM,
+		"merge_54_1":                    unitsL,
 		"custom_ring_base":              unitsM,
 		"custom_ring_deposit":           unitsL,
 		"custom_ring_compressed_policy": unitsXL,
@@ -88,7 +88,8 @@ func TestShapeTiers(t *testing.T) {
 }
 
 // Every client key is priced by a shape rule, and the rule never puts a key
-// more than one tier away from where its size would.
+// more than one tier away from where its size would: merges sit one tier
+// below their size, since a merge keeps later transfers small.
 func TestShapeRulesCoverEveryClientKey(t *testing.T) {
 	tier := map[int]int{unitsS: 0, unitsM: 1, unitsL: 2, unitsXL: 3}
 	for _, file := range knownKeyFiles {

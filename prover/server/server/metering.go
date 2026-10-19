@@ -14,12 +14,12 @@ import (
 // units, so a larger proof bills more without a price of its own.
 const MeteringUnitsHeader = "X-Helius-Metering-Units"
 
-// The units of the four tiers, S, M, L and XL.
+// The units of the four tiers, S, M, L and XL: each doubles the one before.
 const (
 	unitsS  = 1
-	unitsM  = 4
-	unitsL  = 10
-	unitsXL = 25
+	unitsM  = 2
+	unitsL  = 4
+	unitsXL = 8
 )
 
 // shapeUnits is the units a proof on key `name` (a key file name without
@@ -45,7 +45,7 @@ func shapeUnits(name string) (int, bool) {
 	case "transfer_p256_ring":
 		return unitsByInputs(inputs, 0, 6, 24), true
 	case "merge", "merge_ring":
-		return unitsByInputs(inputs, 0, 8, 24), true
+		return unitsByInputs(inputs, 8, 24, 54), true
 	}
 	return 0, false
 }
@@ -71,7 +71,8 @@ func familyAndInputs(name string) (string, int, bool) {
 }
 
 // unitsByInputs is S up to maxS inputs, M up to maxM, L up to maxL and XL
-// above. A maxS of 0 starts the family at M.
+// above. A maxS of 0 starts the family at M; a maxL at the family's widest
+// shape keeps it out of XL.
 func unitsByInputs(inputs, maxS, maxM, maxL int) int {
 	switch {
 	case inputs <= maxS:
