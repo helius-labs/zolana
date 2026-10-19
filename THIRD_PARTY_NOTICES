@@ -39,3 +39,22 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+prover/server/circuits/crypto
+-----------------------------
+
+Files under `prover/server/circuits/crypto/` that carry the Consensys Software
+Inc. header derive from gnark (`github.com/consensys/gnark`) and remain
+licensed under the Apache License, Version 2.0.
+
+Copyright 2020-2025 Consensys Software Inc.
+
+prover/server/circuits/crypto/ed25519/testdata
+----------------------------------------------
+
+`cctv-dalek-1.0.1.json` holds a subset of the CCTV Ed25519 vectors from
+`C2SP/CCTV`. They remain licensed under the BSD 3-Clause License in
+`prover/server/circuits/crypto/ed25519/testdata/CCTV-LICENSE`.
+
+Copyright 2019 Google LLC
+Copyright 2022 Filippo Valsorda
