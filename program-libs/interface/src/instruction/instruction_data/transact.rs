@@ -1,4 +1,3 @@
-use arrayvec::ArrayVec;
 use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
 pub use zolana_event::{
     confidential_encrypted_output_body, is_confidential_encrypted_output,
@@ -407,22 +406,28 @@ const _: () = assert!(MAX_EXTERNAL_DATA_HASH_SLICES >= 2);
 /// function of the prefix alone (two per interface transfer, one per output
 /// whose owner tag references an account), which keeps the preimage injective.
 pub struct ExternalDataPreimage<'a> {
-    slices: ArrayVec<&'a [u8], MAX_EXTERNAL_DATA_HASH_SLICES>,
+    slices: Vec<&'a [u8]>,
 }
 
 impl<'a> ExternalDataPreimage<'a> {
     pub fn new(spp_instruction_discriminator: &'a [u8; 1], external_data_prefix: &'a [u8]) -> Self {
-        let mut slices = ArrayVec::new();
-        slices.push(spp_instruction_discriminator.as_slice());
-        slices.push(external_data_prefix);
+        let slices = vec![
+            spp_instruction_discriminator.as_slice(),
+            external_data_prefix,
+        ];
         Self { slices }
     }
 
     fn push_address(&mut self, address: &'a [u8; 32]) -> Result<(), HasherError> {
         let provided = self.slices.len() + 1;
-        self.slices
-            .try_push(address.as_slice())
-            .map_err(|_| HasherError::InvalidInputLength(MAX_EXTERNAL_DATA_HASH_SLICES, provided))
+        if provided > MAX_EXTERNAL_DATA_HASH_SLICES {
+            return Err(HasherError::InvalidInputLength(
+                MAX_EXTERNAL_DATA_HASH_SLICES,
+                provided,
+            ));
+        }
+        self.slices.push(address.as_slice());
+        Ok(())
     }
 
     /// Appends one interface transfer's committed accounts: the asset account

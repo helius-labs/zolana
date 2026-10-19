@@ -4,10 +4,18 @@ import "testing"
 
 func TestSupportedShapes(t *testing.T) {
 	grid := map[int][]int{
-		2:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 49},
-		4:  {1, 2, 3, 4, 5, 6, 8, 12, 16, 24},
-		8:  {1, 2, 3, 4, 5, 6, 8, 12, 16},
-		16: {1, 2, 4, 5, 8},
+		2:   {1, 2, 3, 4, 5, 6, 8, 12, 16, 24, 32, 40, 48, 49},
+		4:   {1, 2, 3, 4, 5, 6, 8, 12, 16, 24},
+		8:   {1, 2, 3, 4, 5, 6, 8, 12, 16},
+		16:  {1, 2, 4, 5, 8},
+		32:  {4},
+		64:  {4},
+		120: {57},
+		121: {57, 58},
+		140: {16},
+		142: {16},
+		146: {4},
+		148: {4},
 	}
 	count := 0
 	for nOutputs, inputCounts := range grid {
@@ -22,7 +30,7 @@ func TestSupportedShapes(t *testing.T) {
 	if len(SupportedShapes) != count {
 		t.Fatalf("supported shape count: got %d want %d", len(SupportedShapes), count)
 	}
-	if len(AutoShapes) != len(SupportedShapes) {
+	if len(AutoShapes) != len(SupportedShapes)-len(BatchSettlementShapes) {
 		t.Fatalf("automatic selection reaches %d of %d shapes", len(AutoShapes), len(SupportedShapes))
 	}
 }
@@ -45,6 +53,9 @@ func TestUnsupportedShapes(t *testing.T) {
 		{NInputs: 24, NOutputs: 8},
 		{NInputs: 6, NOutputs: 16},
 		{NInputs: 1, NOutputs: 32},
+		{NInputs: 4, NOutputs: 149},
+		{NInputs: 2, NOutputs: 32},
+		{NInputs: 58, NOutputs: 122},
 	}
 
 	for _, shape := range tests {
@@ -128,8 +139,8 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 // 2k per output; the P256 rail adds a constant on top.
 func TestSupportedShapesAreCostOrdered(t *testing.T) {
 	cost := func(s Shape) int { return 22700*s.NInputs + 2050*s.NOutputs }
-	for i := 1; i < len(SupportedShapes); i++ {
-		earlier, later := SupportedShapes[i-1], SupportedShapes[i]
+	for i := 1; i < len(AutoShapes); i++ {
+		earlier, later := AutoShapes[i-1], AutoShapes[i]
 		if cost(later) <= cost(earlier) {
 			t.Fatalf("shape %s is not more expensive than earlier %s", later, earlier)
 		}
