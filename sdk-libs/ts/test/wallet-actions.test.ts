@@ -553,7 +553,6 @@ describe("keys at the wallet boundary", () => {
       decrypt: (requests) => local.decrypt(requests),
       derive: async (requests) => (await local.derive(requests)).slice(1),
       transactionKeys: (requests) => local.transactionKeys(requests),
-      viewTags: (requests) => local.viewTags(requests),
     };
     await expect(createMerge({ wallet, keys: short, asset: SOL_MINT })).rejects.toMatchObject({
       code: "WALLET_KEYS_BATCH_MISMATCH",
@@ -774,10 +773,6 @@ describe("unsigned public transaction builders", () => {
       transactionKeys: (requests, context) => {
         seen.push(context);
         return local.transactionKeys(requests);
-      },
-      viewTags: (requests, context) => {
-        seen.push(context);
-        return local.viewTags(requests);
       },
     };
     const context = { signal: new AbortController().signal, timeoutMs: 1_000 };

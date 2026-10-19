@@ -76,8 +76,7 @@ impl TxIndex {
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge
-                    | EncryptedScheme::RingDeposit
-                    | EncryptedScheme::RingAnonymous => {
+                    | EncryptedScheme::RingDeposit => {
                         recipient_sites
                             .entry(slot.view_tag)
                             .or_default()
@@ -88,6 +87,8 @@ impl TxIndex {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
                     }
+                    // Wallets do not discover anonymous ring outputs yet.
+                    EncryptedScheme::RingAnonymous => continue,
                 }
             }
             if !classified {
@@ -789,22 +790,8 @@ impl SyncCtx<'_> {
                             }
                         }
                     }
-                    EncryptedScheme::Confidential
-                    | EncryptedScheme::RingConfidential
-                    | EncryptedScheme::RingAnonymous => {
-                        let plaintext = if scheme == EncryptedScheme::RingAnonymous {
-                            let (Some(tx_viewing_pk), Some(salt)) = (cx.tx_viewing_pk, cx.salt)
-                            else {
-                                self.report.undecryptable_candidates += 1;
-                                return Ok(outcome);
-                            };
-                            key.decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)
-                                .map_err(TransactionError::from)
-                                .and_then(|bytes| Confidential::deserialize(&bytes))
-                        } else {
-                            Confidential::decode(body, &cx)
-                        };
-                        let Ok(plaintext) = plaintext else {
+                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
+                        let Ok(plaintext) = Confidential::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
@@ -1131,20 +1118,8 @@ impl Wallet {
                 |n| key.get_sender_view_tag(n),
                 |tag| index.sender_sites.get(tag),
             )?;
-            // Anonymous ring change is an output tagged by the sender view tag.
-            let change_hits = probe_stream(
-                window,
-                |n| key.get_sender_view_tag(n),
-                |tag| index.recipient_sites.get(tag),
-            )?;
-            let last_sent = sender_hits.last().map(|(m, _)| *m);
-            if let Some(m) = last_sent.max(change_hits.last().map(|(m, _)| *m)) {
-                *tx_count = m + 1;
-            }
-            for (_, sites) in &change_hits {
-                for site in sites {
-                    ctx.decode_slot(transactions, key, *site)?;
-                }
+            if let Some((m, _)) = sender_hits.last() {
+                *tx_count = *m + 1;
             }
             for (_, sites) in &sender_hits {
                 for &t in sites {

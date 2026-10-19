@@ -382,9 +382,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                EncryptedScheme::AnonymousRecipient | EncryptedScheme::RingAnonymous => {
-                    (body, shielded_keys.viewing_public_keys())
-                }
+                EncryptedScheme::AnonymousRecipient => (body, shielded_keys.viewing_public_keys()),
                 _ => return Ok(None),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
@@ -404,26 +402,13 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
                 return Ok(None);
             };
-            let mut unresolved_asset = None;
             for bytes in plaintexts {
                 let utxos = match scheme {
-                    EncryptedScheme::Confidential
-                    | EncryptedScheme::RingConfidential
-                    | EncryptedScheme::RingAnonymous => {
+                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };
-                        match Confidential::into_utxos(plaintext, &owner_cx) {
-                            Ok(utxos) => utxos,
-                            Err(error) if scheme != EncryptedScheme::RingAnonymous => {
-                                return Err(error)
-                            }
-                            Err(TransactionError::UnknownAsset(asset)) => {
-                                unresolved_asset = Some(asset);
-                                continue;
-                            }
-                            Err(_) => continue,
-                        }
+                        Confidential::into_utxos(plaintext, &owner_cx)?
                     }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
@@ -436,30 +421,11 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     _ => return Ok(None),
                 };
-                // Trial decryption has no authentication tag. A parseable wrong-key
-                // plaintext must not hide a later key's committed note.
-                if scheme == EncryptedScheme::RingAnonymous
-                    && !utxos.iter().any(|utxo| {
-                        utxo.hash(
-                            &address.nullifier_pubkey,
-                            &[0; 32],
-                            &[0; 32],
-                            slot.output_context.tree_id,
-                        )
-                        .ok()
-                            == Some(slot.output_context.hash)
-                    })
-                {
-                    continue;
-                }
                 return Ok(Some(DecodedSlot {
                     utxos,
                     data_hash: None,
                     ring_data_hash: None,
                 }));
-            }
-            if let Some(asset) = unresolved_asset {
-                return Err(TransactionError::UnknownAsset(asset));
             }
             Ok(None)
         }

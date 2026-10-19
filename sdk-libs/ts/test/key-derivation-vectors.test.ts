@@ -198,17 +198,4 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       );
     }
   });
-
-  it("derives the sender and recipient request view tags", () => {
-    for (const section of vectors.counter_view_tags) {
-      const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
-      expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
-      for (const { counter, tag } of section.sender_view_tags) {
-        expect(hex(viewing.senderViewTag(BigInt(counter))), counter).toBe(tag);
-      }
-      for (const { counter, tag } of section.recipient_request_view_tags) {
-        expect(hex(viewing.recipientRequestViewTag(BigInt(counter))), counter).toBe(tag);
-      }
-    }
-  });
 });

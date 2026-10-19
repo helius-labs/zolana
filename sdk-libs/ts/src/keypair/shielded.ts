@@ -190,8 +190,6 @@ export interface ViewingKeyLike {
   publicKey(): X25519PublicKey;
   ecdh(counterparty: X25519PublicKey): Bytes32;
   recipientBootstrapViewTag(): ViewTag;
-  senderViewTag(txCount: bigint): ViewTag;
-  recipientRequestViewTag(requestCount: bigint): ViewTag;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
     recipientPublicKey: X25519PublicKey,
@@ -365,14 +363,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   recipientBootstrapViewTag(): ViewTag {
     return this.#viewing.recipientBootstrapViewTag();
-  }
-
-  senderViewTag(txCount: bigint): ViewTag {
-    return this.#viewing.senderViewTag(txCount);
-  }
-
-  recipientRequestViewTag(requestCount: bigint): ViewTag {
-    return this.#viewing.recipientRequestViewTag(requestCount);
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {

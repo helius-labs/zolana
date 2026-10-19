@@ -19,7 +19,7 @@
 
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::{Salt, ViewTag},
+    viewing_key::Salt,
     NullifierKey, ViewingKey, X25519Pubkey,
 };
 
@@ -78,18 +78,6 @@ pub struct TransactionKeyRequest {
     pub first_nullifier: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ViewTagRequest {
-    Sender {
-        viewing_pubkey: X25519Pubkey,
-        tx_count: u64,
-    },
-    Request {
-        viewing_pubkey: X25519Pubkey,
-        request_count: u64,
-    },
-}
-
 pub trait ShieldedKeys {
     fn address(&self) -> Result<ShieldedAddress, TransactionError>;
 
@@ -105,8 +93,6 @@ pub trait ShieldedKeys {
         &self,
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError>;
-
-    fn view_tags(&self, requests: &[ViewTagRequest]) -> Result<Vec<ViewTag>, TransactionError>;
 }
 
 /// In-process keys: the counterpart of a remote holder, answering the same
@@ -223,29 +209,6 @@ impl ShieldedKeys for LocalShieldedKeys {
             })
             .collect()
     }
-
-    fn view_tags(&self, requests: &[ViewTagRequest]) -> Result<Vec<ViewTag>, TransactionError> {
-        requests
-            .iter()
-            .map(|request| {
-                let tag = match *request {
-                    ViewTagRequest::Sender {
-                        viewing_pubkey,
-                        tx_count,
-                    } => self
-                        .viewing_key(&viewing_pubkey)?
-                        .get_sender_view_tag(tx_count),
-                    ViewTagRequest::Request {
-                        viewing_pubkey,
-                        request_count,
-                    } => self
-                        .viewing_key(&viewing_pubkey)?
-                        .get_recipient_request_view_tag(request_count),
-                }?;
-                Ok(tag)
-            })
-            .collect()
-    }
 }
 
 /// A software keypair answers the same operations directly, which is what the
@@ -272,9 +235,5 @@ impl ShieldedKeys for ShieldedKeypair {
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         LocalShieldedKeys::from_keypair(self)?.transaction_keys(requests)
-    }
-
-    fn view_tags(&self, requests: &[ViewTagRequest]) -> Result<Vec<ViewTag>, TransactionError> {
-        LocalShieldedKeys::from_keypair(self)?.view_tags(requests)
     }
 }

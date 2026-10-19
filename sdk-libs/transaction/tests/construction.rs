@@ -18,7 +18,7 @@ use zolana_transaction::{
         ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
         SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
     },
-    keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest, ViewTagRequest},
+    keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
@@ -1315,9 +1315,6 @@ impl ShieldedKeys for RecordingKeys {
         } else {
             Ok(vec![self.key.clone()])
         }
-    }
-    fn view_tags(&self, _requests: &[ViewTagRequest]) -> Result<Vec<[u8; 32]>, E> {
-        panic!("builder does not derive view tags")
     }
 }
 

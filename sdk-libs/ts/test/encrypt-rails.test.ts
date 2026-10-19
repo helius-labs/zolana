@@ -165,7 +165,6 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
         ...(await keys.transactionKeys(requests)),
         ...(await keys.transactionKeys(requests)),
       ],
-      viewTags: (requests) => keys.viewTags(requests),
     };
     await expect(
       withTransactionKey(generous, filled(1), (tx) => tx.publicKey()),

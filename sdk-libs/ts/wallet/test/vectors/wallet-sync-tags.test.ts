@@ -100,7 +100,6 @@ function misreporting(
     decrypt: (requests) => inner.decrypt(requests),
     derive: (requests) => inner.derive(requests),
     transactionKeys: (requests) => inner.transactionKeys(requests),
-    viewTags: (requests) => inner.viewTags(requests),
     ...overrides,
   };
 }
@@ -124,16 +123,15 @@ describe("wallet sync stable-tag vectors", () => {
       queryChunk: 64,
       waitForIndexer: false,
     });
-    // One stable request, then the 128 counter tags of one key in two chunks.
-    expect(recorded.shielded.map((request) => request.tags.length)).toEqual([2, 64, 64]);
-    expect(recorded.deposits.map((request) => request.tags.length)).toEqual([2, 64, 64]);
-    expect(recorded.shielded.every((request) => request.limit === 1000)).toBe(true);
-    expect(recorded.deposits.every((request) => request.limit === 1000)).toBe(true);
+    expect(recorded.shielded).toHaveLength(1);
+    expect(recorded.deposits).toHaveLength(1);
+    expect(recorded.shielded[0]?.limit).toBe(1000);
+    expect(recorded.deposits[0]?.limit).toBe(1000);
     expect(recorded.nullifiers).not.toHaveBeenCalled();
   });
 
   for (const item of fixture.cases as readonly Case[]) {
-    it(`queries signing and bootstrap tags: ${item.id}`, async () => {
+    it(`queries only signing and bootstrap tags: ${item.id}`, async () => {
       const owner = keypair();
       const retained = item.viewingKeys.map(viewingKey);
       const recorded = recorder();
@@ -149,27 +147,36 @@ describe("wallet sync stable-tag vectors", () => {
         config: { queryChunk: item.queryChunk },
       });
 
-      // The stable tags lead, then each held key's 64 sender and 64 request counter tags.
-      const stable = item.tags.length;
-      const counterTags = 128 * item.viewingKeys.length;
-      for (const [requests, chunkSizes] of [
-        [recorded.shielded, item.shieldedChunkSizes],
-        [recorded.deposits, item.depositChunkSizes],
-      ] as const) {
-        const tags = requests.flatMap((request) => request.tags);
-        expect(tags.slice(0, stable)).toEqual(item.tags);
-        expect(tags.slice(stable)).toHaveLength(counterTags);
-        expect(new Set(tags).size).toBe(stable + counterTags);
-        expect(requests.map((request) => request.tags.length).slice(0, chunkSizes.length)).toEqual(
-          chunkSizes,
-        );
-      }
+      expect(recorded.shielded.flatMap((request) => request.tags)).toEqual(item.tags);
+      expect(recorded.deposits.flatMap((request) => request.tags)).toEqual(item.tags);
+      expect(recorded.shielded.map((request) => request.tags.length)).toEqual(
+        item.shieldedChunkSizes,
+      );
+      expect(recorded.deposits.map((request) => request.tags.length)).toEqual(
+        item.depositChunkSizes,
+      );
       expect(wallet.viewingKeyHistory).toHaveLength(item.viewingKeys.length);
       expect(wallet.viewingKeyHistory.map((entry) => Object.keys(entry).sort())).toEqual(
         item.viewingKeys.map(() => ["createdAt", "viewingPublicKey"]),
       );
     });
   }
+
+  it("does not retain anonymous counter-tag runtime methods", async () => {
+    const owner = keypair();
+    const key = owner.viewingKey();
+
+    await syncWallet({
+      wallet: new Wallet({ identity: owner.shieldedAddress() }),
+      keys: keysFor(owner, [key]),
+      client: recorder().client,
+    });
+
+    expect(key).not.toHaveProperty("senderViewTag");
+    expect(key).not.toHaveProperty("recipientRequestViewTag");
+    expect(key).not.toHaveProperty("sendSharedViewTag");
+    expect(key).not.toHaveProperty("recipientSharedViewTag");
+  });
 
   it("rejects mismatched keys before issuing discovery queries", async () => {
     const owner = keypair();

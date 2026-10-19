@@ -131,21 +131,6 @@ describe("shielded key material", () => {
     expect(kept).toHaveLength(2);
   });
 
-  it("forwards counter view tags through a shielded keypair", () => {
-    const viewing = ViewingKey.fromBytes(new Uint8Array(32).fill(5) as Bytes32);
-    const keypair = ShieldedKeypair.withViewingKey(SigningKey.generate(), viewing);
-    expect(keypair.senderViewTag(1n)).toEqual(viewing.senderViewTag(1n));
-    expect(keypair.recipientRequestViewTag(1n)).toEqual(viewing.recipientRequestViewTag(1n));
-  });
-
-  it("refuses a view tag counter outside u64", () => {
-    const key = ViewingKey.generate();
-    for (const counter of [-1n, 1n << 64n]) {
-      expect(() => key.senderViewTag(counter)).toThrow("KEYPAIR_INVALID_LENGTH");
-      expect(() => key.recipientRequestViewTag(counter)).toThrow("KEYPAIR_INVALID_LENGTH");
-    }
-  });
-
   it("derives symmetric ECDH secrets", () => {
     const alice = ViewingKey.fromBytes(new Uint8Array(32).fill(1) as Bytes32);
     const bob = ViewingKey.fromBytes(new Uint8Array(32).fill(2) as Bytes32);

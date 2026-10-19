@@ -4,13 +4,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
-  INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-  INFO_RECIPIENT_VIEW_TAG_SECRET,
-  INFO_SENDER_VIEW_TAG_PREFIX,
-  INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING_X25519,
   clampViewingSecret,
-  counterViewTag,
   hkdfExpand,
   roleExpansion,
   viewRoot,
@@ -32,19 +27,6 @@ function checkSlotIndex(value: number): number {
       name: "slotIndex",
       minimum: 0,
       maximum: 0xffff_ffff,
-    });
-  }
-  return value;
-}
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
-
-function checkCounter(value: bigint, name: string): bigint {
-  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name,
-      minimum: 0,
-      maximum: U64_MAX.toString(),
     });
   }
   return value;
@@ -117,24 +99,6 @@ export class ViewingKey implements ViewingKeyLike {
 
   recipientBootstrapViewTag(): ViewTag {
     return this.publicKey().u();
-  }
-
-  /** Tags the sender's own change in an anonymous ring transfer, mirrors Rust `get_sender_view_tag`. */
-  senderViewTag(txCount: bigint): ViewTag {
-    return this.#counterViewTag(
-      INFO_SENDER_VIEW_TAG_SECRET,
-      INFO_SENDER_VIEW_TAG_PREFIX,
-      checkCounter(txCount, "txCount"),
-    );
-  }
-
-  /** The tag of a payment request shared out of band, mirrors Rust `get_recipient_request_view_tag`. */
-  recipientRequestViewTag(requestCount: bigint): ViewTag {
-    return this.#counterViewTag(
-      INFO_RECIPIENT_VIEW_TAG_SECRET,
-      INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-      checkCounter(requestCount, "requestCount"),
-    );
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
@@ -237,15 +201,6 @@ export class ViewingKey implements ViewingKeyLike {
     this.#secret.fill(0);
     this.#viewRoot?.fill(0);
     this.#destroyed = true;
-  }
-
-  #counterViewTag(secretInfo: string, prefix: string, counter: bigint): ViewTag {
-    const secret = this.#viewSecret(secretInfo);
-    try {
-      return counterViewTag(secret, prefix, counter) as ViewTag;
-    } finally {
-      secret.fill(0);
-    }
   }
 
   // Cache the role root on first use. Encryption does not need this root.

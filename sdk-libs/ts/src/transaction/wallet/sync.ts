@@ -38,7 +38,6 @@ import {
 } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
-import type { KeyViewTags } from "./tag-streams.js";
 import {
   LocalShieldedKeys,
   checkKeysIdentity,
@@ -614,18 +613,6 @@ class SyncPass {
   }
 
   #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
-    if (
-      tx.outputSlots.some((slot) => {
-        try {
-          return readOutputData(slot.payload).scheme === EncryptedScheme.ringAnonymous;
-        } catch {
-          return false;
-        }
-      })
-    ) {
-      this.#recordAnonymousRingSend(tx);
-      return;
-    }
     const change: Utxo[] = [];
     const recipients: Array<Readonly<{ key: X25519PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
@@ -685,32 +672,6 @@ class SyncPass {
       !entry && recipientKeys.length === 1 ? recipientKeys[0] : undefined,
       entry ? "selfTransfer" : this.#transferDirection(recipientKeys),
     );
-  }
-
-  /** Reconstructs anonymous sends from spent notes and proved self outputs. */
-  #recordAnonymousRingSend(tx: IndexedShieldedTransaction): void {
-    const spent = this.#spentAmounts(tx.nullifiers);
-    if (spent.size === 0) return;
-    const outputHashes = new Set(tx.outputSlots.map((slot) => hex(slot.outputContext.hash)));
-    const selfOutputs = this.#utxos
-      .filter((entry) => outputHashes.has(hex(entry.outputContext.hash)))
-      .map((entry) => entry.utxo);
-    if (sameAmounts(spent, selfOutputs)) {
-      [...spent]
-        .sort(([left], [right]) => compareAssets(left, right))
-        .forEach(([asset, amount], row) => {
-          this.#record({
-            id: historyId(tx, SENDER_HISTORY_ROW_BASE + BigInt(row)),
-            kind: "privateTransfer",
-            direction: "selfTransfer",
-            status: "confirmed",
-            asset,
-            amount,
-          });
-        });
-      return;
-    }
-    this.#recordOutboundTransfer(tx, spent, selfOutputs, "privateTransfer", undefined, "outbound");
   }
 
   #isRingEntry(
@@ -828,14 +789,12 @@ class SyncPass {
     if (
       frame.encoding === "encrypted" &&
       (frame.scheme === EncryptedScheme.confidential ||
-        frame.scheme === EncryptedScheme.ringConfidential ||
-        frame.scheme === EncryptedScheme.ringAnonymous)
+        frame.scheme === EncryptedScheme.ringConfidential)
     ) {
       let utxo: Utxo;
       let ciphertext: Uint8Array;
       try {
-        ciphertext =
-          frame.scheme === EncryptedScheme.ringAnonymous ? body : splitEmbeddedKey(body).rest;
+        ciphertext = splitEmbeddedKey(body).rest;
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -855,7 +814,7 @@ class SyncPass {
         // output; its outbound history is recorded once per transaction by
         // `recordConfidentialSend`, so it must not also be logged here as an
         // inbound receipt.
-        if (!this.#viewingPublicKeys.some((key) => this.#authored(tx, key))) {
+        if (!this.#authored(tx, viewingPublicKey)) {
           this.#recordReceived(tx, site.slot, undefined, utxo);
         }
       }
@@ -1114,12 +1073,10 @@ class SyncPass {
   }
 
   /**
-   * Open each stable discovery tag under every held viewing key, and each
-   * counter tag under the key it was derived from.
+   * Open only the two stable discovery families: this viewing key's bootstrap
+   * tag and the shielded identity's signing tag.
    */
-  processStableTags(
-    input: Readonly<{ identityTag: Bytes32; index: TagIndex; viewTags: readonly KeyViewTags[] }>,
-  ): void {
+  processStableTags(input: Readonly<{ identityTag: Bytes32; index: TagIndex }>): void {
     const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
     const identityTag = hex(input.identityTag);
@@ -1132,17 +1089,6 @@ class SyncPass {
       for (const transaction of index.senderSites.get(identityTag) ?? []) {
         this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
       }
-    }
-    for (const { viewingPublicKey, tags } of input.viewTags) {
-      for (const tag of tags.map(hex)) {
-        for (const site of recipientSites(tag)) this.decodeSlot(viewingPublicKey, site);
-        for (const transaction of index.senderSites.get(tag) ?? []) {
-          this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
-        }
-      }
-    }
-    // Change may target a retired key, so finish every key's slot pass first.
-    for (const viewingPublicKey of this.#viewingPublicKeys) {
       this.#transactions.forEach((tx, position) => {
         this.recordConfidentialSend(tx, position, viewingPublicKey);
       });
@@ -1156,8 +1102,6 @@ export async function decryptTransactions(
     keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
-    /** Sender and request tags found in use, opened under the key each was derived from. */
-    viewTags?: readonly KeyViewTags[];
     /** Forwarded to every batch the key holder answers. */
     context?: RequestContext | undefined;
   }>,
@@ -1188,7 +1132,7 @@ export async function decryptTransactions(
         rows: current.transactions,
         selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
       });
-      pass.processStableTags({ identityTag, index, viewTags: input.viewTags ?? [] });
+      pass.processStableTags({ identityTag, index });
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
         await memo.resolve(input.context);

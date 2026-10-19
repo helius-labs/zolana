@@ -31,18 +31,10 @@ Breaking
 - `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
 - `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
 - `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
-- `ShieldedKeys` requires `viewTags(requests)`, the sender and request view tags of its held viewing keys as `ViewTagRequest` batches → implement it in a custom key holder, `LocalShieldedKeys` and `LocalKeys` answer it.
 
 Added
 
-- `ViewingKey.senderViewTag(txCount)` and `ViewingKey.recipientRequestViewTag(requestCount)` derive the anonymous ring tags of the sender's own change and of a payment request, and `ShieldedKeypair` forwards both.
-- `syncWallet` reads each held viewing key's sender and request tag streams until 64 counters past the last one in use match nothing, opens the outputs they tag, and returns `SyncWalletReport.nextCounters` with the current key's next `txCount` and `requestCount`.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
-- `syncWallet` discovers anonymous ring transfers under each held viewing
-  key's bootstrap tag, verifies decrypted outputs against their committed UTXO
-  hashes and counts an output under a small-order transaction key as
-  undecryptable instead of failing, while transaction builders reject
-  anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other
@@ -62,7 +54,7 @@ Changed
 
 Fixed
 
-- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable.
+- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
   differently from the sender's change, so an observer could tell them apart;

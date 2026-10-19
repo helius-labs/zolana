@@ -1039,9 +1039,7 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             merge::MergeTransaction as MergePlan,
-            transact::{
-                AnonymousViewTags, ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES,
-            },
+            transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
         },
         serialization::Proofless,
         Address, AssetRegistry, Data, OwnerCx, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
@@ -2190,50 +2188,6 @@ mod tests {
             "history={:?}",
             wallet.private_transactions()
         );
-    }
-
-    #[test]
-    fn sync_wallet_finds_anonymous_ring_outputs_by_view_tag() {
-        let alice = ed25519_keypair(3);
-        let bob = ed25519_keypair(5);
-        let ring = Address::new_from_array([42; 32]);
-        let mut wallet = wallet_with_utxo(&alice, SOL_MINT, 100, 4);
-        let mut funded = wallet.utxos.first().expect("funded").utxo.clone();
-        funded.ring_program_id = Some(ring);
-        wallet.utxos.clear();
-        let input = input_utxo(funded, &alice);
-        let first_nullifier = input.nullifier;
-        let mut transfer =
-            ConfidentialTransaction::new_with_ring(vec![input], Address::default(), ring)
-                .expect("ring transaction");
-        transfer
-            .transfer_sol(&bob.shielded_address().expect("bob address"), 30)
-            .expect("transfer");
-        let proof_inputs = transfer
-            .encrypt_anonymous_with_viewing_key(
-                &alice.shielded_address().expect("alice address"),
-                &alice
-                    .viewing_key
-                    .get_transaction_viewing_key(&first_nullifier)
-                    .expect("tx key"),
-                &AnonymousViewTags::new(alice.get_sender_view_tag(0).expect("sender tag")),
-            )
-            .expect("encrypt");
-        let indexer = MockIndexer {
-            transactions: vec![signed_to_shielded_tx(proof_inputs, 1)],
-            ..MockIndexer::default()
-        };
-
-        let mut bob_wallet = Wallet::new(
-            bob.shielded_address().expect("bob address"),
-            AssetRegistry::default(),
-        )
-        .expect("wallet");
-        for (wallet, owner, amount) in [(&mut wallet, &alice, 70), (&mut bob_wallet, &bob, 30)] {
-            sync_wallet(wallet, &local_authority(owner), &indexer).expect("sync");
-            let amounts: Vec<_> = wallet.utxos.iter().map(|utxo| utxo.utxo.amount).collect();
-            assert_eq!(amounts, vec![amount]);
-        }
     }
 
     #[test]
