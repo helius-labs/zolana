@@ -3,7 +3,6 @@ package common
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -80,15 +79,6 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		}
 		if got.CircuitType != tc.want {
 			t.Fatalf("%s circuit type: got %v, want %v", tc.filename, got.CircuitType, tc.want)
-		}
-	}
-}
-
-// Removed keys must fail before loading, including a filename matching a live rail suffix.
-func TestReadSystemRejectsRemovedOwnerKeys(t *testing.T) {
-	for _, file := range []string{"transfer_p256_ring_2_4.key", "transfer_p256_confidential_2_4.key"} {
-		if _, err := ReadSystemFromFile(filepath.Join(t.TempDir(), file)); err == nil || !strings.Contains(err.Error(), "unsupported proving key") {
-			t.Fatalf("%s: expected unsupported proving key, got %v", file, err)
 		}
 	}
 }

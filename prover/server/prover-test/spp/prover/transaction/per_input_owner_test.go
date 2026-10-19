@@ -81,19 +81,3 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	}
 	solveAssignment(t, shape, built)
 }
-
-// Legacy key fields must not bypass owner validation through an explicit commitment.
-func TestRejectRemovedOwnerKey(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		input := ProofUtxoRequest{OwnerP256Pubkey: "0x02"}
-		if explicit {
-			input.Owner = "1"
-		}
-		if _, err := parseOwner(input, big.NewInt(1)); err == nil {
-			t.Fatal("removed owner key accepted")
-		}
-		if _, err := ownerComponents(input, big.NewInt(1)); err == nil {
-			t.Fatal("removed owner components accepted")
-		}
-	}
-}

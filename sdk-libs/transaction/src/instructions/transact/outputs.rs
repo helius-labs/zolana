@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
-use zolana_keypair::{shielded::ShieldedAddress, Curve};
+use zolana_keypair::shielded::ShieldedAddress;
 
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
@@ -202,9 +202,7 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        if recipient.address.signing_pubkey.curve()? == Curve::P256 {
-            return Err(TransactionError::UnsupportedOwnerType);
-        }
+        recipient.address.signing_pubkey.curve()?;
         self.outputs.push(SppProofOutputUtxo {
             owner_address: Some(recipient.address),
             asset: recipient.asset,

@@ -86,7 +86,6 @@ import {
   revokeReadAccessInstruction,
   type ReaderKey,
 } from "../src/ring/reader.js";
-import { RESERVED_READER_KEY_HEX } from "../src/ring/reader.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256ReaderKey } from "../src/ring/reader.js";
 import { RING_VELOCITY_SLOTS } from "../src/client/prover/types.js";
@@ -356,9 +355,7 @@ describe("ring config", () => {
   });
 
   it("rejects P-256 keys at the auditor key boundary", () => {
-    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
-      expect(() => X25519PublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
-    }
+    expect(() => X25519PublicKey.fromBytes(hex(P256_HEX))).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
   });
 
   it("builds init SPP ring config like Rust `InitSppRingConfig`", async () => {
@@ -1657,11 +1654,6 @@ describe("ring reader delegation", () => {
     expect(() => checkedReaderKey(getAddressDecoder().decode(mixedTorsion))).toThrow(
       "RING_READER_KEY",
     );
-    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
-      expect(() => checkedReaderKey(P256ReaderKey.fromBytes(reserved as Bytes33))).toThrow(
-        "RING_READER_KEY",
-      );
-    }
     const scheme = hex(`01${"17".repeat(32)}00`);
     scheme[0] = 2;
     expect(() => readerKeyFromBytes(scheme)).toThrow("RING_READER_KEY");

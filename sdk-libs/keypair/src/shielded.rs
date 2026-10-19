@@ -48,7 +48,6 @@ impl ShieldedAddress {
         let bytes = match self.signing_pubkey.curve()? {
             Curve::Ed25519 => self.signing_pubkey.as_ed25519()?,
             Curve::Pda => self.signing_pubkey.as_pda()?,
-            Curve::P256 => return Err(KeypairError::NoSolanaAddress),
         };
         Ok(solana_address::Address::new_from_array(bytes))
     }

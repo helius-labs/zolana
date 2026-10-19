@@ -9,9 +9,8 @@ use mollusk_svm::result::{InstructionResult, ProgramResult};
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    anonymous_config_account, authority, create_key_registry_root_fixture, custom,
-    initialized_config_account, key_registry_root_account, key_registry_root_pda,
-    legacy_auditor_pubkey, payer, register_key_fixture, setup_mollusk, stored,
+    anonymous_config_account, create_key_registry_root_fixture, custom, key_registry_root_account,
+    key_registry_root_pda, payer, register_key_fixture, setup_mollusk, stored,
 };
 
 fn stored_root(result: &InstructionResult) -> KeyRegistryRoot {
@@ -103,12 +102,6 @@ fn a_register_key_needs_an_x25519_auditor_outside_an_anonymous_ring() {
     let mut anonymous = register_key_fixture(fresh(), payer());
     anonymous.set_account("config", anonymous_config_account());
     anonymous.expect_err(&mollusk, custom(CustomRingError::AnonymousRingRefused));
-    let mut legacy = register_key_fixture(fresh(), payer());
-    legacy.set_account(
-        "config",
-        initialized_config_account(authority(), legacy_auditor_pubkey()),
-    );
-    legacy.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
     let mut sec1 = register_key_fixture(fresh(), payer());
     sec1.data_mut()[EPH_PK] = 2;
     sec1.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorMessage));

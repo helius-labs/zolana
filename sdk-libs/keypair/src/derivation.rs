@@ -230,7 +230,6 @@ impl Rail {
     pub(crate) fn from_curve(curve: Curve) -> Result<Self, KeypairError> {
         match curve {
             Curve::Ed25519 => Ok(Self::Ed25519),
-            Curve::P256 => Err(KeypairError::InvalidSignatureType(0)),
             Curve::Pda => Err(KeypairError::PdaCannotSign),
         }
     }

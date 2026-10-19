@@ -154,8 +154,6 @@ pub enum CustomRingError {
     InvalidRevocationTreeIndex = 8171,
     #[error("policy tree accounts are invalid")]
     InvalidPolicyTrees = 8172,
-    #[error("the ring's auditor key is a legacy P256 key")]
-    LegacyAuditorKey = 8173,
     #[error("the ring mode is unknown")]
     InvalidRingMode = 8174,
     #[error("an anonymous ring refuses this operation")]

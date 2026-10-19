@@ -206,9 +206,6 @@ pub enum TransactionError {
     #[error("too many transaction assets: got {got}, max {max}")]
     TooManyAssets { got: usize, max: usize },
 
-    #[error("default transact supports Ed25519 owners only")]
-    UnsupportedOwnerType,
-
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 

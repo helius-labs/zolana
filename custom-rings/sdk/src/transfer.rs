@@ -941,14 +941,8 @@ fn anonymous_disclosure(
             let Some(owner) = output.owner_address else {
                 return Ok(AnonymousOutputOpening::default());
             };
-            let identity_tag = match owner.signing_pubkey.curve()? {
-                Curve::P256 => {
-                    return Err(zolana_keypair::KeypairError::InvalidSignatureType(0).into())
-                }
-                Curve::Ed25519 | Curve::Pda => zolana_hasher::primitives::SOLANA_OWNER_TAG,
-            };
             Ok(AnonymousOutputOpening {
-                identity_tag,
+                identity_tag: zolana_hasher::primitives::SOLANA_OWNER_TAG,
                 identity_key: owner.signing_pubkey.confidential_view_tag()?,
                 viewing_pk: *owner.viewing_pubkey.as_bytes(),
                 nullifier_pk: owner.nullifier_pubkey,

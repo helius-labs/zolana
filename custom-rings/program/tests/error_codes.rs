@@ -73,7 +73,6 @@ fn error_codes_are_stable() {
         (DelegateRequiresPolicy as u32, 8170),
         (InvalidRevocationTreeIndex as u32, 8171),
         (InvalidPolicyTrees as u32, 8172),
-        (LegacyAuditorKey as u32, 8173),
         (InvalidRingMode as u32, 8174),
         (AnonymousRingRefused as u32, 8175),
         (UnsupportedAnonymousPolicy as u32, 8176),
@@ -160,7 +159,6 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | DelegateRequiresPolicy
         | InvalidRevocationTreeIndex
         | InvalidPolicyTrees
-        | LegacyAuditorKey
         | InvalidRingMode
         | AnonymousRingRefused
         | UnsupportedAnonymousPolicy

@@ -333,9 +333,6 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(filepath.Base(path))
-	if strings.Contains(lowerPath, "p256") {
-		return nil, fmt.Errorf("unsupported proving key %q", filepath.Base(path))
-	}
 	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,

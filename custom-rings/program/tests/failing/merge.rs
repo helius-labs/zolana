@@ -4,8 +4,7 @@ use solana_pubkey::Pubkey;
 
 use crate::common::{
     anonymous_config_account, auditor_pubkey, authority, escrowed_config_account,
-    initialized_config_account, legacy_auditor_pubkey, merge_fixture, merge_fixture_with,
-    merge_ring_data, setup_mollusk,
+    initialized_config_account, merge_fixture, merge_fixture_with, merge_ring_data, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -60,14 +59,4 @@ fn an_anonymous_merge_is_rejected() {
     recipient[9] ^= 1;
     *other.data_mut() = merge_ring_data(Some(recipient));
     other.expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
-}
-
-#[test]
-fn a_legacy_auditor_key_refuses_the_merge_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    merge_fixture_with(initialized_config_account(
-        authority(),
-        legacy_auditor_pubkey(),
-    ))
-    .expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
 }

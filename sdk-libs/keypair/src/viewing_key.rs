@@ -119,7 +119,7 @@ impl ViewingKey {
     }
 
     /// `tx_viewing_secret`, the seed for transaction viewing keys
-    /// (`info = "TSPP/tx_viewing"`).
+    /// (`info = "TSPP/tx_viewing/x25519/v1"`).
     pub(crate) fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_TX_VIEWING_X25519)
     }

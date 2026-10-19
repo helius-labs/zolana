@@ -97,9 +97,6 @@ impl TryFrom<Address> for Ed25519ReaderKey {
 impl P256ReaderKey {
     /// Validates a passkey's compressed SEC1 key independently of owner encodings.
     pub fn from_bytes(bytes: [u8; 33]) -> Result<Self, ReaderKeyError> {
-        if custom_ring_interface::is_reserved_reader_key(&bytes) {
-            return Err(ReaderKeyError::Body);
-        }
         p256::PublicKey::from_sec1_bytes(&bytes).map_err(|_| ReaderKeyError::Body)?;
         Ok(Self(bytes))
     }

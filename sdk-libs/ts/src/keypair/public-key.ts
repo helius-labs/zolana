@@ -4,7 +4,7 @@ import { solanaOwnerIdentity } from "../hasher/index.js";
 import { KeypairError } from "./error.js";
 
 /** Wire type 0 remains reserved and cannot construct an owner key. */
-export type SignatureType = "p256" | "ed25519" | "pda";
+export type SignatureType = "ed25519" | "pda";
 export type ViewTag = Bytes32;
 
 export class ShieldedPublicKey {

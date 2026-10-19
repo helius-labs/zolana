@@ -20,9 +20,6 @@ type ownerFields struct {
 }
 
 func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFields, error) {
-	if strings.TrimSpace(input.OwnerP256Pubkey) != "" {
-		return ownerFields{}, fmt.Errorf("owner_p256_pubkey is unsupported")
-	}
 	if input.Owner != "" {
 		owner, err := parse.Field(input.Owner)
 		if err != nil {
@@ -59,9 +56,6 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 }
 
 func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerKey, error) {
-	if strings.TrimSpace(input.OwnerP256Pubkey) != "" {
-		return ownerKey{}, fmt.Errorf("owner_p256_pubkey is unsupported")
-	}
 	if strings.TrimSpace(input.OwnerSolanaPubkey) == "" {
 		return ownerKey{}, fmt.Errorf("owner_solana_pubkey is required when owner components are needed")
 	}

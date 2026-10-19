@@ -70,11 +70,9 @@ type ProofInputRequest struct {
 }
 
 type ProofUtxoRequest struct {
-	Domain            string `json:"domain"`
-	Owner             string `json:"owner"`
-	OwnerSolanaPubkey string `json:"owner_solana_pubkey"`
-	// Reserved legacy field, rejected before any owner or witness is accepted.
-	OwnerP256Pubkey      string `json:"owner_p256_pubkey,omitempty"`
+	Domain               string `json:"domain"`
+	Owner                string `json:"owner"`
+	OwnerSolanaPubkey    string `json:"owner_solana_pubkey"`
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
 	Asset                string `json:"asset"`
 	Amount               string `json:"amount"`

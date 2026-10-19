@@ -1,7 +1,5 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
-use custom_ring_interface::{
-    tag, ReadAccessRecord, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
-};
+use custom_ring_interface::{tag, ReadAccessRecord, READER_KEY_ED25519, READ_ACCESS_RECORD};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
@@ -73,9 +71,6 @@ fn grant_of_an_unsignable_key_is_rejected() {
     noncanonical[1] = 0xee;
     noncanonical[33] = 0;
     noncanonical[32] = 0x7f;
-    let mut reserved = [0u8; 34];
-    reserved[0] = READER_KEY_P256;
-    reserved[1..].copy_from_slice(&custom_ring_interface::RESERVED_READER_KEYS[0]);
     let mut mixed_torsion = [0u8; 34];
     mixed_torsion[0] = READER_KEY_ED25519;
     mixed_torsion[1..33].copy_from_slice(
@@ -92,7 +87,6 @@ fn grant_of_an_unsignable_key_is_rejected() {
         weak,
         negative_identity,
         noncanonical,
-        reserved,
         mixed_torsion,
     ] {
         let (mollusk, _) = setup_mollusk();

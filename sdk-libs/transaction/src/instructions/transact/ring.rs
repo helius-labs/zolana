@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::{shielded::ShieldedAddress, Curve, PublicKey};
+use zolana_keypair::{shielded::ShieldedAddress, PublicKey};
 
 use super::{ConfidentialTransaction, Recipient};
 use crate::{error::TransactionError, Mint, WalletUtxo};
@@ -59,15 +59,10 @@ pub(in crate::instructions::transact) fn sender_owner_tag(
     payer: &Address,
 ) -> Result<(OwnerTag, [u8; 32]), TransactionError> {
     let resolved = owner_pubkey.confidential_view_tag()?;
-    let tag = match owner_pubkey.curve()? {
-        Curve::P256 => return Err(TransactionError::UnsupportedOwnerType),
-        Curve::Ed25519 | Curve::Pda => {
-            if resolved == payer.to_bytes() {
-                OwnerTag::Account(0)
-            } else {
-                OwnerTag::Inline(resolved)
-            }
-        }
+    let tag = if resolved == payer.to_bytes() {
+        OwnerTag::Account(0)
+    } else {
+        OwnerTag::Inline(resolved)
     };
     Ok((tag, resolved))
 }

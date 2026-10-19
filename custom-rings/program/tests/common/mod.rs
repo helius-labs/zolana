@@ -803,8 +803,8 @@ pub fn disclosed_message_len(shape: DisclosureShape) -> usize {
     AUDITOR_MESSAGE_PREFIX_LEN + 32 * shape.field_count().expect("disclosed shape")
 }
 
-/// A SEC1-compressed P256 key, the auditor key of a ring created before X25519.
-pub fn legacy_auditor_pubkey() -> [u8; 33] {
+/// A SEC1-compressed P256 passkey.
+fn p256_pubkey() -> [u8; 33] {
     hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
         .expect("valid hex")
         .try_into()
@@ -2064,7 +2064,7 @@ pub fn ed25519_reader(byte: u8) -> ReaderKeyBytes {
 pub fn p256_reader() -> ReaderKeyBytes {
     let mut key = [0u8; 34];
     key[0] = READER_KEY_P256;
-    key[1..].copy_from_slice(&legacy_auditor_pubkey());
+    key[1..].copy_from_slice(&p256_pubkey());
     key
 }
 

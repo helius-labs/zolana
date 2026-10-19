@@ -3,7 +3,6 @@ use crate::{
     error::KeypairError,
 };
 
-pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
 pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 
@@ -13,8 +12,6 @@ pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 /// derivation from a signing key) refuse it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Curve {
-    /// Reserved owner scheme, rejected by every decoder.
-    P256,
     Ed25519,
     Pda,
 }
@@ -22,7 +19,6 @@ pub enum Curve {
 impl From<Curve> for u8 {
     fn from(value: Curve) -> Self {
         match value {
-            Curve::P256 => SIGNATURE_TYPE_P256,
             Curve::Ed25519 => SIGNATURE_TYPE_ED25519,
             Curve::Pda => SIGNATURE_TYPE_PDA,
         }
@@ -34,7 +30,6 @@ impl TryFrom<u8> for Curve {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            SIGNATURE_TYPE_P256 => Err(KeypairError::InvalidSignatureType(value)),
             SIGNATURE_TYPE_ED25519 => Ok(Curve::Ed25519),
             SIGNATURE_TYPE_PDA => Ok(Curve::Pda),
             other => Err(KeypairError::InvalidSignatureType(other)),
@@ -62,8 +57,8 @@ impl PublicKey {
 
     /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
     /// unspendable, so a real input never has it; it is the canonical dummy marker.
-    /// Byte 0 reads as `SIGNATURE_TYPE_P256`, so this value must never reach
-    /// [`Self::curve`]; gate on [`Self::is_zero`] first.
+    /// Byte 0 names no owner scheme, so [`Self::curve`] rejects this value;
+    /// gate on [`Self::is_zero`] first.
     pub fn zeroed() -> Self {
         Self([0u8; PUBLIC_KEY_LEN])
     }
@@ -73,15 +68,11 @@ impl PublicKey {
     }
 
     pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
-        match Curve::try_from(bytes[0])? {
-            Curve::P256 => Err(KeypairError::InvalidSignatureType(bytes[0])),
-            Curve::Ed25519 | Curve::Pda => {
-                if bytes[PUBLIC_KEY_LEN - 1] != 0 {
-                    return Err(KeypairError::InvalidPublicKey);
-                }
-                Ok(Self(bytes))
-            }
+        Curve::try_from(bytes[0])?;
+        if bytes[PUBLIC_KEY_LEN - 1] != 0 {
+            return Err(KeypairError::InvalidPublicKey);
         }
+        Ok(Self(bytes))
     }
 
     pub fn curve(&self) -> Result<Curve, KeypairError> {
@@ -112,7 +103,6 @@ impl PublicKey {
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
         match self.curve()? {
-            Curve::P256 => Err(KeypairError::InvalidSignatureType(0)),
             Curve::Ed25519 => self.as_ed25519(),
             Curve::Pda => self.as_pda(),
         }
@@ -142,7 +132,7 @@ impl PublicKey {
                     Err(_) => false,
                 }
             }
-            Ok(Curve::P256 | Curve::Pda) | Err(_) => false,
+            Ok(Curve::Pda) | Err(_) => false,
         }
     }
 }

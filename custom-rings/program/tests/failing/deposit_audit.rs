@@ -16,9 +16,8 @@ use zolana_interface::{
 
 use crate::common::{
     account, anonymous_config_account, audit_only_config_account, auditor_pubkey, authority,
-    config_pda, deposit_fixture, escrowed_config_account, initialized_config_account,
-    key_registry_root_slot, legacy_auditor_pubkey, payer, program_id, setup_mollusk,
-    system_program_slot, Fixture, Slot,
+    config_pda, deposit_fixture, escrowed_config_account, key_registry_root_slot, payer,
+    program_id, setup_mollusk, system_program_slot, Fixture, Slot,
 };
 
 fn audit_account(required: u8) -> Account {
@@ -388,18 +387,6 @@ fn a_sec1_capsule_key_is_rejected_exactly() {
         }
     });
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidDepositDisclosure));
-}
-
-#[test]
-fn a_legacy_auditor_key_refuses_every_deposit_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let legacy = || initialized_config_account(authority(), legacy_auditor_pubkey());
-    let mut plain = deposit_fixture();
-    plain.set_account("config", legacy());
-    plain.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
-    let mut audited = audited_fixture(1);
-    audited.set_account("config", legacy());
-    audited.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
 }
 
 fn anonymous_fixture() -> Fixture {

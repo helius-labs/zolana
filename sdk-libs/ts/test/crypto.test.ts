@@ -92,8 +92,8 @@ describe("shielded key material", () => {
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(X25519PublicKey);
-    expect(() => ShieldedKeypair.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
-    expect(() => SigningKey.generate("p256")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    expect(() => ShieldedKeypair.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    expect(() => SigningKey.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
   });
 
   it("rejects the reserved owner tag without changing Ed25519 or PDA encodings", () => {

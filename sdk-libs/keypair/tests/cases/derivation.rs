@@ -139,10 +139,6 @@ pub(crate) fn expand_roles_rejects_a_seed_of_the_wrong_width() {
 /// A PDA holds no signing secret, so it has no seed and no roles to expand.
 pub(crate) fn expand_roles_rejects_the_pda_curve() {
     assert!(matches!(
-        expand_roles(&[0u8; 64], Curve::P256),
-        Err(KeypairError::InvalidSignatureType(0))
-    ));
-    assert!(matches!(
         expand_roles(&[0u8; 64], Curve::Pda),
         Err(KeypairError::PdaCannotSign)
     ));

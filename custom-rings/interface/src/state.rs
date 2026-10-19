@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{ReaderKeyBytes, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG};
+use crate::{ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
 
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
 pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
@@ -80,11 +80,6 @@ impl RingProgramConfig {
             2 => Some(RingMode::Anonymous),
             _ => None,
         }
-    }
-
-    /// Only an X25519 auditor key can receive a proven disclosure.
-    pub const fn has_legacy_auditor_key(&self) -> bool {
-        self.auditor_pubkey[0] != VIEWING_PUBKEY_TAG
     }
 }
 

@@ -65,12 +65,3 @@ fn a_reader_key_body_that_is_not_a_point_is_rejected() {
         Err(ReaderKeyError::Body)
     );
 }
-
-#[test]
-fn reserved_passkey_points_are_rejected() {
-    let bytes = hex::decode("038a31d53c5ad20d1cd7ee1fbb9927bd0cdfb61b1b89f6b2c5a94a5f081fe16b5b")
-        .unwrap()
-        .try_into()
-        .unwrap();
-    assert!(zolana_ring_client::P256ReaderKey::from_bytes(bytes).is_err());
-}

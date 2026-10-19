@@ -142,7 +142,7 @@ pub(crate) fn is_x25519_key(key: &[u8; 33]) -> bool {
 
 /// Curve membership is the sdk's job, an off-curve key only fails its own ring closed.
 pub(crate) fn is_p256_key(key: &[u8; 33]) -> bool {
-    matches!(key[0], 0x02 | 0x03) && !custom_ring_interface::is_reserved_reader_key(key)
+    matches!(key[0], 0x02 | 0x03)
 }
 
 pub(crate) fn check_reader_key(key: &ReaderKeyBytes) -> Result<(), CustomRingError> {

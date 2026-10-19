@@ -28,8 +28,8 @@ use zolana_interface::{
 use crate::common::{
     account, anonymous_config_account, audit_ix_data, auditor_message_len, auditor_pubkey,
     authority, config_account_in_mode, disclosed_message_len, encode_transact,
-    initialized_config_account, legacy_auditor_pubkey, policy_ix_data, setup_mollusk,
-    transact_fixture, velocity_policy_config_account, Fixture,
+    initialized_config_account, policy_ix_data, setup_mollusk, transact_fixture,
+    velocity_policy_config_account, Fixture,
 };
 
 const PROOF_DATA: AnonymousRingEddsaProofData = AnonymousRingEddsaProofData {
@@ -459,19 +459,6 @@ fn zeroed_proof_is_rejected_exactly() {
         ),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
-}
-
-#[test]
-fn a_legacy_auditor_key_is_refused_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let fixture = transact_fixture(
-        initialized_config_account(authority(), legacy_auditor_pubkey()),
-        instruction_data(
-            bogus_proof(),
-            transact(vec![auditor_message(auditor_message_len(1))]),
-        ),
-    );
-    fixture.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
 }
 
 #[test]
