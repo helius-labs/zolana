@@ -380,7 +380,6 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),
-            eddsa_owner: true,
             private_tx_hash: [0; 32],
             nullifiers: (1..=8).map(fe).collect(),
             utxo_tree_root_index: 0,

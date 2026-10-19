@@ -195,7 +195,6 @@ describe("user records wire", () => {
   ).toString("base64");
   const record = {
     owner: RING,
-    ownerP256: null,
     nullifierPubkey: TAG,
     viewingPubkey: X25519,
     mergingEnabled: true,
@@ -210,11 +209,9 @@ describe("user records wire", () => {
         null,
       ],
     });
-    expect(() =>
-      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }),
-    ).toThrow("Invalid value at $.records[0].ownerP256");
     for (const changed of [
       { records: [{ ...record, bump: 1 }] },
+      { records: [{ ...record, ownerP256: null }] },
       { records: [{ ...record, mergingEnabled: "yes" }] },
       { records: [{ ...record, nullifierPubkey: P256 }] },
       { records: [{ owner: RING }] },

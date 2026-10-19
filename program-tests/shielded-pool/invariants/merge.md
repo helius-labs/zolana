@@ -53,14 +53,8 @@ nullifiers.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-MERGE-05: retired owner scheme is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_the_reserved_owner_rail`
-  - Kind: precondition
-  - Statement: the retained `eddsa_owner` flag must be true. Registry records with a nonzero reserved owner byte are rejected.
-  - Location: `programs/shielded-pool/src/instructions/merge/account.rs:77-79` (`fn load_user_record`)
-  - Error: `ShieldedPoolError::InvalidUserRecord = 7018`
-  - Severity: High
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-MERGE-05: retired owner scheme is rejected**
+  - Not applicable, the registry record holds only the Ed25519 `owner` and merge instruction data selects no owner scheme.
 
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`

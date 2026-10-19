@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use super::state::{ReservedOwnerKey, NULLIFIER_PUBKEY_LEN, VIEWING_PUBKEY_LEN};
+use super::state::{NULLIFIER_PUBKEY_LEN, VIEWING_PUBKEY_LEN};
 
 pub mod discriminator {
     pub const REGISTER: u8 = 0;
@@ -10,14 +10,12 @@ pub mod discriminator {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct RegisterData {
-    pub reserved_owner: ReservedOwnerKey,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct UpdateKeysData {
-    pub reserved_owner: ReservedOwnerKey,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
@@ -114,7 +112,6 @@ mod tests {
         let owner = Pubkey::new_unique();
         let payer = Pubkey::new_unique();
         let data = RegisterData {
-            reserved_owner: Default::default(),
             nullifier_pubkey: [0u8; 32],
             viewing_pubkey: [2u8; 33],
         };

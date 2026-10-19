@@ -87,10 +87,7 @@ pub struct UserPkFields {
 /// A Solana owner derives `signing_pk_field` as the tagged Solana identity of
 /// the registry account `owner` (ed25519).
 #[inline(never)]
-pub fn load_user_record(
-    account: &AccountView,
-    eddsa_owner: bool,
-) -> Result<UserPkFields, ProgramError> {
+pub fn load_user_record(account: &AccountView) -> Result<UserPkFields, ProgramError> {
     let registry_id = Address::from(USER_REGISTRY_PROGRAM_ID);
     if !account.owned_by(&registry_id) {
         return Err(ShieldedPoolError::InvalidUserRecord.into());
@@ -107,9 +104,6 @@ pub fn load_user_record(
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }
     let merging_enabled = record.merging_enabled;
-    if !eddsa_owner {
-        return Err(ShieldedPoolError::InvalidUserRecord.into());
-    }
     let signing_view_tag = record.owner.to_bytes();
     let signing_pk_field = solana_owner_identity(&signing_view_tag)?;
     Ok(UserPkFields {

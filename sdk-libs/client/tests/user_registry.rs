@@ -80,7 +80,6 @@ fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
     let record = UserRecord {
         owner,
         bump: 255,
-        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
         merging_enabled,

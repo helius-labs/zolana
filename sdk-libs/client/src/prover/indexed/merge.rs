@@ -13,7 +13,7 @@ use zolana_interface::{
     },
     tree_slot::tree_id_field,
 };
-use zolana_keypair::{Curve, NullifierKey};
+use zolana_keypair::NullifierKey;
 use zolana_transaction::instructions::{
     merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
@@ -254,7 +254,6 @@ impl IndexedMergePreparation {
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
             cache_slot: cache.map(|target| target.slot),
-            eddsa_owner: matches!(merge.signing_pubkey.curve()?, Curve::Ed25519 | Curve::Pda),
         };
         Ok(PreparedIndexedMerge {
             request,

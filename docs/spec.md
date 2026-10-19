@@ -249,7 +249,6 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | Type | Definition | Description |
 | --- | --- | --- |
 | `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body. Prefix `0x00`: P256, SEC1-compressed point; `0x01`: Ed25519, 32-byte key then one zero byte; `0x02`: PDA, 32-byte Solana address then one zero byte (off-curve, cannot sign). The protocol's scheme-tagged key, used wherever the scheme varies — UTXO owners (`signing_pk` / `owner_pubkey`). |
-| `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction, the registry's optional `owner_p256`. |
 | `X25519Pubkey` | `[u8; 33]` | X25519 public key, `0x04 \|\| u` with `u` the little-endian Montgomery u-coordinate. Only a canonical `u < 2^255 - 19` decodes. No scheme prefix beyond the tag. Used where the key is X25519 by construction, the viewing and ECDH keys (`tx_viewing_pk`, registry `viewing_pk`, ring auditor keys, ephemeral envelope keys). |
 | `X25519Keypair` | — | An X25519 `(secret, public)` keypair. The secret is a clamped 32-byte RFC 7748 scalar, and its public half is an `X25519Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
@@ -1004,8 +1003,7 @@ own UTXOs, skips the deterministic dummy nullifiers, sums the matched inputs,
 recomputes the blinding, and checks the recomputed UTXO hash against the
 on-chain output commitment — no decryption key is involved. On the default rail
 (`merge_transact`) the emitted event's `view_tag` is the owner signing pubkey
-(the P256 x-coordinate or the full ed25519 key, rail-selected like the owner
-identity), so the wallet's owner-pubkey scan finds it; `merge_ring` instead
+(the full ed25519 `owner` key), so the wallet's owner-pubkey scan finds it; `merge_ring` instead
 indexes the output by the first input's published nullifier, and a ring merge's
 output `data` payload is the output `ring_data_hash` (see [Merge output
 indexing](#merge-output-indexing-removed-merge-view-tag)).
@@ -1401,7 +1399,7 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real or compact padding |
-| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity `owner`, with `eddsa_owner` required true, and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
+| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity `owner` and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
 | variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
 
 **Private Inputs (per input slot)**
@@ -1846,27 +1844,27 @@ OVER marks a layout above the 4,096-byte limit:
 | Ring transact anonymous 49 in 2 out | 2359 | 4292 OVER | 55 |
 | Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
 | Ring transact anonymous 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
-| Merge 8 in 1 out, direct | 528 | 1076 | 13 |
-| Merge 8 in 1 out, execute_sync | 562 | 1208 | 16 |
-| Ring merge 8 in 1 out | 560 | 1140 | 14 |
-| Merge 24 in 1 out, direct | 1040 | 2116 | 29 |
-| Merge 24 in 1 out, execute_sync | 1090 | 2264 | 32 |
-| Ring merge 24 in 1 out | 1072 | 2180 | 30 |
-| Merge 54 in 1 out, direct | 2000 | 4066 | 59 |
-| Merge 54 in 1 out, execute_sync | 2080 | 4244 OVER | 62 |
-| Ring merge 54 in 1 out | 2032 | 4130 OVER | 60 |
-| Merge 3 in 1 out, 8 compact, direct | 368 | 751 | 8 |
-| Merge 3 in 1 out, 8 compact, execute_sync | 397 | 878 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 400 | 815 | 9 |
-| Merge 9 in 1 out, 24 compact, direct | 560 | 1141 | 14 |
-| Merge 9 in 1 out, 24 compact, execute_sync | 595 | 1274 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 592 | 1205 | 15 |
-| Merge 25 in 1 out, 54 compact, direct | 1072 | 2181 | 30 |
-| Merge 25 in 1 out, 54 compact, execute_sync | 1123 | 2330 | 33 |
-| Ring merge 25 in 1 out, 54 compact | 1104 | 2245 | 31 |
-| Merge 53 in 1 out, 54 compact, direct | 1968 | 4001 | 58 |
-| Merge 53 in 1 out, 54 compact, execute_sync | 2047 | 4178 OVER | 61 |
-| Ring merge 53 in 1 out, 54 compact | 2000 | 4065 | 59 |
+| Merge 8 in 1 out, direct | 527 | 1075 | 13 |
+| Merge 8 in 1 out, execute_sync | 561 | 1207 | 16 |
+| Ring merge 8 in 1 out | 559 | 1139 | 14 |
+| Merge 24 in 1 out, direct | 1039 | 2115 | 29 |
+| Merge 24 in 1 out, execute_sync | 1089 | 2263 | 32 |
+| Ring merge 24 in 1 out | 1071 | 2179 | 30 |
+| Merge 54 in 1 out, direct | 1999 | 4065 | 59 |
+| Merge 54 in 1 out, execute_sync | 2079 | 4243 OVER | 62 |
+| Ring merge 54 in 1 out | 2031 | 4129 OVER | 60 |
+| Merge 3 in 1 out, 8 compact, direct | 367 | 750 | 8 |
+| Merge 3 in 1 out, 8 compact, execute_sync | 396 | 877 | 11 |
+| Ring merge 3 in 1 out, 8 compact | 399 | 814 | 9 |
+| Merge 9 in 1 out, 24 compact, direct | 559 | 1140 | 14 |
+| Merge 9 in 1 out, 24 compact, execute_sync | 594 | 1273 | 17 |
+| Ring merge 9 in 1 out, 24 compact | 591 | 1204 | 15 |
+| Merge 25 in 1 out, 54 compact, direct | 1071 | 2180 | 30 |
+| Merge 25 in 1 out, 54 compact, execute_sync | 1122 | 2329 | 33 |
+| Ring merge 25 in 1 out, 54 compact | 1103 | 2244 | 31 |
+| Merge 53 in 1 out, 54 compact, direct | 1967 | 4000 | 58 |
+| Merge 53 in 1 out, 54 compact, execute_sync | 2046 | 4177 OVER | 61 |
+| Ring merge 53 in 1 out, 54 compact | 1999 | 4064 | 59 |
 
 A 54-input merge is sent directly, not through Squads
 `execute_transaction_sync`: there it exceeds 4,096 bytes, and the smart account
@@ -2299,7 +2297,7 @@ the instruction and must use a fresh blinding per output.
 | 1 | input_tree | x |   | supplies historical roots and receives the input nullifiers |
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
 | 3 | payer |   | x | fee payer; any account may run the merge |
-| 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and hashes the record's signing identity `owner_proof_input_hash(user_signing_pk)` (`eddsa_owner` must be true) and its `nullifier_pk` into the public inputs |
+| 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and hashes the record's signing identity `owner_proof_input_hash(user_signing_pk)` and its `nullifier_pk` into the public inputs |
 | 5 | system_program |   |   | canonical System Program |
 | 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | .. | nullifier_pdas | x |   | one per `nullifiers[i]` in order, as in [`transact`](#transact) |
@@ -2319,8 +2317,6 @@ struct MergeTransactIxData {
     proof: MergeProof,
     /// One output UTXO hash; appended to the UTXO tree.
     output_utxo_hash: [u8; 32],
-    /// Must be true, else SPP refuses the merge with `InvalidUserRecord`.
-    eddsa_owner: bool,
     /// Public input to the merge proof; defined under
     /// [Merge Proof](#merge-proof---merge-zk-proof).
     private_tx_hash: [u8; 32],
@@ -2349,7 +2345,7 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 2. `utxo_tree_root_index` and `nullifier_tree_root_index` reference non-stale roots in `input_tree`; the one pair serves every input, since SPP merges from a single `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
-5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity and its `nullifier_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
+5. SPP loads a registry-owned, valid `UserRecord` and hashes its signing identity and its `nullifier_pk` into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
 6. The 192-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
@@ -2361,9 +2357,9 @@ cache_address || u8(cache_slot))`, the last two only when `cache_slot` is set.
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
-Serialized body: `271 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
-With discriminator, `N = 24`: `1,040 B` (a `2,116 B` transaction); `N = 54`:
-`2,000 B` (`4,066 B`), sent directly. See [Transaction size](#transaction-size).
+Serialized body: `270 + 32·N` bytes, `+1` with a cache slot (`192`-byte proof, one root-index pair, no ciphertext).
+With discriminator, `N = 24`: `1,039 B` (a `2,115 B` transaction); `N = 54`:
+`1,999 B` (`4,065 B`), sent directly. See [Transaction size](#transaction-size).
 
 ### `merge_ring`
 
@@ -2802,9 +2798,6 @@ Out-of-protocol service. For each user's Solana pubkey, the registry publishes t
 struct Record {
     /// The user's Solana pubkey.
     owner: Address,
-    /// Static. The P256 signing pk.
-    /// `None` for Solana-only signing keys.
-    owner_p256: Option<P256Pubkey>,
     nullifier_pk: [u8; 32],
     /// The wallet's X25519 viewing pubkey (see [ViewingKey](#viewingkey)).
     viewing_pk: X25519Pubkey,
@@ -2844,15 +2837,12 @@ struct GetRecordResponse {
 
 #### `register`
 
-Creates a record with the given owner P-256 pubkey (optional), nullifier pubkey, and viewing pubkey. Fails if a record for `owner` already exists. Registry rejects non-canonical `nullifier_pk` values (`>= Fr`).
+Creates a record with the given nullifier pubkey and viewing pubkey. Fails if a record for `owner` already exists. Registry rejects non-canonical `nullifier_pk` values (`>= Fr`).
 
 Authorized signer: `owner`.
 
 ```rust
 struct RegisterRequest {
-    /// Omit for Solana-only users whose signing key is the Ed25519 key
-    /// encoded by `owner`.
-    owner_p256: Option<P256Pubkey>,
     nullifier_pk: [u8; 32],
     viewing_pk: X25519Pubkey,
 }

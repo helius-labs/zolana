@@ -208,7 +208,6 @@ fn convert_user_record(
     Ok(UserRecord {
         owner: record.owner.0,
         bump: user_record_pda(&record.owner.0).1,
-        reserved_owner: Default::default(),
         nullifier_pubkey: record.nullifier_pubkey.0,
         viewing_pubkey: fixed_bytes(
             record.viewing_pubkey.0,

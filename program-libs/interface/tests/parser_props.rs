@@ -160,7 +160,6 @@ mod strategies {
             any::<u16>(),
             any::<u16>(),
             any::<[u8; 32]>(),
-            any::<bool>(),
         )
             .prop_map(
                 |(
@@ -171,14 +170,12 @@ mod strategies {
                     utxo_tree_root_index,
                     nullifier_tree_root_index,
                     private_tx_hash,
-                    eddsa_owner,
                 )| {
                     MergeTransactIxData {
                         cache_slot: None,
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
                         output_utxo_hash,
-                        eddsa_owner,
                         private_tx_hash,
                         nullifiers,
                         utxo_tree_root_index,

@@ -23,12 +23,10 @@ struct UserRecord {
     owner: Address,
     /// Canonical PDA bump; stored so reads do not re-derive it.
     bump: u8,
-    /// Static P-256 signing pubkey. `None` for Solana-only owners.
-    owner_p256: Option<P256Pubkey>,
     /// Static wallet nullifier pubkey. Must be canonical (`< Fr`).
     nullifier_pubkey: [u8; 32],
     /// Static wallet viewing pubkey, published to senders while no sync delegate is set.
-    viewing_pubkey: P256Pubkey,
+    viewing_pubkey: X25519Pubkey,
     /// Active sync delegate Solana pubkey, or none after revoke.
     sync_delegate: Option<Address>,
     /// Append-only sync-delegate epochs.
@@ -38,10 +36,10 @@ struct UserRecord {
 struct SyncDelegateEntry {
     /// Sync delegate Solana pubkey at the time this entry was appended.
     delegate: Address,
-    /// Delegate's P-256 ECDH pubkey.
-    sync_pubkey: P256Pubkey,
+    /// Delegate's X25519 ECDH pubkey.
+    sync_pubkey: X25519Pubkey,
     /// Shared viewing pubkey published to senders for this entry.
-    viewing_pubkey: P256Pubkey,
+    viewing_pubkey: X25519Pubkey,
     /// Unix seconds from `Clock` at append time.
     created_at: i64,
 }
@@ -52,14 +50,14 @@ Invariants (see [spec.md](spec.md#record)):
 - While a sync delegate is active, `sync_delegate` is set if and only if `entries` is non-empty.
 - After `revoke_sync_delegate`, `sync_delegate` is cleared; historical `entries` remain append-only.
 - `entries` is append-only: never modified or removed.
-- `nullifier_pubkey`, `owner_p256`, and `viewing_pubkey` do not rotate in place.
+- `nullifier_pubkey` does not rotate in place.
 - No close or delete operation.
 
 Sender-facing viewing pubkey:
 
 ```rust
 impl UserRecord {
-    pub fn sender_viewing_pubkey(&self) -> P256Pubkey {
+    pub fn sender_viewing_pubkey(&self) -> X25519Pubkey {
         if self.sync_delegate.is_some() {
             self.entries.last()
                 .map(|entry| entry.viewing_pubkey)
@@ -99,18 +97,16 @@ No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The progra
 
 ```rust
 struct RegisterData {
-    owner_p256: Option<P256Pubkey>,
     nullifier_pubkey: [u8; 32],
-    viewing_pubkey: P256Pubkey,
+    viewing_pubkey: X25519Pubkey,
 }
 ```
 
 **Checks**
 
 1. `user_record` PDA does not yet exist.
-2. `owner_p256` and `viewing_pubkey` use valid SEC1-compressed prefixes when present.
-3. `nullifier_pubkey < Fr`.
-4. Initialize `UserRecord` with `sync_delegate = None`, `entries = []`, stored bump.
+2. `nullifier_pubkey < Fr`.
+3. Initialize `UserRecord` with `sync_delegate = None`, `entries = []`, stored bump.
 
 #### `set_sync_delegate`
 
@@ -127,15 +123,15 @@ struct RegisterData {
 ```rust
 struct SetSyncDelegateData {
     sync_delegate: Address,
-    sync_pubkey: P256Pubkey,
-    viewing_pubkey: P256Pubkey,
+    sync_pubkey: X25519Pubkey,
+    viewing_pubkey: X25519Pubkey,
 }
 ```
 
 **Checks**
 
 1. `user_record.owner == accounts.owner.key`.
-2. `sync_pubkey` and `viewing_pubkey` use valid SEC1-compressed prefixes.
+2. `sync_pubkey` and `viewing_pubkey` are tagged X25519 keys.
 3. Set `sync_delegate = Some(sync_delegate)`.
 4. Append `SyncDelegateEntry { delegate: sync_delegate, sync_pubkey, viewing_pubkey, created_at }`.
 5. Grow account to `UserRecord::space_for(entries.len())`.
@@ -156,15 +152,15 @@ Calling `set_sync_delegate` while a sync delegate is already set replaces the ap
 
 ```rust
 struct RotateSyncDelegateKeyData {
-    sync_pubkey: P256Pubkey,
-    viewing_pubkey: P256Pubkey,
+    sync_pubkey: X25519Pubkey,
+    viewing_pubkey: X25519Pubkey,
 }
 ```
 
 **Checks**
 
 1. `user_record.sync_delegate == Some(accounts.sync_delegate.key)`.
-2. `sync_pubkey` and `viewing_pubkey` use valid SEC1-compressed prefixes.
+2. `sync_pubkey` and `viewing_pubkey` are tagged X25519 keys.
 3. Append entry with `delegate = accounts.sync_delegate.key`. `sync_delegate` field unchanged.
 4. Grow account to `UserRecord::space_for(entries.len())`.
 
@@ -194,7 +190,7 @@ After `revoke_sync_delegate`, `sender_viewing_pubkey()` returns the static `view
 Senders translating a Solana address to a shielded viewing pubkey:
 
 1. Read the user-record PDA at `["zolana/registry/v0", owner]`. Absent → registry miss; fall back to no-registry behaviour.
-2. Use `UserRecord::sender_viewing_pubkey()` together with the owner's shielded identity hash from `owner_p256` / `owner`.
+2. Use `UserRecord::sender_viewing_pubkey()` together with the owner's shielded identity hash from `owner`.
 
 Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
 

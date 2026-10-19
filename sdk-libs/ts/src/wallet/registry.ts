@@ -48,6 +48,7 @@ const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
 const REGISTER = 0;
 const SET_MERGING_ENABLED = 1;
 const UPDATE_KEYS = 2;
+const USER_RECORD_SIZE = 100;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -59,7 +60,6 @@ function checkedBytesEncoder(size: number, name: string) {
 
 const registryKeysDataEncoder = getStructEncoder([
   ["discriminator", getU8Encoder()],
-  ["reservedOwner", getU8Encoder()],
   ["nullifierPublicKey", checkedBytesEncoder(32, "nullifierPublicKey")],
   ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
 ]);
@@ -170,11 +170,11 @@ class Reader {
 }
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
+  if (data.length !== USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const reader = new Reader(data);
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));
   const bump = reader.u8();
-  if (reader.u8() !== 0) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const nullifierPublicKey = reader.bytes(32) as Bytes32;
   const viewingPublicKey = reader.bytes(33) as Bytes33;
   const mergingEnabled = reader.u8();
@@ -543,7 +543,6 @@ export async function registerInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: REGISTER,
-      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),
@@ -583,7 +582,6 @@ async function updateKeysInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: UPDATE_KEYS,
-      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),

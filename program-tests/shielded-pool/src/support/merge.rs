@@ -57,7 +57,6 @@ pub fn write_user_record(
     let record = UserRecord {
         owner,
         bump,
-        reserved_owner: Default::default(),
         nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
             .expect("fixture keypair")
             .nullifier_key()

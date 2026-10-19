@@ -460,7 +460,6 @@ describe("prover indexer lag", () => {
         1,
         ...getAddressEncoder().encode(owner),
         pda.bump,
-        0,
         ...shielded.nullifierPublicKey,
         ...shielded.viewingPublicKey.toBytes(),
         1,

@@ -34,7 +34,6 @@ pub struct ResolvedAddress {
 /// register/update instructions take.
 fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
     Ok(RegisterData {
-        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
     })
@@ -304,7 +303,6 @@ fn update_key_instructions(
         user_record,
         owner,
         UpdateKeysData {
-            reserved_owner: Default::default(),
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
         },
@@ -610,7 +608,6 @@ mod tests {
         UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
             merging_enabled: false,
@@ -631,7 +628,6 @@ mod tests {
         UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -724,7 +720,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
             merging_enabled: false,
@@ -982,7 +977,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             merging_enabled: false,

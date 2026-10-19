@@ -1856,7 +1856,6 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [1; 32],
-                eddsa_owner: true,
                 private_tx_hash: [3; 32],
                 nullifiers: vec![[5; 32]; 8],
                 utxo_tree_root_index: 0,

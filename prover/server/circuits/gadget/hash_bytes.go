@@ -17,6 +17,15 @@ func HashBytesWith(api frontend.API, rc frontend.Rangechecker, bytes []frontend.
 	return HashChain(api, PackBytesBEWith(api, rc, bytes))
 }
 
+// HashBoundedBytes is HashBytes for bytes the caller constrains to 8 bits.
+func HashBoundedBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
+	return HashBytesWith(api, boundedBytes{}, bytes)
+}
+
+type boundedBytes struct{}
+
+func (boundedBytes) Check(frontend.Variable, int) {}
+
 // Range-checks each byte, the last chunk stays unpadded.
 func PackBytesBE(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
 	return PackBytesBEWith(api, rangecheck.New(api), bytes)
@@ -35,5 +44,14 @@ func PackBytesBEWith(api frontend.API, rc frontend.Rangechecker, bytes []fronten
 // existing Solana owner domain. Curve and signature validity remain obligations
 // of the signature gadget. This boundary proves byte widths and tagged hashing.
 func SolanaOwnerIdentity(api frontend.API, key [32]frontend.Variable) frontend.Variable {
-	return HashBytes(api, append([]frontend.Variable{0x53}, key[:]...))
+	return HashBytes(api, solanaOwnerPreimage(key))
+}
+
+// SolanaOwnerIdentityBounded is SolanaOwnerIdentity for key bytes the caller constrains to 8 bits.
+func SolanaOwnerIdentityBounded(api frontend.API, key [32]frontend.Variable) frontend.Variable {
+	return HashBoundedBytes(api, solanaOwnerPreimage(key))
+}
+
+func solanaOwnerPreimage(key [32]frontend.Variable) []frontend.Variable {
+	return append([]frontend.Variable{0x53}, key[:]...)
 }

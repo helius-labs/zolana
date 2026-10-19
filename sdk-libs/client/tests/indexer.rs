@@ -709,7 +709,6 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 Some(UserRecord {
                     owner: owners[0],
                     bump: user_record_pda(&owners[0]).1,
-                    reserved_owner: Default::default(),
                     nullifier_pubkey: bytes32(3),
                     viewing_pubkey: [4; X25519_PUBKEY_LEN],
                     merging_enabled: true,
@@ -718,7 +717,6 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 Some(UserRecord {
                     owner: owners[2],
                     bump: user_record_pda(&owners[2]).1,
-                    reserved_owner: Default::default(),
                     nullifier_pubkey: bytes32(5),
                     viewing_pubkey: [6; X25519_PUBKEY_LEN],
                     merging_enabled: false,

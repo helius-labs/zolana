@@ -58,7 +58,6 @@ export interface MergeAssembly {
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
   /// re-derive it.
   readonly externalDataHash: Bytes32;
-  readonly eddsaOwner: boolean;
   readonly cacheSlot?: number;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
 }
@@ -371,7 +370,6 @@ export function prepareMerge(
     outputHashes: [outputHash],
     blinding: privateTxBlinding,
   });
-  const eddsaOwner = true;
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
@@ -431,7 +429,6 @@ export function prepareMerge(
           expiryUnixTs,
           proof: copyMergeProof(proof),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
-          eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           // The trailing compact padding is left out; SPP fills it back in.
           nullifiers: Object.freeze(
@@ -459,7 +456,6 @@ export function prepareMerge(
         privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
         publicInputHash,
         externalDataHash,
-        eddsaOwner,
         ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
         instructionData,
       });

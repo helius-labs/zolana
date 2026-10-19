@@ -27,7 +27,6 @@ fn sample(merging_enabled: bool) -> UserRecord {
     UserRecord {
         owner: [7u8; 32].into(),
         bump: 251,
-        reserved_owner: Default::default(),
         nullifier_pubkey: [9u8; 32],
         viewing_pubkey: [4u8; 33],
         merging_enabled,
@@ -42,25 +41,20 @@ fn record_byte_layout_is_locked() {
     let mut expected = Vec::new();
     expected.extend_from_slice(&[7u8; 32]);
     expected.push(251);
-    expected.push(0);
     expected.extend_from_slice(&[9u8; 32]);
     expected.extend_from_slice(&[4u8; 33]);
     expected.push(1);
     assert_eq!(body, expected);
 
-    assert_eq!(
-        UserRecord::DISCRIMINATOR_LEN + body.len() + 33,
-        UserRecord::SIZE
-    );
+    assert_eq!(UserRecord::DISCRIMINATOR_LEN + body.len(), UserRecord::SIZE);
 }
 
 #[test]
-fn from_account_data_round_trips_with_trailing_padding() {
+fn from_account_data_round_trips() {
     let record = sample(false);
     let body = to_vec(&record).unwrap();
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend_from_slice(&body);
-    account_data.resize(UserRecord::SIZE, 0);
     assert_eq!(
         UserRecord::try_from_account_data(&account_data).unwrap(),
         record
@@ -91,7 +85,6 @@ fn register_instruction_uses_one_byte_discriminator() {
     let ix = build_register_ix(&solana_pubkey::Pubkey::new_unique(), [1u8; 32], [4u8; 33]);
     assert_eq!(ix.data[0], discriminator::REGISTER);
     let payload = RegisterData {
-        reserved_owner: Default::default(),
         nullifier_pubkey: [1u8; 32],
         viewing_pubkey: [4u8; 33],
     };

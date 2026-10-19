@@ -200,7 +200,8 @@ func (c *CustomRingAnonymousEddsaCircuit) ownerAuthorization(
 		Signature: c.Private.OwnerSignature,
 		Message:   messageBytes[:],
 	})
-	return gadget.SolanaOwnerIdentity(api, key), gadget.HashBytes(api, messageBytes[:])
+	// Verify's SHA-512 transcript range-checks the key and message bytes.
+	return gadget.SolanaOwnerIdentityBounded(api, key), gadget.HashBoundedBytes(api, messageBytes[:])
 }
 
 // bytes32FromBits adapts a 256-bit little-endian bit decomposition to the

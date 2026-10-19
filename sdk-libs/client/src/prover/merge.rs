@@ -15,7 +15,7 @@ use zolana_interface::{
     state::cache::CACHE_CAPACITY,
     tree_slot::{tree_id_field, tree_slots_hash_chain},
 };
-use zolana_keypair::{Curve, NullifierKey};
+use zolana_keypair::NullifierKey;
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
@@ -72,9 +72,6 @@ pub struct MergeProofResult {
     /// re-derive it.
     pub external_data_hash: [u8; 32],
     pub expiry_unix_ts: u64,
-    /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
-    /// `signing_pk_field` from the registry account owner.
-    pub eddsa_owner: bool,
     pub cache_slot: Option<u8>,
     pub ring_program_id: Option<Address>,
     pub output_ring_data_hash: [u8; 32],
@@ -97,7 +94,6 @@ impl MergeProofResult {
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
             private_tx_hash: self.private_tx_hash,
-            eddsa_owner: self.eddsa_owner,
             cache_slot: self.cache_slot,
         }
     }
@@ -253,10 +249,6 @@ impl MergeProver {
             elements.extend([user_signing_pk_hash, nullifier_pubkey]);
         }
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
-        let eddsa_owner = match signing_pubkey.curve()? {
-            Curve::Ed25519 | Curve::Pda => true,
-            Curve::P256 => false,
-        };
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs
@@ -288,7 +280,6 @@ impl MergeProver {
             private_tx_hash: private_tx,
             external_data_hash,
             expiry_unix_ts,
-            eddsa_owner,
             cache_slot,
             ring_program_id,
             output_ring_data_hash,
