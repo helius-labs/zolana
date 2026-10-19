@@ -481,7 +481,8 @@ describe("anonymous ring audit", () => {
     expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(43);
     expect(auditDisclosureLength({ anonymous: false, inputs: 0, outputs: 1 })).toBe(36);
     expect(auditDisclosureLength({ anonymous: true, inputs: 0, outputs: 2 })).toBeUndefined();
-    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBeUndefined();
+    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBe(33);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 13, outputs: 2 })).toBeUndefined();
     const message = transaction().messages[0]!;
     expect(message.data).toHaveLength(65 + 32 * 24);
     const parsed = parseAuditorMessage(message.data, shape);

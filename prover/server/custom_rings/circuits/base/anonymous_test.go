@@ -7,10 +7,12 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // The host independently hashes the hidden owner, note commitments and
@@ -58,6 +60,56 @@ func TestAnonymousDisclosure(t *testing.T) {
 			bad := *assignment
 			tc.edit(&bad)
 			reject(t, cs, &bad)
+		})
+	}
+}
+
+func TestWideAnonymousDisclosureBindsLastInput(t *testing.T) {
+	keys := ringaudit.DefaultKeys(t)
+	statement := keys.AnonymousStatement(t)
+	first := statement.Inputs[0]
+	statement.NIn = 12
+	statement.Inputs = make([]base.AuditUtxoWires, 12)
+	for i := range statement.Inputs {
+		statement.Inputs[i] = first
+		statement.Inputs[i].Blinding = big.NewInt(int64(100 + i))
+	}
+	statement.Rebind(t)
+	valid := base.CustomRingWideBaseCircuit{
+		PublicInputHash: spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)),
+		Audit:           statement.Audit, NOut: statement.Count, Outputs: statement.Outputs,
+		NIn: statement.NIn, AnonymousOutputs: statement.Notes,
+		PrivateTxBlinding: statement.PrivateTxBlinding,
+	}
+	copy(valid.Inputs[:], statement.Inputs)
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder,
+		&base.CustomRingWideBaseCircuit{}, frontend.WithCompressThreshold(300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*base.CustomRingWideBaseCircuit)
+	}{
+		{"valid", nil},
+		{"last input amount", func(c *base.CustomRingWideBaseCircuit) { c.Inputs[11].Amount = 101 }},
+		{"last input owner", func(c *base.CustomRingWideBaseCircuit) { c.Inputs[11].OwnerPkHash = 1 }},
+		{"missing input", func(c *base.CustomRingWideBaseCircuit) { c.NIn = 11 }},
+		{"wrong mode", func(c *base.CustomRingWideBaseCircuit) { c.Anonymous = 0 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := valid
+			if tc.edit != nil {
+				tc.edit(&w)
+			}
+			witness, err := frontend.NewWitness(&w, ecc.BN254.ScalarField())
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = cs.IsSolved(witness)
+			if (err == nil) != (tc.edit == nil) {
+				t.Fatalf("unexpected solve result: %v", err)
+			}
 		})
 	}
 }

@@ -18,6 +18,7 @@ import (
 func shapeStatement(t *testing.T, shape common.RingPolicyShape, nIn, nOut int) *statement {
 	t.Helper()
 	s := fullTwoByThreeStatement(t, shape.Anonymous)
+	s.shortAudit = !shape.Anonymous && !shape.Delegate && shape.NInputs == 24 && shape.NOutputs == 2
 	input, output, ct := s.inputs[0], s.outputs[0], s.ctHashes[0]
 	s.inputs, s.outputs, s.ctHashes = nil, nil, nil
 	for i := 0; i < nIn; i++ {

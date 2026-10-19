@@ -740,7 +740,7 @@ describe("prover request routing", () => {
 
   it("encodes every supported shaped policy with capacity-sized witness slots", () => {
     const request = ringRequest(x25519.getPublicKey(bytes(4)));
-    expect(RING_POLICY_SUPPORTED_SHAPES).toHaveLength(18);
+    expect(RING_POLICY_SUPPORTED_SHAPES).toHaveLength(19);
     for (const shape of RING_POLICY_SUPPORTED_SHAPES) {
       for (const registrySubtree of [false, true]) {
         const shaped = {
@@ -775,7 +775,12 @@ describe("prover request routing", () => {
         );
       }
     }
-    for (const shape of SPP_SUPPORTED_SHAPES.filter((s) => s.inputs > 16 || s.outputs > 4)) {
+    for (const shape of SPP_SUPPORTED_SHAPES.filter(
+      (s) =>
+        !RING_POLICY_SUPPORTED_SHAPES.some(
+          (supported) => supported.inputs === s.inputs && supported.outputs === s.outputs,
+        ),
+    )) {
       expect(() => customRingPolicyProofRequest({ ...request, shape })).toThrow(
         expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
       );

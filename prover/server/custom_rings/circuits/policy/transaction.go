@@ -88,11 +88,17 @@ func (c *CustomRingPolicyCircuit) constrainTransaction(api frontend.API, rc fron
 // auditTx hands the audit block the openings an anonymous ring discloses, its count caps the inputs at AuditInputSlots.
 func (c *CustomRingPolicyCircuit) auditTx(tx transaction) base.AuditTx {
 	inputs, outputs, _, _ := c.wires()
-	inputCount := min(base.AuditInputSlots, len(tx.nIn.OneHot))
+	inputCount := len(tx.nIn.OneHot)
+	if !c.specialized() {
+		// The general keys predate wide anonymous capacities and keep their
+		// original four-slot audit statement.
+		inputCount = min(base.AuditInputSlots, inputCount)
+	}
 	out := base.AuditTx{
-		Compact: c.specialized(),
-		NOut:    tx.nOut,
-		NIn:     base.Count{OneHot: tx.nIn.OneHot[:inputCount], Active: tx.nIn.Active[:inputCount]},
+		Compact: c.specialized(), ShortOrdinary: c.ShortOrdinaryAudit,
+		NOut:   tx.nOut,
+		NIn:    base.Count{OneHot: tx.nIn.OneHot[:inputCount], Active: tx.nIn.Active[:inputCount]},
+		Inputs: make([]base.AuditUtxoWires, max(base.AuditInputSlots, inputCount)),
 	}
 	// Anonymous serialization has four fixed slots. Zero extension admits smaller
 	// settlement capacities without changing the byte layout or enabling padding.

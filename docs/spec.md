@@ -1404,14 +1404,15 @@ The reference custom ring further restricts it to the payer.
 - SPP requires every `outputs[i].owner_tag` to be `Inline([0; 32])` (`AnonymousRingEd25519OutputOwnerTag`, error `7085`). An output in the confidential encrypted scheme (scheme byte `3`) would be hashed into the owner chain where the circuit commits zero and cannot verify; anonymous ring outputs use their own scheme ([Ring Program Interface](#ring-program-interface)).
 - No cache reads. The cache tree id, every read bit and every read hash are pinned to zero, and the selector has no `*Cached` twin.
 - Proof. Committed Groth16 with one BSB22 commitment and PoK.
-- Supported shapes (`ANONYMOUS_RING_ED25519_SHAPES`). The reference ring's audit disclosure fits a transaction only at these widths.
+- Supported shapes (`ANONYMOUS_RING_ED25519_SHAPES`). The reference ring ships every default settlement capacity whose minimum serialized anonymous transaction fits 4,096 bytes. Full transactions still need a final size check.
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
-| 2 in 2 out | Anonymous ring transact | 2 inputs, 2 outputs |
-| 2 in 4 out | Anonymous ring transact | 2 inputs, 4 outputs |
-| 3 in 4 out | Anonymous ring transact | 3 inputs, 4 outputs |
-| 4 in 2 out | Anonymous ring transact | 4 inputs, 2 outputs |
+| 1 to 6 in 2 out | Anonymous ring transact | 1, 2, 3, 4, 5 or 6 input slots |
+| 1 to 6 in 4 out | Anonymous ring transact | 1, 2, 3, 4, 5 or 6 input slots |
+| 8 or 12 in 2 out | Anonymous ring transact | 8 or 12 input slots |
+
+The reference custom ring has a general and a shared-subtree policy key for each capacity. Its audit-only proof uses a wider 12-input key above four inputs. The ordinary policy ring also supports 24×2 with a compact two-output audit disclosure. An anonymous 8×4 transfer needs at least 4,159 bytes in the measured minimal layout, so it has no usable key. The 12×2 anonymous capacity needs 3,983 bytes at minimum and can exceed the limit with extra accounts or ciphertext. No policy or audit check is removed to reach these limits.
 
 
 # Merge Proof - Merge ZK Proof
@@ -2508,8 +2509,8 @@ also requires every real output owner's escrowed key to match the note's
 nullifier public key. Anonymous transfers allow only the payer as a public
 signer, zero output owner tags and the anonymous output encoding.
 
-The reference policy supports 18 ordinary capacities with at most 16 inputs and
-four outputs, four anonymous capacities and two delegate capacities. Each has
+The reference policy supports 19 ordinary capacities with at most 16 inputs and
+four outputs or 24 inputs and two outputs, 14 anonymous capacities and two delegate capacities. Each has
 a general key and a subtree key. The subtree key shares Merkle work when every
 queried index fits the same eight-leaf block. It proves that condition. General
 keys accept scattered indices. These proof capacities do not guarantee that a
@@ -2552,8 +2553,9 @@ for each field j
 ```
 
 Both modes bind `HashChain4(ciphertext)` and the ordered output commitments.
-An ordinary transfer discloses four slots of nine fields. Unused slots are zero
-before encryption. Each slot carries `domain, tree_id, owner_hash, asset,
+An ordinary transfer normally discloses four slots of nine fields. Unused slots are zero
+before encryption. The 24×2 capacity discloses exactly two proved slots, which
+removes the unused 18-field tail. Each slot carries `domain, tree_id, owner_hash, asset,
 amount, blinding, data_hash, ring_data_hash, ring_program_id`.
 
 The proof hashes those same fields into the settled note commitments. A sender
@@ -2578,8 +2580,8 @@ identities as part of the same proof. The circuit reopens `private_tx_hash` from
 those inputs and outputs. The auditor sees the transaction whose policy was
 checked.
 
-The fixed slots are a 33-byte sender identity, one 74-byte input and one
-235-byte output. Each slot is padded to a multiple of 31 bytes and packed into
+The fixed layout uses a 33-byte sender identity, 74 bytes per input and
+235 bytes per output. Each slot is padded to a multiple of 31 bytes and packed into
 field elements. An input contains its tree ID, amount, asset and blinding. An
 output contains recipient identity, viewing key, nullifier public key, amount,
 asset, blinding, data hash, ring data hash and ring flag. The encrypted field

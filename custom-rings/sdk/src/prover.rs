@@ -1,4 +1,5 @@
 use custom_ring_interface::{
+    base_anonymous_wide_verifying_key, base_confidential_compact_verifying_key,
     base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
     delegate_policy_verifying_key, deposit_verifying_key, policy_2x3_anonymous_verifying_key,
     policy_2x3_verifying_key, policy_verifying_key, register_key_verifying_key,
@@ -16,6 +17,8 @@ use crate::RingError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RingCircuit {
     BaseConfidential,
+    BaseCompactConfidential,
+    BaseWideAnonymous,
     Base,
     Policy,
     DelegatePolicy,
@@ -38,6 +41,8 @@ impl RingCircuit {
     pub(crate) fn circuit_type(self) -> String {
         match self {
             Self::BaseConfidential => "custom-ring-base-confidential",
+            Self::BaseCompactConfidential => "custom-ring-base-confidential-compact",
+            Self::BaseWideAnonymous => "custom-ring-base-anonymous-wide",
             Self::Base => "custom-ring-base",
             Self::Policy => "custom-ring-policy",
             Self::DelegatePolicy => "custom-ring-delegate-policy",
@@ -86,6 +91,8 @@ impl RingCircuit {
     ) -> Result<(), ClientError> {
         let key = match self {
             Self::BaseConfidential => &base_confidential_verifying_key::VERIFYINGKEY,
+            Self::BaseCompactConfidential => &base_confidential_compact_verifying_key::VERIFYINGKEY,
+            Self::BaseWideAnonymous => &base_anonymous_wide_verifying_key::VERIFYINGKEY,
             Self::Base => &base_verifying_key::VERIFYINGKEY,
             Self::Policy => &policy_verifying_key::VERIFYINGKEY,
             Self::DelegatePolicy => &delegate_policy_verifying_key::VERIFYINGKEY,

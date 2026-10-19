@@ -288,6 +288,54 @@
     "subtree": true
   },
   {
+    "circuit": "custom-ring-policy-24-2",
+    "inputs": 24,
+    "outputs": 2,
+    "anonymous": false,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-24-2-subtree",
+    "inputs": 24,
+    "outputs": 2,
+    "anonymous": false,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-1-2-anonymous",
+    "inputs": 1,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-1-2-anonymous-subtree",
+    "inputs": 1,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-1-4-anonymous",
+    "inputs": 1,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-1-4-anonymous-subtree",
+    "inputs": 1,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
     "circuit": "custom-ring-policy-2-2-anonymous",
     "inputs": 2,
     "outputs": 2,
@@ -320,6 +368,22 @@
     "subtree": true
   },
   {
+    "circuit": "custom-ring-policy-3-2-anonymous",
+    "inputs": 3,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-3-2-anonymous-subtree",
+    "inputs": 3,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
     "circuit": "custom-ring-policy-3-4-anonymous",
     "inputs": 3,
     "outputs": 4,
@@ -346,6 +410,118 @@
   {
     "circuit": "custom-ring-policy-4-2-anonymous-subtree",
     "inputs": 4,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-4-4-anonymous",
+    "inputs": 4,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-4-4-anonymous-subtree",
+    "inputs": 4,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-5-2-anonymous",
+    "inputs": 5,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-5-2-anonymous-subtree",
+    "inputs": 5,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-5-4-anonymous",
+    "inputs": 5,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-5-4-anonymous-subtree",
+    "inputs": 5,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-6-2-anonymous",
+    "inputs": 6,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-6-2-anonymous-subtree",
+    "inputs": 6,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-6-4-anonymous",
+    "inputs": 6,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-6-4-anonymous-subtree",
+    "inputs": 6,
+    "outputs": 4,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-8-2-anonymous",
+    "inputs": 8,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-8-2-anonymous-subtree",
+    "inputs": 8,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": true
+  },
+  {
+    "circuit": "custom-ring-policy-12-2-anonymous",
+    "inputs": 12,
+    "outputs": 2,
+    "anonymous": true,
+    "delegate": false,
+    "subtree": false
+  },
+  {
+    "circuit": "custom-ring-policy-12-2-anonymous-subtree",
+    "inputs": 12,
     "outputs": 2,
     "anonymous": true,
     "delegate": false,

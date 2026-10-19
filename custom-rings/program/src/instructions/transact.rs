@@ -1,4 +1,5 @@
 use custom_ring_interface::{
+    base_anonymous_wide_verifying_key, base_confidential_compact_verifying_key,
     base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
     delegate_policy_verifying_key, policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key,
     policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
@@ -326,8 +327,12 @@ impl RingStatement<'_> {
             None => verify_groth16(
                 self.proof,
                 audit.hash().map_err(CustomRingError::from)?,
-                if anonymous || self.transact.outputs.len() != 2 {
+                if anonymous && self.transact.inputs.len() > 4 {
+                    &base_anonymous_wide_verifying_key::VERIFYINGKEY
+                } else if anonymous || self.transact.outputs.len() != 2 {
                     &base_verifying_key::VERIFYINGKEY
+                } else if self.transact.inputs.len() > 16 {
+                    &base_confidential_compact_verifying_key::VERIFYINGKEY
                 } else {
                     &base_confidential_verifying_key::VERIFYINGKEY
                 },

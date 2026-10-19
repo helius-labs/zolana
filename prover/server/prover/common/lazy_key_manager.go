@@ -204,7 +204,7 @@ var transferSupportedShapes = [][2]uint32{
 }
 
 // ringEd25519Shapes mirrors ANONYMOUS_RING_ED25519_SHAPES in program-libs/interface/src/shape.rs.
-var ringEd25519Shapes = [][2]uint32{{2, 2}, {2, 4}, {3, 4}, {4, 2}}
+var ringEd25519Shapes = [][2]uint32{{1, 2}, {1, 4}, {2, 2}, {2, 4}, {3, 2}, {3, 4}, {4, 2}, {4, 4}, {5, 2}, {5, 4}, {6, 2}, {6, 4}, {8, 2}, {12, 2}}
 
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with

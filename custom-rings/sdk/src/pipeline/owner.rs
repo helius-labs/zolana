@@ -204,7 +204,7 @@ impl Owner<'_> {
         };
         let EncryptedAudit { pending, message } = match anonymous {
             true => params.encrypt_anonymous(anonymous_disclosure(&sender, &proof_inputs)?)?,
-            false => params.encrypt()?,
+            false => params.encrypt_for_input_count(proof_inputs.input_utxos.len())?,
         };
         proof_inputs.external_data.messages = vec![message.to_message_data(&config.auditor_pubkey)];
         // The external data hash binds the instruction tag.

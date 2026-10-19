@@ -40,6 +40,8 @@ var RingCircuits = []RingCircuit{
 	ring[PolicyParams, policy.CustomRingPolicyCircuit](common.CustomRingPolicyCircuitType),
 	ring[BaseParams, base.CustomRingBaseCircuit](common.CustomRingBaseCircuitType),
 	ring[BaseParams, base.CustomRingConfidentialCircuit](common.CustomRingConfidentialCircuitType),
+	ring[BaseParams, base.CustomRingCompactConfidentialCircuit](common.CustomRingCompactConfidentialCircuitType),
+	ring[BaseParams, base.CustomRingWideBaseCircuit](common.CustomRingWideAnonymousCircuitType),
 	ring[DelegatePolicyParams, policy.CustomRingDelegatePolicyCircuit](common.CustomRingDelegatePolicyCircuitType),
 	ring[KeyRegisterParams, policy.KeyRegisterCircuit](common.CustomRingKeyRegisterCircuitType),
 	ring[DepositParams, deposit.CustomRingDepositCircuit](common.CustomRingDepositCircuitType),
@@ -103,7 +105,7 @@ func Decode(circuitType common.CircuitType, payload []byte) (frontend.Circuit, e
 	if err := Unmarshal(payload, params); err != nil {
 		return nil, err
 	}
-	if circuitType == common.CustomRingConfidentialCircuitType {
+	if circuitType == common.CustomRingConfidentialCircuitType || circuitType == common.CustomRingCompactConfidentialCircuitType {
 		baseParams := params.(*BaseParams)
 		if baseParams.Anonymous || baseParams.NOut != 2 {
 			return nil, fmt.Errorf("confidential audit circuit requires ordinary mode and two outputs")

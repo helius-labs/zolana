@@ -11,7 +11,7 @@ use super::{
     ProofResolution, Request, ResolvedProofTree,
 };
 use crate::{
-    prover::{ExpectedProvingKey, Proof},
+    prover::{ExpectedProvingKey, Proof, Shape},
     ClientError,
 };
 
@@ -90,13 +90,11 @@ fn policy_circuit_delegate(circuit: &str) -> Option<bool> {
     if canonical != tail || (anonymous && delegate) {
         return None;
     }
-    let valid = if delegate {
-        matches!((n, m), (2, 2) | (4, 4))
-    } else if anonymous {
-        matches!((n, m), (2, 2) | (2, 4) | (3, 4) | (4, 2))
-    } else {
-        matches!(n, 1 | 2 | 3 | 4 | 5 | 6 | 8 | 12 | 16) && matches!(m, 2 | 4)
-    };
+    // The selected proving key is pinned by the caller. This parser checks
+    // only the wire name and the SPP rail, so adding a shipped policy capacity
+    // does not require a second shape catalog in the generic client.
+    let shape = Shape::new(n, m);
+    let valid = shape.is_supported() && (!delegate || shape.is_ring_authority());
     valid.then_some(delegate)
 }
 
@@ -128,6 +126,9 @@ impl IndexedPolicyRequest {
             .ok_or_else(invalid)?
             .to_owned();
         let delegate = policy_circuit_delegate(&circuit).ok_or_else(invalid)?;
+        if key.name != format!("{}.key", circuit.replace('-', "_")) {
+            return Err(invalid());
+        }
         let policy = if !delegate {
             &mut prepared.0
         } else {
@@ -294,7 +295,7 @@ mod tests {
         IndexedPolicyRequest::new(
             Zeroizing::new(policy.to_string()),
             ExpectedProvingKey {
-                name: "policy.key".into(),
+                name: format!("{}.key", circuit.replace('-', "_")),
                 sha256: [0; 32],
             },
             IndexedPolicyData {
@@ -322,6 +323,9 @@ mod tests {
             "custom-ring-policy",
             "custom-ring-delegate-policy",
             "custom-ring-policy-16-4",
+            "custom-ring-policy-24-2",
+            "custom-ring-policy-1-2-anonymous",
+            "custom-ring-policy-12-2-anonymous",
             "custom-ring-policy-3-4-anonymous",
             "custom-ring-delegate-policy-4-4",
         ] {
@@ -402,30 +406,31 @@ mod shaped_names {
     use super::policy_circuit_delegate;
 
     #[test]
-    fn only_shipped_general_policy_names_are_indexable() {
-        for n in [1, 2, 3, 4, 5, 6, 8, 12, 16] {
-            for m in [2, 4] {
-                assert_eq!(
-                    policy_circuit_delegate(&format!("custom-ring-policy-{n}-{m}")),
-                    Some(false)
-                );
-            }
+    fn shaped_policy_names_follow_supported_spp_rails() {
+        for shape in zolana_interface::shape::SPP_SUPPORTED_SHAPES {
+            let n = shape.n_inputs();
+            let m = shape.n_outputs();
+            assert_eq!(
+                policy_circuit_delegate(&format!("custom-ring-policy-{n}-{m}")),
+                Some(false)
+            );
         }
-        assert_eq!(
-            policy_circuit_delegate("custom-ring-policy-3-4-anonymous"),
-            Some(false)
-        );
+        for name in [
+            "custom-ring-policy-1-2-anonymous",
+            "custom-ring-policy-3-4-anonymous",
+            "custom-ring-policy-12-2-anonymous",
+        ] {
+            assert_eq!(policy_circuit_delegate(name), Some(false));
+        }
         assert_eq!(
             policy_circuit_delegate("custom-ring-delegate-policy-4-4"),
             Some(true)
         );
         for bad in [
-            "custom-ring-policy-1-8",
-            "custom-ring-policy-24-2",
+            "custom-ring-policy-24-8",
             "custom-ring-policy-01-2",
             "custom-ring-policy-2-2-subtree",
-            "custom-ring-policy-1-2-anonymous",
-            "custom-ring-delegate-policy-2-4",
+            "custom-ring-delegate-policy-1-4",
             "custom-ring-delegate-policy-2-2-anonymous",
         ] {
             assert_eq!(policy_circuit_delegate(bad), None, "{bad}");

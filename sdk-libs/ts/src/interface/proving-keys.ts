@@ -99,14 +99,34 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "d44b087de72260f6149e14098ba458ab44e565ca4c9e3ed575f3d4b5bd476b47",
   "transfer_confidential_8_8.key":
     "3fce685c5cfe6bc4ed1c11a74c4b9168c8d99e5b0cd2229a1217c3918c791a94",
+  "transfer_ed25519_ring_1_2.key":
+    "d6d60d45ebf55851a545e114285366b9a0cf5570e2d3cb94bee44a9afc96c1ab",
+  "transfer_ed25519_ring_1_4.key":
+    "3bf9265d9df11226941f159da6ce6edb8a896ca4d3b3ffa6303415251ea2e9f9",
   "transfer_ed25519_ring_2_2.key":
     "a3bedbae74fff82c566787baed29a0132b895a553927a114cbc08aa7f71c6693",
   "transfer_ed25519_ring_2_4.key":
     "fbe2a295f4041e380bdf5906414c64f4d010c7e3e81301120d3f7210bdca131d",
+  "transfer_ed25519_ring_3_2.key":
+    "4414a37f815b6a5ba581b24b26a1fc58d8342ee55714d302ba89c7be8e885fde",
   "transfer_ed25519_ring_3_4.key":
     "fb59ac91d4b5573f1d0d62f0773c4e1503eee5577911172761ae0e9d03c1adbf",
   "transfer_ed25519_ring_4_2.key":
     "7a271d8a88255f98a397082a57b64ea28bb0b19c73076ad71d8ffda2f2deb2a1",
+  "transfer_ed25519_ring_4_4.key":
+    "3fb249fa4c88a1169600021316780b6d88a8349ff946bd735b627381bc0e8268",
+  "transfer_ed25519_ring_5_2.key":
+    "c265bd14b010d082badcf8489cbe6b4e268e7f93aae2dfb0fdfe00e3ce8be802",
+  "transfer_ed25519_ring_5_4.key":
+    "f2100de37c4efb2f0a6d3440fc5c85598a435fb672fa9811e49ce66192da8015",
+  "transfer_ed25519_ring_6_2.key":
+    "4ebe48dc53dcb833dcff2246e4a1382aa2e22b2db4fdc596673c27e659a979ad",
+  "transfer_ed25519_ring_6_4.key":
+    "57bc3924c2dc001925c7ffcd51575c0bc2316b2ee000bab44ce0c9e0f453a720",
+  "transfer_ed25519_ring_8_2.key":
+    "1c04366a2d4c90088253ec25047a4a43b870eec36996f63814a8fde5c1804d57",
+  "transfer_ed25519_ring_12_2.key":
+    "174d2e4a7dd57a05226593000057f60a312e3bf94d4a752ea02126993f54f934",
   "transfer_ring_12_2.key": "db36589a4702ca6ccee83d95604f829a11b903d48469f1c0e7d717391fc70b16",
   "transfer_ring_12_4.key": "f1310febfde6b69bd1c58a4871f617220bf00334f3ac6acd86c269e8b71e2398",
   "transfer_ring_12_8.key": "80613ecde7437780dd80babf172f910b49331d39f92b82d9bfeabdb51a14c1dc",
@@ -180,6 +200,7 @@ export type ProvingKeyCircuit =
     }
   | { readonly circuit: "custom-ring-base" }
   | { readonly circuit: "custom-ring-base-confidential" }
+  | { readonly circuit: "custom-ring-base-confidential-compact" }
   | { readonly circuit: "custom-ring-policy" }
   | { readonly circuit: "custom-ring-policy-2x3" }
   | { readonly circuit: "custom-ring-policy-2x3-anonymous" }
@@ -230,6 +251,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `${shapedPolicyCircuit(request.shape, request.registrySubtree === true, request.circuit === "custom-ring-delegate-policy-shaped", request.circuit === "custom-ring-policy-anonymous-shaped").replaceAll("-", "_")}.key`;
     case "custom-ring-base":
     case "custom-ring-base-confidential":
+    case "custom-ring-base-confidential-compact":
     case "custom-ring-policy":
     case "custom-ring-policy-2x3":
     case "custom-ring-policy-2x3-anonymous":

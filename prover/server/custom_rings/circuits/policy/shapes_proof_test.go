@@ -86,7 +86,7 @@ func TestWriteShapeProofVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, shape := range common.RingPolicyShapes {
-		selected := !shape.Anonymous && !shape.Delegate && ((shape.NInputs == 1 && shape.NOutputs == 2) || shape.NInputs == 16) || shape.Anonymous && shape.NInputs == 3 || shape.Delegate && shape.NInputs == 4
+		selected := !shape.Anonymous && !shape.Delegate && ((shape.NInputs == 1 && shape.NOutputs == 2) || shape.NInputs == 16 || shape.NInputs == 24) || shape.Anonymous && (shape.NInputs == 3 || shape.NInputs == 12) || shape.Delegate && shape.NInputs == 4
 		if !selected {
 			continue
 		}

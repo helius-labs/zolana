@@ -25,28 +25,55 @@ type CustomRingBaseCircuit struct {
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
-	nIn := SelectCount(api, c.NIn, 0, AuditInputSlots+1)
-	api.AssertIsEqual(nIn.OneHot[0], api.Sub(1, c.Anonymous))
+	return defineBase(api, c.PublicInputHash, c.Audit, c.NOut, c.Outputs,
+		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding)
+}
+
+// CustomRingWideBaseCircuit keeps audit-only anonymous transfers usable above
+// four inputs. The same proof obligations apply to all twelve published slots.
+type CustomRingWideBaseCircuit struct {
+	PublicInputHash frontend.Variable `gnark:",public"`
+	Audit
+	NOut              frontend.Variable
+	Outputs           [AuditOutputSlots]AuditOutputWires
+	NIn               frontend.Variable
+	Inputs            [12]AuditUtxoWires
+	AnonymousOutputs  [AuditOutputSlots]AuditUtxoWires
+	PrivateTxBlinding frontend.Variable
+}
+
+func (c *CustomRingWideBaseCircuit) Define(api frontend.API) error {
+	api.AssertIsEqual(c.Anonymous, 1)
+	return defineBase(api, c.PublicInputHash, c.Audit, c.NOut, c.Outputs,
+		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding)
+}
+
+func defineBase(api frontend.API, publicHash frontend.Variable, audit Audit, nOut frontend.Variable,
+	outputs [AuditOutputSlots]AuditOutputWires, nInValue frontend.Variable,
+	inputs []AuditUtxoWires, notes [AuditOutputSlots]AuditUtxoWires,
+	privateBlinding frontend.Variable) error {
+	nIn := SelectCount(api, nInValue, 0, len(inputs)+1)
+	api.AssertIsEqual(nIn.OneHot[0], api.Sub(1, audit.Anonymous))
 	tx := AuditTx{
-		Outputs: c.Outputs, NOut: SelectCount(api, c.NOut, 1, AuditOutputSlots),
-		NIn: Count{OneHot: nIn.OneHot[1:], Active: nIn.Active}, Inputs: c.Inputs, Notes: c.AnonymousOutputs,
+		Outputs: outputs, NOut: SelectCount(api, nOut, 1, AuditOutputSlots),
+		NIn: Count{OneHot: nIn.OneHot[1:], Active: nIn.Active}, Inputs: inputs, Notes: notes,
 	}
-	inputHashes, outputHashes := make([]frontend.Variable, AuditInputSlots), make([]frontend.Variable, AuditOutputSlots)
-	for i, input := range c.Inputs {
+	inputHashes, outputHashes := make([]frontend.Variable, len(inputs)), make([]frontend.Variable, AuditOutputSlots)
+	for i, input := range inputs {
 		hash, utxo := input.Hash(api)
 		inputHashes[i] = api.Mul(nIn.Active[i], utxo, hash)
 	}
-	for i, output := range c.AnonymousOutputs {
+	for i, output := range notes {
 		opening, utxo := output.Opening(api)
 		// Hash the selected opening once. Outside anonymous mode the private
 		// transaction opening below is disabled, so it needs no second hash.
-		hash := opening.Select(api, c.Anonymous, c.Outputs[i]).Hash(api)
+		hash := opening.Select(api, audit.Anonymous, outputs[i]).Hash(api)
 		tx.Hashes[i] = hash
 		outputHashes[i] = api.Mul(tx.NOut.Active[i], utxo, hash)
 	}
-	opened := shared.PrivateTxHashCircuit(api, inputHashes, outputHashes, nil, c.PrivateTxBlinding)
-	api.AssertIsEqual(api.Mul(c.Anonymous, api.Sub(c.PrivateTxHash, opened)), 0)
-	elements := c.Audit.Define(api, rangecheck.New(api), tx)
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, elements[:]))
+	opened := shared.PrivateTxHashCircuit(api, inputHashes, outputHashes, nil, privateBlinding)
+	api.AssertIsEqual(api.Mul(audit.Anonymous, api.Sub(audit.PrivateTxHash, opened)), 0)
+	elements := audit.Define(api, rangecheck.New(api), tx)
+	api.AssertIsEqual(publicHash, gadget.HashChain(api, elements[:]))
 	return nil
 }

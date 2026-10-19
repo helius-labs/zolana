@@ -47,7 +47,7 @@ impl TransactionAudit<'_> {
             inputs: tx.nullifiers.len(),
             outputs: tx.output_slots.len(),
         };
-        let message = auditor_message(tx, &self.auditor.pubkey(), anonymous.then_some(shape))?;
+        let message = auditor_message(tx, &self.auditor.pubkey(), Some(shape))?;
         let tx_viewing_pk = tx.tx_viewing_pk.ok_or(AuditError::MissingTxViewingPk)?;
         let salt = tx.salt.ok_or(AuditError::MissingSalt)?;
         let tx_key = recover_tx_viewing_key(self.auditor, &message)?;
@@ -73,7 +73,7 @@ impl TransactionAudit<'_> {
                     .collect::<Result<Vec<_>, _>>()?;
                 (openings, Some(disclosure))
             }
-            false => (message.open_outputs(&tx_key, salt)?.to_vec(), None),
+            false => (message.open_outputs_for_shape(&tx_key, salt, shape)?, None),
         };
         let mut audited = AuditedTransaction {
             tx_signature: tx.tx_signature,

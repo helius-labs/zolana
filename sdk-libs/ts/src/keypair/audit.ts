@@ -35,7 +35,7 @@ export const AUDIT_ENC_INFO = new TextEncoder().encode("CRING/adt1");
 const DOM_SEP_CR_SHARED = 0x4352_5f53;
 export const AUDIT_OUTPUT_SLOTS = 4;
 /** Rust `AUDIT_INPUT_SLOTS`, inputs are disclosed only in an anonymous ring. */
-export const AUDIT_INPUT_SLOTS = 4;
+export const AUDIT_INPUT_SLOTS = 12;
 export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */
@@ -256,7 +256,12 @@ export function auditorMessageData(
 /** The number of 32-byte disclosure values the circuit publishes for `shape`, Rust `DisclosureShape::field_count`. */
 export function auditDisclosureLength(shape: AuditDisclosureShape): number | undefined {
   if (!isSlotCount(shape.outputs)) return undefined;
-  if (!shape.anonymous) return AUDIT_DISCLOSURE_FIELD_COUNT;
+  if (!shape.anonymous) {
+    if (shape.inputs > 24) return undefined;
+    return shape.outputs === 2 && shape.inputs > 16 && shape.inputs <= 24
+      ? 2 * AUDIT_OUTPUT_FIELD_COUNT
+      : AUDIT_DISCLOSURE_FIELD_COUNT;
+  }
   const length = anonymousPlaintextLength(shape);
   return length === undefined ? undefined : length / DISCLOSURE_CHUNK_BYTES;
 }
@@ -389,7 +394,7 @@ function applyDisclosurePad(
 }
 
 export type AuditDisclosureInput =
-  | Readonly<{ salt: Bytes16; outputs: readonly AuditOutputOpening[] }>
+  | Readonly<{ salt: Bytes16; outputs: readonly AuditOutputOpening[]; inputs?: number }>
   | Readonly<{ salt: Bytes16; anonymous: AnonymousAuditDisclosure }>;
 
 function sealDisclosure(
@@ -409,12 +414,16 @@ function sealDisclosure(
 
 function sealOutputDisclosure(
   secret: Bytes32,
-  input: Readonly<{ salt: Bytes16; outputs: readonly AuditOutputOpening[] }> | undefined,
+  input:
+    | Readonly<{ salt: Bytes16; outputs: readonly AuditOutputOpening[]; inputs?: number }>
+    | undefined,
 ): readonly Bytes32[] {
   const outputs = input?.outputs ?? [];
   if (outputs.length > AUDIT_OUTPUT_SLOTS) throw new RangeError("audit output count exceeds four");
+  const short = outputs.length === 2 && (input?.inputs ?? 0) > 16;
+  if (short && (input?.inputs ?? 0) > 24) throw new RangeError("unsupported audit input count");
   const zero = new Uint8Array(32) as Bytes32;
-  const plaintext = Array.from({ length: AUDIT_OUTPUT_SLOTS }, (_, index) =>
+  const plaintext = Array.from({ length: short ? 2 : AUDIT_OUTPUT_SLOTS }, (_, index) =>
     outputs[index] === undefined
       ? Array.from({ length: AUDIT_OUTPUT_FIELD_COUNT }, () => zero)
       : outputFields(outputs[index]),
@@ -428,11 +437,14 @@ export function openAuditOutputDisclosure(
   salt: Bytes16,
   disclosure: readonly Bytes32[],
 ): readonly AuditOutputOpening[] {
-  if (disclosure.length !== AUDIT_DISCLOSURE_FIELD_COUNT)
+  if (
+    disclosure.length !== AUDIT_DISCLOSURE_FIELD_COUNT &&
+    disclosure.length !== 2 * AUDIT_OUTPUT_FIELD_COUNT
+  )
     throw new RangeError("invalid audit disclosure length");
   const fields = applyDisclosurePad(secret, salt, disclosure, false);
   return Object.freeze(
-    Array.from({ length: AUDIT_OUTPUT_SLOTS }, (_, slot) => {
+    Array.from({ length: disclosure.length / AUDIT_OUTPUT_FIELD_COUNT }, (_, slot) => {
       const values = fields.slice(
         slot * AUDIT_OUTPUT_FIELD_COUNT,
         (slot + 1) * AUDIT_OUTPUT_FIELD_COUNT,
@@ -500,7 +512,13 @@ function isSlotCount(count: number): boolean {
 
 /** Rust `DisclosureShape::plaintext_len` for an anonymous shape. */
 function anonymousPlaintextLength(shape: AuditDisclosureShape): number | undefined {
-  if (!isSlotCount(shape.inputs) || !isSlotCount(shape.outputs)) return undefined;
+  if (
+    !Number.isInteger(shape.inputs) ||
+    shape.inputs < 1 ||
+    shape.inputs > AUDIT_INPUT_SLOTS ||
+    !isSlotCount(shape.outputs)
+  )
+    return undefined;
   return (
     DISCLOSURE_SENDER_LEN +
     shape.inputs * DISCLOSURE_INPUT_LEN +

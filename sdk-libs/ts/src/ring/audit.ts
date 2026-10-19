@@ -194,11 +194,7 @@ export function auditRingTransaction(
     inputs: transaction.nullifiers.length,
     outputs: transaction.outputSlots.length,
   };
-  const message = auditorMessage(
-    transaction,
-    input.auditor.publicKey(),
-    anonymous ? shape : undefined,
-  );
+  const message = auditorMessage(transaction, input.auditor.publicKey(), shape);
   const txViewingPublicKey = transaction.txViewingPublicKey;
   const salt = transaction.salt;
   if (txViewingPublicKey === undefined || salt === undefined) {

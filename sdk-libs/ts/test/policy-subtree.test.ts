@@ -51,7 +51,7 @@ describe("policy shape protocol catalog", () => {
         circuit: shapedPolicyCircuit(entry, subtree, entry.delegate, entry.anonymous),
       })),
     );
-    expect(catalog).toHaveLength(48);
+    expect(catalog).toHaveLength(70);
     expect(catalog).toEqual(expect.arrayContaining(expected));
   });
 });

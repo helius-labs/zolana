@@ -263,7 +263,26 @@ impl AuditorMessage {
         tx_viewing_key: &ViewingKey,
         salt: [u8; 16],
     ) -> Result<[ProofInputUtxo; AUDIT_OUTPUT_SLOTS]> {
-        if self.disclosure.len() != AUDIT_DISCLOSURE_FIELD_COUNT {
+        let openings = self.open_outputs_for_shape(
+            tx_viewing_key,
+            salt,
+            DisclosureShape {
+                anonymous: false,
+                inputs: 0,
+                outputs: AUDIT_OUTPUT_SLOTS,
+            },
+        )?;
+        openings.try_into().map_err(|_| AuditError::DisclosureShape)
+    }
+
+    /// Opens exactly the fields selected by the settlement shape.
+    pub fn open_outputs_for_shape(
+        &self,
+        tx_viewing_key: &ViewingKey,
+        salt: [u8; 16],
+        shape: DisclosureShape,
+    ) -> Result<Vec<ProofInputUtxo>> {
+        if shape.anonymous || shape.field_count() != Some(self.disclosure.len()) {
             return Err(AuditError::DisclosureShape);
         }
         let fields = disclosure_stream(
@@ -272,20 +291,22 @@ impl AuditorMessage {
             &self.disclosure,
             false,
         )?;
-        Ok(core::array::from_fn(|slot| {
-            let field = |index: usize| fields[slot * AUDIT_OUTPUT_FIELD_COUNT + index];
-            ProofInputUtxo {
-                domain: field(0),
-                tree_id: field(1),
-                owner_hash: field(2),
-                asset: field(3),
-                amount: field(4),
-                blinding: field(5),
-                data_hash: field(6),
-                ring_data_hash: field(7),
-                ring_program_id: field(8),
-            }
-        }))
+        Ok((0..self.disclosure.len() / AUDIT_OUTPUT_FIELD_COUNT)
+            .map(|slot| {
+                let field = |index: usize| fields[slot * AUDIT_OUTPUT_FIELD_COUNT + index];
+                ProofInputUtxo {
+                    domain: field(0),
+                    tree_id: field(1),
+                    owner_hash: field(2),
+                    asset: field(3),
+                    amount: field(4),
+                    blinding: field(5),
+                    data_hash: field(6),
+                    ring_data_hash: field(7),
+                    ring_program_id: field(8),
+                }
+            })
+            .collect())
     }
 
     /// Unmasks the slot-padded chunks the anonymous circuit binds to its sender and slots.
@@ -328,11 +349,35 @@ impl AuditorEncryption {
         salt: [u8; 16],
         outputs: &[ProofInputUtxo],
     ) -> Result<Self> {
+        Self::new_with_outputs_for_shape(
+            tx_viewing_key,
+            auditor_pk,
+            salt,
+            outputs,
+            DisclosureShape {
+                anonymous: false,
+                inputs: 0,
+                outputs: outputs.len(),
+            },
+        )
+    }
+
+    pub fn new_with_outputs_for_shape(
+        tx_viewing_key: &ViewingKey,
+        auditor_pk: &X25519Pubkey,
+        salt: [u8; 16],
+        outputs: &[ProofInputUtxo],
+        shape: DisclosureShape,
+    ) -> Result<Self> {
         if outputs.is_empty() || outputs.len() > AUDIT_OUTPUT_SLOTS {
             return Err(AuditError::OutputCount(outputs.len()));
         }
+        if shape.anonymous || shape.outputs != outputs.len() {
+            return Err(AuditError::DisclosureShape);
+        }
+        let count = shape.field_count().ok_or(AuditError::DisclosureShape)?;
         let mut sealed = Self::new(tx_viewing_key, auditor_pk)?;
-        let mut plaintext = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
+        let mut plaintext = vec![[0u8; 32]; count];
         let (slots, _) = plaintext.as_chunks_mut::<AUDIT_OUTPUT_FIELD_COUNT>();
         for (slot, output) in slots.iter_mut().zip(outputs) {
             *slot = [
@@ -889,6 +934,61 @@ mod tests {
             AnonymousDisclosure::decode(&plaintext, shape),
             Err(AuditError::DisclosurePadding)
         ));
+
+        let mut wide = disclosure.clone();
+        wide.inputs = (0..12)
+            .map(|index| AuditInputOpening {
+                tree_id: index + 1,
+                amount: u64::from(index) + 9,
+                ..AuditInputOpening::default()
+            })
+            .collect();
+        wide.outputs.truncate(2);
+        let shape = wide.shape();
+        assert_eq!(shape.field_count(), Some(54));
+        let sealed = AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &wide)
+            .expect("seal wide");
+        let parsed = AuditorMessage::parse_with_shape(
+            &sealed.message.to_message_data(&auditor.pubkey()),
+            &auditor.pubkey(),
+            shape,
+        )
+        .expect("parse wide");
+        assert_eq!(parsed.open_anonymous(&tx, [2; 16], shape).unwrap(), wide);
+    }
+
+    #[test]
+    fn compact_ordinary_disclosure_round_trips_exactly_two_outputs() {
+        let auditor = X25519Secret::new();
+        let tx = ViewingKey::new();
+        let mut outputs = vec![ProofInputUtxo::default(); 2];
+        outputs[0].amount[31] = 7;
+        outputs[1].amount[31] = 9;
+        let shape = DisclosureShape {
+            anonymous: false,
+            inputs: 24,
+            outputs: 2,
+        };
+        assert_eq!(shape.field_count(), Some(18));
+        let sealed = AuditorEncryption::new_with_outputs_for_shape(
+            &tx,
+            &auditor.pubkey(),
+            [3; 16],
+            &outputs,
+            shape,
+        )
+        .expect("seal compact");
+        let parsed = AuditorMessage::parse_with_shape(
+            &sealed.message.to_message_data(&auditor.pubkey()),
+            &auditor.pubkey(),
+            shape,
+        )
+        .expect("parse compact");
+        assert_eq!(
+            parsed.open_outputs_for_shape(&tx, [3; 16], shape).unwrap(),
+            outputs
+        );
+        assert!(parsed.open_outputs(&tx, [3; 16]).is_err());
     }
 
     #[test]

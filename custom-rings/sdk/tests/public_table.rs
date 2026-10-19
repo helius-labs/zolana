@@ -34,7 +34,10 @@ fn full_policy_proofs_bind_every_public_field_in_rust() {
         (1, 2, false, false),
         (16, 2, false, false),
         (16, 4, false, false),
+        (24, 2, false, false),
         (3, 4, true, false),
+        (3, 2, true, false),
+        (12, 2, true, false),
         (4, 4, false, true),
     ] {
         for subtree in [false, true] {

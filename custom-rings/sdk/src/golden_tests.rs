@@ -293,16 +293,33 @@ mod bodies {
             anonymous: None,
         };
         assert_golden("custom-ring-base", &RingRequest(&base).body().unwrap());
+        base.circuit_type = RingCircuit::BaseCompactConfidential;
+        assert_golden(
+            "custom-ring-base-confidential-compact",
+            &RingRequest(&base).body().unwrap(),
+        );
         base.circuit_type = RingCircuit::Base;
         base.anonymous = Some(AnonymousBase {
             identities: identities(),
             n_in: 2,
-            inputs: core::array::from_fn(|index| opening(1_000 + 16 * index as u64)),
+            inputs: (0..4)
+                .map(|index| opening(1_000 + 16 * index as u64))
+                .collect(),
             anonymous_outputs: core::array::from_fn(|index| opening(1_100 + 16 * index as u64)),
             private_tx_blinding: field(3),
         });
         assert_golden(
             "custom-ring-base-anonymous",
+            &RingRequest(&base).body().unwrap(),
+        );
+        base.circuit_type = RingCircuit::BaseWideAnonymous;
+        let wide = base.anonymous.as_mut().unwrap();
+        wide.n_in = 12;
+        wide.inputs = (0..12)
+            .map(|index| opening(1_000 + 16 * index as u64))
+            .collect();
+        assert_golden(
+            "custom-ring-base-anonymous-wide",
             &RingRequest(&base).body().unwrap(),
         );
         assert_golden(

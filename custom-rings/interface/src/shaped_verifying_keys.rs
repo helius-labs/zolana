@@ -9,6 +9,10 @@ mod delegate_policy_2_2_verifying_key;
 mod delegate_policy_4_4_subtree_verifying_key;
 #[path = "delegate_policy_4_4_verifying_key.rs"]
 mod delegate_policy_4_4_verifying_key;
+#[path = "policy_12_2_anonymous_subtree_verifying_key.rs"]
+mod policy_12_2_anonymous_subtree_verifying_key;
+#[path = "policy_12_2_anonymous_verifying_key.rs"]
+mod policy_12_2_anonymous_verifying_key;
 #[path = "policy_12_2_subtree_verifying_key.rs"]
 mod policy_12_2_subtree_verifying_key;
 #[path = "policy_12_2_verifying_key.rs"]
@@ -25,14 +29,26 @@ mod policy_16_2_verifying_key;
 mod policy_16_4_subtree_verifying_key;
 #[path = "policy_16_4_verifying_key.rs"]
 mod policy_16_4_verifying_key;
+#[path = "policy_1_2_anonymous_subtree_verifying_key.rs"]
+mod policy_1_2_anonymous_subtree_verifying_key;
+#[path = "policy_1_2_anonymous_verifying_key.rs"]
+mod policy_1_2_anonymous_verifying_key;
 #[path = "policy_1_2_subtree_verifying_key.rs"]
 mod policy_1_2_subtree_verifying_key;
 #[path = "policy_1_2_verifying_key.rs"]
 mod policy_1_2_verifying_key;
+#[path = "policy_1_4_anonymous_subtree_verifying_key.rs"]
+mod policy_1_4_anonymous_subtree_verifying_key;
+#[path = "policy_1_4_anonymous_verifying_key.rs"]
+mod policy_1_4_anonymous_verifying_key;
 #[path = "policy_1_4_subtree_verifying_key.rs"]
 mod policy_1_4_subtree_verifying_key;
 #[path = "policy_1_4_verifying_key.rs"]
 mod policy_1_4_verifying_key;
+#[path = "policy_24_2_subtree_verifying_key.rs"]
+mod policy_24_2_subtree_verifying_key;
+#[path = "policy_24_2_verifying_key.rs"]
+mod policy_24_2_verifying_key;
 #[path = "policy_2_2_anonymous_subtree_verifying_key.rs"]
 mod policy_2_2_anonymous_subtree_verifying_key;
 #[path = "policy_2_2_anonymous_verifying_key.rs"]
@@ -49,6 +65,10 @@ mod policy_2_4_anonymous_verifying_key;
 mod policy_2_4_subtree_verifying_key;
 #[path = "policy_2_4_verifying_key.rs"]
 mod policy_2_4_verifying_key;
+#[path = "policy_3_2_anonymous_subtree_verifying_key.rs"]
+mod policy_3_2_anonymous_subtree_verifying_key;
+#[path = "policy_3_2_anonymous_verifying_key.rs"]
+mod policy_3_2_anonymous_verifying_key;
 #[path = "policy_3_2_subtree_verifying_key.rs"]
 mod policy_3_2_subtree_verifying_key;
 #[path = "policy_3_2_verifying_key.rs"]
@@ -69,26 +89,50 @@ mod policy_4_2_anonymous_verifying_key;
 mod policy_4_2_subtree_verifying_key;
 #[path = "policy_4_2_verifying_key.rs"]
 mod policy_4_2_verifying_key;
+#[path = "policy_4_4_anonymous_subtree_verifying_key.rs"]
+mod policy_4_4_anonymous_subtree_verifying_key;
+#[path = "policy_4_4_anonymous_verifying_key.rs"]
+mod policy_4_4_anonymous_verifying_key;
 #[path = "policy_4_4_subtree_verifying_key.rs"]
 mod policy_4_4_subtree_verifying_key;
 #[path = "policy_4_4_verifying_key.rs"]
 mod policy_4_4_verifying_key;
+#[path = "policy_5_2_anonymous_subtree_verifying_key.rs"]
+mod policy_5_2_anonymous_subtree_verifying_key;
+#[path = "policy_5_2_anonymous_verifying_key.rs"]
+mod policy_5_2_anonymous_verifying_key;
 #[path = "policy_5_2_subtree_verifying_key.rs"]
 mod policy_5_2_subtree_verifying_key;
 #[path = "policy_5_2_verifying_key.rs"]
 mod policy_5_2_verifying_key;
+#[path = "policy_5_4_anonymous_subtree_verifying_key.rs"]
+mod policy_5_4_anonymous_subtree_verifying_key;
+#[path = "policy_5_4_anonymous_verifying_key.rs"]
+mod policy_5_4_anonymous_verifying_key;
 #[path = "policy_5_4_subtree_verifying_key.rs"]
 mod policy_5_4_subtree_verifying_key;
 #[path = "policy_5_4_verifying_key.rs"]
 mod policy_5_4_verifying_key;
+#[path = "policy_6_2_anonymous_subtree_verifying_key.rs"]
+mod policy_6_2_anonymous_subtree_verifying_key;
+#[path = "policy_6_2_anonymous_verifying_key.rs"]
+mod policy_6_2_anonymous_verifying_key;
 #[path = "policy_6_2_subtree_verifying_key.rs"]
 mod policy_6_2_subtree_verifying_key;
 #[path = "policy_6_2_verifying_key.rs"]
 mod policy_6_2_verifying_key;
+#[path = "policy_6_4_anonymous_subtree_verifying_key.rs"]
+mod policy_6_4_anonymous_subtree_verifying_key;
+#[path = "policy_6_4_anonymous_verifying_key.rs"]
+mod policy_6_4_anonymous_verifying_key;
 #[path = "policy_6_4_subtree_verifying_key.rs"]
 mod policy_6_4_subtree_verifying_key;
 #[path = "policy_6_4_verifying_key.rs"]
 mod policy_6_4_verifying_key;
+#[path = "policy_8_2_anonymous_subtree_verifying_key.rs"]
+mod policy_8_2_anonymous_subtree_verifying_key;
+#[path = "policy_8_2_anonymous_verifying_key.rs"]
+mod policy_8_2_anonymous_verifying_key;
 #[path = "policy_8_2_subtree_verifying_key.rs"]
 mod policy_8_2_subtree_verifying_key;
 #[path = "policy_8_2_verifying_key.rs"]
@@ -118,6 +162,14 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "custom_ring_policy_12_2.key",
         policy_12_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_12_2_anonymous.key",
+        policy_12_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_12_2_anonymous_subtree.key",
+        policy_12_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_12_2_subtree.key",
@@ -152,6 +204,14 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         policy_1_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "custom_ring_policy_1_2_anonymous.key",
+        policy_1_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_1_2_anonymous_subtree.key",
+        policy_1_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "custom_ring_policy_1_2_subtree.key",
         policy_1_2_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
@@ -160,8 +220,24 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         policy_1_4_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "custom_ring_policy_1_4_anonymous.key",
+        policy_1_4_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_1_4_anonymous_subtree.key",
+        policy_1_4_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "custom_ring_policy_1_4_subtree.key",
         policy_1_4_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_24_2.key",
+        policy_24_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_24_2_subtree.key",
+        policy_24_2_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_2_2.key",
@@ -198,6 +274,14 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "custom_ring_policy_3_2.key",
         policy_3_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_3_2_anonymous.key",
+        policy_3_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_3_2_anonymous_subtree.key",
+        policy_3_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_3_2_subtree.key",
@@ -240,12 +324,28 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         policy_4_4_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "custom_ring_policy_4_4_anonymous.key",
+        policy_4_4_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_4_4_anonymous_subtree.key",
+        policy_4_4_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "custom_ring_policy_4_4_subtree.key",
         policy_4_4_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_5_2.key",
         policy_5_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_5_2_anonymous.key",
+        policy_5_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_5_2_anonymous_subtree.key",
+        policy_5_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_5_2_subtree.key",
@@ -256,12 +356,28 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         policy_5_4_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "custom_ring_policy_5_4_anonymous.key",
+        policy_5_4_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_5_4_anonymous_subtree.key",
+        policy_5_4_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "custom_ring_policy_5_4_subtree.key",
         policy_5_4_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_6_2.key",
         policy_6_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_6_2_anonymous.key",
+        policy_6_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_6_2_anonymous_subtree.key",
+        policy_6_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_6_2_subtree.key",
@@ -272,12 +388,28 @@ pub const SHAPED_PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         policy_6_4_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "custom_ring_policy_6_4_anonymous.key",
+        policy_6_4_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_6_4_anonymous_subtree.key",
+        policy_6_4_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "custom_ring_policy_6_4_subtree.key",
         policy_6_4_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_8_2.key",
         policy_8_2_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_8_2_anonymous.key",
+        policy_8_2_anonymous_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "custom_ring_policy_8_2_anonymous_subtree.key",
+        policy_8_2_anonymous_subtree_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "custom_ring_policy_8_2_subtree.key",
@@ -337,6 +469,16 @@ pub fn policy_shape_key(
         (16, 2, false, false, true) => Some(&policy_16_2_subtree_verifying_key::VERIFYINGKEY),
         (16, 4, false, false, false) => Some(&policy_16_4_verifying_key::VERIFYINGKEY),
         (16, 4, false, false, true) => Some(&policy_16_4_subtree_verifying_key::VERIFYINGKEY),
+        (24, 2, false, false, false) => Some(&policy_24_2_verifying_key::VERIFYINGKEY),
+        (24, 2, false, false, true) => Some(&policy_24_2_subtree_verifying_key::VERIFYINGKEY),
+        (1, 2, true, false, false) => Some(&policy_1_2_anonymous_verifying_key::VERIFYINGKEY),
+        (1, 2, true, false, true) => {
+            Some(&policy_1_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (1, 4, true, false, false) => Some(&policy_1_4_anonymous_verifying_key::VERIFYINGKEY),
+        (1, 4, true, false, true) => {
+            Some(&policy_1_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
         (2, 2, true, false, false) => Some(&policy_2_2_anonymous_verifying_key::VERIFYINGKEY),
         (2, 2, true, false, true) => {
             Some(&policy_2_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
@@ -345,6 +487,10 @@ pub fn policy_shape_key(
         (2, 4, true, false, true) => {
             Some(&policy_2_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
         }
+        (3, 2, true, false, false) => Some(&policy_3_2_anonymous_verifying_key::VERIFYINGKEY),
+        (3, 2, true, false, true) => {
+            Some(&policy_3_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
         (3, 4, true, false, false) => Some(&policy_3_4_anonymous_verifying_key::VERIFYINGKEY),
         (3, 4, true, false, true) => {
             Some(&policy_3_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
@@ -352,6 +498,34 @@ pub fn policy_shape_key(
         (4, 2, true, false, false) => Some(&policy_4_2_anonymous_verifying_key::VERIFYINGKEY),
         (4, 2, true, false, true) => {
             Some(&policy_4_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (4, 4, true, false, false) => Some(&policy_4_4_anonymous_verifying_key::VERIFYINGKEY),
+        (4, 4, true, false, true) => {
+            Some(&policy_4_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (5, 2, true, false, false) => Some(&policy_5_2_anonymous_verifying_key::VERIFYINGKEY),
+        (5, 2, true, false, true) => {
+            Some(&policy_5_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (5, 4, true, false, false) => Some(&policy_5_4_anonymous_verifying_key::VERIFYINGKEY),
+        (5, 4, true, false, true) => {
+            Some(&policy_5_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (6, 2, true, false, false) => Some(&policy_6_2_anonymous_verifying_key::VERIFYINGKEY),
+        (6, 2, true, false, true) => {
+            Some(&policy_6_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (6, 4, true, false, false) => Some(&policy_6_4_anonymous_verifying_key::VERIFYINGKEY),
+        (6, 4, true, false, true) => {
+            Some(&policy_6_4_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (8, 2, true, false, false) => Some(&policy_8_2_anonymous_verifying_key::VERIFYINGKEY),
+        (8, 2, true, false, true) => {
+            Some(&policy_8_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
+        }
+        (12, 2, true, false, false) => Some(&policy_12_2_anonymous_verifying_key::VERIFYINGKEY),
+        (12, 2, true, false, true) => {
+            Some(&policy_12_2_anonymous_subtree_verifying_key::VERIFYINGKEY)
         }
         (2, 2, false, true, false) => Some(&delegate_policy_2_2_verifying_key::VERIFYINGKEY),
         (2, 2, false, true, true) => Some(&delegate_policy_2_2_subtree_verifying_key::VERIFYINGKEY),

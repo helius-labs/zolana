@@ -108,6 +108,7 @@ export function encryptCustomRingTransfer(
     assets: AssetRegistry;
     auditorPublicKey: X25519PublicKey;
     outputTreeId: TreeId;
+    inputCount?: number;
     sealedMessages?: readonly SealedMessageInput[];
   }>,
 ): EncryptedCustomRingTransfer {
@@ -120,6 +121,7 @@ export function encryptCustomRingTransfer(
     const outputs = input.outputs;
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey, {
       salt,
+      ...(input.inputCount === undefined ? {} : { inputs: input.inputCount }),
       outputs: outputs.map((output) => auditOutputOpening(output, input.outputTreeId)),
     });
     ephemeralSecret = encryption.ephemeralSecret;

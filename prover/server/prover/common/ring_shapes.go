@@ -35,7 +35,7 @@ var RingPolicyShapes = func() []RingPolicyShape {
 	for rail, shapes := range [][]protocol.Shape{protocol.SupportedShapes, protocol.AnonymousRingEd25519Shapes, {{NInputs: 2, NOutputs: 2}, {NInputs: 4, NOutputs: 4}}} {
 		for _, shape := range shapes {
 			// Larger shapes exceed the current inline-audit transaction envelope.
-			if shape.NInputs > 16 || shape.NOutputs > 4 {
+			if shape.NOutputs > 4 || shape.NInputs > 16 && !(rail == 0 && shape.NInputs == 24 && shape.NOutputs == 2) {
 				continue
 			}
 			for _, subtree := range []bool{false, true} {

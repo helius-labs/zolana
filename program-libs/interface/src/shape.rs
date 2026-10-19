@@ -227,11 +227,21 @@ impl Shape {
 
 /// Shapes the AnonymousRingEd25519 rail has keys for. Its audit disclosure fits a
 /// transaction only at these.
-pub const ANONYMOUS_RING_ED25519_SHAPES: [Shape; 4] = [
+pub const ANONYMOUS_RING_ED25519_SHAPES: [Shape; 14] = [
+    Shape::IN1_OUT2,
+    Shape::IN1_OUT4,
     Shape::IN2_OUT2,
     Shape::IN2_OUT4,
+    Shape::IN3_OUT2,
     Shape::IN3_OUT4,
     Shape::IN4_OUT2,
+    Shape::IN4_OUT4,
+    Shape::IN5_OUT2,
+    Shape::IN5_OUT4,
+    Shape::IN6_OUT2,
+    Shape::IN6_OUT4,
+    Shape::IN8_OUT2,
+    Shape::IN12_OUT2,
 ];
 
 /// Square widths the ring authority rail has keys for, ascending.

@@ -2,7 +2,7 @@
 //! the `private_tx_hash` the audit proof binds, so the two are separate steps.
 
 use custom_ring_interface::{
-    CustomRingBasePublicInput, CustomRingPolicyPublicInput, AUDIT_INPUT_SLOTS,
+    CustomRingBasePublicInput, CustomRingPolicyPublicInput, DisclosureShape, AUDIT_INPUT_SLOTS,
     TAGGED_X25519_KEY_LEN,
 };
 use zeroize::Zeroizing;
@@ -16,8 +16,8 @@ use zolana_transaction::instructions::transact::SppProofInputs;
 use crate::{
     prover::RingCircuit,
     request::{
-        AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody, PolicyBody,
-        IDENTITY_LEN,
+        AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody,
+        CustomRingOpening, PolicyBody, IDENTITY_LEN,
     },
     witness::{input_opening, output_opening, CustomRingWitness},
     RingError,
@@ -61,7 +61,15 @@ pub(crate) struct PolicyProof {
 impl CustomRingProofParams {
     /// Each call mints its ephemeral key, a reused one would publish the XOR of two viewing keys.
     pub fn encrypt(self) -> Result<EncryptedAudit, RingError> {
-        self.encrypt_with(None)
+        self.encrypt_with(None, None)
+    }
+
+    /// Uses the short, fully proved two-output disclosure for a 24x2 transfer.
+    pub fn encrypt_for_input_count(self, inputs: usize) -> Result<EncryptedAudit, RingError> {
+        if inputs <= 16 {
+            return self.encrypt();
+        }
+        self.encrypt_with(None, Some(inputs))
     }
 
     /// Seals the hidden sender and the slot openings under the capsule of the viewing key.
@@ -69,24 +77,36 @@ impl CustomRingProofParams {
         self,
         disclosure: AnonymousDisclosure,
     ) -> Result<EncryptedAudit, RingError> {
-        self.encrypt_with(Some(disclosure))
+        self.encrypt_with(Some(disclosure), None)
     }
 
     fn encrypt_with(
         self,
         anonymous: Option<AnonymousDisclosure>,
+        ordinary_inputs: Option<usize>,
     ) -> Result<EncryptedAudit, RingError> {
         let AuditorEncryption {
             ephemeral_sk,
             message,
-        } = match &anonymous {
-            Some(disclosure) => AuditorEncryption::new_with_anonymous(
+        } = match (&anonymous, ordinary_inputs) {
+            (Some(disclosure), _) => AuditorEncryption::new_with_anonymous(
                 &self.tx_viewing_key,
                 &self.auditor_pk,
                 self.salt,
                 disclosure,
             )?,
-            None => AuditorEncryption::new_with_outputs(
+            (None, Some(inputs)) => AuditorEncryption::new_with_outputs_for_shape(
+                &self.tx_viewing_key,
+                &self.auditor_pk,
+                self.salt,
+                &self.outputs,
+                DisclosureShape {
+                    anonymous: false,
+                    inputs,
+                    outputs: self.outputs.len(),
+                },
+            )?,
+            (None, None) => AuditorEncryption::new_with_outputs(
                 &self.tx_viewing_key,
                 &self.auditor_pk,
                 self.salt,
@@ -141,8 +161,17 @@ impl PendingCustomRingProof {
             _ => return Err(RingError::AnonymousDisclosureShape),
         };
         Ok(BaseBody {
-            circuit_type: if anonymous.is_some() || self.outputs.len() != 2 {
+            circuit_type: if anonymous
+                .as_ref()
+                .is_some_and(|disclosure| disclosure.n_in > 4)
+            {
+                RingCircuit::BaseWideAnonymous
+            } else if anonymous.is_some() || self.outputs.len() != 2 {
                 RingCircuit::Base
+            } else if self.message.disclosure().len()
+                == 2 * custom_ring_interface::AUDIT_OUTPUT_FIELD_COUNT
+            {
+                RingCircuit::BaseCompactConfidential
             } else {
                 RingCircuit::BaseConfidential
             },
@@ -164,7 +193,14 @@ impl PendingCustomRingProof {
                 .identities(inputs.len())?
                 .ok_or(RingError::AnonymousDisclosureShape)?,
             n_in: inputs.len() as u8,
-            inputs: Default::default(),
+            inputs: vec![
+                CustomRingOpening::default();
+                if inputs.len() > 4 {
+                    AUDIT_INPUT_SLOTS
+                } else {
+                    4
+                }
+            ],
             anonymous_outputs: Default::default(),
             private_tx_blinding: slots.private_tx_blinding()?,
         };

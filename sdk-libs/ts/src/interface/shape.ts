@@ -56,7 +56,11 @@ export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
 
 /** Full policy plus auditor proof shapes that fit the ring's transaction format before optional data and accounts. */
 export const RING_POLICY_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze(
-  SPP_SUPPORTED_SHAPES.filter((candidate) => candidate.inputs <= 16 && candidate.outputs <= 4),
+  SPP_SUPPORTED_SHAPES.filter(
+    (candidate) =>
+      (candidate.inputs <= 16 && candidate.outputs <= 4) ||
+      (candidate.inputs === 24 && candidate.outputs === 2),
+  ),
 );
 export const RING_POLICY_MAX_INPUTS = Math.max(
   ...RING_POLICY_SUPPORTED_SHAPES.map((entry) => entry.inputs),

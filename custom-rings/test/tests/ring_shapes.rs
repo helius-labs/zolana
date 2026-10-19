@@ -454,7 +454,7 @@ fn exact_two_by_three_policy_keys_settle_for_every_mode() -> Result<()> {
 /// cases runnable while ordinary owner-signed keys await publication.
 #[test]
 fn anonymous_shapes_settle_with_current_keys() -> Result<()> {
-    settle_matching_key_mode(Mode::Anonymous, 8)
+    settle_matching_key_mode(Mode::Anonymous, 28)
 }
 
 /// The ring-authority settlement keys also match the post-427 program.

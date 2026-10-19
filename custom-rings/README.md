@@ -417,10 +417,14 @@ rejects an embedded release with missing or incompatible keys before download
 or deployment. Workspace mode uses the locally built artifacts.
 
 Policy transfers support ordinary capacities of 1, 2, 3, 4, 5, 6, 8, 12 or
-16 inputs with 2 or 4 outputs. Anonymous capacities are 2×2, 2×4, 3×4 and
-4×2. Delegate capacities are 2×2 and 4×4. Each has a general registry proof
+16 inputs with 2 or 4 outputs, plus 24×2. Anonymous capacities use 1 through
+6 inputs with 2 or 4 outputs, plus 8×2 and 12×2. Delegate capacities are
+2×2 and 4×4. Each has a general registry proof
 and a smaller proof for records sharing an eight-leaf block. The exact 2×3
 optimization remains available.
+The 12-slot anonymous audit key binds every spent note above four inputs.
+Ordinary 24×2 uses a shorter proved record of its two output openings. Both
+formats keep the same policy checks.
 
 The exact keys require two published inputs, three published outputs and shared
 registry paths. Compact padding omits trailing dummy slots and reveals those
@@ -428,11 +432,13 @@ counts. Delegate builders opt in with Rust's `.with_compact_padding()` or
 TypeScript's `compactPadding: true`. Defaults retain padded counts. Anonymous
 transfers allow a compact output suffix but reject compact inputs and caches.
 SPP still receives a full padded witness. Before PR #427, all 51 specialized policy keys passed live settlement
-and auditor recovery checks. After PR #427, nine anonymous and five delegate cases passed again with valid proofs.
-The other 37 specialized cases still need matching ordinary settlement keys.
+and auditor recovery checks. After PR #427, all 29 anonymous cases and five delegate cases passed again with valid proofs.
+The other 39 specialized cases still need matching ordinary settlement keys.
 
 The complete V1 transaction must fit 4,096 bytes and 64 accounts. Capacities
-with 8 or 16 outputs, or at least 24 inputs, are excluded. Even 16×4 can
+with 8 or 16 outputs are excluded. Ordinary 24×2 fits because its auditor
+record contains only two proved output openings. Anonymous 8×4 exceeds the
+limit even with a minimum account set. Ordinary 16×4 and anonymous 12×2 can
 exceed the limit with a curator, co-signer or extra data. The SDK checks the
 core transfer before proving and the complete transaction at final assembly.
 See the [change overview](changes-overview.md) for measured sizes and storage

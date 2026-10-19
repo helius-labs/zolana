@@ -14,7 +14,7 @@ These are exact compiled R1CS counts. The new keys retain sixteen rules, eight l
 
 The 100k budget covers the custom-ring proof. SPP settlement is separate. An ordinary three-output payment uses SPP's padded 2×4 circuit. Ordinary custom settlement adds 57,684 constraints, giving **153,627** across both proofs. The default-ring settlement circuit has 57,558 constraints at that shape.
 
-The same optimizations now cover eighteen ordinary settlement capacities. Each has a general registry path and a shared-subtree path. The table below counts the complete policy and auditor proof. It excludes SPP settlement. Smaller live counts can use a capacity through settlement's normal padding.
+The same optimizations cover nineteen ordinary settlement capacities. Each has a general registry path and a shared-subtree path. The table below records the earlier eighteen-capacity baseline and counts the complete policy and auditor proof. It excludes SPP settlement. Smaller live counts can use a capacity through settlement's normal padding.
 
 | Input capacity | 2 outputs, general | 2 outputs, shared | 4 outputs, general | 4 outputs, shared |
 |---:|---:|---:|---:|---:|
@@ -28,6 +28,8 @@ The same optimizations now cover eighteen ordinary settlement capacities. Each h
 | 12 | 263,774 | 121,758 | 313,558 | 133,118 |
 | 16 | 314,517 | 134,077 | 364,269 | 145,405 |
 
+The added 24×2 capacity has 409,861 constraints on its general policy path. Its auditor message has 18 proved output fields, down from the fixed 36-field layout. A fully populated measured transaction is 3,888 bytes. Its shared-subtree key is also shipped. The ordinary 32×2 minimum is 4,154 bytes, so it is excluded.
+
 | Other settlement rail | Capacity | General | Shared |
 |---|---|---:|---:|
 | Anonymous | 2×2 | 135,993 | 90,037 |
@@ -37,11 +39,13 @@ The same optimizations now cover eighteen ordinary settlement capacities. Each h
 | Delegate | 2×2 | 136,274 | 90,318 |
 | Delegate | 4×4 | 211,195 | 107,603 |
 
-This adds 48 keys. The dedicated 2×3 keys remain available and keep their smaller exact-shape costs above. The new capacity keys also support smaller live prefixes, so their counts are not identical to the exact 2×3 keys.
+The anonymous rail now ships fourteen capacities. It supports 1, 2, 3, 4, 5 and 6 inputs with either two or four outputs, plus 8×2 and 12×2. Each has general and shared-subtree policy keys. A 12×2 general policy proof has 276,386 constraints and proved in 538 ms in one installed-key check. The audit-only wide key opens all twelve spent-note slots. The size model measures 12×2 at 3,983 bytes with lean accounts and 4,149 bytes with extra accounts, which is rejected. A fully populated live 12×2 transfer settled at 3,943 bytes and 785,849 CU with the shared-path proof. The model measures 8×4 at 4,159 bytes with lean accounts, so no 8×4 key is shipped.
+
+The original expansion added 48 keys. This extension adds 22 shaped keys for the eleven new capacities, plus two audit-only base keys. The dedicated 2×3 keys remain available and keep their smaller exact-shape costs above. Capacity keys also support smaller live prefixes, so their counts are not identical to the exact 2×3 keys.
 
 The exact keys require two published inputs and three published outputs, plus eligible shared registry paths. Compact padding omits the trailing dummy slots from the public transaction. It reveals the actual input and output counts. The SDK defaults keep those slots padded. Delegate callers opt in with Rust's `.with_compact_padding()` or TypeScript's `compactPadding: true`. Anonymous transfers permit compact outputs but still reject compact inputs and cached slots. SPP retains its full witness capacity, 2×4 for ordinary and anonymous transfers and 4×4 for delegates.
 
-Transaction limits exclude every 8-output and 16-output capacity and every capacity with 24 or more inputs. The serialized V1 transaction must fit 4,096 bytes and 64 accounts. Even 16×4 is conditional on the account set and payload. The [ring overview](changes-overview.md) gives measured byte sizes and the policy storage layout. Core transfer size is checked before proving. Final assembly checks the complete transaction again.
+Transaction limits exclude every 8-output and 16-output capacity. Ordinary 24×2 is supported. Anonymous mode has its own size boundary because it discloses the hidden sender and spent notes. The serialized V1 transaction must fit 4,096 bytes and 64 accounts. Even ordinary 16×4 and anonymous 12×2 are conditional on the account set and payload. The [ring overview](changes-overview.md) gives measured byte sizes and the policy storage layout. Core transfer size is checked before proving. Final assembly checks the complete transaction again.
 
 The main savings come from avoiding repeated work.
 

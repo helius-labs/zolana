@@ -71,3 +71,58 @@ func TestConfidentialAuditBindsDisclosureAndMode(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactConfidentialAuditBindsBothOutputs(t *testing.T) {
+	keys := ringaudit.DefaultKeys(t)
+	statement := keys.Statement(big.NewInt(123))
+	statement.Count = 2
+	statement.Outputs[0].Domain, statement.Outputs[0].Amount = 3, 100
+	full := keys.Circuit(t, statement)
+	elements := keys.ChainElementsFor(t, statement)
+	fields := make([]*big.Int, 0, 2*base.AuditOutputFieldCount)
+	for _, output := range statement.Outputs[:2] {
+		fields = append(fields, spptest.ToBigInts([]frontend.Variable{
+			output.Domain, output.TreeID, output.OwnerHash, output.Asset, output.Amount,
+			output.Blinding, output.DataHash, output.RingDataHash, output.RingProgramID,
+		})...)
+	}
+	var salt [16]byte
+	for i, value := range statement.Audit.Salt {
+		salt[i] = byte(spptest.AsBigInt(value).Uint64())
+	}
+	_, elements[10] = ringaudit.Disclose(t, keys.TxSk(), salt, fields)
+	valid := base.CustomRingCompactConfidentialCircuit(base.CustomRingConfidentialCircuit{
+		PublicInputHash: spptest.MustHashChain(t, elements), PrivateTxHash: full.PrivateTxHash,
+		TxViewingSk: full.TxViewingSk, EphSk: full.EphSk, AuditorPk: full.AuditorPk,
+		Salt: full.Salt, NOut: full.NOut, Outputs: full.Outputs,
+	})
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder,
+		&base.CustomRingCompactConfidentialCircuit{}, frontend.WithCompressThreshold(300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*base.CustomRingCompactConfidentialCircuit)
+	}{
+		{"valid", nil},
+		{"first amount", func(c *base.CustomRingCompactConfidentialCircuit) { c.Outputs[0].Amount = 10 }},
+		{"second amount", func(c *base.CustomRingCompactConfidentialCircuit) { c.Outputs[1].Amount = 10 }},
+		{"old padded hash", func(c *base.CustomRingCompactConfidentialCircuit) { c.PublicInputHash = full.PublicInputHash }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := valid
+			if tc.mutate != nil {
+				tc.mutate(&w)
+			}
+			witness, err := frontend.NewWitness(&w, ecc.BN254.ScalarField())
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = cs.IsSolved(witness)
+			if (err == nil) != (tc.mutate == nil) {
+				t.Fatalf("unexpected solve result: %v", err)
+			}
+		})
+	}
+}

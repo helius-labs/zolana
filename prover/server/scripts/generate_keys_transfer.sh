@@ -81,10 +81,20 @@ done
 # The anonymous ring rail has keys only for the shapes whose audit disclosure
 # fits a transaction. Keep in sync with ANONYMOUS_RING_ED25519_SHAPES.
 anonymous_ring_ed25519_shapes=(
+    "1 2"
+    "1 4"
     "2 2"
     "2 4"
+    "3 2"
     "3 4"
     "4 2"
+    "4 4"
+    "5 2"
+    "5 4"
+    "6 2"
+    "6 4"
+    "8 2"
+    "12 2"
 )
 for shape in "${anonymous_ring_ed25519_shapes[@]}"; do
     read -r n_inputs n_outputs <<<"$shape"

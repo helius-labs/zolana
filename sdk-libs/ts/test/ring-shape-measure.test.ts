@@ -63,7 +63,16 @@ describe("ring transaction shape transport", () => {
           data: payload,
         })),
         messages: [
-          { viewTag: bytes(1), data: new Uint8Array(65 + 32 * 9 * Math.max(4, shape.outputs)) },
+          {
+            viewTag: bytes(1),
+            data: new Uint8Array(
+              65 +
+                32 *
+                  (shape.inputs === 24 && shape.outputs === 2
+                    ? 18
+                    : 9 * Math.max(4, shape.outputs)),
+            ),
+          },
         ],
       };
       const instruction = await ringTransactInstruction({
@@ -116,7 +125,7 @@ describe("ring transaction shape transport", () => {
     }
     expect(payload.length).toBe(121);
     expect(sizes.get("16x4")).toBe(4043);
-    expect(sizes.get("24x2")).toBe(4193);
+    expect(sizes.get("24x2")).toBe(3617);
     expect(sizes.get("1x8")).toBe(4961);
   });
 });

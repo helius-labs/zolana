@@ -13,12 +13,12 @@ import (
 )
 
 func TestShapedCircuitCatalog(t *testing.T) {
-	if len(common.RingPolicyShapes) != 48 {
+	if len(common.RingPolicyShapes) != 70 {
 		t.Fatalf("got %d shaped keys", len(common.RingPolicyShapes))
 	}
 	counts := [3]int{}
 	for _, shape := range common.RingPolicyShapes {
-		if shape.NInputs > 16 || shape.NOutputs > 4 {
+		if shape.NInputs > 16 && !(shape.NInputs == 24 && shape.NOutputs == 2 && !shape.Anonymous && !shape.Delegate) || shape.NOutputs > 4 {
 			t.Fatalf("oversized shape advertised: %v", shape)
 		}
 		rail := 0
@@ -37,10 +37,10 @@ func TestShapedCircuitCatalog(t *testing.T) {
 			t.Fatalf("key catalog mismatch: %s", kind)
 		}
 	}
-	if counts != [3]int{36, 8, 4} {
+	if counts != [3]int{38, 28, 4} {
 		t.Fatalf("unexpected rails %v", counts)
 	}
-	for _, name := range []string{"custom-ring-policy-1-8", "custom-ring-policy-24-2", "custom-ring-policy-49-2-subtree", "custom-ring-policy-1-2-anonymous", "custom-ring-delegate-policy-2-4"} {
+	for _, name := range []string{"custom-ring-policy-1-8", "custom-ring-policy-32-2", "custom-ring-policy-49-2-subtree", "custom-ring-policy-1-8-anonymous", "custom-ring-delegate-policy-2-4"} {
 		if common.CircuitType(name).IsRing() {
 			t.Fatalf("unsupported circuit recognized: %s", name)
 		}
@@ -52,8 +52,8 @@ func TestShapedRustProofRequestsDecodeAndSolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 10 {
-		t.Fatalf("expected ten independent proof vectors, got %d", len(paths))
+	if len(paths) != 16 {
+		t.Fatalf("expected sixteen independent proof vectors, got %d", len(paths))
 	}
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -99,7 +99,11 @@ func TestShapedRustProofRequestsDecodeAndSolve(t *testing.T) {
 				case "short subjects":
 					body["subjects"] = body["subjects"].([]any)[:1]
 				case "count overflow":
-					body["nIn"] = 17
+					shape, ok := common.ParseRingPolicyShape(meta.CircuitType)
+					if !ok {
+						t.Fatal("missing shape")
+					}
+					body["nIn"] = shape.NInputs + 1
 				case "wrong mode":
 					body["anonymous"] = !strings.Contains(string(meta.CircuitType), "anonymous")
 				}

@@ -180,6 +180,7 @@ func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 	t.Helper()
 	statement := s.keys.Statement(s.privateTxHash)
 	statement.Count = len(s.outputs)
+	statement.ShortOrdinary = s.shortAudit
 	for i, output := range s.outputs {
 		ownerHash := big.NewInt(0)
 		if output.Domain.(*big.Int).Int64() == protocol.UtxoDomain {
@@ -198,6 +199,7 @@ func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 	}
 	statement.Audit.Anonymous = 1
 	statement.NIn = len(s.inputs)
+	statement.Inputs = make([]base.AuditUtxoWires, max(base.AuditInputSlots, len(s.inputs)))
 	setIdentity(statement.Audit.Sender[:], s.senderKey)
 	for i, input := range s.inputs {
 		statement.Inputs[i] = base.AuditUtxoWires(input)

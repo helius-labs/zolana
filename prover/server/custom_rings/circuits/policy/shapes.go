@@ -41,7 +41,7 @@ type ShapeCircuit struct {
 }
 
 func NewShapeCircuit(inputs, outputs int, anonymous, delegate, subtree bool) *ShapeCircuit {
-	if inputs < 1 || inputs > 16 || outputs < 1 || outputs > 4 || anonymous && inputs > 4 || anonymous && delegate {
+	if inputs < 1 || inputs > 24 || outputs < 1 || outputs > 4 || anonymous && inputs > 12 || anonymous && delegate {
 		panic("unsupported custom-ring shape capacities")
 	}
 	c := &ShapeCircuit{Anonymous: anonymous, Delegate: delegate,
@@ -56,6 +56,7 @@ func NewShapeCircuit(inputs, outputs int, anonymous, delegate, subtree bool) *Sh
 func (c *ShapeCircuit) Define(api frontend.API) error {
 	p := &c.Policy
 	p.Dynamic = &c.ShapeWires
+	p.ShortOrdinaryAudit = !c.Anonymous && !c.Delegate && len(c.ShapeWires.Inputs) == 24 && len(c.ShapeWires.Outputs) == 2
 	p.FixedMode = 1
 	if c.Anonymous {
 		p.FixedMode = 2

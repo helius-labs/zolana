@@ -2,8 +2,7 @@
 //! files pin them, and `registry` is the one place the record openings are spelled.
 
 use custom_ring_interface::{
-    MemberUpdate, AUDIT_INPUT_SLOTS, MAX_MEMBER_BATCH, MAX_RING_DEPOSIT_AUDIT_SLOTS,
-    TAGGED_X25519_KEY_LEN,
+    MemberUpdate, MAX_MEMBER_BATCH, MAX_RING_DEPOSIT_AUDIT_SLOTS, TAGGED_X25519_KEY_LEN,
 };
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use zeroize::Zeroizing;
@@ -320,7 +319,7 @@ pub(crate) struct AnonymousBase {
     #[serde(flatten)]
     pub identities: AnonymousIdentities,
     pub n_in: u8,
-    pub inputs: [CustomRingOpening; AUDIT_INPUT_SLOTS],
+    pub inputs: Vec<CustomRingOpening>,
     pub anonymous_outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     #[serde(with = "fe")]
     pub private_tx_blinding: [u8; 32],

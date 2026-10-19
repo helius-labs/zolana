@@ -71,11 +71,28 @@ pub const fn policy_shape_supported(
         return false;
     }
     if anonymous {
-        matches!((inputs, outputs), (2, 2) | (2, 4) | (3, 4) | (4, 2))
+        matches!(
+            (inputs, outputs),
+            (1, 2)
+                | (1, 4)
+                | (2, 2)
+                | (2, 4)
+                | (3, 2)
+                | (3, 4)
+                | (4, 2)
+                | (4, 4)
+                | (5, 2)
+                | (5, 4)
+                | (6, 2)
+                | (6, 4)
+                | (8, 2)
+                | (12, 2)
+        )
     } else if delegate {
         matches!((inputs, outputs), (2, 2) | (4, 4))
     } else {
-        matches!(inputs, 1 | 2 | 3 | 4 | 5 | 6 | 8 | 12 | 16) && matches!(outputs, 2 | 4)
+        (matches!(inputs, 1 | 2 | 3 | 4 | 5 | 6 | 8 | 12 | 16) && matches!(outputs, 2 | 4))
+            || (inputs == 24 && outputs == 2)
     }
 }
 
@@ -88,7 +105,7 @@ mod tests {
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../../policy-shapes.json")).unwrap();
         let shapes = manifest.as_array().unwrap();
-        assert_eq!(shapes.len(), 48);
+        assert_eq!(shapes.len(), 70);
         for entry in shapes {
             assert!(policy_shape_supported(
                 entry["inputs"].as_u64().unwrap() as usize,
@@ -106,12 +123,12 @@ mod tests {
                 .into_iter()
                 .filter(|s| policy_shape_supported(s.n_inputs(), s.n_outputs(), false, false))
                 .count(),
-            18
+            19
         );
-        for (n, m) in [(1, 8), (2, 16), (24, 2), (49, 2), (7, 2)] {
+        for (n, m) in [(1, 8), (2, 16), (32, 2), (49, 2), (7, 2)] {
             assert!(!policy_shape_supported(n, m, false, false));
         }
-        assert!(!policy_shape_supported(1, 2, true, false));
+        assert!(policy_shape_supported(1, 2, true, false));
         assert!(!policy_shape_supported(2, 4, false, true));
         assert!(!policy_shape_supported(2, 2, true, true));
     }

@@ -11,8 +11,13 @@ impl RingKey {
     const fn new(section: &'static str, circuit: &'static str) -> Self {
         Self { section, circuit }
     }
-    pub const ALL: [Self; 58] = [
+    pub const ALL: [Self; 82] = [
         Self::new("confidential_audit_key", "custom-ring-base-confidential"),
+        Self::new(
+            "base_confidential_compact_key",
+            "custom-ring-base-confidential-compact",
+        ),
+        Self::new("base_anonymous_wide_key", "custom-ring-base-anonymous-wide"),
         Self::new("proving_key", "custom-ring-policy"),
         Self::new("audit_key", "custom-ring-base"),
         Self::new("delegate_policy_key", "custom-ring-delegate-policy"),
@@ -61,6 +66,24 @@ impl RingKey {
         Self::new("policy_16_2_subtree_key", "custom-ring-policy-16-2-subtree"),
         Self::new("policy_16_4_key", "custom-ring-policy-16-4"),
         Self::new("policy_16_4_subtree_key", "custom-ring-policy-16-4-subtree"),
+        Self::new("policy_24_2_key", "custom-ring-policy-24-2"),
+        Self::new("policy_24_2_subtree_key", "custom-ring-policy-24-2-subtree"),
+        Self::new(
+            "policy_1_2_anonymous_key",
+            "custom-ring-policy-1-2-anonymous",
+        ),
+        Self::new(
+            "policy_1_2_anonymous_subtree_key",
+            "custom-ring-policy-1-2-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_1_4_anonymous_key",
+            "custom-ring-policy-1-4-anonymous",
+        ),
+        Self::new(
+            "policy_1_4_anonymous_subtree_key",
+            "custom-ring-policy-1-4-anonymous-subtree",
+        ),
         Self::new(
             "policy_2_2_anonymous_key",
             "custom-ring-policy-2-2-anonymous",
@@ -78,6 +101,14 @@ impl RingKey {
             "custom-ring-policy-2-4-anonymous-subtree",
         ),
         Self::new(
+            "policy_3_2_anonymous_key",
+            "custom-ring-policy-3-2-anonymous",
+        ),
+        Self::new(
+            "policy_3_2_anonymous_subtree_key",
+            "custom-ring-policy-3-2-anonymous-subtree",
+        ),
+        Self::new(
             "policy_3_4_anonymous_key",
             "custom-ring-policy-3-4-anonymous",
         ),
@@ -92,6 +123,62 @@ impl RingKey {
         Self::new(
             "policy_4_2_anonymous_subtree_key",
             "custom-ring-policy-4-2-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_4_4_anonymous_key",
+            "custom-ring-policy-4-4-anonymous",
+        ),
+        Self::new(
+            "policy_4_4_anonymous_subtree_key",
+            "custom-ring-policy-4-4-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_5_2_anonymous_key",
+            "custom-ring-policy-5-2-anonymous",
+        ),
+        Self::new(
+            "policy_5_2_anonymous_subtree_key",
+            "custom-ring-policy-5-2-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_5_4_anonymous_key",
+            "custom-ring-policy-5-4-anonymous",
+        ),
+        Self::new(
+            "policy_5_4_anonymous_subtree_key",
+            "custom-ring-policy-5-4-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_6_2_anonymous_key",
+            "custom-ring-policy-6-2-anonymous",
+        ),
+        Self::new(
+            "policy_6_2_anonymous_subtree_key",
+            "custom-ring-policy-6-2-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_6_4_anonymous_key",
+            "custom-ring-policy-6-4-anonymous",
+        ),
+        Self::new(
+            "policy_6_4_anonymous_subtree_key",
+            "custom-ring-policy-6-4-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_8_2_anonymous_key",
+            "custom-ring-policy-8-2-anonymous",
+        ),
+        Self::new(
+            "policy_8_2_anonymous_subtree_key",
+            "custom-ring-policy-8-2-anonymous-subtree",
+        ),
+        Self::new(
+            "policy_12_2_anonymous_key",
+            "custom-ring-policy-12-2-anonymous",
+        ),
+        Self::new(
+            "policy_12_2_anonymous_subtree_key",
+            "custom-ring-policy-12-2-anonymous-subtree",
         ),
         Self::new("delegate_policy_2_2_key", "custom-ring-delegate-policy-2-2"),
         Self::new(

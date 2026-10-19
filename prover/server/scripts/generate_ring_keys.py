@@ -134,6 +134,7 @@ def main():
     parser.add_argument("--prover", type=Path, default=REPO / "target/prover-server")
     parser.add_argument("--catalog-only", action="store_true", help="refresh metadata from existing pins without rotating keys")
     parser.add_argument("--check", action="store_true", help="reject stale catalogs without writing or rotating keys")
+    parser.add_argument("--only", action="append", default=[], help="set up only this newly added circuit, preserving existing pins")
     parser.add_argument("--xtask", type=Path, default=REPO / "target/debug/xtask")
     parser.add_argument("--keys-dir", type=Path, default=SERVER / "proving-keys")
     parser.add_argument("--jobs", type=int, default=2)
@@ -150,7 +151,10 @@ def main():
     CHECK = args.check
     if not (args.catalog_only or args.check):
         keys.mkdir(parents=True, exist_ok=True)
-        generate_keys(args, entries, prover, xtask, keys)
+        selected = [entry for entry in entries if not args.only or entry["circuit"] in args.only]
+        if args.only and len(selected) != len(args.only):
+            parser.error("--only must name each selected circuit exactly once")
+        generate_keys(args, selected, prover, xtask, keys)
     pins = json.loads(LOCK.read_text())["keys"]
     files = [entry["file"] for entry in entries]
     expected = {name for name in pins if name.startswith("custom_ring_")}

@@ -754,6 +754,7 @@ async function proveRingTransferStatement(
   const seal = (tx: ViewingKey): EncryptedCustomRingTransfer =>
     encryptCustomRingTransfer(tx, {
       outputs,
+      inputCount: prepared.shape?.inputs ?? prepared.inputs.length,
       assets: input.assets,
       auditorPublicKey: config.auditorPublicKey,
       outputTreeId: outputTree.treeId,
@@ -863,6 +864,7 @@ async function proveRingTransferStatement(
           auditorPublicKey: config.auditorPublicKey.u(),
           salt: encrypted.salt,
           nOut: openings.nOut,
+          nIn: openings.nIn,
           outputs: openings.outputs,
         },
         context,

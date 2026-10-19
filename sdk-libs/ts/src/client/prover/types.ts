@@ -323,6 +323,8 @@ export interface CustomRingPolicyProofRequest {
 }
 
 export interface CustomRingBaseProofRequest {
+  /** Published input count selects the short 24x2 auditor key above sixteen. */
+  readonly nIn?: number;
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

@@ -169,10 +169,20 @@ fn anonymous_ring_ed25519_is_supported_only_on_its_shapes_with_keys() {
     assert_eq!(
         ANONYMOUS_RING_ED25519_SHAPES,
         [
+            Shape::IN1_OUT2,
+            Shape::IN1_OUT4,
             Shape::IN2_OUT2,
             Shape::IN2_OUT4,
+            Shape::IN3_OUT2,
             Shape::IN3_OUT4,
-            Shape::IN4_OUT2
+            Shape::IN4_OUT2,
+            Shape::IN4_OUT4,
+            Shape::IN5_OUT2,
+            Shape::IN5_OUT4,
+            Shape::IN6_OUT2,
+            Shape::IN6_OUT4,
+            Shape::IN8_OUT2,
+            Shape::IN12_OUT2
         ]
     );
     for shape in SPP_SUPPORTED_SHAPES {

@@ -20,6 +20,7 @@ type CustomRingPolicyCircuit struct {
 	// Compile-time capacities for a specialized key. Zero retains the general circuit.
 	FixedInputs, FixedOutputs int         `gnark:"-"`
 	Dynamic                   *ShapeWires `gnark:"-"`
+	ShortOrdinaryAudit        bool        `gnark:"-"`
 	// FixedMode is 0 for a witnessed mode, 1 for ordinary, 2 for anonymous.
 	FixedMode            int `gnark:"-"`
 	RegistrySubtreeDepth int `gnark:"-"`

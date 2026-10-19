@@ -671,6 +671,7 @@ type statement struct {
 
 	inputs  []UtxoWires
 	outputs []UtxoWires
+	shortAudit bool
 
 	addressChain      *big.Int
 	privateTxBlinding *big.Int

@@ -9,6 +9,8 @@ macro_rules! verifying_keys {
 }
 verifying_keys! {
     base_confidential_verifying_key => "custom_ring_base_confidential.key",
+    base_confidential_compact_verifying_key => "custom_ring_base_confidential_compact.key",
+    base_anonymous_wide_verifying_key => "custom_ring_base_anonymous_wide.key",
     policy_verifying_key => "custom_ring_policy.key",
     base_verifying_key => "custom_ring_base.key",
     delegate_policy_verifying_key => "custom_ring_delegate_policy.key",

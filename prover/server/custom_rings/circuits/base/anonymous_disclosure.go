@@ -16,7 +16,6 @@ const (
 	auditHeaderChunks     = 2
 	auditInputChunks      = 3
 	auditOutputChunks     = 8
-	auditDisclosureChunks = auditHeaderChunks + AuditInputSlots*auditInputChunks + AuditOutputSlots*auditOutputChunks
 	solanaOwnerTag        = 0x53
 )
 
@@ -73,7 +72,7 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 	}
 	header := chunks(api, a.Sender[:], auditHeaderChunks, 1)
 
-	var inputs [AuditInputSlots][]frontend.Variable
+	inputs := make([][]frontend.Variable, len(tx.Inputs))
 	disclosedInputs := frontend.Variable(0)
 	for i, w := range tx.Inputs {
 		active := api.Mul(anonymous, tx.NIn.Active[i])
@@ -132,10 +131,10 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 	}
 
 	// The output region starts after the selected input prefix, so the layout is a sum over input counts.
-	out := layout{chunks: make([]frontend.Variable, auditDisclosureChunks)}
+	out := layout{chunks: make([]frontend.Variable, auditHeaderChunks + len(tx.Inputs)*auditInputChunks + AuditOutputSlots*auditOutputChunks)}
 	copy(out.chunks, header)
 	selectedSum := frontend.Variable(0)
-	for n := range AuditInputSlots {
+	for n := range tx.Inputs {
 		count := n + 1
 		selected := api.Mul(anonymous, tx.NIn.OneHot[n])
 		selectedSum = api.Add(selectedSum, selected)

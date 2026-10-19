@@ -11,8 +11,10 @@ pub const DISCLOSURE_INPUT_LEN: usize = 93;
 /// nullifier_pk(32) || amount(8) || asset(32) || blinding(32) ||
 /// data_hash(32) || ring_data_hash(32) || ring_note(1)`, zero padded.
 pub const DISCLOSURE_OUTPUT_LEN: usize = 248;
-pub const AUDIT_INPUT_SLOTS: usize = 4;
+pub const AUDIT_INPUT_SLOTS: usize = 12;
 pub const AUDIT_OUTPUT_SLOTS: usize = 4;
+/// More than sixteen spent notes select the 24x2 capacity and its short audit format.
+pub const SHORT_AUDIT_MIN_INPUTS: usize = 17;
 
 /// The published slots of one disclosure. Inputs are disclosed only in an
 /// anonymous ring.
@@ -46,8 +48,15 @@ impl DisclosureShape {
 
     pub const fn field_count(self) -> Option<usize> {
         if !self.anonymous {
+            if self.inputs > 24 {
+                return None;
+            }
             return if self.outputs > 0 && self.outputs <= AUDIT_OUTPUT_SLOTS {
-                Some(crate::AUDIT_DISCLOSURE_FIELD_COUNT)
+                if self.outputs == 2 && self.inputs >= SHORT_AUDIT_MIN_INPUTS && self.inputs <= 24 {
+                    Some(2 * crate::AUDIT_OUTPUT_FIELD_COUNT)
+                } else {
+                    Some(crate::AUDIT_DISCLOSURE_FIELD_COUNT)
+                }
             } else {
                 None
             };
@@ -100,12 +109,17 @@ mod tests {
             outputs,
         };
         assert_eq!(shape(false, 4, 2).field_count(), Some(36));
+        assert_eq!(shape(false, 17, 2).field_count(), Some(18));
+        assert_eq!(shape(false, 24, 2).field_count(), Some(18));
+        assert_eq!(shape(false, 25, 2).field_count(), None);
         assert_eq!(shape(false, 0, 1).field_count(), Some(36));
         assert_eq!(shape(true, 2, 2).field_count(), Some(24));
         assert_eq!(shape(true, 3, 4).field_count(), Some(43));
         assert_eq!(shape(true, 4, 2).field_count(), Some(30));
         assert_eq!(shape(true, 0, 2).field_count(), None);
-        assert_eq!(shape(true, 5, 2).field_count(), None);
+        assert_eq!(shape(true, 5, 2).field_count(), Some(33));
+        assert_eq!(shape(true, 12, 2).field_count(), Some(54));
+        assert_eq!(shape(true, 13, 2).field_count(), None);
         assert_eq!(shape(false, 2, 0).field_count(), None);
         assert_eq!(shape(false, 2, 5).field_count(), None);
     }

@@ -80,12 +80,15 @@ func (w AuditOutputWires) Select(api frontend.API, selected frontend.Variable, o
 type AuditTx struct {
 	// Compact permits compile-time pruning when the caller pins the shape.
 	Compact bool
-	Outputs [AuditOutputSlots]AuditOutputWires
-	Hashes  [AuditOutputSlots]frontend.Variable
-	NOut    Count
+	// ShortOrdinary publishes the two live outputs without the unused 18-field tail.
+	// The verifier selects this format only for the 24x2 capacity.
+	ShortOrdinary bool
+	Outputs       [AuditOutputSlots]AuditOutputWires
+	Hashes        [AuditOutputSlots]frontend.Variable
+	NOut          Count
 	// NIn.OneHot[k] selects k+1 disclosed inputs, the caller pins one in an anonymous ring.
 	NIn    Count
-	Inputs [AuditInputSlots]AuditUtxoWires
+	Inputs []AuditUtxoWires
 	Notes  [AuditOutputSlots]AuditUtxoWires
 }
 
@@ -109,15 +112,19 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	// still execute the complete path.
 	mode, constantMode := api.Compiler().ConstantValue(a.Anonymous)
 	ordinary := constantMode && mode.Sign() == 0
-	chunkCount := auditDisclosureChunks
+	outputSlots := AuditOutputSlots
+	if ordinary && tx.ShortOrdinary {
+		outputSlots = 2
+	}
+	chunkCount := auditHeaderChunks + len(tx.Inputs)*auditInputChunks + AuditOutputSlots*auditOutputChunks
 	if ordinary {
-		chunkCount = 1 + 3*chainGroups(AuditOutputSlots*AuditOutputFieldCount)
+		chunkCount = 1 + 3*chainGroups(outputSlots*AuditOutputFieldCount)
 	}
 	plaintext := make([]frontend.Variable, chunkCount)
 	for i := range plaintext {
 		plaintext[i] = 0
 	}
-	for i, w := range tx.Outputs {
+	for i, w := range tx.Outputs[:outputSlots] {
 		active := api.Mul(legacy, tx.NOut.Active[i])
 		for f, field := range w.fields() {
 			plaintext[i*AuditOutputFieldCount+f] = api.Mul(active, field)
@@ -133,7 +140,7 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	live := make([]frontend.Variable, len(plaintext))
 	for i := range live {
 		live[i] = 0
-		if i < AuditOutputSlots*AuditOutputFieldCount {
+		if i < outputSlots*AuditOutputFieldCount {
 			live[i] = legacy
 		}
 		for _, shape := range layout.shapes {
@@ -181,7 +188,7 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	}
 	var disclosure frontend.Variable = 0
 	if !tx.Compact || !constantZero(api, legacy) {
-		disclosure = api.Mul(legacy, states[chainGroups(AuditOutputSlots*AuditOutputFieldCount)])
+		disclosure = api.Mul(legacy, states[chainGroups(outputSlots*AuditOutputFieldCount)])
 	}
 	for _, shape := range layout.shapes {
 		if tx.Compact && constantZero(api, shape.selected) {

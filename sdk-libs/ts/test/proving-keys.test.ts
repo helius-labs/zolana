@@ -83,7 +83,7 @@ describe("expectedProvingKey", () => {
     expect(() =>
       expectedProvingKey({
         circuit: "custom-ring-policy-shaped",
-        shape: { inputs: 24, outputs: 2 },
+        shape: { inputs: 32, outputs: 2 },
       }),
     ).toThrow(InterfaceError);
     expect(() =>

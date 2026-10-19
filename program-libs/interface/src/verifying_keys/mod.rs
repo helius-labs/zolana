@@ -97,13 +97,33 @@ pub mod transfer_confidential_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_8_8;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_12_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_1_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_1_4;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ed25519_ring_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ed25519_ring_2_4;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_3_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_ed25519_ring_3_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ed25519_ring_4_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_4_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_5_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_5_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_6_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_6_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ed25519_ring_8_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_12_2;
 #[cfg(feature = "verifying-keys")]
@@ -363,6 +383,14 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_confidential_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "transfer_ed25519_ring_1_2.key",
+        transfer_ed25519_ring_1_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_1_4.key",
+        transfer_ed25519_ring_1_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "transfer_ed25519_ring_2_2.key",
         transfer_ed25519_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
@@ -371,12 +399,44 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_ed25519_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
+        "transfer_ed25519_ring_3_2.key",
+        transfer_ed25519_ring_3_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
         "transfer_ed25519_ring_3_4.key",
         transfer_ed25519_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_ed25519_ring_4_2.key",
         transfer_ed25519_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_4_4.key",
+        transfer_ed25519_ring_4_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_5_2.key",
+        transfer_ed25519_ring_5_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_5_4.key",
+        transfer_ed25519_ring_5_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_6_2.key",
+        transfer_ed25519_ring_6_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_6_4.key",
+        transfer_ed25519_ring_6_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_8_2.key",
+        transfer_ed25519_ring_8_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ed25519_ring_12_2.key",
+        transfer_ed25519_ring_12_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_ring_12_2.key",

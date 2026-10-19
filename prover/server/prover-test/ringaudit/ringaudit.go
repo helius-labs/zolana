@@ -149,14 +149,16 @@ type Statement struct {
 	Count   int
 	// An anonymous ring discloses these and opens private_tx_hash from them.
 	NIn               int
-	Inputs            [base.AuditInputSlots]base.AuditUtxoWires
+	Inputs            []base.AuditUtxoWires
+	ShortOrdinary     bool
 	Notes             [base.AuditOutputSlots]base.AuditUtxoWires
 	PrivateTxBlinding *big.Int
 }
 
 // Statement discloses one zero output.
 func (k Keys) Statement(privateTxHash *big.Int) Statement {
-	s := Statement{Audit: base.Audit{PrivateTxHash: privateTxHash, Anonymous: 0}, Count: 1, PrivateTxBlinding: big.NewInt(0)}
+	s := Statement{Audit: base.Audit{PrivateTxHash: privateTxHash, Anonymous: 0}, Count: 1,
+		Inputs: make([]base.AuditUtxoWires, base.AuditInputSlots), PrivateTxBlinding: big.NewInt(0)}
 	setBytes(s.Audit.TxViewingSk[:], k.txSk[:])
 	setBytes(s.Audit.EphSk[:], k.ephSk[:])
 	setBytes(s.Audit.AuditorPk[:], k.auditorPk[:])
@@ -227,16 +229,17 @@ func (s *Statement) Rebind(t testing.TB) {
 // Circuit is the base assignment that proves the statement.
 func (k Keys) Circuit(t testing.TB, s Statement) *base.CustomRingBaseCircuit {
 	t.Helper()
-	return &base.CustomRingBaseCircuit{
+	c := &base.CustomRingBaseCircuit{
 		PublicInputHash:   spptest.MustHashChain(t, k.ChainElementsFor(t, s)),
 		Audit:             s.Audit,
 		NOut:              s.Count,
 		Outputs:           s.Outputs,
 		NIn:               s.NIn,
-		Inputs:            s.Inputs,
 		AnonymousOutputs:  s.Notes,
 		PrivateTxBlinding: s.PrivateTxBlinding,
 	}
+	copy(c.Inputs[:], s.Inputs)
+	return c
 }
 
 // ChainElements returns the base chain of a one-slot zero-output statement.
@@ -272,6 +275,8 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 	}
 	if anonymous {
 		plaintext = PackChunks(AnonymousPlaintext(s))
+	} else if s.ShortOrdinary {
+		plaintext = plaintext[:2*base.AuditOutputFieldCount]
 	}
 	var salt [16]byte
 	for i, value := range s.Audit.Salt {

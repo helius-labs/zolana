@@ -391,7 +391,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     );
 
     let deposit = Deposit {
-        proof: None,
+        proof: Some(sample_proof()),
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -421,7 +421,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
     assert!(init_ring_auth.is_writable);
 
     let deposit = Deposit {
-        proof: None,
+        proof: Some(sample_proof()),
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -436,13 +436,13 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
 }
 
 #[test]
-fn deposit_targets_the_ring_program_with_spps_own_tag() {
+fn audited_deposit_targets_the_ring_program_and_wraps_spps_tag() {
     let tree = Address::new_from_array([13; 32]);
     let depositor = Address::new_from_array([14; 32]);
     let entry = sol_deposit_entry();
 
     let instruction = Deposit {
-        proof: None,
+        proof: Some(sample_proof()),
         ring: ring(),
         cosigner: None,
         tree,
@@ -453,12 +453,13 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     .instruction()
     .expect("single SOL deposit");
 
-    // The program dispatches on SPP's own deposit tag and forwards the data
-    // verbatim, so the instruction is SPP-shaped but addressed to the ring.
+    // The ring verifies the audit proof, then forwards the SPP deposit bytes.
     assert_eq!(instruction.program_id, ring().program_id());
-    let (ix_tag, body) = split_tag(&instruction);
-    assert_eq!(ix_tag, zolana_interface::instruction::tag::RING_DEPOSIT);
-    assert_eq!(ix_tag, 18);
+    assert_eq!(instruction.data[0], tag::AUDITED_DEPOSIT);
+    assert_eq!(
+        instruction.data[SPP_DATA],
+        zolana_interface::instruction::tag::RING_DEPOSIT
+    );
 
     assert_eq!(
         instruction.accounts,
@@ -476,7 +477,8 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
         ]
     );
 
-    let decoded = RingDepositIxData::deserialize(body).expect("body is complete ring deposit data");
+    let decoded = RingDepositIxData::deserialize(&instruction.data[SPP_DATA + 1..])
+        .expect("body is complete ring deposit data");
     assert_eq!(
         decoded,
         RingDepositIxData {
@@ -507,7 +509,14 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         }
         .instruction()
     };
-    let plain = build(None, 1).unwrap();
+    let spp = zolana_program::instruction::RingDeposit {
+        tree: input_tree(),
+        depositor: payer(),
+        ring_program_id: ring().program_id(),
+        deposits: vec![sol_deposit_entry()],
+    }
+    .instruction()
+    .unwrap();
     let audited = build(Some(sample_proof()), 1).unwrap();
     assert_eq!(audited.data[0], tag::AUDITED_DEPOSIT);
     assert_eq!(
@@ -515,15 +524,16 @@ fn audited_deposit_wraps_exact_spp_bytes_and_bounds_only_the_audited_batch() {
         wincode::serialize(&sample_proof()).unwrap()
     );
     assert_eq!(audited.data[ROOT_INDEX], 0);
-    assert_eq!(&audited.data[SPP_DATA..], plain.data);
-    assert_eq!(audited.accounts, plain.accounts);
+    assert_eq!(&audited.data[SPP_DATA..], spp.data);
+    assert_eq!(&audited.accounts[4..], spp.accounts);
     assert_eq!(
         audited.accounts[3],
         AccountMeta::new_readonly(ring().deposit_audit_pda(), false)
     );
     assert!(build(Some(sample_proof()), 8).is_ok());
     assert!(build(Some(sample_proof()), 9).is_err());
-    assert!(build(None, 9).is_ok());
+    assert!(matches!(build(None, 1), Err(RingError::AuditRequired)));
+    assert!(matches!(build(None, 9), Err(RingError::AuditRequired)));
 }
 
 /// An escrowed ring names its registry root after the audit setting and refuses a plain deposit.
@@ -598,7 +608,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     second_spl_entry.amount = 43;
 
     let instruction = Deposit {
-        proof: None,
+        proof: Some(sample_proof()),
         ring: ring(),
         cosigner: None,
         tree: Address::new_from_array([13; 32]),
@@ -609,8 +619,8 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     .instruction()
     .expect("mixed batch");
 
-    let (_ix_tag, body) = split_tag(&instruction);
-    let decoded = RingDepositIxData::deserialize(body).expect("body is complete ring deposit data");
+    let decoded = RingDepositIxData::deserialize(&instruction.data[SPP_DATA + 1..])
+        .expect("body is complete ring deposit data");
     // SOL is always asset 0 when present, so the SPL entry indexes 1.
     assert_eq!(
         decoded.assets,
@@ -1357,7 +1367,7 @@ fn the_cosigner_slot_signs_only_when_set() {
         AccountMeta::new_readonly(cosigner, true)
     );
     let deposit = Deposit {
-        proof: None,
+        proof: Some(sample_proof()),
         ring: ring(),
         cosigner: Some(cosigner),
         tree: input_tree(),
@@ -1439,15 +1449,15 @@ fn measured_policy_shape(
         })
         .collect();
     let fields = if rail == 1 {
-        custom_ring_interface::DisclosureShape {
-            anonymous: true,
-            inputs,
-            outputs,
-        }
-        .field_count()
-        .unwrap()
+        // The serialized disclosure grows by three fields per input and eight
+        // per output. Measure even capacities the current catalog rejects.
+        2 + 3 * inputs + 8 * outputs
     } else {
-        9 * outputs.max(4)
+        if inputs > 16 && outputs == 2 {
+            18
+        } else {
+            9 * outputs.max(4)
+        }
     };
     transact.messages[0].data = vec![0; 65 + 32 * fields];
     let instruction = if rail == 2 {
@@ -1536,10 +1546,19 @@ fn policy_shape_transaction_size_matrix() {
 #[test]
 fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
     for (n, m, rail) in [
+        (1, 2, 1),
+        (1, 4, 1),
         (2, 2, 1),
         (2, 4, 1),
+        (3, 2, 1),
         (3, 4, 1),
         (4, 2, 1),
+        (4, 4, 1),
+        (5, 2, 1),
+        (5, 4, 1),
+        (6, 2, 1),
+        (6, 4, 1),
+        (8, 2, 1),
         (2, 2, 2),
         (4, 4, 2),
     ] {
@@ -1549,6 +1568,30 @@ fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
         println!(
             "POLICY_RAIL_SIZE {rail} {n} {m} {} {} {} {}",
             minimum.bytes, minimum.addresses, full.bytes, full.addresses
+        );
+    }
+}
+
+#[test]
+fn anonymous_transaction_size_matrix() {
+    for shape in zolana_interface::shape::SPP_SUPPORTED_SHAPES {
+        if shape.n_outputs() > 4 {
+            continue;
+        }
+        let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 1);
+        let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 1);
+        assert_eq!(minimum.fits(), shape.is_anonymous_ring_ed25519());
+        if (shape.n_inputs(), shape.n_outputs()) == (12, 2) {
+            assert!(!full.fits());
+        }
+        println!(
+            "ANONYMOUS_SIZE {} {} {} {} {} {}",
+            shape.n_inputs(),
+            shape.n_outputs(),
+            minimum.bytes,
+            minimum.addresses,
+            full.bytes,
+            full.addresses
         );
     }
 }

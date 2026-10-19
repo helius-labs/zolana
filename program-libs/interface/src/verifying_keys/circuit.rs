@@ -56,10 +56,20 @@ macro_rules! circuit_key_item {
                 (4, 4) => transfer_ring_authority_4_4;
             }
             anonymous_ring_ed25519 {
+                (1, 2) => transfer_ed25519_ring_1_2;
+                (1, 4) => transfer_ed25519_ring_1_4;
                 (2, 2) => transfer_ed25519_ring_2_2;
                 (2, 4) => transfer_ed25519_ring_2_4;
+                (3, 2) => transfer_ed25519_ring_3_2;
                 (3, 4) => transfer_ed25519_ring_3_4;
                 (4, 2) => transfer_ed25519_ring_4_2;
+                (4, 4) => transfer_ed25519_ring_4_4;
+                (5, 2) => transfer_ed25519_ring_5_2;
+                (5, 4) => transfer_ed25519_ring_5_4;
+                (6, 2) => transfer_ed25519_ring_6_2;
+                (6, 4) => transfer_ed25519_ring_6_4;
+                (8, 2) => transfer_ed25519_ring_8_2;
+                (12, 2) => transfer_ed25519_ring_12_2;
             }
         )
     };
