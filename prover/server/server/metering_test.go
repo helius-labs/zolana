@@ -37,6 +37,7 @@ func TestKeyWeightIsTheKeySizeOverTheBaseTransfer(t *testing.T) {
 func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
 	mux := proofMux(t, nil)
 	weight, _ := keyWeight("merge_24_1.key")
+	weight = tierUnits(weight)
 	for _, prefix := range []string{"", gatewayPrefix} {
 		for _, path := range []string{"/prove/merge_24_1", "/prove/merge_24_1/indexed"} {
 			response := post(mux, prefix+path, transferRequest(t))
@@ -49,5 +50,27 @@ func TestKeyPathsNameTheirMeteringUnits(t *testing.T) {
 	response := serve(mux, http.MethodGet, "/prove/merge_24_1/status?jobId=x", nil)
 	if got := response.Header().Get(MeteringUnitsHeader); got != "" {
 		t.Fatalf("status poll reported %q", got)
+	}
+}
+
+func TestTiersBillFourPrices(t *testing.T) {
+	for _, test := range []struct{ weight, units int }{
+		{1, 1}, {2, 1}, {3, 4}, {6, 4}, {7, 10}, {14, 10}, {15, 25}, {32, 25}, {33, 25},
+	} {
+		if units := tierUnits(test.weight); units != test.units {
+			t.Errorf("weight %d bills %d units, want %d", test.weight, units, test.units)
+		}
+	}
+	for file, units := range map[string]int{
+		"transfer_confidential_2_2.key": 1,
+		"transfer_ring_2_2.key":         1,
+		"merge_8_1.key":                 4,
+		"merge_24_1.key":                10,
+		"merge_52_1.key":                25,
+	} {
+		weight, ok := keyWeight(file)
+		if !ok || tierUnits(weight) != units {
+			t.Errorf("%s (weight %d) bills %d units, want %d", file, weight, tierUnits(weight), units)
+		}
 	}
 }
