@@ -25,7 +25,7 @@ use zolana_transaction::{
     DataRecord, DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
     LocalShieldedKeys, MergeRebuild, Mint, OutputContext, OutputSlot, OwnerCx,
     RingDepositPlaintext, ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult,
-    TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo,
+    TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, ViewTagRequest, WalletUtxo,
     TRANSFER_PLAINTEXT,
 };
 
@@ -483,6 +483,9 @@ impl ShieldedKeys for RecordingKeys {
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         self.local.transaction_keys(requests)
+    }
+    fn view_tags(&self, requests: &[ViewTagRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.local.view_tags(requests)
     }
 }
 
@@ -1510,4 +1513,42 @@ fn ring_deposits_open_for_their_owner_and_feed_a_ring_merge() {
         decrypt(&owner, &[to_other, for_other], &assets).unwrap(),
         DecryptionResult::default()
     );
+}
+
+#[test]
+fn low_order_transaction_keys_leave_the_scan_intact() {
+    let owner = keypair(47);
+    let assets = AssetRegistry::default();
+    let note = wallet_utxo(&owner, Mint::SOL, 33, 7, 5);
+    let ring = Address::new_from_array([9; 32]);
+    let (deposit, deposited) = ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 20, 6);
+    let mut batch = Vec::new();
+    for u in [0, 1] {
+        let mut low_order = [0; 32];
+        low_order[0] = u;
+        let low_order = X25519Pubkey::from_u(low_order).unwrap();
+
+        let mut confidential = received(&owner, &note);
+        confidential.tx_viewing_pk = Some(low_order);
+        batch.push(confidential);
+
+        let mut ring_deposit = deposit.clone();
+        let OutputDataEncoding::Encrypted(blob) =
+            borsh::from_slice(&ring_deposit.output_slots[0].payload).unwrap()
+        else {
+            panic!("ring deposit slot is encrypted");
+        };
+        let mut output = borsh::from_slice::<EncryptedRingDepositOutput>(&blob[1..]).unwrap();
+        output.encrypted.tx_viewing_pk = *low_order.as_bytes();
+        let mut blob = vec![EncryptedScheme::RingDeposit.as_byte()];
+        blob.extend(borsh::to_vec(&output).unwrap());
+        ring_deposit.output_slots[0].payload =
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
+        batch.push(ring_deposit);
+    }
+    batch.push(received(&owner, &note));
+    batch.push(deposit);
+
+    let candidates = decrypt(&owner, &batch, &assets).unwrap();
+    assert_eq!(candidates.utxos, vec![note, deposited]);
 }

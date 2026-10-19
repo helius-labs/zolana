@@ -102,7 +102,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         output_tree,
         owner_signers: vec![owner_signer],
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialEd25519(2, 2, 3), &nullifiers),
+        data: transact_data(CircuitId::ConfidentialEddsa(2, 2, 3), &nullifiers),
     }
     .instruction();
     let mut expected_transact = vec![
@@ -124,7 +124,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         ring_program_id,
         owner_signers: vec![owner_signer],
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialRingEd25519(2, 2, 3), &nullifiers),
+        data: transact_data(CircuitId::ConfidentialRingEddsa(2, 2, 3), &nullifiers),
     }
     .cpi_instruction();
     let mut expected_ring = vec![
@@ -219,7 +219,7 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         ring_program_id,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialRingEd25519(0, 0, 3), &[]),
+        data: transact_data(CircuitId::ConfidentialRingEddsa(0, 0, 3), &[]),
     }
     .instruction();
     assert_eq!(ring.program_id, ring_program_id);
@@ -258,7 +258,7 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialEd25519(0, 0, 3), &[]),
+        data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3), &[]),
     }
     .instruction();
 
@@ -287,7 +287,7 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
     let third_nullifier = [33u8; 32];
 
     let mut data = transact_data(
-        CircuitId::ConfidentialEd25519(3, 2, 3),
+        CircuitId::ConfidentialEddsa(3, 2, 3),
         &[first_nullifier, second_nullifier, third_nullifier],
     );
     data.inputs = [
@@ -339,7 +339,7 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
 
     let ring_program_id = Pubkey::new_unique();
     let ring_auth = pda::ring_auth(&ring_program_id).0;
-    data.circuit = CircuitId::ConfidentialRingEd25519(3, 2, 3);
+    data.circuit = CircuitId::ConfidentialRingEddsa(3, 2, 3);
     let ring = RingTransact {
         payer,
         input_trees: vec![first_tree, second_tree],

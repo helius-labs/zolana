@@ -35,7 +35,7 @@ use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
-    symmetric_apply, KeypairError, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
+    symmetric_apply, KeypairError, NullifierKey, ViewingKey, X25519Keypair, X25519Pubkey,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -160,7 +160,7 @@ impl AuditorMessage {
     ///
     /// ECDH is symmetric, so `auditor.ecdh(eph_pk)` is the same x-coordinate the
     /// sender derived, and the CTR keystream application is its own inverse.
-    pub fn decrypt(&self, auditor: &X25519Secret) -> Result<Zeroizing<[u8; 32]>> {
+    pub fn decrypt(&self, auditor: &X25519Keypair) -> Result<Zeroizing<[u8; 32]>> {
         AuditDecryption {
             auditor,
             message: self,
@@ -297,7 +297,7 @@ impl AuditorMessage {
 
 impl AuditorEncryption {
     pub fn new(tx_viewing_key: &ViewingKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
-        let ephemeral = X25519Secret::new();
+        let ephemeral = X25519Keypair::new();
         let ephemeral_sk = ephemeral.secret_bytes();
         let eph_pk = ephemeral.pubkey();
         let dh = ephemeral.ecdh(auditor_pk)?;
@@ -555,7 +555,7 @@ pub struct SealedNullifierKey {
 struct NullifierKeySeal<'a> {
     nullifier_key: &'a NullifierKey,
     auditor_pk: &'a X25519Pubkey,
-    ephemeral: X25519Secret,
+    ephemeral: X25519Keypair,
 }
 
 impl NullifierKeyEnvelope {
@@ -563,7 +563,7 @@ impl NullifierKeyEnvelope {
         NullifierKeySeal {
             nullifier_key,
             auditor_pk,
-            ephemeral: X25519Secret::new(),
+            ephemeral: X25519Keypair::new(),
         }
         .seal()
     }
@@ -597,7 +597,7 @@ impl NullifierKeySeal<'_> {
 impl SealedNullifierKey {
     /// Padding alone does not authenticate the recovered key against its
     /// registry leaf.
-    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey> {
+    pub fn open(&self, auditor: &X25519Keypair) -> Result<NullifierKey> {
         let dh = auditor.ecdh(&self.eph_pk)?;
         let auditor_key = auditor.pubkey();
         let shared_secret = AuditSharedSecret {
@@ -644,7 +644,7 @@ pub(crate) struct AuditSharedSecret<'a> {
 
 #[must_use]
 struct AuditDecryption<'a> {
-    auditor: &'a X25519Secret,
+    auditor: &'a X25519Keypair,
     message: &'a AuditorMessage,
 }
 
@@ -701,7 +701,7 @@ mod tests {
 
     #[test]
     fn anonymous_disclosure_round_trips_with_hidden_recipient_key() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let tx = ViewingKey::new();
         let disclosure = AnonymousDisclosure {
             sender: [7; 32],
@@ -784,10 +784,10 @@ mod tests {
 
     #[test]
     fn shared_secret_binds_both_keys_and_the_ecdh_value() {
-        let auditor_key = X25519Secret::new().pubkey();
-        let other_auditor_key = X25519Secret::new().pubkey();
-        let ephemeral_key = X25519Secret::new().pubkey();
-        let other_ephemeral_key = X25519Secret::new().pubkey();
+        let auditor_key = X25519Keypair::new().pubkey();
+        let other_auditor_key = X25519Keypair::new().pubkey();
+        let ephemeral_key = X25519Keypair::new().pubkey();
+        let other_ephemeral_key = X25519Keypair::new().pubkey();
         let derive = |dh, eph, auditor| {
             AuditSharedSecret {
                 diffie_hellman_x: dh,
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn nullifier_key_envelope_round_trips_through_the_auditor() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let nullifier_key = NullifierKey::from_secret([7u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -828,8 +828,8 @@ mod tests {
 
     #[test]
     fn a_stranger_auditor_cannot_recover_the_nullifier_key() {
-        let auditor = X25519Secret::new();
-        let stranger = X25519Secret::new();
+        let auditor = X25519Keypair::new();
+        let stranger = X25519Keypair::new();
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -861,12 +861,12 @@ mod tests {
 
     #[test]
     fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
-        let auditor = X25519Secret::from_bytes(&bytes(AUDITOR_SK)).expect("auditor");
+        let auditor = X25519Keypair::from_bytes(&bytes(AUDITOR_SK));
         let nullifier_key = NullifierKey::from_secret(bytes(NULLIFIER_SECRET));
         let envelope = NullifierKeySeal {
             nullifier_key: &nullifier_key,
             auditor_pk: &auditor.pubkey(),
-            ephemeral: X25519Secret::from_bytes(&bytes(EPHEMERAL_SK)).expect("ephemeral"),
+            ephemeral: X25519Keypair::from_bytes(&bytes(EPHEMERAL_SK)),
         }
         .seal()
         .expect("seal");

@@ -5,9 +5,9 @@ import (
 	"github.com/consensys/gnark/std/hash/sha2"
 	"github.com/consensys/gnark/std/math/uints"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 const CountersDisclosureDomain = "CRING/spend-counters/v1"

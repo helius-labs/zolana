@@ -247,7 +247,7 @@ pub fn new_transact_ix_data(
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
-    let circuit = CircuitId::ConfidentialEd25519(
+    let circuit = CircuitId::ConfidentialEddsa(
         inputs.len() as u8,
         outputs.len() as u8,
         N_PUBLIC_SLOTS as u8,
@@ -368,7 +368,7 @@ pub struct TransferProverInputsArgs {
 ///
 /// It must be non-zero: the prover rejects a zero seed
 /// (`spp: blindingSeed must not be zero`,
-/// `prover/server/prover/transfer_eddsa_only/marshal.go:157`), because a zero
+/// `prover/server/prover/transfer_eddsa/marshal.go:157`), because a zero
 /// seed makes the output blinding seed and the private transaction blinding
 /// public functions of the first nullifier. The leading zero byte keeps the
 /// value below the BN254 scalar modulus.
@@ -501,7 +501,7 @@ pub fn prove_and_verify_transfer(
     public_input_hash: [u8; 32],
     label: &str,
 ) -> Result<TransactProof> {
-    let circuit = CircuitId::ConfidentialEd25519(
+    let circuit = CircuitId::ConfidentialEddsa(
         u8::try_from(prover_inputs.inputs.len())?,
         u8::try_from(prover_inputs.outputs.len())?,
         N_PUBLIC_SLOTS as u8,
@@ -524,9 +524,7 @@ pub fn prove_and_verify_transfer(
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
 /// X25519 key works and a constant keeps the run deterministic.
 fn test_viewing_pubkey() -> X25519Pubkey {
-    ViewingKey::from_bytes(&[5u8; 32])
-        .expect("viewing key")
-        .pubkey()
+    ViewingKey::from_bytes(&[5u8; 32]).pubkey()
 }
 
 fn expand_blinding(blinding: &[u8; 31]) -> [u8; 32] {
@@ -600,7 +598,7 @@ pub fn change_and_dummy_outputs(
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
 /// non-inclusion for every slot). Returns the input and its nullifier — SPP
 /// inserts dummy nullifiers exactly like real ones. The dummy's `ownerPkHash`
-/// is pinned to zero: PR172's signer resolution (`AuthorizedEd25519InputOwners`)
+/// is pinned to zero: PR172's signer resolution (`AuthorizedEddsaInputOwners`)
 /// rejects any non-zero owner identity on a content-less slot.
 pub fn dummy_input(
     blinding: &[u8; 31],

@@ -414,7 +414,7 @@ fn anonymous_fixture() -> Fixture {
 }
 
 #[test]
-fn an_anonymous_ring_takes_only_audited_deposits_without_metadata() {
+fn an_anonymous_ring_takes_only_audited_deposits_without_ring_data() {
     let (mollusk, _) = setup_mollusk();
     anonymous_fixture().expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut plain = deposit_fixture();
@@ -424,7 +424,7 @@ fn an_anonymous_ring_takes_only_audited_deposits_without_metadata() {
     mutate_deposit(&mut tagged, |deposit| {
         deposit.deposits[1].view_tag = [1; 32]
     });
-    tagged.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
+    tagged.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut ring_data = anonymous_fixture();
     mutate_deposit(&mut ring_data, |deposit| {
         deposit.deposits[0].ring_data_hash = [1; 32]

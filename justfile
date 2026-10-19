@@ -32,7 +32,6 @@ proving-keys-base := env_var_or_default("ZOLANA_PROVING_KEYS_URL", "https://d3gb
 proving-keys-url := proving-keys-base + "/" + `python3 -c "import json;print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])"`
 # The ring keys the lockfile pins, released on GitHub rather than the object store.
 custom-ring-keys := `python3 -c "import json;print(' '.join(sorted(k for k in json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['keys'] if k.startswith('custom_ring_'))))"`
-anonymous-ring-keys := `python3 -c "import json;print(' '.join(sorted(k for k in json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['keys'] if k.startswith('transfer_ed25519_ring_'))))"`
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
 # the per-clone prover address without each recipe wiring it explicitly. The
@@ -297,7 +296,7 @@ fetch-custom-ring-keys:
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
     release_url="${ZOLANA_RING_KEYS_URL:-https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v21}"
-    for name in {{custom-ring-keys}} {{anonymous-ring-keys}}; do
+    for name in {{custom-ring-keys}}; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
     for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
@@ -323,17 +322,6 @@ check-custom-ring-keys: build-prover-server
         cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
         rustfmt --config-path rustfmt.toml "$export_dir/$module"
         diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
-    done
-    for key in {{anonymous-ring-keys}}; do
-        module="${key%.key}.rs"
-        if [[ ! -f "{{spp-keys-dir}}/$key" ]]; then
-            echo "{{spp-keys-dir}}/$key is missing, run just fetch-custom-ring-keys" >&2
-            exit 1
-        fi
-        target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
-        rustfmt --config-path rustfmt.toml "$export_dir/$module"
-        diff -u "program-libs/interface/src/verifying_keys/$module" "$export_dir/$module"
     done
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -1148,9 +1136,9 @@ test-ring-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --test proof_cu
+      tools/ci/nextest-suite.sh -p ring-test-program --test ring_lifecycle --test anonymous_ring_lifecycle --test proof_cu
 
-# Run only real-validator CU ceilings for ring Ed25519 transact,
+# Run only real-validator CU ceilings for ring EdDSA/anonymous transact,
 # ring-authority transact, and an 8-input merge-ring.
 test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
@@ -1172,7 +1160,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
       tools/ci/nextest-suite.sh -p ring-test-program --test proof_cu --no-capture
 
 # Confirm the widest transact shape of every output count (49x2, 24x4, 16x8,
-# 8x16) on the confidential and ring Ed25519 rails, and the 54-input
+# 8x16) on the confidential, ring EdDSA and anonymous ring rails, and the 54-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.
 test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
@@ -1488,7 +1476,7 @@ build-localnet-archives dir="target/nextest-archives":
     mkdir -p {{dir}}
     cargo nextest archive -p shielded-pool-tests --features localnet --test localnet_photon --test localnet_wallet_cli --archive-file {{dir}}/shielded-pool-tests.tar.zst
     cargo nextest archive -p spp-test-validator --test lifecycle --test proof_cu --test max_shapes --archive-file {{dir}}/spp-test-validator.tar.zst
-    cargo nextest archive -p ring-test-program --test ring_lifecycle --test proof_cu --test max_shapes --archive-file {{dir}}/ring-test-program.tar.zst
+    cargo nextest archive -p ring-test-program --test ring_lifecycle --test anonymous_ring_lifecycle --test proof_cu --test max_shapes --archive-file {{dir}}/ring-test-program.tar.zst
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst

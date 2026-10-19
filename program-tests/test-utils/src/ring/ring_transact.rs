@@ -8,7 +8,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    input_utxos_from_nullifiers, transaction_size, ComputeBudgetConfig, ProofAuthority,
+    input_utxos_from_nullifiers,
+    prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
+    AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
     ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
@@ -19,6 +21,7 @@ use zolana_interface::{
         },
         tag::RING_TRANSACT,
     },
+    verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
 };
 use zolana_program::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
@@ -52,6 +55,50 @@ struct DiscoveredOutputs {
     recipients: Vec<[u8; 32]>,
     /// The sender's per-asset change output hashes.
     change: Vec<[u8; 32]>,
+}
+
+/// The prover rail a ring transfer is proved on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RingRail {
+    /// Ownership authorized by the transaction signature (signer run).
+    #[default]
+    Eddsa,
+    /// Ownership authorized inside the proof (AnonymousRingEddsa + BSB22 commitment).
+    AnonymousEddsa,
+}
+
+impl RingRail {
+    /// The ring the transfer's change and recipient outputs join, `None` for
+    /// the default ring. The hidden owner's change cannot join the default
+    /// ring: every confidential-marked default-ring slot is published as
+    /// `solana_owner_identity(tag)` by the program (`transact/verify.rs`), and
+    /// `AssertDefaultHiddenOwner` (`shared/signers.go`) forbids publishing the
+    /// hidden identity while a ring UTXO of the hidden owner is spent.
+    /// Ring-bound outputs publish zero, so this rail keeps every output inside
+    /// the ring.
+    fn output_ring(self, ring: Address) -> Option<Address> {
+        match self {
+            Self::Eddsa => None,
+            Self::AnonymousEddsa => Some(ring),
+        }
+    }
+}
+
+/// Cross-rail grafting and proof-data tampering for the negative cases. The
+/// prover always runs on `rail`; the tamper only changes what goes on the wire.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ProofTamper {
+    #[default]
+    None,
+    /// Corrupt the embedded BSB22 commitment (rejected before pairing, 7007).
+    BadCommitment,
+    /// An anonymous proof submitted under the ConfidentialRingEddsa selector (pairing fails, 7008).
+    AnonymousProofUnderEddsaSelector,
+    /// An eddsa proof submitted under the AnonymousRingEddsa selector (no valid BSB22
+    /// commitment can exist for it, so encoding fails first, 7007).
+    EddsaProofUnderAnonymousSelector,
+    /// A wrong `default_owner_tag` in the proof data (pairing fails, 7008).
+    BadDefaultOwnerTag,
 }
 
 /// A proved ring transfer, sent and indexed, ready to be asserted and tracked.
@@ -104,6 +151,8 @@ struct RingTransferOperation<'a> {
     send_asset: Address,
     amount: u64,
     withdrawal: Option<RingWithdrawal>,
+    rail: RingRail,
+    tamper: ProofTamper,
     /// Pad to this shape with compact padding instead of random dummies at
     /// the smallest shape that fits.
     compact_shape: Option<Shape>,
@@ -133,12 +182,33 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_ring_transfer(from, Some(to), [asset; 2], amount, None)
+        self.execute_ring_transfer(from, Some(to), [asset; 2], amount, None, RingRail::Eddsa)
+    }
+
+    /// Ring-transfer `amount` of `asset` from `from` to `to` over the anonymous rail
+    /// (ownership proved inside the AnonymousRingEddsa proof; the harness payer funds the
+    /// transaction), consolidating two of `from`'s spendable UTXOs into the
+    /// 2x4 shape.
+    pub fn ring_transfer_anonymous(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        self.execute_ring_transfer(
+            from,
+            Some(to),
+            [asset; 2],
+            amount,
+            None,
+            RingRail::AnonymousEddsa,
+        )
     }
 
     /// Ring-withdraw `amount` of `asset` from `from`'s ring UTXOs. The public
-    /// amount leaves the pool while `from` keeps the change as a default-ring UTXO.
-    /// Returns the settlement account the caller asserts against, a fresh
+    /// amount leaves the pool while `from` keeps the change as a ring UTXO. Eddsa
+    /// rail. Returns the settlement account the caller asserts against, a fresh
     /// system account for SOL and a fresh token account for an SPL mint.
     pub fn ring_withdraw(
         &mut self,
@@ -164,7 +234,14 @@ impl RingHarness {
                 recipient_token, ..
             } => recipient_token,
         };
-        let sig = self.execute_ring_transfer(from, None, [asset; 2], amount, Some(withdrawal))?;
+        let sig = self.execute_ring_transfer(
+            from,
+            None,
+            [asset; 2],
+            amount,
+            Some(withdrawal),
+            RingRail::Eddsa,
+        )?;
         Ok((sig, settlement_account))
     }
 
@@ -177,7 +254,14 @@ impl RingHarness {
         spl_mint: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_ring_transfer(from, Some(to), [spl_mint, SOL_MINT], amount, None)
+        self.execute_ring_transfer(
+            from,
+            Some(to),
+            [spl_mint, SOL_MINT],
+            amount,
+            None,
+            RingRail::Eddsa,
+        )
     }
 
     /// Build, prove (`ring_transact` rail), send, and verify a ring transfer or
@@ -193,6 +277,7 @@ impl RingHarness {
         input_assets: [Address; 2],
         amount: u64,
         withdrawal: Option<RingWithdrawal>,
+        rail: RingRail,
     ) -> Result<Signature> {
         if self.ring_config.is_none() {
             self.create_enabled_ring_config()?;
@@ -211,12 +296,14 @@ impl RingHarness {
             send_asset,
             amount,
             withdrawal,
+            rail,
+            tamper: ProofTamper::None,
             compact_shape: None,
         })
     }
 
     /// Ring-transfer `amount` of SOL from `from` to each of `recipients` on
-    /// the runtime Ed25519 rail, spending `input_count` of `from`'s SOL ring UTXOs at
+    /// `rail`, spending `input_count` of `from`'s spendable SOL ring UTXOs at
     /// `shape` with compact padding. Every output is real: one per recipient
     /// plus the sender's change.
     pub fn ring_transfer_to_many(
@@ -225,6 +312,7 @@ impl RingHarness {
         recipients: &[&str],
         input_count: usize,
         amount: u64,
+        rail: RingRail,
         shape: Shape,
     ) -> Result<Signature> {
         if self.ring_config.is_none() {
@@ -254,6 +342,8 @@ impl RingHarness {
             send_asset: SOL_MINT,
             amount,
             withdrawal: None,
+            rail,
+            tamper: ProofTamper::None,
             compact_shape: Some(shape),
         })
     }
@@ -266,7 +356,9 @@ impl RingHarness {
         let (from, recipients) = (operation.from, operation.recipients);
         let (inputs, send_asset, amount) =
             (operation.inputs, operation.send_asset, operation.amount);
-        let output_ring = None;
+        let output_ring = operation
+            .rail
+            .output_ring(Address::new_from_array(self.ring_program_id.to_bytes()));
         let sent = self.send_ring_transfer(operation)?;
 
         let SentRingTransfer {
@@ -370,6 +462,8 @@ impl RingHarness {
             send_asset,
             amount,
             withdrawal,
+            rail,
+            tamper,
             compact_shape,
         } = operation;
         let from_keypair = self.actor(from).keypair.clone();
@@ -387,7 +481,8 @@ impl RingHarness {
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        // The owner transaction signature authorizes its spends.
+        // An eddsa actor pays and signs its own spend; a hidden owner falls back
+        // to the harness payer because ownership is proven inside the proof.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -429,9 +524,15 @@ impl RingHarness {
             Some(shape) => shape,
             None => canonical_shape(notes.len(), 2 + to_addresses.len())?,
         };
-        let mut transfer = match compact_shape {
-            None => ConfidentialTransaction::new(notes, payer_address)?,
-            Some(_) => ConfidentialTransaction::new_compact(notes, payer_address)?,
+        let mut transfer = match (rail.output_ring(ring), compact_shape.is_some()) {
+            (Some(ring), false) => {
+                ConfidentialTransaction::new_with_ring(notes, payer_address, ring)?
+            }
+            (Some(ring), true) => {
+                ConfidentialTransaction::new_compact_with_ring(notes, payer_address, ring)?
+            }
+            (None, false) => ConfidentialTransaction::new(notes, payer_address)?,
+            (None, true) => ConfidentialTransaction::new_compact(notes, payer_address)?,
         }
         .with_output_tree_id(self.tree_id)?;
         match (to_addresses.is_empty(), withdrawal) {
@@ -468,14 +569,19 @@ impl RingHarness {
         // the proof and the on-chain recompute must agree on it.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
-        let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring)?;
+        let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring, rail, tamper)?;
 
         let interface_transfer_accounts = withdrawal
             .map(|withdrawal| vec![withdrawal.interface_accounts()])
             .unwrap_or_default();
+        let hidden_owner = match rail {
+            RingRail::Eddsa => None,
+            RingRail::AnonymousEddsa => Some(from_keypair.signing_pubkey().as_ed25519()?),
+        };
         let owner_signers = proof_inputs
             .owner_signer_pubkeys()?
             .iter()
+            .filter(|address| hidden_owner != Some(address.to_bytes()))
             .map(|address| Pubkey::new_from_array(address.to_bytes()))
             .collect();
 
@@ -519,38 +625,124 @@ impl RingHarness {
         })
     }
 
-    /// Build the runtime-authorized ring witness and retain its public statement on the wire.
+    /// Drive the ring prover rail and fold the result into a `TransactIxData`,
+    /// mirroring `witness.rs::assemble`. The prover always runs on `rail`;
+    /// `tamper` only changes what lands on the wire (grafted selector or
+    /// corrupted proof data).
     fn prove_and_assemble(
         &self,
         proof_inputs: &SppProofInputs,
         signer: &zolana_keypair::ShieldedKeypair,
         ring: Address,
+        rail: RingRail,
+        tamper: ProofTamper,
     ) -> Result<TransactIxData> {
         let input_utxos = self.ring_input_utxos(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
-        let prover = RingTransferProver {
-            blinding_seed: proof_inputs.blinding_seed,
-            output_tree_id: proof_inputs.output_tree_id,
-            inputs: input_utxos,
-            outputs: proof_inputs.output_utxos.clone(),
-            external_data: proof_inputs.external_data.clone(),
-            public_transfers: proof_inputs.public_transfers()?,
-            signer_pk_hashes: proof_inputs.signer_pk_hashes(shape.signer_width())?,
-            allow_dummy_inputs: true,
-            ring_program_id: Some(ring),
-            shape,
-        };
-        let mut result = prover.build()?;
-        signer.complete_inputs(&mut result.inputs.inputs)?;
-        let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
-        assemble_ix_data(
-            proof_inputs,
-            input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
-            result.private_tx_hash,
-            result.tree_contexts.clone(),
-            pack_transact_proof(&proof)?,
-        )
+
+        match rail {
+            RingRail::Eddsa => {
+                let prover = RingTransferProver {
+                    blinding_seed: proof_inputs.blinding_seed,
+                    output_tree_id: proof_inputs.output_tree_id,
+                    inputs: input_utxos,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_transfers: proof_inputs.public_transfers()?,
+                    signer_pk_hashes: proof_inputs.signer_pk_hashes(shape.signer_width())?,
+                    allow_dummy_inputs: true,
+                    ring_program_id: Some(ring),
+                    shape,
+                };
+                let mut result = prover.build()?;
+                // The assembled witness carries no nullifier secrets; the signer
+                // is the authority that fills in the inputs it owns.
+                signer.complete_inputs(&mut result.inputs.inputs)?;
+                let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
+                let proof = pack_transact_proof(&proof)?;
+                if tamper == ProofTamper::EddsaProofUnderAnonymousSelector {
+                    // No valid BSB22 commitment can exist for an eddsa proof; a
+                    // zeroed one is rejected at the encoding check.
+                    assemble_ix_data(
+                        proof_inputs,
+                        input_utxos_from_nullifiers(
+                            &result.nullifiers,
+                            &result.input_tree_indexes,
+                        )?,
+                        result.private_tx_hash,
+                        result.tree_contexts.clone(),
+                        RingRail::AnonymousEddsa,
+                        proof,
+                        Some(Bsb22Commitment {
+                            commitment: [0u8; 32],
+                            commitment_pok: [0u8; 32],
+                        }),
+                        None,
+                    )
+                } else {
+                    assemble_ix_data(
+                        proof_inputs,
+                        input_utxos_from_nullifiers(
+                            &result.nullifiers,
+                            &result.input_tree_indexes,
+                        )?,
+                        result.private_tx_hash,
+                        result.tree_contexts.clone(),
+                        RingRail::Eddsa,
+                        proof,
+                        None,
+                        None,
+                    )
+                }
+            }
+            RingRail::AnonymousEddsa => {
+                let prover = AnonymousRingEddsaProver {
+                    blinding_seed: proof_inputs.blinding_seed,
+                    output_tree_id: proof_inputs.output_tree_id,
+                    inputs: input_utxos,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_transfers: proof_inputs.public_transfers()?,
+                    signer_pk_hashes: anonymous_signer_pk_hashes(
+                        proof_inputs,
+                        &signer.signing_pubkey(),
+                    )?,
+                    allow_dummy_inputs: true,
+                    owner: &signer.signing_key,
+                    ring_program_id: Some(ring),
+                    shape,
+                };
+                let mut result = prover.build()?;
+                signer.complete_inputs(&mut result.inputs.transfer.inputs)?;
+                let proof = ProverClient::local().prove(&result.inputs)?;
+                let (proof, commitment) = committed_transact_proof(&proof)?;
+                let mut commitment = commitment;
+                if tamper == ProofTamper::BadCommitment {
+                    commitment.commitment = [u8::MAX; 32];
+                }
+                let wire_rail = if tamper == ProofTamper::AnonymousProofUnderEddsaSelector {
+                    RingRail::Eddsa
+                } else {
+                    RingRail::AnonymousEddsa
+                };
+                let default_owner_tag = if tamper == ProofTamper::BadDefaultOwnerTag {
+                    result.default_owner_tag.map(|_| [u8::MAX; 32])
+                } else {
+                    result.default_owner_tag
+                };
+                assemble_ix_data(
+                    proof_inputs,
+                    input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
+                    result.private_tx_hash,
+                    result.tree_contexts.clone(),
+                    wire_rail,
+                    proof,
+                    Some(commitment),
+                    default_owner_tag,
+                )
+            }
+        }
     }
 
     /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
@@ -775,7 +967,10 @@ impl RingHarness {
             input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
             result.private_tx_hash,
             result.tree_contexts.clone(),
+            RingRail::Eddsa,
             TransactProof::zeroed(),
+            None,
+            None,
         )?;
 
         let transfer_ix = RingTransact {
@@ -808,6 +1003,240 @@ impl RingHarness {
             }
         }
     }
+
+    /// Clone two of `from`'s spendable UTXOs of `asset` without consuming them
+    /// (negative paths, where the spend never lands). `ring_only` selects the
+    /// ring-owned set; `false` selects default-ring UTXOs (e.g. a default-ring
+    /// hidden-owner input, which exposes `default_owner_tag` on the wire).
+    fn peek_spendable_input_utxos(
+        &self,
+        from: &str,
+        asset: Address,
+        ring_only: bool,
+    ) -> Result<Vec<Utxo>> {
+        let inputs: Vec<Utxo> = self
+            .actor(from)
+            .spendable
+            .iter()
+            .filter(|utxo| {
+                utxo.asset.asset == asset && (utxo.ring_program_id.is_some() == ring_only)
+            })
+            .take(2)
+            .cloned()
+            .collect();
+        if inputs.len() != 2 {
+            return Err(anyhow!(
+                "{from} needs two spendable {} UTXOs of {asset}",
+                if ring_only { "ring" } else { "default-ring" }
+            ));
+        }
+        Ok(inputs)
+    }
+
+    /// Run a tampered ring-transfer attempt and assert the exact rejection plus
+    /// an untouched tree. The inputs are peeked, so `from`'s spendable set is
+    /// unchanged for a later happy-path attempt.
+    #[allow(clippy::too_many_arguments)]
+    fn expect_tampered_rejection(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+        rail: RingRail,
+        tamper: ProofTamper,
+        expected: ShieldedPoolError,
+    ) -> Result<()> {
+        if self.ring_config.is_none() {
+            self.create_enabled_ring_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, true)?;
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        match self.send_ring_transfer(RingTransferOperation {
+            from,
+            recipients: &[to],
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail,
+            tamper,
+            compact_shape: None,
+        }) {
+            Ok(_) => Err(anyhow!(
+                "tampered ring transfer ({tamper:?}) unexpectedly succeeded"
+            )),
+            Err(error) => {
+                let client_error = error
+                    .downcast_ref::<zolana_client::ClientError>()
+                    .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
+                Rejection::pool(expected).at(0).assert_client(client_error);
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Request a valid anonymous proof, corrupt only its embedded BSB22 commitment,
+    /// and confirm SPP rejects the instruction at the encoding check, before
+    /// pairing verification (7007).
+    pub fn ring_transfer_anonymous_bad_commitment_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            RingRail::AnonymousEddsa,
+            ProofTamper::BadCommitment,
+            ShieldedPoolError::InvalidTransactProofEncoding,
+        )
+    }
+
+    /// Cross-rail grafting: a valid anonymous proof submitted under the ConfidentialRingEddsa
+    /// selector. The selector picks the eddsa verifying key, so pairing fails
+    /// (7008).
+    pub fn anonymous_proof_under_eddsa_selector_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            RingRail::AnonymousEddsa,
+            ProofTamper::AnonymousProofUnderEddsaSelector,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
+    }
+
+    /// Cross-rail grafting: a valid eddsa proof submitted under the AnonymousRingEddsa
+    /// selector. No valid BSB22 commitment can exist for it — a zeroed one
+    /// decodes as the point at infinity, so it slips past the encoding check
+    /// and the graft fails at pairing verification instead (7008). Garbage
+    /// commitments still fail at encoding (7007, covered by the bad-commitment
+    /// tamper).
+    pub fn eddsa_proof_under_anonymous_selector_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            RingRail::Eddsa,
+            ProofTamper::EddsaProofUnderAnonymousSelector,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
+    }
+
+    /// Ring-transfer over the anonymous rail spending DEFAULT-ring hidden-owner
+    /// inputs: the presence of a real default-ring hidden-owner input exposes the
+    /// owner's Ed25519 key as `default_owner_tag` on the wire. Asserts the tag
+    /// is present and equals `from`'s signing pubkey.
+    pub fn ring_transfer_anonymous_default_input_exposes_owner_tag(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        if self.ring_config.is_none() {
+            self.create_enabled_ring_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, false)?;
+        let sent = self.send_ring_transfer(RingTransferOperation {
+            from,
+            recipients: &[to],
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail: RingRail::AnonymousEddsa,
+            tamper: ProofTamper::None,
+            compact_shape: None,
+        })?;
+        let CircuitId::AnonymousRingEddsa(_, _, _, proof_data) = &sent.data.circuit else {
+            return Err(anyhow!("expected an AnonymousRingEddsa circuit selector"));
+        };
+        let expected_tag = self.actor(from).keypair.signing_pubkey().as_ed25519()?;
+        if proof_data.default_owner_tag != Some(expected_tag) {
+            return Err(anyhow!(
+                "default_owner_tag {:?} != signing pubkey {}",
+                proof_data.default_owner_tag,
+                hex32(&expected_tag)
+            ));
+        }
+        // Consume the spent inputs only after the transfer landed.
+        let actor = self.actor_mut(from);
+        for input in &inputs {
+            if let Some(pos) = actor.spendable.iter().position(|u| u == input) {
+                actor.spendable.remove(pos);
+            }
+        }
+        Ok(sent.signature)
+    }
+
+    /// A real default-ring hidden-owner input with a WRONG `default_owner_tag` in the
+    /// proof data: the tag is bound into the public input, so pairing fails
+    /// (7008).
+    pub fn ring_transfer_anonymous_wrong_default_owner_tag_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        if self.ring_config.is_none() {
+            self.create_enabled_ring_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_input_utxos(from, asset, false)?;
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        match self.send_ring_transfer(RingTransferOperation {
+            from,
+            recipients: &[to],
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail: RingRail::AnonymousEddsa,
+            tamper: ProofTamper::BadDefaultOwnerTag,
+            compact_shape: None,
+        }) {
+            Ok(_) => Err(anyhow!(
+                "anonymous ring transfer with a wrong default_owner_tag unexpectedly succeeded"
+            )),
+            Err(error) => {
+                let client_error = error
+                    .downcast_ref::<zolana_client::ClientError>()
+                    .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(0)
+                    .assert_client(client_error);
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Assemble the `TransactIxData` from the signed transaction's external data and
@@ -822,7 +1251,10 @@ fn assemble_ix_data(
     inputs: Vec<InputUtxo>,
     private_tx_hash: [u8; 32],
     tree_contexts: Vec<TreeContext>,
+    rail: RingRail,
     proof: TransactProof,
+    commitment: Option<Bsb22Commitment>,
+    default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let shape = proof_inputs.check_shape()?;
     let n_inputs = shape.n_inputs();
@@ -836,7 +1268,19 @@ fn assemble_ix_data(
     let external = &proof_inputs.external_data;
     let n_outputs = u8::try_from(shape.n_outputs())?;
     let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-    let circuit = CircuitId::ConfidentialRingEd25519(n_inputs as u8, n_outputs, n_slots);
+    let circuit = match rail {
+        RingRail::Eddsa => CircuitId::ConfidentialRingEddsa(n_inputs as u8, n_outputs, n_slots),
+        RingRail::AnonymousEddsa => CircuitId::AnonymousRingEddsa(
+            n_inputs as u8,
+            n_outputs,
+            n_slots,
+            AnonymousRingEddsaProofData {
+                bsb22_commitment: commitment
+                    .ok_or_else(|| anyhow!("anonymous proof is missing its BSB22 commitment"))?,
+                default_owner_tag,
+            },
+        ),
+    };
     Ok(TransactIxData {
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
@@ -865,4 +1309,12 @@ fn hex32(bytes: &[u8; 32]) -> String {
         s.push_str(&format!("{b:02x}"));
     }
     s
+}
+
+/// Split a committed anonymous proof into the unchanged transact proof triple and
+/// the BSB22 payload carried by `CircuitId::AnonymousRingEddsa`.
+fn committed_transact_proof(
+    proof: &zolana_client::Proof,
+) -> Result<(TransactProof, Bsb22Commitment)> {
+    Ok(ProofCompressed::try_from(*proof)?.into_committed_transact_parts()?)
 }

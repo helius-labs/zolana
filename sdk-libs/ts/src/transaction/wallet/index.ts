@@ -6,7 +6,9 @@ export {
   type DeriveRequest,
   type ShieldedKeys,
   type TransactionKeyRequest,
+  type ViewTagRequest,
 } from "./keys.js";
+export type { KeyViewTags, ViewTagCounters } from "./tag-streams.js";
 export {
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,

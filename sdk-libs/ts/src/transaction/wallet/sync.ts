@@ -2,7 +2,7 @@ import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-cap
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
-import { X25519PublicKey } from "../../keypair/x25519.js";
+import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -38,10 +38,12 @@ import {
 } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
+import type { KeyViewTags } from "./tag-streams.js";
 import {
   LocalShieldedKeys,
   checkKeysIdentity,
   checkViewingPublicKeys,
+  type DecryptRequest,
   type ShieldedKeys,
 } from "./keys.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
@@ -62,7 +64,6 @@ import {
 } from "./state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
-const ANONYMOUS_RING_TAG = "00".repeat(32);
 
 /**
  * The tree id synced UTXOs are hashed under. A UTXO that lives in another tree
@@ -877,7 +878,7 @@ class SyncPass {
         return;
       }
       ciphertext = this.#depositPayloadDecoder(ciphertext);
-      const decrypted = this.#keys.decrypt({
+      const decrypted = this.#open({
         ciphertext,
         viewingPublicKey,
         txViewingPublicKey,
@@ -1093,7 +1094,7 @@ class SyncPass {
       this.#recordUndecryptable(error, siteKey);
       return undefined;
     }
-    return this.#keys.decrypt({
+    return this.#open({
       ciphertext,
       viewingPublicKey,
       txViewingPublicKey: envelope.txViewingPublicKey,
@@ -1103,11 +1104,22 @@ class SyncPass {
     });
   }
 
+  /** `undefined` while the memo has no answer, or for a sender-picked small-order transaction key. */
+  #open(request: DecryptRequest): Uint8Array | undefined {
+    if (isSmallOrder(request.txViewingPublicKey)) {
+      this.undecryptableCandidates++;
+      return undefined;
+    }
+    return this.#keys.decrypt(request);
+  }
+
   /**
-   * Open each stable discovery tag, then trial-decrypt zero-tag ring outputs
-   * under every held viewing key because their recipient has no public tag.
+   * Open each stable discovery tag under every held viewing key, and each
+   * counter tag under the key it was derived from.
    */
-  processStableTags(input: Readonly<{ identityTag: Bytes32; index: TagIndex }>): void {
+  processStableTags(
+    input: Readonly<{ identityTag: Bytes32; index: TagIndex; viewTags: readonly KeyViewTags[] }>,
+  ): void {
     const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
     const identityTag = hex(input.identityTag);
@@ -1117,10 +1129,16 @@ class SyncPass {
         this.decodeSlot(viewingPublicKey, site);
       }
       for (const site of recipientSites(identityTag)) this.decodeSlot(viewingPublicKey, site);
-      for (const site of recipientSites(ANONYMOUS_RING_TAG))
-        this.decodeSlot(viewingPublicKey, site);
       for (const transaction of index.senderSites.get(identityTag) ?? []) {
         this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
+      }
+    }
+    for (const { viewingPublicKey, tags } of input.viewTags) {
+      for (const tag of tags.map(hex)) {
+        for (const site of recipientSites(tag)) this.decodeSlot(viewingPublicKey, site);
+        for (const transaction of index.senderSites.get(tag) ?? []) {
+          this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
+        }
       }
     }
     // Change may target a retired key, so finish every key's slot pass first.
@@ -1138,6 +1156,8 @@ export async function decryptTransactions(
     keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
+    /** Sender and request tags found in use, opened under the key each was derived from. */
+    viewTags?: readonly KeyViewTags[];
     /** Forwarded to every batch the key holder answers. */
     context?: RequestContext | undefined;
   }>,
@@ -1168,7 +1188,7 @@ export async function decryptTransactions(
         rows: current.transactions,
         selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
       });
-      pass.processStableTags({ identityTag, index });
+      pass.processStableTags({ identityTag, index, viewTags: input.viewTags ?? [] });
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
         await memo.resolve(input.context);

@@ -14,8 +14,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/ed25519"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/ed25519"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 )
 
 type ecdhGadget struct {
@@ -93,12 +93,11 @@ func fingerprintGadget(t *testing.T, circuit frontend.Circuit) gadgetFingerprint
 	}
 }
 
-// The gadget pins guard the shared short-Weierstrass ladder code against
-// constraint drift independently of the rail and ring circuits around it.
+// Pins each gadget independently of the circuits that use it.
 var expectedGadgetFingerprints = map[string]gadgetFingerprint{
-	"x25519_ecdh":      {constraints: 21227, matrix: "3c13b56e8e148325c1774d8c7361a37619eb87fbd37260386d5b43da6e552f28", serialized: "91c5ebda52ba4766d9892e18055cbd880211b80ff5f04a8a32a6d9f7acd9efbb"},
-	"x25519_generator": {constraints: 5948, matrix: "e9fb1a264897a14324333153beaa1cd0c641ef4487fce46e4a4d75b66c12de20", serialized: "0d13d351e8d4d5c2be4c8dbb114a979db3d7d0b3f4ba6aec099e76166ab051e1"},
-	"ed25519_verify":   {constraints: 57499, matrix: "3f4c7b6134a7b677faf9803ce61db080ff78944fec62c2f94bce90ebfbbb83c9", serialized: "b900aff6e7f562f89b2d616002f70ffdd842b946e5ceeb8cf79a08c6e2906803"},
+	"x25519_ecdh":      {constraints: 20758, matrix: "76abc85d036a5545524f4ba4e9194324abe39c31a3fa1503d539ea6389757c24", serialized: "14ad9b5a0a44c5d0f468bbdee1593364cf861115a68ffe96c35e1a88dec85492"},
+	"x25519_generator": {constraints: 5948, matrix: "e9fb1a264897a14324333153beaa1cd0c641ef4487fce46e4a4d75b66c12de20", serialized: "8ec15eb93e812c505bf46ace797e68e484916e6ad89a259be12a2810993dcc20"},
+	"ed25519_verify":   {constraints: 50604, matrix: "bd954d4ad2bd76805bfc2105956147436d7c98f0cb87bd0b7318aee0b0b035ba", serialized: "150923532451a92112af7a2af8efb79ed71210699776a016089e0774b60796c9"},
 }
 
 func TestGadgetFingerprints(t *testing.T) {

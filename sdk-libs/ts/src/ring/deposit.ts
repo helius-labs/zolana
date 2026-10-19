@@ -45,10 +45,8 @@ export type RingDepositClient = DepositClient &
 export interface RingDepositTransactionParams {
   readonly client: RingDepositClient;
   readonly ringProgramId: Address;
-  /** Defaults to the depositor and pays only transaction fees. */
-  readonly feePayer?: Address;
-  /** Source of SOL or authority over the source token account. */
-  readonly depositor: Address;
+  readonly feePayer: Address;
+  readonly depositor?: Address;
   readonly tree?: Address;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
@@ -89,7 +87,7 @@ async function buildRingDepositOnce(
       }),
     context,
   );
-  const depositor = input.depositor;
+  const depositor = input.depositor ?? input.feePayer;
   const tree = input.tree ?? input.client.tree;
   const asset = input.asset ?? SOL_MINT;
   // 1. Read the ring's signature, deposit disclosure and key escrow requirements.
@@ -245,7 +243,7 @@ async function buildRingDepositOnce(
   }
   const lifetime = await input.client.getLatestBlockhash(context);
   return compileUnsignedTransaction({
-    feePayer: input.feePayer ?? input.depositor,
+    feePayer: input.feePayer,
     lifetime,
     computeUnitLimit: audited ? RING_DEPOSIT_COMPUTE_UNIT_LIMIT : DEFAULT_COMPUTE_UNIT_LIMIT,
     instructions: [instruction],

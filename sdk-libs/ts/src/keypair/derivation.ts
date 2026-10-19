@@ -8,9 +8,9 @@
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import type { Bytes31, Bytes32 } from "./bytes.js";
+import { type Bytes31, type Bytes32, u64be } from "./bytes.js";
 import { KeypairError } from "./error.js";
-import { X25519PublicKey, X25519Secret } from "./x25519.js";
+import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
@@ -21,6 +21,14 @@ export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
+
+export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
+
+export const INFO_RECIPIENT_VIEW_TAG_SECRET = "TSPP/recipient_view_tag";
+
+export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
+
+export const INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX = "TSPP/recipient_request_view_tag/";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -63,7 +71,7 @@ const DERIVATION_PAYLOAD_PREFIX_BYTES = encoder.encode(DERIVATION_PAYLOAD_PREFIX
 /**
  * Solana off-chain message v0: magic || version=0 || application_domain ||
  * format=0 (restricted ASCII) || signer_count=1 || signer || len u16 LE ||
- * payload. This is the exact byte string the ed25519 rail signs.
+ * payload. This is the exact byte string the eddsa rail signs.
  */
 export function ed25519DerivationMessage(signerPublicKey: Bytes32): Uint8Array {
   const payload = encoder.encode(ED25519_DERIVATION_MSG);
@@ -140,7 +148,7 @@ function checkedViewingSecret(secret: Uint8Array): Bytes32 {
 
 /** ECDH rejects low-order peers through Noble's all-zero check. */
 export function x25519Ecdh(secret: Uint8Array, peer: X25519PublicKey): Uint8Array {
-  const key = X25519Secret.fromBytes(secret);
+  const key = X25519Keypair.fromBytes(secret);
   try {
     return key.ecdh(peer);
   } finally {
@@ -185,6 +193,16 @@ export function viewRoot(secret: Uint8Array): Uint8Array {
   } finally {
     canonical.fill(0);
   }
+}
+
+/** A zero byte then 31 HKDF bytes, `info = prefix || u64_be(counter)`. */
+export function counterViewTag(secret: Uint8Array, prefix: string, counter: bigint): Bytes32 {
+  const info = new Uint8Array(prefix.length + 8);
+  info.set(encoder.encode(prefix), 0);
+  info.set(u64be(counter), prefix.length);
+  const tag = new Uint8Array(32) as Bytes32;
+  tag.set(hkdfExpand(undefined, secret, info, 31), 1);
+  return tag;
 }
 
 export type Rail = "ed25519";

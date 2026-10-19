@@ -8,7 +8,9 @@ export {
   type DeriveRequest,
   type ShieldedKeys,
   type TransactionKeyRequest,
+  type ViewTagRequest,
 } from "../transaction/wallet/keys.js";
+export type { ViewTagCounters } from "../transaction/wallet/tag-streams.js";
 export { LocalKeys } from "../client/keys.js";
 export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
 export type {
@@ -57,6 +59,7 @@ export {
   type SyncClient,
   type SyncWalletConfig,
   type SyncWalletInput,
+  type SyncWalletReport,
 } from "./sync.js";
 export {
   loadPersistedWallet,

@@ -463,7 +463,7 @@ describe("a transfer reading its input from a cache", () => {
       [nonInclusionProof(input(value, 0).nullifier())],
       { kind: "ring", ring: RING },
     );
-    expect(assembled.instructionData.circuit.kind).toBe("ringEddsaCached");
+    expect(assembled.instructionData.circuit.kind).toBe("confidentialRingEddsaCached");
     expect(assembled.proverInputs.circuit).toBe("transferRing");
   });
 });

@@ -32,12 +32,11 @@ package base
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 // auditEncInfo is the key-schedule info string. It MUST equal the Rust
@@ -126,7 +125,6 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [12]frontend.Variable
 	w.InputCountSelected[0] = api.Sub(1, w.Anonymous)
 	// (a) Prove the disclosed plaintext is the unique clamped byte encoding of
 	// its X25519 key. The generator constrains all remaining bytes below.
-	rangeChecker := rangecheck.New(api)
 	low := api.ToBinary(w.TxViewingSk[0], 8)
 	top := api.ToBinary(w.TxViewingSk[31], 8)
 	for i := 0; i < 3; i++ {
@@ -150,7 +148,7 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [12]frontend.Variable
 		Info:      auditEncInfo,
 	}.Seal(api)
 	legacyOutputHashChain, legacyDisclosureHash := disclosureElements(
-		api, rangeChecker, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
+		api, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
 	outputHashChain, disclosureHash := anonymousDisclosureElements(api, w)
 	outputHashChain = api.Select(w.Anonymous, outputHashChain, legacyOutputHashChain)

@@ -32,10 +32,10 @@ pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
             path.display()
         );
     }
-    let material = load_existing_wallet(&path)?.with_fee_payer(opts.wallet.fee_payer.as_deref())?;
+    let material = load_existing_wallet(&path)?;
     let rpc = SolanaRpc::new(resolve_rpc_url(opts.wallet.rpc_url.as_deref(), &config));
-    let owner = material.owner_pubkey();
-    match register_if_absent(&rpc, &material.fee_payer, &material.keypair)? {
+    let owner = material.funding.pubkey();
+    match register_if_absent(&rpc, &material.funding, &material.keypair)? {
         StrictRegistration::Written(signature) => {
             println!("ok register owner={owner} record=written signature={signature}")
         }
@@ -57,7 +57,7 @@ pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;
-    let owner = material.owner_pubkey();
+    let owner = material.funding.pubkey();
 
     let enabled = match (opts.enable, opts.disable) {
         (true, false) => true,
@@ -69,8 +69,8 @@ pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     let instructions = [set_merging_enabled(user_record, owner, enabled)];
     let signature = rpc.create_and_send_transaction(
         &instructions,
-        Address::new_from_array(material.fee_payer.pubkey().to_bytes()),
-        &[&material.fee_payer, &material.keypair],
+        Address::new_from_array(owner.to_bytes()),
+        &[&material.funding],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
 

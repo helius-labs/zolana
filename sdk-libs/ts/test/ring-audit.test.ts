@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
 import { address, type Signature } from "@solana/kit";
@@ -84,10 +84,10 @@ const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as B
 
 describe("ring audit encryption", () => {
   it("matches the Go vectors", () => {
-    const ephemeral = X25519Secret.fromBytes(EPH_SK);
+    const ephemeral = X25519Keypair.fromBytes(EPH_SK);
     const auditor = X25519PublicKey.fromBytes(AUDITOR_PK);
     expect(ephemeral.publicKey().toBytes()).toEqual(EPH_PK);
-    expect(X25519Secret.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
+    expect(X25519Keypair.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
     const dh = ephemeral.ecdh(auditor);
     expect(dh).toEqual(DH);
     expect(auditSharedSecret(dh, ephemeral.publicKey(), auditor)).toEqual(SHARED_SECRET);
@@ -96,13 +96,13 @@ describe("ring audit encryption", () => {
       ciphertext: CIPHERTEXT,
       disclosure: ZERO_DISCLOSURE,
     };
-    expect(decryptTransactionViewingSecret(X25519Secret.fromBytes(AUDITOR_SK), message)).toEqual(
+    expect(decryptTransactionViewingSecret(X25519Keypair.fromBytes(AUDITOR_SK), message)).toEqual(
       TX_SK,
     );
   });
 
   it("round-trips under a fresh ephemeral key and publishes the complete audit message", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const encrypted = encryptTransactionViewingSecret(TX_SK, auditor.publicKey());
     expect(decryptTransactionViewingSecret(auditor, encrypted.message)).toEqual(TX_SK);
     const data = auditorMessageData(encrypted.message, auditor.publicKey());
@@ -205,7 +205,7 @@ describe("ring audit encryption", () => {
 await initializePoseidon();
 
 describe("ring audit spend records", () => {
-  const auditor = X25519Secret.generate();
+  const auditor = X25519Keypair.generate();
   const tx = ViewingKey.generate();
   const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
   const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
@@ -375,7 +375,7 @@ function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
 
 describe("anonymous ring audit", () => {
   const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
-  const auditor = X25519Secret.generate();
+  const auditor = X25519Keypair.generate();
   const tx = ViewingKey.generate();
   const member = ShieldedKeypair.generate();
   const source = member.shieldedAddress();

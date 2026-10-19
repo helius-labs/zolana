@@ -10,7 +10,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	merge "github.com/helius-labs/zolana/prover/server/prover/merge"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 const MaxBodyBytes = 8 << 20

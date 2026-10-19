@@ -11,7 +11,7 @@ use zolana_interface::{
     event::EventKind,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataPreimage, OwnerTag, ResolvedOutput, TransactIxDataRef,
+            CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
         },
         tag::InstructionTag,
         validate_input_tree_contexts,
@@ -176,8 +176,7 @@ pub fn hash_external_data<'a>(
 }
 
 /// Checks:
-/// 1. Circuit is allowed for the instruction type, and every AnonymousRingEd25519 output
-///    carries the inline zero owner tag
+/// 1. Circuit is allowed for the instruction type
 /// 2. Instruction data carries at least one input and at most the circuit's
 ///    (in, out) slots; the missing suffix is compact padding.
 /// 3. Circuit variant exists with in out public params is supported.
@@ -193,24 +192,16 @@ pub fn validate_circuit_type(
     // 1. Circuit is allowed for the instruction type.
     let circuit = ix.circuit.uncached();
     let circuit_matches = match instruction_tag {
-        InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEd25519(..)),
+        InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEddsa(..)),
         InstructionTag::RingTransact => matches!(
             circuit,
-            CircuitId::ConfidentialRingEd25519(..) | CircuitId::AnonymousRingEd25519(..)
+            CircuitId::ConfidentialRingEddsa(..) | CircuitId::AnonymousRingEddsa(..)
         ),
         InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,
     };
     if !circuit_matches {
         return Err(ShieldedPoolError::MismatchedCircuitType.into());
-    }
-    if matches!(circuit, CircuitId::AnonymousRingEd25519(..))
-        && ix
-            .outputs
-            .iter()
-            .any(|output| output.owner_tag != OwnerTag::Inline([0u8; 32]))
-    {
-        return Err(ShieldedPoolError::AnonymousRingEd25519OutputOwnerTag.into());
     }
     if ix.inputs.is_empty() // 2.
         || usize::from(ix.circuit.num_inputs()) < ix.inputs.len() // 2.

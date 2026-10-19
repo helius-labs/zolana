@@ -520,7 +520,7 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
     zolana_interface::instruction::instruction_data::transact::TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialRingEd25519(1, 1, zolana_interface::N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEddsa(1, 1, zolana_interface::N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),

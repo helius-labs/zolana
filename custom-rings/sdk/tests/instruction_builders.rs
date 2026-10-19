@@ -27,7 +27,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{SigningKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{SigningKey, X25519Keypair, X25519Pubkey};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -50,7 +50,7 @@ fn authority() -> Address {
 }
 
 fn auditor_pubkey() -> X25519Pubkey {
-    X25519Secret::new().pubkey()
+    X25519Keypair::new().pubkey()
 }
 
 fn sol_deposit_entry() -> RingAssetDeposit {
@@ -781,14 +781,14 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// Representative confidential `ConfidentialRingEd25519` content carrying the auditor message
+/// Representative confidential `ConfidentialRingEddsa` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [61; 32],
-        circuit: CircuitId::ConfidentialRingEd25519(2, 3, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [62; 33],
         salt: [63; 16],
         inputs: Vec::new(),

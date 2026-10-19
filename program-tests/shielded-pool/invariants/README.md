@@ -4,8 +4,8 @@ Test-coverage checklist derived from the program source. Detailed invariants
 live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
-P-256 ownership and its selectors are retired. Runtime Ed25519 ownership and
-anonymous Ed25519 proofs are distinct authorization paths. Historical IDs below
+P-256 ownership and its selectors are retired. Runtime EdDSA ownership and
+anonymous EdDSA proofs are distinct authorization paths. Historical IDs below
 remain stable, with retired coverage identified in the per-instruction files.
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
@@ -147,8 +147,8 @@ manage a cache account holding up to 36 UTXO hashes, set by verified merges and
 transacts that its immutable write authority signs. Every owner-signed transact
 circuit includes a cache selection in its public input hash whether or not a
 cache is supplied, so a cached spend verifies against its rail's ordinary key
-through one cached `CircuitId` twin per rail (`ConfidentialEd25519Cached`,
-`ConfidentialRingEd25519Cached`); `RingAuthority` binds no selection.
+through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
+`ConfidentialRingEddsaCached`); `RingAuthority` binds no selection.
 INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Post-PR172 sync (2026-07-31):

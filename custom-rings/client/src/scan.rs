@@ -18,7 +18,7 @@ use std::{
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
 };
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 
 use solana_signature::Signature;
 use zolana_client::{IndexerRpcConfig, Rpc};
@@ -70,7 +70,7 @@ pub struct RingScan<'a> {
 /// Scans and audits the bounded page range in one operation.
 pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
-    auditor: &'a X25519Secret,
+    auditor: &'a X25519Keypair,
     mode: RingMode,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
@@ -194,7 +194,7 @@ impl<'a> RingScan<'a> {
 }
 
 impl<'a> RingAudit<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor: &'a X25519Secret) -> Self {
+    pub fn new(ring_program_id: solana_address::Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring_program_id,
             auditor,

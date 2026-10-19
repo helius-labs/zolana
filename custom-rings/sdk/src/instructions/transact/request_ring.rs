@@ -9,7 +9,7 @@ use zolana_client::{
     ClientError, ProofInputUtxo,
 };
 use zolana_interface::tree_slot::{tree_id_field, TreeSlot};
-use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_policy::{
     VelocityRow, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS,
     POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
@@ -188,7 +188,7 @@ pub struct CustomRingPolicyProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
-    pub ephemeral_key: X25519Secret,
+    pub ephemeral_key: X25519Keypair,
     pub auditor_key: X25519Pubkey,
     pub salt: [u8; 16],
     pub n_in: u8,
@@ -217,7 +217,7 @@ pub struct CustomRingBaseProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
-    pub ephemeral_key: X25519Secret,
+    pub ephemeral_key: X25519Keypair,
     pub auditor_key: X25519Pubkey,
     pub salt: [u8; 16],
     pub outputs: Vec<ProofInputUtxo>,
@@ -717,11 +717,9 @@ mod tests {
             recipient_viewing_keys: [[0; 33]; POLICY_OUTPUT_SLOTS],
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
-            tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),
-            ephemeral_key: X25519Secret::from_bytes(&[4u8; 32]).expect("ephemeral key"),
-            auditor_key: X25519Secret::from_bytes(&[5u8; 32])
-                .expect("auditor key")
-                .pubkey(),
+            tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]),
+            ephemeral_key: X25519Keypair::from_bytes(&[4u8; 32]),
+            auditor_key: X25519Keypair::from_bytes(&[5u8; 32]).pubkey(),
             salt: [10u8; 16],
             n_in: 2,
             n_out: 2,

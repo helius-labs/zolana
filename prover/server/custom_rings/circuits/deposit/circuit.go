@@ -5,10 +5,9 @@ package deposit
 import (
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
@@ -64,7 +63,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(disabled, c.Blindings[i]), 0)
 		// An anonymous ring can admit only Ed25519-owned notes. The opening
 		// binds the hidden owner key to the deposited owner commitment.
-		identity := checked.SolanaOwnerIdentity(api, c.OwnerKeys[i])
+		identity := gadget.SolanaOwnerIdentity(api, c.OwnerKeys[i])
 		api.AssertIsEqual(api.Mul(c.Anonymous, enabled[i], api.Sub(c.OwnerPkHashes[i], identity)), 0)
 		for _, b := range c.OwnerKeys[i] {
 			api.AssertIsEqual(api.Mul(api.Sub(1, api.Mul(c.Anonymous, enabled[i])), b), 0)

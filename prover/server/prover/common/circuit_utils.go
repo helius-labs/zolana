@@ -44,7 +44,7 @@ type RingProofSystem struct {
 
 // TransferProofSystem holds the keys and constraints for one transaction shape.
 // HasCommitment preserves a legacy key-header bit, not the verifier configuration.
-// Ed25519 keys carry commitments with this bit unset. Confidential selects the owner-tag-binding variant.
+// Confidential selects the owner-tag-binding variant.
 type TransferProofSystem struct {
 	CircuitType      CircuitType
 	NInputs          uint32

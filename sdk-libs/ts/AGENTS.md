@@ -14,6 +14,9 @@ a defect.
 - Security and correctness paths MUST fail closed. Unsupported, ambiguous,
   malformed, stale, partially decoded, or unauthenticated state is an error,
   never an empty result, default value, successful sync, or best-effort skip.
+  One exception: a third-party transaction's undecodable viewing key is read
+  as absent and its outputs as not ours, because a transaction is untrusted
+  input and a permanent sync failure is the attack.
 - Every invariant MUST have one implementation owner and adversarial tests at
   the boundary where it can fail. Copying policy is forbidden.
 - Probabilistic filters, caches, and heuristics may optimize the average path

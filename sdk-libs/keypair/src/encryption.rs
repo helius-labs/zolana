@@ -14,7 +14,7 @@ use crate::{
     },
     error::KeypairError,
     hash::poseidon,
-    x25519::{X25519Pubkey, X25519Secret, X25519_PUBKEY_LEN},
+    x25519::{X25519Keypair, X25519Pubkey, X25519_PUBKEY_LEN},
 };
 
 type Aes256Ctr = Ctr32BE<Aes256>;
@@ -98,7 +98,7 @@ fn derive_key_nonce(
 }
 
 pub(crate) fn encrypt_utxo(
-    ephemeral_secret_key: &X25519Secret,
+    ephemeral_secret_key: &X25519Keypair,
     recipient_pubkey: &X25519Pubkey,
     plaintext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -115,7 +115,7 @@ pub(crate) fn encrypt_utxo(
 }
 
 pub(crate) fn encrypt_ring_deposit(
-    ephemeral_secret_key: &X25519Secret,
+    ephemeral_secret_key: &X25519Keypair,
     recipient_pubkey: &X25519Pubkey,
     plaintext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -131,7 +131,7 @@ pub(crate) fn encrypt_ring_deposit(
 }
 
 fn encrypt_payload(
-    ephemeral_secret_key: &X25519Secret,
+    ephemeral_secret_key: &X25519Keypair,
     recipient_pubkey: &X25519Pubkey,
     plaintext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -148,7 +148,7 @@ fn encrypt_payload(
 }
 
 pub(crate) fn decrypt_utxo(
-    viewing_secret_key: &X25519Secret,
+    viewing_secret_key: &X25519Keypair,
     ephemeral_pubkey: &X25519Pubkey,
     ciphertext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -165,7 +165,7 @@ pub(crate) fn decrypt_utxo(
 }
 
 pub(crate) fn decrypt_ring_deposit(
-    viewing_secret_key: &X25519Secret,
+    viewing_secret_key: &X25519Keypair,
     ephemeral_pubkey: &X25519Pubkey,
     ciphertext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -181,7 +181,7 @@ pub(crate) fn decrypt_ring_deposit(
 }
 
 fn decrypt_payload(
-    viewing_secret_key: &X25519Secret,
+    viewing_secret_key: &X25519Keypair,
     ephemeral_pubkey: &X25519Pubkey,
     ciphertext: &[u8],
     salt: &[u8; SALT_LEN],
@@ -198,7 +198,7 @@ fn decrypt_payload(
 }
 
 pub(crate) fn decrypt_utxo_ephemeral(
-    ephemeral_secret_key: &X25519Secret,
+    ephemeral_secret_key: &X25519Keypair,
     recipient_pubkey: &X25519Pubkey,
     ciphertext: &[u8],
     salt: &[u8; SALT_LEN],

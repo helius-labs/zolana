@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { readFileSync } from "node:fs";
@@ -326,7 +326,7 @@ describe("ring transact settlement", () => {
 
 describe("ring config", () => {
   const AUTHORITY = addressOf(12);
-  const AUDITOR = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
+  const AUDITOR = X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey();
 
   it("builds create config like Rust `CreateConfig`", async () => {
     const instruction = await createRingConfigInstruction({
@@ -1006,7 +1006,7 @@ describe("ring status", () => {
         ringProgramId: addressOf(7),
         state: "foreignAuditor",
         configAuditorPubkey: Buffer.from(
-          X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+          X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
         ).toString("base64"),
         servicePubkey: addressOf(22),
       },
@@ -1021,7 +1021,7 @@ describe("ring status", () => {
 
     expect(status.state).toBe("foreignAuditor");
     expect(status.configAuditorPublicKey?.toBytes()).toEqual(
-      X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+      X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
     );
     expect(status.servicePublicKey).toBe(addressOf(22));
   });
@@ -1323,7 +1323,12 @@ describe("ring transact", () => {
   const transactData = () => ({
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     privateTxHash: filled(41, 32) as Bytes32,
-    circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 } as const,
+    circuit: {
+      kind: "confidentialRingEddsa",
+      inputs: 2,
+      outputs: 3,
+      publicAssetSlots: 3,
+    } as const,
     txViewingPk: filled(3, 33) as Bytes33,
     salt: filled(42, 16) as Bytes16,
     proof: {
@@ -1602,7 +1607,7 @@ describe("ring transact", () => {
 // The P-256 key of the scalar [46; 32], its record printed by the Rust builders.
 const P256_HEX = "02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8";
 const X25519_HEX = Buffer.from(
-  X25519Secret.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
+  X25519Keypair.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
 ).toString("hex");
 
 describe("ring reader delegation", () => {
@@ -2231,7 +2236,7 @@ describe("ring read request", () => {
 
   const serviceSecret = filled(9, 32);
   const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
-  const auditor = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
+  const auditor = X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey();
   const genesisHash = filled(4, 32) as Bytes32;
   const auditorKeyResult = (signature: Uint8Array) => ({
     ringProgramId: RING,

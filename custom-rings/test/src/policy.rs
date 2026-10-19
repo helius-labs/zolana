@@ -2,7 +2,7 @@
 //! tables they pin.
 
 use std::num::NonZeroU64;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
@@ -106,7 +106,7 @@ impl CuratedRings {
         RegisterRing {
             ring: curator,
             payer: &env.payer,
-            auditor_pubkey: X25519Secret::new().pubkey(),
+            auditor_pubkey: X25519Keypair::new().pubkey(),
             tier: Tier::policy(&BLOCK_ONLY, env.tree),
         }
         .send(env.client.rpc())?;
@@ -141,6 +141,7 @@ impl RingNotes<'_> {
                     asset: DepositAsset::Sol,
                     amount: self.amount,
                     cosigner: None,
+                    anonymous_view_tag: None,
                 }
                 .send(custom_ring_sdk::DepositProofEnvironment {
                     indexer,

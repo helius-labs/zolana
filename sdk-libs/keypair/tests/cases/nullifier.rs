@@ -34,7 +34,7 @@ pub(crate) fn expand_viewing_pubkey(seed: &[u8], info: &[u8]) -> X25519Pubkey {
     hkdf::Hkdf::<sha2::Sha256>::new(None, seed)
         .expand(info, &mut okm)
         .unwrap();
-    ViewingKey::from_bytes(&okm).unwrap().pubkey()
+    ViewingKey::from_bytes(&okm).pubkey()
 }
 
 pub(crate) fn derivation_seed_matches_rail_primitives() {
@@ -49,7 +49,7 @@ pub(crate) fn derivation_seed_matches_rail_primitives() {
     );
 }
 
-pub(crate) fn ed25519_rail_matches_signature_entry_point() {
+pub(crate) fn eddsa_rail_matches_signature_entry_point() {
     let sig = dalek_derivation_seed(&[7u8; 32]);
     let device_secret = expand_nullifier_secret(&sig, b"TSPP/nf_key/ed25519/v1");
     let software =
@@ -57,7 +57,7 @@ pub(crate) fn ed25519_rail_matches_signature_entry_point() {
     assert_eq!(device_secret, *software.nullifier_key.secret());
 }
 
-pub(crate) fn solana_keypair_matches_ed25519_rail() {
+pub(crate) fn solana_keypair_matches_eddsa_rail() {
     let solana = solana_keypair::Keypair::new_from_array([7u8; 32]);
     let via_solana = ShieldedKeypair::from_keypair(&solana).unwrap();
     let via_signing =

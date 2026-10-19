@@ -37,26 +37,25 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         .map(|path| load_existing_wallet(Path::new(path)))
         .transpose()?;
     let authority_material = authority_material.as_ref().unwrap_or(&material);
-    let authority = &authority_material.keypair;
-    let fee_payer = &material.fee_payer;
+    let authority = &authority_material.funding;
     let mut rpc = SolanaRpc::new(sync.rpc_url);
 
     preflight_protocol_config(&rpc, authority.pubkey())?;
 
     if let Some(lamports) = opts.airdrop_lamports {
-        let signature = rpc.airdrop(&fee_payer.pubkey(), lamports)?;
+        let signature = rpc.airdrop(&authority.pubkey(), lamports)?;
         println!(
-            "ok airdrop payer={} signature={signature}",
-            fee_payer.pubkey()
+            "ok airdrop authority={} signature={signature}",
+            authority.pubkey()
         );
     }
 
     let token_program = token_program_id(opts.token_program);
-    let mint = create_mint(&rpc, authority, fee_payer, token_program)?;
+    let mint = create_mint(&rpc, authority, token_program)?;
     let token_account = ensure_owner_spl_token_account(
         &rpc,
-        fee_payer,
-        material.owner_pubkey(),
+        authority,
+        material.funding.pubkey(),
         Address::new_from_array(mint.to_bytes()),
     )?
     .map(|(token_account, _)| token_account)
@@ -64,14 +63,13 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     mint_to(
         &rpc,
         authority,
-        fee_payer,
         &mint,
         &token_account,
         token_program,
         opts.amount,
     )?;
-    ensure_asset_counter(&rpc, authority, fee_payer)?;
-    ensure_spl_interface(&rpc, authority, fee_payer, &mint, token_program)?;
+    ensure_asset_counter(&rpc, authority)?;
+    ensure_spl_interface(&rpc, authority, &mint, token_program)?;
     let asset_id = fetch_asset_id(&rpc, mint)?;
 
     let mut config = CliConfigFile::load()?;
@@ -82,7 +80,7 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         mint,
         asset_id,
         token_account,
-        material.owner_pubkey(),
+        material.funding.pubkey(),
         opts.amount
     );
     Ok(())
@@ -128,16 +126,11 @@ fn token_program_id(kind: TestMintTokenProgram) -> Pubkey {
     }
 }
 
-fn create_mint(
-    rpc: &SolanaRpc,
-    authority: &dyn Signer,
-    fee_payer: &Keypair,
-    token_program: Pubkey,
-) -> Result<Pubkey> {
+fn create_mint(rpc: &SolanaRpc, authority: &Keypair, token_program: Pubkey) -> Result<Pubkey> {
     let mint = Keypair::new();
     let rent = rpc.get_minimum_balance_for_rent_exemption(SPL_TOKEN_MINT_ACCOUNT_LEN)?;
     let create_ix = system_create_account_ix(
-        &fee_payer.pubkey(),
+        &authority.pubkey(),
         &mint.pubkey(),
         rent,
         SPL_TOKEN_MINT_ACCOUNT_LEN as u64,
@@ -151,12 +144,12 @@ fn create_mint(
         accounts: vec![AccountMeta::new(mint.pubkey(), false)],
         data,
     };
-    let payer = Address::new_from_array(fee_payer.pubkey().to_bytes());
+    let payer = Address::new_from_array(authority.pubkey().to_bytes());
     let instructions = [create_ix, init_ix];
     let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
-        &[fee_payer, &mint],
+        &[authority, &mint],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!(
@@ -168,8 +161,7 @@ fn create_mint(
 
 fn mint_to(
     rpc: &SolanaRpc,
-    authority: &dyn Signer,
-    fee_payer: &Keypair,
+    authority: &Keypair,
     mint: &Pubkey,
     token_account: &Pubkey,
     token_program: Pubkey,
@@ -186,22 +178,18 @@ fn mint_to(
         ],
         data,
     }];
-    let payer = Address::new_from_array(fee_payer.pubkey().to_bytes());
+    let payer = Address::new_from_array(authority.pubkey().to_bytes());
     let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
-        &[fee_payer, authority],
+        &[authority],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok mint_to amount={amount} signature={signature}");
     Ok(())
 }
 
-fn ensure_asset_counter(
-    rpc: &SolanaRpc,
-    authority: &dyn Signer,
-    fee_payer: &Keypair,
-) -> Result<()> {
+fn ensure_asset_counter(rpc: &SolanaRpc, authority: &Keypair) -> Result<()> {
     let counter = pda::spl_asset_counter();
     if rpc
         .get_account(Address::new_from_array(counter.to_bytes()))?
@@ -214,11 +202,11 @@ fn ensure_asset_counter(
         authority: authority.pubkey(),
     }
     .instruction()];
-    let payer = Address::new_from_array(fee_payer.pubkey().to_bytes());
+    let payer = Address::new_from_array(authority.pubkey().to_bytes());
     let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
-        &[fee_payer, authority],
+        &[authority],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok create_asset_counter account={counter} signature={signature}");
@@ -227,8 +215,7 @@ fn ensure_asset_counter(
 
 fn ensure_spl_interface(
     rpc: &SolanaRpc,
-    authority: &dyn Signer,
-    fee_payer: &Keypair,
+    authority: &Keypair,
     mint: &Pubkey,
     token_program: Pubkey,
 ) -> Result<()> {
@@ -246,11 +233,11 @@ fn ensure_spl_interface(
         token_program,
     }
     .instruction()];
-    let payer = Address::new_from_array(fee_payer.pubkey().to_bytes());
+    let payer = Address::new_from_array(authority.pubkey().to_bytes());
     let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
-        &[fee_payer, authority],
+        &[authority],
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok create_spl_interface mint={mint} registry={registry} signature={signature}");

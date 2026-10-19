@@ -238,7 +238,6 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
-
 	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err

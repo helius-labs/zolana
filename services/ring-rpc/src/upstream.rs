@@ -543,7 +543,7 @@ mod tests {
     fn config_accounts_require_the_canonical_layout() {
         let ring = Address::new_from_array([9; 32]);
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
-        let key = zolana_keypair::X25519Secret::new().pubkey();
+        let key = zolana_keypair::X25519Keypair::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
         assert_eq!(
             ConfigAccount {

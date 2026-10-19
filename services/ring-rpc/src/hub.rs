@@ -11,7 +11,7 @@ use solana_signer::Signer;
 use thiserror::Error;
 use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 use zolana_client::ClientError;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 use zolana_ring_client::{auditor_view_tag, ReaderKey};
 use zolana_transaction::AssetRegistry;
 
@@ -129,7 +129,7 @@ enum RefreshState {
 
 struct AuditServiceInit<S> {
     ring: Address,
-    auditor: X25519Secret,
+    auditor: X25519Keypair,
     shared: Arc<Shared<S>>,
 }
 
@@ -407,7 +407,7 @@ impl<S: TransactionSource> HubBuilder<S> {
         self
     }
 
-    pub fn local(self, ring: Address, auditor: X25519Secret) -> Result<Hub<S>, RingRpcError> {
+    pub fn local(self, ring: Address, auditor: X25519Keypair) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(auditor.secret_bytes().as_slice())?;
         Ok(Hub {
             signer,

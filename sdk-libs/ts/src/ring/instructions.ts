@@ -201,7 +201,7 @@ type RingTransactCommon = RingTransactTrees &
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
-      /** Non-payer input owners, the ed25519 rail adds them as signers. */
+      /** Non-payer input owners, the eddsa rail adds them as signers. */
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
       withdrawal?: TransactWithdrawal;

@@ -136,7 +136,7 @@ impl LifecycleHarness {
         for name in &actor_names {
             let signer = Keypair::new();
             self.rpc.airdrop(&signer.pubkey(), ACTOR_FEE_FUNDING)?;
-            let actor = Actor::eddsa(signer)?;
+            let actor = Actor::ed25519(signer)?;
             self.actors.insert(name.clone(), actor);
         }
 

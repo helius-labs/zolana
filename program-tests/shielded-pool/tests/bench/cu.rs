@@ -38,7 +38,7 @@ use shielded_pool_tests::support::{
     fixtures::Pool,
     merge::RealMergeProof,
     mollusk,
-    ring::RealRingTransact,
+    ring::{RealRingTransact, RingRail},
     transact::{current_tree_roots, tree_roots},
 };
 use zolana_interface::{
@@ -200,8 +200,9 @@ fn bench_cu_deposit() {
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
              proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the \
              narrowest and widest shape of every output count (up to the 1x16 split shape \
-             and the 49x2 widest input shape), the 49x2 shape on the `ring_transact` rail \
-             with runtime Ed25519 authorization, every supported `merge_transact` shape, compact \
+             and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
+             (EdDSA, and anonymous EdDSA whose BSB22 commitment adds a Pedersen proof-of-knowledge \
+             pairing to verification), every supported `merge_transact` shape, compact \
              padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL \
              withdrawals. This target is a pure \
              benchmark: no \
@@ -256,7 +257,15 @@ fn bench_cu_deposit() {
     for (n_inputs, n_outputs) in [(2, 4), (49, 2)] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, true, &mut bench);
     }
-    bench_ring_transfer_shape(&mut mollusk, &program_id, Shape::IN49_OUT2, &mut bench);
+    for rail in [RingRail::Eddsa, RingRail::AnonymousEddsa] {
+        bench_ring_transfer_shape(
+            &mut mollusk,
+            &program_id,
+            rail,
+            Shape::IN49_OUT2,
+            &mut bench,
+        );
+    }
     for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
         bench_merge_shape(&mut mollusk, &program_id, input_count, 1, false, &mut bench);
     }
@@ -632,7 +641,7 @@ fn bench_transfer_shape(
         inline_outputs(&output_hashes, &view_tags),
     );
     transact_ix_data.circuit =
-        CircuitId::ConfidentialEd25519(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
+        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut nullifier_pks = vec![nullifier_pk];
@@ -763,6 +772,7 @@ fn bench_cached_transfer_shape(
 fn bench_ring_transfer_shape(
     mollusk: &mut Mollusk,
     program_id: &Pubkey,
+    rail: RingRail,
     shape: Shape,
     bench: &mut CuBenchmark,
 ) {
@@ -772,6 +782,7 @@ fn bench_ring_transfer_shape(
 
     let ring_program = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let proof = RealRingTransact {
+        rail,
         n_inputs: shape.n_inputs(),
         n_outputs: shape.n_outputs(),
         ring_config: pda::ring_auth(&ring_program).0,
@@ -787,7 +798,7 @@ fn bench_ring_transfer_shape(
     let entries = take_profiling_entries();
     let name = format!(
         "transfer {} {}x{}",
-        "ring ed25519",
+        rail.label(),
         shape.n_inputs(),
         shape.n_outputs()
     );

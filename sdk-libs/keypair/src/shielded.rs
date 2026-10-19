@@ -166,7 +166,7 @@ impl Signer for ShieldedKeypair {
 }
 
 impl ShieldedKeypair {
-    /// A fresh random keypair on the ed25519 rail: both role keys expand from
+    /// A fresh random keypair on the eddsa rail: both role keys expand from
     /// the deterministic signature over the derivation message, and the owner
     /// has a Solana address.
     pub fn new_ed25519() -> Result<Self, KeypairError> {

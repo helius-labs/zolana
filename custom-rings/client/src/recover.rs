@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     num::{NonZeroU32, NonZeroUsize},
 };
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
@@ -40,7 +40,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(1000) {
 #[must_use = "run the recovery explicitly"]
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
-    auditor: &'a X25519Secret,
+    auditor: &'a X25519Keypair,
     mode: custom_ring_interface::RingMode,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -81,12 +81,12 @@ pub struct RecoveredNotes {
     /// Audited or merge commitments without verified openings or confirmed
     /// spends.
     pub unopened: Vec<[u8; 32]>,
-    /// Deposits without a confirmed audit binding.
+    /// Deposits with unknown ownership and spentness.
     pub unsupported_deposits: Vec<[u8; 32]>,
 }
 
 impl<'a> RingRecovery<'a> {
-    pub fn new(ring_program_id: Address, auditor: &'a X25519Secret) -> Self {
+    pub fn new(ring_program_id: Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring_program_id,
             auditor,
@@ -280,14 +280,16 @@ impl<'a> MemberRecovery<'a> {
                 unsupported_deposits.push(output_context.hash);
                 continue;
             };
-            let opening = (DepositOpen {
+            let Ok(opening) = (DepositOpen {
                 capsule,
                 auditor: self.recovery.auditor,
                 owner_utxo_hash: &output.owner_utxo_hash,
                 confirmed,
             })
-            .open()
-            .map_err(|_| RecoveryError::DepositOpeningMismatch)?;
+            .open() else {
+                unsupported_deposits.push(output_context.hash);
+                continue;
+            };
             if opening.owner_hash != source_owner_hash {
                 continue;
             }

@@ -28,7 +28,7 @@ use zolana_user_registry_interface::user_record_pda;
 
 #[test]
 fn decodes_tagged_x25519_pubkey() {
-    let key = ViewingKey::from_bytes(&[1u8; 32]).unwrap().pubkey();
+    let key = ViewingKey::from_bytes(&[1u8; 32]).pubkey();
     let response = rpc_result(json!({
         "context": { "blockTime": 1, "slot": 1 },
         "transactions": [{
@@ -600,7 +600,7 @@ fn by_signature_error_path_includes_transaction_nesting() {
             "transaction": {
                 "slot": 1,
                 "txSignature": signature.to_string(),
-                "txViewingPk": STANDARD.encode([1u8; 16]),
+                "salt": STANDARD.encode([1u8; 15]),
                 "outputSlots": [],
                 "messages": [],
                 "nullifiers": [],
@@ -613,12 +613,10 @@ fn by_signature_error_path_includes_transaction_nesting() {
 
     let err = indexer
         .get_shielded_transactions_by_signature(signature, None)
-        .expect_err("short viewing key must fail");
+        .expect_err("short salt must fail");
     let _ = server.request();
 
-    assert!(err
-        .to_string()
-        .contains("transactions[0].transaction.txViewingPk"));
+    assert!(err.to_string().contains("transactions[0].transaction.salt"));
 }
 
 fn spend_record_query() -> RingSpendRecordRequest {
@@ -807,7 +805,7 @@ fn encode_pubkey_string(pubkey: Address) -> String {
 }
 
 fn tagged_x25519_pubkey(seed: u8) -> (Vec<u8>, X25519Pubkey) {
-    let key = ViewingKey::from_bytes(&[seed; 32]).unwrap().pubkey();
+    let key = ViewingKey::from_bytes(&[seed; 32]).pubkey();
     (key.as_bytes().to_vec(), key)
 }
 

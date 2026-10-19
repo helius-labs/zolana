@@ -34,6 +34,7 @@ import {
   type Wallet,
 } from "../transaction/wallet/state.js";
 import { decryptTransactions } from "../transaction/wallet/sync.js";
+import { TagStreams, type ViewTagCounters } from "../transaction/wallet/tag-streams.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
@@ -49,7 +50,6 @@ import {
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
-const ANONYMOUS_RING_TAG = new Uint8Array(32) as Bytes32;
 
 /** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
 export interface SyncClient extends Pick<
@@ -155,8 +155,7 @@ function positiveInteger(value: number, field: string, maximum = Number.MAX_SAFE
 /**
  * The stable tags a wallet asks the indexer about: one shielded-identity
  * signing tag for confidential transactions and one bootstrap tag per held
- * viewing key for deposits and key rotation. The zero tag fetches anonymous
- * ring outputs for trial decryption under every held viewing key.
+ * viewing key for deposits, first anonymous ring transfers and key rotation.
  *
  * Keys that do not belong to this wallet are refused here rather than by the
  * decrypt pass further down, because a tag is a query the indexer sees: a
@@ -172,7 +171,6 @@ function walletQueryTags(wallet: Wallet, keys: ShieldedKeys): readonly Bytes32[]
   };
   add(wallet.identity.signingPublicKey.confidentialViewTag());
   for (const key of held) add(key.x());
-  add(ANONYMOUS_RING_TAG);
   return [...tags.values()];
 }
 
@@ -487,10 +485,15 @@ export interface SyncWalletInput {
   readonly config?: SyncWalletConfig;
 }
 
+export interface SyncWalletReport extends SyncReport {
+  /** The current viewing key's sender and request tag counters, one past the highest found in use. */
+  readonly nextCounters: ViewTagCounters;
+}
+
 export async function syncWallet(
   input: SyncWalletInput,
   context?: RequestContext,
-): Promise<SyncReport> {
+): Promise<SyncWalletReport> {
   return runLockedWalletSync(input, context, (report) => report);
 }
 
@@ -502,7 +505,7 @@ export async function syncWallet(
 export async function runLockedWalletSync<T>(
   input: SyncWalletInput,
   context: RequestContext | undefined,
-  after: (report: SyncReport) => T | Promise<T>,
+  after: (report: SyncWalletReport) => T | Promise<T>,
 ): Promise<T> {
   await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
@@ -519,7 +522,7 @@ async function runWalletSync(
   }>,
   keys: ShieldedKeys,
   context?: RequestContext,
-): Promise<SyncReport> {
+): Promise<SyncWalletReport> {
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
@@ -549,37 +552,51 @@ async function runWalletSync(
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
     const tags = walletQueryTags(session.staging, keys);
+    const streams = new TagStreams(keys.viewingPublicKeys());
     // Tags are grouped by where each was last read to, because a chunk can only
     // carry one cursor. Mixing a tag at the tip with one learned this sync would
     // resume the new tag from the old one's position and skip its history
     // permanently -- which is why the watermarks are per tag, not per wallet.
-    // `undefined` (never queried) is its own group.
-    for (const stream of ["transactions", "proofless"] as const) {
-      const groups = groupByResumePoint(tags, (tag) =>
-        sessionCursor(session, stream, bytesKey(tag)),
-      );
+    // `undefined` (never queried) is its own group. A counter tag keeps no
+    // cursor, every sync reads it from the start, as the Rust scan does.
+    const collectTags = async (queried: readonly Bytes32[], resume: boolean): Promise<void> => {
+      for (const stream of ["transactions", "proofless"] as const) {
+        const groups = groupByResumePoint(queried, (tag) =>
+          resume ? sessionCursor(session, stream, bytesKey(tag)) : undefined,
+        );
 
-      for (const group of groups) {
-        for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
-          const chunk = group.keys.slice(offset, offset + chunkSize);
-          const collect =
-            stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
-          const furthest = await collect(
-            {
-              indexer: input.client,
-              chunk,
-              pageLimit,
-              nextRpcConfig,
-              out: stream === "transactions" ? transactions : deposits,
-              from: group.from,
-            },
-            context,
-          );
-          if (furthest !== undefined) {
-            advanceSessionCursors(session, stream, chunk, furthest);
+        for (const group of groups) {
+          for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
+            const chunk = group.keys.slice(offset, offset + chunkSize);
+            const collect =
+              stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
+            const furthest = await collect(
+              {
+                indexer: input.client,
+                chunk,
+                pageLimit,
+                nextRpcConfig,
+                out: stream === "transactions" ? transactions : deposits,
+                from: group.from,
+              },
+              context,
+            );
+            if (resume && furthest !== undefined) {
+              advanceSessionCursors(session, stream, chunk, furthest);
+            }
           }
         }
       }
+    };
+    await collectTags(tags, true);
+    for (
+      let window = await streams.nextWindow(keys, context);
+      window.length > 0;
+      window = await streams.nextWindow(keys, context)
+    ) {
+      await collectTags(window, false);
+      streams.record(transactions.values());
+      streams.record(deposits.values());
     }
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
@@ -618,13 +635,16 @@ async function runWalletSync(
       ...[...deposits.values()].sort(compareDeposits),
     ];
     let ordered = orderedTransactions();
-    let report = await decryptTransactions({
-      wallet: session.staging,
-      keys,
-      transactions: ordered,
-      config: decryptConfig,
-      context,
-    });
+    const decrypt = (): Promise<SyncReport> =>
+      decryptTransactions({
+        wallet: session.staging,
+        keys,
+        transactions: ordered,
+        config: decryptConfig,
+        viewTags: streams.usedTags(),
+        context,
+      });
+    let report = await decrypt();
     let registryRefreshed = false;
     if (
       report.unknownAssetIds.length > 0 ||
@@ -633,13 +653,7 @@ async function runWalletSync(
     ) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-        report = await decryptTransactions({
-          wallet: session.staging,
-          keys,
-          transactions: ordered,
-          config: decryptConfig,
-          context,
-        });
+        report = await decrypt();
       }
     }
 
@@ -654,13 +668,7 @@ async function runWalletSync(
     await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
-      report = await decryptTransactions({
-        wallet: session.staging,
-        keys,
-        transactions: ordered,
-        config: decryptConfig,
-        context,
-      });
+      report = await decrypt();
       if (
         !registryRefreshed &&
         (report.unknownAssetIds.length > 0 ||
@@ -668,13 +676,7 @@ async function runWalletSync(
           walletHasUnknownMint(session.staging))
       ) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-          report = await decryptTransactions({
-            wallet: session.staging,
-            keys,
-            transactions: ordered,
-            config: decryptConfig,
-            context,
-          });
+          report = await decrypt();
         }
       }
     }
@@ -690,7 +692,10 @@ async function runWalletSync(
       });
     }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
-    return report;
+    return Object.freeze({
+      ...report,
+      nextCounters: streams.nextCounters(session.staging.identity.viewingPublicKey),
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }

@@ -241,13 +241,13 @@ function circuitTag(value: CircuitId): number {
   switch (value.kind) {
     case "confidentialEddsa":
       return 0;
-    case "ringEddsa":
+    case "confidentialRingEddsa":
       return 1;
     case "ringAuthority":
       return 2;
     case "confidentialEddsaCached":
       return 4;
-    case "ringEddsaCached":
+    case "confidentialRingEddsaCached":
       return 5;
     default:
       return fail("INTERFACE_CODEC", { name: "circuit.kind" });
@@ -260,7 +260,8 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
-  if (value.kind !== "confidentialEddsaCached" && value.kind !== "ringEddsaCached") return;
+  if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
+    return;
   if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
     fail("INTERFACE_INVALID_SHAPE", {
       name: "circuit.cacheAccess",

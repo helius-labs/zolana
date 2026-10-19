@@ -4,8 +4,8 @@ A build with the `aeglos` tag proves on the GPU engine by default. Other builds
 prove with Gnark on CPU. `PROVER_BACKEND` set to `gnark` or `aeglos` overrides
 the default, and startup logs the selected backend.
 The `start` and `prove` commands reject an unknown backend or an unavailable GPU.
-Transfers, merges, custom rings, and forester proofs use the same
-backend boundary.
+Transfers, anonymous EdDSA transfers, merges, custom rings, and forester proofs
+use the same backend boundary.
 
 The GPU build requires CUDA 12.8 and Linux x86-64. The private
 [Aeglos repository](https://github.com/helius-labs/aeglos) contains the GPU engine.

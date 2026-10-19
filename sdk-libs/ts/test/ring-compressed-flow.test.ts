@@ -1,4 +1,4 @@
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   getAddressDecoder,
   getProgramDerivedAddress,
@@ -70,7 +70,7 @@ async function fixture(payer = PAYER) {
     programAddress: RING,
     seeds: [new TextEncoder().encode("policy")],
   });
-  const auditor = X25519Secret.fromBytes(field(2));
+  const auditor = X25519Keypair.fromBytes(field(2));
   const table = buildRuleTable({
     rules: [],
     windowSlots: 100n,

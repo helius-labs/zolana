@@ -158,10 +158,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
     )
     .hash()
     .expect("private tx hash");
-    let (ciphertext, _) = sample_ciphertext(
-        &order,
-        &destination_output.hash().expect("destination output hash"),
-    );
+    let (ciphertext, _) = sample_ciphertext(&order);
     let public_input_hash = TakeVerifiableEncryptionPublicInput {
         private_tx_hash: &private_tx_hash,
         expiry: order.expiry,
@@ -182,13 +179,9 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
     }
 }
 
-fn sample_ciphertext(
-    order: &OrderTermsProofInput,
-    destination_output_hash: &[u8; 32],
-) -> ([u8; DESTINATION_CIPHERTEXT_LEN], [u8; 32]) {
+fn sample_ciphertext(order: &OrderTermsProofInput) -> ([u8; DESTINATION_CIPHERTEXT_LEN], [u8; 32]) {
     destination_ciphertext_with_hash(
         &blinding(7),
-        destination_output_hash,
         &Address::new_from_array([2u8; 32]),
         order.destination_amount,
         &full_width_blinding(),
@@ -280,11 +273,7 @@ fn take_prove_verify_and_round_trip() {
         "groth16 proof must verify with new_with_commitment against the take verifying key"
     );
 
-    let destination_output_hash = inputs
-        .destination_output
-        .hash()
-        .expect("destination output hash");
-    let (ciphertext, ct_hash) = sample_ciphertext(&inputs.order, &destination_output_hash);
+    let (ciphertext, ct_hash) = sample_ciphertext(&inputs.order);
     assert_eq!(
         ciphertext_hash(&ciphertext).expect("program-side take ciphertext hash"),
         ct_hash,
@@ -317,8 +306,7 @@ fn take_prove_verify_and_round_trip() {
     );
 
     let (asset, amount, recovered_blinding) =
-        decrypt_destination(&blinding(7), &destination_output_hash, &ciphertext)
-            .expect("decrypt destination ciphertext");
+        decrypt_destination(&blinding(7), &ciphertext).expect("decrypt destination ciphertext");
     assert_eq!(
         (asset, amount),
         (

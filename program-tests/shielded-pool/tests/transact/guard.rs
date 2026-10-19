@@ -46,7 +46,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEd25519(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
@@ -176,7 +176,7 @@ fn ring_instruction(
             N_PUBLIC_SLOTS as u8,
         )
     } else {
-        CircuitId::ConfidentialRingEd25519(
+        CircuitId::ConfidentialRingEddsa(
             data.circuit.num_inputs(),
             data.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
@@ -332,7 +332,7 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
         interface_transfer_accounts: Vec::new(),
         data: {
             let mut data = transfer_ix_data(2, 4);
-            data.circuit = CircuitId::ConfidentialRingEd25519(2, 4, N_PUBLIC_SLOTS as u8);
+            data.circuit = CircuitId::ConfidentialRingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
             data
         },
     }

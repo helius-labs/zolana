@@ -31,8 +31,8 @@ var publicInputNames = [...]string{
 
 // PublicInputNames returns the PublicInputHash preimage order. Variant-specific
 // elements inserted after private_tx_hash (PreimageAfterPrivateTxHash) are not
-// listed. The anonymous Ed25519 rail binds its signed digest there. Cache elements
-// form the PreimageTail every owner-signed rail publishes, empty or not. Ring
+// listed; they exist only on the anonymous EdDSA rail. The two trailing cache elements
+// are the PreimageTail every owner-signed rail publishes, empty or not; ring
 // authority binds neither them nor the output owner tags.
 func PublicInputNames() []string {
 	out := make([]string, len(publicInputNames))
@@ -51,8 +51,8 @@ type PublicInputs struct {
 	OutputTreeID  *big.Int
 	PrivateTxHash *big.Int
 	// PreimageAfterPrivateTxHash holds the variant-specific elements inserted
-	// right after PrivateTxHash. Anonymous Ed25519 binds its message hash and a
-	// zero default-owner marker.
+	// right after PrivateTxHash: nil for the runtime-authorized EdDSA rails, the
+	// message hash and the default owner identity for the anonymous EdDSA rail.
 	PreimageAfterPrivateTxHash []*big.Int
 	PreimageTail               []*big.Int
 	ExternalDataHash           *big.Int

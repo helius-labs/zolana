@@ -606,6 +606,68 @@ describe("ZolanaClient", () => {
     expect(encryptedUtxos.scannedThrough).toEqual(Uint8Array.of(4));
   });
 
+  it("reads a malformed transaction viewing key as absent, never as a bad response", async () => {
+    const tag = "11111111111111111111111111111111";
+    const slot = {
+      viewTag: tag,
+      outputContext: { hash: tag, tree: TREE, treeId: TREE_ID, leafIndex: 3 },
+      payload: "",
+    };
+    const salt = Buffer.alloc(16, 1).toString("base64");
+    const responding = (result: Readonly<Record<string, unknown>>) =>
+      client(
+        vi.fn<typeof globalThis.fetch>(() =>
+          Promise.resolve(
+            new Response(JSON.stringify({ id: "test-account", jsonrpc: "2.0", result }), {
+              headers: { "content-type": "application/json" },
+            }),
+          ),
+        ),
+      );
+    const read = async (txViewingPk: string) => {
+      const transaction = {
+        slot: 1,
+        txSignature: "1".repeat(64),
+        txViewingPk,
+        salt,
+        outputSlots: [slot],
+        messages: [],
+        nullifiers: [],
+        proofless: false,
+      };
+      const transactions = await responding({
+        context: { blockTime: 1, slot: 1 },
+        transactions: [transaction],
+      }).getShieldedTransactionsByTags({ tags: [bytes(7)] });
+      const matches = await responding({
+        context: { blockTime: 1, slot: 1 },
+        matches: [{ slot: 1, txSignature: "1".repeat(64), outputSlot: slot, txViewingPk, salt }],
+      }).getEncryptedUtxosByTags({ tags: [bytes(7)] });
+      return { transaction: transactions.transactions[0], match: matches.matches[0] };
+    };
+
+    const wrongTag = Buffer.alloc(33, 9);
+    wrongTag[0] = 2;
+    const nonCanonical = Buffer.alloc(33, 255);
+    nonCanonical[0] = 4;
+    for (const malformed of [Buffer.alloc(32, 4), wrongTag, nonCanonical]) {
+      const { transaction, match } = await read(malformed.toString("base64"));
+      expect(transaction?.txViewingPublicKey).toBeUndefined();
+      expect(transaction?.salt).toEqual(new Uint8Array(16).fill(1));
+      expect(match?.txViewingPk).toBeUndefined();
+      expect(match?.salt).toEqual(new Uint8Array(16).fill(1));
+    }
+    const lowOrder = Buffer.alloc(33, 0);
+    lowOrder[0] = 4;
+    lowOrder[1] = 1;
+    const { transaction, match } = await read(lowOrder.toString("base64"));
+    expect(transaction?.txViewingPublicKey?.toBytes()).toEqual(new Uint8Array(lowOrder));
+    expect(match?.txViewingPk?.toBytes()).toEqual(new Uint8Array(lowOrder));
+    await expect(read("not base64!")).rejects.toMatchObject({
+      code: "CLIENT_INVALID_RPC_RESPONSE",
+    });
+  });
+
   it("forwards paginated nullifier lookups through the client facade", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
@@ -1178,7 +1240,7 @@ describe("prover indexer fetching", () => {
         FOREIGN_TREE,
         withRecordSlotSecret(keys, record.nullifier()),
       );
-      expect(result.data.circuit.kind).toBe("ringEddsa");
+      expect(result.data.circuit.kind).toBe("confidentialRingEddsa");
       expect(state).not.toHaveBeenCalled();
       expect(nullifier).not.toHaveBeenCalled();
       expect(fetch).toHaveBeenCalledOnce();

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
 
 use crate::{AuditorKeyArgs, ProjectRoot};
@@ -23,7 +23,7 @@ pub fn run(project_root: &ProjectRoot, args: AuditorKeyArgs) -> Result<(), KeyFi
     Ok(())
 }
 
-pub(crate) fn read_auditor_key(path: &Path) -> Result<X25519Secret, KeyFileError> {
+pub(crate) fn read_auditor_key(path: &Path) -> Result<X25519Keypair, KeyFileError> {
     KeyFile {
         path,
         access: KeyAccess::OwnerOnly,

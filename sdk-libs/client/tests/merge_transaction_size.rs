@@ -59,7 +59,7 @@ impl BuiltMerge {
 
 fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
     let sender = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
-        .expect("eddsa sender keypair");
+        .expect("ed25519 sender keypair");
     let owner = sender.signing_pubkey();
     let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");
     let mut indexer = TestIndexer::new();

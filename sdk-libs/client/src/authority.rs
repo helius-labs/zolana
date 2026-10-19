@@ -129,7 +129,7 @@ mod tests {
 
     fn keypair() -> ShieldedKeypair {
         ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(&[7u8; 32]))
-            .expect("eddsa keypair")
+            .expect("ed25519 keypair")
     }
 
     /// One real input of `owner` plus one padding slot, assembled the way every
@@ -180,7 +180,7 @@ mod tests {
             },
         ];
 
-        assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
+        assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
             .expect("assemble inputs")
             .inputs
     }
@@ -252,7 +252,7 @@ mod tests {
         let other = ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(
             &[9u8; 32],
         ))
-        .expect("eddsa keypair");
+        .expect("ed25519 keypair");
         let mut inputs = assembled_inputs(&owner);
 
         assert!(matches!(

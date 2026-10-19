@@ -72,7 +72,7 @@ pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
-        circuit: CircuitId::ConfidentialEd25519(1, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [2; 33],
         salt: [3; 16],
         proof: TransactProof::zeroed(),

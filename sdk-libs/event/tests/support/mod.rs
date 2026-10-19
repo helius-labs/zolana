@@ -44,7 +44,7 @@ pub fn transact_ix(
     TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [7u8; 32],
-        circuit: CircuitId::ConfidentialEd25519(
+        circuit: CircuitId::ConfidentialEddsa(
             u8::try_from(inputs.len()).expect("test shape"),
             u8::try_from(outputs.len()).expect("test shape"),
             0,

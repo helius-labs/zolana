@@ -14,7 +14,8 @@ use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::SppProofInputUtxo,
     Address, Data, DataRecord, DecodeCx, DecryptRequest, DeriveRequest, EncryptedScheme, Mint,
-    ShieldedKeys, TransactionError, TransactionKeyRequest, UtxoSerialization, WalletUtxo,
+    ShieldedKeys, TransactionError, TransactionKeyRequest, UtxoSerialization, ViewTagRequest,
+    WalletUtxo,
 };
 
 fn inputs(owner: &ShieldedKeypair, count: u8) -> Vec<WalletUtxo> {
@@ -541,6 +542,9 @@ impl ShieldedKeys for RecordingKeys {
             Reply::KeyError => Err(TransactionError::Authority("key".into())),
             _ => self.owner.transaction_keys(requests),
         }
+    }
+    fn view_tags(&self, requests: &[ViewTagRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.owner.view_tags(requests)
     }
 }
 

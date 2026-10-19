@@ -298,7 +298,7 @@ describe("cached ring settlement wire vectors", () => {
           TOKEN_ACCOUNT,
           TOKEN_PROGRAM,
           OTHER,
-          ...(index >= 1 ? [OTHER, OTHER] : []),
+          ...(index >= 2 ? [OTHER, OTHER] : []),
         ],
         data,
       };
@@ -324,7 +324,7 @@ function transactData(transfers: readonly InterfaceTransfer[]): string {
   const encoded = encodeTransactInstructionData({
     expiryUnixTs: 0n,
     privateTxHash: zeros(32) as Bytes32,
-    circuit: { kind: "ringEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
+    circuit: { kind: "confidentialRingEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
     txViewingPk: zeros(33) as Bytes33,
     salt: zeros(16) as Bytes16,
     proof: { a: zeros(32) as Bytes32, b: zeros(128) as Bytes128, c: zeros(32) as Bytes32 },
@@ -448,6 +448,40 @@ describe("confirmedRingWithdrawals", () => {
       ],
     );
     expect(confirmedRingWithdrawals(transaction, RING)).toEqual([
+      { recipient: TOKEN_ACCOUNT, asset: MINT, amount: 9n },
+    ]);
+  });
+
+  it("names the withdrawals of an anonymous ring transact", () => {
+    // custom-rings/client/tests/origin.rs pins the same payload.
+    const hex = readFileSync(
+      new URL("../../../test-vectors/anonymous_ring_settlement.hex", import.meta.url),
+      "utf8",
+    ).trim();
+    const tail = [
+      SOL_INTERFACE,
+      RECIPIENT,
+      SHIELDED_POOL_CPI_AUTHORITY,
+      MINT,
+      SPL_INTERFACE,
+      TOKEN_ACCOUNT,
+      TOKEN_PROGRAM,
+    ];
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [
+        {
+          programIdIndex: keyIndex(POOL),
+          accounts: [keyIndex(PAYER), ...tail.map(keyIndex)],
+          data: getBase58Decoder().decode(
+            Uint8Array.from([InstructionTag.ringTransact, ...Buffer.from(hex, "hex")]),
+          ),
+          stackHeight: 2,
+        },
+      ],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([
+      SOL_LEG,
       { recipient: TOKEN_ACCOUNT, asset: MINT, amount: 9n },
     ]);
   });

@@ -1,4 +1,4 @@
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { decryptRingDepositUtxo } from "../src/ring/deposit-payload.js";
 import { address, AccountRole, getAddressDecoder, type Signature } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -49,10 +49,10 @@ beforeAll(initializePoseidon);
 
 describe("deposit disclosure", () => {
   it("pins the shared Rust and Go encryption and statement vector", () => {
-    const auditor = X25519Secret.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
+    const auditor = X25519Keypair.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
     const generate = vi
-      .spyOn(X25519Secret, "generate")
-      .mockImplementation(() => X25519Secret.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
+      .spyOn(X25519Keypair, "generate")
+      .mockImplementation(() => X25519Keypair.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
     const sealed = sealRingDepositOpenings(
       [
         { ownerHash: field(1n), blinding: field(3n), recipientCiphertext: Uint8Array.of(1) },
@@ -94,7 +94,7 @@ describe("deposit disclosure", () => {
     }
   });
   it("opens every slot of one shared stream and preserves recipient ciphertext", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     // Odd slots disclose an owner key like an anonymous ring.
     const openings = Array.from({ length: 8 }, (_, index) => ({
       ownerHash: field(BigInt(index + 1)),
@@ -160,7 +160,7 @@ describe("deposit disclosure", () => {
   });
 
   it("binds the entire SPP wire, both program addresses, commitments, and ciphertext", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const sealed = sealRingDepositOpenings(
       [{ ownerHash: field(1n), blinding: field(2n), recipientCiphertext: Uint8Array.of(3) }],
       auditor.publicKey(),
@@ -193,7 +193,7 @@ describe("deposit disclosure", () => {
   });
 
   it("accepts legacy recipient ciphertext and unwraps disclosed deposits", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const envelope = ViewingKey.generate();
     const recipient = ShieldedKeypair.generate();
     const r = field(15n);
@@ -241,7 +241,7 @@ describe("deposit disclosure", () => {
   });
 
   it("wraps one proof around eight capsules and leaves the SPP deposit bytes intact", async () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const sealed = sealRingDepositOpenings(
       Array.from({ length: 8 }, () => ({
         ownerHash: field(1n),
@@ -311,8 +311,8 @@ describe("deposit disclosure", () => {
   });
 
   it("serializes the queued circuit contract and rejects noncanonical fields or padding", async () => {
-    const auditor = X25519Secret.generate();
-    const ephemeral = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
+    const ephemeral = X25519Keypair.generate();
     const input: CustomRingDepositProofRequest = {
       publicInputHash: field(1n),
       contextHash: field(2n),
@@ -470,7 +470,7 @@ describe("deposit audit control", () => {
   });
 
   it("sets the control with config authority and enables it only on opt-in initialization", async () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     try {
       const input = {
         ringProgramId: RING,
@@ -503,7 +503,7 @@ describe("deposit audit control", () => {
     { required: true, fails: false },
     { required: true, fails: true },
   ])("honors the deposit setting and wipes proof inputs %o", async ({ required, fails }) => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const recipient = ShieldedKeypair.generate();
     const [config, bump] = await ringConfigPda(RING);
     const [setting, settingBump] = await ringDepositAuditPda(RING);
@@ -542,7 +542,6 @@ describe("deposit audit control", () => {
       const building = buildRingDepositTransaction({
         client,
         ringProgramId: RING,
-        depositor: TREE,
         feePayer: TREE,
         recipient: recipient.shieldedAddress(),
         amount: 1n,
@@ -563,7 +562,7 @@ describe("deposit audit control", () => {
 
 describe("deposit builder ring mode", () => {
   it("refuses an anonymous ring before reading the deposit setting", async () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const recipient = ShieldedKeypair.generate();
     const [config, bump] = await ringConfigPda(RING);
     const proveCustomRingDeposit = vi.fn();
@@ -594,7 +593,6 @@ describe("deposit builder ring mode", () => {
         buildRingDepositTransaction({
           client,
           ringProgramId: RING,
-          depositor: TREE,
           feePayer: TREE,
           recipient: recipient.shieldedAddress(),
           amount: 1n,
@@ -610,7 +608,7 @@ describe("deposit builder ring mode", () => {
 
 describe("deposit recovery", () => {
   it("refuses a ring history truncated by the page budget", async () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const source = ShieldedKeypair.generate();
     const key = source.nullifierKey();
     const client = {
@@ -643,7 +641,7 @@ describe("deposit recovery", () => {
     }
   });
   it("recovers disclosed deposits with committed metadata and follows their ring merges", async () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const source = ShieldedKeypair.generate();
     const address = source.shieldedAddress();
     const key = source.nullifierKey();
@@ -820,7 +818,7 @@ describe("deposit recovery", () => {
 
 describe("confirmed deposit attribution", () => {
   it("opens an unknown owner only with its confirmed capsule and rejects altered or swapped bytes", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const signature = "1".repeat(87) as Signature;
     const ownerKey = new Uint8Array(32).fill(7) as Bytes32;
     const owners = [ownerUtxoHash(field(1n), field(2n)), ownerUtxoHash(field(3n), field(4n))];

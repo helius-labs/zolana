@@ -5,7 +5,7 @@
 
 use custom_ring_interface::policy_verifying_key::VERIFYINGKEY;
 use custom_ring_sdk::AuditorMessage;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 
 /// The `go_vectors.rs` fixture, with a canonical X25519 viewing secret.
 const TX_SK: &str = "001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e";
@@ -40,6 +40,6 @@ fn the_auditor_recovers_the_exact_scalar() {
     assert_eq!(*recovered, hex_bytes::<32>(TX_SK));
 }
 
-fn envelope_key(s: &str) -> X25519Secret {
-    X25519Secret::from_bytes(&hex_bytes::<32>(s)).unwrap()
+fn envelope_key(s: &str) -> X25519Keypair {
+    X25519Keypair::from_bytes(&hex_bytes::<32>(s))
 }

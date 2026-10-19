@@ -57,8 +57,8 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use deposit::{DepositContext, DepositPublicInput};
 pub use disclosure::{
-    pack_disclosure, unpack_disclosure, DisclosureShape, AUDIT_INPUT_SLOTS, AUDIT_OUTPUT_SLOTS,
-    DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
+    pack_disclosure, unpack_disclosure, DisclosureShape, ANONYMOUS_RING_SHAPES, AUDIT_INPUT_SLOTS,
+    AUDIT_OUTPUT_SLOTS, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
 };
 pub use instruction::{
     accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,

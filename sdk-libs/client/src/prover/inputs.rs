@@ -130,7 +130,7 @@ pub struct BatchAddressAppendInputs {
 
 /// Flat, pre-computed witness for the Solana-only spp_transaction circuit. This
 /// Owner signatures are checked by the Solana transaction.
-/// Mirrors prover/server/prover/transfer_eddsa_only/params.go TransferParameters.
+/// Mirrors prover/server/prover/transfer_eddsa/params.go TransferParameters.
 #[derive(Debug, Clone)]
 pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,

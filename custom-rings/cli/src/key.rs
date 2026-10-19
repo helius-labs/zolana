@@ -315,7 +315,7 @@ mod tests {
     fn registered_entry(member: &ShieldedKeypair) -> RegisteredEntry {
         let envelope = zolana_ring_client::NullifierKeyEnvelope::new(
             &member.nullifier_key,
-            &zolana_keypair::X25519Secret::new().pubkey(),
+            &zolana_keypair::X25519Keypair::new().pubkey(),
         )
         .unwrap();
         let member_tag = Member::owner_tag(member.pubkey().as_array()).unwrap();

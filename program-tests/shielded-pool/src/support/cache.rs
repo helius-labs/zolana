@@ -190,7 +190,7 @@ impl CachedSpendFixture {
             Vec::new(),
             inline_outputs(&output_hashes, &view_tags),
         );
-        ix_data.circuit = CircuitId::ConfidentialEd25519Cached(
+        ix_data.circuit = CircuitId::ConfidentialEddsaCached(
             self.n_inputs as u8,
             self.n_outputs as u8,
             N_PUBLIC_SLOTS as u8,

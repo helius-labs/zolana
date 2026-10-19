@@ -28,7 +28,7 @@ use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof, PlainGro
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed, ProofInputUtxo};
-use zolana_keypair::{KeypairError, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{KeypairError, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
 use super::request::CustomRingPrivateTxHash;
@@ -286,7 +286,7 @@ impl PendingCustomRingProof {
                 public_input_hash,
                 private_tx_hash: *private_tx_hash.as_ref(),
                 tx_viewing_key,
-                ephemeral_key: X25519Secret::from_bytes(&ephemeral_sk)?,
+                ephemeral_key: X25519Keypair::from_bytes(&ephemeral_sk),
                 auditor_key: auditor_pk,
                 salt,
                 n_in: witness.n_in,
@@ -414,7 +414,7 @@ impl PendingCustomRingProof {
             public_input_hash,
             private_tx_hash: *private_tx_hash.as_ref(),
             tx_viewing_key,
-            ephemeral_key: X25519Secret::from_bytes(&ephemeral_sk)?,
+            ephemeral_key: X25519Keypair::from_bytes(&ephemeral_sk),
             auditor_key: auditor_pk,
             salt,
             outputs,
@@ -506,7 +506,7 @@ mod tests {
             .expect("hex")
             .try_into()
             .expect("scalar length");
-        ViewingKey::from_bytes(&bytes).expect("valid X25519 secret")
+        ViewingKey::from_bytes(&bytes)
     }
 
     fn tree(id: u16, root: u8) -> PolicyTree {
@@ -563,9 +563,7 @@ mod tests {
     fn finish_binds_the_public_input_the_program_recomputes() {
         let tx_key = key(TX_SK);
         let tx_pk = tx_key.pubkey();
-        let auditor_pk = X25519Secret::from_bytes(&key(AUDITOR_SK).secret_bytes())
-            .unwrap()
-            .pubkey();
+        let auditor_pk = X25519Keypair::from_bytes(&key(AUDITOR_SK).secret_bytes()).pubkey();
         let salt = [3u8; 16];
         let outputs = vec![ProofInputUtxo::default()];
         let EncryptedAudit { pending, message } = CustomRingProofParams {

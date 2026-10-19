@@ -25,7 +25,7 @@ tier is behind a Cargo feature, `proofs` or `localnet`, so a plain `cargo test
 | --- | :---: | :---: | :---: | :---: |
 | Protocol/tree/SPL administration | ✓ | account mutations | — | ✓ |
 | SOL and SPL deposits | ✓ | exact errors | — | ✓ |
-| Ed25519 transfers | ✓ | malformed dispatch | every supported shape | ✓ |
+| EdDSA transfers | ✓ | malformed dispatch | every supported shape | ✓ |
 | Mixed public SOL/SPL amounts | ✓ | malformed dispatch | fixed-shape matrices | ✓ |
 | Withdrawals | ✓ | malformed dispatch | SOL/SPL matrices | ✓ |
 | Merge and merge-ring | ✓ | malformed dispatch | padding and both rails | ✓ |
@@ -118,7 +118,7 @@ budget. `bench_cu` enforces no ceilings; it writes internal profiler
 breakdowns to `shielded-pool/CU_BENCHMARK.md` for a spread of EdDSA transact
 shapes (`1x2`, `2x2`, `2x4`, `4x4`, `5x4`, `24x4`, `1x8`, `16x8`, `1x16`,
 `8x16`, and `49x2`, the widest of each output count among them), `49x2` on the
-runtime Ed25519 `ring_transact` rail, every `merge_transact` width (`8`, `24`, `54`), compact
+runtime EdDSA `ring_transact` rail, every `merge_transact` width (`8`, `24`, `54`), compact
 and cached variants, plus SOL/SPL withdrawals, but only under the manual
 `just bench-shielded-pool` run (it needs the profiling SBF build); CI does not
 run it. There is no separate split instruction: `1x16` is the widest
@@ -126,7 +126,7 @@ split-shaped transact.
 
 Committed-proof verification and policy-ring CPI behavior require the real
 validator. Mollusk's pairing stubs are not treated as authoritative CU data. The
-focused `proof_cu` binaries therefore pin Ed25519 transact, ring transfers and
+focused `proof_cu` binaries therefore pin EdDSA transact, ring transfers and
 withdrawals, ring-authority transact, an 8-input merge
 and an 8-input merge-ring (both on the `8x1` circuit) using confirmed
 transaction metadata. The `max_shapes` binaries confirm the widest transact

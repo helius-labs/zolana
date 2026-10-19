@@ -3,7 +3,7 @@ mod deposit_fixture;
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use std::cell::{Cell, RefCell};
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -32,7 +32,7 @@ const SALT: [u8; 16] = [7; 16];
 struct Fixture {
     member: ShieldedKeypair,
     address: ShieldedAddress,
-    auditor: X25519Secret,
+    auditor: X25519Keypair,
     sequence: Cell<u8>,
 }
 
@@ -42,7 +42,7 @@ impl Fixture {
         Self {
             address: member.shielded_address().expect("address"),
             member,
-            auditor: X25519Secret::new(),
+            auditor: X25519Keypair::new(),
             sequence: Cell::new(0),
         }
     }
@@ -729,7 +729,7 @@ fn audited_deposits_seed_merge_recovery_and_successor_spend_checks() {
 }
 
 #[test]
-fn invalid_confirmed_deposit_openings_and_forged_owned_leaves_fail() {
+fn invalid_deposit_openings_remain_unknown_and_a_forged_owned_leaf_fails() {
     let fixture = Fixture::new();
     let (_, transaction) = fixture.deposit(fixture.output(9), 7);
     let mut wrong_leaf = transaction.clone();
@@ -748,23 +748,14 @@ fn invalid_confirmed_deposit_openings_and_forged_owned_leaves_fail() {
         fixture.run(fixture.recovery(), &history),
         Err(RecoveryError::DepositOpeningMismatch)
     ));
-    let history = History {
-        transactions: vec![wrong_ciphertext.clone()],
-        ..Default::default()
-    };
-    assert!(matches!(
-        fixture.run(fixture.recovery(), &history),
-        Err(RecoveryError::DepositOpeningMismatch)
-    ));
-    wrong_ciphertext.output_slots[0].view_tag = [99; 32];
+    let commitment = wrong_ciphertext.output_slots[0].output_context.hash;
     let history = History {
         transactions: vec![wrong_ciphertext],
         ..Default::default()
     };
-    assert!(matches!(
-        fixture.run(fixture.recovery(), &history),
-        Err(RecoveryError::DepositOpeningMismatch)
-    ));
+    let result = fixture.run(fixture.recovery(), &history).unwrap();
+    assert!(result.utxos.is_empty());
+    assert_eq!(result.unsupported_deposits, vec![commitment]);
 }
 
 #[test]
@@ -777,15 +768,15 @@ fn indexed_owner_key_tampering_is_rejected_against_confirmed_deposit() {
         zolana_event_parser::decode_encrypted_ring_deposit_output_data(&slot.payload).unwrap();
     output.encrypted.ciphertext[42 + 64] ^= 1;
     slot.payload = encode_encrypted_ring_deposit_output(output);
+    let commitment = indexed.output_slots[0].output_context.hash;
     let history = History {
         transactions: vec![indexed],
         confirmed_transactions: Some(vec![confirmed]),
         ..Default::default()
     };
-    assert!(matches!(
-        fixture.run(fixture.recovery(), &history),
-        Err(RecoveryError::DepositOpeningMismatch)
-    ));
+    let result = fixture.run(fixture.recovery(), &history).unwrap();
+    assert!(result.utxos.is_empty());
+    assert_eq!(result.unsupported_deposits, vec![commitment]);
 }
 
 #[test]

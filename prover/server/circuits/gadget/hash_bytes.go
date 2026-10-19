@@ -1,35 +1,39 @@
 package gadget
 
 import (
-	"math/big"
-
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/rangecheck"
 )
 
 const HashBytesChunkSize = 31
 
-// HashBytes commits a fixed-size byte value using the protocol's canonical
-// 31-byte big-endian packing and left-to-right Poseidon hash chain.
+// Range-checks each byte, and with no length tag each input length needs its own domain.
 func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	return HashChain(api, PackBytesBE(api, bytes))
+	return HashBytesWith(api, rangecheck.New(api), bytes)
 }
 
-// PackBytesBE packs consecutive 31-byte chunks as big-endian field elements.
-// The final partial chunk is packed without padding between its bytes.
+// HashBytesWith is HashBytes through the given byte checker.
+func HashBytesWith(api frontend.API, rc frontend.Rangechecker, bytes []frontend.Variable) frontend.Variable {
+	return HashChain(api, PackBytesBEWith(api, rc, bytes))
+}
+
+// Range-checks each byte, the last chunk stays unpadded.
 func PackBytesBE(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
+	return PackBytesBEWith(api, rangecheck.New(api), bytes)
+}
+
+// PackBytesBEWith is PackBytesBE through the given byte checker.
+func PackBytesBEWith(api frontend.API, rc frontend.Rangechecker, bytes []frontend.Variable) []frontend.Variable {
 	fields := make([]frontend.Variable, 0, (len(bytes)+HashBytesChunkSize-1)/HashBytesChunkSize)
 	for offset := 0; offset < len(bytes); offset += HashBytesChunkSize {
-		end := offset + HashBytesChunkSize
-		if end > len(bytes) {
-			end = len(bytes)
-		}
-		chunk := bytes[offset:end]
-		field := frontend.Variable(0)
-		for i, value := range chunk {
-			coefficient := new(big.Int).Lsh(big.NewInt(1), uint(8*(len(chunk)-1-i)))
-			field = api.Add(field, api.Mul(value, coefficient))
-		}
-		fields = append(fields, field)
+		fields = append(fields, BytesToFieldWith(api, rc, bytes[offset:min(offset+HashBytesChunkSize, len(bytes))]))
 	}
 	return fields
+}
+
+// SolanaOwnerIdentity binds the exact 32-byte authorization encoding under the
+// existing Solana owner domain. Curve and signature validity remain obligations
+// of the signature gadget. This boundary proves byte widths and tagged hashing.
+func SolanaOwnerIdentity(api frontend.API, key [32]frontend.Variable) frontend.Variable {
+	return HashBytes(api, append([]frontend.Variable{0x53}, key[:]...))
 }

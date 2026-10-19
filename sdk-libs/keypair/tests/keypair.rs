@@ -79,9 +79,9 @@ fn nullifiers_bind_every_input_and_match_the_golden_vector() {
 #[test]
 fn nullifier_roles_are_hsm_derivable() {
     cases::nullifier::derivation_seed_matches_rail_primitives();
-    cases::nullifier::ed25519_rail_matches_signature_entry_point();
+    cases::nullifier::eddsa_rail_matches_signature_entry_point();
     cases::nullifier::ed25519_keypair_derives_both_keys_from_one_signature();
-    cases::nullifier::solana_keypair_matches_ed25519_rail();
+    cases::nullifier::solana_keypair_matches_eddsa_rail();
     cases::nullifier::primitives_refuse_derivation_inputs();
 }
 

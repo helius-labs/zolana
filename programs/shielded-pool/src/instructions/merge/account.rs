@@ -72,7 +72,7 @@ impl<'a> MergeTransactAccounts<'a> {
 /// registered key.
 ///
 /// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
-/// confidential default-ring tag): the full Solana owner key.
+/// confidential default-ring tag): the full ed25519 key.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub nullifier_pk: [u8; 32],
@@ -83,8 +83,9 @@ pub struct UserPkFields {
 /// Load and validate the `user_record`: owned by the registry program, stored at
 /// the canonical PDA for its owner, and containing a valid `UserRecord`
 /// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
-/// owner identity. The processor rejects merging when the record opts out.
-/// The retained wire flag must select the Solana owner scheme.
+/// the owner identity; the processor rejects the merge when it is `false`.
+/// A Solana owner derives `signing_pk_field` as the tagged Solana identity of
+/// the registry account `owner` (ed25519).
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,

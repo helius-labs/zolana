@@ -75,6 +75,8 @@ export {
   type ShieldedKeys,
   type SyncReport,
   type TransactionErrorCode,
+  type ViewTagCounters,
+  type ViewTagRequest,
   type WalletUtxo,
 } from "./transaction/index.js";
 export {
@@ -111,6 +113,7 @@ export {
   type SyncPersistedWalletResult,
   type SyncWalletConfig,
   type SyncWalletInput,
+  type SyncWalletReport,
   type TransactionSlots,
   type TransferDestination,
   type TransferPayment,

@@ -15,7 +15,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	"github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
-	transfereddsaonly "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfereddsa "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 	"github.com/helius-labs/zolana/prover/server/server"
 	"github.com/helius-labs/zolana/prover/server/tee"
 	"io"
@@ -92,7 +92,7 @@ func runCli() {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-ed25519-ring\" / \"transfer-ring-authority\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-eddsa-ring\" / \"transfer-ring-authority\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -111,9 +111,9 @@ func runCli() {
 					case common.TransferConfidentialCircuitType,
 						common.TransferRingCircuitType,
 						common.TransferRingAuthorityCircuitType:
-						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
-					case common.TransferAnonymousRingEd25519CircuitType:
-						ps, err = transfereddsaonly.SetupAnonymousEd25519Transfer(nInputs, nOutputs)
+						ps, err = transfereddsa.SetupTransferCircuit(circuit, nInputs, nOutputs)
+					case common.TransferAnonymousRingEddsaCircuitType:
+						ps, err = transfereddsa.SetupAnonymousEddsaTransfer(nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)
 					}

@@ -36,7 +36,7 @@ fn intermediate_zero_net_is_order_independent() {
         sol_settlement(&account, false),
         sol_settlement(&account, true),
     ];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEd25519(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
 
     proof_inputs
         .assign_public_amounts_and_assets(&transfers, &settlements, 1)
@@ -57,7 +57,7 @@ fn final_zero_net_is_rejected() {
         sol_settlement(&account, true),
         sol_settlement(&account, false),
     ];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEd25519(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
 
     assert_eq!(
         proof_inputs.assign_public_amounts_and_assets(&transfers, &settlements, 1),

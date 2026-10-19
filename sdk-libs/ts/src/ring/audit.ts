@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
@@ -157,7 +157,7 @@ export function auditorMessage(
  * Recovers the clamped transaction secret bound byte for byte by the circuit.
  */
 export function recoverTransactionViewingKey(
-  auditor: X25519Secret,
+  auditor: X25519Keypair,
   message: AuditorMessage,
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
@@ -184,7 +184,7 @@ export function recoverTransactionViewingKey(
  */
 export function auditRingTransaction(
   input: Readonly<{
-    auditor: X25519Secret;
+    auditor: X25519Keypair;
     transaction: IndexedShieldedTransaction;
     assets: AssetRegistry;
     mode?: RingMode;
@@ -325,7 +325,7 @@ export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTra
 export async function auditRing(
   input: Readonly<{
     client: RingAuditReader;
-    auditor: X25519Secret;
+    auditor: X25519Keypair;
     ringProgramId: Address;
     assets: AssetRegistry;
     /** The ring's on-chain mode, `"off"` when omitted. */

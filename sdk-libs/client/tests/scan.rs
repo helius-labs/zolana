@@ -14,6 +14,7 @@ use zolana_client::{
     fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
     IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScan,
+    ViewTagCounters,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -378,9 +379,18 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
             .amount,
         30
     );
+    let sender_tags = (0..64).map(|tx_count| owner.get_sender_view_tag(tx_count).unwrap());
+    let request_tags =
+        (0..64).map(|request_count| owner.get_recipient_request_view_tag(request_count).unwrap());
     assert_eq!(
         indexer.queried_tags.borrow().first(),
-        Some(&vec![owner_tag, address.viewing_pubkey.u(), [0; 32]])
+        Some(
+            &[owner_tag, address.viewing_pubkey.u()]
+                .into_iter()
+                .chain(sender_tags)
+                .chain(request_tags)
+                .collect()
+        )
     );
     // Each round queries only the UTXOs found since the last one.
     let queried = indexer.queried_nullifiers.borrow();
@@ -390,43 +400,59 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
 }
 
-#[test]
-fn zero_tag_anonymous_ring_output_is_found_without_treating_zero_as_our_tag() {
-    let owner = keypair(84);
+fn anonymous_output(
+    owner: &ShieldedKeypair,
+    view_tag: [u8; 32],
+    amount: u64,
+    nonce: u8,
+) -> (ShieldedTransaction, Note) {
     let ring = Address::new_from_array([85; 32]);
-    let mut utxo = sol(&owner, 27, 1);
+    let mut utxo = sol(owner, amount, nonce);
     utxo.ring_program_id = Some(ring);
-    let owned = note(&owner, utxo, [0; 32]);
+    let owned = note(owner, utxo, [0; 32]);
     let tx_key = owner.viewing_key.clone();
     let payload = Confidential::encode_ring_anonymous_plaintext(
         &ConfidentialOutputPlaintext {
             asset_id: SOL_ASSET_ID,
-            amount: owned.utxo.amount,
+            amount,
             blinding: owned.utxo.blinding,
             ring_program_id: Some(ring),
             data: Data::default(),
         },
+        view_tag,
         &ConfidentialEncode {
             tx: tx_key.clone(),
             recipient_pubkey: owner.viewing_pubkey(),
-            salt: [7; 16],
+            salt: [nonce; 16],
             slot_index: 0,
         },
     )
     .unwrap();
     let tx = ShieldedTransaction {
-        slot: 1,
-        tx_signature: Signature::from([84; 64]),
+        slot: u64::from(nonce),
+        tx_signature: Signature::from([nonce; 64]),
         event_index: Some(0),
         tx_viewing_pk: Some(tx_key.pubkey()),
-        salt: Some([7; 16]),
-        output_slots: vec![output_slot([0; 32], owned.hash, 1, payload.data)],
+        salt: Some([nonce; 16]),
+        output_slots: vec![output_slot(
+            view_tag,
+            owned.hash,
+            u64::from(nonce),
+            payload.data,
+        )],
         messages: Vec::new(),
-        nullifiers: vec![[86; 32]],
+        nullifiers: vec![[nonce.wrapping_add(100); 32]],
         proofless: false,
         ring_config: None,
         ring_program_id: Some(ring),
     };
+    (tx, owned)
+}
+
+#[test]
+fn bootstrap_tagged_anonymous_ring_output_is_found() {
+    let owner = keypair(84);
+    let (tx, owned) = anonymous_output(&owner, owner.recipient_bootstrap_view_tag(), 27, 1);
     let indexer = Indexer {
         tagged: vec![tx],
         ..Indexer::default()
@@ -437,7 +463,67 @@ fn zero_tag_anonymous_ring_output_is_found_without_treating_zero_as_our_tag() {
         result.spendable.utxos().next().unwrap().utxo_hash,
         owned.hash
     );
-    assert!(!result.history.view_tags.contains(&[0; 32]));
+    assert!(indexer
+        .queried_tags
+        .borrow()
+        .iter()
+        .all(|tags| !tags.contains(&[0; 32])));
+}
+
+fn scan_tag_stream(seed: u8, tag: fn(&ShieldedKeypair, u64) -> [u8; 32]) -> ViewTagCounters {
+    let owner = keypair(seed);
+    let (first, first_found) = anonymous_output(&owner, tag(&owner, 0), 5, 1);
+    // Each output lies within the gap of the last one in use.
+    let (second, second_found) = anonymous_output(&owner, tag(&owner, 60), 6, 2);
+    let (third, third_found) = anonymous_output(&owner, tag(&owner, 100), 7, 3);
+    let (beyond_gap, _) = anonymous_output(&owner, tag(&owner, 165), 8, 4);
+    let indexer = Indexer {
+        tagged: vec![first, second, third, beyond_gap],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let result = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+
+    let found: BTreeSet<_> = result
+        .spendable
+        .utxos()
+        .map(|utxo| utxo.utxo_hash)
+        .collect();
+    assert_eq!(
+        found,
+        BTreeSet::from([first_found.hash, second_found.hash, third_found.hash])
+    );
+    assert!(result.history.view_tags.contains(&tag(&owner, 100)));
+    assert!(!result.history.view_tags.contains(&tag(&owner, 101)));
+    result.next_counters
+}
+
+#[test]
+fn sender_tagged_anonymous_change_is_found_up_to_the_gap() {
+    let counters = scan_tag_stream(87, |owner, tx_count| {
+        owner.get_sender_view_tag(tx_count).unwrap()
+    });
+    assert_eq!(
+        counters,
+        ViewTagCounters {
+            tx_count: 101,
+            request_count: 0,
+        }
+    );
+}
+
+#[test]
+fn request_tagged_anonymous_payment_is_found_up_to_the_gap() {
+    let counters = scan_tag_stream(88, |owner, request_count| {
+        owner.get_recipient_request_view_tag(request_count).unwrap()
+    });
+    assert_eq!(
+        counters,
+        ViewTagCounters {
+            tx_count: 0,
+            request_count: 101,
+        }
+    );
 }
 
 #[test]

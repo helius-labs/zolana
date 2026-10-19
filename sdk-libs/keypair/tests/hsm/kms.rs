@@ -170,7 +170,7 @@ fn expand_roles(seed: &[u8]) -> (NullifierKey, ViewingKey) {
         .expect("viewing expand");
     (
         NullifierKey::from_secret(nullifier_secret),
-        ViewingKey::from_bytes(&okm).expect("viewing key from expanded secret"),
+        ViewingKey::from_bytes(&okm),
     )
 }
 

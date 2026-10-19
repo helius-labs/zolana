@@ -1,4 +1,4 @@
-import { X25519Secret } from "../../src/keypair/x25519.js";
+import { X25519Keypair } from "../../src/keypair/x25519.js";
 // Deploys a fresh ring program from the built binaries, upgrades it in place
 // and registers its config. Reads RING_PROGRAM_SO and USER_REGISTRY_PROGRAM_SO.
 import { readFile } from "node:fs/promises";
@@ -74,7 +74,7 @@ describe("ring program", () => {
         ringProgramId: program.address,
         payer: operator,
         authority: operator,
-        auditorPublicKey: X25519Secret.generate().publicKey(),
+        auditorPublicKey: X25519Keypair.generate().publicKey(),
         hasPolicy: false,
       }),
       operator,

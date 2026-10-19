@@ -421,6 +421,7 @@ describe("manifest-verified wallet behavior", () => {
       decrypt: (requests) => value.keys.decrypt(requests),
       derive: (requests) => value.keys.derive(requests),
       transactionKeys: (requests) => value.keys.transactionKeys(requests),
+      viewTags: (requests) => value.keys.viewTags(requests),
     };
     await expect(
       syncWalletWithKeys({

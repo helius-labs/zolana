@@ -113,7 +113,6 @@ describe("ring flow", () => {
       const deposit = await buildRingDepositTransaction({
         client,
         ringProgramId,
-        depositor: sender.signer.address,
         feePayer: sender.signer.address,
         recipient: sender.keypair.shieldedAddress(),
         amount: deposited,
@@ -298,7 +297,6 @@ describe("ring flow", () => {
     // The authority wallet funds the default deposit from its own token account.
     const deposit = await buildDepositTransaction({
       client,
-      depositor: mintAuthority.address,
       feePayer: mintAuthority.address,
       recipient: sender.keypair.shieldedAddress(),
       asset: mint,

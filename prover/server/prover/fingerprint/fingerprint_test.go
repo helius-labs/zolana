@@ -25,7 +25,7 @@ import (
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
-	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 type fingerprint struct {
@@ -60,8 +60,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	anonymousRing, err := eddsaprover.R1CSAnonymousEd25519Transfer(2, 2)
-	add("transfer_ed25519_ring_2_2", anonymousRing, err)
+	anonymousRing, err := eddsaprover.R1CSAnonymousEddsaTransfer(2, 4)
+	add("transfer_eddsa_ring_2_4", anonymousRing, err)
 
 	customRing, err := customring.R1CSPolicy()
 	add("custom_ring_policy", customRing, err)
@@ -100,13 +100,13 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_4":     {constraints: 57554, public: 2},
 	"transfer_ring_2_4":             {constraints: 57680, public: 2},
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_ed25519_ring_2_2":     {constraints: 112284, public: 2},
-	"custom_ring_policy":            {constraints: 464164, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1142299, public: 2},
-	"custom_ring_register_key":      {constraints: 82692, public: 2},
-	"custom_ring_deposit":           {constraints: 209123, public: 2},
-	"custom_ring_delegate_policy":   {constraints: 451789, public: 2},
-	"custom_ring_base":              {constraints: 125800, public: 2},
+	"transfer_eddsa_ring_2_4":       {constraints: 109591, public: 2},
+	"custom_ring_policy":            {constraints: 463087, public: 2},
+	"custom_ring_compressed_policy": {constraints: 1141536, public: 2},
+	"custom_ring_register_key":      {constraints: 80819, public: 2},
+	"custom_ring_deposit":           {constraints: 208516, public: 2},
+	"custom_ring_delegate_policy":   {constraints: 450712, public: 2},
+	"custom_ring_base":              {constraints: 124723, public: 2},
 	"merge_24_1":                    {constraints: 525759, public: 2},
 	"merge_ring_24_1":               {constraints: 525837, public: 2},
 	"batch_address-append_40_10":    {constraints: 421991, public: 2},

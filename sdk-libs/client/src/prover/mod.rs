@@ -39,7 +39,8 @@ pub use proving_key::{
 };
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use transact::{
-    attach_input_proofs, input_utxos_from_nullifiers, PublicInputs, PublicTransfers,
+    attach_input_proofs, input_utxos_from_nullifiers, AnonymousEddsaTransferInputs,
+    AnonymousRingEddsaProofResult, AnonymousRingEddsaProver, PublicInputs, PublicTransfers,
     RingTransferProofResult, RingTransferProver, TransferInputUtxo, TransferProofResult,
     TransferProver,
 };

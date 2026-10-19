@@ -93,7 +93,7 @@ describe("LocalShieldedKeys", () => {
     );
   });
 
-  it("rejects a seed whose width is not the ed25519 rail's", () => {
+  it("rejects a seed whose width is not the eddsa rail's", () => {
     const { solanaPublicKey, seed } = fixture();
 
     for (const width of [seed.length - 1, seed.length + 1, 0]) {

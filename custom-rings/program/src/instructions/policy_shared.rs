@@ -461,7 +461,7 @@ impl NamespaceWrite<'_> {
 
         Ok(external.into_ix_data(
             private_tx_hash,
-            CircuitId::ConfidentialEd25519(1, 2, N_PUBLIC_SLOTS as u8),
+            CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
             self.proof,
             self.inputs,
         ))

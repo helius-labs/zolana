@@ -21,15 +21,23 @@ use zolana_interface::{
         instruction_data::transact::InputUtxo, CircuitId, MessageData, OwnerTag, TransactIxData,
         TransactOutput, TransactProof, TreeContext,
     },
-    verifying_keys::Bsb22Commitment,
+    verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
     N_PUBLIC_SLOTS,
 };
 
 use crate::common::{
     account, anonymous_config_account, audit_ix_data, auditor_message_len, auditor_pubkey,
     authority, config_account_in_mode, disclosed_message_len, encode_transact,
-    initialized_config_account, legacy_auditor_pubkey, namespace_pda, policy_ix_data,
-    setup_mollusk, transact_fixture, velocity_policy_config_account, Fixture,
+    initialized_config_account, legacy_auditor_pubkey, policy_ix_data, setup_mollusk,
+    transact_fixture, velocity_policy_config_account, Fixture,
+};
+
+const PROOF_DATA: AnonymousRingEddsaProofData = AnonymousRingEddsaProofData {
+    bsb22_commitment: Bsb22Commitment {
+        commitment: [6; 32],
+        commitment_pok: [7; 32],
+    },
+    default_owner_tag: None,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -66,12 +74,12 @@ fn other_message() -> MessageData {
     }
 }
 
-/// Wire-valid `ConfidentialRingEd25519` content; callers override the fields they attack.
+/// Wire-valid `ConfidentialRingEddsa` content; callers override the fields they attack.
 pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [1; 32],
-        circuit: CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(4),
         salt: [3; 16],
         proof: TransactProof::zeroed(),
@@ -210,19 +218,11 @@ fn impostor_shielded_pool_program_is_rejected_exactly() {
 fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let slots = N_PUBLIC_SLOTS as u8;
-    let anonymous = CircuitId::AnonymousRingEd25519(
-        2,
-        2,
-        slots,
-        Bsb22Commitment {
-            commitment: [6; 32],
-            commitment_pok: [7; 32],
-        },
-    );
+    let anonymous = CircuitId::AnonymousRingEddsa(2, 2, slots, PROOF_DATA);
     for circuit in [
         anonymous,
         CircuitId::RingAuthority(2, 2, slots),
-        CircuitId::ConfidentialEd25519(2, 2, slots),
+        CircuitId::ConfidentialEddsa(2, 2, slots),
     ] {
         let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.circuit = circuit;
@@ -513,26 +513,6 @@ fn a_registry_index_without_key_escrow_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
 
-/// Only the windowed statement verifies a record, so no other statement may
-/// publish a message a recovery would read as one.
-#[test]
-fn record_messages_outside_the_windowed_statement_are_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let namespace = namespace_pda().0.to_bytes();
-    let record_tag =
-        zolana_ring_policy::spend_record_message_tag(&namespace).expect("record message tag");
-    for view_tag in [namespace, record_tag] {
-        let fixture = fixture_with_messages(vec![
-            MessageData {
-                view_tag,
-                data: vec![1; 8],
-            },
-            auditor_message(auditor_message_len(1)),
-        ]);
-        fixture.expect_err(&mollusk, custom(CustomRingError::UnexpectedRecordMessage));
-    }
-}
-
 fn hidden_output() -> TransactOutput {
     TransactOutput {
         owner_tag: OwnerTag::Inline([0; 32]),
@@ -548,15 +528,7 @@ fn anonymous_transact(inputs: u8, outputs: u8) -> TransactIxData {
         outputs: usize::from(outputs),
     };
     let mut data = transact(vec![auditor_message(disclosed_message_len(shape))]);
-    data.circuit = CircuitId::AnonymousRingEd25519(
-        inputs,
-        outputs,
-        N_PUBLIC_SLOTS as u8,
-        Bsb22Commitment {
-            commitment: [6; 32],
-            commitment_pok: [7; 32],
-        },
-    );
+    data.circuit = CircuitId::AnonymousRingEddsa(inputs, outputs, N_PUBLIC_SLOTS as u8, PROOF_DATA);
     data.inputs = (0..inputs)
         .map(|index| InputUtxo {
             nullifier_hash: [index + 1; 32],
@@ -586,9 +558,10 @@ fn anonymous_hidden_owner_transfers_reach_the_proof() {
 #[test]
 fn an_anonymous_ring_refuses_every_other_rail_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut eddsa = anonymous_transact(2, 2);
-    eddsa.circuit = CircuitId::ConfidentialRingEd25519(2, 2, N_PUBLIC_SLOTS as u8);
-    anonymous_fixture(eddsa).expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    let mut confidential = anonymous_transact(2, 2);
+    confidential.circuit = CircuitId::ConfidentialRingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
+    anonymous_fixture(confidential)
+        .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     anonymous_fixture(anonymous_transact(1, 2))
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     let mut hidden = anonymous_transact(2, 2);
@@ -597,15 +570,16 @@ fn an_anonymous_ring_refuses_every_other_rail_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
 
+/// An anonymous output's owner tag is its view tag, bound by the SPP proof.
 #[test]
-fn an_anonymous_output_with_an_owner_tag_is_rejected_exactly() {
+fn an_anonymous_output_view_tag_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = anonymous_transact(2, 2);
-    data.outputs[1].owner_tag = OwnerTag::Inline([5; 32]);
-    anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
-    let mut data = anonymous_transact(2, 2);
-    data.outputs[0].owner_tag = OwnerTag::Account(0);
-    anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
+    for (index, tag) in [(1, OwnerTag::Inline([5; 32])), (0, OwnerTag::Account(0))] {
+        let mut data = anonymous_transact(2, 2);
+        data.outputs[index].owner_tag = tag;
+        anonymous_fixture(data)
+            .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    }
 }
 
 /// Any signer besides the payer would publish an owner the hidden rail hides.

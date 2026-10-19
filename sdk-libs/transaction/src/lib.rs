@@ -34,7 +34,7 @@ pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTrans
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
-    TransactionKeyRequest,
+    TransactionKeyRequest, ViewTagRequest,
 };
 pub use selection::{select_merge, select_spend, select_spend_excluding};
 pub use serialization::{

@@ -9,7 +9,7 @@ import {
 } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey, ViewingKey, X25519PublicKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import {
   DEFAULT_TREE_ID,
@@ -212,6 +212,7 @@ function remoteOver(keys: ShieldedKeys): ShieldedKeys {
     decrypt: (requests) => keys.decrypt(requests),
     derive: (requests) => keys.derive(requests),
     transactionKeys: (requests) => keys.transactionKeys(requests),
+    viewTags: (requests) => keys.viewTags(requests),
   };
 }
 
@@ -236,7 +237,7 @@ describe("wallet sync atomicity", () => {
     };
   }
 
-  it("queries the anonymous tag in both streams and resumes its own cursor", async () => {
+  it("queries the bootstrap tag in both streams and resumes its own cursor", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const cursor = Uint8Array.of(4, 5);
@@ -259,20 +260,24 @@ describe("wallet sync atomicity", () => {
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const isAnonymous = (request: { tags: readonly Bytes32[] }) =>
+    const bootstrap = keypair.viewingPublicKey().x();
+    const isBootstrap = (request: { tags: readonly Bytes32[] }) =>
+      request.tags.some((tag) => tag.every((byte, index) => byte === bootstrap[index]));
+    const isZero = (request: { tags: readonly Bytes32[] }) =>
       request.tags.some((tag) => tag.every((byte) => byte === 0));
 
     await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
     for (const query of [transactions, proofless]) {
-      expect(query.mock.calls.filter(([request]) => isAnonymous(request))).toHaveLength(1);
+      expect(query.mock.calls.filter(([request]) => isBootstrap(request))).toHaveLength(1);
+      expect(query.mock.calls.filter(([request]) => isZero(request))).toHaveLength(0);
     }
 
     transactions.mockClear();
     proofless.mockClear();
     await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
     for (const query of [transactions, proofless]) {
-      const anonymous = query.mock.calls.find(([request]) => isAnonymous(request));
-      expect(anonymous?.[0].cursor).toEqual(cursor);
+      const resumed = query.mock.calls.find(([request]) => isBootstrap(request));
+      expect(resumed?.[0].cursor).toEqual(cursor);
     }
   });
 
@@ -321,17 +326,19 @@ describe("wallet sync atomicity", () => {
       release = resolve;
     });
     let firstCall = true;
-    const getShieldedTransactionsByTags = vi.fn(async (request: { cursor?: Uint8Array }) => {
-      if (firstCall) {
-        firstCall = false;
-        await gate;
-      }
-      return {
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(request.cursor === undefined ? { scannedThrough: cursor } : {}),
-      };
-    });
+    const getShieldedTransactionsByTags = vi.fn(
+      async (request: { tags: readonly Bytes32[]; cursor?: Uint8Array }) => {
+        if (firstCall) {
+          firstCall = false;
+          await gate;
+        }
+        return {
+          context: { blockTime: 1_700_000_000n, slot: 0n },
+          transactions: [],
+          ...(request.cursor === undefined ? { scannedThrough: cursor } : {}),
+        };
+      },
+    );
     const client = syncReads({
       getShieldedTransactionsByTags,
       ...emptyTagPages(),
@@ -343,9 +350,14 @@ describe("wallet sync atomicity", () => {
     await first;
     await second;
 
-    const calls = getShieldedTransactionsByTags.mock.calls;
-    expect(calls[0]?.[0]?.cursor).toBeUndefined();
-    expect(calls.at(-1)?.[0]?.cursor).toEqual(cursor);
+    // Only the stable tags carry a cursor, a counter tag is read from the start.
+    const bootstrap = keypair.viewingPublicKey().x();
+    const stable = getShieldedTransactionsByTags.mock.calls.filter(([request]) =>
+      request.tags.some((tag) => tag.every((byte, index) => byte === bootstrap[index])),
+    );
+    expect(stable).toHaveLength(2);
+    expect(stable[0]?.[0]?.cursor).toBeUndefined();
+    expect(stable[1]?.[0]?.cursor).toEqual(cursor);
   });
 
   it("fails a sync overtaken by another writer and keeps the newer state", async () => {
@@ -469,7 +481,8 @@ describe("wallet sync freshness", () => {
       poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n },
       requireSlot: 10n,
     });
-    expect(tagReads).toEqual([5, 10]);
+    // The retried stable read, then the two counter-tag chunks.
+    expect(tagReads).toEqual([5, 10, 10, 10]);
     // The gate is spent on the first request, later reads take what is there.
     expect(proofless.mock.calls[0]?.[1]?.requireSlot).toBeUndefined();
   });
@@ -488,7 +501,7 @@ describe("wallet sync freshness", () => {
     });
 
     expect(byTags.mock.calls[0]?.[1]?.requireSlot).toBe(3n);
-    expect(tagReads).toEqual([5]);
+    expect(tagReads).toEqual([5, 10, 10]);
   });
 });
 
@@ -931,6 +944,7 @@ describe("wallet sync", () => {
         calls.items += requests.length;
         return keys.transactionKeys(requests);
       },
+      viewTags: (requests) => keys.viewTags(requests),
     };
     const local = new Wallet({ identity: keypair.shieldedAddress() });
     await decryptWithKeys(keys, { wallet: local, transactions: [split, chainedMerge, merge] });
@@ -966,6 +980,10 @@ describe("wallet sync", () => {
       transactionKeys: (requests, context) => {
         seen.push(context);
         return keys.transactionKeys(requests);
+      },
+      viewTags: (requests, context) => {
+        seen.push(context);
+        return keys.viewTags(requests);
       },
     };
     const context = { signal: new AbortController().signal, timeoutMs: 1_000 };
@@ -1533,7 +1551,7 @@ describe("wallet sync", () => {
               {
                 viewTag:
                   scheme === EncryptedScheme.ringAnonymous
-                    ? bytes(0)
+                    ? recipient.viewingPublicKey().x()
                     : recipient.signingPublicKey().confidentialViewTag(),
                 outputContext: {
                   hash: tamperedHash
@@ -1557,6 +1575,38 @@ describe("wallet sync", () => {
       if (!tamperedHash) expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
     },
   );
+
+  it("counts a tagged output under a small-order transaction key as not ours", async () => {
+    const recipient = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const lowOrder = X25519PublicKey.fromBytes(Uint8Array.of(4, 1, ...new Uint8Array(31)));
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: lowOrder,
+          salt: new Uint8Array(16).fill(3) as Bytes16,
+          outputSlots: [
+            {
+              viewTag: recipient.viewingPublicKey().x(),
+              outputContext: { hash: bytes(56), tree: TREE, leafIndex: 4n },
+              payload: encodeOutputData(
+                EncryptedScheme.ringAnonymous,
+                new Uint8Array(80),
+                "encrypted",
+              ),
+            },
+          ],
+          messages: [],
+          nullifiers: [bytes(33)],
+          proofless: false,
+        },
+      ],
+    });
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
+  });
 
   /** Borsh `RingDepositOutput`: owner UTXO hash, asset, amount, no data hash, ring, zero ring data hash, then the envelope. */
   function ringDepositBody(
@@ -1584,8 +1634,8 @@ describe("wallet sync", () => {
   }
 
   it.each([false, true])(
-    "opens a ring deposit through the key holder with anonymous tag %s",
-    async (anonymous) => {
+    "opens a ring deposit through the key holder only under a wallet tag, zero tag %s",
+    async (zeroTag) => {
       // A ring deposit carries its own envelope in the published output and is
       // opened under the ring-deposit cipher label, the one request in a sync
       // that is not the transfer cipher. The holder must see that label, and the
@@ -1627,7 +1677,7 @@ describe("wallet sync", () => {
             txSignature: SIGNATURE,
             outputSlots: [
               {
-                viewTag: anonymous ? bytes(0) : recipient.viewingPublicKey().x(),
+                viewTag: zeroTag ? bytes(0) : recipient.viewingPublicKey().x(),
                 outputContext: {
                   hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
@@ -1643,6 +1693,11 @@ describe("wallet sync", () => {
         ],
       });
 
+      if (zeroTag) {
+        expect(report).toMatchObject({ storedUtxos: 0 });
+        expect(seen).toEqual([]);
+        return;
+      }
       expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
       expect(seen.flat().map((request) => [request.label, request.slotIndex])).toEqual([
         ["ringDeposit", 0],
@@ -1654,13 +1709,9 @@ describe("wallet sync", () => {
     },
   );
 
-  it.each([
-    [false, false],
-    [true, false],
-    [true, true],
-  ] as const)(
-    "opens audited deposits without a decoder hook, anonymous %s malformed %s",
-    async (anonymous, malformed) => {
+  it.each([false, true])(
+    "opens audited deposits without a decoder hook, malformed %s",
+    async (malformed) => {
       const recipient = ShieldedKeypair.generate();
       const wallet = new Wallet({ identity: recipient.shieldedAddress() });
       const envelope = ViewingKey.generate();
@@ -1703,7 +1754,7 @@ describe("wallet sync", () => {
             txSignature: SIGNATURE,
             outputSlots: [
               {
-                viewTag: anonymous ? bytes(0) : recipient.viewingPublicKey().x(),
+                viewTag: recipient.viewingPublicKey().x(),
                 outputContext: {
                   hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
@@ -1869,7 +1920,7 @@ describe("wallet sync", () => {
                 {
                   viewTag:
                     scheme === EncryptedScheme.ringAnonymous
-                      ? bytes(0)
+                      ? changeKey.publicKey().x()
                       : sender.signingPublicKey().confidentialViewTag(),
                   outputContext: {
                     hash: change.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID),
@@ -1881,7 +1932,7 @@ describe("wallet sync", () => {
                 {
                   viewTag:
                     scheme === EncryptedScheme.ringAnonymous
-                      ? bytes(0)
+                      ? recipient.viewingPublicKey().x()
                       : recipient.signingPublicKey().confidentialViewTag(),
                   outputContext: {
                     hash: payment.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
@@ -2100,8 +2151,9 @@ describe("wallet sync", () => {
     });
 
     expect(wallet.utxos().every((entry) => entry.spent)).toBe(true);
-    expect(getShieldedTransactionsByTags).toHaveBeenCalledOnce();
-    expect(getEncryptedUtxosByTags).toHaveBeenCalledOnce();
+    // The stable tags, then the two counter-tag chunks of the one held key.
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(3);
+    expect(getEncryptedUtxosByTags).toHaveBeenCalledTimes(3);
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
     // entries[1] was already known spent, so it is not asked about again: a
     // nullifier appears at most once on chain, and that answer is already in
@@ -2410,5 +2462,148 @@ describe("wallet sync", () => {
     });
 
     expect(report.unparsedTransactions).toBe(2);
+  });
+});
+
+describe("wallet sync counter tag streams", () => {
+  const context = { blockTime: 1n, slot: 0n };
+
+  /** One anonymous ring output to `owner` under `viewTag`, as the Rust scan tests build it. */
+  function anonymousOutput(
+    owner: ShieldedKeypair,
+    viewTag: Bytes32,
+    amount: bigint,
+    nonce: number,
+  ) {
+    const salt = new Uint8Array(16).fill(nonce) as Bytes16;
+    const output = new Utxo({
+      owner: owner.signingPublicKey(),
+      asset: SOL_MINT,
+      amount,
+      blinding: bytes(nonce + 40),
+      ringProgramId: OWNER,
+    });
+    const txKey = ShieldedKeypair.generate();
+    const encrypted = encryptConfidential(
+      txKey,
+      owner.viewingPublicKey(),
+      { assetId: 1n, amount, blinding: output.blinding, ringProgramId: OWNER, data: output.data },
+      salt,
+      0,
+    );
+    return {
+      amount,
+      tx: {
+        slot: BigInt(nonce),
+        txSignature: `${String(nonce)}`.repeat(64).slice(0, 64) as Signature,
+        txViewingPublicKey: txKey.viewingPublicKey(),
+        salt,
+        outputSlots: [
+          {
+            viewTag,
+            outputContext: {
+              hash: output.hash(owner.nullifierPublicKey(), DEFAULT_TREE_ID),
+              tree: TREE,
+              leafIndex: BigInt(nonce),
+            },
+            payload: encodeOutputData(
+              EncryptedScheme.ringAnonymous,
+              encrypted.slice(33),
+              "encrypted",
+            ),
+          },
+        ],
+        messages: [],
+        nullifiers: [bytes(nonce + 100)],
+        proofless: false,
+      },
+    };
+  }
+
+  const sameTag = (left: Bytes32, right: Bytes32) =>
+    left.every((byte, index) => byte === right[index]);
+
+  /** Outputs at counters 0, 60 and 100 lie within the gap of the last one in use, 165 does not. */
+  async function scanStream(tag: (key: ViewingKey, counter: bigint) => Bytes32) {
+    const owner = ShieldedKeypair.generate();
+    const viewing = owner.viewingKey();
+    const outputs = [
+      [0n, 5n],
+      [60n, 6n],
+      [100n, 7n],
+      [165n, 8n],
+    ].map(([counter, amount], nonce) =>
+      anonymousOutput(owner, tag(viewing, counter!), amount!, nonce + 1),
+    );
+    const getShieldedTransactionsByTags = vi.fn(async (request: { tags: readonly Bytes32[] }) => ({
+      context,
+      transactions: outputs
+        .filter(({ tx }) =>
+          request.tags.some((queried) => sameTag(queried, tx.outputSlots[0]!.viewTag)),
+        )
+        .map(({ tx }) => tx),
+    }));
+    const local = LocalShieldedKeys.fromKeypair(owner);
+    const viewTags = vi.fn((requests: Parameters<ShieldedKeys["viewTags"]>[0]) =>
+      local.viewTags(requests),
+    );
+    const wallet = new Wallet({ identity: owner.shieldedAddress() });
+    const report = await syncWallet({
+      wallet,
+      keys: { ...remoteOver(local), viewTags },
+      client: syncReads({ getShieldedTransactionsByTags }),
+    });
+
+    expect(wallet.utxos().map((entry) => entry.utxo.amount)).toEqual([5n, 6n, 7n]);
+    // Both streams open 64 wide, the one in use extends by 61 then 40 and ends
+    // once the gap past 100 is unused.
+    expect(viewTags.mock.calls.map(([requests]) => requests.length)).toEqual([128, 61, 40]);
+    return report.nextCounters;
+  }
+
+  it("finds sender-tagged anonymous change up to the gap and advances the counter", async () => {
+    expect(await scanStream((key, txCount) => key.senderViewTag(txCount))).toEqual({
+      txCount: 101n,
+      requestCount: 0n,
+    });
+  });
+
+  it("finds request-tagged anonymous payments up to the gap and advances the counter", async () => {
+    expect(
+      await scanStream((key, requestCount) => key.recipientRequestViewTag(requestCount)),
+    ).toEqual({
+      txCount: 0n,
+      requestCount: 101n,
+    });
+  });
+
+  it("reports zero counters and one window when no counter tag is in use", async () => {
+    const owner = ShieldedKeypair.generate();
+    const local = LocalShieldedKeys.fromKeypair(owner);
+    const viewTags = vi.fn((requests: Parameters<ShieldedKeys["viewTags"]>[0]) =>
+      local.viewTags(requests),
+    );
+    const report = await syncWallet({
+      wallet: new Wallet({ identity: owner.shieldedAddress() }),
+      keys: { ...remoteOver(local), viewTags },
+      client: syncReads(),
+    });
+    expect(report.nextCounters).toEqual({ txCount: 0n, requestCount: 0n });
+    expect(viewTags).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a key holder that answers the tag batch short", async () => {
+    const owner = ShieldedKeypair.generate();
+    const local = LocalShieldedKeys.fromKeypair(owner);
+    await expect(
+      syncWallet({
+        wallet: new Wallet({ identity: owner.shieldedAddress() }),
+        keys: {
+          ...remoteOver(local),
+          viewTags: async (requests) => (await local.viewTags(requests)).slice(1),
+        },
+        client: syncReads(),
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SYNC", causeCode: "TRANSACTION_KEYS_BATCH_MISMATCH" });
   });
 });

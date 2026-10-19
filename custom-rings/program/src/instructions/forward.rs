@@ -82,7 +82,7 @@ impl Forward {
                 deposit
                     .deposits
                     .iter()
-                    .any(|entry| entry.view_tag != &[0; 32] || entry.ring_data_hash != &[0; 32])
+                    .any(|entry| entry.ring_data_hash != &[0; 32])
             })
         {
             return Err(CustomRingError::InvalidAnonymousOutput.into());
@@ -95,7 +95,7 @@ impl Forward {
         validate_spp_program(spp_accounts)?;
         // 2. Verify supplied disclosure against the actual destination, deposit
         // bytes and escrow registry root, then apply public approval and caps.
-        if let (Some(audited), Some(deposit)) = (&audited, &deposit) {
+        if let Some(audited) = &audited {
             let tree = spp_accounts
                 .first()
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -106,7 +106,9 @@ impl Forward {
                 anonymous,
                 key_registry_root: key_registry_root.as_ref(),
                 audited,
-                deposit,
+                deposit: deposit
+                    .as_ref()
+                    .ok_or(CustomRingError::InvalidInstructionData)?,
             }
             .verify()?;
         }

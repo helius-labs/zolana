@@ -130,7 +130,6 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-
 	publicInputs, err := buildPublicInputs(shape, payerHash, inputs, outputs, external, privateTxHash, trees)
 	if err != nil {
 		return proofAssignment{}, err
@@ -185,9 +184,9 @@ func customRingWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
-	return &customring.CustomRingConfidentialEd25519Circuit{
+	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: uncachedInputs(publicInputs.PreimageTail, len(publicInputs.Nullifiers)),
-		Public: customring.CustomRingConfidentialEd25519Public{
+		Public: customring.CustomRingConfidentialEddsaPublic{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
 			TreeSlots:                    treeSlotVariables(publicInputs.TreeSlots),
@@ -202,7 +201,7 @@ func customRingWitness(
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
 		},
-		Private: customring.CustomRingConfidentialEd25519Private{
+		Private: customring.CustomRingConfidentialEddsaPrivate{
 			Inputs:              inputs.inputs,
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,

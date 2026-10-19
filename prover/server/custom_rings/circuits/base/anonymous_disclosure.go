@@ -5,8 +5,8 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
@@ -139,7 +139,7 @@ func anonymousDisclosureElements(api frontend.API, w AuditBlockWires) (frontend.
 
 	// 2. The header names the owner of every real input and is zero otherwise.
 	sender := identityBytes(w.Sender)
-	senderPkHash := checked.HashBytes(api, sender)
+	senderPkHash := gadget.HashBytes(api, sender)
 	// The auditor parser accepts the Ed25519 sender tag only. A different tag
 	// would yield an on-chain-valid proof with an unreadable trace.
 	api.AssertIsEqual(api.Mul(anonymous, api.Sub(w.Sender.Tag, 0x53)), 0)
@@ -176,7 +176,7 @@ func anonymousDisclosureElements(api frontend.API, w AuditBlockWires) (frontend.
 		for _, b := range w.Recipients[i].ViewingPk {
 			byteRange.Check(b, 8)
 		}
-		// Every ring-bound real note must be spendable by the Ed25519 rail.
+		// Every ring-bound real note must be spendable by the EdDSA rail.
 		ringOutput := api.Mul(disclosed, api.Sub(1, api.IsZero(output.RingProgramID)))
 		api.AssertIsEqual(api.Mul(ringOutput, api.Sub(w.Recipients[i].Tag, 0x53)), 0)
 		// Disclosed viewing keys use the same unique X25519 encoding as the host.
@@ -185,8 +185,8 @@ func anonymousDisclosureElements(api frontend.API, w AuditBlockWires) (frontend.
 		for j := range viewingKey {
 			viewingKey[j] = api.Mul(disclosed, w.Recipients[i].ViewingPk[j+1])
 		}
-		assertCanonicalX25519(api, viewingKey)
-		api.AssertIsEqual(api.Mul(disclosed, api.Sub(output.OwnerPkHash, checked.HashBytes(api, recipient))), 0)
+		x25519.AssertCanonical(api, viewingKey)
+		api.AssertIsEqual(api.Mul(disclosed, api.Sub(output.OwnerPkHash, gadget.HashBytes(api, recipient))), 0)
 		outputHashes[i] = output.hash(api, isUtxo)
 		realOutputHashes[i] = api.Mul(disclosed, outputHashes[i])
 		slots = append(slots, chunks(api, output.outputBytes(api, recipient, w.Recipients[i].ViewingPk), auditOutputChunks, disclosed))
@@ -208,10 +208,6 @@ func disclosureHash(
 	slots [][]frontend.Variable,
 	activeIn, activeOut []frontend.Variable,
 ) frontend.Variable {
-	rangeChecker := rangecheck.New(api)
-	for _, b := range w.Salt {
-		rangeChecker.Check(b, 8)
-	}
 	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 	keyLo, keyHi := Pack32To2FECircuit(api, w.TxViewingSk)
 	pad := func(index frontend.Variable) frontend.Variable {
@@ -279,11 +275,11 @@ func chunks(api frontend.API, bytes []frontend.Variable, n int, disclosed fronte
 
 // fieldBytes returns the unique native-field encoding so aliases cannot change a trace.
 func fieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
-	bytes := checked.FieldToBytesBE(api, value)
+	bytes := gadget.FieldToBytesBE(api, value)
 	return bytes[:]
 }
 
 // uintBytes constrains an unsigned integer to n bytes before big-endian serialization.
 func uintBytes(api frontend.API, value frontend.Variable, n int) []frontend.Variable {
-	return checked.BitsToBytesBE(api, api.ToBinary(value, 8*n))
+	return gadget.BitsToBytesBE(api, api.ToBinary(value, 8*n))
 }

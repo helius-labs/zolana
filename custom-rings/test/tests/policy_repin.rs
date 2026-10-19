@@ -277,7 +277,7 @@ fn block(literal: &str, rings: &CuratedRings) -> String {
 
 /// After `init` the project's config authority holds the config.
 fn init_subscriber(rings: &CuratedRings, policy: &str) -> Result<RingProject> {
-    let project = RingProject::create(&rings.env, &zolana_keypair::X25519Secret::new().pubkey())?;
+    let project = RingProject::create(&rings.env, &zolana_keypair::X25519Keypair::new().pubkey())?;
     project.write_config(RingToml {
         env: &rings.env,
         ring_rpc: RING_RPC,

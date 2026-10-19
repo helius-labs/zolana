@@ -79,6 +79,7 @@ impl Confidential {
     /// The ring auditor receives that key through its proved disclosure.
     pub fn encode_ring_anonymous_plaintext(
         plaintext: &ConfidentialOutputPlaintext,
+        view_tag: [u8; 32],
         cx: &ConfidentialEncode,
     ) -> Result<MessageData, TransactionError> {
         let bytes = plaintext.serialize()?;
@@ -90,10 +91,7 @@ impl Confidential {
         body.extend_from_slice(&ciphertext);
         let data = borsh::to_vec(&OutputDataEncoding::Encrypted(body))
             .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-        Ok(MessageData {
-            view_tag: [0; 32],
-            data,
-        })
+        Ok(MessageData { view_tag, data })
     }
 
     pub fn embedded_viewing_pk(body: &[u8]) -> Result<X25519Pubkey, TransactionError> {

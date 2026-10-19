@@ -67,7 +67,7 @@ fn transact_ref_decode_only_allocates_element_vectors() {
     let owned = TransactIxData {
         expiry_unix_ts: 1,
         private_tx_hash: [2; 32],
-        circuit: CircuitId::ConfidentialEd25519(1, 1, 1),
+        circuit: CircuitId::ConfidentialEddsa(1, 1, 1),
         tx_viewing_pk: [3; 33],
         salt: [4; 16],
         proof: TransactProof::zeroed(),

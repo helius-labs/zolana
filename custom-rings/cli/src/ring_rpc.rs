@@ -294,7 +294,7 @@ impl RingRpcClient {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::X25519Secret;
+    use zolana_keypair::X25519Keypair;
 
     use super::*;
 
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn trust_accepts_the_pinned_key_or_an_explicit_waiver() {
-        let auditor_pk = X25519Secret::new().pubkey();
+        let auditor_pk = X25519Keypair::new().pubkey();
         assert_eq!(
             attested(auditor_pk)
                 .require(Trust::Pinned(SERVICE))

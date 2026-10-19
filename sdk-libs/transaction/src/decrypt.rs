@@ -3,7 +3,9 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, X25519Pubkey};
+use zolana_keypair::{
+    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
+};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances},
@@ -399,16 +401,9 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     label: DecryptLabel::Utxo,
                 })
                 .collect();
-            if requests.is_empty() {
+            let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
                 return Ok(None);
-            }
-            let plaintexts = shielded_keys.decrypt(&requests)?;
-            if plaintexts.len() != requests.len() {
-                return Err(TransactionError::IncompleteDecryption {
-                    got: plaintexts.len(),
-                    want: requests.len(),
-                });
-            }
+            };
             let mut unresolved_asset = None;
             for bytes in plaintexts {
                 let utxos = match scheme {
@@ -501,16 +496,9 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
             label: DecryptLabel::RingDeposit,
         })
         .collect();
-    if requests.is_empty() {
+    let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
         return Ok(None);
-    }
-    let plaintexts = shielded_keys.decrypt(&requests)?;
-    if plaintexts.len() != requests.len() {
-        return Err(TransactionError::IncompleteDecryption {
-            got: plaintexts.len(),
-            want: requests.len(),
-        });
-    }
+    };
     let owner_hash = address.owner_hash()?;
     for bytes in plaintexts {
         let Ok(plaintext) = wincode::deserialize_exact::<RingDepositPlaintext>(&bytes) else {
@@ -532,6 +520,29 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
         }));
     }
     Ok(None)
+}
+
+/// `None` when no viewing key can open the requests.
+fn trial_decrypt<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    requests: &[DecryptRequest<'_>],
+) -> Result<Option<Vec<Vec<u8>>>, TransactionError> {
+    if requests.is_empty() {
+        return Ok(None);
+    }
+    let plaintexts = match shielded_keys.decrypt(requests) {
+        Ok(plaintexts) => plaintexts,
+        // The sender picks `tx_viewing_pk`, a low-order one opens under no key.
+        Err(TransactionError::Keypair(KeypairError::NonContributoryKey)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if plaintexts.len() != requests.len() {
+        return Err(TransactionError::IncompleteDecryption {
+            got: plaintexts.len(),
+            want: requests.len(),
+        });
+    }
+    Ok(Some(plaintexts))
 }
 
 /// What [`rebuild_merge`] made of one transaction.

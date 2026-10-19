@@ -1,4 +1,4 @@
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   AccountRole,
   getAddressDecoder,
@@ -465,7 +465,7 @@ describe("list writes", () => {
           RING,
           ringProgramConfigData({
             authority: AUTHORITY,
-            auditorPublicKey: X25519Secret.generate().publicKey().toBytes(),
+            auditorPublicKey: X25519Keypair.generate().publicKey().toBytes(),
             bump: configBump,
             hasPolicy: input.hasPolicy ?? true,
           }),

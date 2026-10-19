@@ -1,5 +1,5 @@
-//! High-level builder for the eddsa-rail ring-transfer proof. This is the
-//! ed25519-only (Solana) confidential rail bound to a ring program. It binds
+//! High-level builder for the EdDSA ring-transfer proof. This is the
+//! eddsa-only (Solana) confidential rail bound to a ring program. It binds
 //! the public signer transcript and binds the ring program
 //! like [`RingAuthorityProver`](crate::prover::ring_authority::RingAuthorityProver).
 //!
@@ -27,7 +27,7 @@ use crate::{
     },
 };
 
-/// Confidential ring-bound transfer over the ed25519-only rail.
+/// Confidential ring-bound transfer over the eddsa-only rail.
 pub struct RingTransferProver {
     pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
@@ -89,7 +89,7 @@ impl RingTransferProver {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::ConfidentialEd25519,
+            &OwnerMode::ConfidentialEddsa,
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =

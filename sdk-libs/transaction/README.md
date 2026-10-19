@@ -119,7 +119,7 @@ implementation differences.
 
     `ZolanaClient::prove_transact`
 
-    1. anonymous Ed25519 transfers sign
+    1. anonymous EdDSA transfers sign
        `sha256(private_tx_hash || external_data_hash)` inside the proof.
        Ordinary transfers use the Solana signer in step 7.
     2. send the input commitments; the prover fetches the state-inclusion and
@@ -142,7 +142,7 @@ implementation differences.
 
 7. **Sign (Client)**
     1. fee payer signs the Solana transaction, `sign_transaction`
-    2. each distinct input owner signs on the Ed25519 rail
+    2. each distinct input owner signs on the EdDSA rail
     3. **result:** signed Solana transaction
 
 8. **Submit and Confirm (Client)**

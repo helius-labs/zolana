@@ -51,7 +51,6 @@ pub fn write_user_record(
     merging_enabled: bool,
 ) -> Pubkey {
     let viewing_pubkey = *zolana_keypair::ViewingKey::from_bytes(&[7; 32])
-        .unwrap()
         .pubkey()
         .as_bytes();
     let (address, bump) = user_record_pda(&owner);

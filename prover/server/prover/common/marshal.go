@@ -356,7 +356,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// Transfer variants are resolved from canonical key filenames. The
 		// HasCommitment header retains its historical value independently of the rail.
 		ring := strings.Contains(lowerPath, "ring")
-		ed25519Ring := strings.Contains(lowerPath, "ed25519_ring")
+		eddsaRing := strings.Contains(lowerPath, "eddsa_ring")
 		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "ring" case: the name contains both
 		// "transfer" (matched this branch) and "ring".
@@ -364,8 +364,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		switch {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
-		case ed25519Ring:
-			ps.CircuitType = TransferAnonymousRingEd25519CircuitType
+		case eddsaRing:
+			ps.CircuitType = TransferAnonymousRingEddsaCircuitType
 		case ring:
 			ps.CircuitType = TransferRingCircuitType
 		default:

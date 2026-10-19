@@ -88,7 +88,6 @@ export const ShieldedPoolError = Object.freeze({
   CacheRentRecipientMismatch: 7077,
   ZeroInputNullifier: 7078,
   ZeroOutputUtxoHash: 7079,
-  AnonymousRingEd25519OutputOwnerTag: 7085,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

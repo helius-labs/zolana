@@ -13,7 +13,7 @@ use rand::RngCore;
 use solana_address::Address;
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, X25519Pubkey, X25519Secret};
+use zolana_keypair::{KeypairError, X25519Keypair, X25519Pubkey};
 
 use crate::{origins::OriginTransport, server::BindPolicy};
 
@@ -143,7 +143,9 @@ pub enum KeyFileError {
     ForeignOwner { path: PathBuf },
     #[error("key file access cannot be verified on the current platform")]
     AccessCheckUnavailable,
-    #[error("auditor key is not a valid X25519 secret key because {0}")]
+    #[error("auditor key cannot be zero")]
+    ZeroAuditorKey,
+    #[error("auditor public key is invalid because {0}")]
     Key(#[from] KeypairError),
     #[error(transparent)]
     Root(#[from] RootSecretError),
@@ -206,7 +208,7 @@ impl RootSecret {
 }
 
 impl KeyFile<'_> {
-    pub fn auditor_key(self) -> Result<X25519Secret, KeyFileError> {
+    pub fn auditor_key(self) -> Result<X25519Keypair, KeyFileError> {
         parse_auditor_key(&self.text()?)
     }
 
@@ -251,10 +253,10 @@ impl fmt::Display for FileMode {
     }
 }
 
-pub fn write_auditor_key(out: &Path) -> Result<X25519Secret, KeyFileError> {
+pub fn write_auditor_key(out: &Path) -> Result<X25519Keypair, KeyFileError> {
     create_parent(out)?;
     let public_path = public_key_path(out)?;
-    let key = X25519Secret::new();
+    let key = X25519Keypair::new();
     let secret_hex = Zeroizing::new(hex::encode(*key.secret_bytes()));
     let public_hex = hex::encode(key.pubkey().as_bytes());
     let mut secret_file = NewFile {
@@ -503,9 +505,12 @@ fn no_follow(options: &mut OpenOptions) {
 #[cfg(not(unix))]
 fn no_follow(_options: &mut OpenOptions) {}
 
-fn parse_auditor_key(text: &str) -> Result<X25519Secret, KeyFileError> {
+fn parse_auditor_key(text: &str) -> Result<X25519Keypair, KeyFileError> {
     let secret = parse_hex32(text)?;
-    Ok(X25519Secret::from_bytes(&secret)?)
+    if secret.iter().all(|byte| *byte == 0) {
+        return Err(KeyFileError::ZeroAuditorKey);
+    }
+    Ok(X25519Keypair::from_bytes(&secret))
 }
 
 fn parse_hex32(text: &str) -> Result<Zeroizing<[u8; 32]>, KeyFileError> {
@@ -586,7 +591,7 @@ mod tests {
     fn public_key_files_round_trip_and_reject_other_lengths() {
         let dir = temp_dir("pubkey");
         let path = dir.join("nested").join("auditor.key.pub");
-        let key = X25519Secret::new();
+        let key = X25519Keypair::new();
         write_auditor_pubkey(&path, &key.pubkey()).expect("write");
         assert_eq!(read_auditor_pubkey(&path).expect("read"), key.pubkey());
         assert!(matches!(
@@ -631,10 +636,11 @@ mod tests {
     }
 
     #[test]
-    fn zero_secret_is_clamped() {
-        let key = parse_auditor_key(&"00".repeat(32)).expect("RFC 7748 clamps zero");
-        assert_eq!(*key.secret_bytes(), [0; 32]);
-        assert_ne!(key.pubkey().u(), [0; 32]);
+    fn zero_auditor_key_is_rejected() {
+        assert!(matches!(
+            parse_auditor_key(&"00".repeat(32)),
+            Err(KeyFileError::ZeroAuditorKey)
+        ));
     }
 
     #[test]

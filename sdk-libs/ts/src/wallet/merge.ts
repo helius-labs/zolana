@@ -157,8 +157,7 @@ export interface MergeTransactionParams {
   readonly client: MergeClient;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  /** Defaults to the owner. Sponsorship does not change the registered identity. */
-  readonly feePayer?: Address;
+  readonly feePayer: Address;
   readonly asset?: Address;
   /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
@@ -166,11 +165,10 @@ export interface MergeTransactionParams {
 }
 
 export async function buildMergeTransaction(
-  params: MergeTransactionParams,
+  input: MergeTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
-    const input = { ...params, feePayer: params.feePayer ?? params.keys.address().solanaAddress() };
     await initializePoseidon();
     const address = input.keys.address();
     const owner = ownerSolanaAccount(address, input.feePayer);
@@ -195,7 +193,7 @@ export async function buildMergeTransaction(
 }
 
 async function proveAndAssembleMerge(
-  input: MergeTransactionParams & { readonly feePayer: Address },
+  input: MergeTransactionParams,
   owner: Address,
   address: ShieldedAddress,
   created: CreatedMerge,

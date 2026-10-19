@@ -3,7 +3,7 @@ use custom_ring_interface::{
     RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET,
 };
 use zeroize::Zeroizing;
-use zolana_keypair::{symmetric_apply, X25519Pubkey, X25519Secret};
+use zolana_keypair::{symmetric_apply, X25519Keypair, X25519Pubkey};
 
 use crate::encryption::{AuditEncryptionError, AuditSharedSecret};
 
@@ -31,12 +31,12 @@ pub struct DepositSeal<'a> {
 
 impl DepositSeal<'_> {
     pub fn seal(self) -> Result<DepositEncryption, AuditEncryptionError> {
-        self.seal_with_key(X25519Secret::new())
+        self.seal_with_key(X25519Keypair::new())
     }
 
     fn seal_with_key(
         self,
-        ephemeral: X25519Secret,
+        ephemeral: X25519Keypair,
     ) -> Result<DepositEncryption, AuditEncryptionError> {
         if self.openings.is_empty() || self.openings.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(AuditEncryptionError::DepositCount(self.openings.len()));
@@ -90,7 +90,7 @@ impl DepositSeal<'_> {
 /// Authenticates an auditor opening against the deposited owner commitment.
 pub struct DepositOpen<'a> {
     pub capsule: RingDepositAuditCapsule<'a>,
-    pub auditor: &'a X25519Secret,
+    pub auditor: &'a X25519Keypair,
     pub owner_utxo_hash: &'a [u8; 32],
     /// Fetched independently of the indexed capsule from its confirmed event.
     pub confirmed: &'a crate::ConfirmedDeposit,
@@ -159,8 +159,8 @@ mod tests {
 
     #[test]
     fn deposit_encryption_and_public_hash_match_the_typescript_vector() {
-        let auditor = X25519Secret::from_bytes(&[0x11; 32]).unwrap();
-        let ephemeral = X25519Secret::from_bytes(&[0x22; 32]).unwrap();
+        let auditor = X25519Keypair::from_bytes(&[0x11; 32]);
+        let ephemeral = X25519Keypair::from_bytes(&[0x22; 32]);
         let word = |value| {
             let mut bytes = [0; 32];
             bytes[31] = value;
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn every_slot_uses_its_batch_stream_offset() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let openings: Vec<_> = (0..MAX_RING_DEPOSIT_AUDIT_SLOTS)
             .map(|index| DepositOpening {
                 owner_hash: [index as u8; 32],
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn empty_and_oversized_batches_are_rejected() {
-        let auditor = X25519Secret::new().pubkey();
+        let auditor = X25519Keypair::new().pubkey();
         assert!(matches!(
             DepositSeal {
                 openings: &[],

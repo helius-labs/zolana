@@ -20,7 +20,7 @@ use zolana_indexer_api::{
     RingMemberProofRequest, SerializablePubkey,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{KeypairError, NullifierKey, ShieldedKeypair, X25519Pubkey, X25519Secret};
+use zolana_keypair::{KeypairError, NullifierKey, ShieldedKeypair, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{AuditEncryptionError, NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_policy::Member;
 
@@ -396,7 +396,7 @@ impl ReadSealedKey {
 
 impl SealedKeyEntry {
     /// The opened key must reproduce the leaf under the root read from Solana.
-    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey, KeyRegistrationError> {
+    pub fn open(&self, auditor: &X25519Keypair) -> Result<NullifierKey, KeyRegistrationError> {
         // 1. The auditor recovers the nullifier key without an owner signing
         // key.
         let nullifier_key = self.sealed.open(auditor)?;
@@ -640,7 +640,7 @@ struct RegisterKeyProofRequestJson<'a> {
 #[cfg(test)]
 mod tests {
     use zolana_indexer_api::{Base64String, Context};
-    use zolana_keypair::{NullifierKey, X25519Secret};
+    use zolana_keypair::{NullifierKey, X25519Keypair};
     use zolana_ring_key_registry::{KeyRegistryTree, Registration};
     use zolana_ring_policy::ZERO_NULLIFIER_PK;
 
@@ -655,7 +655,7 @@ mod tests {
         member: Member,
         query: RingMemberProofRequest,
         response: GetRingKeyRegistryRegisterProofResponse,
-        auditor: X25519Secret,
+        auditor: X25519Keypair,
         nullifier_key: NullifierKey,
         envelope: NullifierKeyEnvelope,
         tree: KeyRegistryTree,
@@ -666,7 +666,7 @@ mod tests {
         /// One sealed key at index 1 above the sentinel, the response an indexer serves for it.
         fn new() -> Self {
             let ring = CustomRing::new(Address::new_from_array([5; 32]));
-            let auditor = X25519Secret::new();
+            let auditor = X25519Keypair::new();
             let nullifier_key = NullifierKey::from_secret([7u8; 31]);
             let envelope =
                 NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("seal");
@@ -840,7 +840,7 @@ mod tests {
             fixture.nullifier_key.secret().as_slice()
         );
         assert!(matches!(
-            entry.open(&X25519Secret::new()),
+            entry.open(&X25519Keypair::new()),
             Err(
                 KeyRegistrationError::Envelope(AuditEncryptionError::NullifierPad)
                     | KeyRegistrationError::InvalidEntryProof

@@ -261,7 +261,7 @@ fn into_ix_data_writes_every_account_in_slot_order() {
                 },
             ],
             vec![ADDRESS_CONTEXT, STATE_CONTEXT],
-            CircuitId::ConfidentialEd25519(2, 2, N_PUBLIC_SLOTS as u8),
+            CircuitId::ConfidentialEddsa(2, 2, N_PUBLIC_SLOTS as u8),
             expected_outputs,
             expected_states,
         )
@@ -358,7 +358,7 @@ fn into_ix_data_proves_each_write_count_at_the_smallest_supported_square() {
             (count, ix.circuit, ix.inputs.len(), ix.outputs.len())
         })
         .collect();
-    let square = |width| CircuitId::ConfidentialEd25519(width, width, N_PUBLIC_SLOTS as u8);
+    let square = |width| CircuitId::ConfidentialEddsa(width, width, N_PUBLIC_SLOTS as u8);
 
     assert_eq!(
         shapes,

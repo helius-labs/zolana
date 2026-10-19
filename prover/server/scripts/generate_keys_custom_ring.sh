@@ -21,7 +21,6 @@ xtask="$repo_root/target/debug/xtask"
 
 release_flags=()
 for key in "${ring_keys[@]}"; do
-    [[ "$key" == custom_ring_* ]] || continue
     stem="${key%.key}"
     circuit="${stem//_/-}"
     module="${stem#custom_ring_}_verifying_key.rs"

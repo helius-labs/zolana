@@ -809,7 +809,7 @@ impl AsyncProverClient {
         self
     }
 
-    /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
+    /// Prove a Solana-only (Ed25519) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer(inputs)?).await
@@ -2081,6 +2081,7 @@ mod tests {
             ExpectedProvingKey::transfer_confidential(1, 2).expect("1x2 confidential"),
             ExpectedProvingKey::transfer_ring(2, 2).expect("2x2 ring"),
             ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
+            ExpectedProvingKey::transfer_anonymous_ring_eddsa(49, 2).expect("49x2 anonymous"),
             ExpectedProvingKey::merge(24).expect("merge 24"),
             ExpectedProvingKey::merge_ring(54).expect("merge ring 54"),
             ExpectedProvingKey::batch_address_append(40, 4999).expect("address append 4999"),
@@ -2092,6 +2093,7 @@ mod tests {
                 "transfer_confidential_1_2.key",
                 "transfer_ring_2_2.key",
                 "transfer_ring_authority_4_4.key",
+                "transfer_eddsa_ring_49_2.key",
                 "merge_24_1.key",
                 "merge_ring_54_1.key",
                 "batch_address-append_40_4999.key",

@@ -1,8 +1,9 @@
-//! Fixed-length ciphertext commitments shared by the program and SDK.
+//! Canonical `no_std`-compatible fixed-length byte commitments shared by the
+//! merge program, SDK, and circuits.
 
 use zolana_hasher::{primitives::hash_bytes, HasherError};
 
-/// Commits the complete ciphertext to the proof's public inputs.
+/// Fixed-length ciphertext proof-input hash.
 pub fn ciphertext_hash<const N: usize>(ciphertext: &[u8; N]) -> Result<[u8; 32], HasherError> {
     hash_bytes(ciphertext)
 }

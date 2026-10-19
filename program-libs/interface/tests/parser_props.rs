@@ -39,8 +39,8 @@ mod strategies {
     pub fn circuit_id() -> impl Strategy<Value = CircuitId> {
         (0u8..3, any::<u8>(), any::<u8>(), any::<u8>()).prop_map(
             |(variant, n_in, n_out, n_slots)| match variant {
-                0 => CircuitId::ConfidentialEd25519(n_in, n_out, n_slots),
-                1 => CircuitId::ConfidentialRingEd25519(n_in, n_out, n_slots),
+                0 => CircuitId::ConfidentialEddsa(n_in, n_out, n_slots),
+                1 => CircuitId::ConfidentialRingEddsa(n_in, n_out, n_slots),
                 _ => CircuitId::RingAuthority(n_in, n_out, n_slots),
             },
         )

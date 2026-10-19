@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import type {
   BlockhashProvider,
   ChainReader,
@@ -106,7 +106,7 @@ export function sealNullifierKey(
   nullifierKey: NullifierKey,
   auditorPublicKey: X25519PublicKey,
 ): NullifierKeyEnvelope {
-  const ephemeral = X25519Secret.generate();
+  const ephemeral = X25519Keypair.generate();
   try {
     return sealNullifierKeyWith(ephemeral, nullifierKey, auditorPublicKey);
   } finally {
@@ -116,7 +116,7 @@ export function sealNullifierKey(
 
 /** @internal Byte zero of the plaintext is the pad the circuit pins. */
 export function sealNullifierKeyWith(
-  ephemeral: X25519Secret,
+  ephemeral: X25519Keypair,
   nullifierKey: NullifierKey,
   auditorPublicKey: X25519PublicKey,
 ): NullifierKeyEnvelope {
@@ -143,7 +143,7 @@ export function sealNullifierKeyWith(
 }
 
 /** Authenticate decoded keys through registry inclusion. */
-export function openNullifierKey(sealed: SealedNullifierKey, auditor: X25519Secret): NullifierKey {
+export function openNullifierKey(sealed: SealedNullifierKey, auditor: X25519Keypair): NullifierKey {
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
   let plaintext: Uint8Array | undefined;
@@ -291,7 +291,7 @@ export async function readSealedKey(
 }
 
 /** The opened key must reproduce the leaf under the root read from Solana. */
-export function openRingSealedKey(entry: RingSealedKeyEntry, auditor: X25519Secret): NullifierKey {
+export function openRingSealedKey(entry: RingSealedKeyEntry, auditor: X25519Keypair): NullifierKey {
   // 1. Recover nullifier material without granting a Solana signing capability.
   const nullifierKey = openNullifierKey(entry.sealed, auditor);
   try {

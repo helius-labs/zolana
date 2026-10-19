@@ -22,10 +22,10 @@ impl Rpc for RegistryAbsent {
 }
 
 fn ed25519_registration(payer: Option<Pubkey>) -> (Pubkey, solana_message::v1::Message) {
+    let owner = Pubkey::new_unique();
     let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
         .expect("ed25519 keypair");
     let address = keypair.shielded_address().expect("shielded address");
-    let owner = Pubkey::new_from_array(address.signing_pubkey.as_ed25519().unwrap());
     let message = build_registration_transaction_sync(&RegistryAbsent, owner, &address, payer)
         .expect("build registration")
         .expect("registration required");

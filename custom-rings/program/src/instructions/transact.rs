@@ -3,7 +3,7 @@ use core::num::NonZeroU64;
 use custom_ring_interface::{
     CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
     CustomRingProof, CustomRingTransactIxData, DisclosureShape, FixedWindow, RingMode,
-    AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG,
+    ANONYMOUS_RING_SHAPES, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG,
 };
 use pinocchio::{
     error::ProgramError,
@@ -14,11 +14,11 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
-        ring_confidential_encrypted_output_body, OwnerTag,
+        ring_confidential_encrypted_output_body,
     },
-    tag, CircuitId, MessageData, TransactIxData,
+    tag, CircuitId, MessageData,
 };
-use zolana_ring_policy::{ring_id_field, spend_record_message_tag, ListNamespace, VelocityMode};
+use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
 
 use crate::{
     error::CustomRingError,
@@ -81,9 +81,15 @@ impl TransactRail {
     fn accepts(self, circuit: CircuitId, mode: RingMode) -> bool {
         match (self, mode) {
             (Self::Member, RingMode::Anonymous) => {
-                matches!(circuit, CircuitId::AnonymousRingEd25519(..)) && circuit.is_supported()
+                let shape = zolana_interface::shape::Shape::new(
+                    circuit.num_inputs() as usize,
+                    circuit.num_outputs() as usize,
+                );
+                matches!(circuit, CircuitId::AnonymousRingEddsa(..))
+                    && circuit.is_supported()
+                    && ANONYMOUS_RING_SHAPES.contains(&shape)
             }
-            (Self::Member, _) => matches!(circuit, CircuitId::ConfidentialRingEd25519(..)),
+            (Self::Member, _) => matches!(circuit, CircuitId::ConfidentialRingEddsa(..)),
             (Self::Delegate, RingMode::Anonymous) => false,
             (Self::Delegate, _) => matches!(circuit, CircuitId::RingAuthority(..)),
         }
@@ -210,11 +216,6 @@ impl TransactRail {
             Some(reads) => revocations.verify(&reads.trees, &mut rest)?,
             None => revocations.require_empty()?,
         }
-        if let (Some(reads), PolicyStatement::Member | PolicyStatement::Delegate) =
-            (policy.as_ref(), &statement)
-        {
-            refuse_record_messages(program_id, reads.binding.namespace_bump, &transact.messages)?;
-        }
 
         // 3. Enforce approval and public mint caps against the actual
         // settlement legs.
@@ -226,7 +227,7 @@ impl TransactRail {
         let (windows, spp_accounts) = rest.split_at_mut(leg_count);
         validate_spp_program(spp_accounts)?;
         if anonymous {
-            check_anonymous_settlement(payer, transact, spp_accounts)?;
+            check_anonymous_settlement(payer, spp_accounts)?;
         }
         let settlement_len: usize = transact
             .interface_transfers
@@ -237,7 +238,7 @@ impl TransactRail {
             .len()
             .checked_sub(settlement_len)
             .and_then(|start| spp_accounts.get(start..))
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
+            .ok_or(CustomRingError::InvalidInstructionData)?;
         let demand = CoSignerRequirement::transact(PublicLegs::from_transact(
             &transact.interface_transfers,
             settlements,
@@ -541,12 +542,8 @@ fn is_valid_confidential_output(data: &[u8], anonymous: bool) -> bool {
         && !ciphertext.is_empty()
 }
 
-/// The payer is the only signer SPP sees, and no output names its owner.
-fn check_anonymous_settlement(
-    payer: &AccountView,
-    transact: &TransactIxData,
-    spp_accounts: &[AccountView],
-) -> ProgramResult {
+/// The payer is the only signer SPP sees.
+fn check_anonymous_settlement(payer: &AccountView, spp_accounts: &[AccountView]) -> ProgramResult {
     let (spp_payer, rest) = spp_accounts
         .split_first()
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -556,33 +553,6 @@ fn check_anonymous_settlement(
             .any(|account| account.is_signer() && account.address() != payer.address())
     {
         return Err(CustomRingError::InvalidAnonymousSigner.into());
-    }
-    if transact
-        .outputs
-        .iter()
-        .any(|output| output.owner_tag != OwnerTag::Inline([0; 32]))
-    {
-        return Err(CustomRingError::InvalidAnonymousOutput.into());
-    }
-    Ok(())
-}
-
-/// Outside the windowed statement no message may claim the namespace or its
-/// record tag, which a recovery would otherwise try to open.
-#[inline(never)]
-fn refuse_record_messages(
-    program_id: &Address,
-    namespace_bump: u8,
-    messages: &[MessageData],
-) -> ProgramResult {
-    let namespace = namespace_address(program_id, namespace_bump)?;
-    let record_tag = spend_record_message_tag(namespace.as_array())
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    if messages
-        .iter()
-        .any(|message| &message.view_tag == namespace.as_array() || message.view_tag == record_tag)
-    {
-        return Err(CustomRingError::UnexpectedRecordMessage.into());
     }
     Ok(())
 }
@@ -701,26 +671,29 @@ mod tests {
     #[test]
     fn the_rails_follow_the_ring_mode() {
         let slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-        let eddsa = CircuitId::ConfidentialRingEd25519(2, 2, slots);
+        let confidential = CircuitId::ConfidentialRingEddsa(2, 2, slots);
         let authority = CircuitId::RingAuthority(2, 2, slots);
         let hidden = |n_in, n_out| {
-            CircuitId::AnonymousRingEd25519(
+            CircuitId::AnonymousRingEddsa(
                 n_in,
                 n_out,
                 zolana_interface::N_PUBLIC_SLOTS as u8,
-                zolana_interface::verifying_keys::Bsb22Commitment {
-                    commitment: [0; 32],
-                    commitment_pok: [0; 32],
+                zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                    bsb22_commitment: zolana_interface::verifying_keys::Bsb22Commitment {
+                        commitment: [0; 32],
+                        commitment_pok: [0; 32],
+                    },
+                    default_owner_tag: None,
                 },
             )
         };
         for mode in [RingMode::Off, RingMode::Registry] {
-            assert!(TransactRail::Member.accepts(eddsa, mode));
+            assert!(TransactRail::Member.accepts(confidential, mode));
             assert!(!TransactRail::Member.accepts(hidden(2, 2), mode));
             assert!(TransactRail::Delegate.accepts(authority, mode));
         }
         let anonymous = RingMode::Anonymous;
-        assert!(!TransactRail::Member.accepts(eddsa, anonymous));
+        assert!(!TransactRail::Member.accepts(confidential, anonymous));
         assert!(!TransactRail::Delegate.accepts(authority, anonymous));
         for (n_in, n_out) in [(2, 2), (2, 4), (3, 4), (4, 2)] {
             assert!(TransactRail::Member.accepts(hidden(n_in, n_out), anonymous));

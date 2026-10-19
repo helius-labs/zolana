@@ -1,4 +1,4 @@
-import { X25519Secret } from "../../src/keypair/x25519.js";
+import { X25519Keypair } from "../../src/keypair/x25519.js";
 import { readFile, stat } from "node:fs/promises";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
@@ -182,7 +182,7 @@ describe("fresh ring controls", () => {
     const cosigner = (await freshActor(client)).signer;
     const program = await generateKeyPairSigner();
     const ringProgramId = program.address;
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     try {
       for (let i = 0; i < 6; i++) await airdrop(client, authority.address);
       await airdrop(client, delegate.address);
@@ -371,7 +371,6 @@ describe("fresh ring controls", () => {
             buildRingDepositTransaction({
               client,
               ringProgramId,
-              depositor: sender.signer.address,
               feePayer: sender.signer.address,
               recipient: refused,
               amount: 1n,
@@ -388,7 +387,6 @@ describe("fresh ring controls", () => {
           await buildRingDepositTransaction({
             client,
             ringProgramId,
-            depositor: sender.signer.address,
             feePayer: sender.signer.address,
             recipient: sender.keypair.shieldedAddress(),
             amount,
@@ -405,7 +403,6 @@ describe("fresh ring controls", () => {
           await buildRingDepositTransaction({
             client,
             ringProgramId,
-            depositor: harness.testAuthority.address,
             feePayer: harness.testAuthority.address,
             recipient: sender.keypair.shieldedAddress(),
             asset,

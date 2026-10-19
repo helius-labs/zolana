@@ -64,14 +64,14 @@ func setAllowDummyInputs(t testing.TB, a *testAssignment, allowDummyInputs bool)
 func TestCircuitAcceptsInputsFromSeveralTreeSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
 
 	if got, want := spptest.AsBigInt(assignment.InputFlags).Int64(), int64(17); got != want {
 		t.Fatalf("input flags for slots [0 1] with the policy on: got %d want %d", got, want)
 	}
-	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The published index must equal the private selection, so a proof checked
@@ -79,7 +79,7 @@ func TestCircuitAcceptsInputsFromSeveralTreeSlots(t *testing.T) {
 func TestCircuitRejectsInputFlagsTreeIndexMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
 
@@ -88,7 +88,7 @@ func TestCircuitRejectsInputFlagsTreeIndexMismatch(t *testing.T) {
 	assignment.InputFlags = testInputFlags(t, true, singleTreeSlots(shape.NInputs))
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A tree index above the published width is unreachable: ToBinary range-checks
@@ -96,13 +96,13 @@ func TestCircuitRejectsInputFlagsTreeIndexMismatch(t *testing.T) {
 func TestCircuitRejectsInputFlagsWiderThanTheShape(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	width := uint(1 + TreeIndexBits*shape.NInputs)
 	assignment.InputFlags = new(big.Int).SetBit(spptest.AsBigInt(assignment.InputFlags), int(width), 1)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An index that names no published slot is rejected by SelectTreeSlot, so the
@@ -110,11 +110,11 @@ func TestCircuitRejectsInputFlagsWiderThanTheShape(t *testing.T) {
 func TestCircuitRejectsInputFlagsIndexOutsidePublishedSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(InputTrees)
 	setAllowDummyInputs(t, assignment, true)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }

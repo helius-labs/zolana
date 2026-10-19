@@ -9,7 +9,9 @@
 use std::collections::BTreeMap;
 
 use zolana_interface::{
-    verifying_keys::{Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S},
+    verifying_keys::{
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S,
+    },
     MAX_OUTPUTS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
@@ -49,9 +51,12 @@ fn proving_key_sha256s_match_lockfile() {
 fn circuit_proving_key_sha256_matches_its_key_file() {
     let table: BTreeMap<&str, [u8; 32]> = PROVING_KEY_SHA256S.iter().copied().collect();
     let slots = N_PUBLIC_SLOTS as u8;
-    let commitment = Bsb22Commitment {
-        commitment: [0; 32],
-        commitment_pok: [0; 32],
+    let proof_data = AnonymousRingEddsaProofData {
+        bsb22_commitment: Bsb22Commitment {
+            commitment: [0; 32],
+            commitment_pok: [0; 32],
+        },
+        default_owner_tag: None,
     };
     let mut checked = 0;
     let max_inputs = u8::try_from(MAX_TRANSACT_INPUTS).expect("fits u8");
@@ -61,15 +66,15 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
             for (rail, circuit) in [
                 (
                     "transfer_confidential",
-                    CircuitId::ConfidentialEd25519(n_inputs, n_outputs, slots),
+                    CircuitId::ConfidentialEddsa(n_inputs, n_outputs, slots),
                 ),
                 (
                     "transfer_ring",
-                    CircuitId::ConfidentialRingEd25519(n_inputs, n_outputs, slots),
+                    CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, slots),
                 ),
                 (
-                    "transfer_ed25519_ring",
-                    CircuitId::AnonymousRingEd25519(n_inputs, n_outputs, slots, commitment),
+                    "transfer_eddsa_ring",
+                    CircuitId::AnonymousRingEddsa(n_inputs, n_outputs, slots, proof_data),
                 ),
                 (
                     "transfer_ring_authority",

@@ -2095,7 +2095,7 @@ fn transact_source_data(
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0; 32],
-        circuit: CircuitId::ConfidentialEd25519(
+        circuit: CircuitId::ConfidentialEddsa(
             u8::try_from(expected.inputs.len()).expect("shape"),
             u8::try_from(outputs.len()).expect("shape"),
             0,

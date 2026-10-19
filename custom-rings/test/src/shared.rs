@@ -164,7 +164,7 @@ impl TestEnv {
     }
 }
 
-/// Each actor is one ed25519 identity: `ShieldedKeypair` implements
+/// Each actor is one eddsa identity: `ShieldedKeypair` implements
 /// `solana_signer::Signer` over the same key, so it is both the shielded owner
 /// and the Solana fee payer for its own transactions.
 pub struct TestWallet {
@@ -550,7 +550,7 @@ pub fn ring_program_so() -> String {
         .unwrap_or_else(|_| artifacts.path("target/deploy/custom_ring_program.so"))
 }
 
-/// A fresh ed25519 actor: one keypair funded on chain, its shielded address,
+/// A fresh eddsa actor: one keypair funded on chain, its shielded address,
 /// and an empty wallet over the shared asset registry.
 fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> {
     let keypair = ShieldedKeypair::new_ed25519()?;

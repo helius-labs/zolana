@@ -46,6 +46,11 @@ export interface TransactionKeyRequest {
   readonly firstNullifier: Bytes32;
 }
 
+/** One counter of a sender or request tag stream under one held viewing key. */
+export type ViewTagRequest =
+  | Readonly<{ kind: "sender"; viewingPublicKey: X25519PublicKey; txCount: bigint }>
+  | Readonly<{ kind: "request"; viewingPublicKey: X25519PublicKey; requestCount: bigint }>;
+
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
  * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
@@ -91,6 +96,10 @@ export interface ShieldedKeys {
     requests: readonly TransactionKeyRequest[],
     context?: RequestContext,
   ): Promise<readonly ViewingKey[]>;
+  viewTags(
+    requests: readonly ViewTagRequest[],
+    context?: RequestContext,
+  ): Promise<readonly Bytes32[]>;
 }
 
 const addressEncoder = getAddressEncoder();
@@ -222,6 +231,10 @@ export class LocalShieldedKeys implements ShieldedKeys {
     return keys;
   }
 
+  async viewTags(requests: readonly ViewTagRequest[]): Promise<readonly Bytes32[]> {
+    return requests.map((request) => this.viewTag(request));
+  }
+
   /** Synchronous forms, for callers that hold the keys in-process. */
   decryptOne(request: DecryptRequest): Uint8Array {
     checkDecryptRequest(request);
@@ -252,6 +265,13 @@ export class LocalShieldedKeys implements ShieldedKeys {
 
   transactionKey(request: TransactionKeyRequest): ViewingKey {
     return this.#viewingKey(request.viewingPublicKey).transactionViewingKey(request.firstNullifier);
+  }
+
+  viewTag(request: ViewTagRequest): Bytes32 {
+    const viewing = this.#viewingKey(request.viewingPublicKey);
+    return request.kind === "sender"
+      ? viewing.senderViewTag(request.txCount)
+      : viewing.recipientRequestViewTag(request.requestCount);
   }
 
   /**

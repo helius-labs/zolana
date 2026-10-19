@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../../keypair/x25519.js";
 import type {
   IndexedPolicyInputs,
   IndexedDepositInputs,
@@ -1010,7 +1010,7 @@ export function customRingDepositProofRequest(
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   try {
     auditorPkHex(input.auditorPublicKey);
-    X25519Secret.fromBytes(input.ephemeralSecret).destroy();
+    X25519Keypair.fromBytes(input.ephemeralSecret).destroy();
   } catch {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }

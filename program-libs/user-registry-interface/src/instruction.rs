@@ -50,7 +50,8 @@ mod builders {
     }
 
     /// Accounts: `[user_record (writable), owner (signer), payer (writable
-    /// signer), system_program]`. `payer` funds rent and may equal `owner`.
+    /// signer), system_program]`. `payer` funds the record's rent and may equal
+    /// `owner`; the message compiler merges the two metas into one signer.
     pub fn register(
         user_record: Pubkey,
         owner: Pubkey,
@@ -86,8 +87,8 @@ mod builders {
         }
     }
 
-    /// Accounts: `[user_record (writable), owner (signer)]`. The owner may rotate
-    /// the viewing key without changing the registered identity or PDA.
+    /// Accounts: `[user_record (writable), owner (signer)]`. The owner may rotate the
+    /// shielded keys stored in its existing record without changing the PDA.
     pub fn update_keys(user_record: Pubkey, owner: Pubkey, data: UpdateKeysData) -> Instruction {
         let accounts = vec![
             AccountMeta::new(user_record, false),

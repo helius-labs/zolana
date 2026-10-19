@@ -17,7 +17,7 @@ use crate::{
 
 /// The single BSB22 Pedersen commitment a proof carries: the commitment point and
 /// its proof-of-knowledge (uncompressed G1, big-endian, not negated). Present only
-/// for the anonymous Ed25519 rail. The confidential rail is vanilla
+/// for the anonymous EdDSA rail. The confidential rail is vanilla
 /// Groth16 with no commitment.
 #[derive(Debug, Clone, Copy)]
 pub struct Commitments {
@@ -26,7 +26,7 @@ pub struct Commitments {
 }
 
 /// Uncompressed Groth16 proof with `proof_a` already negated. `commitment` is
-/// `Some` for the anonymous Ed25519 rail (verify with `Groth16Verifier::new_with_commitment`)
+/// `Some` for the anonymous EdDSA rail (verify with `Groth16Verifier::new_with_commitment`)
 /// and `None` for the confidential rail (verify with `Groth16Verifier::new`).
 #[derive(Debug, Clone, Copy)]
 pub struct Proof {
@@ -46,7 +46,7 @@ pub struct CompressedCommitments {
 /// The Groth16 proof as the SPP instructions carry it: the G1 points of
 /// [`Proof`] compressed to 32 bytes, `b` kept as the raw 128-byte G2 point so
 /// the program skips the G2 decompression syscall. Mirrors [`Proof`]:
-/// `commitment` is `Some` for the anonymous Ed25519 rail.
+/// `commitment` is `Some` for the anonymous EdDSA rail.
 #[derive(Debug, Clone, Copy)]
 pub struct ProofCompressed {
     pub a: [u8; 32],
@@ -94,14 +94,12 @@ impl ProofCompressed {
     }
 
     /// Split a committed custom-ring proof into the unchanged transact proof
-    /// triple and the BSB22 payload embedded in `CircuitId::AnonymousRingEd25519`.
+    /// triple and the BSB22 payload embedded in `CircuitId::AnonymousRingEddsa`.
     pub fn into_committed_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {
         let commitment = self.commitment.ok_or_else(|| {
-            ClientError::ProofParse(
-                "Ed25519 ring proof is missing its BSB22 commitment".to_string(),
-            )
+            ClientError::ProofParse("EdDSA ring proof is missing its BSB22 commitment".to_string())
         })?;
         Ok((
             TransactProof {
@@ -241,7 +239,7 @@ pub(crate) fn proof_from_value(
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)
 /// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
-/// only when both commitment fields are present (Ed25519 rail).
+/// only when both commitment fields are present (EdDSA rail).
 pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
     let json: GnarkProofJson = serde_json::from_str(json_str).ok()?;
 
@@ -345,7 +343,7 @@ mod tests {
     fn committed_transact_parts_keep_the_existing_proof_and_extract_commitment() {
         let (proof, commitment) = proof_with_commitment()
             .into_committed_transact_parts()
-            .expect("committed Ed25519 proof maps");
+            .expect("committed EdDSA proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
         assert_eq!(proof.b, [2u8; 128]);
@@ -400,7 +398,7 @@ mod tests {
         };
         let error = vanilla
             .into_committed_transact_parts()
-            .expect_err("vanilla proof is not a Ed25519 ring proof");
+            .expect_err("vanilla proof is not a EdDSA ring proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

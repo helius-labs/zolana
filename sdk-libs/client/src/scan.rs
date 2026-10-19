@@ -16,15 +16,16 @@
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
 //! slot first.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
-use zolana_keypair::X25519Pubkey;
+use zolana_keypair::{viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
     verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
-    ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
+    ShieldedKeys, SpendableDecryptionResult, TransactionError, ViewTagRequest, SOL_ASSET_ID,
+    SOL_MINT,
 };
 
 use crate::{
@@ -33,6 +34,8 @@ use crate::{
 };
 
 const PAGE_LIMIT: u32 = 1_000;
+/// Unused counters after the last one in use that end a sender or request tag stream.
+const TAG_GAP: u64 = 64;
 
 /// What [`UtxoScan::fetch`] read.
 #[derive(Clone, Debug)]
@@ -43,6 +46,14 @@ pub struct UtxoScanResult {
     /// not, and the tags they were read by. [`History::entries`] classifies
     /// them.
     pub history: History,
+    /// The current viewing key's tag counters one past the highest found in use.
+    pub next_counters: ViewTagCounters,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ViewTagCounters {
+    pub tx_count: u64,
+    pub request_count: u64,
 }
 
 /// One read of a wallet's UTXOs and history: configure it, then
@@ -88,10 +99,9 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         self
     }
 
-    /// Reads the transactions tagged with the owner tag, which confidential
-    /// outputs carry, and with each held viewing key's tag, which deposits
-    /// carry, then the transactions that spent what they hold. Anonymous
-    /// transfers, tagged per counterparty, are not read.
+    /// Reads transactions under the owner tag, each held viewing key's tag and
+    /// its sender and request view tags, then the transactions spending what
+    /// they hold, never anonymous outputs under a shared tag.
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
@@ -103,27 +113,32 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 unknown_mints: fetched.owned.unknown_mints,
                 view_tags: fetched.tags.into_iter().collect(),
             },
+            next_counters: fetched.next_counters,
         })
     }
 
     fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
-        tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
-        // Anonymous ring outputs publish no recipient tag. Query the shared
-        // zero tag, then try held viewing keys against each returned slot.
-        let mut query_tags = tags.clone();
-        query_tags.push([0; 32]);
+        let viewing_pubkeys = self.keys.viewing_public_keys();
+        tags.extend(viewing_pubkeys.iter().map(X25519Pubkey::u));
+        let mut streams = TagStreams::new(&viewing_pubkeys);
+        let first_query: Vec<_> = tags
+            .iter()
+            .copied()
+            .chain(streams.next_window(self.keys)?)
+            .collect();
 
         let mut seen = HashSet::new();
         let mut batch = self.unseen(
             &mut seen,
-            tagged_transactions(indexer, &query_tags, self.indexer_config)?,
+            tagged_transactions(indexer, &first_query, self.indexer_config)?,
         )?;
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
         loop {
+            streams.record(&batch);
             decrypted.extend(self.keys, &batch, self.assets)?;
             transactions.append(&mut batch);
             let owned = verify_owned(self.keys, &decrypted)?;
@@ -138,9 +153,17 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 &mut seen,
                 spending_transactions(indexer, &nullifiers, self.indexer_config)?,
             )?;
+            let window = streams.next_window(self.keys)?;
+            if !window.is_empty() {
+                let tagged = tagged_transactions(indexer, &window, self.indexer_config)?;
+                batch.extend(self.unseen(&mut seen, tagged)?);
+            }
             if batch.is_empty() {
+                let next_counters = streams.next_counters(&address.viewing_pubkey);
+                tags.extend(streams.used);
                 return Ok(Fetched {
                     tags,
+                    next_counters,
                     transactions,
                     owned,
                     spendable,
@@ -211,10 +234,127 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
 /// What the rounds of one fetch read and decrypted.
 struct Fetched {
     tags: Vec<[u8; 32]>,
+    next_counters: ViewTagCounters,
     transactions: Vec<ShieldedTransaction>,
     /// The final round's [`verify_owned`], spent UTXOs included.
     owned: OwnedUtxos,
     spendable: SpendableDecryptionResult,
+}
+
+struct TagStreams {
+    streams: Vec<TagStream>,
+    /// Stream index and counter of every tag derived.
+    derived: HashMap<ViewTag, (usize, u64)>,
+    used: BTreeSet<ViewTag>,
+}
+
+struct TagStream {
+    kind: TagKind,
+    viewing_pubkey: X25519Pubkey,
+    /// One past the highest counter in use.
+    next: u64,
+    /// One past the highest counter derived.
+    end: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TagKind {
+    Sender,
+    Request,
+}
+
+impl TagKind {
+    fn request(self, viewing_pubkey: X25519Pubkey, counter: u64) -> ViewTagRequest {
+        match self {
+            Self::Sender => ViewTagRequest::Sender {
+                viewing_pubkey,
+                tx_count: counter,
+            },
+            Self::Request => ViewTagRequest::Request {
+                viewing_pubkey,
+                request_count: counter,
+            },
+        }
+    }
+}
+
+impl TagStreams {
+    fn new(viewing_pubkeys: &[X25519Pubkey]) -> Self {
+        Self {
+            streams: viewing_pubkeys
+                .iter()
+                .flat_map(|&viewing_pubkey| {
+                    [TagKind::Sender, TagKind::Request].map(|kind| TagStream {
+                        kind,
+                        viewing_pubkey,
+                        next: 0,
+                        end: 0,
+                    })
+                })
+                .collect(),
+            derived: HashMap::new(),
+            used: BTreeSet::new(),
+        }
+    }
+
+    /// Empty once every stream has [`TAG_GAP`] counters derived past its last use.
+    fn next_window<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        keys: &K,
+    ) -> Result<Vec<ViewTag>, ClientError> {
+        let mut positions = Vec::new();
+        let mut requests = Vec::new();
+        for (index, stream) in self.streams.iter_mut().enumerate() {
+            let end = stream.next.saturating_add(TAG_GAP);
+            for counter in stream.end..end {
+                positions.push((index, counter));
+                requests.push(stream.kind.request(stream.viewing_pubkey, counter));
+            }
+            stream.end = end;
+        }
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tags = keys.view_tags(&requests)?;
+        if tags.len() != requests.len() {
+            return Err(TransactionError::IncompleteDerivation {
+                got: tags.len(),
+                want: requests.len(),
+            }
+            .into());
+        }
+        self.derived.extend(tags.iter().copied().zip(positions));
+        Ok(tags)
+    }
+
+    fn record(&mut self, transactions: &[ShieldedTransaction]) {
+        let carried = transactions.iter().flat_map(|tx| {
+            tx.output_slots
+                .iter()
+                .map(|slot| slot.view_tag)
+                .chain(tx.messages.iter().map(|message| message.view_tag))
+        });
+        for tag in carried {
+            if let Some(&(index, counter)) = self.derived.get(&tag) {
+                let stream = &mut self.streams[index];
+                stream.next = stream.next.max(counter.saturating_add(1));
+                self.used.insert(tag);
+            }
+        }
+    }
+
+    fn next_counters(&self, viewing_pubkey: &X25519Pubkey) -> ViewTagCounters {
+        let next = |kind| {
+            self.streams
+                .iter()
+                .find(|stream| stream.kind == kind && &stream.viewing_pubkey == viewing_pubkey)
+                .map_or(0, |stream| stream.next)
+        };
+        ViewTagCounters {
+            tx_count: next(TagKind::Sender),
+            request_count: next(TagKind::Request),
+        }
+    }
 }
 
 /// The transactions tagged with any of `tags`. Deposits come from the
@@ -226,36 +366,38 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     config: Option<IndexerRpcConfig>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
-    let mut cursor = None;
-    loop {
-        let page = indexer.get_shielded_transactions_by_tags(
-            tags.to_vec(),
-            cursor.clone(),
-            Some(PAGE_LIMIT),
-            config,
-        )?;
-        transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+    for chunk in tags.chunks(PAGE_LIMIT as usize) {
+        let mut cursor = None;
+        loop {
+            let page = indexer.get_shielded_transactions_by_tags(
+                chunk.to_vec(),
+                cursor.clone(),
+                Some(PAGE_LIMIT),
+                config,
+            )?;
+            transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
+            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
         }
-    }
-    let mut cursor = None;
-    loop {
-        let page = indexer.get_encrypted_utxos_by_tags(
-            tags.to_vec(),
-            cursor.clone(),
-            Some(PAGE_LIMIT),
-            config,
-        )?;
-        transactions.extend(
-            page.matches
-                .into_iter()
-                .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
-        );
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+        let mut cursor = None;
+        loop {
+            let page = indexer.get_encrypted_utxos_by_tags(
+                chunk.to_vec(),
+                cursor.clone(),
+                Some(PAGE_LIMIT),
+                config,
+            )?;
+            transactions.extend(
+                page.matches
+                    .into_iter()
+                    .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
+            );
+            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
         }
     }
     Ok(transactions)

@@ -76,16 +76,10 @@ impl TxIndex {
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge
-                    | EncryptedScheme::RingDeposit => {
+                    | EncryptedScheme::RingDeposit
+                    | EncryptedScheme::RingAnonymous => {
                         recipient_sites
                             .entry(slot.view_tag)
-                            .or_default()
-                            .push((t, slot_index));
-                        classified = true;
-                    }
-                    EncryptedScheme::RingAnonymous => {
-                        recipient_sites
-                            .entry([0; 32])
                             .or_default()
                             .push((t, slot_index));
                         classified = true;
@@ -1120,13 +1114,6 @@ impl Wallet {
                     }
                 }
             }
-            // A zero tag carries no routing information, so each held key
-            // tries every anonymous ring output and checks its commitment.
-            if let Some(sites) = index.recipient_sites.get(&[0; 32]) {
-                for site in sites {
-                    ctx.decode_slot(transactions, key, *site)?;
-                }
-            }
             // Confidential default-ring outputs use the owner signing tag.
             if let Some(sites) = index.recipient_sites.get(&owner_tag) {
                 for site in sites {
@@ -1144,8 +1131,20 @@ impl Wallet {
                 |n| key.get_sender_view_tag(n),
                 |tag| index.sender_sites.get(tag),
             )?;
-            if let Some((m, _)) = sender_hits.last() {
-                *tx_count = *m + 1;
+            // Anonymous ring change is an output tagged by the sender view tag.
+            let change_hits = probe_stream(
+                window,
+                |n| key.get_sender_view_tag(n),
+                |tag| index.recipient_sites.get(tag),
+            )?;
+            let last_sent = sender_hits.last().map(|(m, _)| *m);
+            if let Some(m) = last_sent.max(change_hits.last().map(|(m, _)| *m)) {
+                *tx_count = m + 1;
+            }
+            for (_, sites) in &change_hits {
+                for site in sites {
+                    ctx.decode_slot(transactions, key, *site)?;
+                }
             }
             for (_, sites) in &sender_hits {
                 for &t in sites {

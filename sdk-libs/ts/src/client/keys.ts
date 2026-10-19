@@ -8,6 +8,7 @@ import {
   type DecryptRequest,
   type DeriveRequest,
   type TransactionKeyRequest,
+  type ViewTagRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
 import { bytesField, hasIndexedMethod, hasProofMethods, poseidon } from "./internal.js";
@@ -86,6 +87,10 @@ export class LocalKeys implements WalletKeys {
 
   transactionKeys(requests: readonly TransactionKeyRequest[]): Promise<readonly ViewingKey[]> {
     return this.#keys.transactionKeys(requests);
+  }
+
+  viewTags(requests: readonly ViewTagRequest[]): Promise<readonly Bytes32[]> {
+    return this.#keys.viewTags(requests);
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {

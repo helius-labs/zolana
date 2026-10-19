@@ -25,7 +25,7 @@ pub const MAKER_SHIELD_SPL: u64 = 1_000_000_000;
 pub const SOURCE_AMOUNT: u64 = 400_000_000;
 pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 
-// Each actor is one ed25519 identity: the wallet's signing key doubles as the
+// Each actor is one eddsa identity: the wallet's signing key doubles as the
 // Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 // registry and the synced spendable notes.
 pub struct TestEnv {

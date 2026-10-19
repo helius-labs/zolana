@@ -57,11 +57,11 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 func TestCircuitRejectsBadOutputHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[0].Hash = spptest.Fe(999)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestOutputBlindingDerivationMatchesRustVector(t *testing.T) {
@@ -92,15 +92,15 @@ func TestOutputBlindingDomainIsAsciiTag(t *testing.T) {
 
 func TestCircuitRejectsDuplicateOutputCommitmentWithRefreshedPublicInputs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
+	assignment := buildDefaultRingConfidentialEddsaAssignment(t, shape)
 	assignment.Outputs[1].Utxo = assignment.Outputs[0].Utxo
 	assignment.Outputs[1].OwnerPkHash = assignment.Outputs[0].OwnerPkHash
 	assignment.Outputs[1].NullifierPk = assignment.Outputs[0].NullifierPk
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
-		asDefaultRingConfidentialEd25519(assignment),
+		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 }
@@ -110,13 +110,13 @@ func TestCircuitRejectsDuplicateOutputCommitmentWithRefreshedPublicInputs(t *tes
 // the old root seed, disagree with the circuit.
 func TestCircuitRejectsStaleOutputBlindings(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	assignment := buildDefaultRingConfidentialEd25519Assignment(t, shape)
+	assignment := buildDefaultRingConfidentialEddsaAssignment(t, shape)
 	assignment.BlindingSeed = spptest.Fe(4243)
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
-		asDefaultRingConfidentialEd25519(assignment),
+		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 }
@@ -128,8 +128,8 @@ func TestCircuitRejectsFreelyChosenDummyOutputBlinding(t *testing.T) {
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)),
-		asDefaultRingConfidentialEd25519(assignment),
+		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)
 }

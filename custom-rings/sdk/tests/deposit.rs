@@ -16,7 +16,7 @@ use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc};
 use zolana_indexer_api::{GetRingKeyRegistryEntryResponse, RingMemberProofRequest};
-use zolana_keypair::{ShieldedKeypair, X25519Secret};
+use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_transaction::RingDepositPlaintext;
 
 struct DepositRpc {
@@ -42,7 +42,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: recipient.pubkey(),
-        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Keypair::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 0,
         mode: 0,
@@ -76,6 +76,7 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .prepare(&rpc)
         .unwrap();
@@ -119,7 +120,7 @@ fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: payer.pubkey(),
-        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Keypair::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 0,
         mode: custom_ring_interface::RingMode::Anonymous as u8,
@@ -141,6 +142,7 @@ fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
         asset: DepositAsset::Sol,
         amount: 11,
         cosigner: None,
+        anonymous_view_tag: Some(recipient.get_sender_view_tag(0).unwrap()),
     };
     assert!(matches!(
         deposit.prepare(&rpc),
@@ -210,7 +212,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
     let config = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: recipient.pubkey(),
-        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Keypair::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring.program_id()).1,
         has_policy: 1,
         mode: 1,
@@ -238,6 +240,7 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .prepare(&rpc)?
         .prove(DepositProofEnvironment {

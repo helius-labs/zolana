@@ -394,7 +394,7 @@ describe("transact cache accounts", () => {
         outputTree: OUTPUT_TREE,
         proof: new Uint8Array(),
         data: transactData({
-          kind: "ringEddsaCached",
+          kind: "confidentialRingEddsaCached",
           inputs: 2,
           outputs: 2,
           publicAssetSlots: 3,
@@ -403,7 +403,7 @@ describe("transact cache accounts", () => {
       }),
     ).rejects.toMatchObject({
       code: "RING_CACHE_UNSUPPORTED",
-      details: { kind: "ringEddsaCached" },
+      details: { kind: "confidentialRingEddsaCached" },
     });
   });
 });

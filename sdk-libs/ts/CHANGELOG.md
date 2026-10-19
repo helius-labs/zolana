@@ -9,12 +9,9 @@ opts out. One private transfer can pay several recipients.
 
 Breaking
 
-- `ShieldedPoolError.RingEd25519OutputOwnerTag` is renamed → use `ShieldedPoolError.AnonymousRingEd25519OutputOwnerTag`, which retains error code 7085.
-- `buildDepositTransaction` and `buildRingDepositTransaction` require `depositor` → pass the asset source explicitly and omit `feePayer` when it also pays fees.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
-
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
 - `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
@@ -29,13 +26,21 @@ Breaking
   several payments → handle it, or refuse it explicitly.
 - Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte opening that also discloses the Ed25519 owner key of an anonymous ring deposit, `RingDepositOpening` takes it as `ownerKey` and `openRingDepositOpening` returns it → re-prove audited deposits with this version, a capsule sealed by an earlier version no longer decodes.
 - `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now pass the ring config as the second account and the program refuses a windowed velocity table on an anonymous ring → rebuild the instruction with this version and keep anonymous rings on per-transfer caps.
+- `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
+- `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
+- `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
+- `ShieldedKeys` requires `viewTags(requests)`, the sender and request view tags of its held viewing keys as `ViewTagRequest` batches → implement it in a custom key holder, `LocalShieldedKeys` and `LocalKeys` answer it.
 
 Added
 
+- `ViewingKey.senderViewTag(txCount)` and `ViewingKey.recipientRequestViewTag(requestCount)` derive the anonymous ring tags of the sender's own change and of a payment request, and `ShieldedKeypair` forwards both.
+- `syncWallet` reads each held viewing key's sender and request tag streams until 64 counters past the last one in use match nothing, opens the outputs they tag, and returns `SyncWalletReport.nextCounters` with the current key's next `txCount` and `requestCount`.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
-- `syncWallet` discovers anonymous ring deposits and transfers under the zero
-  view tag and verifies decrypted outputs against their committed UTXO hashes,
-  while transaction builders reject anonymous ring configurations.
+- `syncWallet` discovers anonymous ring transfers under each held viewing
+  key's bootstrap tag, verifies decrypted outputs against their committed UTXO
+  hashes and counts an output under a small-order transaction key as
+  undecryptable instead of failing, while transaction builders reject
+  anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other
@@ -50,12 +55,12 @@ Added
 
 Changed
 
-- Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
 
 Fixed
 
+- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 
 ## 0.4.1-alpha — 2026-10-08

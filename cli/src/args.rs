@@ -341,13 +341,13 @@ pub(crate) struct ConfigAddAssetOptions {
 pub(crate) enum WalletCommand {
     #[command(
         name = "new",
-        about = "Create or import one Ed25519 wallet owner. Publish it on-chain separately with `zolana wallet register`."
+        about = "Create a local wallet keypair. Offline: publish it on-chain separately with `zolana wallet register`."
     )]
     New(NewWalletOptions),
 
     #[command(
         name = "address",
-        about = "Print the selected wallet's shielded owner hash or Ed25519 public key"
+        about = "Print the selected wallet's shielded owner hash (or its funding pubkey)"
     )]
     Address(AddressOptions),
 
@@ -589,11 +589,11 @@ pub(crate) struct NewWalletOptions {
     pub(crate) outfile: Option<String>,
 
     #[arg(
-        long = "owner-keypair",
-        help = "Import an Ed25519 owner from a Solana keypair or development wallet file",
+        long = "funding-keypair",
+        help = "Use an existing Solana keypair file (e.g. ~/.config/solana/id.json) as the fee payer instead of generating a new one",
         value_name = "PATH"
     )]
-    pub(crate) owner_keypair: Option<String>,
+    pub(crate) funding_keypair: Option<String>,
 
     #[arg(
         long = "rpc-url",
@@ -603,7 +603,7 @@ pub(crate) struct NewWalletOptions {
 
     #[arg(
         long = "airdrop-lamports",
-        help = "Optionally airdrop lamports to the wallet owner on localnet without registering"
+        help = "Optionally airdrop lamports to the wallet's funding key on localnet (funding only; does not register)"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
 }
@@ -613,8 +613,11 @@ pub(crate) struct AddressOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
 
-    #[arg(long, help = "Print the wallet owner's Ed25519 public key instead")]
-    pub(crate) public_key: bool,
+    #[arg(
+        long,
+        help = "Print the wallet's public funding/fee-payer pubkey instead"
+    )]
+    pub(crate) funding: bool,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -629,13 +632,6 @@ pub(crate) struct RpcWalletOptions {
     pub(crate) keypair: WalletKeypairOptions,
 
     #[arg(
-        long = "fee-payer",
-        value_name = "PATH",
-        help = "Transaction fee payer key file (defaults to the wallet owner)"
-    )]
-    pub(crate) fee_payer: Option<String>,
-
-    #[arg(
         long = "rpc-url",
         help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
     )]
@@ -646,13 +642,6 @@ pub(crate) struct RpcWalletOptions {
 pub(crate) struct SyncOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
-
-    #[arg(
-        long = "fee-payer",
-        value_name = "PATH",
-        help = "Transaction fee payer key file (defaults to the wallet owner)"
-    )]
-    pub(crate) fee_payer: Option<String>,
 
     #[arg(
         long = "rpc-url",
@@ -689,7 +678,7 @@ pub(crate) struct NetworkWalletOptions {
 
     #[arg(
         long = "airdrop-lamports",
-        help = "Request a localnet airdrop for the transaction fee payer before submitting"
+        help = "Request a localnet airdrop for the wallet funding key before submitting"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
 }
@@ -702,7 +691,7 @@ pub(crate) struct CreateTreeOptions {
     #[arg(
         long = "airdrop-lamports",
         default_value_t = 100_000_000_000,
-        help = "Localnet airdrop amount for the transaction fee payer"
+        help = "Localnet airdrop amount for the wallet funding key"
     )]
     pub(crate) airdrop_lamports: u64,
 }
@@ -755,7 +744,7 @@ pub(crate) struct TestMintOptions {
 
     #[arg(
         long = "authority-path",
-        help = "Wallet file whose owner is protocol and mint authority (default: --keypair wallet)",
+        help = "Wallet file whose funding key is protocol and mint authority (default: --keypair wallet)",
         value_name = "PATH"
     )]
     pub(crate) authority_path: Option<String>,
@@ -777,13 +766,6 @@ pub(crate) enum TestMintTokenProgram {
 pub(crate) struct DepositOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
-
-    #[arg(
-        long = "asset-source",
-        value_name = "PATH",
-        help = "Deposit asset owner key file (defaults to the wallet owner)"
-    )]
-    pub(crate) asset_source: Option<String>,
 
     #[arg(
         long,
@@ -1288,7 +1270,7 @@ mod tests {
             "new",
             "--outfile",
             "/tmp/alice.pid.json",
-            "--owner-keypair",
+            "--funding-keypair",
             "/tmp/solana.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
@@ -1299,27 +1281,22 @@ mod tests {
         };
         let expected = NewWalletOptions {
             outfile: Some("/tmp/alice.pid.json".to_string()),
-            owner_keypair: Some("/tmp/solana.json".to_string()),
+            funding_keypair: Some("/tmp/solana.json".to_string()),
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             airdrop_lamports: Some(1_000_000_000),
         };
         assert_eq!(opts, expected);
-
-        assert!(Cli::try_parse_from(["zolana", "wallet", "new", "--independent-owner"]).is_err());
     }
 
     #[test]
     fn parses_wallet_address_options() {
-        let WalletCommand::Address(opts) = parse_wallet(&[
-            "address",
-            "--keypair",
-            "/tmp/alice.pid.json",
-            "--public-key",
-        ]) else {
+        let WalletCommand::Address(opts) =
+            parse_wallet(&["address", "--keypair", "/tmp/alice.pid.json", "--funding"])
+        else {
             panic!("expected wallet address command");
         };
         assert_eq!(opts.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
-        assert!(opts.public_key);
+        assert!(opts.funding);
     }
 
     #[test]
@@ -1328,8 +1305,6 @@ mod tests {
             "register",
             "--keypair",
             "/tmp/alice.pid.json",
-            "--fee-payer",
-            "/tmp/sponsor.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
         ]) else {
@@ -1339,7 +1314,6 @@ mod tests {
             opts.wallet.keypair.keypair.as_deref(),
             Some("/tmp/alice.pid.json")
         );
-        assert_eq!(opts.wallet.fee_payer.as_deref(), Some("/tmp/sponsor.json"));
         assert_eq!(
             opts.wallet.rpc_url.as_deref(),
             Some("http://127.0.0.1:8900")
@@ -1363,7 +1337,6 @@ mod tests {
         };
         let expected = CreateTreeOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1396,7 +1369,6 @@ mod tests {
         };
         let expected = SetTreeFeesOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1482,7 +1454,6 @@ mod tests {
         };
         let expected = TestMintOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1513,7 +1484,6 @@ mod tests {
             panic!("expected sync command");
         };
         let expected = SyncOptions {
-            fee_payer: None,
             keypair: WalletKeypairOptions {
                 keypair: Some("/tmp/alice.pid.json".to_string()),
             },
@@ -1535,7 +1505,6 @@ mod tests {
         };
         let expected = BalanceOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1570,7 +1539,6 @@ mod tests {
         let expected = MergeOptions {
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: None,
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/alice.pid.json".to_string()),
                     },
@@ -1618,7 +1586,6 @@ mod tests {
 
         let expected = SetMergingOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1643,7 +1610,6 @@ mod tests {
 
         let expected = SetMergingOptions {
             sync: SyncOptions {
-                fee_payer: None,
                 keypair: WalletKeypairOptions {
                     keypair: Some("/tmp/alice.pid.json".to_string()),
                 },
@@ -1678,7 +1644,6 @@ mod tests {
         let expected = SplitOptions {
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: None,
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/alice.pid.json".to_string()),
                     },
@@ -1720,10 +1685,6 @@ mod tests {
             "deposit",
             "--keypair",
             "/tmp/alice.pid.json",
-            "--fee-payer",
-            "/tmp/sponsor.json",
-            "--asset-source",
-            "/tmp/depositor.json",
             "--tree",
             "Tree111111111111111111111111111111111111111",
             "--to",
@@ -1744,10 +1705,8 @@ mod tests {
             panic!("expected deposit command");
         };
         let expected = DepositOptions {
-            asset_source: Some("/tmp/depositor.json".to_string()),
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: Some("/tmp/sponsor.json".to_string()),
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/alice.pid.json".to_string()),
                     },
@@ -1779,10 +1738,8 @@ mod tests {
             panic!("expected self-deposit command");
         };
         let expected = DepositOptions {
-            asset_source: None,
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: None,
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/alice.pid.json".to_string()),
                     },
@@ -1822,7 +1779,6 @@ mod tests {
         let expected = TransferOptions {
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: None,
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/bob.pid.json".to_string()),
                     },
@@ -1860,7 +1816,6 @@ mod tests {
         let expected = WithdrawOptions {
             network: NetworkWalletOptions {
                 sync: SyncOptions {
-                    fee_payer: None,
                     keypair: WalletKeypairOptions {
                         keypair: Some("/tmp/alice.pid.json".to_string()),
                     },

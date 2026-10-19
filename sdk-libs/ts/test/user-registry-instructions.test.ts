@@ -20,7 +20,7 @@ import {
   buildKeyUpdateTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
-  ShieldedAddress,
+  type ShieldedAddress,
 } from "../src/index.js";
 import { getUserRecordAddress } from "../src/addresses.js";
 import {
@@ -28,7 +28,7 @@ import {
   getSetMergingEnabledInstructionAsync,
 } from "../src/instructions.js";
 import type { Bytes32, Bytes33 } from "../src/interface/index.js";
-import { internalUserRecordPda, validateRegisteredKeypair } from "../src/wallet/registry.js";
+import { internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const PAYER = address("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
@@ -164,46 +164,6 @@ describe("getSetMergingEnabledInstructionAsync", () => {
   });
 });
 
-describe("validateRegisteredKeypair", () => {
-  it("rejects copied privacy keys under a different signing owner before RPC", async () => {
-    const keypair = ShieldedKeypair.fromKeypair(signingKey(9));
-    const rpc = await registryPublishing(OWNER, keypair.shieldedAddress());
-    await expect(validateRegisteredKeypair({ rpc, owner: OWNER, keypair })).rejects.toMatchObject({
-      code: "WALLET_REGISTERED_KEYPAIR_MISMATCH",
-    });
-    expect(rpc.getAccount).not.toHaveBeenCalled();
-  });
-
-  it("validates the registered owner and both privacy keys", async () => {
-    const keypair = ShieldedKeypair.fromKeypair(signingKey(9));
-    const owner = keypair.shieldedAddress().solanaAddress();
-    const rpc = await registryPublishing(owner, keypair.shieldedAddress());
-    await expect(validateRegisteredKeypair({ rpc, owner, keypair })).resolves.toBeUndefined();
-    expect(rpc.getAccount).toHaveBeenCalledOnce();
-  });
-});
-
-describe("registry owner binding", () => {
-  it.each([buildRegistrationTransaction, buildKeyUpdateTransaction])(
-    "rejects a different owner before reading registry or blockhash",
-    async (build) => {
-      const client = {
-        getAccount: vi.fn(async () => undefined),
-        getLatestBlockhash: vi.fn(async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 1n })),
-      };
-      await expect(
-        build({
-          client,
-          owner: OWNER,
-          address: ShieldedKeypair.fromKeypair(signingKey(9)).shieldedAddress(),
-        }),
-      ).rejects.toMatchObject({ causeCode: "WALLET_USER_RECORD_KEYS_MISMATCH" });
-      expect(client.getAccount).not.toHaveBeenCalled();
-      expect(client.getLatestBlockhash).not.toHaveBeenCalled();
-    },
-  );
-});
-
 describe("buildRegistrationTransaction", () => {
   it("registers a new owner with the register instruction", async () => {
     const keypair = ShieldedKeypair.fromKeypair(signingKey(4));
@@ -311,11 +271,7 @@ describe("buildKeyUpdateTransaction", () => {
 
   it("refuses a change of the nullifier key", async () => {
     const published = ShieldedKeypair.fromKeypair(signingKey(2)).shieldedAddress();
-    const replacement = ShieldedAddress.fromPublicKeys(
-      published.signingPublicKey,
-      ShieldedKeypair.fromKeypair(signingKey(3)).nullifierPublicKey(),
-      published.viewingPublicKey,
-    );
+    const replacement = ShieldedKeypair.fromKeypair(signingKey(3)).shieldedAddress();
     const owner = published.solanaAddress();
 
     await expect(
@@ -361,26 +317,19 @@ describe("buildKeyUpdateTransaction", () => {
 });
 
 describe("buildSetMergingEnabledTransaction", () => {
-  it.each([undefined, PAYER])("compiles set-merging-enabled with payer %s", async (payer) => {
+  it("compiles the set-merging-enabled instruction", async () => {
     const transaction = await buildSetMergingEnabledTransaction({
       client: blockhashClient,
       owner: OWNER,
-      ...(payer === undefined ? {} : { payer }),
       enabled: true,
     });
-    expect(Object.keys(transaction.signatures).sort()).toEqual(
-      (payer === undefined ? [OWNER] : [OWNER, payer]).sort(),
-    );
     const instruction = onlyInstruction(transaction);
 
     expect(instruction.programAddress).toBe(USER_REGISTRY_PROGRAM_ID);
     expect(instruction.data).toEqual(Uint8Array.of(1, 1));
     expect(accountsOf(instruction)).toEqual([
       { address: await getUserRecordAddress(OWNER), role: AccountRole.WRITABLE },
-      {
-        address: OWNER,
-        role: payer === undefined ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER,
-      },
+      { address: OWNER, role: AccountRole.WRITABLE_SIGNER },
     ]);
   });
 });

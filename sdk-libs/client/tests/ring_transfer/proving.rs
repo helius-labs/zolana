@@ -50,7 +50,7 @@ const TEST_TREE_ID: u16 = 0;
 /// real input balances at zero so the witness selects the eddsa (Solana-only) rail.
 fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let signer = eddsa_keypair();
+    let signer = ed25519_keypair();
     let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
     for _ in 1..n_in {
         inputs.push(dummy_input());
@@ -89,14 +89,14 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
 /// multiple real inputs, a real recipient, and value conservation on the eddsa rail.
 fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let first_signer = eddsa_keypair();
-    let second_signer = eddsa_keypair();
+    let first_signer = ed25519_keypair();
+    let second_signer = ed25519_keypair();
     let (mut inputs, keys) = build_real_inputs(
         &mut indexer,
         &[(first_signer.clone(), 100), (second_signer.clone(), 150)],
     );
     inputs.push(dummy_input());
-    let recipient = eddsa_keypair();
+    let recipient = ed25519_keypair();
     let mut outputs = vec![
         real_output(&recipient, 250),
         dummy_output(&first_signer),
@@ -289,14 +289,14 @@ fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
 }
 
-fn eddsa_keypair() -> ShieldedKeypair {
+fn ed25519_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&random_blinding());
-    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("eddsa keypair")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("ed25519 keypair")
 }
 
 fn eddsa_ring_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
-    let circuit = CircuitId::ConfidentialRingEd25519(
+    let circuit = CircuitId::ConfidentialRingEddsa(
         u8::try_from(n_in).expect("input count"),
         u8::try_from(n_out).expect("output count"),
         N_PUBLIC_SLOTS as u8,

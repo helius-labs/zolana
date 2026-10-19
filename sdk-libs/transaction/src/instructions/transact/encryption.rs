@@ -1,13 +1,20 @@
+use std::collections::HashMap;
+
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputDataEncoding;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{
+    constants::SALT_LEN, random_salt, viewing_key::ViewTag, PublicKey, ShieldedAddress, ViewingKey,
+    X25519Pubkey,
+};
 
 use super::{sender_owner_tag, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
-    instructions::transact::{shape::canonical_shape, ExternalData, SppProofInputs},
+    instructions::transact::{
+        shape::canonical_shape, ExternalData, SppProofInputs, SppProofOutputUtxo,
+    },
     keys::{ShieldedKeys, TransactionKeyRequest},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -21,6 +28,41 @@ use crate::{
 pub struct ResolvedOwnerTag {
     pub tag: OwnerTag,
     pub resolved: [u8; 32],
+}
+
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnonymousViewTags {
+    sender: ViewTag,
+    recipients: HashMap<X25519Pubkey, ViewTag>,
+}
+
+impl AnonymousViewTags {
+    /// `sender` is the wallet's next unused `sender_view_tag`.
+    pub fn new(sender: ViewTag) -> Self {
+        Self {
+            sender,
+            recipients: HashMap::new(),
+        }
+    }
+
+    /// A shared or payment request tag for `recipient`, whose outputs otherwise
+    /// carry its bootstrap tag.
+    pub fn with_recipient(mut self, recipient: X25519Pubkey, tag: ViewTag) -> Self {
+        self.recipients.insert(recipient, tag);
+        self
+    }
+
+    fn resolve(&self, output: &SppProofOutputUtxo, sender: &ShieldedAddress) -> ViewTag {
+        match output.owner_address {
+            Some(owner) if owner.signing_pubkey != sender.signing_pubkey => self
+                .recipients
+                .get(&owner.viewing_pubkey)
+                .copied()
+                .unwrap_or_else(|| owner.viewing_pubkey.u()),
+            _ => self.sender,
+        }
+    }
 }
 
 impl ConfidentialTransaction {
@@ -67,7 +109,7 @@ impl ConfidentialTransaction {
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
     ) -> Result<SppProofInputs, TransactionError> {
-        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, false)
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, None)
     }
 
     /// Keeps recipient viewing keys in the auditor disclosure, not the public
@@ -76,15 +118,16 @@ impl ConfidentialTransaction {
         self,
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
+        view_tags: &AnonymousViewTags,
     ) -> Result<SppProofInputs, TransactionError> {
-        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, true)
+        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, Some(view_tags))
     }
 
     fn encrypt_with_viewing_key_mode(
         mut self,
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
-        anonymous: bool,
+        anonymous: Option<&AnonymousViewTags>,
     ) -> Result<SppProofInputs, TransactionError> {
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
@@ -112,18 +155,23 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        // Anonymous outputs share the zero scan tag so no public field names
-        // either the recipient or a sender-owned change output.
-        let owner_tags = if anonymous {
-            vec![
-                ResolvedOwnerTag {
-                    tag: OwnerTag::Inline([0; 32]),
-                    resolved: [0; 32]
-                };
-                self.outputs.len()
-            ]
-        } else {
-            self.owner_tags(&sender.signing_pubkey)?
+        let owner_tags = match anonymous {
+            Some(view_tags) => self
+                .outputs
+                .iter()
+                .map(|output| {
+                    let resolved = if output.is_compact() {
+                        [0; 32]
+                    } else {
+                        view_tags.resolve(output, sender)
+                    };
+                    ResolvedOwnerTag {
+                        tag: OwnerTag::Inline(resolved),
+                        resolved,
+                    }
+                })
+                .collect(),
+            None => self.owner_tags(&sender.signing_pubkey)?,
         };
         let interface_transfers = self.interface_transfers()?;
 
@@ -132,8 +180,9 @@ impl ConfidentialTransaction {
         let slots = self
             .outputs
             .iter()
+            .zip(&owner_tags)
             .enumerate()
-            .map(|(slot_index, output)| {
+            .map(|(slot_index, (output, owner_tag))| {
                 let Some(address) = output.owner_address else {
                     return Ok(None);
                 };
@@ -150,8 +199,12 @@ impl ConfidentialTransaction {
                     salt,
                     slot_index: slot_index as u32,
                 };
-                let mut message = if anonymous {
-                    Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)?
+                let mut message = if anonymous.is_some() {
+                    Confidential::encode_ring_anonymous_plaintext(
+                        &plaintext,
+                        owner_tag.resolved,
+                        &cx,
+                    )?
                 } else {
                     Confidential::encode_plaintext(
                         &plaintext,
@@ -159,7 +212,7 @@ impl ConfidentialTransaction {
                         &cx,
                     )?
                 };
-                if output.ring_program_id.is_some() && !anonymous {
+                if output.ring_program_id.is_some() && anonymous.is_none() {
                     let OutputDataEncoding::Encrypted(mut blob) =
                         OutputDataEncoding::try_from_slice(&message.data)
                             .map_err(|error| TransactionError::Deserialize(error.to_string()))?

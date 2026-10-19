@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "./x25519.js";
+import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 import {
   inputTreeSlots,
   treeIdField,
@@ -167,7 +167,7 @@ export function encryptTransactionViewingSecret(
   auditorPublicKey: X25519PublicKey,
   outputDisclosure?: AuditDisclosureInput,
 ): AuditorEncryption {
-  const ephemeral = X25519Secret.generate();
+  const ephemeral = X25519Keypair.generate();
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
   try {
@@ -189,7 +189,7 @@ export function encryptTransactionViewingSecret(
 
 /** Mirrors Rust `decrypt_tx_viewing_sk`. */
 export function decryptTransactionViewingSecret(
-  auditor: X25519Secret,
+  auditor: X25519Keypair,
   message: AuditorMessage,
 ): Bytes32 {
   let dh: Bytes32 | undefined;

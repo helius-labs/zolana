@@ -146,7 +146,7 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "ringEddsa";
+      kind: "confidentialRingEddsa";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -165,7 +165,7 @@ export type CircuitId =
       cacheAccess: CacheAccess;
     }>
   | Readonly<{
-      kind: "ringEddsaCached";
+      kind: "confidentialRingEddsaCached";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;

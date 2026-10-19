@@ -23,17 +23,18 @@ const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.js
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 struct KeyDerivationVectors {
-    ed25519_rail: Ed25519Rail,
+    eddsa_rail: EddsaRail,
     tx_viewing: TxViewing,
     hpke_utxo: HpkeUtxo,
     owner: Owner,
     key_schedule: KeySchedule,
     merge_recovery: MergeRecovery,
     derivation_input_guard: Vec<GuardCase>,
+    counter_view_tags: Vec<CounterViewTagCase>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct Ed25519Rail {
+struct EddsaRail {
     signing_secret: String,
     signer_pubkey: String,
     derivation_message: String,
@@ -97,20 +98,35 @@ struct GuardCase {
     is_derivation_input: bool,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct CounterViewTagCase {
+    viewing_secret: String,
+    viewing_pubkey: String,
+    sender_view_tags: Vec<CounterTag>,
+    recipient_request_view_tags: Vec<CounterTag>,
+}
+
+/// The counter is a decimal string, u64::MAX exceeds the JSON number range TypeScript parses.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct CounterTag {
+    counter: String,
+    tag: String,
+}
+
 fn scalar_bytes(n: u8) -> [u8; 32] {
     let mut scalar = [0u8; 32];
     scalar[31] = n;
     scalar
 }
 
-fn compute_ed25519_rail() -> Ed25519Rail {
+fn compute_eddsa_rail() -> EddsaRail {
     let signing_secret = [7u8; 32];
     let signing_key = SigningKey::from_ed25519_bytes(&signing_secret);
     let signer_pubkey = signing_key.pubkey().as_ed25519().unwrap();
     let derivation_message = ed25519_derivation_message(&signer_pubkey);
     let derivation_seed = signing_key.derivation_seed().unwrap();
     let keypair = ShieldedKeypair::from_keypair(signing_key).unwrap();
-    Ed25519Rail {
+    EddsaRail {
         signing_secret: hex::encode(signing_secret),
         signer_pubkey: hex::encode(signer_pubkey),
         derivation_message: hex::encode(derivation_message),
@@ -124,7 +140,7 @@ fn compute_ed25519_rail() -> Ed25519Rail {
 
 fn compute_tx_viewing() -> TxViewing {
     let viewing_secret = scalar_bytes(3);
-    let viewing_key = ViewingKey::from_bytes(&viewing_secret).unwrap();
+    let viewing_key = ViewingKey::from_bytes(&viewing_secret);
     let first_nullifier = scalar_bytes(11);
     let tx_viewing_key = viewing_key
         .get_transaction_viewing_key(&first_nullifier)
@@ -140,8 +156,8 @@ fn compute_tx_viewing() -> TxViewing {
 fn compute_hpke_utxo() -> HpkeUtxo {
     let recipient_secret = scalar_bytes(2);
     let ephemeral_secret = scalar_bytes(1);
-    let recipient = ViewingKey::from_bytes(&recipient_secret).unwrap();
-    let ephemeral = ViewingKey::from_bytes(&ephemeral_secret).unwrap();
+    let recipient = ViewingKey::from_bytes(&recipient_secret);
+    let ephemeral = ViewingKey::from_bytes(&ephemeral_secret);
     let salt = [0u8; 16];
     let slot_index = 0;
     let plaintext = b"deterministic";
@@ -218,15 +234,42 @@ fn compute_derivation_input_guard() -> Vec<GuardCase> {
         .collect()
 }
 
+fn compute_counter_view_tags() -> Vec<CounterViewTagCase> {
+    let counters = [0, 1, 63, 64, 65, 1 << 32, u64::MAX];
+    let secrets = [[0x05; 32], [0xff; 32], core::array::from_fn(|i| i as u8)];
+    secrets
+        .into_iter()
+        .map(|secret| {
+            let key = ViewingKey::from_bytes(&secret);
+            let tags = |derive: fn(&ViewingKey, u64) -> Result<[u8; 32], _>| {
+                counters
+                    .iter()
+                    .map(|&counter| CounterTag {
+                        counter: counter.to_string(),
+                        tag: hex::encode(derive(&key, counter).unwrap()),
+                    })
+                    .collect()
+            };
+            CounterViewTagCase {
+                viewing_secret: hex::encode(secret),
+                viewing_pubkey: hex::encode(key.pubkey().as_bytes()),
+                sender_view_tags: tags(ViewingKey::get_sender_view_tag),
+                recipient_request_view_tags: tags(ViewingKey::get_recipient_request_view_tag),
+            }
+        })
+        .collect()
+}
+
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
-        ed25519_rail: compute_ed25519_rail(),
+        eddsa_rail: compute_eddsa_rail(),
         tx_viewing: compute_tx_viewing(),
         hpke_utxo: compute_hpke_utxo(),
         owner: compute_owner(),
         key_schedule: compute_key_schedule(),
         merge_recovery,
         derivation_input_guard: compute_derivation_input_guard(),
+        counter_view_tags: compute_counter_view_tags(),
     }
 }
 
@@ -248,8 +291,8 @@ fn shared_vectors_match() {
         .unwrap()
         .try_into()
         .unwrap();
-    let recipient = ViewingKey::from_bytes(&recipient_secret).unwrap();
-    let ephemeral = ViewingKey::from_bytes(&ephemeral_secret).unwrap();
+    let recipient = ViewingKey::from_bytes(&recipient_secret);
+    let ephemeral = ViewingKey::from_bytes(&ephemeral_secret);
     let ciphertext = hex::decode(&committed.hpke_utxo.ciphertext).unwrap();
     let decrypted = recipient
         .decrypt_utxo(

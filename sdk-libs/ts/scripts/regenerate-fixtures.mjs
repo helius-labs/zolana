@@ -2,7 +2,6 @@
 // with the current library and rewrites fixtures/manifest.json. Run after a
 // build: `npm run build && node scripts/regenerate-fixtures.mjs`.
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import {
@@ -29,7 +28,6 @@ import {
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
-  encodeSplitEncrypted,
   encryptAnonymous,
   encryptConfidential,
   encryptSplit,
@@ -254,14 +252,6 @@ const serialization = readJson("transaction/serialization-v1.json");
       decodeSplitBundle(decryptSplit(keypair.viewingKey(), tx.publicKey(), splitBody, salt, 3)),
     ),
   );
-  families.splitEncrypted.wincodeBytes = hex(
-    encodeSplitEncrypted({
-      typePrefix: 2,
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      ciphertext: Uint8Array.of(1, 2, 3, 4, 5),
-    }),
-  );
 
   const plaintextTransfer = {
     typePrefix: 4,
@@ -330,12 +320,6 @@ const walletSync = readJson("transaction/wallet-sync-v1.json");
   viewing.destroy();
   writeJson("transaction/wallet-sync-v1.json", walletSync);
 }
-
-// Hash the formatted files so format checks cannot invalidate the manifest.
-execFileSync("npx", ["--no-install", "oxfmt", "--write", "fixtures"], {
-  cwd: new URL("..", import.meta.url),
-  stdio: "inherit",
-});
 
 const manifest = readJson("manifest.json");
 for (const entry of manifest.files) {

@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
 };
@@ -45,7 +45,7 @@ pub struct PageOptions {
 
 pub struct AuditService<S> {
     pub(crate) ring: Address,
-    pub(crate) auditor: X25519Secret,
+    pub(crate) auditor: X25519Keypair,
     pub(crate) view_tag: [u8; 32],
     pub(crate) shared: Arc<Shared<S>>,
 }

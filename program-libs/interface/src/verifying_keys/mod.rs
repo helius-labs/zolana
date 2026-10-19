@@ -4,8 +4,8 @@
 
 mod circuit;
 pub use circuit::{
-    valid_cache_writes, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId, OutputOwnerMode,
-    MAX_CACHE_WRITES,
+    valid_cache_writes, AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite,
+    CircuitId, OutputOwnerMode, MAX_CACHE_WRITES,
 };
 
 #[cfg(feature = "verifying-keys")]
@@ -97,13 +97,81 @@ pub mod transfer_confidential_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_8_8;
 #[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_2_2;
+pub mod transfer_eddsa_ring_12_2;
 #[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_2_4;
+pub mod transfer_eddsa_ring_12_4;
 #[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_3_4;
+pub mod transfer_eddsa_ring_12_8;
 #[cfg(feature = "verifying-keys")]
-pub mod transfer_ed25519_ring_4_2;
+pub mod transfer_eddsa_ring_16_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_16_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_16_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_1_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_1_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_1_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_1_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_24_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_24_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_2_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_2_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_2_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_2_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_32_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_3_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_3_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_3_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_40_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_48_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_49_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_4_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_4_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_4_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_4_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_5_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_5_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_5_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_5_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_6_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_6_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_6_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_8_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_8_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_8_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_eddsa_ring_8_8;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_12_2;
 #[cfg(feature = "verifying-keys")]
@@ -363,20 +431,156 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         transfer_confidential_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "transfer_ed25519_ring_2_2.key",
-        transfer_ed25519_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "transfer_eddsa_ring_12_2.key",
+        transfer_eddsa_ring_12_2::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "transfer_ed25519_ring_2_4.key",
-        transfer_ed25519_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "transfer_eddsa_ring_12_4.key",
+        transfer_eddsa_ring_12_4::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "transfer_ed25519_ring_3_4.key",
-        transfer_ed25519_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "transfer_eddsa_ring_12_8.key",
+        transfer_eddsa_ring_12_8::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
-        "transfer_ed25519_ring_4_2.key",
-        transfer_ed25519_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+        "transfer_eddsa_ring_16_2.key",
+        transfer_eddsa_ring_16_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_16_4.key",
+        transfer_eddsa_ring_16_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_16_8.key",
+        transfer_eddsa_ring_16_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_1_16.key",
+        transfer_eddsa_ring_1_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_1_2.key",
+        transfer_eddsa_ring_1_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_1_4.key",
+        transfer_eddsa_ring_1_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_1_8.key",
+        transfer_eddsa_ring_1_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_24_2.key",
+        transfer_eddsa_ring_24_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_24_4.key",
+        transfer_eddsa_ring_24_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_2_16.key",
+        transfer_eddsa_ring_2_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_2_2.key",
+        transfer_eddsa_ring_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_2_4.key",
+        transfer_eddsa_ring_2_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_2_8.key",
+        transfer_eddsa_ring_2_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_32_2.key",
+        transfer_eddsa_ring_32_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_3_2.key",
+        transfer_eddsa_ring_3_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_3_4.key",
+        transfer_eddsa_ring_3_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_3_8.key",
+        transfer_eddsa_ring_3_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_40_2.key",
+        transfer_eddsa_ring_40_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_48_2.key",
+        transfer_eddsa_ring_48_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_49_2.key",
+        transfer_eddsa_ring_49_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_4_16.key",
+        transfer_eddsa_ring_4_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_4_2.key",
+        transfer_eddsa_ring_4_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_4_4.key",
+        transfer_eddsa_ring_4_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_4_8.key",
+        transfer_eddsa_ring_4_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_5_16.key",
+        transfer_eddsa_ring_5_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_5_2.key",
+        transfer_eddsa_ring_5_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_5_4.key",
+        transfer_eddsa_ring_5_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_5_8.key",
+        transfer_eddsa_ring_5_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_6_2.key",
+        transfer_eddsa_ring_6_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_6_4.key",
+        transfer_eddsa_ring_6_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_6_8.key",
+        transfer_eddsa_ring_6_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_8_16.key",
+        transfer_eddsa_ring_8_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_8_2.key",
+        transfer_eddsa_ring_8_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_8_4.key",
+        transfer_eddsa_ring_8_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_eddsa_ring_8_8.key",
+        transfer_eddsa_ring_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_ring_12_2.key",

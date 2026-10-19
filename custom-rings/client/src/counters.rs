@@ -120,7 +120,7 @@ mod tests {
             serde_json::from_str(include_str!("../../../test-vectors/spend-counters.json"))
                 .unwrap();
         let hex_field = |name: &str| hex::decode(vector[name].as_str().unwrap()).unwrap();
-        let tx = ViewingKey::from_bytes(&hex_field("secret").try_into().unwrap()).unwrap();
+        let tx = ViewingKey::from_bytes(&hex_field("secret").try_into().unwrap());
         let salt = hex_field("transactionSalt").try_into().unwrap();
         let mut counters = SpendCounters::EMPTY;
         counters.salt = hex_field("counterSalt").try_into().unwrap();

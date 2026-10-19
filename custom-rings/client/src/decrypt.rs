@@ -17,7 +17,7 @@ use zolana_hasher::{
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{constants::SALT_LEN, ViewingKey};
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_transaction::utxo::program_id_proof_input_hash;
 use zolana_transaction::{
     serialization::confidential::Confidential, AssetRegistry, EncryptedScheme, OutputSlot,
@@ -38,7 +38,7 @@ use crate::{
 /// Opens every confidential output slot of `transaction` with the transaction
 /// viewing key the auditor message carries.
 pub struct TransactionAudit<'a> {
-    pub auditor: &'a X25519Secret,
+    pub auditor: &'a X25519Keypair,
     pub transaction: &'a ShieldedTransaction,
     pub assets: &'a AssetRegistry,
 }
@@ -260,7 +260,7 @@ fn anonymous_output_opening(
 
 /// Decrypts the auditor message into the transaction viewing key.
 pub fn recover_tx_viewing_key(
-    auditor: &X25519Secret,
+    auditor: &X25519Keypair,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
     let recovered = message.decrypt(auditor)?;
@@ -397,13 +397,13 @@ mod tests {
     /// clamping would produce the published viewing key.
     #[test]
     fn recovery_rejects_a_noncanonical_secret() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let scalar = [0x48u8; 32];
-        let viewing_key = ViewingKey::from_bytes(&scalar).expect("viewing key");
+        let viewing_key = ViewingKey::from_bytes(&scalar);
         let mut plaintext = *viewing_key.secret_bytes();
         plaintext[0] |= 1;
 
-        let ephemeral = X25519Secret::new();
+        let ephemeral = X25519Keypair::new();
         let ephemeral_key = ephemeral.pubkey();
         let auditor_key = auditor.pubkey();
         let diffie_hellman_x = ephemeral.ecdh(&auditor_key).expect("ecdh");

@@ -2,7 +2,7 @@
 
 Results appended by `scripts/bench_spp.sh` (`just prover bench-spp`), which
 runs `BenchmarkProveByShape` over every supported shape of the custom-ring
-EdDSA-only transact circuit (`NewCustomRingConfidentialEd25519Circuit`), up to the
+confidential EdDSA transact circuit (`NewCustomRingConfidentialEddsaCircuit`), up to the
 49x2 shape. The 2026-06-12 sections below predate that circuit
 and cover the Solana ownership rail. Times are proving only; circuit
 compilation and Groth16 setup are excluded.

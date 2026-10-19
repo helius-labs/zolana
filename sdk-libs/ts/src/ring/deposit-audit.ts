@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { pack33 } from "../interface/merge-utils.js";
@@ -44,7 +44,7 @@ export function sealRingDepositOpenings(
 }> {
   if (openings.length < 1 || openings.length > RING_DEPOSIT_AUDIT_SLOTS)
     throw new RingError("RING_BUILD_DEPOSIT", { details: { reason: "deposit count" } });
-  const ephemeral = X25519Secret.generate();
+  const ephemeral = X25519Keypair.generate();
   const plaintext = new Uint8Array(PAYLOAD_LENGTH);
   let dh: Bytes32 | undefined;
   let shared: Bytes32 | undefined;
@@ -94,7 +94,7 @@ export function sealRingDepositOpenings(
 /** `ownerKey` is the Ed25519 owner key of an anonymous ring deposit, absent otherwise. */
 export function openRingDepositOpening(
   capsule: RingDepositCapsule,
-  auditor: X25519Secret,
+  auditor: X25519Keypair,
   ownerCommitment: Bytes32,
   confirmed: ConfirmedDeposit,
 ): Readonly<{ ownerHash: Bytes32; blinding: Bytes32; ownerKey?: Bytes32 }> {

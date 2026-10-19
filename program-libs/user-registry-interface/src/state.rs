@@ -31,7 +31,7 @@ pub struct UserRecord {
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
     /// Per-user merge opt-in: when `false` `merge_transact` is rejected for this
-    /// owner. When `true` any caller may run `merge_transact` for this owner
+    /// owner; when `true` any caller may run `merge_transact` for this owner
     /// (see shielded-pool spec).
     pub merging_enabled: bool,
 }
