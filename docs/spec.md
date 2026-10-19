@@ -28,7 +28,6 @@
     - [Methods](#methods)
   - [Derivation seed](#derivation-seed)
   - [Solana wallet](#solana-wallet)
-  - [Local P-256](#local-p-256)
   - [HSM](#hsm)
   - [Seed phrase](#seed-phrase)
   - [PDA](#pda)
@@ -248,11 +247,10 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 
 | Type | Definition | Description |
 | --- | --- | --- |
-| `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body. Prefix `0x00`: P256, SEC1-compressed point; `0x01`: Ed25519, 32-byte key then one zero byte; `0x02`: PDA, 32-byte Solana address then one zero byte (off-curve, cannot sign). The protocol's scheme-tagged key, used wherever the scheme varies — UTXO owners (`signing_pk` / `owner_pubkey`). |
+| `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body. Prefix `0x00` is reserved and every decoder rejects it; `0x01`: Ed25519, 32-byte key then one zero byte; `0x02`: PDA, 32-byte Solana address then one zero byte (off-curve, cannot sign). The protocol's scheme-tagged key, used wherever the scheme varies — UTXO owners (`signing_pk` / `owner_pubkey`). |
 | `X25519Pubkey` | `[u8; 33]` | X25519 public key, `0x04 \|\| u` with `u` the little-endian Montgomery u-coordinate. Only a canonical `u < 2^255 - 19` decodes. No scheme prefix beyond the tag. Used where the key is X25519 by construction, the viewing and ECDH keys (`tx_viewing_pk`, registry `viewing_pk`, ring auditor keys, ephemeral envelope keys). |
 | `X25519Keypair` | — | An X25519 `(secret, public)` keypair. The secret is a clamped 32-byte RFC 7748 scalar, and its public half is an `X25519Pubkey`. |
-| `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
-| `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
+| `Signature` | `[u8; 64]` | An Ed25519 signature. A Solana transaction signature, or a Ring RPC request signature under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
 | `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `ConfidentialRingEddsa`, `AnonymousRingEddsa`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Owner-signed families have `*Cached` twins that add `CacheAccess { read_bitmap: u64, write_slots: [CacheWrite; MAX_CACHE_WRITES] }` (40 bytes, `MAX_CACHE_WRITES = 16`; validated in [`transact`](#transact) check 14) and use the family's key. Unknown values are rejected at deserialization. |
@@ -285,9 +283,6 @@ their stated Poseidon preimages.
 Solana owner (Ed25519 pubkey or PDA address, 32 B):
   owner_proof_input_hash(pk) := hash_bytes_33(0x53 || pk)      // 'S'
 
-P256 owner (33 B SEC1):
-  owner_proof_input_hash(pk) := hash_bytes_33(0x50 || pk.x)    // 'P'
-
 X25519 viewing key (33 B, 0x04 || u):
   viewing_proof_input_hash(pk) := hash_bytes_33(pk)
 
@@ -295,9 +290,8 @@ Ring program id (32 B, untagged; `0` when absent):
   pk_field(program_id) := hash_bytes_32(program_id)
 ```
 
-Owner identities are algorithm-tagged so a P256 x-coordinate and a Solana key
-with the same bytes have distinct identities. The tags differ from the X25519
-key tag `0x04`, so an owner identity cannot equal a viewing-key commitment. The
+Owner identities carry the tag `0x53`. It differs from the X25519 key tag
+`0x04`, so an owner identity cannot equal a viewing-key commitment. The
 `AnonymousRingEddsa` proof computes the hidden owner's Solana identity and
 asserts it differs from every signer identity; SPP hashes Solana identities.
 
@@ -322,7 +316,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 **Curves** (the `PublicKey` scheme prefix, [Glossary](#glossary)):
 
 - `Ed25519` — Solana signer, authorized by SPP's signer-account check, or on the `AnonymousRingEddsa` rail by one shared Ed25519 signature proven in-circuit.
-- `P256` is a reserved prefix `0x00`, rejected by every decoder.
+- Prefix `0x00` is reserved, and every decoder rejects it.
 - `Pda` — off the Ed25519 curve and cannot sign; the owning program authorizes via `invoke_signed`.
 
 **Interface**:
@@ -331,7 +325,6 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 - `viewing_pubkey` — [ViewingKey](#viewingkey) public key (`X25519Pubkey`).
 - `curve` — the signing scheme identifier: the `PublicKey` scheme prefix ([Glossary](#glossary)).
 - `sign_message(msg)` — message signature in the scheme's native form ([Signing Key](#signing-key) methods).
-- `sign_hash(hash)` — signature over a caller-supplied digest, for the proof path ([Signing Key](#signing-key) methods).
 - `nullifier_key` — the host-side [Nullifier Key](#nullifier-key), used to build spendable inputs.
 - `nullifier(utxo)` — the UTXO's [nullifier](#nullifier).
 - `nullifier_pk` — the published half of the nullifier role ([Nullifier Key](#nullifier-key)).
@@ -346,8 +339,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 **Methods:**
 
 - `pubkey() -> PublicKey` — the scheme-tagged public key ([Glossary](#glossary)).
-- `sign_message(msg) -> Result<Signature>` — the scheme's native message signature: Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet), P256 as ECDSA over `SHA-256(msg)` normalized to low-S, matching Solana's secp256r1 precompile. PDA: error.
-- `sign_hash(hash: [u8; 32]) -> Result<Signature>` — P256 ECDSA over a caller-supplied digest; the proof verifies it against `SHA-256(private_tx_hash || external_data_hash)`. Ed25519 owners sign digest bytes with `sign_message`; PDA: error.
+- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the digest `SHA-256(private_tx_hash || external_data_hash)` with this method, and the proof verifies the signature.
 
 ## Nullifier Key
 
@@ -479,24 +471,20 @@ flowchart TD
 
 ## Derivation seed
 
-The root secret both role keys expand from in the local-key scenarios
-([Solana wallet](#solana-wallet), [Local P-256](#local-p-256)). Obtaining it
-consumes only a signing operation (`ECDH` or a deterministic signature).
+The root secret both role keys expand from in the [Solana wallet](#solana-wallet)
+scenario. Obtaining it consumes only a deterministic signature.
 
-Role expansion, shared by both scenarios:
+Role expansion:
 
 - `prk := HKDF-Extract(salt=∅, IKM=derivation_seed)`
 - `nullifier_secret := HKDF-Expand(prk, nf_info, L=31)`
 - `viewing_sk := clamp(HKDF-Expand(prk, view_info, L=32))` — an X25519 scalar ([ViewingKey](#viewingkey))
 
-The two scenarios define `derivation_seed`, `nf_info`, and `view_info`.
+The [Solana wallet](#solana-wallet) scenario defines `derivation_seed`, `nf_info`, and `view_info`.
 
 **Derivation-input guard.** Signing rejects any message whose payload (bare or
-off-chain encoded) starts with `"TSPP/derive/"`. The signing key's P-256 ECDH
-rejects the three reserved derivation points pinned in `zolana_hasher::p256`,
-`P_derive` ([P-256 wallet](#p-256-wallet)) and the further reserved points
-`P_const` and `P_pda`. The viewing key's X25519 ECDH rejects a low-order peer
-([ViewingKey](#viewingkey)).
+off-chain encoded) starts with `"TSPP/derive/"`. The viewing key's X25519 ECDH
+rejects a low-order peer ([ViewingKey](#viewingkey)).
 
 ## Solana wallet
 
@@ -505,14 +493,6 @@ Sign: the wallet's Ed25519 key, checked by SPP as the signer account.
 - `derivation_seed := Ed25519_sign(signing_sk, derivation_message)` — deterministic (RFC 8032), so any wallet that signs off-chain messages reconstructs the keypair and the Ed25519 secret never leaves the wallet. The 64-byte seed is itself secret material: whoever holds it derives both role keys.
 - `derivation_message` — the Solana off-chain message v0 encoding of the payload `"TSPP/derive/v1"`: `"\xffsolana offchain" || version=0 || application_domain || format=0 || signer_count=1 || signing_pk || u16_le(payload_len) || payload`, with `application_domain := SHA-256("TSPP/derive/v1")`.
 - `nf_info = "TSPP/nf_key/ed25519/v1"`, `view_info = "TSPP/view_key/ed25519/x25519/v1"`.
-
-## P-256 wallet
-
-Signs with ECDSA under a locally held key.
-
-- `derivation_seed := ECDH(signing_sk, P_derive)` — the shared point's 32-byte big-endian x-coordinate (one `CKM_ECDH1_DERIVE`).
-- `P_derive := hash_to_curve_P256(DST="TSPP/nullifier/P_nullifier/v1")` — RFC 9380 `P256_XMD:SHA-256_SSWU_RO_`, pinned as the SEC1 constant `P_DERIVE_SEC1`; unknown discrete log, so only the signing-key holder can compute the shared x-coordinate.
-- `nf_info = "TSPP/nf_key/ecdh/v1"`, `view_info = "TSPP/view_key/ecdh/x25519/v1"`.
 
 ## HSM
 
@@ -527,17 +507,13 @@ construction. The `nullifier_secret` stays host-side
 All three parts derive from one BIP-39 mnemonic: the signing key on Solana's
 derivation path, the role keys on TSPP paths. Every path segment is hardened;
 `node(path)` is the 32-byte SLIP-0010 Ed25519 node key at `path` (HMAC-SHA512
-tree over the seed), `node_p256(path)` the 32-byte SLIP-0010 nist256p1 node
-key (master key from HMAC-SHA512 with key `"Nist256p1 seed"`; invalid
-candidates are handled inside SLIP-0010's derivation). `TSPP_COIN =
+tree over the seed). `TSPP_COIN =
 1392955331` (`be_u32(SHA-256("luminous.TSPP.v1")[0..4]) & 0x7FFF_FFFF`).
 
 - `seed := BIP-39(mnemonic, passphrase)` — PBKDF2-HMAC-SHA512, 64 bytes; `passphrase = ""` unless the wallet sets one.
 - `signing_sk := node(m/44'/501'/account'/0')` — Ed25519 secret on Solana's path: importing the mnemonic into a Solana wallet yields the same key.
-- `p256_signing_sk := node_p256(m/44'/TSPP_COIN'/account'/0'/0')` — a valid P-256 scalar by construction.
 - `nullifier_secret := node(m/44'/TSPP_COIN'/account'/1'/0')[1..32]` — the node key with its first byte dropped (31 bytes).
 - `viewing_sk := clamp(node(m/44'/TSPP_COIN'/account'/2'/0'))` — the Ed25519 node key clamped as an X25519 scalar ([ViewingKey](#viewingkey)).
-- Both identities use the same `nullifier_secret` and `viewing_sk`. Wherever both publish the shared `viewing_pk` — registry records, bootstrap view tags, shielded addresses — the two owners are linkable.
 - `account'` — each account index is an independent shielded keypair.
 
 Shares the signing key with the [Solana wallet](#solana-wallet) scenario but
@@ -1366,7 +1342,7 @@ transaction. Slots past the real inputs and outputs are padding;
 [compact padding](#compact-padding) keeps them out of the instruction data. A
 transaction with one output uses a 2-output shape and pads the second slot.
 
-**Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no P256 gadget, no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created, so the authority cannot move funds out of the policy ring without an owner-signed path. Supported shapes:
+**Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so a UTXO of any owner scheme can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created, so the authority cannot move funds out of the policy ring without an owner-signed path. Supported shapes:
 
 | Circuit | Use | Shape |
 | --- | --- | --- |
@@ -2313,7 +2289,7 @@ struct MergeTransactIxData {
     /// Vanilla Groth16 proof: `a(32) || b(128) || c(32)` — 192 bytes. `a` and
     /// `c` are compressed G1 points, `b` is the raw big-endian G2 point so the
     /// program skips the G2 decompression syscall. The merge
-    /// circuit carries no P256 gadget, so there is no BSB22 commitment.
+    /// circuit has no BSB22 commitment.
     proof: MergeProof,
     /// One output UTXO hash; appended to the UTXO tree.
     output_utxo_hash: [u8; 32],
@@ -2703,7 +2679,7 @@ Decrypted analogue of [`getEncryptedUtxosByTags`](#getencryptedutxosbytags). Fil
 struct GetDecryptedUtxosByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: ECDSASignature,
+    signature: Signature,
     include_spent: bool,
     cursor: Option<Vec<u8>>,
     limit: Option<u32>,
@@ -2732,7 +2708,7 @@ Decrypted analogue of [`getShieldedTransactionsByTags`](#getshieldedtransactions
 struct GetDecryptedTransactionsByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: ECDSASignature,
+    signature: Signature,
     cursor: Option<Vec<u8>>,
     limit: Option<u32>,
 }
@@ -2759,7 +2735,7 @@ Streaming analogue of [`subscribeToShieldedTransactionsByTags`](#subscribetoshie
 struct SubscribeToDecryptedTransactionsByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: ECDSASignature,
+    signature: Signature,
 }
 
 /// Yields one [`DecryptedTransaction`](#get_decrypted_transactions_by_owner) per matching transaction.

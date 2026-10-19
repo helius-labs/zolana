@@ -39,9 +39,8 @@ Regenerate with `just bench-shielded-pool`.
 26. [Transfer eddsa cached 32x2](#transfer-eddsa-cached-32x2)
 27. [Transfer eddsa cached 5x4](#transfer-eddsa-cached-5x4)
 28. [Transfer ring eddsa 49x2](#transfer-ring-eddsa-49x2)
-29. [Transfer ring p256 49x2](#transfer-ring-p256-49x2)
-30. [Withdrawal sol](#withdrawal-sol)
-31. [Withdrawal spl](#withdrawal-spl)
+29. [Withdrawal sol](#withdrawal-sol)
+30. [Withdrawal spl](#withdrawal-spl)
 
 ## 1. Create protocol config
 
@@ -397,22 +396,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_transact_ix`         |    300,084 |          0 |
 | `process_instruction`         |    300,136 |          0 |
 
-## 29. Transfer ring p256 49x2
-
-| Function                      |   Total CU |     Net CU |
-| ----------------------------- | ---------- | ---------- |
-| `fill_owner_signer_hashes`    |        936 |        936 |
-| `fill_output_owner_pk_hashes` |         47 |         47 |
-| `create_nullifier_pdas`       |     98,347 |     98,347 |
-| `apply_input_trees`           |    135,334 |     36,987 |
-| `apply_output_tree`           |     29,135 |     29,135 |
-| `public_input_hash`           |     48,273 |     48,273 |
-| `verify_groth16`              |    137,140 |    137,140 |
-| `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    361,018 |          0 |
-| `process_instruction`         |    361,070 |          0 |
-
-## 30. Withdrawal sol
+## 29. Withdrawal sol
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
@@ -428,7 +412,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_transact_ix`         |    145,121 |        238 |
 | `process_instruction`         |    145,173 |          0 |
 
-## 31. Withdrawal spl
+## 30. Withdrawal spl
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |

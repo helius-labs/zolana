@@ -15,19 +15,15 @@ Date (UTC): `2026-06-11`
 
 ## Primitives
 
-One P256 scalar multiplication (`ecdh`) is the unit every EC-bound row reduces
+One X25519 scalar multiplication (`ecdh`) is the unit every EC-bound row reduces
 to. Sender and request tags are HKDF-only streams; shared tags pay one ECDH per
 derivation, and the recipient side additionally recomputes `self.pubkey()` (a
 base-point multiplication) per call.
 
 | Operation                    | Time        |
 |------------------------------|-------------|
-| `ecdh`                       | `80.7 µs`   |
-| `recipient_shared_view_tag`  | `197.1 µs`  |
-| `send_shared_view_tag`       | `93.9 µs`   |
 | `sender_view_tag`            | `1.6 µs`    |
 | `recipient_request_view_tag` | `1.6 µs`    |
-| `transaction_viewing_key`    | `88.9 µs`   |
 | `utxo_hash`                  | `161.5 µs`  |
 | `nullifier`                  | `24.7 µs`   |
 
@@ -37,14 +33,7 @@ base-point multiplication) per call.
 (one ephemeral ECDH each) after re-deriving the transaction viewing key.
 `decrypt_transfer_recipient` opens a single slot.
 
-| Operation                     | Time        |
-|-------------------------------|-------------|
-| `decrypt_transfer` (R=1)      | `475.0 µs`  |
-| `decrypt_transfer` (R=2)      | `664.0 µs`  |
-| `decrypt_transfer` (R=4)      | `1.05 ms`   |
-| `decrypt_transfer` (R=8)      | `1.83 ms`   |
-| `decrypt_transfer_recipient`  | `188.4 µs`  |
-| `decrypt_split`               | `183.6 µs`  |
+Run `wallet_ops` on an idle host to record these times.
 
 ## Full Sync: DeFi Trader Scenario
 
@@ -62,7 +51,5 @@ First-time sync of a fresh wallet over ~1 year of activity
 | Shared receives          | 2,450 (100 senders, top 5 at 450–150 each)     |
 | Stored UTXOs             | 11,320 (6,970 spent)                           |
 
-| Measurement              | Value      |
-|--------------------------|------------|
-| `Wallet::sync`           | `9.19 s`   |
-| `Wallet::sync_parallel`  | `0.74 s`   |
+Run the scenario on an idle host to record the `Wallet::sync` and
+`Wallet::sync_parallel` times.
