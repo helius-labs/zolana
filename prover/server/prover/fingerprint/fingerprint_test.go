@@ -102,7 +102,7 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
 	"transfer_eddsa_ring_2_4":       {constraints: 109378, public: 2},
 	"custom_ring_policy":            {constraints: 463087, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1141536, public: 2},
+	"custom_ring_compressed_policy": {constraints: 1137117, public: 2},
 	"custom_ring_register_key":      {constraints: 80819, public: 2},
 	"custom_ring_deposit":           {constraints: 208516, public: 2},
 	"custom_ring_delegate_policy":   {constraints: 450712, public: 2},
