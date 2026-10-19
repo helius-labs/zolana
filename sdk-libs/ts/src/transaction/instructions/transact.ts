@@ -1480,7 +1480,8 @@ function finalizeTransfer(
     if (output.isDummy()) {
       outputs.push({
         utxoHash,
-        ownerTag: { kind: "inline", value: padTag },
+        // Match a real output to the sender, including its account encoding.
+        ownerTag: equal(padTag, senderResolved) ? senderTag : { kind: "inline", value: padTag },
         data: randomBytes(dummyLength),
       });
       resolved.push(padTag);

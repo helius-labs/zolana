@@ -495,7 +495,7 @@ fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bo
 
 fn binary_features(bin: &str) -> &'static [&'static str] {
     match bin {
-        "photon" => &["--features", "ring-projection"],
+        "photon" => &["--features", "custom-rings"],
         _ => &[],
     }
 }

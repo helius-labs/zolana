@@ -4,7 +4,7 @@ use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 use zolana_indexer_api::error_code::{
     RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
     RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
@@ -29,14 +29,14 @@ pub enum PhotonApiError {
     /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
     StaleRoot(String),
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     #[error(transparent)]
-    RingProjection(#[from] RingProjectionError),
+    CustomRing(#[from] CustomRingError),
 }
 
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 #[derive(Error, Debug, PartialEq, Eq)]
-pub enum RingProjectionError {
+pub enum CustomRingError {
     #[error("key registry is out of sync ({0})")]
     OutOfSync(String),
     #[error("key registry root changed")]
@@ -49,8 +49,8 @@ pub enum RingProjectionError {
     SpendRecordOutOfSync(String),
 }
 
-#[cfg(feature = "ring-projection")]
-impl RingProjectionError {
+#[cfg(feature = "custom-rings")]
+impl CustomRingError {
     pub fn code(&self) -> i32 {
         match self {
             Self::OutOfSync(_) => const { wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC) },
@@ -64,7 +64,7 @@ impl RingProjectionError {
     }
 }
 
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 const fn wire_code(code: i64) -> i32 {
     assert!(code >= i32::MIN as i64 && code <= i32::MAX as i64);
     code as i32
@@ -73,8 +73,8 @@ const fn wire_code(code: i64) -> i32 {
 impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
-            #[cfg(feature = "ring-projection")]
-            PhotonApiError::RingProjection(ref error) => {
+            #[cfg(feature = "custom-rings")]
+            PhotonApiError::CustomRing(ref error) => {
                 ErrorObjectOwned::owned(error.code(), val.to_string(), None::<()>)
             }
             PhotonApiError::ValidationError(_) => {

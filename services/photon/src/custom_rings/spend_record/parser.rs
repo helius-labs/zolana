@@ -1,9 +1,9 @@
 use crate::{
+    custom_rings::{instruction_view, Invocation},
     ingester::{
         parser::{rings_event_parser::parse_rings_events, state_update::RingsTransactionUpdate},
         typedefs::block_info::Instruction,
     },
-    ring_projection::{instruction_view, Invocation},
 };
 use anyhow::{Context, Result};
 use custom_ring_interface::PolicyConfig;

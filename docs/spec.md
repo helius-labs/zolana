@@ -870,9 +870,12 @@ outputs present, SPL before SOL; `c + i` recipient `i`; then dummies).
 output with `data = Some` covers itself plus the immediately following `data = None`
 positions. The Transfer scheme puts the sender change bundle at `outputs[0].data`
 (covering the change positions present) and each real recipient ciphertext at its own
-position; a dummy position carries `Inline(random tag)` and random bytes of
-recipient-ciphertext length, indistinguishable from a real recipient. The SPP allows
-`outputs[0].data = None`; which positions bear a ciphertext is a wallet concern.
+position. A dummy borrows an allowed participant's resolved tag and carries random
+bytes of recipient-ciphertext length. A tag equal to the sender's tag reuses the
+sender's encoding, including `Account(0)` when the sender also pays the fee;
+every other tag is `Inline`. This encoding rule applies to real and dummy outputs
+alike. The SPP allows `outputs[0].data = None`; which positions bear a ciphertext
+is a wallet concern.
 
 The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
 `outputs`; a covered position publishes an empty `data` under the covering output's
@@ -1199,7 +1202,7 @@ value while reusing the proof.
 | Nullifiers | Every input's public nullifier equals its derived [nullifier](#nullifier), including padding and addresses, except [compact padding](#compact-padding); all nonzero input nullifiers must differ. |
 | Nullifier non-inclusion | Every input's derived nullifier must be strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`, including padding, addresses and compact padding. |
 | Output UTXOs | Every output hash uses `output_tree_id` and the derived `blinding_i`, and matches `output_utxo_hashes[i]`, except compact padding. Owner-signed variants recompute `owner_hash` from the recipient identity and nullifier pubkey; `RingAuthority` commits `owner` directly. |
-| Output owner tag | `ConfidentialEddsa` requires every real output's tag to equal its owner identity. Owner-signed ring circuits require real default-ring outputs to publish a confidential marker equal to their owner identity, and real policy-ring outputs to publish zero. A dummy's tag must name an owner signer other than the payer or a real output owner; the ring circuits also accept zero. Compact padding publishes `0`. `RingAuthority` omits the owner chain. |
+| Output owner tag | `ConfidentialEddsa` requires every real output's tag to equal its owner identity. Owner-signed ring circuits require real default-ring outputs to publish a confidential marker equal to their owner identity, and real policy-ring outputs to publish zero. A dummy's tag must name either an owner signer who is not the fee payer, or any real output owner, including the fee payer when it owns a change output. This constrains the resolved identity, not whether the tag is encoded as `Inline` or `Account`. The ring circuits also accept zero. Compact padding publishes `0`. `RingAuthority` omits the owner chain. |
 | Balance Conservation | For each active asset, inputs plus public deposits equal outputs plus public withdrawals. Public slots contain distinct assets with nonzero net movements; unused slots are `(0, 0)`. |
 | Private transaction hash | Matches the [derived hash](#private-transaction-hash). |
 | UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialEddsa`, `ConfidentialRingEddsa`), a signer or the hidden Ed25519 key (`AnonymousRingEddsa`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |

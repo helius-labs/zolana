@@ -35,7 +35,7 @@ pub async fn get_shielded_transactions_by_signature(
     })
 }
 
-#[cfg(feature = "ring-projection")]
+#[cfg(feature = "custom-rings")]
 pub(crate) async fn shielded_transaction_at(
     tx: &DatabaseTransaction,
     signature: [u8; SIGNATURE_BYTES],
@@ -51,7 +51,7 @@ pub(crate) async fn shielded_transaction_at(
 
 enum EventFilter {
     All,
-    #[cfg(feature = "ring-projection")]
+    #[cfg(feature = "custom-rings")]
     At(u16),
 }
 
@@ -64,7 +64,7 @@ async fn fetch_rings_transactions_by_signature(
     let mut params = Vec::new();
     let signature = bind_sql_value(&mut params, backend, signature.to_vec());
     let event_filter = match events {
-        #[cfg(feature = "ring-projection")]
+        #[cfg(feature = "custom-rings")]
         EventFilter::At(index) => {
             let index = i16::try_from(index).map_err(|_| {
                 PhotonApiError::ValidationError(format!("Event index {index} does not fit in i16"))
