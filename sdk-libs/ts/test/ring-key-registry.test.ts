@@ -1214,7 +1214,7 @@ describe("recovered delegate move", () => {
           if (key === TREE)
             return ownedAccount(
               SHIELDED_POOL_PROGRAM_ID,
-              treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 4n }),
+              treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 9n }),
             );
           return undefined;
         },
@@ -1241,7 +1241,7 @@ describe("recovered delegate move", () => {
               stateRoot: filled(92) as Bytes32,
               stateRootIndex: 4,
               nullifierRoot: filled(93) as Bytes32,
-              nullifierRootIndex: 3,
+              nullifierRootIndex: 5,
             },
           };
         },

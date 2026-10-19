@@ -310,7 +310,7 @@ async function ringAccounts(
     if (account === ACTIVE_TREE) {
       return ownedAccount(
         SHIELDED_POOL_PROGRAM_ID,
-        treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 4n }),
+        treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 9n }),
       );
     }
     if (account === configAddress) {
@@ -577,7 +577,7 @@ const SPP_ROOTS = {
   stateRoot: scalar(92),
   stateRootIndex: 4,
   nullifierRoot: scalar(93),
-  nullifierRootIndex: 3,
+  nullifierRootIndex: 5,
 };
 
 function ringInstructionData(txHash: Bytes32): TransactInstructionData {
@@ -817,7 +817,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
       highElementIndex: 1n,
       root: scalar(6),
       rootSeq: 1n,
-      rootIndex: 2,
+      rootIndex: 7,
     },
   };
 }
@@ -851,7 +851,7 @@ describe("ring witness", () => {
       stateRoot: scalar(3),
       stateRootIndex: 4,
       nullifierRoot: scalar(6),
-      nullifierRootIndex: 2,
+      nullifierRootIndex: 7,
     });
   });
 });
@@ -1296,7 +1296,7 @@ describe("ring proof folded fields", () => {
     // An empty table reads both roots from the address tree head.
     const proven = await proveCustomRingTransfer(base);
     const entriesStateRoot = new Uint8Array(32).fill(0x17);
-    const entriesNullifierRoot = new Uint8Array(32).fill(0x23);
+    const entriesNullifierRoot = new Uint8Array(32).fill(0x28);
 
     expect(finalized).toBeDefined();
     expect(request).toBeDefined();
@@ -1309,7 +1309,7 @@ describe("ring proof folded fields", () => {
     expect(request?.keyRegistryRoot).toBeUndefined();
     expect(proven.policy).toMatchObject({
       trees: [ACTIVE_TREE],
-      treeContexts: [{ utxoTreeRootIndex: 7, nullifierTreeRootIndex: 3 }],
+      treeContexts: [{ utxoTreeRootIndex: 7, nullifierTreeRootIndex: 8 }],
     });
     expect(proven.policy).not.toHaveProperty("keyRegistryRootIndex");
     expect(proven.inputTrees).toEqual([RING]);
@@ -1351,7 +1351,7 @@ describe("ring proof folded fields", () => {
         tree: ACTIVE_TREE,
         spenders: entries.flatMap((entry) => entry.spenders),
         stateRoots: [{ value: new Uint8Array(32).fill(0x17) as Bytes32, index: 7 }],
-        nullifierRoots: [{ value: new Uint8Array(32).fill(0x23) as Bytes32, index: 3 }],
+        nullifierRoots: [{ value: new Uint8Array(32).fill(0x28) as Bytes32, index: 8 }],
       });
       const order: string[] = [];
       const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
@@ -1389,7 +1389,7 @@ describe("ring proof folded fields", () => {
                 trees: indexed.trees.map((tree) => ({
                   ...tree,
                   utxoRootIndex: 12,
-                  nullifierRootIndex: 4,
+                  nullifierRootIndex: 13,
                 })),
                 publicInputHash: scalar(91),
               },
@@ -1415,14 +1415,14 @@ describe("ring proof folded fields", () => {
         {
           id: 0,
           utxoRoot: new Uint8Array(32).fill(0x17),
-          nullifierRoot: new Uint8Array(32).fill(0x23),
+          nullifierRoot: new Uint8Array(32).fill(0x28),
         },
       ]);
       expect(enabled.every((answer) => answer.treeSlot === 0)).toBe(true);
       expect(proven.policy?.treeContexts).toEqual([
         {
           utxoTreeRootIndex: proofDataSource === "prover" ? 12 : 7,
-          nullifierTreeRootIndex: proofDataSource === "prover" ? 4 : 3,
+          nullifierTreeRootIndex: proofDataSource === "prover" ? 13 : 8,
         },
       ]);
       expect(proven.policy?.revocationTreeIndexes).toEqual(Array.from({ length: 10 }, () => 0));

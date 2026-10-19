@@ -1347,7 +1347,7 @@ function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
     utxoRoot: bytes(8),
     nullifierRoot: bytes(9),
     utxoRootIndex: 7,
-    nullifierRootIndex: 3,
+    nullifierRootIndex: 8,
   };
   const inputs: IndexedPolicyInputs = {
     circuit,

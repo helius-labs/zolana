@@ -41,7 +41,7 @@ pub enum NullifierTreeError {
     CreateGroth16VerifierFailed,
     #[error("ProofVerificationFailed")]
     ProofVerificationFailed,
-    #[error("InvalidBatchSize supported batch sizes are 10 and 4999")]
+    #[error("InvalidBatchSize supported batch sizes are 10 and 250")]
     InvalidBatchSize,
     #[error("Hasher error: {0}")]
     Hasher(#[from] HasherError),

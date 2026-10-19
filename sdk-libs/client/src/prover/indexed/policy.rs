@@ -283,7 +283,7 @@ mod tests {
                     nullifier_root: field(2),
                     context: TreeContext {
                         utxo_tree_root_index: 4,
-                        nullifier_tree_root_index: 3,
+                        nullifier_tree_root_index: 5,
                     },
                 }],
                 inputs: vec![

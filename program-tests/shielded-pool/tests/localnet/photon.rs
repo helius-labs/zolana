@@ -81,13 +81,7 @@ const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
 const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 const LOCALNET_NULLIFIER_ZKP_BATCH_SIZE: u64 = 10;
-/// Drained within one queue batch and one root-history cycle, so the root index
-/// after the drain equals this count and batch 0 never fills.
-const LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT: u64 = 4;
-const _: () = assert!(
-    LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT
-        < NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE
-);
+const LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT: u64 = 20;
 const LOCALNET_NULLIFIERS_PER_QUEUE_TX: u64 = 2;
 const BATCH_NULLIFIER_TREE_CU_LIMIT: u64 = 500_000;
 

@@ -189,7 +189,7 @@ fn tree_creation_changes_only_the_tree_account() {
 }
 
 #[test]
-fn tree_creation_completes_in_two_steps_and_advances_next_tree_id() {
+fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
     let mut pool = Pool::initialized();
     let next_tree_id = zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id");
     assert_eq!(next_tree_id, 1);
@@ -202,14 +202,14 @@ fn tree_creation_completes_in_two_steps_and_advances_next_tree_id() {
             .expect("default tree fees"),
     };
     let steps = create.instructions();
-    assert_eq!(steps.len(), 2);
+    assert_eq!(steps.len(), 4);
 
-    let (partial, last) = steps.split_at(1);
+    let (partial, last) = steps.split_at(3);
     pool.rpc
         .create_and_send_default_payer_transaction(partial, &[&pool.authority])
-        .expect("first allocation step");
+        .expect("first three allocation steps");
     let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
-    assert_eq!(tree.len(), TREE_ALLOCATION_STEP);
+    assert_eq!(tree.len(), 3 * TREE_ALLOCATION_STEP);
     assert!(tree.iter().all(|byte| *byte == 0));
     assert_eq!(
         zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),

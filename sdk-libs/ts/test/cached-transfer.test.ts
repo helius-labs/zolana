@@ -46,7 +46,7 @@ const CACHE = address("4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4");
 const OTHER_CACHE = address("7JYZmXDUtQ9S4pQjzhmGaoNdTCpcKq2mX3j4Q8CqLbJx");
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const STATE_ROOT_INDEX = 4;
-const NULLIFIER_ROOT_INDEX = 2;
+const NULLIFIER_ROOT_INDEX = 7;
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }

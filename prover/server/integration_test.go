@@ -207,9 +207,9 @@ func runCommonTests(t *testing.T) {
 
 // runFullOnlyTests contains tests that should only run in full mode
 func runFullOnlyTests(t *testing.T) {
-	t.Run("testBatchAddressAppendHappyPath40_4999", testBatchAddressAppendHappyPath40_4999)
-	t.Run("testBatchAddressAppendWithPreviousState40_4999", testBatchAddressAppendWithPreviousState40_4999)
-	t.Run("testBatchAddressAppendInvalidInput40_4999", testBatchAddressAppendInvalidInput40_4999)
+	t.Run("testBatchAddressAppendHappyPath40_250", testBatchAddressAppendHappyPath40_250)
+	t.Run("testBatchAddressAppendWithPreviousState40_250", testBatchAddressAppendWithPreviousState40_250)
+	t.Run("testBatchAddressAppendInvalidInput40_250", testBatchAddressAppendInvalidInput40_250)
 }
 
 func runLightweightOnlyTests(t *testing.T) {
@@ -232,8 +232,8 @@ func testBatchAddressAppendHappyPath40_10(t *testing.T) {
 	runBatchAddressAppendTest(t, 40, 10)
 }
 
-func testBatchAddressAppendHappyPath40_4999(t *testing.T) {
-	runBatchAddressAppendTest(t, 40, 4999)
+func testBatchAddressAppendHappyPath40_250(t *testing.T) {
+	runBatchAddressAppendTest(t, 40, 250)
 }
 
 func runBatchAddressAppendTest(t *testing.T, treeHeight uint32, batchSize uint32) {
@@ -269,8 +269,8 @@ func testBatchAddressAppendWithPreviousState40_10(t *testing.T) {
 	runBatchAddressAppendWithPreviousStateTest(t, 40, 10)
 }
 
-func testBatchAddressAppendWithPreviousState40_4999(t *testing.T) {
-	runBatchAddressAppendWithPreviousStateTest(t, 40, 4999)
+func testBatchAddressAppendWithPreviousState40_250(t *testing.T) {
+	runBatchAddressAppendWithPreviousStateTest(t, 40, 250)
 }
 
 func runBatchAddressAppendWithPreviousStateTest(t *testing.T, treeHeight uint32, batchSize uint32) {
@@ -364,9 +364,9 @@ func testBatchAddressAppendInvalidInput40_10(t *testing.T) {
 		treeHeight, batchSize)
 }
 
-func testBatchAddressAppendInvalidInput40_4999(t *testing.T) {
+func testBatchAddressAppendInvalidInput40_250(t *testing.T) {
 	treeHeight := uint32(40)
-	batchSize := uint32(4999)
+	batchSize := uint32(250)
 	startIndex := uint64(0)
 
 	params, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)

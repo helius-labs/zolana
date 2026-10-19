@@ -78,7 +78,7 @@ nullifiers.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`, `allow_dummy_inputs` leg)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability)
-  - Suggested test: negative (exists; crosses the threshold by moving the nullifier queue cursor in litesvm instead of a 4999-queue localnet setup); harness: litesvm
+  - Suggested test: negative (exists; crosses the threshold by moving the nullifier queue cursor in litesvm instead of a 250-queue localnet setup); harness: litesvm
 
 ### Instruction Data Validation
 

@@ -2091,7 +2091,7 @@ mod tests {
             ExpectedProvingKey::transfer_p256_ring(49, 2).expect("49x2 p256"),
             ExpectedProvingKey::merge(24).expect("merge 24"),
             ExpectedProvingKey::merge_ring(54).expect("merge ring 54"),
-            ExpectedProvingKey::batch_address_append(40, 4999).expect("address append 4999"),
+            ExpectedProvingKey::batch_address_append(40, 250).expect("address append 250"),
         ];
         let names: Vec<&str> = keys.iter().map(|key| key.name.as_str()).collect();
         assert_eq!(
@@ -2103,7 +2103,7 @@ mod tests {
                 "transfer_p256_ring_49_2.key",
                 "merge_24_1.key",
                 "merge_ring_54_1.key",
-                "batch_address-append_40_4999.key",
+                "batch_address-append_40_250.key",
             ]
         );
         for key in &keys {
