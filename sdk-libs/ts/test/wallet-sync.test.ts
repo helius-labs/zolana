@@ -41,6 +41,7 @@ import {
   serializeWallet,
   splitBundleFromUtxos,
   transactOutputBlinding,
+  type OutputContext,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import {
@@ -111,7 +112,13 @@ interface RequestWithCursor {
   readonly cursor?: Uint8Array;
 }
 
-function mergeAfterSplit() {
+/** Fixtures in the default tree leave the tree id out like a hand-built transaction. */
+function indexedContext(hash: Bytes32, treeId: number, leafIndex: bigint): OutputContext {
+  return { hash, tree: TREE, leafIndex, ...(treeId === DEFAULT_TREE_ID ? {} : { treeId }) };
+}
+
+/** Split outputs land in `trees.input`, both merges in `trees.output`. */
+function mergeAfterSplit(trees = { input: DEFAULT_TREE_ID, output: DEFAULT_TREE_ID }) {
   const keypair = ShieldedKeypair.generate();
   const identityTag = keypair.signingPublicKey().confidentialViewTag();
   // The split's first nullifier. Every output blinding and the seed the bundle
@@ -127,11 +134,13 @@ function mergeAfterSplit() {
         blinding: transactOutputBlinding(splitNullifier, outputSeed, index),
       }),
   );
-  const contexts = outputs.map((utxo, index) => ({
-    hash: utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
-    tree: TREE,
-    leafIndex: BigInt(index),
-  }));
+  const contexts = outputs.map((utxo, index) =>
+    indexedContext(
+      utxo.hash(keypair.nullifierPublicKey(), trees.input),
+      trees.input,
+      BigInt(index),
+    ),
+  );
   const salt = new Uint8Array(16).fill(5) as Bytes16;
   const txKey = keypair.viewingKey().transactionViewingKey(splitNullifier);
   const bundle = encodeSplitBundle(
@@ -179,11 +188,11 @@ function mergeAfterSplit() {
     outputSlots: [
       {
         viewTag: identityTag,
-        outputContext: {
-          hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
-          tree: TREE,
-          leafIndex: 2n,
-        },
+        outputContext: indexedContext(
+          merged.hash(keypair.nullifierPublicKey(), trees.output),
+          trees.output,
+          2n,
+        ),
         payload: mergePayload(keypair, firstNullifier, 42n),
       },
     ],
@@ -210,11 +219,11 @@ function mergeAfterSplit() {
     outputSlots: [
       {
         viewTag: identityTag,
-        outputContext: {
-          hash: chained.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
-          tree: TREE,
-          leafIndex: 3n,
-        },
+        outputContext: indexedContext(
+          chained.hash(keypair.nullifierPublicKey(), trees.output),
+          trees.output,
+          3n,
+        ),
         payload: mergePayload(keypair, chainedNullifier, 42n),
       },
     ],
@@ -914,6 +923,28 @@ describe("wallet sync", () => {
     });
 
     expect(report).toMatchObject({ storedUtxos: 3, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  it.each([
+    { kind: "within a non-default tree", input: 3, output: 3 },
+    { kind: "into another tree than its inputs", input: DEFAULT_TREE_ID, output: 5 },
+  ])("reconstructs a merge $kind", async (trees) => {
+    const { keypair, keys, split, merge, chainedMerge } = mergeAfterSplit(trees);
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+
+    const report = await decryptWithKeys(keys, {
+      wallet,
+      transactions: [split, merge, chainedMerge],
+    });
+
+    expect(report).toMatchObject({ storedUtxos: 4, undecryptableCandidates: 0 });
+    expect(
+      wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => entry.outputContext.hash),
+    ).toEqual([chainedMerge.outputSlots[0]!.outputContext.hash]);
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 

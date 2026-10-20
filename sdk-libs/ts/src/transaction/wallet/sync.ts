@@ -38,7 +38,7 @@ import {
   type DepositPayloadDecoder,
 } from "../serialization/ring-deposit.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
-import { Utxo } from "../utxo.js";
+import { Utxo, type TreeId } from "../utxo.js";
 import {
   anonymousSlotDefect,
   type AnonymousTagRoutes,
@@ -72,19 +72,16 @@ import {
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
-/**
- * The tree id synced UTXOs are hashed under. A UTXO that lives in another tree
- * fails the recompute-and-compare against the indexed leaf and is never
- * stored, so a wrong id cannot admit a foreign commitment.
- *
- * TODO(tree-id): resolve the tree id from the tree account.
- */
-const SYNC_TREE_ID = DEFAULT_TREE_ID;
+/** The tree id the indexed leaf folds in, the default tree when the indexer left it out. */
+function outputTreeId(context: OutputContext): TreeId {
+  return context.treeId ?? DEFAULT_TREE_ID;
+}
 
-/** `undefined` for a pair hint outside the canonical X25519 encoding, the note itself stays verified. */
+/** `undefined` for a pair hint no X25519 agreement accepts, the note itself stays verified. */
 function pairKeyOf(pairU: Bytes32): X25519PublicKey | undefined {
   try {
-    return X25519PublicKey.fromU(pairU);
+    const key = X25519PublicKey.fromU(pairU);
+    return isSmallOrder(key) ? undefined : key;
   } catch {
     return undefined;
   }
@@ -392,8 +389,12 @@ class SyncPass {
    * transaction.
    */
   #storeInTx(utxo: Utxo, tx: IndexedShieldedTransaction): void {
-    const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID);
-    const slot = tx.outputSlots.find((candidate) => equal(candidate.outputContext.hash, hash));
+    const slot = tx.outputSlots.find((candidate) =>
+      equal(
+        candidate.outputContext.hash,
+        utxo.hash(this.#nullifierPublicKey, outputTreeId(candidate.outputContext)),
+      ),
+    );
     if (slot === undefined) {
       this.undecryptableCandidates++;
       return;
@@ -412,7 +413,7 @@ class SyncPass {
     for (const utxo of utxos) {
       if (
         !equal(
-          utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash),
+          utxo.hash(this.#nullifierPublicKey, outputTreeId(outputContext), dataHash, ringDataHash),
           outputContext.hash,
         )
       ) {
@@ -658,7 +659,10 @@ class SyncPass {
               (candidate.asset === SOL_MINT &&
                 change.length === 1 &&
                 change[0]?.asset !== SOL_MINT)) &&
-            equal(candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
+            equal(
+              candidate.hash(this.#nullifierPublicKey, outputTreeId(slot.outputContext)),
+              slot.outputContext.hash,
+            )
           ) {
             change.push(candidate);
             return;
@@ -1023,11 +1027,6 @@ class SyncPass {
         blinding: outputBlinding,
         ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
       });
-      const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, body.ringDataHash);
-      if (!equal(hash, slot.outputContext.hash)) {
-        this.undecryptableCandidates++;
-        return;
-      }
       if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, body.ringDataHash)) {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
@@ -1179,7 +1178,7 @@ class SyncPass {
       blinding: plaintext.blinding,
       ringProgramId: tx.ringProgramId,
     });
-    const treeId = outputContext.treeId ?? SYNC_TREE_ID;
+    const treeId = outputTreeId(outputContext);
     if (!equal(utxo.hash(this.#nullifierPublicKey, treeId), outputContext.hash)) {
       this.undecryptableCandidates++;
       return;

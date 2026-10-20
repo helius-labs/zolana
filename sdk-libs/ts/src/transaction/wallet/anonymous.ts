@@ -22,7 +22,7 @@ export type AnonymousStream =
 export interface AnonymousNote {
   readonly viewTag: Bytes32;
   readonly utxoHash: Bytes32;
-  /** Absent when the body carried a pair hint that is not a canonical X25519 key. */
+  /** Absent when the body carried a pair hint that is no canonical contributory X25519 key. */
   readonly pairPublicKey?: X25519PublicKey;
   readonly stream: AnonymousStream;
 }
@@ -196,7 +196,7 @@ export class AnonymousTagRoutes {
     return [...this.#capped.values()];
   }
 
-  /** Stored notes whose pair hint is not a canonical X25519 key. */
+  /** Stored notes whose pair hint is no canonical contributory X25519 key. */
   badPairHints(): readonly Bytes32[] {
     return [...this.#badPairHints.values()];
   }

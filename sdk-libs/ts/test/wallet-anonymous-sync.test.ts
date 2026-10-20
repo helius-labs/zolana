@@ -25,6 +25,7 @@ import {
   LocalShieldedKeys,
   type DecryptRequest,
   type RingTagKeys,
+  type RingTagRequest,
 } from "../src/transaction/wallet/keys.js";
 import { deserializeWallet, serializeWallet } from "../src/transaction/wallet/persistence.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
@@ -413,6 +414,58 @@ describe("anonymous ring sync", () => {
     expect(ring.newCounterparties).toEqual([]);
     expect(ring.notes[0]?.pairPublicKey).toBeUndefined();
     expect(wallet.privateTransactions().map((row) => row.direction)).toEqual(["inbound"]);
+  });
+
+  it("stores notes whose pair hint is a low-order X25519 key and opens no pair stream", async () => {
+    const recipient = keypair(1);
+    const lowOrder = [0, 1].map((u, j) => {
+      const paid = note(recipient, 10n, 13 + j);
+      const txKey = keypair(13 + j).viewingKey();
+      const pairU = new Uint8Array(32) as Bytes32;
+      pairU[0] = u;
+      const tx = transaction(
+        txKey,
+        13 + j,
+        [bytes(13 + j)],
+        [
+          anonymousSlotWithHint(
+            txKey,
+            recipient.viewingPublicKey(),
+            paid,
+            inboxTag(recipient, 0, BigInt(j)),
+            0,
+            pairU,
+          ),
+        ],
+      );
+      return { paid, tx };
+    });
+    const { client } = indexer({ tagged: lowOrder.map(({ tx }) => tx) });
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const local = LocalShieldedKeys.fromKeypair(recipient);
+    const requested: RingTagRequest["kind"][] = [];
+    const keys: RingTagKeys = {
+      address: () => local.address(),
+      viewingPublicKeys: () => local.viewingPublicKeys(),
+      decrypt: (requests) => local.decrypt(requests),
+      derive: (requests) => local.derive(requests),
+      transactionKeys: (requests) => local.transactionKeys(requests),
+      ringViewTags: (requests) => {
+        requested.push(...requests.map((request) => request.kind));
+        return local.ringViewTags(requests);
+      },
+    };
+
+    const report = await syncWallet({ wallet, keys, client, anonymousRing: freshState });
+
+    const hashes = lowOrder.map(({ paid }) => hex(paid.hash)).sort();
+    expect(unspentHashes(wallet)).toEqual(hashes);
+    const ring = report.anonymousRing!;
+    expect(ring.badPairHints.map(hex).sort()).toEqual(hashes);
+    expect(ring.notes.map((entry) => entry.pairPublicKey)).toEqual([undefined, undefined]);
+    expect(ring.newCounterparties).toEqual([]);
+    expect(ring.pairNext).toEqual([]);
+    expect(requested).not.toContain("pair");
   });
 
   it("holds a verified note with an unknown mint until the mint is registered", async () => {
