@@ -58,14 +58,8 @@ const (
 	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
 )
 
-// MergeAnonymousWidths are the SPP merge widths, one anonymous ring merge key each.
-var MergeAnonymousWidths = func() []int {
-	widths := make([]int, len(mergeSupportedInputCounts))
-	for i, inputs := range mergeSupportedInputCounts {
-		widths[i] = int(inputs)
-	}
-	return widths
-}()
+// MergeAnonymousWidths mirrors ANONYMOUS_MERGE_WIDTHS in custom-rings/interface/src/merge.rs.
+var MergeAnonymousWidths = []int{8, 24}
 
 // CustomRingMergeAnonymousCircuitType names the anonymous merge disclosure circuit of one width.
 func CustomRingMergeAnonymousCircuitType(width int) CircuitType {

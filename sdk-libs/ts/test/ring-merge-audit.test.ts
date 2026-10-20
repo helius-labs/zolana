@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { getBase58Decoder, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
+import vector from "../../../test-vectors/ring-merge-anonymous.json" with { type: "json" };
+
 import { kitReads, solanaRpcReads, transactionsPage } from "./helpers/clients.js";
 import { memberRegistryRootData, registryFixture } from "./helpers/member-registry.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { treeAccount } from "./helpers/tree-account.js";
-import { initializePoseidon } from "../src/hasher/index.js";
+import { fieldAdd, initializePoseidon } from "../src/hasher/index.js";
 import { wireDecoder } from "../src/interface/decode.js";
 import {
   ringConfigPda,
@@ -14,9 +16,11 @@ import {
   treeAddress,
 } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
-import type { Bytes32, Signature } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes33, Signature } from "../src/interface/types.js";
+import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
-import { auditRingMerges } from "../src/ring/audit-merge.js";
+import { auditRingMerges, openDisclosedMerge } from "../src/ring/audit-merge.js";
+import type { RingMergeDisclosure } from "../src/ring/merge-disclosure.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 
 await initializePoseidon();
@@ -229,6 +233,77 @@ describe("auditRingMerges confirmed scan", () => {
       await expect(
         auditRingMerges({ client, ringProgramId: ring, auditor, memberPageSize: 1 }),
       ).rejects.toMatchObject({ code: "RING_RPC" });
+    } finally {
+      auditor.destroy();
+    }
+  });
+});
+
+describe("openDisclosedMerge (test-vectors/ring-merge-anonymous.json)", () => {
+  const hex = <T extends Uint8Array>(value: string, length: number): T => {
+    const decoded = Uint8Array.from(Buffer.from(value.replace(/^0x/u, ""), "hex"));
+    if (decoded.length !== length) throw new RangeError(`expected ${String(length)} bytes`);
+    return decoded as T;
+  };
+  const disclosure: RingMergeDisclosure = {
+    proof: new Uint8Array(192),
+    ephemeralPublicKey: hex<Bytes33>(vector.eph_pk, 33),
+    ciphertext: hex<Bytes32>(vector.envelope_ciphertext, 32),
+    fields: vector.fields.map((value) => hex<Bytes32>(value, 32)),
+  };
+  const open = (auditor: X25519Keypair, opened: RingMergeDisclosure) =>
+    openDisclosedMerge({
+      auditor,
+      disclosure: opened,
+      salt: hex<Bytes16>(vector.salt, 16),
+      width: vector.width,
+      ringId: hex<Bytes32>(vector.request.ringProgramId, 32),
+      ringDataHash: hex<Bytes32>(vector.request.outputRingDataHash, 32),
+      treeId: Number(BigInt(vector.request.outputTreeId)),
+      outputCommitment: hex<Bytes32>(vector.request.outputUtxoHash, 32),
+    });
+  // Field 3 carries plaintext bytes 93..123, the amount ends at byte 103 and the blinding spans 104..135.
+  const shifted = (delta: bigint): RingMergeDisclosure => ({
+    ...disclosure,
+    fields: disclosure.fields.map((value, index) =>
+      index === 3 ? (bigIntToBytes(fieldAdd(bytesToBigInt(value), delta)) as Bytes32) : value,
+    ),
+  });
+
+  it("reproduces the settled commitment from the disclosed opening", () => {
+    const auditor = X25519Keypair.fromBytes(hex(vector.auditor_sk, 32));
+    try {
+      const opening = open(auditor, disclosure);
+      expect(opening.amount).toBe(BigInt(vector.amount));
+      expect(Buffer.from(opening.outputBlinding).toString("hex")).toBe(
+        vector.output_blinding.slice(2),
+      );
+    } finally {
+      auditor.destroy();
+    }
+  });
+
+  it.each([
+    ["amount", 1n << 160n],
+    ["blinding", 1n],
+  ] as const)("refuses a disclosure with a tampered %s", (_, delta) => {
+    const auditor = X25519Keypair.fromBytes(hex(vector.auditor_sk, 32));
+    try {
+      expect(() => open(auditor, shifted(delta))).toThrow(
+        expect.objectContaining({
+          code: "RING_AUDIT_MESSAGE",
+          details: { reason: "merge disclosure output" },
+        }),
+      );
+    } finally {
+      auditor.destroy();
+    }
+  });
+
+  it("does not open under another auditor key", () => {
+    const auditor = X25519Keypair.generate();
+    try {
+      expect(() => open(auditor, disclosure)).toThrow();
     } finally {
       auditor.destroy();
     }

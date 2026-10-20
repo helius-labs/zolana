@@ -84,13 +84,25 @@ func TestTwoByThreeCost(t *testing.T) {
 }
 
 func TestPublicTableTwoByThreeCost(t *testing.T) {
-	for _, anonymous := range []bool{false, true} {
-		c := &PublicTableTwoByThreeCircuit{Circuit: TwoByThreeCircuit{Anonymous: anonymous, RegistrySubtreeDepth: 3}}
+	// An anonymous key has no ceiling, its count moves only with a key rotation.
+	for _, tc := range []struct {
+		anonymous bool
+		depth     int
+		pinned    int
+	}{
+		{depth: 3},
+		{anonymous: true, pinned: 194119},
+		{anonymous: true, depth: 3, pinned: 194119},
+	} {
+		c := &PublicTableTwoByThreeCircuit{Circuit: TwoByThreeCircuit{Anonymous: tc.anonymous, RegistrySubtreeDepth: tc.depth}}
 		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, c, frontend.WithCompressThreshold(300))
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("public table anonymous=%v constraints=%d public=%d", anonymous, cs.GetNbConstraints(), cs.GetNbPublicVariables())
+		t.Logf("public table anonymous=%v depth=%d constraints=%d public=%d", tc.anonymous, tc.depth, cs.GetNbConstraints(), cs.GetNbPublicVariables())
+		if tc.anonymous && cs.GetNbConstraints() != tc.pinned {
+			t.Errorf("anonymous depth=%d constraints=%d, pinned %d", tc.depth, cs.GetNbConstraints(), tc.pinned)
+		}
 	}
 }
 

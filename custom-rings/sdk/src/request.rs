@@ -254,17 +254,34 @@ impl RingIdentity {
 }
 
 /// The pinned outflow limits and the approval demand the transfer proves under them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OutflowLimitProofInput {
-    #[serde(serialize_with = "outflow_limits")]
     pub limits: [OutflowLimit; MAX_OUTFLOW_LIMITS],
     pub limit_count: u8,
-    #[serde(with = "fe")]
     pub ring_id: [u8; 32],
-    #[serde(with = "fe")]
     pub namespace_owner_hash: [u8; 32],
     pub approval_required: bool,
+}
+
+/// The circuit refuses a nonzero row past `limit_count`, so those rows go out empty.
+impl Serialize for OutflowLimitProofInput {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let count = usize::from(self.limit_count);
+        let limits: [OutflowLimit; MAX_OUTFLOW_LIMITS] = core::array::from_fn(|index| {
+            if index < count {
+                self.limits[index]
+            } else {
+                OutflowLimit::EMPTY
+            }
+        });
+        let mut state = serializer.serialize_struct("OutflowLimitProofInput", 5)?;
+        state.serialize_field("limits", &OutflowLimits(&limits))?;
+        state.serialize_field("limitCount", &self.limit_count)?;
+        state.serialize_field("ringId", &Hex(&self.ring_id))?;
+        state.serialize_field("namespaceOwnerHash", &Hex(&self.namespace_owner_hash))?;
+        state.serialize_field("approvalRequired", &self.approval_required)?;
+        state.end()
+    }
 }
 
 impl OutflowLimitProofInput {
@@ -658,11 +675,12 @@ fn fields<S: Serializer, const N: usize>(
     state.end()
 }
 
-pub(crate) fn outflow_limits<S: Serializer>(
-    limits: &[OutflowLimit],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.collect_seq(limits.iter().map(Limit))
+struct OutflowLimits<'a>(&'a [OutflowLimit]);
+
+impl Serialize for OutflowLimits<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().map(Limit))
+    }
 }
 
 struct Limit<'a>(&'a OutflowLimit);

@@ -11,7 +11,7 @@ impl RingKey {
     const fn new(section: &'static str, circuit: &'static str) -> Self {
         Self { section, circuit }
     }
-    pub const ALL: [Self; 85] = [
+    pub const ALL: [Self; 84] = [
         Self::new("confidential_audit_key", "custom-ring-base-confidential"),
         Self::new(
             "base_confidential_compact_key",
@@ -32,7 +32,6 @@ impl RingKey {
         Self::new("update_members_key", "custom-ring-update-members"),
         Self::new("merge_anonymous_8_key", "custom-ring-merge-anonymous-8"),
         Self::new("merge_anonymous_24_key", "custom-ring-merge-anonymous-24"),
-        Self::new("merge_anonymous_52_key", "custom-ring-merge-anonymous-52"),
         Self::new("policy_1_2_key", "custom-ring-policy-1-2"),
         Self::new("policy_1_2_subtree_key", "custom-ring-policy-1-2-subtree"),
         Self::new("policy_1_4_key", "custom-ring-policy-1-4"),

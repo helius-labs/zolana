@@ -121,20 +121,28 @@ export interface UtxoCommitmentInput {
   readonly ringProgramId?: Address;
 }
 
+/** A ring commitment under the ring id field, `hashBytes` of the ring program id. */
+export type RingIdCommitmentInput = Omit<UtxoCommitmentInput, "ringProgramId"> & {
+  readonly ringId: Bytes32;
+};
+
 function commitmentFields(
-  input: UtxoCommitmentInput & { readonly domain?: number },
+  input: (UtxoCommitmentInput | RingIdCommitmentInput) & { readonly domain?: number },
 ): readonly Bytes32[] {
   checkU64(input.amount, "amount");
   const ringDataHash = input.ringDataHash
     ? checked<Bytes32>(input.ringDataHash, 32, "ring data hash")
     : ZERO_32;
-  if (!input.ringProgramId && !isZero(ringDataHash)) {
+  const ringProgramId =
+    "ringId" in input
+      ? checked<Bytes32>(input.ringId, 32, "ring id")
+      : input.ringProgramId
+        ? hashBytes(decodeAddress(input.ringProgramId))
+        : undefined;
+  if (ringProgramId === undefined && !isZero(ringDataHash)) {
     throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
   }
-  const ringProgramId = input.ringProgramId
-    ? hashBytes(decodeAddress(input.ringProgramId))
-    : ZERO_32;
-  const ringHash = commitmentPoseidon([ringDataHash, ringProgramId]);
+  const ringHash = commitmentPoseidon([ringDataHash, ringProgramId ?? ZERO_32]);
   const ownerCommitment = commitmentPoseidon([
     checked<Bytes32>(input.owner, 32, "owner hash"),
     checked<Bytes32>(input.blinding, 32, "blinding"),
@@ -187,6 +195,10 @@ function fullOwnerUtxoHash(input: UtxoCommitmentInput, dummy = false): Bytes32 {
       commitmentPoseidon([ZERO_32, checked<Bytes32>(input.blinding, 32, "blinding")]),
     ]);
   }
+  return commitmentPoseidon(commitmentFields(input));
+}
+
+export function ringIdUtxoHash(input: RingIdCommitmentInput): Bytes32 {
   return commitmentPoseidon(commitmentFields(input));
 }
 

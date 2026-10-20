@@ -16,6 +16,9 @@ pub const MERGE_DISCLOSURE_INFO: &[u8; 10] = b"CRING/mrg1";
 pub const MERGE_ANONYMOUS_PUBLIC_INPUT_ELEMENTS: usize = 13;
 const MERGE_ANONYMOUS_DOMAIN: &[u8; 4] = b"CRMG";
 
+/// SPP merge widths whose anonymous merge, disclosure and nullifier accounts fit one v1 transaction.
+pub const ANONYMOUS_MERGE_WIDTHS: [usize; 2] = [8, 24];
+
 /// Plaintext bytes of the disclosure of a merge of `width` circuit slots.
 pub const fn merge_disclosure_len(width: usize) -> usize {
     MERGE_DISCLOSURE_HEADER_LEN + 32 * width

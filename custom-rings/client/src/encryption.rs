@@ -38,6 +38,8 @@ mod proof_statement_tests;
 
 #[path = "encryption/merge_disclosure.rs"]
 mod merge_disclosure;
+#[cfg(test)]
+pub(crate) use merge_disclosure::tests::Vector as MergeVector;
 pub use merge_disclosure::{open_merge_disclosure, MergeDisclosureEncryption, MergeOpening};
 
 /// The auditor key's u-coordinate, the tag the auditor scans for.

@@ -402,7 +402,7 @@ impl RingOperation<'_> {
                             &operation.input,
                             payer,
                             operation.cosigner,
-                        ),
+                        )?,
                         budget,
                     )?;
                 }

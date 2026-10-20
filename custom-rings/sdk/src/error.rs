@@ -122,6 +122,8 @@ pub enum RingError {
     AuditRequired,
     #[error("an anonymous ring refuses this operation")]
     AnonymousRingRefused,
+    #[error("an anonymous merge of {width} slots does not fit a v1 transaction")]
+    AnonymousMergeTooWide { width: usize },
     #[error("an anonymous transfer requires the hidden Ed25519 signing key")]
     MissingAnonymousSigner,
     #[error("the ring is not anonymous, its owners sign in public")]

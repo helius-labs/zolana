@@ -29,8 +29,9 @@ use zolana_indexer_api::{
 use zolana_interface::instruction::instruction_data::merge_transact::merge_circuit_width;
 use zolana_keypair::{NullifierKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_policy::Member;
-use zolana_transaction::instructions::merge::{
-    merge_output_blinding, merge_output_key, MergeOutputPlaintext,
+use zolana_transaction::{
+    instructions::merge::{merge_output_blinding, merge_output_key, MergeOutputPlaintext},
+    utxo::program_id_proof_input_hash,
 };
 
 use crate::{
@@ -333,34 +334,24 @@ impl<'a> MergeAudit<'a> {
                 encrypted,
             )?;
             if let Some(disclosure) = &confirmed.merge_disclosure {
-                let opening = open_disclosed(self.auditor, disclosure, encrypted)?;
-                if opening.input_commitments.len()
-                    != merge_circuit_width(tx.nullifiers.len()).unwrap_or_default()
-                {
-                    return Err(invalid_merge());
+                let opening = DisclosedMerge {
+                    auditor: self.auditor,
+                    disclosure,
+                    salt: *encrypted.first_chunk().ok_or_else(invalid_merge)?,
+                    width: merge_circuit_width(tx.nullifiers.len()).ok_or_else(invalid_merge)?,
+                    ring_program_id: program_id_proof_input_hash(&Some(self.ring))?,
+                    ring_data_hash,
+                    tree_id: slot.output_context.tree_id,
+                    output_commitment: slot.output_context.hash,
                 }
-                let owner_member = *Member::owner_tag(&opening.owner_key)?.as_bytes();
-                let mint = Address::new_from_array(opening.mint);
-                let owner_hash = Poseidon::hashv(&[&owner_member, &opening.nullifier_pk])?;
-                let commitment = ProofInputUtxo::new(
-                    owner_hash,
-                    &mint,
-                    opening.amount,
-                    &opening.output_blinding,
-                    slot.output_context.tree_id,
-                )?
-                .with_ring(ring_data_hash, &Some(self.ring))?
-                .hash()?;
-                if commitment != slot.output_context.hash {
-                    return Err(AuditError::MergeDisclosureMismatch);
-                }
+                .open()?;
                 disclosed.push(AuditedMerge {
                     tx_signature: tx.tx_signature,
                     event_index,
-                    output_commitment: commitment,
-                    owner_member,
+                    output_commitment: slot.output_context.hash,
+                    owner_member: *Member::owner_tag(&opening.owner_key)?.as_bytes(),
                     owner_pubkey: Some(Address::new_from_array(opening.owner_key)),
-                    mint,
+                    mint: Address::new_from_array(opening.mint),
                     amount: opening.amount,
                     blinding: opening.output_blinding,
                     ring_data_hash,
@@ -647,22 +638,50 @@ fn open_candidate(
     }))
 }
 
-/// The ring verified the disclosure proof, so the salt is the SPP merge output salt it binds.
-fn open_disclosed(
-    auditor: &X25519Keypair,
-    disclosure: &ConfirmedMergeDisclosure,
-    encrypted: &[u8],
-) -> Result<MergeOpening, AuditError> {
-    let salt = encrypted
-        .first_chunk::<MERGE_OUTPUT_SALT_LEN>()
-        .ok_or_else(invalid_merge)?;
-    open_merge_disclosure(
-        auditor,
-        &X25519Pubkey::from_bytes(disclosure.eph_pk)?,
-        &disclosure.ciphertext,
-        *salt,
-        &disclosure.fields,
-    )
+/// An anonymous ring merge and the settled leaf its disclosure must reproduce.
+#[must_use]
+struct DisclosedMerge<'a> {
+    auditor: &'a X25519Keypair,
+    disclosure: &'a ConfirmedMergeDisclosure,
+    salt: [u8; MERGE_OUTPUT_SALT_LEN],
+    width: usize,
+    ring_program_id: [u8; 32],
+    ring_data_hash: [u8; 32],
+    tree_id: u16,
+    output_commitment: [u8; 32],
+}
+
+impl DisclosedMerge<'_> {
+    fn open(self) -> Result<MergeOpening, AuditError> {
+        let opening = open_merge_disclosure(
+            self.auditor,
+            &X25519Pubkey::from_bytes(self.disclosure.eph_pk)?,
+            &self.disclosure.ciphertext,
+            self.salt,
+            &self.disclosure.fields,
+        )?;
+        if opening.input_commitments.len() != self.width {
+            return Err(invalid_merge());
+        }
+        let owner_member = Member::owner_tag(&opening.owner_key)?;
+        let owner_hash = Poseidon::hashv(&[owner_member.as_bytes(), &opening.nullifier_pk])?;
+        let commitment = ProofInputUtxo {
+            ring_data_hash: self.ring_data_hash,
+            ring_program_id: self.ring_program_id,
+            ..ProofInputUtxo::new(
+                owner_hash,
+                &Address::new_from_array(opening.mint),
+                opening.amount,
+                &opening.output_blinding,
+                self.tree_id,
+            )?
+        }
+        .hash()?;
+        if commitment != self.output_commitment {
+            return Err(AuditError::MergeDisclosureMismatch);
+        }
+        Ok(opening)
+    }
 }
 
 fn invalid_merge() -> AuditError {
@@ -689,6 +708,8 @@ mod tests {
     use zolana_hasher::primitives::right_align;
     use zolana_indexer_api::{Base64String, RingIndexedMemberRecordView, RingMemberRecordView};
     use zolana_ring_member_registry::MemberRegistryTree;
+
+    use crate::encryption::{MergeDisclosureEncryption, MergeVector};
 
     struct RegistryPages {
         first: GetRingMemberRecordsResponse,
@@ -1002,5 +1023,94 @@ mod tests {
         )
         .unwrap());
         assert_eq!(attempts, 2);
+    }
+
+    /// The Go merge statement of the shared vector, opened through the audit check.
+    struct VectorMerge {
+        vector: MergeVector,
+        auditor: X25519Keypair,
+        disclosure: ConfirmedMergeDisclosure,
+    }
+
+    impl VectorMerge {
+        fn load() -> Self {
+            let vector = MergeVector::load();
+            let auditor = X25519Keypair::from_bytes(&vector.array("auditor_sk"));
+            let disclosure = ConfirmedMergeDisclosure {
+                eph_pk: vector.array("eph_pk"),
+                ciphertext: vector.array("envelope_ciphertext"),
+                fields: vector.fields("fields"),
+            };
+            Self {
+                vector,
+                auditor,
+                disclosure,
+            }
+        }
+
+        fn open(
+            &self,
+            auditor: &X25519Keypair,
+            disclosure: &ConfirmedMergeDisclosure,
+        ) -> Result<MergeOpening, AuditError> {
+            let tree_id = self.vector.request_array("outputTreeId");
+            DisclosedMerge {
+                auditor,
+                disclosure,
+                salt: self.vector.array("salt"),
+                width: 8,
+                ring_program_id: self.vector.request_array("ringProgramId"),
+                ring_data_hash: self.vector.request_array("outputRingDataHash"),
+                tree_id: u16::from_be_bytes([tree_id[30], tree_id[31]]),
+                output_commitment: self.vector.request_array("outputUtxoHash"),
+            }
+            .open()
+        }
+
+        fn sealed(&self, opening: &MergeOpening) -> ConfirmedMergeDisclosure {
+            let sealed = MergeDisclosureEncryption::new(
+                opening,
+                self.vector.array("salt"),
+                &self.auditor.pubkey(),
+            )
+            .unwrap();
+            ConfirmedMergeDisclosure {
+                eph_pk: *sealed.eph_pk.as_bytes(),
+                ciphertext: sealed.ciphertext,
+                fields: sealed.fields,
+            }
+        }
+    }
+
+    #[test]
+    fn a_disclosed_opening_reproduces_the_settled_commitment() {
+        let merge = VectorMerge::load();
+        assert_eq!(
+            merge.open(&merge.auditor, &merge.disclosure).unwrap(),
+            merge.vector.opening()
+        );
+    }
+
+    #[test]
+    fn a_disclosure_of_another_amount_or_blinding_is_refused() {
+        let merge = VectorMerge::load();
+        let mut amount = merge.vector.opening();
+        amount.amount += 1;
+        let mut blinding = merge.vector.opening();
+        blinding.output_blinding[31] ^= 1;
+        for tampered in [amount, blinding] {
+            assert!(matches!(
+                merge.open(&merge.auditor, &merge.sealed(&tampered)),
+                Err(AuditError::MergeDisclosureMismatch)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_disclosure_under_another_auditor_key_does_not_open() {
+        let merge = VectorMerge::load();
+        assert!(merge
+            .open(&X25519Keypair::new(), &merge.disclosure)
+            .is_err());
     }
 }

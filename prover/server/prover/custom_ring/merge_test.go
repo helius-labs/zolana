@@ -18,11 +18,11 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
-func TestMergeAnonymousCatalogFollowsTheSppWidths(t *testing.T) {
-	if !slices.Equal(common.MergeAnonymousWidths, mergeshared.SupportedInputCounts) {
-		t.Fatalf("anonymous merge widths %v, SPP merges %v", common.MergeAnonymousWidths, mergeshared.SupportedInputCounts)
-	}
+func TestMergeAnonymousCatalogShipsSppWidths(t *testing.T) {
 	for _, width := range common.MergeAnonymousWidths {
+		if !slices.Contains(mergeshared.SupportedInputCounts, width) {
+			t.Fatalf("anonymous merge width %d, SPP merges %v", width, mergeshared.SupportedInputCounts)
+		}
 		kind := common.CustomRingMergeAnonymousCircuitType(width)
 		if _, err := Ring(kind); err != nil {
 			t.Fatal(err)
@@ -31,8 +31,10 @@ func TestMergeAnonymousCatalogFollowsTheSppWidths(t *testing.T) {
 			t.Fatalf("key catalog mismatch: %s", kind)
 		}
 	}
-	if common.CircuitType("custom-ring-merge-anonymous-9").IsRing() {
-		t.Fatal("a width without an SPP merge key is recognized")
+	for _, kind := range []common.CircuitType{"custom-ring-merge-anonymous-9", "custom-ring-merge-anonymous-52"} {
+		if kind.IsRing() {
+			t.Fatalf("%s is recognized", kind)
+		}
 	}
 }
 

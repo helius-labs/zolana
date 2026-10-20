@@ -5,7 +5,6 @@ import { auditSharedSecret, openMergeDisclosureFields } from "../keypair/audit.j
 import { symmetricApply } from "../keypair/merge/index.js";
 import { X25519PublicKey, type X25519Keypair } from "../keypair/x25519.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
-import { MERGE_SUPPORTED_INPUT_COUNTS } from "../interface/constants.js";
 import { Reader, Writer, encodeBase58 } from "../interface/internal.js";
 import { pack33, rightAlign } from "../interface/merge-utils.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
@@ -18,6 +17,9 @@ const MERGE_DISCLOSURE_INFO = new TextEncoder().encode("CRING/mrg1");
 const MERGE_DISCLOSURE_HEADER_LENGTH = 32 + 32 + 32 + 8 + 32;
 const CHUNK_BYTES = 31;
 const MERGE_ANONYMOUS_DOMAIN = 0x43524d47n;
+
+/** Rust `ANONYMOUS_MERGE_WIDTHS`. */
+const ANONYMOUS_MERGE_WIDTHS: readonly number[] = Object.freeze([8, 24]);
 
 /** Rust `merge_disclosure_field_count`. */
 export function mergeDisclosureFieldCount(width: number): number {
@@ -78,7 +80,7 @@ export function openRingMergeDisclosure(
   disclosure: RingMergeDisclosure,
   salt: Bytes16,
 ): RingMergeOpening {
-  const width = MERGE_SUPPORTED_INPUT_COUNTS.find(
+  const width = ANONYMOUS_MERGE_WIDTHS.find(
     (count) => mergeDisclosureFieldCount(count) === disclosure.fields.length,
   );
   if (width === undefined) throw invalid("disclosure width");

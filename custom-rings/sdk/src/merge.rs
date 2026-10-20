@@ -2,7 +2,7 @@
 
 use custom_ring_interface::{
     merge_disclosure_field_count, CustomRingMergeIxData, MergeAnonymousPublicInput,
-    MergeDisclosure, RingMode, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
+    MergeDisclosure, RingMode, ANONYMOUS_MERGE_WIDTHS, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -345,14 +345,23 @@ impl PreparedCustomRingMerge {
         input: &MergeProofInput,
         payer: Address,
         cosigner: Option<Address>,
-    ) -> Instruction {
+    ) -> Result<Instruction, RingError> {
         let disclosure = MergeDisclosure {
             proof: bytemuck::Zeroable::zeroed(),
             eph_pk: [0; TAGGED_X25519_KEY_LEN],
             ciphertext: [0; AUDIT_CIPHERTEXT_LEN],
-            fields: vec![[0; 32]; merge_disclosure_field_count(self.inner.input_utxos.len())],
+            fields: vec![[0; 32]; merge_disclosure_field_count(self.anonymous_width()?)],
         };
-        self.preview(input, payer, cosigner, Some(disclosure))
+        Ok(self.preview(input, payer, cosigner, Some(disclosure)))
+    }
+
+    fn anonymous_width(&self) -> Result<usize, RingError> {
+        let width = self.inner.input_utxos.len();
+        if ANONYMOUS_MERGE_WIDTHS.contains(&width) {
+            Ok(width)
+        } else {
+            Err(RingError::AnonymousMergeTooWide { width })
+        }
     }
 
     fn preview(
@@ -408,6 +417,9 @@ impl PreparedCustomRingMerge {
             .await?
             .ok_or(RingError::MissingRingConfig)?;
         let anonymous = config.mode == RingMode::Anonymous;
+        if anonymous {
+            self.anonymous_width()?;
+        }
         let input_tree_id = tree_id(client, input.input_tree).await?;
         if self
             .inner

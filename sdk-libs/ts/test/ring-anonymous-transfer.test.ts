@@ -269,19 +269,7 @@ describe("anonymous prover requests against the Rust goldens", () => {
       anonymous: anonymousParts(wire),
     };
     const body = customRingPolicyProofRequest(request);
-    // Rust's golden fills the limit rows past the count, the SDK sends them zero as the prover requires.
-    const counted = (value: Record<string, unknown>) => ({
-      ...value,
-      limits: list(value, "limits").slice(0, limitCount),
-    });
-    expect(counted(body)).toEqual(counted(wire));
-    expect(list(body, "limits").slice(limitCount)).toEqual(
-      Array.from({ length: 8 - limitCount }, () => ({
-        asset: `0x${"00".repeat(32)}`,
-        cap: `0x${"00".repeat(32)}`,
-        cosignAbove: `0x${"00".repeat(32)}`,
-      })),
-    );
+    expect(body).toEqual(wire);
     const shaped = customRingPolicyProofRequest({
       ...request,
       nOut: 2,

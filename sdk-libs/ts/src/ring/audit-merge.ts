@@ -9,14 +9,14 @@ import type { Address, Bytes32, RequestContext, Signature } from "../interface/t
 import type { X25519Keypair } from "../keypair/x25519.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
-import { initializePoseidon } from "../hasher/index.js";
+import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
 import { equal, poseidon } from "../transaction/internal.js";
-import { Utxo } from "../transaction/utxo.js";
+import { ringIdUtxoHash, Utxo, type TreeId } from "../transaction/utxo.js";
 import { bytesKey } from "../wallet/internal.js";
 import { addressBytes } from "../interface/internal.js";
 
@@ -28,7 +28,6 @@ import {
 } from "./merge-disclosure.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { readMergeOutputBody } from "../transaction/serialization/merge.js";
-import { ownerUtxoHash } from "../transaction/utxo.js";
 import type { Bytes16 } from "../interface/types.js";
 import { RingError } from "./error.js";
 import {
@@ -411,24 +410,16 @@ async function openDisclosedMerges(
     const body = readMergeOutputBody(slot.payload);
     if (body === undefined || body.ringDataHash === undefined)
       throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge output body" } });
-    const opening = openRingMergeDisclosure(
-      input.auditor,
+    const opening = openDisclosedMerge({
+      auditor: input.auditor,
       disclosure,
-      body.encrypted.slice(0, 16) as Bytes16,
-    );
-    if (opening.inputCommitments.length !== mergePaddedInputCount(transaction.nullifiers.length))
-      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure width" } });
-    const commitment = ownerUtxoHash({
-      owner: poseidon([memberOfTag(addressBytes(opening.ownerKey)), opening.nullifierPublicKey]),
-      asset: opening.mint,
-      amount: opening.amount,
-      blinding: opening.outputBlinding,
-      treeId: await resolveTreeId(slot.outputContext.tree),
+      salt: body.encrypted.slice(0, 16) as Bytes16,
+      width: mergePaddedInputCount(transaction.nullifiers.length),
+      ringId: hashBytes(addressBytes(input.ringProgramId)) as Bytes32,
       ringDataHash: body.ringDataHash,
-      ringProgramId: input.ringProgramId,
+      treeId: await resolveTreeId(slot.outputContext.tree),
+      outputCommitment: slot.outputContext.hash,
     });
-    if (!equal(commitment, slot.outputContext.hash))
-      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure output" } });
     disclosed.push(
       Object.freeze({
         signature: transaction.txSignature,
@@ -442,6 +433,36 @@ async function openDisclosedMerges(
     );
   }
   return disclosed;
+}
+
+/** Rust `DisclosedMerge::open`, the opening must reproduce the settled leaf. */
+export function openDisclosedMerge(
+  input: Readonly<{
+    auditor: X25519Keypair;
+    disclosure: RingMergeDisclosure;
+    salt: Bytes16;
+    width: number | undefined;
+    ringId: Bytes32;
+    ringDataHash: Bytes32;
+    treeId: TreeId;
+    outputCommitment: Bytes32;
+  }>,
+): RingMergeOpening {
+  const opening = openRingMergeDisclosure(input.auditor, input.disclosure, input.salt);
+  if (opening.inputCommitments.length !== input.width)
+    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure width" } });
+  const commitment = ringIdUtxoHash({
+    owner: poseidon([memberOfTag(addressBytes(opening.ownerKey)), opening.nullifierPublicKey]),
+    asset: opening.mint,
+    amount: opening.amount,
+    blinding: opening.outputBlinding,
+    treeId: input.treeId,
+    ringDataHash: input.ringDataHash,
+    ringId: input.ringId,
+  });
+  if (!equal(commitment, input.outputCommitment))
+    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure output" } });
+  return opening;
 }
 
 async function confirmedMerges(

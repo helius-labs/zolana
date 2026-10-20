@@ -2,11 +2,11 @@
 
 use custom_ring_interface::{
     merge_disclosure_field_count, merge_disclosure_len, pack_disclosure, unpack_disclosure,
-    AUDIT_CIPHERTEXT_LEN, MERGE_DISCLOSURE_HEADER_LEN, MERGE_DISCLOSURE_INFO,
+    ANONYMOUS_MERGE_WIDTHS, AUDIT_CIPHERTEXT_LEN, MERGE_DISCLOSURE_HEADER_LEN,
+    MERGE_DISCLOSURE_INFO,
 };
 use zeroize::Zeroizing;
 use zolana_hasher::primitives::PACK_BE_CHUNK_BYTES;
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS;
 use zolana_keypair::{random_salt, X25519Keypair, X25519Pubkey};
 
 use super::{domain_stream, open_stream, seal_stream, Result, MERGE_DISCLOSURE_DOMAIN};
@@ -94,7 +94,7 @@ impl MergeDisclosureEncryption {
         ephemeral: X25519Keypair,
         disclosure_key: Zeroizing<[u8; 32]>,
     ) -> Result<Self> {
-        if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&opening.input_commitments.len()) {
+        if !ANONYMOUS_MERGE_WIDTHS.contains(&opening.input_commitments.len()) {
             return Err(AuditError::DisclosureShape);
         }
         let mut ciphertext = *disclosure_key;
@@ -129,7 +129,7 @@ pub fn open_merge_disclosure(
     salt: [u8; 16],
     fields: &[[u8; 32]],
 ) -> Result<MergeOpening> {
-    let width = MERGE_SUPPORTED_INPUT_COUNTS
+    let width = ANONYMOUS_MERGE_WIDTHS
         .into_iter()
         .find(|width| merge_disclosure_field_count(*width) == fields.len())
         .ok_or(AuditError::DisclosureShape)?;
@@ -150,13 +150,13 @@ pub fn open_merge_disclosure(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    struct Vector(serde_json::Value);
+    pub(crate) struct Vector(serde_json::Value);
 
     impl Vector {
-        fn load() -> Self {
+        pub(crate) fn load() -> Self {
             Self(
                 serde_json::from_str(include_str!(
                     "../../../../test-vectors/ring-merge-anonymous.json"
@@ -165,15 +165,15 @@ mod tests {
             )
         }
 
-        fn bytes(&self, key: &str) -> Vec<u8> {
+        pub(crate) fn bytes(&self, key: &str) -> Vec<u8> {
             hex::decode(self.0[key].as_str().expect("hex").trim_start_matches("0x")).expect("hex")
         }
 
-        fn array<const N: usize>(&self, key: &str) -> [u8; N] {
+        pub(crate) fn array<const N: usize>(&self, key: &str) -> [u8; N] {
             self.bytes(key).try_into().expect("length")
         }
 
-        fn fields(&self, key: &str) -> Vec<[u8; 32]> {
+        pub(crate) fn fields(&self, key: &str) -> Vec<[u8; 32]> {
             self.0[key]
                 .as_array()
                 .expect("fields")
@@ -187,7 +187,19 @@ mod tests {
                 .collect()
         }
 
-        fn opening(&self) -> MergeOpening {
+        pub(crate) fn request_array(&self, key: &str) -> [u8; 32] {
+            hex::decode(
+                self.0["request"][key]
+                    .as_str()
+                    .expect("hex")
+                    .trim_start_matches("0x"),
+            )
+            .expect("hex")
+            .try_into()
+            .expect("32 bytes")
+        }
+
+        pub(crate) fn opening(&self) -> MergeOpening {
             let request = &self.0["request"];
             MergeOpening {
                 owner_key: hex::decode(

@@ -173,7 +173,9 @@ fn an_anonymous_preview_carries_the_disclosure_of_its_width() {
     let payer = Address::new_from_array([3; 32]);
     for (instruction, fields) in [
         (
-            prepared.anonymous_preview_instruction(&input, payer, None),
+            prepared
+                .anonymous_preview_instruction(&input, payer, None)
+                .unwrap(),
             Some(merge_disclosure_field_count(8)),
         ),
         (prepared.preview_instruction(&input, payer, None), None),
@@ -184,6 +186,28 @@ fn an_anonymous_preview_carries_the_disclosure_of_its_width() {
             fields
         );
     }
+}
+
+#[test]
+fn an_anonymous_merge_past_the_widest_fitting_width_is_refused() {
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let inputs = (1..=25)
+        .map(|amount| note(&owner, amount, 0, Some(ring().program_id())))
+        .collect();
+    let prepared = CustomRingMerge::new(ring(), inputs, None)
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let tree = PoolTree::from_id(0);
+    let input = MergeProofInput {
+        nullifier_key: owner.nullifier_key.clone(),
+        input_tree: tree.address,
+        output_tree: tree.address,
+    };
+    assert!(matches!(
+        prepared.anonymous_preview_instruction(&input, Address::new_from_array([3; 32]), None),
+        Err(RingError::AnonymousMergeTooWide { width: 52 })
+    ));
 }
 
 /// The Rust body spells every wire the Go decoder reads for the pinned statement.

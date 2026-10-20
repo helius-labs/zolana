@@ -1561,23 +1561,21 @@ fn policy_shape_transaction_size_matrix() {
 
 #[test]
 fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
-    for (n, m, rail) in [
-        (1, 2, 1),
-        (1, 4, 1),
-        (2, 2, 1),
-        (2, 4, 1),
-        (3, 2, 1),
-        (3, 4, 1),
-        (4, 2, 1),
-        (4, 4, 1),
-        (5, 2, 1),
-        (5, 4, 1),
-        (6, 2, 1),
-        (6, 4, 1),
-        (8, 2, 1),
-        (2, 2, 2),
-        (4, 4, 2),
-    ] {
+    let anonymous = ANONYMOUS_RING_SHAPES
+        .iter()
+        .map(|shape| (shape.n_inputs(), shape.n_outputs(), 1));
+    let delegate = zolana_interface::shape::SPP_SUPPORTED_SHAPES
+        .iter()
+        .filter(|shape| {
+            custom_ring_interface::policy_shape_supported(
+                shape.n_inputs(),
+                shape.n_outputs(),
+                false,
+                true,
+            )
+        })
+        .map(|shape| (shape.n_inputs(), shape.n_outputs(), 2));
+    for (n, m, rail) in anonymous.chain(delegate) {
         let minimum = measured_policy_shape(n, m, false, rail);
         let full = measured_policy_shape(n, m, true, rail);
         println!(
@@ -1585,6 +1583,79 @@ fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
             minimum.bytes, minimum.addresses, full.bytes, full.addresses
         );
         assert!(minimum.fits() && full.fits(), "{n}x{m} rail {rail}");
+    }
+}
+
+/// An anonymous merge at `width` slots, every real input publishing its nullifier.
+fn measured_anonymous_merge(width: usize, curated: bool) -> zolana_client::TransactionSize {
+    use custom_ring_interface::{
+        merge_disclosure_field_count, CustomRingMergeIxData, MergeDisclosure, AUDIT_CIPHERTEXT_LEN,
+        TAGGED_X25519_KEY_LEN,
+    };
+    use custom_ring_sdk::{CustomRingMergeInstruction, MAX_MERGE_INPUTS};
+    use zolana_interface::instruction::{
+        instruction_data::merge_transact::{MergeOutputEncryption, MergeProof},
+        MergeTransactIxData,
+    };
+    let data = CustomRingMergeIxData {
+        registry_root_index: 0,
+        output_ring_data_hash: [0; 32],
+        disclosure: Some(MergeDisclosure {
+            proof: sample_proof(),
+            eph_pk: [0; TAGGED_X25519_KEY_LEN],
+            ciphertext: [0; AUDIT_CIPHERTEXT_LEN],
+            fields: vec![[0; 32]; merge_disclosure_field_count(width)],
+        }),
+        merge: MergeTransactIxData {
+            expiry_unix_ts: u64::MAX,
+            proof: MergeProof::zeroed(),
+            output_utxo_hash: [0; 32],
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: [0; 16],
+                ciphertext: [[0; 32]; 3],
+            },
+            private_tx_hash: [0; 32],
+            nullifiers: (0..width.min(MAX_MERGE_INPUTS))
+                .map(|index| [index as u8 + 1; 32])
+                .collect(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+            cache_slot: None,
+        },
+    };
+    let instruction = CustomRingMergeInstruction {
+        ring: ring(),
+        input_tree: input_tree(),
+        output_tree: output_tree(),
+        payer: payer(),
+        cosigner: curated.then(authority),
+        data,
+    }
+    .instruction();
+    transaction_size(
+        &payer(),
+        &[instruction],
+        ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge))
+            .with_priority_fee(u64::MAX),
+    )
+    .unwrap()
+}
+
+#[test]
+fn anonymous_merge_widths_fit_with_their_disclosure() {
+    use zolana_interface::instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS;
+    for width in MERGE_SUPPORTED_INPUT_COUNTS {
+        let minimum = measured_anonymous_merge(width, false);
+        let full = measured_anonymous_merge(width, true);
+        println!(
+            "ANONYMOUS_MERGE_SIZE {width} {} {} {} {}",
+            minimum.bytes, minimum.addresses, full.bytes, full.addresses
+        );
+        assert_eq!(
+            minimum.fits() && full.fits(),
+            custom_ring_interface::ANONYMOUS_MERGE_WIDTHS.contains(&width),
+            "{width}"
+        );
     }
 }
 
@@ -1597,9 +1668,6 @@ fn anonymous_transaction_size_matrix() {
         let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 1);
         let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 1);
         // The catalog lists shapes with keys, the fixed body leaves room for more.
-        if ANONYMOUS_RING_SHAPES.contains(&shape) {
-            assert!(minimum.fits(), "{shape:?}");
-        }
         println!(
             "ANONYMOUS_SIZE {} {} {} {} {} {}",
             shape.n_inputs(),
@@ -1609,5 +1677,8 @@ fn anonymous_transaction_size_matrix() {
             full.bytes,
             full.addresses
         );
+        if ANONYMOUS_RING_SHAPES.contains(&shape) {
+            assert!(minimum.fits() && full.fits(), "{shape:?}");
+        }
     }
 }
