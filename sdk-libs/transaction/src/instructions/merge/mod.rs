@@ -52,10 +52,10 @@ impl MergeTransaction {
         })?;
 
         Ok(Self {
+            output_tree_id: WalletUtxo::default_output_tree_id(&inputs),
             inputs,
             validated_inputs,
             expiry_unix_ts: u64::MAX,
-            output_tree_id: 0,
             ring_program_id: None,
             output_ring_data_hash: None,
         })
@@ -66,6 +66,8 @@ impl MergeTransaction {
         self
     }
 
+    /// Append the merged output to `output_tree_id`. Without this, it goes to
+    /// the first input's [`WalletUtxo::latest_tree_id`], else tree 0.
     #[must_use]
     pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
         self.output_tree_id = output_tree_id;

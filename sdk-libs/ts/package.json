@@ -86,7 +86,6 @@
   },
   "devDependencies": {
     "@solana/kit": "^8.3.0",
-    "@trustwallet/wallet-core": "^4.7.3",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.0",
     "oxfmt": "^0.67.0",

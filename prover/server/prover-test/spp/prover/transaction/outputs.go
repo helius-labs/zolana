@@ -15,12 +15,10 @@ type outputWitnesses struct {
 	privateTxHashes     []*big.Int
 	outputOwnerPkHashes []*big.Int
 	outputNullifierPks  []*big.Int
-	responses           []ProofUtxoResponse
 }
 
 type parsedUtxo struct {
 	utxo             protocol.Utxo
-	normalized       ProofUtxoRequest
 	ownerKeyHash     *big.Int
 	ownerNullifierPk *big.Int
 }
@@ -32,8 +30,7 @@ type parsedUtxo struct {
 // from the first nullifier, the transaction's output-blinding seed, and the
 // slot's final physical index, then asserts equality. A caller-supplied
 // blinding therefore could never prove, so any value in the request is
-// replaced and the response reports the derived one the recipient needs in
-// order to spend.
+// replaced.
 //
 // Every slot is hashed under outputTreeID, the raw id of the tree the outputs
 // are appended to, so an output hash is only spendable from that tree.
@@ -51,7 +48,6 @@ func buildOutputWitnesses(
 		privateTxHashes:     make([]*big.Int, shape.NOutputs),
 		outputOwnerPkHashes: make([]*big.Int, shape.NOutputs),
 		outputNullifierPks:  make([]*big.Int, shape.NOutputs),
-		responses:           make([]ProofUtxoResponse, 0, len(requests)),
 	}
 	for i, request := range requests {
 		parsed, err := parseProofUtxo(request, nil)
@@ -67,7 +63,6 @@ func buildOutputWitnesses(
 			return outputWitnesses{}, fmt.Errorf("output %d blinding: %w", i, err)
 		}
 		parsed.utxo.Blinding = blinding
-		parsed.normalized.Blinding = parse.FieldHex(blinding)
 		outputHash, err := protocol.UtxoHash(parsed.utxo, outputTreeID)
 		if err != nil {
 			return outputWitnesses{}, err
@@ -77,10 +72,6 @@ func buildOutputWitnesses(
 		outputs.privateTxHashes[i] = outputHash
 		outputs.outputOwnerPkHashes[i] = parsed.ownerKeyHash
 		outputs.outputNullifierPks[i] = parsed.ownerNullifierPk
-		outputs.responses = append(outputs.responses, ProofUtxoResponse{
-			Utxo: parsed.normalized,
-			Hash: parse.FieldHex(outputHash),
-		})
 	}
 
 	for i := len(requests); i < shape.NOutputs; i++ {
@@ -164,20 +155,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		RingDataHash:  ringDataHash,
 		RingProgramID: ringProgramID,
 	}
-	normalized := ProofUtxoRequest{
-		Domain:            proofFieldInput(domain),
-		Owner:             proofFieldInput(own.owner),
-		OwnerSolanaPubkey: parse.HexString(input.OwnerSolanaPubkey),
-		Asset:             proofFieldInput(asset),
-		Amount:            proofFieldInput(amount),
-		Blinding:          proofFieldInput(blinding),
-		DataHash:          proofFieldInput(dataHash),
-		RingDataHash:      proofFieldInput(ringDataHash),
-		RingProgramID:     proofFieldInput(ringProgramID),
-	}
 	return parsedUtxo{
 		utxo:             utxo,
-		normalized:       normalized,
 		ownerKeyHash:     own.keyHash,
 		ownerNullifierPk: own.nullifierPk,
 	}, nil

@@ -156,7 +156,18 @@ impl Transact {
                 .serialize()
                 .expect("shielded-pool instruction serialization is infallible"),
         );
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: self.accounts(&[]),
+            data: instruction_data,
+        }
+    }
 
+    pub fn cpi_accounts(&self, signer_pdas: &[Pubkey]) -> Vec<AccountMeta> {
+        self.accounts(signer_pdas)
+    }
+
+    fn accounts(&self, signer_pdas: &[Pubkey]) -> Vec<AccountMeta> {
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.output_tree, false),
@@ -178,16 +189,18 @@ impl Transact {
                 .copied()
                 .map(|signer| AccountMeta::new_readonly(signer, true)),
         );
+        accounts.extend(
+            signer_pdas
+                .iter()
+                .copied()
+                .map(|pda| AccountMeta::new_readonly(pda, false)),
+        );
         append_interface_transfer_accounts(
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
         );
-        Instruction {
-            program_id: PROGRAM_ID_PUBKEY,
-            accounts,
-            data: instruction_data,
-        }
+        accounts
     }
 
     pub fn instruction_with_cache_read(&self, cache: Pubkey) -> Instruction {

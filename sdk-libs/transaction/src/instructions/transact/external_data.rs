@@ -1,12 +1,12 @@
 use solana_address::Address;
 use zolana_event::{is_confidential_encrypted_output, MessageData};
+use zolana_instruction::{SettlementAccounts, TransactExternalData};
 use zolana_interface::instruction::{
     instruction_data::transact::{InterfaceTransfer, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
-use zolana_program::{SettlementAccounts, TransactExternalData};
 
 use crate::{error::TransactionError, SppProofOutputUtxo, SOL_MINT};
 
@@ -38,16 +38,47 @@ pub fn validate_ring_output_owner(
 /// canonical external-data hash. SPL legs retain their mint so proof public
 /// transfers can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Serialize-only. Settlement legs are built in Rust and written into the
+// finalized transaction; they are not decoded from JSON.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(
+        tag = "kind",
+        rename_all = "camelCase",
+        rename_all_fields = "camelCase"
+    )
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub enum SettlementTransfer {
     Sol {
         is_deposit: bool,
         amount: u64,
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_sol_account: Address,
     },
     Spl {
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         mint: Address,
         is_deposit: bool,
         amount: u64,
+        #[cfg_attr(
+            feature = "serde",
+            serde(with = "zolana_keypair::serde_helpers::address")
+        )]
+        #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_spl_token: Address,
     },
 }

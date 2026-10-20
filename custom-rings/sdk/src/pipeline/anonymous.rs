@@ -17,9 +17,8 @@ use zolana_keypair::{
     ShieldedAddress, SigningKey, ViewingKey, X25519Pubkey,
 };
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
-use zolana_transaction::instructions::transact::{
-    AnonymousViewTags, ConfidentialTransaction, SppProofInputs, TransactSession,
-};
+use zolana_ring_transaction::{AnonymousViewTags, TransactSession};
+use zolana_transaction::instructions::transact::{ConfidentialTransaction, SppProofInputs};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
 use crate::{

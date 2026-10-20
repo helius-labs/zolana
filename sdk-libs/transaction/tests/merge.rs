@@ -395,7 +395,7 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
 }
 
 #[test]
-fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
+fn merge_rejects_foreign_owner_and_nullifier_key() {
     let owner = keypair(7);
     let stranger = keypair(9);
     let independent =
@@ -920,4 +920,37 @@ fn merge_decrypt_rejects_non_canonical_ciphertext_aliases() {
             ));
         }
     }
+}
+
+/// A merge appends its output to the first input's `latest_tree_id` unless it
+/// is told another tree, and to tree 0 without one.
+#[test]
+fn merge_output_tree_defaults_to_the_first_inputs_latest_tree() {
+    let owner = keypair(7);
+    let stamped = |latest_tree_id: Option<u16>| -> Vec<WalletUtxo> {
+        inputs(&owner, 3)
+            .into_iter()
+            .map(|input| WalletUtxo {
+                latest_tree_id,
+                ..input
+            })
+            .collect()
+    };
+    let output_tree = |merge: MergeTransaction| merge.encrypt(&owner).unwrap().output_tree_id;
+    assert_eq!(
+        output_tree(MergeTransaction::new(stamped(Some(9))).unwrap()),
+        9
+    );
+    assert_eq!(
+        output_tree(MergeTransaction::new(stamped(None)).unwrap()),
+        0
+    );
+    assert_eq!(
+        output_tree(
+            MergeTransaction::new(stamped(Some(9)))
+                .unwrap()
+                .with_output_tree_id(5)
+        ),
+        5
+    );
 }

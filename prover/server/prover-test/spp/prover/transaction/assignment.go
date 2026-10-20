@@ -16,17 +16,6 @@ import (
 type proofBuildOptions struct {
 }
 
-// assignmentTranscript holds values computed while building the witness that
-// the bundle/payload need beyond the circuit: the input/output hash chains and
-// nullifiers (some surface as real public outputs, see BuildProofBundle), plus
-// the ownership metadata. These are production values, not debug-only.
-type assignmentTranscript struct {
-	inputHashes        []*big.Int
-	outputHashes       []*big.Int
-	nullifiers         []*big.Int
-	solanaOwnerPubkeys []string
-}
-
 type stateWitnesses struct {
 	root    *big.Int
 	entries map[uint64]*big.Int
@@ -45,16 +34,9 @@ type proofTrees struct {
 	slots         []protocol.TreeSlot
 }
 
-// proofAssignment bundles everything buildProofAssignment produces: the circuit
-// witness, the public inputs and their hash, the output-UTXO responses, and the
-// transcript. Returning a struct keeps callers from positionally
-// unpacking six values.
 type proofAssignment struct {
-	witness         frontend.Circuit
-	publicInputs    protocol.PublicInputs
-	publicInputHash *big.Int
-	outputUtxos     []ProofUtxoResponse
-	transcript      assignmentTranscript
+	witness      frontend.Circuit
+	publicInputs protocol.PublicInputs
 }
 
 func buildProofAssignment(
@@ -139,18 +121,9 @@ func buildProofAssignment(
 	}
 
 	witness := customRingWitness(inputs, outputs, publicInputs, publicInputHash, blindingSeed)
-	transcript := assignmentTranscript{
-		inputHashes:        inputs.hashes,
-		outputHashes:       outputs.hashes,
-		nullifiers:         inputs.nullifiers,
-		solanaOwnerPubkeys: inputs.solanaOwnerPubkeys,
-	}
 	return proofAssignment{
-		witness:         witness,
-		publicInputs:    publicInputs,
-		publicInputHash: publicInputHash,
-		outputUtxos:     outputs.responses,
-		transcript:      transcript,
+		witness:      witness,
+		publicInputs: publicInputs,
 	}, nil
 }
 

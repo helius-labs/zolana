@@ -157,6 +157,15 @@ pub struct Wallet {
 }
 
 impl Wallet {
+    /// Record on every held UTXO the newest output tree the indexer named
+    /// during a sync, so a transaction spending one appends its outputs there
+    /// by default (see [`WalletUtxo::latest_tree_id`]).
+    pub fn set_latest_tree_id(&mut self, latest_tree_id: Option<u16>) {
+        for utxo in &mut self.utxos {
+            utxo.latest_tree_id = latest_tree_id;
+        }
+    }
+
     pub fn new(
         identity: ShieldedAddress,
         registry: AssetRegistry,

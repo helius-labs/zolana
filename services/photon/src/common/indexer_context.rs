@@ -60,7 +60,7 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
 /// `None` when no unpaused tree is known, which covers both "every tree is
 /// paused" and "this indexer has not synced tree metadata yet"; a `paused` of
 /// NULL is an unsynced row and is not counted as unpaused.
-// TODO: clients put this id into `WalletUtxo::latest_tree_id` as the default
+// TODO(different pr): clients put this id into `WalletUtxo::latest_tree_id` as the default
 // output tree, so it has to stay current. Index `create_tree` and `pause_tree`
 // as they land instead of only scanning tree accounts at startup, and skip a
 // tree whose UTXO tree is full, which needs the UTXO tree's `next_index`.

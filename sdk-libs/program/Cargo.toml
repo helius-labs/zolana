@@ -1,7 +1,7 @@
 [package]
 name = "zolana-program"
 version = "0.1.0"
-description = "SPP SDK for Solana programs and clients: shielded-pool instruction builders and the blinding seed derivations a program recomputes on-chain, buildable for the SBF target."
+description = "SPP SDK for Solana programs and clients: the zolana-instruction builders and derivations, and compressed accounts for pinocchio programs, buildable for the SBF target."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -13,30 +13,26 @@ name = "zolana_program"
 # Builders for protocol operations: protocol-authority and fee-authority
 # administration, tree creation, ring activation, and the forester's nullifier
 # tree maintenance. Off by default so programs and wallets never compile them.
-protocol = []
+protocol = ["zolana-instruction/protocol"]
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
-cpi = ["dep:pinocchio"]
+cpi = ["zolana-instruction/cpi"]
 # Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
 # the tree and nullifier PDA checks of a read, and their transact CPI.
-compression = ["cpi", "dep:borsh"]
+compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:wincode", "dep:zolana-hasher", "dep:zolana-tree"]
 
 [dependencies]
 borsh = { workspace = true, optional = true }
 pinocchio = { workspace = true, features = ["cpi"], optional = true }
-solana-address = { workspace = true }
-solana-instruction = { workspace = true }
-solana-pubkey = { workspace = true }
-thiserror = { workspace = true }
-wincode = { workspace = true }
-zolana-hasher = { workspace = true }
+wincode = { workspace = true, optional = true }
+zolana-hasher = { workspace = true, optional = true }
+zolana-instruction = { workspace = true }
 zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true }
+zolana-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
-bytemuck = { workspace = true }
-serde_json = { workspace = true }
+solana-address = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 zolana-client = { workspace = true }
 zolana-keypair = { workspace = true }

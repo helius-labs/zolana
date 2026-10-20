@@ -298,9 +298,9 @@ describe("private transaction construction", () => {
     );
     if (material === undefined) throw new Error("authorization was not minted");
     expect(material.proofInputs.payer).toBe(PAYER);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([
-      keypair.shieldedAddress().solanaAddress(),
-    ]);
+    expect(
+      ownerSignerAddresses(material.proofInputs.inputUtxos, material.proofInputs.outputs),
+    ).toEqual([keypair.shieldedAddress().solanaAddress()]);
   });
 
   it("does not spend ring-bound UTXOs through a default-ring action", async () => {
@@ -792,7 +792,9 @@ describe("unsigned public transaction builders", () => {
       const material = authorizedPrivateTransactionMaterial(request.authorized);
       if (material === undefined) throw new Error("authorization was not minted");
       expect(material.proofInputs.payer).toBe(RECIPIENT);
-      expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
+      expect(
+        ownerSignerAddresses(material.proofInputs.inputUtxos, material.proofInputs.outputs),
+      ).toEqual([owner]);
     }
   });
 
@@ -1423,7 +1425,9 @@ describe("multi-recipient transfer", () => {
     const material = authorizedPrivateTransactionMaterial(request.authorized);
     if (material === undefined) throw new Error("authorization was not minted");
     expect(material.proofInputs.payer).toBe(RECIPIENT);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
+    expect(
+      ownerSignerAddresses(material.proofInputs.inputUtxos, material.proofInputs.outputs),
+    ).toEqual([owner]);
   });
 
   it("keeps a single payment a transfer approval", async () => {

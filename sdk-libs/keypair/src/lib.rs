@@ -47,6 +47,8 @@ pub mod nullifier_key;
 pub mod pda;
 pub mod pubkey;
 pub mod ring_address;
+#[cfg(feature = "serde")]
+pub mod serde_helpers;
 pub mod shielded;
 pub mod signing_key;
 pub mod traits;

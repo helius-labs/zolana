@@ -16,7 +16,7 @@ import {
   type CachedInputFields,
 } from "../../interface/cache.js";
 import { CACHE_CAPACITY } from "../../interface/state.js";
-import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
+import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_WIDTHS,
   selectSppShape,
@@ -104,15 +104,27 @@ let lastResolvedHash:
   | undefined;
 
 /**
- * Unique Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`.
- * The fee payer gets no special treatment: it is listed only when it owns an input.
+ * Unique Ed25519 and PDA owners of real inputs, address inputs included, then
+ * of outputs that carry data, in first-occurrence order; mirrors Rust
+ * `owner_signer_pubkeys`. The fee payer gets no special treatment: it is
+ * listed only when it is one of those owners.
  */
-export function ownerSignerAddresses(inputs: readonly ProofInputUtxo[]): readonly Address[] {
+export function ownerSignerAddresses(
+  inputs: readonly ProofInputUtxo[],
+  outputs: readonly ProofOutputUtxo[],
+): readonly Address[] {
+  const owners = [
+    ...inputs.filter((input) => !input.isDummy()).map((input) => input.utxo.owner),
+    ...outputs.flatMap((output) =>
+      output.ownerAddress !== undefined && output.dataHash?.some((byte) => byte !== 0) === true
+        ? [output.ownerAddress.signingPublicKey]
+        : [],
+    ),
+  ];
   const seen = new Set<string>();
   const signers: Address[] = [];
-  for (const input of inputs) {
-    if (input.isDummy()) continue;
-    const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
+  for (const owner of owners) {
+    const address = getAddressDecoder().decode(owner.confidentialViewTag());
     if (seen.has(address)) continue;
     seen.add(address);
     signers.push(address);
@@ -242,6 +254,12 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   const shape = proofInputs.checkShape();
+  const address = proofInputs.inputUtxos.findIndex((input) => input.isAddress());
+  // The ring authority statement has no address slot; the owner-signed rails
+  // prove addresses.
+  if (circuit.kind === "ringAuthority" && address >= 0) {
+    throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
+  }
   const plan = circuitPlan(circuit, shape);
   if (
     plan.authority &&
@@ -296,12 +314,13 @@ function prepareTransferUnchecked(
     transfers.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its tagged identity in
-  // the vector. Owner-signed rails list the unique Ed25519 input owners, the
-  // payer only when it owns an input, matching Rust's `signer_pk_hashes`. The
-  // authority rail's width-1 vector is the payer.
+  // the vector. Owner-signed rails list the unique Ed25519 and PDA owners of
+  // inputs and of outputs that carry data, the payer only when it is one of them,
+  // matching Rust's `signer_pk_hashes`. The authority rail's width-1 vector
+  // is the payer.
   const signerHashes = plan.authority
     ? [signerIdentity(proofInputs.payer)]
-    : ownerSignerAddresses(proofInputs.inputUtxos).map(signerIdentity);
+    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs).map(signerIdentity);
   if (signerHashes.length > plan.signerSlots) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -421,7 +440,7 @@ function prepareTransferUnchecked(
       lookups: proofInputs.inputUtxos.map((input, index) =>
         Object.freeze({
           treeSlot: treeIndexes[index] ?? 0,
-          commitment: input.isDummy() || input.cacheSlot !== undefined ? null : input.hash(),
+          commitment: input.requiresInclusion() ? input.hash() : null,
           nullifier: input.isCompact() ? input.nullifier() : null,
         }),
       ),
@@ -694,7 +713,7 @@ export function prepareInput(
     treeSlot: asField(BigInt(options.treeSlot)),
     nullifier: asField(bytesField(options.nullifier ?? input.publishedNullifier(), "nullifier")),
     ownerPublicKeyHash: asField(dummy ? 0n : options.owner),
-    ...(dummy ? { nullifierSecret: asField(0n) } : {}),
+    ...(dummy || input.isAddress() ? { nullifierSecret: asField(0n) } : {}),
   });
 }
 
@@ -813,7 +832,7 @@ export function assembleSlots(
     let treeIndex: number;
     let converted: TransferInput;
     let owner: bigint;
-    if (input.cacheSlot !== undefined) {
+    if (!input.requiresInclusion()) {
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
         throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
@@ -1232,6 +1251,7 @@ function spendInput(
     treeSlot: asField(BigInt(treeSlot)),
     nullifier: asField(bytesField(input.nullifier(), "nullifier")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
+    ...(input.isAddress() ? { nullifierSecret: asField(0n) } : {}),
   });
 }
 
@@ -1288,9 +1308,13 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
         bytesField(input.nullifierPublicKey, "nullifier public key"),
       ]);
   return Object.freeze({
-    domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
+    domain: asField(
+      BigInt(dummy ? DUMMY_DOMAIN : input.isAddress() ? ADDRESS_DOMAIN : UTXO_DOMAIN),
+    ),
     owner: asField(owner),
-    asset: asField(dummy ? 0n : hashBytesBigInt(addressBytes(input.utxo.asset))),
+    asset: asField(
+      dummy || input.isAddress() ? 0n : hashBytesBigInt(addressBytes(input.utxo.asset)),
+    ),
     amount: asField(dummy ? 0n : input.utxo.amount),
     blinding: asField(bytesToBigInt(input.utxo.blinding)),
     dataHash: asField(dummy ? 0n : input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),

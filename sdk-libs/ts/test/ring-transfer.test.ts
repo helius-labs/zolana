@@ -977,7 +977,9 @@ describe("ring openings", () => {
     expect(vector[0]).toBe(signerIdentity(owner.address.solanaAddress()));
     expect(vector).not.toContain(signerIdentity(payer));
     expect(vector.slice(1).every((entry) => entry === 0n)).toBe(true);
-    expect(ownerSignerAddresses(proofInputs.inputUtxos)).toEqual([owner.address.solanaAddress()]);
+    expect(ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs)).toEqual([
+      owner.address.solanaAddress(),
+    ]);
   });
 
   it("assembles an owner who also pays once, in the first signer slot", async () => {
@@ -1041,7 +1043,20 @@ describe("ring openings", () => {
       });
     const ownerAddress = owner.address.solanaAddress();
     // The fee payer gets no special treatment: whoever pays, the owner is listed once.
-    expect(ownerSignerAddresses([input(1), input(2)])).toEqual([ownerAddress]);
+    expect(ownerSignerAddresses([input(1), input(2)], [])).toEqual([ownerAddress]);
+    // The circuit requires the owner of an output with data to sign, so that
+    // owner follows the input owners. A zero data hash or no data adds nobody.
+    const recipient = actor(4);
+    const output = (dataByte: number | undefined) =>
+      createProofOutput({
+        ownerAddress: recipient.address,
+        asset: SOL_MINT,
+        amount: 1n,
+        ...(dataByte === undefined ? {} : { dataHash: scalar(dataByte) }),
+      });
+    expect(
+      ownerSignerAddresses([input(1)], [output(undefined), output(0), output(9), output(9)]),
+    ).toEqual([ownerAddress, recipient.address.solanaAddress()]);
   });
 
   it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {

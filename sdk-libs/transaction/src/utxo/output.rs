@@ -12,13 +12,8 @@ use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blind
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    instructions::transact::AnonymousOutputKeys,
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{
-            anonymous_slot_index, ring_anonymous_message, RingAnonymousOutputPlaintext,
-            RingAnonymousSlot,
-        },
         UtxoSerialization,
     },
     EncryptedScheme, Mint,
@@ -35,19 +30,89 @@ fn canonical_data_order(record: &DataRecord) -> u8 {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
+// Serialize-only. These values are produced while finalizing a transaction and
+// never decoded; a deserializer would turn a misspelled field into a dummy.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "camelCase")
+)]
+#[cfg_attr(
+    feature = "tsify",
+    derive(tsify::Tsify),
+    tsify(large_number_types_as_bigints)
+)]
 pub struct SppProofOutputUtxo {
     pub asset: Mint,
     pub amount: u64,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "zolana_keypair::serde_helpers::bytes")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::option_address"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "string"))]
     pub ring_program_id: Option<Address>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub ring_data_hash: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub data_hash: Option<[u8; 32]>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub owner_address: Option<ShieldedAddress>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
     pub owner_tag: Option<[u8; 32]>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub data: Data,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub cache_slot: Option<u8>,
     /// Compact padding: a dummy that publishes hash 0, so the instruction leaves
     /// it out and SPP appends nothing for it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "core::ops::Not::not")
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub compact: bool,
 }
 
@@ -162,36 +227,6 @@ impl SppProofOutputUtxo {
             message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).map_err(decode)?;
         }
         Ok(message)
-    }
-
-    /// The owner's note inside an anonymous ring, the recipient viewing key stays off the wire.
-    pub fn seal_ring_anonymous(
-        &self,
-        slot_index: u32,
-        tx: &ViewingKey,
-        salt: [u8; SALT_LEN],
-        keys: AnonymousOutputKeys,
-    ) -> Result<MessageData, TransactionError> {
-        let slot_index = slot_index as usize;
-        let address = self
-            .owner_address
-            .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
-        if !self.data.is_empty() {
-            return Err(TransactionError::AnonymousOutputData { slot_index });
-        }
-        let slot = RingAnonymousSlot {
-            tx_viewing_pk: tx.pubkey(),
-            recipient_pk: address.viewing_pubkey,
-            salt,
-            slot: anonymous_slot_index(slot_index)?,
-        };
-        let opening = RingAnonymousOutputPlaintext {
-            asset_address: *self.asset.asset.as_array(),
-            amount: self.amount,
-            blinding: self.blinding,
-            pair_u: keys.pair_pk.u(),
-        };
-        ring_anonymous_message(&slot.seal(tx, &opening)?, keys.tag)
     }
 
     fn confidential_parts(

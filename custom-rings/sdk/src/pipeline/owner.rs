@@ -9,8 +9,9 @@ use zolana_interface::{
 use zolana_keypair::{NullifierKey, ViewingKey};
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_ring_policy::{Member, OutflowLimit};
+use zolana_ring_transaction::AnonymousViewTags;
 use zolana_transaction::{
-    instructions::transact::{AnonymousViewTags, ConfidentialTransaction, SppProofOutputUtxo},
+    instructions::transact::{ConfidentialTransaction, OutputEncryption, SppProofOutputUtxo},
     keys::TransactionKeyRequest,
     serialization::confidential::ConfidentialOutputPlaintext,
     utxo::SppProofInputUtxo,
@@ -152,11 +153,12 @@ impl Owner<'_> {
         let first_nullifier = *transaction.first_nullifier();
         let tx_viewing_key = transaction_key(self.sender, first_nullifier)?;
         let mut proof_inputs = match view_tags {
-            Some(view_tags) => transaction.encrypt_anonymous_with_viewing_key(
-                &sender,
-                &tx_viewing_key,
-                view_tags,
-            )?,
+            Some(view_tags) => OutputEncryption {
+                sender: &sender,
+                tx_viewing_key: &tx_viewing_key,
+                encoder: view_tags,
+            }
+            .encrypt(transaction)?,
             None => transaction.encrypt_with_viewing_key(&sender, &tx_viewing_key)?,
         };
         check_membership(

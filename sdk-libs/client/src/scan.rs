@@ -14,7 +14,9 @@
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
 //! registered for a mint, to add it. An indexer that lags misses the latest
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
-//! slot first.
+//! slot first. Every spendable UTXO carries the output tree the indexer
+//! named on the last page read, as its
+//! [`latest_tree_id`](zolana_transaction::WalletUtxo::latest_tree_id).
 
 use std::collections::HashSet;
 
@@ -134,10 +136,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             .map(|state| AnonymousStreams::new(self.keys, state, self.indexer_config))
             .transpose()?;
 
+        // The output tree the last page read named; every page reports it.
+        let mut output_tree_id = None;
         let mut seen = HashSet::new();
         let mut batch = self.unseen(
             &mut seen,
-            tagged_transactions(indexer, &tags, self.indexer_config)?,
+            tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
         )?;
         if let Some(streams) = &mut anonymous {
             batch.extend(self.unseen(&mut seen, streams.read(indexer)?)?);
@@ -180,7 +184,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 .collect();
             batch = self.unseen(
                 &mut seen,
-                spending_transactions(indexer, &nullifiers, self.indexer_config)?,
+                spending_transactions(
+                    indexer,
+                    &nullifiers,
+                    self.indexer_config,
+                    &mut output_tree_id,
+                )?,
             )?;
             if let Some(streams) = &mut anonymous {
                 batch.extend(self.unseen(&mut seen, streams.read(indexer)?)?);
@@ -213,7 +222,9 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     tags,
                     transactions,
                     owned,
-                    spendable,
+                    spendable: spendable
+                        .with_latest_tree_id(output_tree_id)
+                        .with_transaction_keys(self.keys)?,
                     anonymous: anonymous.map(AnonymousStreams::finish),
                 });
             }
@@ -311,11 +322,13 @@ struct Fetched {
 
 /// The transactions tagged with any of `tags`. Deposits come from the
 /// encrypted-output stream, one transaction per output: a deposit transaction
-/// can shield several outputs.
+/// can shield several outputs. Each page read sets `output_tree_id` to the
+/// output tree it names.
 pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
+    output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     let mut cursor = None;
@@ -326,6 +339,7 @@ pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
             Some(PAGE_LIMIT),
             config,
         )?;
+        *output_tree_id = page.output_tree_id;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
         match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
             Some(next) => cursor = Some(next),
@@ -340,6 +354,7 @@ pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
             Some(PAGE_LIMIT),
             config,
         )?;
+        *output_tree_id = page.output_tree_id;
         transactions.extend(
             page.matches
                 .into_iter()
@@ -353,11 +368,13 @@ pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
     Ok(transactions)
 }
 
-/// The transactions that spent any of `nullifiers`.
+/// The transactions that spent any of `nullifiers`. Each page read sets
+/// `output_tree_id` to the output tree it names.
 fn spending_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
+    output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
@@ -369,6 +386,7 @@ fn spending_transactions<I: Rpc + ?Sized>(
                 Some(PAGE_LIMIT),
                 config,
             )?;
+            *output_tree_id = page.output_tree_id;
             transactions.extend(page.transactions);
             match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
                 Some(next) => cursor = Some(next),

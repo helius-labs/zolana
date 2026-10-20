@@ -5,13 +5,10 @@
 //! build the shielded-pool instruction and recompute the values the proof
 //! derives instead of trusting instruction data.
 //!
-//! What belongs here: the shielded-pool instruction builders in
-//! [`instruction`], and derivations shared between an SPP proof and the
-//! program that verifies its effects, such as the blinding seed derivations in
-//! [`derivation`], the `external_data_hash` assembly in [`external_data`] and
-//! the `private_tx_hash` in [`private_tx`]. `zolana-transaction` delegates to
-//! this crate so the math has one implementation for clients and programs
-//! alike.
+//! The shielded-pool instruction builders ([`instruction`]) and the
+//! derivations shared between an SPP proof and the program that verifies its
+//! effects ([`derivation`], [`external_data`], [`private_tx`]) live in
+//! `zolana-instruction` and are re-exported here under the same paths.
 //!
 //! Two features serve pinocchio programs. `cpi` adds `cpi`, the transact CPI.
 //! `compression` adds `compression`, program state kept as SPP UTXOs, on top
@@ -31,19 +28,13 @@ extern crate alloc;
 
 #[cfg(feature = "compression")]
 pub mod compression;
-#[cfg(feature = "cpi")]
-pub mod cpi;
-pub mod derivation;
-pub mod external_data;
-pub mod instruction;
-pub mod private_tx;
 
-pub use derivation::{
-    derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+#[cfg(feature = "cpi")]
+pub use zolana_instruction::cpi;
+pub use zolana_instruction::{
+    derivation, derive_output_blinding_seed, derive_private_tx_blinding,
+    derive_transact_output_blinding, external_data, instruction, private_tx, ExternalDataHashError,
+    PrivateTxHash, SettlementAccounts, TransactExternalData, TransactInputs, ADDRESS_TREE_ID,
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
-pub use external_data::{
-    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
-};
-pub use private_tx::PrivateTxHash;

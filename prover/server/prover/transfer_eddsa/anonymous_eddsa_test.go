@@ -36,7 +36,7 @@ func TestAnonymousEddsaTransferParametersJSONRoundTrip(t *testing.T) {
 			t.Fatalf("missing top-level key %q in %s", key, encoded)
 		}
 	}
-	for _, key := range []string{"outputBlindingSeed", "privateTxBlinding", "p256SigningPkField"} {
+	for _, key := range []string{"outputBlindingSeed", "privateTxBlinding"} {
 		if _, ok := raw[key]; ok {
 			t.Fatalf("obsolete key %q must not be serialized", key)
 		}

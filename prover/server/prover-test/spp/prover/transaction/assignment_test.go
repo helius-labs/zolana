@@ -188,29 +188,6 @@ func TestParseProofInputRequiresOwnerComponents(t *testing.T) {
 	}
 }
 
-func TestParseProofUtxoNormalizesRequestFieldsAsPrefixedHex(t *testing.T) {
-	parsed, err := parseProofUtxo(ProofUtxoRequest{
-		Domain:        "0x0a",
-		Owner:         "0x01",
-		Asset:         "0x02",
-		Amount:        "0x03",
-		Blinding:      "0x04",
-		DataHash:      "0x00",
-		RingDataHash:  "0x00",
-		RingProgramID: "0x00",
-	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if parsed.normalized.Domain != proofFieldInput(big.NewInt(10)) {
-		t.Fatalf("normalized domain = %q", parsed.normalized.Domain)
-	}
-	if _, err := parse.Field(parsed.normalized.Domain); err != nil {
-		t.Fatalf("normalized field should round-trip through request parser: %v", err)
-	}
-}
-
 // TestProofUtxoJSONUsesRingFields pins the JSON tags of the ring fields: each
 // key must land in its own struct field (a swapped tag would surface as the
 // wrong field name in the rejection error), and zero values must parse. The
@@ -538,7 +515,7 @@ func TestInterfaceTransferRequestJSONSupportsFullU64(t *testing.T) {
 	}
 }
 
-func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
+func TestSameAssetTransfersRemainSeparateInHash(t *testing.T) {
 	requests := []InterfaceTransferRequest{
 		{
 			IsSpl:            true,
@@ -556,17 +533,6 @@ func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
 			UserAccount:      strings.Repeat("42", 32),
 		},
 	}
-	normalized, err := normalizedInterfaceTransfers(requests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(normalized) != 2 ||
-		normalized[0].UserAccount == normalized[1].UserAccount ||
-		normalized[0].SplInterfaceBump != 250 ||
-		normalized[1].SplInterfaceBump != 250 {
-		t.Fatalf("normalized interface transfers lost settlement identity: %+v", normalized)
-	}
-
 	resolved, err := resolveInterfaceTransfers(requests)
 	if err != nil {
 		t.Fatal(err)
@@ -584,32 +550,6 @@ func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
 	})
 	if separateHash.Cmp(aggregatedHash) == 0 {
 		t.Fatal("external_data_hash collapsed separate same-asset interface transfers")
-	}
-}
-
-func TestProofUtxoRootIndices(t *testing.T) {
-	got, err := proofUtxoRootIndices(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != [protocol.InputTrees]uint16{} {
-		t.Fatalf("default root indices = %v, want all zero", got)
-	}
-
-	// One index per tree slot, in slot order.
-	slotIndices := [protocol.InputTrees]uint16{3, 4, 5, 6, 7}
-	got, err = proofUtxoRootIndices(slotIndices[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != slotIndices {
-		t.Fatalf("root indices = %v, want %v", got, slotIndices)
-	}
-
-	// A per-input length is no longer accepted: the indices are per tree slot.
-	_, err = proofUtxoRootIndices([]uint16{1, 2})
-	if err == nil || !strings.Contains(err.Error(), "length 2 does not match the 5 tree slots") {
-		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -679,4 +619,8 @@ func TestBuildProofAssignmentRejectsStateEntryFromAnotherTree(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "is not present in state_entries") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+func proofFieldInput(value *big.Int) string {
+	return "0x" + parse.FieldHex(value)
 }

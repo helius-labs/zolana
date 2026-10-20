@@ -228,7 +228,7 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
         }
         let mut transactions = Vec::new();
         for chunk in tags.chunks(PAGE_LIMIT as usize) {
-            transactions.extend(tagged_transactions(indexer, chunk, self.config)?);
+            transactions.extend(tagged_transactions(indexer, chunk, self.config, &mut None)?);
         }
         let open = std::mem::take(&mut self.open);
         for (open, window) in open.into_iter().zip(windows) {

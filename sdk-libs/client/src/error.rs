@@ -19,6 +19,8 @@ pub enum ClientError {
     RingRegistryPageGap,
     #[error("the member has no record in the ring member registry")]
     RingMemberUnregistered,
+    #[error("address input {index} is not supported by merge or ring authority proofs")]
+    AddressInputUnsupported { index: usize },
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 
@@ -372,6 +374,19 @@ pub enum ClientError {
     IncompleteInputProofs {
         expected: usize,
         state: usize,
+        nullifier: usize,
+    },
+
+    /// A tree's proofs for whole transaction slots: state proofs cover only
+    /// the inputs that need inclusion, nullifier proofs cover every slot.
+    #[error(
+        "indexer returned incomplete proofs for tree {tree_id}: expected {expected_state} state and {expected_nullifier} nullifier proofs, got {state} and {nullifier}"
+    )]
+    IncompleteTransactionProofs {
+        tree_id: u16,
+        expected_state: usize,
+        state: usize,
+        expected_nullifier: usize,
         nullifier: usize,
     },
 

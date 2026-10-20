@@ -21,7 +21,7 @@ use crate::{
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
-    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
+    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
         anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
         proofless::Proofless, ring_anonymous::RingAnonymousOutputPlaintext,
@@ -97,10 +97,12 @@ impl PendingNote {
             nullifier_pubkey: self.nullifier_pk,
             utxo_hash: self.utxo_hash,
             nullifier: [0; 32],
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             tree_id: self.tree_id,
             leaf_index: self.leaf_index,
+            latest_tree_id: None,
             slot: self.slot,
             tx_signature: self.tx_signature,
             slot_index: self.slot_index,
@@ -124,6 +126,63 @@ impl SpendableDecryptionResult {
             .iter()
             .flat_map(|balance| &balance.utxos)
             .chain(&self.utxos_with_data)
+    }
+
+    /// Attach to every spendable UTXO the transaction viewing key of a
+    /// transaction that spends it first, derived for the holder's viewing key
+    /// in one [`ShieldedKeys::transaction_keys`] request, so encrypting that
+    /// transaction needs no further key request.
+    pub fn with_transaction_keys<K: ShieldedKeys + ?Sized>(
+        mut self,
+        shielded_keys: &K,
+    ) -> Result<Self, TransactionError> {
+        let viewing_pubkey = shielded_keys.address()?.viewing_pubkey;
+        let mut utxos: Vec<&mut WalletUtxo> = self
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| balance.utxos.iter_mut())
+            .chain(self.utxos_with_data.iter_mut())
+            .collect();
+        let requests: Vec<TransactionKeyRequest> = utxos
+            .iter()
+            .map(|utxo| TransactionKeyRequest {
+                viewing_pubkey,
+                first_nullifier: utxo.nullifier,
+            })
+            .collect();
+        if requests.is_empty() {
+            return Ok(self);
+        }
+        let keys = shielded_keys.transaction_keys(&requests)?;
+        if keys.len() != requests.len() {
+            return Err(TransactionError::IncompleteDerivation {
+                got: keys.len(),
+                want: requests.len(),
+            });
+        }
+        for (utxo, key) in utxos.iter_mut().zip(keys) {
+            utxo.tx_viewing_key = Some(*key.secret_bytes());
+        }
+        Ok(self)
+    }
+
+    /// Stamp every spendable UTXO with the newest output tree the indexer
+    /// reported on the pages it came from (`output_tree_id`), so a
+    /// transaction spending one appends its outputs there by default. `None`
+    /// means the indexer named no unpaused tree.
+    #[must_use]
+    pub fn with_latest_tree_id(mut self, latest_tree_id: Option<u16>) -> Self {
+        for utxo in self
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| &mut balance.utxos)
+            .chain(&mut self.utxos_with_data)
+        {
+            utxo.latest_tree_id = latest_tree_id;
+        }
+        self
     }
 }
 
@@ -612,10 +671,12 @@ impl Site<'_> {
             nullifier_pubkey: self.address.nullifier_pubkey,
             utxo_hash: self.slot.output_context.hash,
             nullifier: [0; 32],
+            tx_viewing_key: None,
             data_hash,
             ring_data_hash,
             tree_id: self.slot.output_context.tree_id,
             leaf_index: self.slot.output_context.leaf_index,
+            latest_tree_id: None,
             slot: self.tx.slot,
             tx_signature: self.tx.tx_signature,
             slot_index: self.slot_index,
@@ -790,21 +851,29 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     let data_hash = plaintext.data_hash;
                     let ring_data_hash = plaintext.ring_data_hash;
-                    Ok(Some(DecodedSlot {
-                        utxos: Proofless::into_utxos(plaintext, &owner_cx)?,
-                        data_hash,
-                        ring_data_hash,
-                    }))
+                    Ok(
+                        rebuilt(Proofless::into_utxos(plaintext, &owner_cx))?.map(|utxos| {
+                            DecodedSlot {
+                                utxos,
+                                data_hash,
+                                ring_data_hash,
+                            }
+                        }),
+                    )
                 }
                 EncryptedScheme::PlaintextTransfer => {
                     let Ok(plaintext) = PlaintextTransfer::deserialize(body) else {
                         return Ok(None);
                     };
-                    Ok(Some(DecodedSlot {
-                        utxos: PlaintextTransfer::into_utxos(plaintext, &owner_cx)?,
-                        data_hash: None,
-                        ring_data_hash: None,
-                    }))
+                    Ok(
+                        rebuilt(PlaintextTransfer::into_utxos(plaintext, &owner_cx))?.map(
+                            |utxos| DecodedSlot {
+                                utxos,
+                                data_hash: None,
+                                ring_data_hash: None,
+                            },
+                        ),
+                    )
                 }
                 _ => Ok(None),
             }
@@ -861,7 +930,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };
-                        Confidential::into_utxos(plaintext, &owner_cx)?
+                        Confidential::into_utxos(plaintext, &owner_cx)
                     }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
@@ -870,9 +939,12 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         if plaintext.owner_pubkey != address.signing_pubkey {
                             continue;
                         }
-                        AnonymousRecipient::into_utxos(plaintext, &owner_cx)?
+                        AnonymousRecipient::into_utxos(plaintext, &owner_cx)
                     }
                     _ => return Ok(None),
+                };
+                let Some(utxos) = rebuilt(utxos)? else {
+                    continue;
                 };
                 return Ok(Some(DecodedSlot {
                     utxos,
@@ -1012,6 +1084,19 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
         }));
     }
     Ok(None)
+}
+
+/// A sender-chosen plaintext that rebuilds no note skips its slot, except a registry miss.
+fn rebuilt(
+    utxos: Result<Vec<Utxo>, TransactionError>,
+) -> Result<Option<Vec<Utxo>>, TransactionError> {
+    match utxos {
+        Ok(utxos) => Ok(Some(utxos)),
+        Err(error @ (TransactionError::UnknownAsset(_) | TransactionError::UnknownMint(_))) => {
+            Err(error)
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 /// `None` when no viewing key can open the requests.

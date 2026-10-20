@@ -1048,7 +1048,6 @@ mod tests {
         // Unregistered slots remain explicit null values.
         let value = serde_json::to_value(&response).unwrap();
         assert!(value["records"][0].is_null());
-        assert!(value["records"][1].get("ownerP256").is_none());
     }
 
     #[test]

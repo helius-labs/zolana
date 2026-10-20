@@ -5,10 +5,13 @@ import { buildUnsignedTransaction } from "../src/client/client.js";
 
 import prefixVector from "../../../test-vectors/transact_account_prefix.json" with { type: "json" };
 
+import { NO_CACHE_WRITES } from "../src/interface/cache.js";
 import {
+  TransactCacheAccounts,
   mergeTransactInstruction,
   nullifierPdaAccounts,
   ringTransactAccounts,
+  transactCpiAccounts,
   transactInstruction,
 } from "../src/interface/instructions/index.js";
 import {
@@ -36,6 +39,11 @@ const RING_AUTH = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const OWNER_SIGNER = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SYSTEM = address("11111111111111111111111111111111");
+const CACHE = address("79cu2QNvp92chEmBhBgcUfERDT9KHnUcr8eiJb5WzKML");
+const SIGNER_PDAS = [
+  address("7DYCAhqwQSKqqL1h8V1XmY1BTcMWxrASQYKNMy87jeg3"),
+  address("7HTVK1Jwzjd4yRGCZnLT4QmwhmZidurFxwz2RMAiUyzk"),
+];
 const PREFIX_ADDRESSES = new Map<string, Address>([
   ["payer", PAYER],
   ["outputTree", OUTPUT_TREE],
@@ -230,6 +238,76 @@ describe("nullifier PDA accounts", () => {
     });
 
     expect(Object.keys(transaction.signatures)).toEqual([PAYER, OWNER_SIGNER]);
+  });
+
+  // Mirrors Rust `transact_cpi_accounts_insert_signer_pdas_before_interface_transfers`,
+  // with a read cache so the cache accounts stay after the PDAs too.
+  it("lists signing PDAs after the owner signers and before settlement and cache in a CPI", async () => {
+    const inputs = [input(71)];
+    const base = {
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      ownerSigners: [OWNER_SIGNER],
+      withdrawal: { kind: "sol", recipient: OWNER },
+      cache: TransactCacheAccounts.read(CACHE),
+      data: {
+        ...transactData(inputs),
+        circuit: {
+          kind: "confidentialEddsaCached",
+          inputs: 2,
+          outputs: 4,
+          publicAssetSlots: 3,
+          cacheAccess: { readBitmap: 1n, writeSlots: NO_CACHE_WRITES },
+        },
+      },
+    } as const;
+    const [pda] = await nullifierPdas(inputs);
+    const prefix = [
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [OUTPUT_TREE, AccountRole.WRITABLE],
+      [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
+      [SYSTEM, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
+      [pda, AccountRole.WRITABLE],
+      [OWNER_SIGNER, AccountRole.READONLY_SIGNER],
+    ];
+    const suffix = [
+      [SOL_INTERFACE, AccountRole.WRITABLE],
+      [OWNER, AccountRole.WRITABLE],
+      [CACHE, AccountRole.READONLY],
+    ];
+    const roles = (accounts: readonly Readonly<{ address: Address; role: AccountRole }>[]) =>
+      accounts.map((meta) => [meta.address, meta.role]);
+
+    expect(roles(await transactCpiAccounts({ ...base, signerPdas: SIGNER_PDAS }))).toEqual([
+      ...prefix,
+      ...SIGNER_PDAS.map((signerPda) => [signerPda, AccountRole.READONLY]),
+      ...suffix,
+    ]);
+    const withoutPdas = await transactCpiAccounts({ ...base, signerPdas: [] });
+    expect(roles(withoutPdas)).toEqual([...prefix, ...suffix]);
+    expect(withoutPdas).toEqual((await transactInstruction(base)).accounts);
+  });
+
+  it("checks CPI cache accounts against the circuit before deriving any account", async () => {
+    const derive = vi.spyOn(pda, "nullifierPdaAddress");
+    try {
+      await expect(
+        transactCpiAccounts({
+          payer: PAYER,
+          inputTree: TREE,
+          outputTree: OUTPUT_TREE,
+          ownerSigners: [],
+          cache: TransactCacheAccounts.read(CACHE),
+          data: transactData([input(71)]),
+          signerPdas: SIGNER_PDAS,
+        }),
+      ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+      expect(derive).not.toHaveBeenCalled();
+    } finally {
+      derive.mockRestore();
+    }
   });
 
   it("lists one ring input tree per context and derives each PDA under its input's tree", async () => {

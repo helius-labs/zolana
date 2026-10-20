@@ -1,8 +1,7 @@
-//! Anonymous ring transact lifecycle, ported from the retired scenario suite
-//! `features/p256_ring_lifecycle.feature`: a hidden Ed25519 owner ring-shields, proves
-//! the AnonymousRingEddsa rail through the Go prover server, and submits through the
-//! ring fixture program to the shielded pool. This runs alongside, and does
-//! not replace, the existing EdDSA ring lifecycle.
+//! A hidden Ed25519 owner ring-shields, proves the AnonymousRingEddsa rail
+//! through the Go prover server, and submits through the ring fixture program
+//! to the shielded pool. This runs alongside, and does not replace, the
+//! existing EdDSA ring lifecycle.
 
 use anyhow::Result;
 use serial_test::serial;

@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use core::mem::size_of;
 
 use crate::nullifier_tree::{
     constants::NUM_BATCHES, error::NullifierTreeError, layout::NullifierTreeLayout,

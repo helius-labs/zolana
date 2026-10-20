@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::OutputDataEncoding;
 
 /// Scheme byte inside [`OutputDataEncoding::VerifiablyEncrypted`] for a merge

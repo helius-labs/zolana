@@ -63,7 +63,6 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 	}
 
 	tx := ProofTransactionRequest{
-		Name:                     fmt.Sprintf("bench-%s", shape),
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),

@@ -233,6 +233,7 @@ impl From<TreeError> for ShieldedPoolError {
 #[cfg(test)]
 mod tests {
     use super::{ShieldedPoolError, ShieldedPoolError::*};
+    use alloc::string::String;
 
     /// Pin every on-chain error code for this program version.
     #[test]

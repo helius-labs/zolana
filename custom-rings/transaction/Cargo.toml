@@ -1,0 +1,21 @@
+[package]
+name = "zolana-ring-transaction"
+version = "0.1.0"
+description = "Custom ring output encodings."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zolana-event = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+borsh = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+solana-address = { workspace = true }
+solana-signature = { workspace = true }

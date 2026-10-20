@@ -93,7 +93,6 @@ const authority = readJson("transaction/authority-v1.json");
     keypair.signingPublicKey().toBytes(),
   );
   authority.expected.ed25519Signature ??= {};
-  delete authority.expected.p256Signature;
   authority.expected.ed25519Signature.pubkeyBytes = hex(keypair.signingPublicKey().ed25519());
   authority.expected.ed25519Signature.verified = true;
   authority.responsibility =

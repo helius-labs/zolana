@@ -24,10 +24,10 @@ func TestAnonymousDisclosure(t *testing.T) {
 	assignment := keys.Circuit(t, statement)
 	solve(t, cs, assignment)
 
-	for _, encoding := range []string{"legacy tag", "coordinate alias"} {
+	for _, encoding := range []string{"wrong tag", "coordinate alias"} {
 		t.Run(encoding, func(t *testing.T) {
 			bad := statement
-			if encoding == "legacy tag" {
+			if encoding == "wrong tag" {
 				bad.Audit.RecipientViewingKeys[0][0] = 3
 			} else {
 				for i := 1; i < 33; i++ {

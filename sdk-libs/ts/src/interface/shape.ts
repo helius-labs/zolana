@@ -130,8 +130,8 @@ export function ownerSignerSlots(inputs: number): number {
 }
 
 /**
- * Slots in the public signer vector: the unique Ed25519 input owners, zero
- * padded. The payer holds no slot of its own; the extra slot covers an owner
+ * Slots in the public signer vector: the unique Ed25519 and PDA owners of
+ * inputs and of outputs that carry data, zero padded. The payer holds no slot of its own; the extra slot covers an owner
  * that also pays, which costs no additional transaction address.
  */
 export function signerWidth(shape: Shape): number {

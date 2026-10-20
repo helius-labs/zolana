@@ -15,8 +15,9 @@ use zolana_interface::instruction::{
 use zolana_keypair::{random_blinding, RingAddress, ShieldedKeypair, ViewingKey, X25519Keypair};
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{OutflowLimit, RuleTable};
+use zolana_ring_transaction::AnonymousViewTags;
 use zolana_transaction::{
-    instructions::transact::{AnonymousViewTags, ConfidentialTransaction},
+    instructions::transact::{ConfidentialTransaction, OutputEncryption},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, SOL_MINT,
@@ -967,13 +968,13 @@ fn anonymous_slots_carry_ed25519_owners_in_the_ring_or_the_default_ring() {
         .unwrap();
     let key = transaction_key(&sender, *transaction.first_nullifier()).unwrap();
     let address = sender.shielded_address().unwrap();
-    let inputs = transaction
-        .encrypt_anonymous_with_viewing_key(
-            &address,
-            &key,
-            &AnonymousViewTags::new(&sender.viewing_key),
-        )
-        .unwrap();
+    let inputs = OutputEncryption {
+        sender: &address,
+        tx_viewing_key: &key,
+        encoder: &AnonymousViewTags::new(&sender.viewing_key),
+    }
+    .encrypt(transaction)
+    .unwrap();
     let shape = inputs.check_shape().unwrap();
     anonymous::check_anonymous_slots(shape, &inputs).unwrap();
     for attach in [

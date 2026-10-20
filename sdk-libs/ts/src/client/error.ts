@@ -47,6 +47,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_POLL_TIMED_OUT",
   "CLIENT_PROOF_PATH_LENGTH",
   "CLIENT_PROOF_INPUT_COUNT_MISMATCH",
+  "CLIENT_ADDRESS_INPUT_UNSUPPORTED",
 ] as const);
 
 export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[number];
@@ -132,6 +133,10 @@ export interface ClientErrorDetailsMap {
     kind?: "state" | "nullifier";
   }>;
   readonly CLIENT_PROOF_INPUT_COUNT_MISMATCH: CountDetails;
+  /** An address input reached the ring authority or merge rail, which have no address slot. */
+  readonly CLIENT_ADDRESS_INPUT_UNSUPPORTED: IndexDetails;
+  /** A prover request carries an address slot that is padding, cached, keyed or state-proved. */
+  readonly CLIENT_INVALID_ADDRESS_INPUT: IndexDetails;
 
   readonly CLIENT_INVALID_CONFIG: Readonly<{ field?: string }> | undefined;
   readonly CLIENT_UNEXPECTED: NoDetails;
@@ -244,6 +249,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INVALID_INTEGER",
   "CLIENT_INVALID_INPUT_CONTEXT",
   "CLIENT_INVALID_PROOF_INPUTS",
+  "CLIENT_INVALID_ADDRESS_INPUT",
   "CLIENT_INVALID_MERGE",
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
@@ -408,6 +414,8 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_POLL_TIMED_OUT: { attempts: "number", lastCause: "retryCause" },
   CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
   CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
+  CLIENT_ADDRESS_INPUT_UNSUPPORTED: { index: "number" },
+  CLIENT_INVALID_ADDRESS_INPUT: { index: "number" },
   CLIENT_INVALID_CONFIG: { field: "string" },
   CLIENT_INVALID_INTEGER: { field: "string", length: "number" },
   CLIENT_INVALID_INPUT_CONTEXT: { index: "number" },

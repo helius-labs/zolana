@@ -240,7 +240,10 @@ export type ProvenRingTransfer = RingTransactTrees &
     approvalRequired: boolean;
     /** Absent on an audit-only ring. */
     policy?: RingTransactPolicy;
-    /** Ed25519 input owners in signer-vector order, the fee payer too when it owns an input. */
+    /**
+     * The Ed25519 and PDA owners of inputs and of outputs that carry data, in
+     * signer-vector order, the fee payer too when it is one of them.
+     */
     ownerSigners: readonly Address[];
   }>;
 
@@ -839,7 +842,8 @@ async function proveRingTransferStatement(
         inputTreeIds(proofInputs.inputUtxos).map((treeId) => inputTreeAddress(flow.client, treeId)),
       ),
       outputTree: outputTree.tree,
-      ownerSigners: flow.kind === "delegate" ? [] : ownerSignerAddresses(prepared.inputs),
+      ownerSigners:
+        flow.kind === "delegate" ? [] : ownerSignerAddresses(prepared.inputs, proofInputs.outputs),
     } as const;
 
     if (policyRound === undefined) {
@@ -1020,7 +1024,7 @@ async function assertRingTransferFits({
         })
       : await ringTransactInstruction({
           ...previewCommon,
-          ownerSigners: ownerSignerAddresses(prepared.inputs),
+          ownerSigners: ownerSignerAddresses(prepared.inputs, proofInputs.outputs),
           ...(input.transaction?.withdrawal === undefined
             ? {}
             : { withdrawal: input.transaction.withdrawal }),

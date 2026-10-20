@@ -166,23 +166,6 @@ func solTransferRequest(
 	}
 }
 
-func TestSentSlotsDropsOnlyTrailingCompactPadding(t *testing.T) {
-	values := []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7), big.NewInt(0), big.NewInt(0)}
-	assertSlots := func(name string, got, want []*big.Int) {
-		t.Helper()
-		if len(got) != len(want) {
-			t.Fatalf("%s: got %v want %v", name, got, want)
-		}
-		for i := range want {
-			if got[i].Cmp(want[i]) != 0 {
-				t.Fatalf("%s: got %v want %v", name, got, want)
-			}
-		}
-	}
-	assertSlots("sent slots", sentSlots(values), []*big.Int{big.NewInt(5), big.NewInt(0), big.NewInt(7)})
-	assertSlots("all-compact slots", sentSlots([]*big.Int{big.NewInt(0)}), []*big.Int{})
-}
-
 // TestProveShieldWithAllDummyInputs proves a deposit (shield) inside a 1-2 shape
 // with zero real inputs: the lone input slot is a dummy and a public SOL deposit
 // funds the two real outputs. This is the case the exact-shape circuit could not

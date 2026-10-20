@@ -100,12 +100,12 @@ describe("shielded key material", () => {
     expect(() => SigningKey.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
   });
 
-  it("rejects the reserved owner tag without changing Ed25519 or PDA encodings", () => {
+  it("rejects an unknown owner tag without changing Ed25519 or PDA encodings", () => {
     const ed = SigningKey.generate().publicKey();
     const encoded = ed.toBytes();
-    const reserved = encoded.slice() as Bytes34;
-    reserved[0] = 0;
-    expect(() => ShieldedPublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
+    const unknown = encoded.slice() as Bytes34;
+    unknown[0] = 0;
+    expect(() => ShieldedPublicKey.fromBytes(unknown)).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
     expect(ShieldedPublicKey.fromBytes(encoded).ed25519()).toEqual(ed.ed25519());
     const pda = ShieldedPublicKey.fromPda(ed.ed25519());
     expect(pda.toBytes()[0]).toBe(2);

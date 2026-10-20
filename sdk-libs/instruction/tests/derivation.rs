@@ -1,5 +1,5 @@
 use zolana_hasher::primitives::right_align;
-use zolana_program::{
+use zolana_instruction::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,

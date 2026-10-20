@@ -26,6 +26,8 @@ impl ConfidentialTransaction {
         self.output_tree_id
     }
 
+    /// Append the outputs to `output_tree_id`. Without this, they go to the
+    /// first real input's [`latest_tree_id`](crate::WalletUtxo::latest_tree_id), else tree 0.
     pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Result<Self, TransactionError> {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
@@ -58,7 +60,7 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Ok(self);
         }
-        let n_in = self.inputs.len();
+        let n_in = self.inputs.len() + self.addresses.len();
         let mut n_out = self.outputs.len();
         for asset in self.assets(&self.outputs)? {
             if self.change(&asset)? > 0 {
@@ -69,6 +71,14 @@ impl ConfidentialTransaction {
         }
         let shape = canonical_shape(n_in, n_out)?;
         self.pad_utxos(shape, sender)
+    }
+
+    pub fn add_empty_output_utxo(&mut self) -> Result<&mut Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.outputs.push(SppProofOutputUtxo::default());
+        Ok(self)
     }
 
     /// Convert wallet inputs and pad all UTXOs without reordering existing slots.
@@ -88,6 +98,30 @@ impl ConfidentialTransaction {
         shape: Shape,
         sender: &ShieldedAddress,
     ) -> Result<&mut Self, TransactionError> {
+        self.pad(shape, sender, false)
+    }
+
+    /// Pad like [`Self::pad_utxos`] for a transaction whose outputs a circuit
+    /// fixes: no output is added beyond nonzero change. The circuit requires
+    /// every dummy tag to name an owner signer or a real output owner, so a
+    /// transaction naming no such participant (for example a self-paid full
+    /// withdrawal) is refused with
+    /// [`TransactionError::NoDummyOwnerTagParticipant`] instead of keeping a
+    /// zero-amount change.
+    pub fn pad_utxos_with_empty_outputs(
+        &mut self,
+        shape: Shape,
+        sender: &ShieldedAddress,
+    ) -> Result<&mut Self, TransactionError> {
+        self.pad(shape, sender, true)
+    }
+
+    fn pad(
+        &mut self,
+        shape: Shape,
+        sender: &ShieldedAddress,
+        fixed_outputs: bool,
+    ) -> Result<&mut Self, TransactionError> {
         // 1. Reject repeated padding and validate the shape and public transfers.
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
@@ -98,9 +132,9 @@ impl ConfidentialTransaction {
                 n_out: shape.n_outputs(),
             });
         }
-        if self.inputs.len() > shape.n_inputs() {
+        if self.inputs.len() + self.addresses.len() > shape.n_inputs() {
             return Err(TransactionError::TooManyInputs {
-                got: self.inputs.len(),
+                got: self.inputs.len() + self.addresses.len(),
                 max: shape.n_inputs(),
             });
         }
@@ -128,6 +162,8 @@ impl ConfidentialTransaction {
         // 4. Check output capacity, append dummy outputs and verify balance.
         let dummy_owner_tag = match self.dummy_owner_tag(&outputs, sender)? {
             Some(tag) => tag,
+            // A circuit fixes the outputs, so no change can carry the tag.
+            None if fixed_outputs => return Err(TransactionError::NoDummyOwnerTagParticipant),
             None => {
                 outputs.push(SppProofOutputUtxo {
                     owner_address: Some(*sender),
@@ -143,6 +179,13 @@ impl ConfidentialTransaction {
                 got: outputs.len(),
                 max: shape.n_outputs(),
             });
+        }
+        // Empty outputs added with `add_empty_output_utxo` publish the same tag
+        // as the padding after them.
+        for output in outputs.iter_mut() {
+            if output.is_dummy() && !output.compact && output.owner_tag.is_none() {
+                output.owner_tag = Some(dummy_owner_tag);
+            }
         }
         outputs.resize(
             shape.n_outputs(),
@@ -176,7 +219,12 @@ impl ConfidentialTransaction {
         }
 
         // 5. Convert wallet inputs, append dummy inputs and commit both vectors.
-        let mut inputs = self.inputs.iter().map(SppProofInputUtxo::from).collect();
+        let mut inputs = self
+            .addresses
+            .iter()
+            .cloned()
+            .chain(self.inputs.iter().map(SppProofInputUtxo::from))
+            .collect();
         pad_inputs(&mut inputs, shape, self.compact_padding)?;
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);
@@ -201,17 +249,20 @@ impl ConfidentialTransaction {
         Ok(Some(owner.signing_pubkey.confidential_view_tag()?))
     }
 
-    /// The first input owner other than the fee payer. A dummy output may name
-    /// any owner signer; skipping the payer keeps a self-paid transaction's
-    /// dummies naming its change output.
+    /// The first owner signer other than the fee payer, in input slot order:
+    /// address owners, then real input owners. Address owners authorize SPP
+    /// like input owners, so they are owner signers too. A dummy output may
+    /// name any owner signer; skipping the payer keeps a self-paid
+    /// transaction's dummies naming its change output.
     fn named_input_owner_tag(&self) -> Result<Option<[u8; 32]>, TransactionError> {
         let payer = self.payer.to_bytes();
-        for input in self
-            .inputs
-            .iter()
-            .filter(|input| !input.utxo.owner.is_zero())
+        let address_owners = self.addresses.iter().map(|address| &address.utxo.owner);
+        let input_owners = self.inputs.iter().map(|input| &input.utxo.owner);
+        for owner in address_owners
+            .chain(input_owners)
+            .filter(|owner| !owner.is_zero())
         {
-            let tag = input.utxo.owner.confidential_view_tag()?;
+            let tag = owner.confidential_view_tag()?;
             if tag != payer {
                 return Ok(Some(tag));
             }
@@ -226,7 +277,9 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        recipient.address.signing_pubkey.curve()?;
+        if recipient.address.signing_pubkey.is_zero() {
+            return Err(TransactionError::ZeroRecipientOwner);
+        }
         self.outputs.push(SppProofOutputUtxo {
             owner_address: Some(recipient.address),
             asset: recipient.asset,

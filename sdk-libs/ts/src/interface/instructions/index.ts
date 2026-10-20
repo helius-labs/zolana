@@ -3,6 +3,7 @@ import {
   AccountRole,
   address,
   createNoopSigner,
+  type AccountMeta,
   type Instruction,
   type TransactionSigner,
 } from "@solana/kit";
@@ -56,8 +57,6 @@ import {
 export const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 export type { MergeOutputEncryption, MergeTransactInstructionData } from "../types.js";
 
-type Meta = NonNullable<Instruction["accounts"]>[number];
-
 export type SignerAccount = Address | TransactionSigner;
 
 export interface CacheWriteAccounts {
@@ -91,7 +90,7 @@ export function signerAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
 }
 
-export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
+export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): AccountMeta {
   const address = signerAddress(account);
   return {
     address,
@@ -103,12 +102,12 @@ export function meta(account: SignerAccount, isSigner: boolean, isWritable: bool
         ? AccountRole.WRITABLE
         : AccountRole.READONLY,
     ...(isSigner && typeof account !== "string" ? { signer: account } : {}),
-  } as Meta;
+  } as AccountMeta;
 }
 
 export function instruction(
   data: Uint8Array,
-  accounts: readonly Meta[],
+  accounts: readonly AccountMeta[],
   programAddress: Address = SHIELDED_POOL_PROGRAM_ID,
 ): Instruction {
   return {
@@ -271,7 +270,7 @@ export async function depositAccounts(
   depositor: SignerAccount,
   layout: DepositLayout,
   ringAuth?: Address,
-): Promise<Readonly<{ accounts: Meta[]; splInterfaceBumps: number[] }>> {
+): Promise<Readonly<{ accounts: AccountMeta[]; splInterfaceBumps: number[] }>> {
   const accounts = [
     meta(tree, false, true),
     meta(depositor, true, true),
@@ -337,14 +336,14 @@ export async function depositInstruction(
 export function ringCoSignerMetas(
   cosignerPda: Address,
   cosigner: SignerAccount | undefined,
-): Meta[] {
+): AccountMeta[] {
   return [
     meta(cosignerPda, false, false),
     cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
   ];
 }
 
-function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
+function settlementAccounts(withdrawal?: TransactWithdrawal): AccountMeta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {
     return [meta(SOL_INTERFACE, false, true), meta(withdrawal.recipient, false, true)];
@@ -364,7 +363,7 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
 export async function nullifierPdaAccounts(
   inputTree: Address,
   nullifiers: readonly Uint8Array[],
-): Promise<Meta[]> {
+): Promise<AccountMeta[]> {
   const nullifierPdas = await Promise.all(
     nullifiers.map((nullifier) => nullifierPdaAddress(inputTree, nullifier)),
   );
@@ -382,11 +381,11 @@ function validateSingleInputTree(
   }
 }
 
-function cacheWriteAccountMetas(accounts: CacheWriteAccounts): Meta[] {
+function cacheWriteAccountMetas(accounts: CacheWriteAccounts): AccountMeta[] {
   return [meta(accounts.cache, false, true), meta(accounts.writer, true, false)];
 }
 
-function cacheAccountMetas(cache: TransactCacheAccounts | undefined): Meta[] {
+function cacheAccountMetas(cache: TransactCacheAccounts | undefined): AccountMeta[] {
   if (cache === undefined) return [];
   return [
     ...(cache.readCache === undefined ? [] : [meta(cache.readCache, false, false)]),
@@ -416,19 +415,29 @@ export function checkTransactCacheAccounts(
   }
 }
 
+/** The accounts and data of a single-tree `transact` instruction. */
+export interface TransactAccountsInput {
+  readonly payer: SignerAccount;
+  readonly inputTree: Address;
+  readonly outputTree: Address;
+  /**
+   * The Ed25519 and PDA owners of real inputs and of outputs that carry data,
+   * in proof signer-vector order, listed as readonly signers right after the
+   * nullifier PDAs. An owner that also pays is listed here too: paying alone
+   * authorizes no spend, so a sponsor can pay for a spend it does not own.
+   */
+  readonly ownerSigners: readonly SignerAccount[];
+  readonly withdrawal?: TransactWithdrawal;
+  readonly cache?: TransactCacheAccounts;
+  readonly data: TransactInstructionData;
+}
+
+/** Callers check the cache accounts against the circuit first. */
 async function transactAccounts(
-  input: Readonly<{
-    payer: SignerAccount;
-    inputTree: Address;
-    outputTree: Address;
-    ownerSigners: readonly SignerAccount[];
-    withdrawal?: TransactWithdrawal;
-    cache?: TransactCacheAccounts;
-    data: TransactInstructionData;
-  }>,
-): Promise<Meta[]> {
-  const { inputs, treeContexts } = input.data;
-  validateSingleInputTree(inputs, treeContexts);
+  input: TransactAccountsInput,
+  signerPdas: readonly Address[],
+): Promise<AccountMeta[]> {
+  validateSingleInputTree(input.data.inputs, input.data.treeContexts);
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),
@@ -437,36 +446,35 @@ async function transactAccounts(
     meta(input.inputTree, false, true),
     ...(await nullifierPdaAccounts(
       input.inputTree,
-      inputs.map((spent) => spent.nullifierHash),
+      input.data.inputs.map((utxo) => utxo.nullifierHash),
     )),
     ...input.ownerSigners.map((signer) => meta(signer, true, false)),
+    ...signerPdas.map((pda) => meta(pda, false, false)),
     ...settlementAccounts(input.withdrawal),
     ...cacheAccountMetas(input.cache),
   ];
 }
 
-/**
- * Mirrors Rust `Transact::instruction`. `ownerSigners` are the Ed25519 input
- * owners in proof signer-vector order, listed as readonly signers right after
- * the nullifier PDAs. An owner that also pays is listed here too: paying alone
- * authorizes no spend, so a sponsor can pay for a spend it does not own.
- */
-export async function transactInstruction(
-  input: Readonly<{
-    payer: SignerAccount;
-    inputTree: Address;
-    outputTree: Address;
-    ownerSigners: readonly SignerAccount[];
-    withdrawal?: TransactWithdrawal;
-    cache?: TransactCacheAccounts;
-    data: TransactInstructionData;
-  }>,
-): Promise<Instruction> {
+/** Mirrors Rust `Transact::instruction`. */
+export async function transactInstruction(input: TransactAccountsInput): Promise<Instruction> {
   checkTransactCacheAccounts(input.data.circuit, input.cache);
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    await transactAccounts(input),
+    await transactAccounts(input, []),
   );
+}
+
+/**
+ * Mirrors Rust `Transact::cpi_accounts`: the `transactInstruction` accounts
+ * with the calling program's signing PDAs listed, readonly and unsigned,
+ * after the owner signers and before the withdrawal and cache accounts. The
+ * program signs for those PDAs inside its CPI.
+ */
+export async function transactCpiAccounts(
+  input: TransactAccountsInput & Readonly<{ signerPdas: readonly Address[] }>,
+): Promise<readonly AccountMeta[]> {
+  checkTransactCacheAccounts(input.data.circuit, input.cache);
+  return transactAccounts(input, input.signerPdas);
 }
 
 /**
@@ -488,7 +496,7 @@ export async function ringTransactAccounts(
     withdrawal?: TransactWithdrawal;
     cache?: TransactCacheAccounts;
   }>,
-): Promise<readonly Meta[]> {
+): Promise<readonly AccountMeta[]> {
   if (
     input.inputTrees.length !== input.treeContexts.length ||
     input.inputTrees.length === 0 ||

@@ -11,6 +11,7 @@ import {
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
+import { ZERO_NULLIFIER_PK } from "../interface/program.js";
 import type { TreeId } from "../transaction/utxo.js";
 import type { Bytes32 } from "../interface/types.js";
 import {
@@ -491,11 +492,6 @@ function entryInvalid(reason: string): RingError {
 }
 
 const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
-/** @internal Mirrors Rust `ZERO_NULLIFIER_PK`, `Poseidon(0)`, the nullifier public key of the zero secret. */
-export const ZERO_NULLIFIER_PK = Uint8Array.from([
-  0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
-  0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
-]) as Bytes32;
 
 /** Reserved namespace owner hash, excluded from transfers by the policy circuit. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {

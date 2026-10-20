@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -463,5 +464,47 @@ func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 		if _, _, err := decodeRequest(request(test.circuitType, test.right)); err != nil && err.Error() == "invalid public input count" {
 			t.Fatalf("%s with %d public inputs: count refused", test.circuitType, test.right)
 		}
+	}
+}
+
+func TestResolveAddressOnlyFetchesNoStateProof(t *testing.T) {
+	request, _, nullifier := fixture(t)
+	var prepared transfer.TransferParametersJSON
+	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Inputs[0].Utxo.Domain = "0x2"
+	request.Prepared = encoded(t, prepared)
+	request.Inputs[0].Commitment = nil
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		if body.Method != "getNonInclusionProofs" {
+			return nil, fmt.Errorf("address requested state proof: %s", body.Method)
+		}
+		data := encoded(t, map[string]any{"jsonrpc": "2.0", "id": body.Method, "result": nullifier})
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	resolved, err := resolver.Resolve(context.Background(), encoded(t, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value transfer.TransferParameters
+	if err := json.Unmarshal(resolved.Payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Inputs[0].StatePathElements) != 32 || len(value.Inputs[0].NullifierLowPathElements) != 40 {
+		t.Fatal("incomplete address witness")
+	}
+	if value.TreeSlots[0].UtxoRoot.Sign() != 0 {
+		t.Fatal("address-only tree requires no state root")
 	}
 }

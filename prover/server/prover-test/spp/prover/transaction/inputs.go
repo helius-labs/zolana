@@ -11,11 +11,10 @@ import (
 )
 
 type parsedInput struct {
-	utxo              protocol.Utxo
-	leafIndex         uint64
-	nullifierSecret   *big.Int
-	ownerKeyHash      *big.Int
-	ownerSolanaPubkey string
+	utxo            protocol.Utxo
+	leafIndex       uint64
+	nullifierSecret *big.Int
+	ownerKeyHash    *big.Int
 }
 
 type inputWitnesses struct {
@@ -26,7 +25,6 @@ type inputWitnesses struct {
 	// the private witness the packed InputFlags element publishes.
 	treeSlots          []*big.Int
 	inputOwnerPkHashes []*big.Int
-	solanaOwnerPubkeys []string
 }
 
 // buildInputWitnesses fills every physical input slot, real spends first and
@@ -49,7 +47,6 @@ func buildInputWitnesses(
 		nullifiers:         make([]*big.Int, shape.NInputs),
 		treeSlots:          make([]*big.Int, shape.NInputs),
 		inputOwnerPkHashes: make([]*big.Int, shape.NInputs),
-		solanaOwnerPubkeys: make([]string, len(requests)),
 	}
 	for i := range inputs.treeSlots {
 		inputs.treeSlots[i] = new(big.Int).Set(trees.inputTreeSlot)
@@ -77,7 +74,6 @@ func buildInputWitnesses(
 		witness.Utxo = toProofCircuitFields(input.utxo)
 		witness.NullifierSecret = input.nullifierSecret
 		inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
-		inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
 
 		proof, ok := state.proofs[input.leafIndex]
 		if !ok {
@@ -186,10 +182,9 @@ func parseProofInput(input ProofInputRequest) (parsedInput, error) {
 		return parsedInput{}, err
 	}
 	return parsedInput{
-		utxo:              parsed.utxo,
-		leafIndex:         input.LeafIndex,
-		nullifierSecret:   nullifierSecret,
-		ownerKeyHash:      parsed.ownerKeyHash,
-		ownerSolanaPubkey: parsed.normalized.OwnerSolanaPubkey,
+		utxo:            parsed.utxo,
+		leafIndex:       input.LeafIndex,
+		nullifierSecret: nullifierSecret,
+		ownerKeyHash:    parsed.ownerKeyHash,
 	}, nil
 }

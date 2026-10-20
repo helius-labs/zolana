@@ -99,6 +99,7 @@ mod tests {
         let nullifier_pubkey = key.pubkey().unwrap();
         let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 0).unwrap();
         SppProofInputUtxo {
+            address: false,
             utxo,
             nullifier_pubkey,
             utxo_hash,

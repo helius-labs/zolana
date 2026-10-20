@@ -28,7 +28,8 @@ use zolana_transaction::{
     owner_utxo_hash,
     serialization::proofless::{Proofless, ProoflessEncode},
     AssetRegistry, Data, EncryptedScheme, HistoryKind, Mint, OwnerCx, RingDepositPlaintext,
-    TransactionError, Utxo, UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
+    ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, SOL_ASSET_ID,
+    SOL_MINT,
 };
 
 const TREE: u16 = 2;
@@ -388,6 +389,28 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
 
     let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(utxos, vec![merged.hash]);
+    // Every spendable UTXO carries the output tree the indexer's pages name.
+    assert!(spendable
+        .utxos()
+        .all(|utxo| utxo.latest_tree_id == Some(TREE)));
+    // And, as `ShieldedKeys::spendable_utxos` attaches it, the transaction
+    // viewing key of a transaction it is the first input of.
+    let viewing_pubkey = address.viewing_pubkey;
+    let expected_keys: Vec<_> = spendable
+        .utxos()
+        .map(|utxo| {
+            owner
+                .transaction_keys(&[TransactionKeyRequest {
+                    viewing_pubkey,
+                    first_nullifier: utxo.nullifier,
+                }])
+                .unwrap()
+                .first()
+                .map(|key| *key.secret_bytes())
+        })
+        .collect();
+    let synced_keys: Vec<_> = spendable.utxos().map(|utxo| utxo.tx_viewing_key).collect();
+    assert_eq!(synced_keys, expected_keys);
     assert_eq!(
         spendable
             .balances
@@ -587,6 +610,10 @@ fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
 
     let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(utxos, vec![merged.hash]);
+    // Every spendable UTXO carries the output tree the indexer's pages name.
+    assert!(spendable
+        .utxos()
+        .all(|utxo| utxo.latest_tree_id == Some(TREE)));
     assert_eq!(
         spendable
             .balances

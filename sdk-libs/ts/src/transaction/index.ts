@@ -46,6 +46,7 @@ export type {
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,
+  SettlementTransfer,
   Shape,
 } from "./instructions/index.js";
 export {

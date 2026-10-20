@@ -34,12 +34,12 @@ impl MergeTransaction {
         )?;
 
         Ok(Self {
+            output_tree_id: WalletUtxo::default_output_tree_id(&inputs),
             inputs,
             validated_inputs,
             expiry_unix_ts: u64::MAX,
             ring_program_id: Some(ring_program_id),
             output_ring_data_hash,
-            output_tree_id: 0,
         })
     }
 }

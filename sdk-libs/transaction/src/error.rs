@@ -2,8 +2,47 @@ use solana_address::Address;
 use thiserror::Error;
 use zolana_keypair::KeypairError;
 
+/// Why an address input was refused. An address slot carries only a Solana
+/// signing owner and a canonical seed (its blinding), hashed under the address
+/// domain with a zero nullifier key; every other field must be empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum AddressInputError {
+    #[error("the slot is not an address input")]
+    NotAnAddress,
+    #[error("the address has no owner")]
+    MissingOwner,
+    #[error("the seed is not a canonical BN254 scalar")]
+    NonCanonicalSeed,
+    #[error("the nullifier pubkey is not the zero nullifier key's")]
+    NonZeroNullifierKey,
+    #[error("the amount is not zero")]
+    NonZeroAmount,
+    #[error("the asset is not the zero (SOL) mint")]
+    NonZeroAsset,
+    #[error("the address carries data")]
+    CarriesData,
+    #[error("the address carries a ring binding")]
+    CarriesRing,
+    #[error("an address cannot be compact padding")]
+    Compact,
+    #[error("an address cannot be read from a cache slot")]
+    CacheSlot,
+    #[error("the leaf index is not zero")]
+    NonZeroLeafIndex,
+    #[error("the UTXO hash does not match the address derivation")]
+    HashMismatch,
+    #[error("the nullifier does not match the address derivation")]
+    NullifierMismatch,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransactionError {
+    #[error("invalid address input: {0}")]
+    InvalidAddressInput(AddressInputError),
+    #[error(
+        "no owner signer or real output owner can name the padding outputs, and the outputs are fixed"
+    )]
+    NoDummyOwnerTagParticipant,
     #[error("unexpected discriminator: {0}")]
     BadDiscriminator(u8),
 
@@ -83,6 +122,11 @@ pub enum TransactionError {
 
     #[error("non-canonical BN254 scalar encoding")]
     NonCanonicalField,
+    #[error("owner tag count mismatch: {got} owner tag(s) for {expected} output(s)")]
+    OwnerTagCountMismatch { got: usize, expected: usize },
+
+    #[error("the keys do not hold the sender the transaction was finalized for")]
+    SenderAddressMismatch,
 
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
@@ -223,6 +267,9 @@ pub enum TransactionError {
     #[error("too many transaction assets: got {got}, max {max}")]
     TooManyAssets { got: usize, max: usize },
 
+    #[error("recipient owner key is the zero dummy marker")]
+    ZeroRecipientOwner,
+
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
@@ -234,9 +281,6 @@ pub enum TransactionError {
 
     #[error("too many outputs: got {got}, max {max}")]
     TooManyOutputsForShape { got: usize, max: usize },
-
-    #[error("merge input {index} has a different owner rail")]
-    MergeInputRailMismatch { index: usize },
 
     #[error("merge input {index} has a different owner than the merging keypair")]
     MergeInputOwnerMismatch { index: usize },
@@ -276,6 +320,9 @@ pub enum TransactionError {
 
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,
+
+    #[error("the first input has no synced transaction viewing key")]
+    MissingSyncedTransactionKey,
 
     /// Raised when the authority is built, not when it is used, so it is
     /// distinct from [`Self::MissingCurrentViewingKey`]: that one means a scan
@@ -331,6 +378,12 @@ pub enum TransactionError {
 
     #[error("wallet authority error: {0}")]
     Authority(String),
+}
+
+impl From<AddressInputError> for TransactionError {
+    fn from(e: AddressInputError) -> Self {
+        Self::InvalidAddressInput(e)
+    }
 }
 
 impl From<zolana_hasher::HasherError> for TransactionError {

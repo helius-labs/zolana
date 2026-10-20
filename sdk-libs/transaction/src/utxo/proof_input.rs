@@ -4,11 +4,12 @@ use zolana_hasher::{
     Hasher, Poseidon,
 };
 use zolana_interface::tree_slot::tree_id_field;
-use zolana_transaction::{
-    utxo::SppProofInputUtxo,
-    utxo::{program_id_proof_input_hash, DUMMY_DOMAIN, UTXO_DOMAIN},
-    Blinding, SppProofOutputUtxo, TransactionError,
+
+use super::{
+    program_id_proof_input_hash, Blinding, SppProofInputUtxo, SppProofOutputUtxo, DUMMY_DOMAIN,
+    UTXO_DOMAIN,
 };
+use crate::TransactionError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ProofInputUtxo {
@@ -97,6 +98,23 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     // A dummy carries only its domain tag and blinding: the circuit classifies
     // slots by domain and requires every other dummy field to be zero.
     fn try_from(input_utxo: &SppProofInputUtxo) -> Result<Self, Self::Error> {
+        // An address slot hashes its owner and seed (the blinding) under the
+        // address domain and its tree, every other field zero. On chain,
+        // `zolana_program::compression::NewAddress::derive` computes the same
+        // hash; a test pins the two together.
+        if input_utxo.is_address() {
+            input_utxo.check_address_fields()?;
+            return Ok(Self {
+                domain: right_align(&zolana_interface::ADDRESS_DOMAIN.to_be_bytes()),
+                tree_id: tree_id_field(input_utxo.tree_id),
+                owner_hash: zolana_keypair::hash::owner_hash(
+                    &input_utxo.utxo.owner,
+                    &input_utxo.nullifier_pubkey,
+                )?,
+                blinding: input_utxo.utxo.blinding,
+                ..Self::default()
+            });
+        }
         if input_utxo.is_dummy() {
             return Ok(ProofInputUtxo::dummy_fields(
                 &input_utxo.utxo.blinding,

@@ -20,7 +20,14 @@ def release_keys_stage(dockerfile: Path) -> str:
 class ProverImageTests(unittest.TestCase):
     def test_every_stage_is_pinned_by_digest(self):
         for dockerfile in DOCKERFILES:
-            bases = re.findall(r"^FROM (\S+)", dockerfile.read_text(), re.M)
+            text = dockerfile.read_text()
+            # A stage or a build argument naming one points back into the same file.
+            stages = set(re.findall(r"^FROM \S+ AS (\S+)$", text, re.M))
+            bases = [
+                base
+                for base in re.findall(r"^FROM (\S+)", text, re.M)
+                if base not in stages and not base.startswith("${")
+            ]
             self.assertTrue(bases, dockerfile.name)
             for base in bases:
                 self.assertRegex(base, r"@sha256:[0-9a-f]{64}$", dockerfile.name)

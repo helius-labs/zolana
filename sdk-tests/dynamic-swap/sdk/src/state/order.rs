@@ -117,6 +117,7 @@ impl EscrowUtxo {
         let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
         let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
         Ok(SppProofInputUtxo {
+            address: false,
             utxo,
             utxo_hash,
             nullifier,
@@ -190,6 +191,7 @@ impl Reservation {
         let utxo_hash = utxo.hash(&nullifier_pubkey, &data_hash, &[0; 32], tree_id)?;
         let nullifier = key.nullifier(&utxo_hash, &utxo.blinding)?;
         Ok(SppProofInputUtxo {
+            address: false,
             utxo,
             utxo_hash,
             nullifier,

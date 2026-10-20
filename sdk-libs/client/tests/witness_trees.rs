@@ -23,7 +23,9 @@
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
+    sync::mpsc,
     thread,
+    time::Duration,
 };
 
 use serde_json::{json, Value};
@@ -42,6 +44,7 @@ const INTERLEAVED: [(u16, u8); 4] = [(7, 10), (9, 11), (7, 12), (9, 13)];
 
 fn input(_index: usize, tree_id: u16, seed: u8) -> SppProofInputUtxo {
     SppProofInputUtxo {
+        address: false,
         utxo_hash: [seed; 32],
         nullifier: [seed | 0x80; 32],
         tree_id,
@@ -186,6 +189,54 @@ fn padding_without_a_real_input_is_refused() {
     ));
 }
 
+#[test]
+fn blocking_transaction_proofs_fetch_all_tree_proofs_concurrently() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
+    let url = format!(
+        "http://{}",
+        listener.local_addr().expect("mock indexer port")
+    );
+    let (send, requests) = mpsc::channel();
+    thread::spawn(move || {
+        for stream in listener.incoming().take(4) {
+            let send = send.clone();
+            thread::spawn(move || {
+                let mut stream = stream.expect("accept mock request");
+                let (path, body) = read_request(&mut stream).expect("read mock request");
+                send.send((stream, path, body)).expect("queue mock request");
+            });
+        }
+    });
+
+    let mut inputs = interleaved_inputs();
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    for input in &mut inputs {
+        input.utxo.owner = owner;
+    }
+    let expected = inputs.clone();
+    let reader = thread::spawn(move || ZolanaIndexer::new(url).transaction_proofs(&inputs, None));
+
+    // Two proof kinds for each tree must arrive before any response is sent.
+    // A sequential reader stalls here waiting for its first response.
+    let batch: Vec<_> = (0..4)
+        .map(|_| {
+            requests
+                .recv_timeout(Duration::from_secs(5))
+                .expect("all four proof requests must be in flight together")
+        })
+        .collect();
+    for (mut stream, path, body) in batch {
+        write_response(&mut stream, &echo_proofs(&path, &body, TreeAnswer::AsAsked));
+    }
+
+    let witnesses = reader
+        .join()
+        .expect("witness reader thread")
+        .expect("witnesses");
+    assert_in_input_order(&witnesses, &expected);
+    assert!(witnesses.dummy_nullifier_proofs.is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // A loopback indexer that answers out of the request.
 // ---------------------------------------------------------------------------
@@ -197,6 +248,10 @@ enum TreeAnswer {
     /// Name tree 0 whatever was asked for, so a reader that does not check the
     /// tree against the input's own id lets a foreign proof through.
     AlwaysTreeZero,
+    /// Answer every request with one proof more than it asked for. The
+    /// indexer client waits for a short answer, so only a long one reaches
+    /// the reader's count check.
+    ExtraProof,
 }
 
 fn encode(bytes: [u8; 32]) -> String {
@@ -210,13 +265,16 @@ fn echo_proofs(path: &str, body: &Value, answer: TreeAnswer) -> Value {
         .expect("request names a tree account")
         .to_string();
     let tree = match answer {
-        TreeAnswer::AsAsked => asked,
+        TreeAnswer::AsAsked | TreeAnswer::ExtraProof => asked,
         TreeAnswer::AlwaysTreeZero => bs58::encode(pda::tree(0).to_bytes()).into_string(),
     };
-    let leaves = params["leaves"]
+    let mut leaves = params["leaves"]
         .as_array()
         .cloned()
         .expect("request names leaves");
+    if let (TreeAnswer::ExtraProof, Some(first)) = (answer, leaves.first().cloned()) {
+        leaves.push(first);
+    }
     let proofs: Vec<Value> = leaves
         .iter()
         .map(|leaf| match path {
@@ -328,4 +386,74 @@ fn write_response(stream: &mut TcpStream, body: &Value) {
         body
     )
     .expect("write mock response");
+}
+
+#[test]
+fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
+    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let inputs: Vec<_> = [(7, 1u8), (9, 2), (7, 3)]
+        .into_iter()
+        .map(|(tree, seed)| {
+            SppProofInputUtxo::new_address(
+                owner,
+                zolana_hasher::primitives::right_align(&[seed]),
+                tree,
+            )
+            .unwrap()
+        })
+        .collect();
+    let witnesses = indexer.transaction_proofs(&inputs, None).unwrap();
+    assert!(witnesses.spend_proofs.is_empty());
+    assert_eq!(
+        witnesses
+            .dummy_nullifier_proofs
+            .iter()
+            .map(|proof| (proof.leaf, proof.merkle_context.tree))
+            .collect::<Vec<_>>(),
+        inputs
+            .iter()
+            .map(|input| (input.nullifier, pda::tree(input.tree_id)))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn async_address_only_transaction_fetches_its_tree() {
+    let indexer = AsyncZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let input = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
+    let witnesses = indexer
+        .transaction_proofs(std::slice::from_ref(&input), None)
+        .await
+        .unwrap();
+    assert!(witnesses.spend_proofs.is_empty());
+    assert_eq!(
+        witnesses
+            .dummy_nullifier_proofs
+            .first()
+            .map(|proof| (proof.leaf, proof.merkle_context.tree)),
+        Some((input.nullifier, pda::tree(7)))
+    );
+}
+
+/// State proofs cover only the slots that need inclusion, so a spend and an
+/// address in one tree expect one state proof and two nullifier proofs.
+#[test]
+fn incomplete_transaction_proofs_report_each_kind_separately() {
+    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::ExtraProof));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let mut spend = input(0, 7, 1);
+    spend.utxo.owner = owner;
+    let address = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
+    assert!(matches!(
+        indexer.transaction_proofs(&[spend, address], None),
+        Err(ClientError::IncompleteTransactionProofs {
+            tree_id: 7,
+            expected_state: 1,
+            state: 2,
+            expected_nullifier: 2,
+            nullifier: 3,
+        })
+    ));
 }

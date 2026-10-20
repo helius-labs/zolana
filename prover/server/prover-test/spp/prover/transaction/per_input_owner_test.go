@@ -77,22 +77,5 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	if entries[2].Sign() != 0 {
 		t.Fatalf("unused signer entry must be zero, got %v", entries[2])
 	}
-	if built.transcript.solanaOwnerPubkeys[0] == built.transcript.solanaOwnerPubkeys[1] {
-		t.Fatal("transcript owner pubkeys must differ")
-	}
 	solveAssignment(t, shape, built)
-}
-
-// Unknown nested owner fields fail while decoding the proof bundle.
-func TestRejectUnknownOwnerField(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		owner := ""
-		if explicit {
-			owner = `,"owner":"1"`
-		}
-		data := []byte(`{"inputs":[{"utxo":{"owner_unknown_key":"0x02"` + owner + `}}]}`)
-		if _, err := decodeProofBundleRequest(data); err == nil {
-			t.Fatal("unknown owner field accepted")
-		}
-	}
 }

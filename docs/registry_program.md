@@ -80,7 +80,7 @@ Wire format: one-byte instruction discriminator, then borsh instruction data (em
 | `rotate_sync_delegate_key` | 2 | active sync delegate | Appends a new entry; `sync_delegate` address unchanged. |
 | `revoke_sync_delegate` | 3 | owner OR active sync delegate | Clears `sync_delegate`. Existing `entries` are not modified. |
 
-No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The program only checks P-256 compressed prefixes (`0x02` / `0x03`) and canonical `nullifier_pubkey`. A malformed entry only harms the registrant.
+No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The program validates neither `viewing_pubkey` nor `nullifier_pubkey`. A malformed entry only harms the registrant.
 
 #### `register`
 
@@ -192,7 +192,7 @@ Senders translating a Solana address to a shielded viewing pubkey:
 1. Read the user-record PDA at `["zolana/registry/v0", owner]`. Absent → registry miss; fall back to no-registry behaviour.
 2. Use `UserRecord::sender_viewing_pubkey()` together with the owner's shielded identity hash from `owner`.
 
-Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
+Recipients restoring a wallet decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
 
 ### Notes
 
