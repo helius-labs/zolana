@@ -12,7 +12,13 @@ import {
 } from "@solana/kit";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import type { CustomRingSourceOwner } from "../src/client/index.js";
+import type {
+  CustomRingMergeAnonymousProofRequest,
+  CustomRingMergeSlot,
+  CustomRingRecordWitness,
+  CustomRingSourceOwner,
+  Prover,
+} from "../src/client/index.js";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
@@ -101,6 +107,15 @@ describe("public package surface", () => {
       readonly listId: number;
       readonly registry: Bytes32;
     }>();
+    expectTypeOf<Prover["proveCustomRingMergeAnonymous"]>()
+      .parameter(0)
+      .toEqualTypeOf<CustomRingMergeAnonymousProofRequest>();
+    expectTypeOf<CustomRingMergeAnonymousProofRequest["inputs"]>().toEqualTypeOf<
+      readonly CustomRingMergeSlot[]
+    >();
+    expectTypeOf<
+      CustomRingMergeAnonymousProofRequest["memberRecord"]
+    >().toEqualTypeOf<CustomRingRecordWitness>();
   });
 
   it("creates the default client and initializes protocol crypto", async () => {

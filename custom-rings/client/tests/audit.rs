@@ -328,7 +328,10 @@ fn disclosed_owner_hash(owner_key: [u8; 32], nullifier_pk: &[u8; 32]) -> [u8; 32
 /// One real anonymous slot, the body sealed to `recipient` as the sender does.
 struct AnonymousFixture {
     auditor: X25519Keypair,
+    tx_key: ViewingKey,
     recipient: ViewingKey,
+    anonymous_slot: RingAnonymousSlot,
+    note: RingAnonymousOutputPlaintext,
     opening: ProofInputUtxo,
     disclosure: AnonymousDisclosure,
     tx: ShieldedTransaction,
@@ -352,14 +355,13 @@ fn anonymous_fixture() -> AnonymousFixture {
         .expect("output opening")
         .with_ring([0; 32], &Some(ring))
         .expect("ring opening");
-    let body = RingAnonymousSlot {
+    let anonymous_slot = RingAnonymousSlot {
         tx_viewing_pk: tx_key.pubkey(),
         recipient_pk: recipient.pubkey(),
         salt: SALT,
         slot: 0,
-    }
-    .seal(&tx_key, &note)
-    .expect("anonymous body");
+    };
+    let body = anonymous_slot.seal(&tx_key, &note).expect("anonymous body");
     let message = ring_anonymous_message(&body, recipient.pubkey().u()).expect("message");
     let slot = OutputSlot {
         view_tag: message.view_tag,
@@ -386,7 +388,10 @@ fn anonymous_fixture() -> AnonymousFixture {
     );
     AnonymousFixture {
         auditor,
+        tx_key,
         recipient,
+        anonymous_slot,
+        note,
         opening,
         disclosure,
         tx,
@@ -414,6 +419,24 @@ impl AnonymousFixture {
         blob[1 + index] ^= mask;
         tx.output_slots[0].payload =
             borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).expect("payload");
+        tx
+    }
+
+    /// Neither the commitment nor the disclosure binds the pair hint.
+    fn with_pair_u(&self, pair_u: [u8; 32]) -> ShieldedTransaction {
+        let note = RingAnonymousOutputPlaintext {
+            pair_u,
+            ..self.note
+        };
+        let body = self
+            .anonymous_slot
+            .seal(&self.tx_key, &note)
+            .expect("anonymous body");
+        let mut tx = self.tx.clone();
+        let slot = &mut tx.output_slots[0];
+        slot.payload = ring_anonymous_message(&body, slot.view_tag)
+            .expect("message")
+            .data;
         tx
     }
 }
@@ -487,15 +510,36 @@ fn a_tampered_anonymous_body_is_a_payload_error_with_the_trace_intact() {
 #[test]
 fn a_bad_anonymous_pair_hint_keeps_the_output() {
     let fixture = anonymous_fixture();
-    // The top bit of the little-endian u coordinate, set only above the field.
-    let tx = fixture.tamper_body(103, 0x80);
-    let audited = fixture.audit(&tx).expect("pair hint is not fatal");
-    assert_eq!(
-        audited.payload_errors,
-        vec![payload_error(0, OutputPayloadErrorKind::PairHint)]
-    );
-    assert_eq!(audited.outputs.len(), 1);
-    assert_eq!(audited.output_openings, vec![fixture.opening.clone()]);
+    let mut low_order_one = [0; 32];
+    low_order_one[0] = 1;
+    for (case, pair_u) in [
+        ("outside the X25519 encoding", [0xff; 32]),
+        ("of low order zero", [0; 32]),
+        ("of low order one", low_order_one),
+    ] {
+        let audited = fixture
+            .audit(&fixture.with_pair_u(pair_u))
+            .expect("pair hint is not fatal");
+        assert_eq!(
+            audited.payload_errors,
+            vec![payload_error(0, OutputPayloadErrorKind::PairHint)],
+            "{case}"
+        );
+        assert_eq!(
+            audited
+                .outputs
+                .iter()
+                .map(|output| output.amount)
+                .collect::<Vec<_>>(),
+            vec![fixture.note.amount],
+            "{case}"
+        );
+        assert_eq!(
+            audited.output_openings,
+            vec![fixture.opening.clone()],
+            "{case}"
+        );
+    }
 }
 
 /// A scheme 3 exit of an anonymous ring opens from the disclosed owner and the confidential body.

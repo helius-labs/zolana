@@ -12,7 +12,7 @@ use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubke
 use zolana_transaction::{
     serialization::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
-        ring_anonymous::RingAnonymousSlot,
+        ring_anonymous::{pair_hint, RingAnonymousSlot},
     },
     AssetRegistry, Data, EncryptedScheme, OutputSlot, ShieldedTransaction, TransactionError,
 };
@@ -124,7 +124,7 @@ impl TransactionAudit<'_> {
                                 .payload_errors
                                 .push(OutputPayloadError { slot_index, kind }),
                         }
-                        if X25519Pubkey::from_u(note.pair_u).is_err() {
+                        if pair_hint(note.pair_u).is_none() {
                             audited.payload_errors.push(OutputPayloadError {
                                 slot_index,
                                 kind: OutputPayloadErrorKind::PairHint,

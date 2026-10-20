@@ -109,6 +109,8 @@ export type {
   CustomRingDeliveryOutput,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
+  CustomRingMergeAnonymousProofRequest,
+  CustomRingMergeSlot,
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,

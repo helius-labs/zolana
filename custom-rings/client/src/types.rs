@@ -80,7 +80,7 @@ pub enum OutputPayloadErrorKind {
     Commitment,
     /// The note's mint is not in the asset registry.
     Asset,
-    /// The opened `pair_u` is no X25519 point, the output is kept.
+    /// The opened `pair_u` names no contributory X25519 key, the output is kept.
     PairHint,
 }
 

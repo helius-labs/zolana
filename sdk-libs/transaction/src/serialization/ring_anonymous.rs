@@ -45,7 +45,7 @@ impl RingAnonymousOutput {
 }
 
 /// `None` unless `pair_u` is a canonical contributory X25519 key, the circuit only bounds its bytes.
-pub(crate) fn pair_hint(pair_u: [u8; 32]) -> Option<X25519Pubkey> {
+pub fn pair_hint(pair_u: [u8; 32]) -> Option<X25519Pubkey> {
     let pair_pk = X25519Pubkey::from_u(pair_u).ok()?;
     // Clamped secrets are cofactor multiples below 8q, so one fixed secret rejects exactly the low-order keys every secret rejects.
     X25519Keypair::from_bytes(&[0; 32]).ecdh(&pair_pk).ok()?;
