@@ -34,7 +34,7 @@ import {
   type SyncReport,
   type Wallet,
 } from "../transaction/wallet/state.js";
-import { decryptTransactions } from "../transaction/wallet/sync.js";
+import { decryptTransactions, resolvePendingNotes } from "../transaction/wallet/sync.js";
 
 import { AnonymousStreams, type AnonymousRingState } from "./anonymous-sync.js";
 import { WalletError, wrapWalletError } from "./error.js";
@@ -192,13 +192,14 @@ function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   return [...nullifiers.values()];
 }
 
-/** A pending anonymous note names its mint, the registry backfill registers it. */
-function unresolvedAssets(report: SyncReport): boolean {
-  return (
-    report.unknownAssetIds.length > 0 ||
-    report.unknownAssetFields.length > 0 ||
-    report.pendingAssets.length > 0
-  );
+/** An output under an unknown id or field is not stored, a commit would skip it until a rescan. */
+function unknownAssets(report: SyncReport): boolean {
+  return report.unknownAssetIds.length > 0 || report.unknownAssetFields.length > 0;
+}
+
+/** A pending note names its mint, the registry backfill registers it. */
+function needsRegistry(report: SyncReport, wallet: Wallet): boolean {
+  return unknownAssets(report) || wallet.pendingNotes().length > 0 || walletHasUnknownMint(wallet);
 }
 
 function walletHasUnknownMint(wallet: Wallet): boolean {
@@ -584,7 +585,7 @@ async function runWalletSync(
       context,
     });
     let registryRefreshed = false;
-    if (unresolvedAssets(report) || walletHasUnknownMint(session.staging)) {
+    if (needsRegistry(report, session.staging)) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
@@ -596,6 +597,8 @@ async function runWalletSync(
         });
       }
     }
+    // Before the follow-up scan, an admitted note's spend is found this sync.
+    await resolvePendingNotes({ wallet: session.staging, keys, context });
 
     // A transaction found by a stable tag can create a UTXO that another
     // device already spent. Query each newly discovered nullifier once, then
@@ -616,10 +619,7 @@ async function runWalletSync(
         config: decryptConfig,
         context,
       });
-      if (
-        !registryRefreshed &&
-        (unresolvedAssets(report) || walletHasUnknownMint(session.staging))
-      ) {
+      if (!registryRefreshed && needsRegistry(report, session.staging)) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,
@@ -695,14 +695,10 @@ async function runWalletSync(
       }
       report = Object.freeze({ ...report, anonymousRing: streams.finish() });
     }
-    // An unresolved asset means a fetched UTXO was not stored. A commit would
-    // advance the cursors past it and lose the UTXO until a full rescan.
-    if (unresolvedAssets(report) || walletHasUnknownMint(session.staging)) {
+    // A pending note commits with the wallet, only an unknown id or field loses a UTXO.
+    if (unknownAssets(report) || walletHasUnknownMint(session.staging)) {
       throw new WalletError("WALLET_UNRESOLVED_ASSET", {
-        details: {
-          unknownAssetIds: report.unknownAssetIds.map(String),
-          pendingMints: report.pendingAssets.map((note) => note.utxo.asset),
-        },
+        details: { unknownAssetIds: report.unknownAssetIds.map(String) },
       });
     }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);

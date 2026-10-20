@@ -44,6 +44,7 @@ import {
   type AnonymousTagRoutes,
   type PendingAnonymousNote,
 } from "./anonymous.js";
+import { deriveAnswers, wipeByteAnswers } from "./key-batch.js";
 import { KeyMemo } from "./key-memo.js";
 import {
   LocalShieldedKeys,
@@ -1183,12 +1184,18 @@ class SyncPass {
       this.undecryptableCandidates++;
       return;
     }
-    if (!this.#knowsMint(utxo.asset)) {
+    if (!knowsMint(this.#assets, utxo.asset)) {
       this.#pendingAssetsBySite.set(
         siteKey,
         Object.freeze({
           utxo,
-          outputContext,
+          nullifierPublicKey: copy(this.#nullifierPublicKey),
+          outputContext: Object.freeze({
+            hash: copy(outputContext.hash),
+            tree: outputContext.tree,
+            treeId,
+            leafIndex: outputContext.leafIndex,
+          }),
           txSignature: tx.txSignature,
           slot: tx.slot,
           slotIndex: site.slot,
@@ -1209,18 +1216,6 @@ class SyncPass {
       stream: route.stream,
     });
     if (route.stream.kind !== "change") this.#recordReceived(tx, site.slot, pairPublicKey, utxo);
-  }
-
-  #knowsMint(mint: Address): boolean {
-    try {
-      this.#assets.assetId(mint);
-      return true;
-    } catch (error) {
-      if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_MINT") {
-        return false;
-      }
-      throw error;
-    }
   }
 
   /**
@@ -1335,6 +1330,7 @@ function commitPass(
     transactions,
     nullifiers,
     viewingKeyHistory,
+    pendingNotes: [...current.pendingNotes, ...pass.pendingAssets()],
     lastSynced: input.config?.syncedAt ?? 0n,
   });
   return Object.freeze({
@@ -1345,6 +1341,81 @@ function commitPass(
     unknownAssetFields: pass.unknownAssetFields(),
     pendingAssets: pass.pendingAssets(),
   });
+}
+
+/** A pending note admitted by `resolvePendingNotes`. */
+export interface ResolvedPendingNote {
+  readonly utxo: WalletUtxo;
+  /** Its nullifier was among the wallet's spent ones before it was admitted. */
+  readonly spent: boolean;
+}
+
+/** Admits every pending note whose mint the registry now knows, a failed step leaves the wallet unchanged. */
+export async function resolvePendingNotes(
+  input: Readonly<{ wallet: Wallet; keys: ShieldedKeys; context?: RequestContext | undefined }>,
+): Promise<readonly ResolvedPendingNote[]> {
+  checkKeysIdentity(input.keys, input.wallet.identity);
+  const revision = input.wallet._revision;
+  const current = input.wallet._state();
+  const registry = input.wallet.registry;
+  const admitted = current.pendingNotes.filter((note) => knowsMint(registry, note.utxo.asset));
+  if (admitted.length === 0) return [];
+  const answers = await input.keys.derive(
+    admitted.map((note) => ({
+      kind: "nullifier",
+      utxoHash: note.outputContext.hash,
+      blinding: note.utxo.blinding,
+    })),
+    input.context,
+  );
+  let nullifiers: readonly Bytes32[];
+  try {
+    nullifiers = deriveAnswers(
+      answers,
+      admitted.length,
+      () => new TransactionError("TRANSACTION_KEYS_BATCH_MISMATCH"),
+    );
+    if (input.wallet._revision !== revision) {
+      throw new TransactionError("TRANSACTION_WALLET_STATE_STALE");
+    }
+  } catch (cause) {
+    wipeByteAnswers(answers);
+    throw cause;
+  }
+  const resolved = admitted.map((note, index): ResolvedPendingNote => {
+    const nullifier = nullifiers[index]!;
+    const spent = current.nullifiers.has(hex(nullifier));
+    return Object.freeze({
+      utxo: Object.freeze({
+        utxo: note.utxo,
+        outputContext: Object.freeze({
+          hash: note.outputContext.hash,
+          tree: note.outputContext.tree,
+          leafIndex: note.outputContext.leafIndex,
+        }),
+        nullifier,
+        spent,
+      }),
+      spent,
+    });
+  });
+  input.wallet._replace({
+    ...current,
+    utxos: [...current.utxos, ...resolved.map((note) => note.utxo)],
+  });
+  return resolved;
+}
+
+function knowsMint(registry: AssetRegistry, mint: Address): boolean {
+  try {
+    registry.assetId(mint);
+    return true;
+  } catch (error) {
+    if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_MINT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function decryptTransactionsWorkerEquivalent(

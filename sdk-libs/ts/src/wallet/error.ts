@@ -50,6 +50,7 @@ export const WALLET_ERROR_CODES = [
   "WALLET_RECIPIENT_CLIENT_REQUIRED",
   "WALLET_RECIPIENT_NOT_REGISTERED",
   "WALLET_RECOVERY_BEHIND_HEAD",
+  "WALLET_RECOVERY_FOREIGN_ROW",
   "WALLET_RECOVERY_INCOMPLETE",
   /** Fails the recovery scan, the tag scan reports the slot in `malformedSlots` and continues. */
   "WALLET_RECOVERY_MALFORMED_SLOT",

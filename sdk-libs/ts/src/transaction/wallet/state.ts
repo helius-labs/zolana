@@ -90,6 +90,7 @@ export interface SyncDelta {
   readonly transactions: readonly PrivateTransaction[];
   readonly nullifiers: ReadonlySet<string>;
   readonly viewingKeyHistory: readonly ViewingKeyEntry[];
+  readonly pendingNotes: readonly PendingAnonymousNote[];
   readonly lastSynced: bigint;
   readonly cursors: SyncCursorAdvances;
   readonly registryAdditions: readonly Readonly<{ assetId: bigint; mint: Address }>[];
@@ -130,7 +131,7 @@ export interface SyncReport {
    * `unknownAssetIds` is non-empty.
    */
   readonly unknownAssetFields: readonly Bytes32[];
-  /** Verified anonymous ring notes held back until the registry backfill knows their mint. */
+  /** Verified anonymous ring notes this pass found in an unregistered mint, the wallet keeps them in `pendingNotes`. */
   readonly pendingAssets: readonly PendingAnonymousNote[];
   /** Present when the sync was given an `AnonymousRingState`. */
   readonly anonymousRing?: AnonymousRingReport;
@@ -200,12 +201,26 @@ function snapshotUtxo(value: WalletUtxo): WalletUtxo {
   });
 }
 
+function snapshotPendingNote(value: PendingAnonymousNote): PendingAnonymousNote {
+  return Object.freeze({
+    ...value,
+    utxo: copyUtxo(value.utxo),
+    nullifierPublicKey: copy(value.nullifierPublicKey),
+    outputContext: Object.freeze({
+      ...value.outputContext,
+      hash: copy(value.outputContext.hash),
+    }),
+    pairU: copy(value.pairU),
+  });
+}
+
 export class Wallet {
   readonly identity: ShieldedAddress;
   readonly #registry: AssetRegistry;
   #viewingKeyHistory: ViewingKeyEntry[];
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
+  #pendingNotes: PendingAnonymousNote[] = [];
   #nullifiers = new Set<string>();
   #lastSynced = 0n;
   /**
@@ -319,6 +334,11 @@ export class Wallet {
     return this.#utxos.map(snapshotUtxo);
   }
 
+  /** Verified anonymous ring notes in a mint the registry does not know, never counted in a balance. */
+  pendingNotes(): readonly PendingAnonymousNote[] {
+    return this.#pendingNotes.map(snapshotPendingNote);
+  }
+
   privateTransactions(): readonly PrivateTransaction[] {
     return this.#transactions.map((transaction) =>
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
@@ -402,18 +422,20 @@ export class Wallet {
     transactions: readonly PrivateTransaction[];
     nullifiers: ReadonlySet<string>;
     viewingKeyHistory: readonly ViewingKeyEntry[];
+    pendingNotes: readonly PendingAnonymousNote[];
   }> {
     return {
       utxos: this.#utxos.map(snapshotUtxo),
       transactions: this.privateTransactions(),
       nullifiers: new Set(this.#nullifiers),
       viewingKeyHistory: this.viewingKeyHistory,
+      pendingNotes: this.pendingNotes(),
     };
   }
 
   /**
-   * Omitting `viewingKeyHistory` leaves retained viewing-key history untouched, and
-   * omitting `lastSynced` leaves the sync timestamp untouched.
+   * Omitting `viewingKeyHistory`, `pendingNotes` or `lastSynced` leaves it
+   * untouched, a pending note whose commitment is now held is dropped.
    * @internal
    */
   _replace(
@@ -422,6 +444,7 @@ export class Wallet {
       transactions: readonly PrivateTransaction[];
       nullifiers: ReadonlySet<string>;
       viewingKeyHistory?: readonly ViewingKeyEntry[];
+      pendingNotes?: readonly PendingAnonymousNote[];
       lastSynced?: bigint;
     }>,
   ): void {
@@ -452,6 +475,15 @@ export class Wallet {
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
     }
+    const pending = new Map(
+      (input.pendingNotes ?? this.#pendingNotes).map((note) => [
+        hex(note.outputContext.hash),
+        note,
+      ]),
+    );
+    this.#pendingNotes = [...pending]
+      .filter(([hash]) => !hashes.has(hash))
+      .map(([, note]) => snapshotPendingNote(note));
     if (input.lastSynced !== undefined) {
       this.#lastSynced = input.lastSynced;
     }
@@ -636,6 +668,7 @@ export class Wallet {
       transactions: delta.transactions,
       nullifiers: delta.nullifiers,
       viewingKeyHistory: delta.viewingKeyHistory,
+      pendingNotes: delta.pendingNotes,
       lastSynced: delta.lastSynced,
     });
   }

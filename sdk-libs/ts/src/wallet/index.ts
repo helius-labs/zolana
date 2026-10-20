@@ -77,6 +77,7 @@ export {
   type AnonymousRingTransferInput,
   type EncryptedAnonymousRingTransfer,
 } from "../transaction/wallet/anonymous-ring.js";
+export { resolvePendingNotes, type ResolvedPendingNote } from "../transaction/wallet/sync.js";
 export {
   recoverAnonymousRing,
   type AnonymousRecoveryClient,

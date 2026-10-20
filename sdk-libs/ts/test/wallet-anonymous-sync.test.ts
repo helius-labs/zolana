@@ -26,8 +26,9 @@ import {
   type DecryptRequest,
   type RingTagKeys,
 } from "../src/transaction/wallet/keys.js";
+import { deserializeWallet, serializeWallet } from "../src/transaction/wallet/persistence.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
-import { decryptTransactions } from "../src/transaction/wallet/sync.js";
+import { decryptTransactions, resolvePendingNotes } from "../src/transaction/wallet/sync.js";
 import { recoverAnonymousRing } from "../src/wallet/anonymous-recovery.js";
 import { ADDRESS_GAP, DECRYPTIONS_PER_INDEX } from "../src/wallet/anonymous-sync.js";
 import { syncWallet } from "../src/wallet/sync.js";
@@ -240,6 +241,47 @@ function hex(value: Uint8Array): string {
 
 const freshState = { issuedAddresses: 0, knownCounterparties: [] } as const;
 
+const UNREGISTERED_MINT = address("So11111111111111111111111111111111111111112");
+
+/** A verified inbox payment to `recipient` in a mint the registry does not know. */
+function unknownMintPayment(recipient: ShieldedKeypair) {
+  const paid = note(recipient, 10n, 12, UNREGISTERED_MINT);
+  const { tx } = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 12);
+  const payment = {
+    ...tx,
+    outputSlots: [
+      anonymousSlotWithHint(
+        keypair(12).viewingKey(),
+        recipient.viewingPublicKey(),
+        paid,
+        inboxTag(recipient, 0, 0n),
+        0,
+        pairPublicKeyOf(keypair(2), recipient).u(),
+      ),
+    ],
+  };
+  const routes = new AnonymousTagRoutes();
+  routes.route(inboxTag(recipient, 0, 0n), [recipient.viewingPublicKey()], {
+    kind: "inbox",
+    addressIndex: 0,
+  });
+  return { paid, payment, routes };
+}
+
+/** A wallet of `recipient` holding the unknown-mint payment as a pending note. */
+async function pendingWallet(recipient: ShieldedKeypair) {
+  const fixture = unknownMintPayment(recipient);
+  const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+  const keys = LocalShieldedKeys.fromKeypair(recipient);
+  await decryptTransactions({
+    wallet,
+    keys,
+    transactions: [fixture.payment],
+    anonymous: fixture.routes,
+  });
+  return { ...fixture, wallet, keys };
+}
+
 describe("tag stream occupancy", () => {
   it("counts an undecryptable or colliding output as occupied and finds the first free index", async () => {
     const owner = keypair(1);
@@ -375,29 +417,10 @@ describe("anonymous ring sync", () => {
 
   it("holds a verified note with an unknown mint until the mint is registered", async () => {
     const recipient = keypair(1);
-    const mint = address("So11111111111111111111111111111111111111112");
-    const paid = note(recipient, 10n, 12, mint);
-    const { tx } = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 12);
-    const payment = {
-      ...tx,
-      outputSlots: [
-        anonymousSlotWithHint(
-          keypair(12).viewingKey(),
-          recipient.viewingPublicKey(),
-          paid,
-          inboxTag(recipient, 0, 0n),
-          0,
-          pairPublicKeyOf(keypair(2), recipient).u(),
-        ),
-      ],
-    };
+    const mint = UNREGISTERED_MINT;
+    const { paid, payment, routes } = unknownMintPayment(recipient);
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(recipient);
-    const routes = new AnonymousTagRoutes();
-    routes.route(inboxTag(recipient, 0, 0n), [recipient.viewingPublicKey()], {
-      kind: "inbox",
-      addressIndex: 0,
-    });
 
     const held = await decryptTransactions({
       wallet,
@@ -423,6 +446,76 @@ describe("anonymous ring sync", () => {
     });
     expect(stored.pendingAssets).toEqual([]);
     expect(unspentHashes(wallet)).toEqual([hex(paid.hash)]);
+    expect(wallet.pendingNotes()).toEqual([]);
+  });
+
+  it("keeps a pending note across a save and admits it once the mint is registered", async () => {
+    const recipient = keypair(1);
+    const { paid, wallet, keys } = await pendingWallet(recipient);
+    const loaded = deserializeWallet(serializeWallet(wallet));
+    expect(loaded.pendingNotes()).toEqual(wallet.pendingNotes());
+    expect(loaded.pendingNotes()[0]?.nullifierPublicKey).toEqual(recipient.nullifierPublicKey());
+    const older = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
+    older["version"] = 4;
+    delete older["pendingNotes"];
+    expect(deserializeWallet(JSON.stringify(older)).pendingNotes()).toEqual([]);
+
+    expect(await resolvePendingNotes({ wallet: loaded, keys })).toEqual([]);
+    expect(loaded.pendingNotes()).toHaveLength(1);
+    loaded.registerAsset(7n, UNREGISTERED_MINT);
+    const resolved = await resolvePendingNotes({ wallet: loaded, keys });
+
+    expect(resolved.map((entry) => entry.spent)).toEqual([false]);
+    expect(resolved[0]?.utxo.nullifier).toEqual(paid.nullifier);
+    expect(loaded.pendingNotes()).toEqual([]);
+    expect(unspentHashes(loaded)).toEqual([hex(paid.hash)]);
+    expect(loaded.balances()).toEqual([]);
+    expect(loaded.ringBalances()[0]?.assets.map((balance) => balance.amount)).toEqual([10n]);
+  });
+
+  it("reports a pending note spent in the meantime as spent", async () => {
+    const recipient = keypair(1);
+    const { paid, wallet, keys } = await pendingWallet(recipient);
+    const spend = transaction(keypair(30).viewingKey(), 30, [paid.nullifier], []);
+    await decryptTransactions({ wallet, keys, transactions: [spend] });
+    expect(wallet.pendingNotes()).toHaveLength(1);
+    wallet.registerAsset(7n, UNREGISTERED_MINT);
+
+    const resolved = await resolvePendingNotes({ wallet, keys });
+    expect(resolved.map((entry) => entry.spent)).toEqual([true]);
+    expect(wallet.pendingNotes()).toEqual([]);
+    expect(unspentHashes(wallet)).toEqual([]);
+    expect(wallet.utxos().map((entry) => entry.spent)).toEqual([true]);
+  });
+
+  it("leaves pending state intact when a resolve step fails", async () => {
+    const recipient = keypair(1);
+    const { wallet, keys } = await pendingWallet(recipient);
+    wallet.registerAsset(7n, UNREGISTERED_MINT);
+    const before = wallet.pendingNotes();
+    const failing = (derive: RingTagKeys["derive"]): RingTagKeys => ({
+      address: () => keys.address(),
+      viewingPublicKeys: () => keys.viewingPublicKeys(),
+      decrypt: (requests) => keys.decrypt(requests),
+      derive,
+      transactionKeys: (requests) => keys.transactionKeys(requests),
+      ringViewTags: (requests) => keys.ringViewTags(requests),
+    });
+
+    await expect(
+      resolvePendingNotes({
+        wallet,
+        keys: failing(async () => {
+          throw new Error("derive");
+        }),
+      }),
+    ).rejects.toThrow("derive");
+    expect(wallet.pendingNotes()).toEqual(before);
+    await expect(
+      resolvePendingNotes({ wallet, keys: failing(async () => []) }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_BATCH_MISMATCH" });
+    expect(wallet.pendingNotes()).toEqual(before);
+    expect(wallet.utxos()).toEqual([]);
   });
 
   it("finds change from the nullifiers of a fresh wallet", async () => {
@@ -817,6 +910,46 @@ describe("anonymous ring sync", () => {
       recoverAnonymousRing({ wallet, keys, client: unframed, ringProgramId: RING, head: 1n }),
     ).rejects.toMatchObject({ causeCode: "WALLET_RECOVERY_INCOMPLETE" });
     expect(wallet.utxos()).toEqual([]);
+  });
+
+  it("fails recovery on a row of another ring or of none, past the head too", async () => {
+    const recipient = keypair(1);
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+    const paid = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 11);
+    const { ringProgramId: _ring, ...ringless } = paid.tx;
+    const foreign = { ...paid.tx, ringProgramId: address("11111111111111111111111111111111") };
+    const page = (transactions: readonly IndexedShieldedTransaction[]) =>
+      syncReads({
+        getShieldedTransactionsByTags: async () => ({
+          context: { ...CONTEXT, slot: 20n },
+          transactions,
+          scannedThrough: Uint8Array.of(1),
+        }),
+      });
+    for (const served of [foreign, ringless, { ...foreign, slot: 30n, proofless: true }]) {
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      const failure = await recoverAnonymousRing({
+        wallet,
+        keys,
+        client: page([paid.tx, served]),
+        ringProgramId: RING,
+        head: 20n,
+      }).catch((error: unknown) => error);
+      expect(failure).toMatchObject({ causeCode: "WALLET_RECOVERY_FOREIGN_ROW" });
+      expect((failure as { cause: { details: unknown } }).cause.details).toEqual({
+        transaction: SIGNATURE,
+      });
+      expect(wallet.utxos()).toEqual([]);
+    }
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    await recoverAnonymousRing({
+      wallet,
+      keys,
+      client: page([paid.tx]),
+      ringProgramId: RING,
+      head: 20n,
+    });
+    expect(unspentHashes(wallet)).toEqual([hex(paid.paid.hash)]);
   });
 
   it("completes recovery only once the indexer reaches the head", async () => {

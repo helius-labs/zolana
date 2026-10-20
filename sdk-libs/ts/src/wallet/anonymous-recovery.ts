@@ -40,7 +40,7 @@ export interface AnonymousRingRecoveryReport {
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
 
-/** Tries every scheme-9 slot of every confirmed ring transaction through `head` under every held viewing key regardless of tag, fails on an uncovered head or a slot the ring program refuses, trusts the indexer for completeness. */
+/** Tries every scheme-9 slot of every confirmed ring transaction through `head` under every held viewing key regardless of tag, fails on an uncovered head, a row of another ring or a slot the ring program refuses, trusts the indexer for completeness. */
 export async function recoverAnonymousRing(
   params: AnonymousRingRecoveryParams,
   context?: RequestContext,
@@ -108,6 +108,11 @@ async function ringHistory(
       context,
     );
     for (const tx of response.transactions) {
+      if (tx.ringProgramId !== params.ringProgramId) {
+        throw new WalletError("WALLET_RECOVERY_FOREIGN_ROW", {
+          details: { transaction: tx.txSignature },
+        });
+      }
       if (tx.proofless || tx.slot > params.head) continue;
       const malformed = malformedAnonymousSlots(tx)[0];
       if (malformed !== undefined) {

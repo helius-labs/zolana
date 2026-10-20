@@ -1,6 +1,6 @@
-import type { Bytes32, Signature } from "../../interface/types.js";
+import type { Address, Bytes32, Signature } from "../../interface/types.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
-import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
+import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import {
   EncryptedScheme,
   RING_ANONYMOUS_PLAINTEXT_LENGTH,
@@ -27,10 +27,16 @@ export interface AnonymousNote {
   readonly stream: AnonymousStream;
 }
 
-/** A commitment-verified scheme-9 note whose mint the registry does not know yet, registering the mint and decrypting again stores it. */
+/** A commitment-verified scheme-9 note whose mint the registry does not know yet, the wallet keeps it until `resolvePendingNotes` admits it. */
 export interface PendingAnonymousNote {
   readonly utxo: Utxo;
-  readonly outputContext: OutputContext;
+  readonly nullifierPublicKey: Bytes32;
+  readonly outputContext: Readonly<{
+    hash: Bytes32;
+    tree: Address;
+    treeId: number;
+    leafIndex: bigint;
+  }>;
   readonly txSignature: Signature;
   readonly slot: bigint;
   readonly slotIndex: number;

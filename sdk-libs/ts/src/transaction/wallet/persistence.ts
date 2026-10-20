@@ -11,6 +11,7 @@ import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry, SOL_ASSET_ID } from "../asset.js";
+import type { PendingAnonymousNote } from "./anonymous.js";
 import {
   Wallet,
   hex,
@@ -56,6 +57,23 @@ interface SerializedWalletUtxo {
   readonly spent: boolean;
 }
 
+interface SerializedPendingNote {
+  readonly asset: Address;
+  readonly amount: string;
+  readonly blinding: string;
+  readonly ringProgramId: Address;
+  readonly outputContext: Readonly<{
+    hash: string;
+    tree: Address;
+    treeId: number;
+    leafIndex: string;
+  }>;
+  readonly slot: string;
+  readonly signature: Signature;
+  readonly slotIndex: number;
+  readonly pairU: string;
+}
+
 interface SerializedPrivateTransaction {
   readonly id: Readonly<{
     signature: Signature;
@@ -95,7 +113,7 @@ export interface SerializedNoteReservation {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 4;
+  readonly version: 5;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -117,13 +135,15 @@ export interface SerializedWalletState {
     signature: Signature;
     lastValidBlockHeight: string;
   }>[];
+  /** Owner and nullifier key are the identity's. */
+  readonly pendingNotes: readonly SerializedPendingNote[];
 }
 
 export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 4,
+    version: 5,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -159,6 +179,7 @@ export function serializeWallet(wallet: Wallet): string {
         expiresAtMs: reservation.expiresAtMs?.toString() ?? null,
       }))
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    pendingNotes: state.pendingNotes.map(serializePendingNote),
   };
   return JSON.stringify(snapshot);
 }
@@ -183,7 +204,7 @@ export function deserializeWallet(serialized: string): Wallet {
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
   const version = snapshot["version"];
-  if (version !== 2 && version !== 3 && version !== 4) fail("version");
+  if (version !== 2 && version !== 3 && version !== 4 && version !== 5) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -230,12 +251,24 @@ function hydrate(value: unknown): Wallet {
       ? entry
       : Object.freeze({ ...entry, spent: true }),
   );
+  const pendingNotes =
+    version === 5
+      ? array(snapshot["pendingNotes"], "pendingNotes").map((entry, index) =>
+          deserializePendingNote(entry, index, identity),
+        )
+      : [];
+  if (
+    new Set(pendingNotes.map((note) => hex(note.outputContext.hash))).size !== pendingNotes.length
+  ) {
+    fail("pendingNotes");
+  }
   const wallet = new Wallet({ identity, registry });
   wallet._replace({
     utxos,
     transactions,
     nullifiers,
     viewingKeyHistory,
+    pendingNotes,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
   // Version 2 predates persisted cursors, its first sync rescans history once.
@@ -246,7 +279,7 @@ function hydrate(value: unknown): Wallet {
       hydrateReservations(wallet, snapshot["reservations"], version);
     }
   }
-  if (version === 4) {
+  if (version >= 4) {
     const seen = new Set<string>();
     for (const [index, entry] of array(
       snapshot["pendingSubmissions"],
@@ -327,7 +360,7 @@ function hydrateReservations(wallet: Wallet, value: unknown, version: number): v
         id,
         utxoHashes,
         expiresAtMs:
-          version === 4 && item["expiresAtMs"] === null
+          version >= 4 && item["expiresAtMs"] === null
             ? null
             : signed(item["expiresAtMs"], `${path}.expiresAtMs`),
       });
@@ -435,6 +468,59 @@ function deserializeUtxo(value: unknown, index: number): WalletUtxo {
   };
 }
 
+function serializePendingNote(value: PendingAnonymousNote): SerializedPendingNote {
+  if (value.utxo.ringProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
+  }
+  return {
+    asset: value.utxo.asset,
+    amount: value.utxo.amount.toString(),
+    blinding: encode(value.utxo.blinding),
+    ringProgramId: value.utxo.ringProgramId,
+    outputContext: {
+      hash: encode(value.outputContext.hash),
+      tree: value.outputContext.tree,
+      treeId: value.outputContext.treeId,
+      leafIndex: value.outputContext.leafIndex.toString(),
+    },
+    slot: value.slot.toString(),
+    signature: value.txSignature,
+    slotIndex: value.slotIndex,
+    pairU: encode(value.pairU),
+  };
+}
+
+function deserializePendingNote(
+  value: unknown,
+  index: number,
+  identity: ShieldedAddress,
+): PendingAnonymousNote {
+  const path = `pendingNotes[${String(index)}]`;
+  const entry = record(value, path);
+  const context = record(entry["outputContext"], `${path}.outputContext`);
+  return {
+    utxo: new Utxo({
+      owner: identity.signingPublicKey,
+      asset: address(entry["asset"], `${path}.asset`),
+      amount: unsigned(entry["amount"], `${path}.amount`),
+      blinding: bytes(entry["blinding"], 32, `${path}.blinding`) as Bytes32,
+      data: new Data(),
+      ringProgramId: address(entry["ringProgramId"], `${path}.ringProgramId`),
+    }),
+    nullifierPublicKey: identity.nullifierPublicKey,
+    outputContext: {
+      hash: bytes(context["hash"], 32, `${path}.outputContext.hash`) as Bytes32,
+      tree: address(context["tree"], `${path}.outputContext.tree`),
+      treeId: integer(context["treeId"], 0xffff, `${path}.outputContext.treeId`),
+      leafIndex: unsigned(context["leafIndex"], `${path}.outputContext.leafIndex`),
+    },
+    slot: unsigned(entry["slot"], `${path}.slot`),
+    txSignature: signature(entry["signature"], `${path}.signature`),
+    slotIndex: integer(entry["slotIndex"], 0xffff_ffff, `${path}.slotIndex`),
+    pairU: bytes(entry["pairU"], 32, `${path}.pairU`) as Bytes32,
+  };
+}
+
 function serializeTransaction(value: PrivateTransaction): SerializedPrivateTransaction {
   return {
     id: {
@@ -525,6 +611,13 @@ function signed(value: unknown, field: string): bigint {
   const parsed = decimal(value, field);
   if (parsed < I64_MIN || parsed > I64_MAX) fail(field);
   return parsed;
+}
+
+function integer(value: unknown, maximum: number, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > maximum) {
+    fail(field);
+  }
+  return value;
 }
 
 function decimal(value: unknown, field: string): bigint {

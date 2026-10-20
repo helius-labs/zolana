@@ -64,7 +64,9 @@ export {
   decryptToBalances,
   decryptTransactions,
   decryptTransactionsWorkerEquivalent,
+  resolvePendingNotes,
   type PrivateBalances,
+  type ResolvedPendingNote,
 } from "./sync.js";
 export { Wallet } from "./state.js";
 export type {
