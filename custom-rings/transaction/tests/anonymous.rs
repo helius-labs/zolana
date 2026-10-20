@@ -6,7 +6,9 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_event::OutputDataEncoding;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
+use zolana_interface::instruction::instruction_data::transact::{
+    ring_anonymous_encrypted_output_body, OwnerTag,
+};
 use zolana_keypair::{
     RingAddress, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
@@ -86,6 +88,28 @@ fn encrypt_anonymous(
         encoder: view_tags,
     }
     .encrypt(transaction)
+}
+
+const RING: Address = Address::new_from_array([42; 32]);
+
+struct Payment<'a> {
+    from: &'a ShieldedKeypair,
+    to: ShieldedAddress,
+}
+
+impl Payment<'_> {
+    fn seal(self, view_tags: &AnonymousViewTags) -> Result<SppProofInputs, E> {
+        let input = wallet_utxo(self.from, Mint::SOL, 10, 7, 1);
+        let key = self
+            .from
+            .viewing_key
+            .get_transaction_viewing_key(&input.nullifier)
+            .unwrap();
+        let mut tx =
+            ConfidentialTransaction::new_with_ring(vec![input], payer(self.from), RING).unwrap();
+        tx.transfer_sol(&self.to, 3).unwrap();
+        encrypt_anonymous(tx, &self.from.shielded_address().unwrap(), &key, view_tags)
+    }
 }
 
 #[test]
@@ -420,6 +444,121 @@ fn two_payments_to_one_address_publish_their_own_reserved_tags() {
             second: 1
         })
     );
+}
+
+#[test]
+fn a_self_payment_publishes_its_address_tag_beside_the_change_tag() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let own = RingAddress {
+        recipient: sender,
+        ring_program_id: RING,
+        inbox_secret: owner.viewing_key.inbox_secret(7).unwrap(),
+    };
+    let tag = own.inbox_secret.view_tag(0).unwrap();
+    let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+        .with_slot(0, &own, tag)
+        .unwrap();
+    let proof = Payment {
+        from: &owner,
+        to: sender,
+    }
+    .seal(&view_tags)
+    .unwrap();
+    let change = owner
+        .viewing_key
+        .ring_change_view_tag(&proof.input_utxos[0].nullifier, 1)
+        .unwrap();
+    assert_eq!(
+        &proof.external_data.resolved_owner_tags[..2],
+        &[tag, change]
+    );
+}
+
+#[test]
+fn a_payment_to_another_viewing_key_of_the_sender_opens_only_under_it() {
+    let owner = keypair(1);
+    let other = keypair(2);
+    let sibling = RingAddress {
+        recipient: ShieldedAddress {
+            viewing_pubkey: other.viewing_pubkey(),
+            ..owner.shielded_address().unwrap()
+        },
+        ring_program_id: RING,
+        inbox_secret: other.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let tag = sibling.inbox_secret.view_tag(0).unwrap();
+    let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+        .with_slot(0, &sibling, tag)
+        .unwrap();
+    let proof = Payment {
+        from: &owner,
+        to: sibling.recipient,
+    }
+    .seal(&view_tags)
+    .unwrap();
+    let external = &proof.external_data;
+    assert_eq!(external.resolved_owner_tags[0], tag);
+    let body =
+        ring_anonymous_encrypted_output_body(external.outputs[0].data.as_deref().unwrap()).unwrap();
+    let open = |reader: &ShieldedKeypair| {
+        RingAnonymousSlot {
+            tx_viewing_pk: X25519Pubkey::from_bytes(external.tx_viewing_pk).unwrap(),
+            recipient_pk: reader.viewing_pubkey(),
+            salt: external.salt,
+            slot: 0,
+        }
+        .open(&reader.viewing_key, body)
+    };
+    let opened = open(&other).unwrap();
+    assert_eq!(opened.amount, 3);
+    assert_eq!(opened.blinding, proof.output_utxos[0].blinding);
+    assert_eq!(
+        opened.pair_u,
+        owner
+            .viewing_key
+            .pair_key(&other.viewing_pubkey())
+            .unwrap()
+            .pubkey()
+            .u()
+    );
+    assert_ne!(open(&owner).ok(), Some(opened));
+}
+
+#[test]
+fn change_is_only_the_senders_unpaid_output() {
+    let owner = keypair(1);
+    let other = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let foreign = other.shielded_address().unwrap();
+    let elsewhere = RingAddress {
+        recipient: foreign,
+        ring_program_id: RING,
+        inbox_secret: other.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let unpaid = AnonymousViewTags::new(&owner.viewing_key);
+    let paid_elsewhere = unpaid
+        .clone()
+        .with_slot(0, &elsewhere, elsewhere.inbox_secret.view_tag(0).unwrap())
+        .unwrap();
+    let other_viewing_key = ShieldedAddress {
+        viewing_pubkey: foreign.viewing_pubkey,
+        ..sender
+    };
+    let other_nullifier_key = ShieldedAddress {
+        nullifier_pubkey: foreign.nullifier_pubkey,
+        ..sender
+    };
+    for (to, view_tags) in [
+        (other_viewing_key, &unpaid),
+        (other_nullifier_key, &unpaid),
+        (sender, &paid_elsewhere),
+    ] {
+        assert_eq!(
+            Payment { from: &owner, to }.seal(view_tags).err(),
+            Some(E::UnknownAnonymousRecipient { slot_index: 0 })
+        );
+    }
 }
 
 /// A retry of the same outputs keeps its salt, other outputs under the sealed key are refused.

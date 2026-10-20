@@ -12,10 +12,12 @@ use zolana_interface::instruction::{
     },
     tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
 };
-use zolana_keypair::{random_blinding, RingAddress, ShieldedKeypair, ViewingKey, X25519Keypair};
+use zolana_keypair::{
+    random_blinding, RingAddress, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Keypair,
+};
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{OutflowLimit, RuleTable};
-use zolana_ring_transaction::AnonymousViewTags;
+use zolana_ring_transaction::{AnonymousViewTags, RingAnonymousSlot};
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, OutputEncryption},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
@@ -1157,6 +1159,125 @@ async fn anonymous_tags_follow_the_address_each_output_pays() {
                 address.inbox_secret.view_tag(0).unwrap()
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn an_anonymous_self_payment_takes_its_inbox_tag_beside_the_change_tag() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let own = RingAddress {
+        recipient: sender.shielded_address().unwrap(),
+        ring_program_id: program(),
+        inbox_secret: sender.viewing_key.inbox_secret(7).unwrap(),
+    };
+    let inbox = |j| own.inbox_secret.view_tag(j).unwrap();
+    let indexer = OccupiedTags {
+        occupied: vec![inbox(0), inbox(1)],
+        queries: Mutex::default(),
+    };
+    let transaction = ring_transaction(&sender, 10);
+    let first_nullifier = *transaction.first_nullifier();
+    let staged = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_payment(sol_payment(AnonymousRecipient::Address(own.clone()), 4))
+        .unwrap()
+        .rail
+        .stage(ring(), &indexer, &anonymous(), None)
+        .await
+        .unwrap();
+    let change = sender
+        .viewing_key
+        .ring_change_view_tag(&first_nullifier, 1)
+        .unwrap();
+    assert_eq!(
+        &staged.proof_inputs.external_data.resolved_owner_tags[..2],
+        &[inbox(2), change]
+    );
+    assert_eq!(indexer.queries.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_anonymous_payment_to_another_viewing_key_of_the_sender_is_sealed_to_it() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let other = ShieldedKeypair::new_ed25519().unwrap();
+    let sibling = RingAddress {
+        recipient: ShieldedAddress {
+            viewing_pubkey: other.viewing_pubkey(),
+            ..sender.shielded_address().unwrap()
+        },
+        ring_program_id: program(),
+        inbox_secret: other.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let staged = owner_transfer(&sender, ring_transaction(&sender, 10))
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_payment(sol_payment(AnonymousRecipient::Address(sibling.clone()), 4))
+        .unwrap()
+        .rail
+        .stage(ring(), &Accounts::default(), &anonymous(), None)
+        .await
+        .unwrap();
+    let external = &staged.proof_inputs.external_data;
+    assert_eq!(
+        external.resolved_owner_tags[0],
+        sibling.inbox_secret.view_tag(0).unwrap()
+    );
+    let body =
+        ring_anonymous_encrypted_output_body(external.outputs[0].data.as_deref().unwrap()).unwrap();
+    let open = |reader: &ShieldedKeypair| {
+        RingAnonymousSlot {
+            tx_viewing_pk: staged.tx_viewing_key.pubkey(),
+            recipient_pk: reader.viewing_pubkey(),
+            salt: external.salt,
+            slot: 0,
+        }
+        .open(&reader.viewing_key, body)
+    };
+    let opened = open(&other).unwrap();
+    assert_eq!(opened.amount, 4);
+    assert_eq!(
+        opened.pair_u,
+        sender
+            .viewing_key
+            .pair_key(&other.viewing_pubkey())
+            .unwrap()
+            .pubkey()
+            .u()
+    );
+    assert_ne!(open(&sender).ok(), Some(opened));
+}
+
+#[tokio::test]
+async fn anonymous_staging_refuses_an_output_without_a_payment() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let address = sender.shielded_address().unwrap();
+    let stranger = ShieldedKeypair::new_ed25519()
+        .unwrap()
+        .shielded_address()
+        .unwrap();
+    for owner in [
+        stranger,
+        ShieldedAddress {
+            viewing_pubkey: stranger.viewing_pubkey,
+            ..address
+        },
+        ShieldedAddress {
+            nullifier_pubkey: stranger.nullifier_pubkey,
+            ..address
+        },
+    ] {
+        let mut transaction = ring_transaction(&sender, 10);
+        transaction.transfer_sol(&owner, 4).unwrap();
+        let staged = owner_transfer(&sender, transaction)
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await;
+        assert!(matches!(
+            staged,
+            Err(RingError::Transaction(
+                TransactionError::UnknownAnonymousRecipient { slot_index: 0 }
+            ))
+        ));
     }
 }
 

@@ -176,14 +176,11 @@ impl AnonymousViewTags {
         if !output.data.is_empty() {
             return Err(TransactionError::AnonymousOutputData { slot_index });
         }
-        if owner.signing_pubkey == sender.signing_pubkey {
-            return Ok(AnonymousSlot::Hidden(self.change_keys(
-                first_nullifier,
-                anonymous_slot_index(slot_index)?,
-            )?));
-        }
         match self.slots.get(&slot_index) {
             Some(slot) if slot.recipient == owner => Ok(AnonymousSlot::Hidden(slot.keys)),
+            None if owner == *sender => Ok(AnonymousSlot::Hidden(
+                self.change_keys(first_nullifier, anonymous_slot_index(slot_index)?)?,
+            )),
             _ => Err(TransactionError::UnknownAnonymousRecipient { slot_index }),
         }
     }

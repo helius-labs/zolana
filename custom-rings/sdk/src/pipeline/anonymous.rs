@@ -21,10 +21,7 @@ use zolana_keypair::{
 };
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_ring_transaction::{AnonymousViewTags, TransactSession};
-use zolana_transaction::{
-    instructions::transact::{ConfidentialTransaction, SppProofInputs},
-    Mint,
-};
+use zolana_transaction::{instructions::transact::SppProofInputs, Mint};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
 use crate::{
@@ -215,20 +212,18 @@ impl Anonymous<'_> {
         // Tags bind slots, the slot order is fixed before any stream is read.
         let mut transaction = self.owner.transaction.clone();
         transaction.pad_to_canonical_shape(&sender)?;
-        let view_tags = self.view_tags(ring, client, &sender, &transaction).await?;
+        let view_tags = self.view_tags(ring, client).await?;
         self.owner
             .stage_with(ring, client, config, transaction, Some(&view_tags))
             .await
     }
 
-    /// One window read per stream, every slot takes the lowest index free in history and
-    /// not reserved by an earlier slot of the same transaction.
+    /// One window read per stream, every payment slot takes the lowest index free in history
+    /// and not reserved by an earlier payment of the same transaction.
     async fn view_tags(
         &self,
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
-        sender: &ShieldedAddress,
-        transaction: &ConfidentialTransaction,
     ) -> Result<AnonymousViewTags, RingError> {
         if let Some(foreign) = self
             .payments
@@ -242,16 +237,7 @@ impl Anonymous<'_> {
         let mut reservations: HashMap<StreamKey, TagReservations> = HashMap::new();
         let mut view_tags =
             AnonymousViewTags::new(self.viewing_key).with_session(Arc::clone(&self.session));
-        for (slot, output) in transaction.outputs().iter().enumerate() {
-            let Some(owner) = output.owner_address else {
-                continue;
-            };
-            if output.ring_program_id.is_none() || owner.signing_pubkey == sender.signing_pubkey {
-                continue;
-            }
-            let Some(recipient) = self.payments.get(&slot) else {
-                continue;
-            };
+        for (&slot, recipient) in &self.payments {
             let address = recipient.address();
             let tags = match recipient {
                 AnonymousRecipient::Address(address) => Stream::Inbox(&address.inbox_secret),
