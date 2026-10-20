@@ -12,8 +12,10 @@ use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blind
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
+    instructions::transact::AnonymousOutputKeys,
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
         UtxoSerialization,
     },
     EncryptedScheme, Mint,
@@ -165,10 +167,14 @@ impl SppProofOutputUtxo {
         slot_index: u32,
         tx: &ViewingKey,
         salt: [u8; SALT_LEN],
-        view_tag: [u8; 32],
+        keys: AnonymousOutputKeys,
     ) -> Result<MessageData, TransactionError> {
-        let (_, plaintext, cx) = self.confidential_parts(slot_index, tx, salt)?;
-        Confidential::encode_ring_anonymous_plaintext(&plaintext, view_tag, &cx)
+        let (_, output, cx) = self.confidential_parts(slot_index, tx, salt)?;
+        let plaintext = RingAnonymousOutputPlaintext {
+            output,
+            pair_pk: keys.pair_pk,
+        };
+        RingAnonymous::encode_plaintext(&plaintext, keys.tag, &cx)
     }
 
     fn confidential_parts(

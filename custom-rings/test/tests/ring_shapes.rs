@@ -8,6 +8,7 @@ use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
 use zolana_ring_client::TransactionAudit;
 use zolana_ring_policy::{ListId, OutflowLimit, Rule, RuleTable, Subject};
 use zolana_test_utils::test_validator_asserts::{assert_ring_transact, RingTransactAssertArgs};
+use zolana_transaction::instructions::transact::AnonymousOutputKeys;
 
 const NOTE_AMOUNT: u64 = 1_000_000;
 
@@ -281,7 +282,17 @@ impl GovernedRing<'_> {
                     transfer
                         .with_anonymous_signer(
                             &env.sender.keypair.signing_key,
-                            AnonymousViewTags::new(env.sender.keypair.get_sender_view_tag(0)?),
+                            AnonymousViewTags::new(AnonymousOutputKeys {
+                                tag: env.sender.keypair.get_sender_view_tag(0)?,
+                                pair_pk: X25519Keypair::new().pubkey(),
+                            })
+                            .with_recipient(
+                                env.recipient.keypair.shielded_address()?.viewing_pubkey,
+                                AnonymousOutputKeys {
+                                    tag: env.recipient.keypair.recipient_bootstrap_view_tag(),
+                                    pair_pk: X25519Keypair::new().pubkey(),
+                                },
+                            ),
                         )
                         .prove(client.as_async()),
                 )

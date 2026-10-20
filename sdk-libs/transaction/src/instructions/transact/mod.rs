@@ -29,7 +29,7 @@ use zolana_program::instruction::{
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::{AnonymousViewTags, ResolvedOwnerTag};
+pub use encryption::{AnonymousOutputKeys, AnonymousViewTags, ResolvedOwnerTag};
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;

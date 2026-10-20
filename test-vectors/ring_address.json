@@ -1,0 +1,101 @@
+{
+  "valid": [
+    {
+      "name": "bare",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv",
+      "recipient": "01ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c000ce02d7711322665f107415edd1ce95cc2aa12378f6cd56d6e0544b800c448d10419078976c68ba992eb10aae97df1e453731a022d6c46eb8a0a4f1c976a0cc20a",
+      "ring_program_id": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+      "inbox_secret": "3354c651ff4db3b9f28caca9418a4394370f756fd10cd79ea6b20d9821b8e8ec",
+      "amount": null,
+      "mint": null,
+      "label": null
+    },
+    {
+      "name": "amount_mint_label",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?amount=1500000&mint=4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4&label=Coffee%20%26%20cake%20%E2%98%95%20100%25",
+      "recipient": "01ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c000ce02d7711322665f107415edd1ce95cc2aa12378f6cd56d6e0544b800c448d10419078976c68ba992eb10aae97df1e453731a022d6c46eb8a0a4f1c976a0cc20a",
+      "ring_program_id": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+      "inbox_secret": "3354c651ff4db3b9f28caca9418a4394370f756fd10cd79ea6b20d9821b8e8ec",
+      "amount": "1500000",
+      "mint": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+      "label": "Coffee & cake ☕ 100%"
+    },
+    {
+      "name": "label_only",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?label=rent",
+      "recipient": "01ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c000ce02d7711322665f107415edd1ce95cc2aa12378f6cd56d6e0544b800c448d10419078976c68ba992eb10aae97df1e453731a022d6c46eb8a0a4f1c976a0cc20a",
+      "ring_program_id": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+      "inbox_secret": "3354c651ff4db3b9f28caca9418a4394370f756fd10cd79ea6b20d9821b8e8ec",
+      "amount": null,
+      "mint": null,
+      "label": "rent"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "missing_scheme",
+      "uri": "2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv",
+      "error": "InvalidRingAddressScheme"
+    },
+    {
+      "name": "non_base58",
+      "uri": "zolana:0K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv",
+      "error": "InvalidRingAddressBase58"
+    },
+    {
+      "name": "short_payload",
+      "uri": "zolana:JEUeWBDSBbW74qErZNmXRrs7QRFsWN2PERnbjRY589JBNCRtTKi279KVqtYeyaoapgHrGeA4Xn6eVzzoq3YNthcvUF3pUnQZwq8XNTv5NCqpUoFMJUpCU6MCMNdBLAVz97shGHwXP8NUBfaagDmikQcruBPsU7FhSfnNvPBDqTjmYHXuvmPGKEQwpEUEQaNWB9tqRwLzsLDUcNQHyu5rsHwk73Fras51fzG",
+      "error": "InvalidRingAddressLength"
+    },
+    {
+      "name": "long_payload",
+      "uri": "zolana:6niNhkqzYmgTfBEZbaLrxmEmrJoy3yaaW34ygX86fBt97mGD5kHesiceofVtAgmgEjZCZkKpyAPVuDQwFMoC9Lkp4G4pwq1j3ExvGB5uCPpFJfJ7PY9gdA3L6m8tMmem4FENBx9z7A14m8utano7PHpA2i9urfexuvJpQwXNcNGaPoSx82r1hq94bHSAcKPXdvoaGyW4s3btk4BXLEMp6DPeP1gYG1L9hpY9ew",
+      "error": "InvalidRingAddressLength"
+    },
+    {
+      "name": "unknown_version",
+      "uri": "zolana:3cZD58TWdNbFBvPiefztsN1a5R3HwZLBrrXNxdaZFqGEVtsCSuDkVwH2hciHnxRPBRg2QNWMxkvgZGZi5ME5Qi7Y6GDmLsEEMU1Y1daZqTeYBF9VN1ARaTbnWyAurnuHLKUkwv236vuoDWzw8tLjfEfzQdKSZcWjo5bjp78LqGqci1zxpzg16j44Vd9qcSDXaagsGoxgUg4vwaUDVUPKe1MzSMNRf2Trkz17B",
+      "error": "UnknownRingAddressVersion"
+    },
+    {
+      "name": "bad_checksum",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nu",
+      "error": "InvalidRingAddressChecksum"
+    },
+    {
+      "name": "bad_viewing_key",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1cWgcuJ3b6GbopA9pLUrqa2ismzDsciZXRgQ7mYyWWdvnp27B764ffC5cwKGvATSdzv92qvwDKaL4F3q6UWGXukpAjLqjMGHrBcpCPGJJ4yXauaC1JZVnK9KApqUXboCrY3JcP6d61",
+      "error": "InvalidPublicKey"
+    },
+    {
+      "name": "unknown_query_key",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?memo=hi",
+      "error": "UnknownRingPaymentKey"
+    },
+    {
+      "name": "duplicate_query_key",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?amount=1&amount=2",
+      "error": "DuplicateRingPaymentKey"
+    },
+    {
+      "name": "fractional_amount",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?amount=1.5",
+      "error": "InvalidRingPaymentAmount"
+    },
+    {
+      "name": "signed_amount",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?amount=+1",
+      "error": "InvalidRingPaymentAmount"
+    },
+    {
+      "name": "bad_mint",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?mint=notAnAddress",
+      "error": "InvalidRingPaymentMint"
+    },
+    {
+      "name": "bad_label_escape",
+      "uri": "zolana:2K4V2Xn5t9mHTmuv9ju5XJj6BGN4dvbo78GQGJFJ9CXcpkZSr7Ba3t7ieJnWickCcHSRNU2zzar3vWzz9h4DVdCHZ1F1SZdR2R1SD3joGGbGUZh8Lc9mKcac96vSgbavwCqLkiVmf6fXkz5HDe7NPGbFHFJswkebsWJBHkct7eu1mb5yScJuGbUCgwUTCB4HumpFnm4sGR9p4s7Tox8tT6yndFexZrTzhy5nv?label=%zz",
+      "error": "InvalidRingPaymentLabel"
+    }
+  ]
+}

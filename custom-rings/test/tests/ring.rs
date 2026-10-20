@@ -95,7 +95,9 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     decrypt_spendable,
-    instructions::transact::{canonical_shape, AnonymousViewTags, ConfidentialTransaction},
+    instructions::transact::{
+        canonical_shape, AnonymousOutputKeys, AnonymousViewTags, ConfidentialTransaction,
+    },
     utxo::SppProofInputUtxo,
     AssetRegistry, Data, Utxo, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -1129,9 +1131,20 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     let sender_view_tag = env.sender.keypair.get_sender_view_tag(0)?;
     let mut proven = match anonymous {
         true => {
+            let recipient_viewing_pk = env.recipient.keypair.shielded_address()?.viewing_pubkey;
             let transfer = transfer.with_anonymous_signer(
                 &env.sender.keypair.signing_key,
-                AnonymousViewTags::new(sender_view_tag),
+                AnonymousViewTags::new(AnonymousOutputKeys {
+                    tag: sender_view_tag,
+                    pair_pk: X25519Keypair::new().pubkey(),
+                })
+                .with_recipient(
+                    recipient_viewing_pk,
+                    AnonymousOutputKeys {
+                        tag: env.recipient.keypair.recipient_bootstrap_view_tag(),
+                        pair_pk: X25519Keypair::new().pubkey(),
+                    },
+                ),
             );
             env.run(transfer.prove(env.client.as_async()))?
         }

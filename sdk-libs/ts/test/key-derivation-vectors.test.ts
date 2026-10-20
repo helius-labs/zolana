@@ -93,6 +93,22 @@ type KeyDerivationVectors = Readonly<{
     sender_view_tags: readonly CounterTag[];
     recipient_request_view_tags: readonly CounterTag[];
   }>[];
+  ring_derivation: Readonly<{
+    viewing_secret: string;
+    viewing_pubkey: string;
+    recipient_viewing_secret: string;
+    recipient_viewing_pubkey: string;
+    inbox_secrets: readonly Readonly<{
+      index: number;
+      secret: string;
+      view_tags: readonly CounterTag[];
+    }>[];
+    pair_pubkey: string;
+    pair_view_tags: readonly CounterTag[];
+    first_nullifier: string;
+    change_view_tags: readonly Readonly<{ slot: number; tag: string }>[];
+    blinding_seed: string;
+  }>;
 }>;
 
 type CounterTag = Readonly<{ counter: string; tag: string }>;
@@ -216,6 +232,42 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ((element + (pads[index] ?? 0n)) % BN254_SCALAR_ORDER).toString(16).padStart(64, "0"),
     );
     expect(ciphertext).toEqual(section.output_ciphertext);
+  });
+
+  it("derives the sender view tags", () => {
+    for (const section of vectors.counter_view_tags) {
+      const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
+      expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
+      for (const { counter, tag } of section.sender_view_tags) {
+        expect(hex(viewing.senderViewTag(BigInt(counter)))).toBe(tag);
+      }
+    }
+  });
+
+  it("derives the ring inbox, pair, change and blinding values", () => {
+    const section = vectors.ring_derivation;
+    const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
+    const recipient = ViewingKey.fromBytes(bytes(section.recipient_viewing_secret) as Bytes32);
+    expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
+    expect(hex(recipient.publicKey().toBytes())).toBe(section.recipient_viewing_pubkey);
+    for (const inbox of section.inbox_secrets) {
+      const secret = viewing.inboxSecret(inbox.index);
+      expect(hex(secret.toBytes())).toBe(inbox.secret);
+      for (const { counter, tag } of inbox.view_tags) {
+        expect(hex(secret.viewTag(BigInt(counter)))).toBe(tag);
+      }
+    }
+    const pairPublicKey = viewing.pairKey(recipient.publicKey()).publicKey();
+    expect(hex(pairPublicKey.toBytes())).toBe(section.pair_pubkey);
+    for (const { counter, tag } of section.pair_view_tags) {
+      expect(hex(viewing.pairSendViewTag(recipient.publicKey(), BigInt(counter)))).toBe(tag);
+      expect(hex(recipient.recipientSharedViewTag(pairPublicKey, BigInt(counter)))).toBe(tag);
+    }
+    const firstNullifier = bytes(section.first_nullifier) as Bytes32;
+    for (const { slot, tag } of section.change_view_tags) {
+      expect(hex(viewing.ringChangeViewTag(firstNullifier, slot))).toBe(tag);
+    }
+    expect(hex(viewing.ringBlindingSeed(firstNullifier))).toBe(section.blinding_seed);
   });
 
   it("detects derivation inputs exactly like Rust", () => {

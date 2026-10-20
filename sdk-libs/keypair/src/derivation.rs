@@ -108,6 +108,16 @@ pub const INFO_PAIR_DOMAIN_PREFIX: &[u8] = b"TSPP/pair-domain/";
 
 pub const INFO_PAIR_HINT_PREFIX: &[u8] = b"TSPP/pair-hint/";
 
+pub const INFO_RING_INBOX_PREFIX: &[u8] = b"TSPP/ring_inbox/";
+
+pub const INFO_RING_PAIR_PREFIX: &[u8] = b"TSPP/ring_pair/";
+
+pub const INFO_RING_BLINDING_SEED_PREFIX: &[u8] = b"TSPP/ring_blinding_seed/";
+
+pub const INFO_RING_INBOX_TAG_PREFIX: &[u8] = b"TSPP/ring_inbox_tag/";
+
+pub const INFO_RING_CHANGE_TAG_PREFIX: &[u8] = b"TSPP/ring_change_tag/";
+
 pub const HPKE_PREFIX: &[u8] = b"TSPP/hpke/";
 
 pub const ENC_INFO_TRANSFER: &[u8] = b"TSPP/tx";
@@ -175,6 +185,21 @@ pub(crate) fn recipient_request_view_tag(
             INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
             &request_count.to_be_bytes(),
         ],
+    )
+}
+
+pub(crate) fn inbox_view_tag(secret: &[u8; 32], j: u64) -> Result<ViewTag, KeypairError> {
+    expand_view_tag(secret, &[INFO_RING_INBOX_TAG_PREFIX, &j.to_be_bytes()])
+}
+
+pub(crate) fn ring_change_view_tag(
+    secret: &[u8; 32],
+    first_nullifier: &[u8; 32],
+    slot: u8,
+) -> Result<ViewTag, KeypairError> {
+    expand_view_tag(
+        secret,
+        &[INFO_RING_CHANGE_TAG_PREFIX, first_nullifier, &[slot]],
     )
 }
 

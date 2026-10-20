@@ -164,6 +164,9 @@ Breaking
 
 Added
 
+- `RingAddress` and `RingPaymentRequest` encode and parse the `zolana:` payment request a ring member shares off chain, with its checksum, amount, mint and label, and `InboxSecret.viewTag` gives a payer the tag of each first payment to that address.
+- `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.
+- `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the confidential fields followed by `pairPublicKey`, the payer's pseudonym toward the recipient.
 - `auditPublicInputHash` and `policyPublicInputHash` accept `anonymous: true` to bind anonymous statements, matching the Go and Rust transcripts.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and
   recipients in `anonymous` for authorized anonymous-ring audit readers, and

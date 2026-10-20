@@ -102,6 +102,12 @@ export interface ConfidentialOutputPlaintext {
   readonly data: Data;
 }
 
+/** Scheme 9, the scheme-3 fields followed by the payer pseudonym toward the recipient. */
+export interface RingAnonymousOutputPlaintext {
+  readonly output: ConfidentialOutputPlaintext;
+  readonly pairPublicKey: X25519PublicKey;
+}
+
 export interface AnonymousRecipientPlaintext {
   readonly ownerPublicKey: ShieldedPublicKey;
   readonly senderPublicKey: X25519PublicKey;
@@ -416,6 +422,24 @@ export function confidentialPlaintextFromUtxo(
     blinding: copy(utxo.blinding),
     ...(utxo.ringProgramId === undefined ? {} : { ringProgramId: utxo.ringProgramId }),
     data: new Data(utxo.data.records()),
+  };
+}
+
+export function encodeRingAnonymous(value: RingAnonymousOutputPlaintext): Uint8Array {
+  return concat(encodeConfidential(value.output), value.pairPublicKey.toBytes());
+}
+
+export function decodeRingAnonymous(bytes: Uint8Array): RingAnonymousOutputPlaintext {
+  if (bytes.length < 33) {
+    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+      expected: 33,
+      actual: bytes.length,
+    });
+  }
+  const split = bytes.length - 33;
+  return {
+    output: decodeConfidential(bytes.subarray(0, split)),
+    pairPublicKey: inTransactionCategory(() => X25519PublicKey.fromBytes(bytes.subarray(split))),
   };
 }
 

@@ -11,10 +11,12 @@ pub mod anonymous;
 pub mod confidential;
 pub mod plaintext;
 pub mod proofless;
+pub mod ring_anonymous;
 pub mod ring_deposit;
 pub mod scheme;
 
 pub use proofless::{Proofless, ProoflessEncode};
+pub use ring_anonymous::{RingAnonymous, RingAnonymousOutput, RingAnonymousOutputPlaintext};
 pub use ring_deposit::RingDepositPlaintext;
 
 pub struct DecodeCx<'a> {

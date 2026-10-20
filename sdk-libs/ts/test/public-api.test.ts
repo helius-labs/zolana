@@ -655,6 +655,7 @@ describe("relayed decryption surface", () => {
       "decodeSplitEncrypted",
       "decodePlaintextTransfer",
       "decodeProofless",
+      "decodeRingAnonymous",
       "decodeData",
     ]) {
       expect(transaction, name).toHaveProperty(name);

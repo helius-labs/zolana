@@ -46,7 +46,7 @@ import type {
 } from "../transaction/instructions/transact.js";
 import {
   EncryptedScheme,
-  decodeConfidential,
+  decodeRingAnonymous,
   decryptConfidentialAsSender,
   readOutputData,
   type ConfidentialOutputPlaintext,
@@ -410,9 +410,9 @@ function auditOutput(
       if (anonymousOutput === undefined || isDummyAnonymousOutput(anonymousOutput))
         return undefined;
       recipient = X25519PublicKey.fromBytes(anonymousOutput.viewingPublicKey);
-      plaintext = decodeConfidential(
+      plaintext = decodeRingAnonymous(
         txKey.decryptSlotEphemeral(recipient, frame.body, salt, slotIndex),
-      );
+      ).output;
       ownerTag = anonymousOutput.identityKey;
     } else if (
       frame.scheme === EncryptedScheme.confidential ||

@@ -46,6 +46,7 @@ pub mod hash;
 pub mod nullifier_key;
 pub mod pda;
 pub mod pubkey;
+pub mod ring_address;
 pub mod shielded;
 pub mod signing_key;
 pub mod traits;
@@ -56,6 +57,7 @@ pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
 pub use pubkey::{Curve, PublicKey};
+pub use ring_address::{InboxSecret, RingAddress, RingPaymentRequest};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
 };

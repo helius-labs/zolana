@@ -8,8 +8,9 @@
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { type Bytes31, type Bytes32 } from "./bytes.js";
+import { type Bytes31, type Bytes32, concatBytes, u64be } from "./bytes.js";
 import { KeypairError } from "./error.js";
+import type { ViewTag } from "./public-key.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 const encoder = new TextEncoder();
@@ -21,6 +22,24 @@ export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
+
+export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
+
+export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
+
+export const INFO_PAIR_DOMAIN_PREFIX = "TSPP/pair-domain/";
+
+export const INFO_PAIR_HINT_PREFIX = "TSPP/pair-hint/";
+
+export const INFO_RING_INBOX_PREFIX = "TSPP/ring_inbox/";
+
+export const INFO_RING_PAIR_PREFIX = "TSPP/ring_pair/";
+
+export const INFO_RING_BLINDING_SEED_PREFIX = "TSPP/ring_blinding_seed/";
+
+export const INFO_RING_INBOX_TAG_PREFIX = "TSPP/ring_inbox_tag/";
+
+export const INFO_RING_CHANGE_TAG_PREFIX = "TSPP/ring_change_tag/";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -172,6 +191,70 @@ export function hkdfExpand(
     return hkdf(sha256, ikm, salt, info, length);
   } catch (error) {
     throw new KeypairError("KEYPAIR_HKDF", { actual: length }, error);
+  }
+}
+
+export const U64_MAX = (1n << 64n) - 1n;
+
+/** A stream counter, `u64` in Rust. */
+export function checkedCounter(value: bigint | number, name: string): bigint {
+  const counter = typeof value === "number" && Number.isSafeInteger(value) ? BigInt(value) : value;
+  if (typeof counter !== "bigint" || counter < 0n || counter > U64_MAX) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", { name, minimum: "0", maximum: "2^64-1" });
+  }
+  return counter;
+}
+
+/** Mirrors Rust `expand_view_tag`, a zero byte then 31 HKDF bytes. */
+export function expandViewTag(ikm: Uint8Array, info: Uint8Array): ViewTag {
+  const tag = new Uint8Array(32);
+  const okm = hkdfExpand(undefined, ikm, info, 31);
+  tag.set(okm, 1);
+  okm.fill(0);
+  return tag as ViewTag;
+}
+
+export function senderViewTag(secret: Uint8Array, txCount: bigint): ViewTag {
+  return expandViewTag(
+    secret,
+    concatBytes(encoder.encode(INFO_SENDER_VIEW_TAG_PREFIX), u64be(txCount)),
+  );
+}
+
+export function inboxViewTag(secret: Uint8Array, j: bigint): ViewTag {
+  return expandViewTag(secret, concatBytes(encoder.encode(INFO_RING_INBOX_TAG_PREFIX), u64be(j)));
+}
+
+export function ringChangeViewTag(
+  secret: Uint8Array,
+  firstNullifier: Bytes32,
+  slot: number,
+): ViewTag {
+  if (!Number.isInteger(slot) || slot < 0 || slot > 0xff) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", { name: "slot", minimum: 0, maximum: 0xff });
+  }
+  return expandViewTag(
+    secret,
+    concatBytes(encoder.encode(INFO_RING_CHANGE_TAG_PREFIX), firstNullifier, Uint8Array.of(slot)),
+  );
+}
+
+/** Mirrors Rust `shared_view_tag`, `rPublicKey` is the recipient of the direction on both sides. */
+export function sharedViewTag(
+  ecdhShared: Uint8Array,
+  rPublicKey: X25519PublicKey,
+  i: bigint,
+): ViewTag {
+  const domain = hkdfExpand(
+    undefined,
+    ecdhShared,
+    concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), rPublicKey.toBytes()),
+    32,
+  );
+  try {
+    return expandViewTag(domain, concatBytes(encoder.encode(INFO_PAIR_HINT_PREFIX), u64be(i)));
+  } finally {
+    domain.fill(0);
   }
 }
 

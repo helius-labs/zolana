@@ -1,19 +1,36 @@
 import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
+import {
+  type Bytes16,
+  type Bytes32,
+  checkedBytes,
+  concatBytes,
+  copyBytes,
+  randomBytes,
+  u32be,
+} from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
+  INFO_RING_BLINDING_SEED_PREFIX,
+  INFO_RING_INBOX_PREFIX,
+  INFO_RING_PAIR_PREFIX,
+  INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING_X25519,
+  checkedCounter,
   clampViewingSecret,
   hkdfExpand,
+  ringChangeViewTag,
   roleExpansion,
+  senderViewTag,
+  sharedViewTag,
   viewRoot,
   x25519Ecdh,
 } from "./derivation.js";
 import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { type ViewTag } from "./public-key.js";
+import { InboxSecret } from "./inbox-secret.js";
 import type { ViewingKeyLike } from "./shielded.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
@@ -99,6 +116,92 @@ export class ViewingKey implements ViewingKeyLike {
 
   recipientBootstrapViewTag(): ViewTag {
     return this.publicKey().u();
+  }
+
+  /** Mirrors Rust `get_sender_view_tag`, the spender's own output at `txCount`. */
+  senderViewTag(txCount: bigint | number): ViewTag {
+    const secret = this.#viewSecret(INFO_SENDER_VIEW_TAG_SECRET);
+    try {
+      return senderViewTag(secret, checkedCounter(txCount, "txCount"));
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  /** Mirrors Rust `get_send_shared_view_tag`, transfer `i` to `counterparty`. */
+  sendSharedViewTag(counterparty: X25519PublicKey, i: bigint | number): ViewTag {
+    return this.#sharedViewTag(counterparty, counterparty, checkedCounter(i, "i"));
+  }
+
+  /** Mirrors Rust `get_recipient_shared_view_tag`, transfer `i` received from `counterparty`. */
+  recipientSharedViewTag(counterparty: X25519PublicKey, i: bigint | number): ViewTag {
+    return this.#sharedViewTag(counterparty, this.publicKey(), checkedCounter(i, "i"));
+  }
+
+  /** Inbox secret of ring address `i`, shared with payers inside a `RingAddress`. */
+  inboxSecret(i: number): InboxSecret {
+    if (!Number.isInteger(i) || i < 0 || i > 0xffff_ffff) {
+      throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
+        name: "i",
+        minimum: 0,
+        maximum: 0xffff_ffff,
+      });
+    }
+    return InboxSecret.fromBytes(
+      this.#viewSecret(concatBytes(encoder.encode(INFO_RING_INBOX_PREFIX), u32be(i))),
+    );
+  }
+
+  /** Pseudonym used toward `recipient` only. */
+  pairKey(recipient: X25519PublicKey): X25519Keypair {
+    const secret = this.#viewSecret(
+      concatBytes(encoder.encode(INFO_RING_PAIR_PREFIX), recipient.toBytes()),
+    );
+    try {
+      return X25519Keypair.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  /** Pair tag `k` toward `recipient`, equal to its `recipientSharedViewTag` on the pair public key. */
+  pairSendViewTag(recipient: X25519PublicKey, k: bigint | number): ViewTag {
+    const pair = this.pairKey(recipient);
+    try {
+      return sharedViewTag(pair.ecdh(recipient), recipient, checkedCounter(k, "k"));
+    } finally {
+      pair.destroy();
+    }
+  }
+
+  /** Blinding seed of the anonymous ring transaction with `firstNullifier`, below the BN254 modulus. */
+  ringBlindingSeed(firstNullifier: Bytes32): Bytes32 {
+    const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
+    const seed = this.#viewSecret(
+      concatBytes(encoder.encode(INFO_RING_BLINDING_SEED_PREFIX), nullifier),
+    );
+    seed[0] = 0;
+    return seed as Bytes32;
+  }
+
+  /** View tag of the spender's own output in `slot` of the ring transaction with `firstNullifier`. */
+  ringChangeViewTag(firstNullifier: Bytes32, slot: number): ViewTag {
+    const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
+    const secret = this.#viewSecret(INFO_SENDER_VIEW_TAG_SECRET);
+    try {
+      return ringChangeViewTag(secret, nullifier, slot);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  #sharedViewTag(counterparty: X25519PublicKey, rPublicKey: X25519PublicKey, i: bigint): ViewTag {
+    const shared = this.ecdh(counterparty);
+    try {
+      return sharedViewTag(shared, rPublicKey, i);
+    } finally {
+      shared.fill(0);
+    }
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
@@ -204,13 +307,18 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   // Cache the role root on first use. Encryption does not need this root.
-  #viewSecret(info: string): Uint8Array {
+  #viewSecret(info: string | Uint8Array): Uint8Array {
     this.#assertUsable();
     this.#viewRoot ??= viewRoot(this.#secret);
+    const infoBytes = typeof info === "string" ? encoder.encode(info) : info;
     try {
-      return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
+      return expand(sha256, this.#viewRoot, infoBytes, 32);
     } catch (error) {
-      throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
+      throw new KeypairError(
+        "KEYPAIR_HKDF",
+        { name: typeof info === "string" ? info : "ring derivation" },
+        error,
+      );
     }
   }
 

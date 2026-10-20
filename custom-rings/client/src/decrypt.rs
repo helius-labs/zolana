@@ -12,9 +12,9 @@ use zolana_hasher::{
 use zolana_interface::{event::OutputDataEncoding, tree_slot::tree_id_field};
 use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_transaction::{
-    serialization::confidential::Confidential,
+    serialization::{confidential::Confidential, ring_anonymous::RingAnonymous},
     utxo::{program_id_proof_input_hash, UTXO_DOMAIN},
-    AssetRegistry, EncryptedScheme, OutputSlot, ShieldedTransaction, UtxoSerialization,
+    AssetRegistry, EncryptedScheme, OutputSlot, ShieldedTransaction,
 };
 
 use crate::{
@@ -208,12 +208,15 @@ impl OutputAudit<'_> {
         let opened = match EncryptedScheme::from_byte(scheme) {
             Ok(EncryptedScheme::RingAnonymous) => self.anonymous.and_then(|disclosed| {
                 let viewing_pk = X25519Pubkey::from_bytes(disclosed.viewing_pk).ok()?;
-                let bytes = self
-                    .tx_key
-                    .decrypt_slot_ephemeral(&viewing_pk, body, self.salt, self.slot_index)
-                    .ok()?;
-                let plaintext = Confidential::deserialize(&bytes).ok()?;
-                Some((viewing_pk, plaintext, disclosed.identity_key))
+                let plaintext = RingAnonymous::decrypt_with_tx_key(
+                    self.tx_key,
+                    &viewing_pk,
+                    body,
+                    self.salt,
+                    self.slot_index,
+                )
+                .ok()?;
+                Some((viewing_pk, plaintext.output, disclosed.identity_key))
             }),
             Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential) => {
                 match (

@@ -73,6 +73,9 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
+    #[error("anonymous output slot {slot_index} pays a recipient with no view tag and pair key")]
+    UnknownAnonymousRecipient { slot_index: usize },
+
     #[error(
         "ring transfer output {index} has an encryption marker incompatible with its ring binding"
     )]

@@ -16,6 +16,7 @@ use crate::{
     keys::{ShieldedKeys, TransactionKeyRequest},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
         UtxoSerialization,
     },
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
@@ -28,37 +29,48 @@ pub struct ResolvedOwnerTag {
     pub resolved: [u8; 32],
 }
 
+/// The tag an anonymous output publishes and the payer pseudonym its plaintext carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnonymousOutputKeys {
+    pub tag: ViewTag,
+    pub pair_pk: X25519Pubkey,
+}
+
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousViewTags {
-    sender: ViewTag,
-    recipients: HashMap<X25519Pubkey, ViewTag>,
+    sender: AnonymousOutputKeys,
+    recipients: HashMap<X25519Pubkey, AnonymousOutputKeys>,
 }
 
 impl AnonymousViewTags {
-    /// `sender` is the wallet's next unused `sender_view_tag`.
-    pub fn new(sender: ViewTag) -> Self {
+    /// `sender` seals the wallet's own change and self outputs.
+    pub fn new(sender: AnonymousOutputKeys) -> Self {
         Self {
             sender,
             recipients: HashMap::new(),
         }
     }
 
-    /// A shared or payment request tag for `recipient`, whose outputs otherwise
-    /// carry its bootstrap tag.
-    pub fn with_recipient(mut self, recipient: X25519Pubkey, tag: ViewTag) -> Self {
-        self.recipients.insert(recipient, tag);
+    /// Every recipient other than the sender needs an entry.
+    pub fn with_recipient(mut self, recipient: X25519Pubkey, keys: AnonymousOutputKeys) -> Self {
+        self.recipients.insert(recipient, keys);
         self
     }
 
-    fn resolve(&self, output: &SppProofOutputUtxo, sender: &ShieldedAddress) -> ViewTag {
+    fn resolve(
+        &self,
+        output: &SppProofOutputUtxo,
+        sender: &ShieldedAddress,
+        slot_index: usize,
+    ) -> Result<AnonymousOutputKeys, TransactionError> {
         match output.owner_address {
             Some(owner) if owner.signing_pubkey != sender.signing_pubkey => self
                 .recipients
                 .get(&owner.viewing_pubkey)
                 .copied()
-                .unwrap_or_else(|| owner.viewing_pubkey.u()),
-            _ => self.sender,
+                .ok_or(TransactionError::UnknownAnonymousRecipient { slot_index }),
+            _ => Ok(self.sender),
         }
     }
 }
@@ -153,15 +165,25 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = match anonymous {
-            Some(view_tags) => self
+        let anonymous_keys = anonymous
+            .map(|view_tags| {
+                self.outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(slot_index, output)| view_tags.resolve(output, sender, slot_index))
+                    .collect::<Result<Vec<_>, TransactionError>>()
+            })
+            .transpose()?;
+        let owner_tags = match &anonymous_keys {
+            Some(keys) => self
                 .outputs
                 .iter()
-                .map(|output| {
+                .zip(keys)
+                .map(|(output, keys)| {
                     let resolved = if output.is_compact() {
                         [0; 32]
                     } else {
-                        view_tags.resolve(output, sender)
+                        keys.tag
                     };
                     ResolvedOwnerTag {
                         tag: OwnerTag::Inline(resolved),
@@ -175,25 +197,26 @@ impl ConfidentialTransaction {
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
         let salt = random_salt();
+        let slot_keys: Vec<Option<AnonymousOutputKeys>> = match anonymous_keys {
+            Some(keys) => keys.into_iter().map(Some).collect(),
+            None => vec![None; self.outputs.len()],
+        };
         let slots = self
             .outputs
             .iter()
-            .zip(&owner_tags)
+            .zip(slot_keys)
             .enumerate()
-            .map(|(slot_index, (output, owner_tag))| {
+            .map(|(slot_index, (output, keys))| {
                 output
                     .owner_address
-                    .map(|_| {
-                        if anonymous.is_some() {
-                            output.seal_ring_anonymous(
-                                slot_index as u32,
-                                tx_viewing_key,
-                                salt,
-                                owner_tag.resolved,
-                            )
-                        } else {
-                            output.seal(slot_index as u32, tx_viewing_key, salt)
-                        }
+                    .map(|_| match keys {
+                        Some(keys) => output.seal_ring_anonymous(
+                            slot_index as u32,
+                            tx_viewing_key,
+                            salt,
+                            keys,
+                        ),
+                        None => output.seal(slot_index as u32, tx_viewing_key, salt),
                     })
                     .transpose()
             })
@@ -203,7 +226,11 @@ impl ConfidentialTransaction {
             .iter()
             .any(|output| output.is_dummy() && !output.is_compact())
         {
-            dummy_ciphertext_len(self.ring_program_id, salt)?
+            let template = DummyTemplate::new(self.ring_program_id, salt);
+            match anonymous {
+                Some(_) => template.ring_anonymous_len()?,
+                None => template.confidential_len()?,
+            }
         } else {
             0
         };
@@ -300,27 +327,49 @@ impl ConfidentialTransaction {
     }
 }
 
-fn dummy_ciphertext_len(
-    ring_program_id: Option<Address>,
-    salt: [u8; SALT_LEN],
-) -> Result<usize, TransactionError> {
-    let throwaway = ViewingKey::new();
-    Ok(Confidential::encode_plaintext(
-        &ConfidentialOutputPlaintext {
-            asset_id: SOL_ASSET_ID,
-            amount: 0,
-            blinding: [0u8; 32],
-            ring_program_id,
-            data: Data::default(),
-        },
-        [0u8; 32],
-        &ConfidentialEncode {
-            recipient_pubkey: throwaway.pubkey(),
-            tx: throwaway,
-            salt,
-            slot_index: 0,
-        },
-    )?
-    .data
-    .len())
+/// A zero output sealed to a throwaway key, the published length of a dummy slot.
+struct DummyTemplate {
+    output: ConfidentialOutputPlaintext,
+    cx: ConfidentialEncode,
+}
+
+impl DummyTemplate {
+    fn new(ring_program_id: Option<Address>, salt: [u8; SALT_LEN]) -> Self {
+        let throwaway = ViewingKey::new();
+        Self {
+            output: ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: 0,
+                blinding: [0u8; 32],
+                ring_program_id,
+                data: Data::default(),
+            },
+            cx: ConfidentialEncode {
+                recipient_pubkey: throwaway.pubkey(),
+                tx: throwaway,
+                salt,
+                slot_index: 0,
+            },
+        }
+    }
+
+    fn confidential_len(&self) -> Result<usize, TransactionError> {
+        Ok(
+            Confidential::encode_plaintext(&self.output, [0u8; 32], &self.cx)?
+                .data
+                .len(),
+        )
+    }
+
+    fn ring_anonymous_len(self) -> Result<usize, TransactionError> {
+        let plaintext = RingAnonymousOutputPlaintext {
+            pair_pk: self.cx.recipient_pubkey,
+            output: self.output,
+        };
+        Ok(
+            RingAnonymous::encode_plaintext(&plaintext, [0u8; 32], &self.cx)?
+                .data
+                .len(),
+        )
+    }
 }

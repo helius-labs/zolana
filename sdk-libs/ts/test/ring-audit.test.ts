@@ -41,8 +41,8 @@ import { commitmentPoseidon, rightAlign, ZERO_32 } from "../src/transaction/inte
 import { Data } from "../src/transaction/data.js";
 import {
   EncryptedScheme,
-  encodeConfidential,
   encodeOutputData,
+  encodeRingAnonymous,
   encryptAnonymous,
   encryptConfidential,
 } from "../src/transaction/serialization/codecs.js";
@@ -436,12 +436,15 @@ describe("anonymous ring audit", () => {
     const body = encryptAnonymous(
       tx,
       source.viewingPublicKey,
-      encodeConfidential({
-        assetId: SOL_ASSET_ID,
-        amount: 42n,
-        blinding,
-        ringProgramId: RING,
-        data: new Data(),
+      encodeRingAnonymous({
+        output: {
+          assetId: SOL_ASSET_ID,
+          amount: 42n,
+          blinding,
+          ringProgramId: RING,
+          data: new Data(),
+        },
+        pairPublicKey: X25519Keypair.fromBytes(EPH_SK).publicKey(),
       }),
       salt,
       0,

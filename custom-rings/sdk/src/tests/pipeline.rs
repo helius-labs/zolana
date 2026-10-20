@@ -15,7 +15,7 @@ use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey, X25519Keypair
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{OutflowLimit, RuleTable};
 use zolana_transaction::{
-    instructions::transact::{AnonymousViewTags, ConfidentialTransaction},
+    instructions::transact::{AnonymousOutputKeys, AnonymousViewTags, ConfidentialTransaction},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry, Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError, SOL_MINT,
@@ -34,6 +34,13 @@ use crate::{
 
 fn program() -> Address {
     ring().program_id()
+}
+
+fn sender_keys() -> AnonymousOutputKeys {
+    AnonymousOutputKeys {
+        tag: [3; 32],
+        pair_pk: X25519Keypair::new().pubkey(),
+    }
 }
 
 fn audit_only() -> CustomRingConfig {
@@ -769,7 +776,7 @@ async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
     let (sender, prepared) = prepared_transfer(4);
     let other = ShieldedKeypair::new_ed25519().unwrap();
     let transfer = owner_transfer(&sender, prepared)
-        .with_anonymous_signer(&other.signing_key, AnonymousViewTags::new([3; 32]));
+        .with_anonymous_signer(&other.signing_key, AnonymousViewTags::new(sender_keys()));
     assert!(matches!(
         transfer
             .rail
@@ -779,7 +786,7 @@ async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
     ));
     let (sender, prepared) = prepared_transfer(4);
     let transfer = owner_transfer(&sender, prepared)
-        .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new([3; 32]));
+        .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new(sender_keys()));
     assert!(matches!(
         transfer
             .rail
@@ -810,7 +817,7 @@ async fn the_hidden_owner_never_signs_in_public() {
             false => prepared,
         };
         let mut transfer = owner_transfer(&sender, prepared)
-            .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new([3; 32]));
+            .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new(sender_keys()));
         if as_cosigner {
             transfer = transfer.with_cosigner(owner);
         }
@@ -848,7 +855,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
     let key = transaction_key(&sender, *transaction.first_nullifier()).unwrap();
     let address = sender.shielded_address().unwrap();
     let inputs = transaction
-        .encrypt_anonymous_with_viewing_key(&address, &key, &AnonymousViewTags::new([3; 32]))
+        .encrypt_anonymous_with_viewing_key(&address, &key, &AnonymousViewTags::new(sender_keys()))
         .unwrap();
     let shape = inputs.check_shape().unwrap();
     anonymous::check_anonymous_slots(program(), shape, &inputs).unwrap();

@@ -12,7 +12,9 @@ use zolana_ring_policy::{Member, OutflowLimit};
 use zolana_transaction::{
     instructions::transact::{AnonymousViewTags, ConfidentialTransaction, SppProofOutputUtxo},
     keys::TransactionKeyRequest,
-    serialization::confidential::ConfidentialOutputPlaintext,
+    serialization::{
+        confidential::ConfidentialOutputPlaintext, ring_anonymous::RingAnonymousOutputPlaintext,
+    },
     utxo::SppProofInputUtxo,
     Data, EncryptedScheme, ShieldedKeys, TransactionError,
 };
@@ -288,10 +290,10 @@ pub(super) fn frame_dummies(
             continue;
         }
         let in_ring = output.ring_program_id.is_some();
-        let key = ViewingKey::new().pubkey();
+        let throwaway = ViewingKey::new().pubkey();
         let key = match anonymous {
             true => &[][..],
-            false => key.as_bytes(),
+            false => throwaway.as_bytes(),
         };
         let template = templates
             .iter()
@@ -302,15 +304,24 @@ pub(super) fn frame_dummies(
                 .checked_sub(1 + 4 + 1 + key.len())
                 .filter(|len| *len > 0)
                 .ok_or(RingError::InvalidDummyOutput)?,
-            None => ConfidentialOutputPlaintext {
-                asset_id: zolana_transaction::SOL_ASSET_ID,
-                amount: 0,
-                blinding: [0; 32],
-                ring_program_id: output.ring_program_id,
-                data: Data::default(),
+            None => {
+                let output = ConfidentialOutputPlaintext {
+                    asset_id: zolana_transaction::SOL_ASSET_ID,
+                    amount: 0,
+                    blinding: [0; 32],
+                    ring_program_id: output.ring_program_id,
+                    data: Data::default(),
+                };
+                match anonymous {
+                    true => RingAnonymousOutputPlaintext {
+                        output,
+                        pair_pk: throwaway,
+                    }
+                    .serialize()?,
+                    false => output.serialize()?,
+                }
+                .len()
             }
-            .serialize()?
-            .len(),
         };
         let scheme = match (anonymous, in_ring) {
             (true, _) => EncryptedScheme::RingAnonymous,

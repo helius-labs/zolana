@@ -66,6 +66,16 @@ export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";
 export { ViewingKey } from "./viewing-key.js";
 export {
+  InboxSecret,
+  RING_ADDRESS_CHECKSUM_DOMAIN,
+  RING_ADDRESS_PAYLOAD_LENGTH,
+  RING_ADDRESS_VERSION,
+  RING_PAYMENT_SCHEME,
+  RingAddress,
+  RingPaymentRequest,
+  type RingPaymentRequestFields,
+} from "./ring-address.js";
+export {
   CompressedShieldedAddress,
   ShieldedAddress,
   ShieldedKeypair,

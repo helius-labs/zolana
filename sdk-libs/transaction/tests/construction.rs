@@ -10,16 +10,17 @@ use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
-    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey,
+    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Keypair,
+    X25519Pubkey,
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, pad_input_utxos, resolve_shape, AnonymousViewTags,
+        canonical_shape, pad_input_utxos, resolve_shape, AnonymousOutputKeys, AnonymousViewTags,
         ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
         SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::confidential::Confidential,
+    serialization::{confidential::Confidential, ring_anonymous::RingAnonymous},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
     UtxoSerialization, WalletUtxo,
@@ -975,10 +976,26 @@ fn anonymous_ring_encryption_publishes_view_tags() {
     let shared_tag = owner
         .get_send_shared_view_tag(&receiver.viewing_pubkey, 0)
         .unwrap();
-    let bootstrap = AnonymousViewTags::new(sender_tag);
-    let shared = bootstrap
-        .clone()
-        .with_recipient(receiver.viewing_pubkey, shared_tag);
+    let pair_pk = X25519Keypair::new().pubkey();
+    let own_pair_pk = X25519Keypair::new().pubkey();
+    let sender_keys = AnonymousOutputKeys {
+        tag: sender_tag,
+        pair_pk: own_pair_pk,
+    };
+    let bootstrap = AnonymousViewTags::new(sender_keys).with_recipient(
+        receiver.viewing_pubkey,
+        AnonymousOutputKeys {
+            tag: receiver.viewing_pubkey.u(),
+            pair_pk,
+        },
+    );
+    let shared = AnonymousViewTags::new(sender_keys).with_recipient(
+        receiver.viewing_pubkey,
+        AnonymousOutputKeys {
+            tag: shared_tag,
+            pair_pk,
+        },
+    );
     for (view_tags, recipient_tag) in [
         (bootstrap, receiver.viewing_pubkey.u()),
         (shared, shared_tag),
@@ -994,8 +1011,11 @@ fn anonymous_ring_encryption_publishes_view_tags() {
         let proof = tx
             .encrypt_anonymous_with_viewing_key(&sender, &key, &view_tags)
             .unwrap();
-        let expected = [(&recipient, 3, recipient_tag), (&owner, 7, sender_tag)];
-        for (index, (reader, amount, tag)) in expected.into_iter().enumerate() {
+        let expected = [
+            (&recipient, 3, recipient_tag, pair_pk),
+            (&owner, 7, sender_tag, own_pair_pk),
+        ];
+        for (index, (reader, amount, tag, pair_pk)) in expected.into_iter().enumerate() {
             let output = &proof.external_data.outputs[index];
             assert_eq!(output.owner_tag, OwnerTag::Inline(tag));
             assert_eq!(proof.external_data.resolved_owner_tags[index], tag);
@@ -1005,20 +1025,42 @@ fn anonymous_ring_encryption_publishes_view_tags() {
                 panic!("encrypted output")
             };
             assert_eq!(blob[0], EncryptedScheme::RingAnonymous.as_byte());
-            let plaintext = reader
-                .viewing_key
-                .decrypt_utxo(
-                    &blob[1..],
-                    &key.pubkey(),
-                    proof.external_data.salt,
-                    index as u32,
-                )
-                .unwrap();
-            let recovered = zolana_transaction::serialization::confidential::ConfidentialOutputPlaintext::deserialize(&plaintext).unwrap();
-            assert_eq!(recovered.amount, amount);
-            assert_eq!(recovered.ring_program_id, Some(ring));
+            let recovered = RingAnonymous::decrypt(
+                &reader.viewing_key,
+                &blob[1..],
+                &key.pubkey(),
+                proof.external_data.salt,
+                index as u32,
+            )
+            .unwrap();
+            assert_eq!(recovered.output.amount, amount);
+            assert_eq!(recovered.output.ring_program_id, Some(ring));
+            assert_eq!(recovered.pair_pk, pair_pk);
         }
     }
+}
+
+#[test]
+fn anonymous_ring_encryption_refuses_a_recipient_without_keys() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    let sender = owner.shielded_address().unwrap();
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let mut tx = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
+    tx.transfer_sol(&receiver, 3).unwrap();
+    let view_tags = AnonymousViewTags::new(AnonymousOutputKeys {
+        tag: owner.get_sender_view_tag(0).unwrap(),
+        pair_pk: X25519Keypair::new().pubkey(),
+    });
+    assert!(matches!(
+        tx.encrypt_anonymous_with_viewing_key(&sender, &key, &view_tags),
+        Err(E::UnknownAnonymousRecipient { slot_index: 0 })
+    ));
 }
 
 #[test]

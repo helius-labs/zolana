@@ -1396,6 +1396,7 @@ fn measured_policy_shape(
     use zolana_transaction::{
         serialization::{
             confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+            ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
             UtxoSerialization,
         },
         Data, SOL_ASSET_ID,
@@ -1415,7 +1416,11 @@ fn measured_policy_shape(
         slot_index: 0,
     };
     let ciphertext = if rail == 1 {
-        Confidential::encode_ring_anonymous_plaintext(&plaintext, [0; 32], &cx)
+        let plaintext = RingAnonymousOutputPlaintext {
+            output: plaintext,
+            pair_pk: cx.recipient_pubkey,
+        };
+        RingAnonymous::encode_plaintext(&plaintext, [0; 32], &cx)
     } else {
         Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
     }

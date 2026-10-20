@@ -31,6 +31,7 @@ struct KeyDerivationVectors {
     merge_recovery: MergeRecovery,
     derivation_input_guard: Vec<GuardCase>,
     counter_view_tags: Vec<CounterViewTagCase>,
+    ring_derivation: RingDerivation,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -115,6 +116,33 @@ struct CounterViewTagCase {
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 struct CounterTag {
     counter: String,
+    tag: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct RingDerivation {
+    viewing_secret: String,
+    viewing_pubkey: String,
+    recipient_viewing_secret: String,
+    recipient_viewing_pubkey: String,
+    inbox_secrets: Vec<InboxSecretCase>,
+    pair_pubkey: String,
+    pair_view_tags: Vec<CounterTag>,
+    first_nullifier: String,
+    change_view_tags: Vec<SlotTag>,
+    blinding_seed: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct InboxSecretCase {
+    index: u32,
+    secret: String,
+    view_tags: Vec<CounterTag>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct SlotTag {
+    slot: u8,
     tag: String,
 }
 
@@ -265,6 +293,64 @@ fn compute_counter_view_tags() -> Vec<CounterViewTagCase> {
         .collect()
 }
 
+fn compute_ring_derivation() -> RingDerivation {
+    let viewing_secret = [0x21u8; 32];
+    let recipient_viewing_secret = [0x22u8; 32];
+    let key = ViewingKey::from_bytes(&viewing_secret);
+    let recipient = ViewingKey::from_bytes(&recipient_viewing_secret);
+    let first_nullifier = scalar_bytes(13);
+    let counter_tags = |derive: &dyn Fn(u64) -> [u8; 32], counters: &[u64]| {
+        counters
+            .iter()
+            .map(|&counter| CounterTag {
+                counter: counter.to_string(),
+                tag: hex::encode(derive(counter)),
+            })
+            .collect::<Vec<_>>()
+    };
+    let inbox_secrets = [0u32, 1]
+        .into_iter()
+        .map(|index| {
+            let secret = key.inbox_secret(index).unwrap();
+            InboxSecretCase {
+                index,
+                secret: hex::encode(secret.as_bytes()),
+                view_tags: counter_tags(&|j| secret.view_tag(j).unwrap(), &[0, 1, 64]),
+            }
+        })
+        .collect();
+    let pair_pubkey = key.pair_key(&recipient.pubkey()).unwrap().pubkey();
+    let pair_view_tags = counter_tags(
+        &|k| {
+            let sent = key.pair_send_view_tag(&recipient.pubkey(), k).unwrap();
+            let received = recipient
+                .get_recipient_shared_view_tag(&pair_pubkey, k)
+                .unwrap();
+            assert_eq!(sent, received);
+            sent
+        },
+        &[0, 1],
+    );
+    RingDerivation {
+        viewing_secret: hex::encode(viewing_secret),
+        viewing_pubkey: hex::encode(key.pubkey().as_bytes()),
+        recipient_viewing_secret: hex::encode(recipient_viewing_secret),
+        recipient_viewing_pubkey: hex::encode(recipient.pubkey().as_bytes()),
+        inbox_secrets,
+        pair_pubkey: hex::encode(pair_pubkey.as_bytes()),
+        pair_view_tags,
+        first_nullifier: hex::encode(first_nullifier),
+        change_view_tags: [0u8, 1]
+            .into_iter()
+            .map(|slot| SlotTag {
+                slot,
+                tag: hex::encode(key.ring_change_view_tag(&first_nullifier, slot).unwrap()),
+            })
+            .collect(),
+        blinding_seed: hex::encode(key.ring_blinding_seed(&first_nullifier).unwrap()),
+    }
+}
+
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         eddsa_rail: compute_eddsa_rail(),
@@ -275,6 +361,7 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
         merge_recovery,
         derivation_input_guard: compute_derivation_input_guard(),
         counter_view_tags: compute_counter_view_tags(),
+        ring_derivation: compute_ring_derivation(),
     }
 }
 
