@@ -12,8 +12,8 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{
-    ClientError, ComputeBudgetConfig, ProofDataSource, ProverClient, Rpc, WitnessReader,
-    ZolanaClient,
+    ClientError, ComputeBudgetConfig, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
+    ProofDataSource, ProverClient, Rpc, WitnessReader, ZolanaClient,
 };
 use zolana_indexer_api::{
     Context, GetRingMemberRecordRequest, GetRingMemberRecordResponse, Hash, RingLowRecordView,
@@ -46,6 +46,26 @@ impl Rpc for DepositRpc {
         }
         assert_eq!(address, self.ring.deposit_audit_pda());
         Ok(self.setting.clone())
+    }
+
+    /// The recipient's sender stream is free.
+    fn get_shielded_transactions_by_tags(
+        &self,
+        _tags: Vec<[u8; 32]>,
+        _cursor: Option<Vec<u8>>,
+        _limit: Option<u32>,
+        _config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: zolana_client::Context {
+                block_time: 0,
+                slot: 0,
+            },
+            output_tree_id: None,
+            transactions: Vec::new(),
+            next_cursor: None,
+            scanned_through: None,
+        })
     }
 }
 
@@ -91,7 +111,6 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
-            anonymous_view_tag: None,
         };
         let prepared = client.block_on(deposit.prepare(client.as_async())).unwrap();
         assert_eq!(
@@ -151,7 +170,6 @@ fn anonymous_deposit_refuses_a_public_recipient_before_building_the_note() {
         asset: DepositAsset::Sol,
         amount: 11,
         cosigner: None,
-        anonymous_view_tag: Some(recipient.get_sender_view_tag(0).unwrap()),
     };
     assert!(matches!(
         client.block_on(deposit.prepare(client.as_async())),
@@ -267,7 +285,6 @@ fn an_escrowed_ring_refuses_an_unregistered_recipient_from_either_proof_data_sou
             asset: DepositAsset::Sol,
             amount: 11,
             cosigner: None,
-            anonymous_view_tag: None,
         };
         client.block_on(async {
             let prepared = deposit.prepare(client.as_async()).await?;

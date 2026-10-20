@@ -7,7 +7,9 @@ use bytemuck::Pod;
 use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
 use solana_account::Account;
 use solana_address::Address;
-use zolana_client::{AsyncRpc, ClientError};
+use zolana_client::{
+    AsyncRpc, ClientError, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
+};
 use zolana_interface::{
     state::{default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
@@ -225,6 +227,26 @@ impl AsyncRpc for Accounts {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.reads.lock().unwrap().push(address);
         Ok(self.accounts.get(&address).cloned())
+    }
+
+    /// Every tag stream is free.
+    async fn get_shielded_transactions_by_tags(
+        &self,
+        _tags: Vec<[u8; 32]>,
+        _cursor: Option<Vec<u8>>,
+        _limit: Option<u32>,
+        _config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: Context {
+                block_time: 0,
+                slot: 0,
+            },
+            output_tree_id: None,
+            transactions: Vec::new(),
+            next_cursor: None,
+            scanned_through: None,
+        })
     }
 }
 

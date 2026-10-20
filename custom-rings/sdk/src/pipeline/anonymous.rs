@@ -3,9 +3,9 @@
 
 use custom_ring_interface::{RingMode, ANONYMOUS_RING_SHAPES};
 use solana_address::Address;
-use zolana_client::{AsyncRpc, Shape};
+use zolana_client::{AsyncRpc, Shape, TagStream};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
-use zolana_keypair::{Curve, ShieldedAddress, SigningKey};
+use zolana_keypair::{Curve, RingAddress, ShieldedAddress, SigningKey, ViewingKey, X25519Pubkey};
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_transaction::instructions::transact::{AnonymousViewTags, SppProofInputs};
 
@@ -16,7 +16,16 @@ use crate::{CustomRing, CustomRingConfig, RingError};
 pub struct Anonymous<'a> {
     pub(super) owner: Owner<'a>,
     pub(super) signer: &'a SigningKey,
-    view_tags: AnonymousViewTags,
+    viewing_key: &'a ViewingKey,
+    recipients: Vec<AnonymousRecipient>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AnonymousRecipient {
+    /// A first payment, on the inbox stream of the shared address.
+    Address(RingAddress),
+    /// A recipient paid or received from before, on the pair stream toward it.
+    Paired(X25519Pubkey),
 }
 
 pub type AnonymousTransfer<'a> = RingTransfer<Anonymous<'a>>;
@@ -34,17 +43,27 @@ impl<'a> RingTransfer<Owner<'a>> {
     pub fn with_anonymous_signer(
         self,
         signer: &'a SigningKey,
-        view_tags: AnonymousViewTags,
+        viewing_key: &'a ViewingKey,
     ) -> RingTransfer<Anonymous<'a>> {
         RingTransfer {
             ring: self.ring,
             rail: Anonymous {
                 owner: self.rail,
                 signer,
-                view_tags,
+                viewing_key,
+                recipients: Vec::new(),
             },
             cosigner: self.cosigner,
         }
+    }
+}
+
+impl RingTransfer<Anonymous<'_>> {
+    /// Every output owner other than the sender needs one.
+    #[must_use = "use the updated transfer"]
+    pub fn with_recipient(mut self, recipient: AnonymousRecipient) -> Self {
+        self.rail.recipients.push(recipient);
+        self
     }
 }
 
@@ -68,15 +87,44 @@ impl Anonymous<'_> {
         if owner == self.owner.transaction.payer() || cosigner == Some(owner) {
             return Err(RingError::AnonymousPublicSignerLinksOwner);
         }
+        let view_tags = self.view_tags(ring, client).await?;
         self.owner
-            .stage_with(ring, client, config, Some(&self.view_tags))
+            .stage_with(ring, client, config, Some(&view_tags))
             .await
+    }
+
+    async fn view_tags(
+        &self,
+        ring: CustomRing,
+        client: &(impl AsyncRpc + ?Sized),
+    ) -> Result<AnonymousViewTags, RingError> {
+        let stream = TagStream::new(client);
+        let mut view_tags = AnonymousViewTags::new(self.viewing_key);
+        for recipient in &self.recipients {
+            view_tags = match recipient {
+                AnonymousRecipient::Address(address) => {
+                    if address.ring_program_id != ring.program_id() {
+                        return Err(RingError::ForeignRing(address.ring_program_id));
+                    }
+                    let j = stream
+                        .first_free_index(0, |j| address.inbox_secret.view_tag(j))
+                        .await?;
+                    view_tags.with_inbox_recipient(address, j)?
+                }
+                AnonymousRecipient::Paired(recipient) => {
+                    let k = stream
+                        .first_free_index(0, |k| self.viewing_key.pair_send_view_tag(recipient, k))
+                        .await?;
+                    view_tags.with_paired_recipient(*recipient, k)?
+                }
+            };
+        }
+        Ok(view_tags)
     }
 }
 
-/// AnonymousRingEddsa keeps its notes in this ring and its owners hidden. Only outputs may use compact padding.
+/// AnonymousRingEddsa keeps its owners hidden, a note leaves only to the default ring. Only outputs may use compact padding.
 pub(super) fn check_anonymous_slots(
-    program: Address,
     shape: Shape,
     inputs: &SppProofInputs,
 ) -> Result<(), RingError> {
@@ -90,10 +138,9 @@ pub(super) fn check_anonymous_slots(
     let output_open = inputs.output_utxos.iter().any(|output| {
         output.cache_slot.is_some()
             || (!output.is_dummy()
-                && (output.ring_program_id != Some(program)
-                    || output.owner_address.is_none_or(|address| {
-                        address.signing_pubkey.curve().ok() != Some(Curve::Ed25519)
-                    })))
+                && output.owner_address.is_none_or(|address| {
+                    address.signing_pubkey.curve().ok() != Some(Curve::Ed25519)
+                }))
     });
     if input_open || output_open {
         return Err(RingError::InvalidAnonymousSlot);

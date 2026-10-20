@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use solana_address::Address;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
-    constants::SALT_LEN, random_salt, viewing_key::ViewTag, PublicKey, ShieldedAddress, ViewingKey,
-    X25519Pubkey,
+    constants::SALT_LEN, random_blinding, random_salt, viewing_key::ViewTag, PublicKey,
+    RingAddress, ShieldedAddress, ViewingKey, X25519Pubkey,
 };
 
 use super::{sender_owner_tag, ConfidentialTransaction};
@@ -37,40 +37,114 @@ pub struct AnonymousOutputKeys {
 }
 
 #[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct AnonymousViewTags {
-    sender: AnonymousOutputKeys,
+    sender: ViewingKey,
     recipients: HashMap<X25519Pubkey, AnonymousOutputKeys>,
 }
 
 impl AnonymousViewTags {
-    /// `sender` seals the wallet's own change and self outputs.
-    pub fn new(sender: AnonymousOutputKeys) -> Self {
+    pub fn new(sender: &ViewingKey) -> Self {
         Self {
-            sender,
+            sender: sender.clone(),
             recipients: HashMap::new(),
         }
     }
 
-    /// Every recipient other than the sender needs an entry.
-    pub fn with_recipient(mut self, recipient: X25519Pubkey, keys: AnonymousOutputKeys) -> Self {
+    /// `j` is the first free index of the address's inbox stream.
+    pub fn with_inbox_recipient(
+        mut self,
+        address: &RingAddress,
+        j: u64,
+    ) -> Result<Self, TransactionError> {
+        let recipient = address.recipient.viewing_pubkey;
+        let keys = AnonymousOutputKeys {
+            tag: address.inbox_secret.view_tag(j)?,
+            pair_pk: self.pair_pk(&recipient)?,
+        };
         self.recipients.insert(recipient, keys);
-        self
+        Ok(self)
+    }
+
+    /// `k` is the first free index of the pair stream toward `recipient`.
+    pub fn with_paired_recipient(
+        mut self,
+        recipient: X25519Pubkey,
+        k: u64,
+    ) -> Result<Self, TransactionError> {
+        let keys = AnonymousOutputKeys {
+            tag: self.sender.pair_send_view_tag(&recipient, k)?,
+            pair_pk: self.pair_pk(&recipient)?,
+        };
+        self.recipients.insert(recipient, keys);
+        Ok(self)
+    }
+
+    pub fn change_keys(
+        &self,
+        first_nullifier: &[u8; 32],
+        slot: u8,
+    ) -> Result<AnonymousOutputKeys, TransactionError> {
+        Ok(AnonymousOutputKeys {
+            tag: self.sender.ring_change_view_tag(first_nullifier, slot)?,
+            pair_pk: self.pair_pk(&self.sender.pubkey())?,
+        })
+    }
+
+    pub fn blinding_seed(&self, first_nullifier: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
+        Ok(self.sender.ring_blinding_seed(first_nullifier)?)
+    }
+
+    fn pair_pk(&self, recipient: &X25519Pubkey) -> Result<X25519Pubkey, TransactionError> {
+        Ok(self.sender.pair_key(recipient)?.pubkey())
     }
 
     fn resolve(
         &self,
         output: &SppProofOutputUtxo,
         sender: &ShieldedAddress,
+        first_nullifier: &[u8; 32],
         slot_index: usize,
-    ) -> Result<AnonymousOutputKeys, TransactionError> {
-        match output.owner_address {
-            Some(owner) if owner.signing_pubkey != sender.signing_pubkey => self
-                .recipients
-                .get(&owner.viewing_pubkey)
-                .copied()
-                .ok_or(TransactionError::UnknownAnonymousRecipient { slot_index }),
-            _ => Ok(self.sender),
+    ) -> Result<AnonymousSlot, TransactionError> {
+        if output.is_compact() {
+            return Ok(AnonymousSlot::Compact);
+        }
+        let Some(owner) = output.owner_address else {
+            return Ok(AnonymousSlot::Padding(random_blinding()));
+        };
+        if output.ring_program_id.is_none() {
+            return Ok(AnonymousSlot::Exit);
+        }
+        if owner.signing_pubkey == sender.signing_pubkey {
+            let slot = u8::try_from(slot_index).map_err(|_| TransactionError::TooManyOutputs)?;
+            return Ok(AnonymousSlot::Hidden(
+                self.change_keys(first_nullifier, slot)?,
+            ));
+        }
+        self.recipients
+            .get(&owner.viewing_pubkey)
+            .copied()
+            .map(AnonymousSlot::Hidden)
+            .ok_or(TransactionError::UnknownAnonymousRecipient { slot_index })
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnonymousSlot {
+    Hidden(AnonymousOutputKeys),
+    /// A default-ring note, the circuit publishes its owner's Solana key.
+    Exit,
+    Padding(ViewTag),
+    Compact,
+}
+
+impl AnonymousSlot {
+    /// `None` keeps the confidential tag.
+    fn published_tag(self) -> Option<ViewTag> {
+        match self {
+            Self::Hidden(keys) => Some(keys.tag),
+            Self::Padding(tag) => Some(tag),
+            Self::Exit | Self::Compact => None,
         }
     }
 }
@@ -139,6 +213,12 @@ impl ConfidentialTransaction {
         tx_viewing_key: &ViewingKey,
         anonymous: Option<&AnonymousViewTags>,
     ) -> Result<SppProofInputs, TransactionError> {
+        if let Some(view_tags) = anonymous {
+            if view_tags.sender.pubkey() != sender.viewing_pubkey {
+                return Err(TransactionError::AnonymousViewTagsSenderMismatch);
+            }
+            self.blinding_seed = view_tags.blinding_seed(&self.first_nullifier)?;
+        }
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
             let n_in = self.inputs.len();
@@ -165,60 +245,53 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let anonymous_keys = anonymous
+        let anonymous_slots = anonymous
             .map(|view_tags| {
                 self.outputs
                     .iter()
                     .enumerate()
-                    .map(|(slot_index, output)| view_tags.resolve(output, sender, slot_index))
+                    .map(|(slot_index, output)| {
+                        view_tags.resolve(output, sender, &self.first_nullifier, slot_index)
+                    })
                     .collect::<Result<Vec<_>, TransactionError>>()
             })
             .transpose()?;
-        let owner_tags = match &anonymous_keys {
-            Some(keys) => self
-                .outputs
-                .iter()
-                .zip(keys)
-                .map(|(output, keys)| {
-                    let resolved = if output.is_compact() {
-                        [0; 32]
-                    } else {
-                        keys.tag
-                    };
-                    ResolvedOwnerTag {
+        let mut owner_tags = self.owner_tags(&sender.signing_pubkey)?;
+        if let Some(slots) = &anonymous_slots {
+            for (owner_tag, slot) in owner_tags.iter_mut().zip(slots) {
+                if let Some(resolved) = slot.published_tag() {
+                    *owner_tag = ResolvedOwnerTag {
                         tag: OwnerTag::Inline(resolved),
                         resolved,
-                    }
-                })
-                .collect(),
-            None => self.owner_tags(&sender.signing_pubkey)?,
-        };
+                    };
+                }
+            }
+        }
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
         let salt = random_salt();
-        let slot_keys: Vec<Option<AnonymousOutputKeys>> = match anonymous_keys {
-            Some(keys) => keys.into_iter().map(Some).collect(),
+        let slot_kinds: Vec<Option<AnonymousSlot>> = match anonymous_slots {
+            Some(slots) => slots.into_iter().map(Some).collect(),
             None => vec![None; self.outputs.len()],
         };
         let slots = self
             .outputs
             .iter()
-            .zip(slot_keys)
+            .zip(slot_kinds)
             .enumerate()
-            .map(|(slot_index, (output, keys))| {
-                output
-                    .owner_address
-                    .map(|_| match keys {
-                        Some(keys) => output.seal_ring_anonymous(
-                            slot_index as u32,
-                            tx_viewing_key,
-                            salt,
-                            keys,
-                        ),
-                        None => output.seal(slot_index as u32, tx_viewing_key, salt),
-                    })
-                    .transpose()
+            .map(|(slot_index, (output, kind))| {
+                let slot_index = slot_index as u32;
+                match kind {
+                    Some(AnonymousSlot::Hidden(keys)) => output
+                        .seal_ring_anonymous(slot_index, tx_viewing_key, salt, keys)
+                        .map(Some),
+                    Some(AnonymousSlot::Padding(_) | AnonymousSlot::Compact) => Ok(None),
+                    Some(AnonymousSlot::Exit) | None => output
+                        .owner_address
+                        .map(|_| output.seal(slot_index, tx_viewing_key, salt))
+                        .transpose(),
+                }
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
         let dummy_len = if self

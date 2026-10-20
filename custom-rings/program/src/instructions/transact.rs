@@ -15,7 +15,7 @@ use zolana_interface::instruction::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
         ring_confidential_encrypted_output_body,
     },
-    tag, CircuitId, MessageData, TransactIxData,
+    tag, CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput,
 };
 use zolana_interface::TRANSACT_ACCOUNT_PREFIX_LEN;
 use zolana_ring_policy::ring_id_field;
@@ -287,12 +287,12 @@ impl RingStatement<'_> {
         if !self.rail.accepts(self.transact.circuit, self.config.mode) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
-        if self.transact.outputs.iter().any(|output| {
-            !output
-                .data
-                .as_deref()
-                .is_some_and(|data| is_valid_confidential_output(data, anonymous))
-        }) {
+        if self
+            .transact
+            .outputs
+            .iter()
+            .any(|output| !is_valid_confidential_output(output, anonymous))
+        {
             return Err(CustomRingError::UnsupportedOutputScheme.into());
         }
         let message = select_auditor_message(
@@ -574,13 +574,24 @@ fn select_auditor_message<'a>(
     }
 }
 
-fn is_valid_confidential_output(data: &[u8], anonymous: bool) -> bool {
-    if anonymous {
-        return ring_anonymous_encrypted_output_body(data).is_some_and(|body| !body.is_empty());
+fn is_valid_confidential_output(output: &TransactOutput, anonymous: bool) -> bool {
+    let Some(data) = output.data.as_deref() else {
+        return false;
+    };
+    if anonymous && ring_anonymous_encrypted_output_body(data).is_some_and(|body| !body.is_empty())
+    {
+        return true;
     }
-    confidential_encrypted_output_body(data)
-        .or_else(|| ring_confidential_encrypted_output_body(data))
-        .and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
+    // An exit to the default ring publishes its owner through the inline tag.
+    if anonymous && !matches!(output.owner_tag, OwnerTag::Inline(tag) if tag != [0; 32]) {
+        return false;
+    }
+    let body = match anonymous {
+        true => confidential_encrypted_output_body(data),
+        false => confidential_encrypted_output_body(data)
+            .or_else(|| ring_confidential_encrypted_output_body(data)),
+    };
+    body.and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
         .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty())
 }
 

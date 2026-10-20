@@ -35,11 +35,11 @@ use custom_ring_interface::{
     CustomRingError, RingMode, RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use custom_ring_sdk::{
-    compute_unit_limit, CoSignScope, CoSignThreshold, CustomRing, CustomRingTransact,
-    CustomRingTransfer, CustomRingTransferInput, DelegateOutput, DelegateTransfer,
-    DelegateTransferInput, Deposit, EscrowBinding, InstructionTag, ProvenDelegateTransfer,
-    ProvenTransfer, ReadMemberRecord, RegisterKey, RegistryBinding, RingDeposit,
-    RingDepositReceipt, RingError, RingOperation, RingSubmission, SettledSubmission,
+    compute_unit_limit, AnonymousRecipient, CoSignScope, CoSignThreshold, CustomRing,
+    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
+    DelegateTransfer, DelegateTransferInput, Deposit, EscrowBinding, InstructionTag,
+    ProvenDelegateTransfer, ProvenTransfer, ReadMemberRecord, RegisterKey, RegistryBinding,
+    RingDeposit, RingDepositReceipt, RingError, RingOperation, RingSubmission, SettledSubmission,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -70,7 +70,9 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, X25519Keypair};
+use zolana_keypair::{
+    random_blinding, RingAddress, ShieldedAddress, ShieldedKeypair, X25519Keypair,
+};
 use zolana_program::instruction::{
     AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
     TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
@@ -95,9 +97,7 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     decrypt_spendable,
-    instructions::transact::{
-        canonical_shape, AnonymousOutputKeys, AnonymousViewTags, ConfidentialTransaction,
-    },
+    instructions::transact::{canonical_shape, ConfidentialTransaction},
     utxo::SppProofInputUtxo,
     AssetRegistry, Data, Utxo, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -523,7 +523,6 @@ fn cli_merge_fragments(amounts: &[u64]) -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
-            anonymous_view_tag: None,
         };
         let receipt = env.run(deposit.send(env.client.as_async()))?;
         custom_ring_cli::wait_for_indexed_transaction(&env.client, receipt.signature)?;
@@ -700,7 +699,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         asset: DepositAsset::Sol,
         amount,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let pause = |authority: Address, paused: bool| ring.set_paused(authority, paused);
     send(rpc, &env.payer, &[pause(authority, true)?])?;
@@ -1080,7 +1078,7 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     assert_ne!(deposit_source.pubkey(), payer.pubkey());
     assert_ne!(deposit_source.pubkey(), env.sender.keypair.pubkey());
     let mut spendable = Vec::with_capacity(2);
-    for (request_count, amount) in (0..).zip([RING_DEPOSIT_A, RING_DEPOSIT_B]) {
+    for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
         let deposit = RingDeposit {
             ring,
             payer: &deposit_source,
@@ -1089,11 +1087,6 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
-            anonymous_view_tag: Some(
-                env.sender
-                    .keypair
-                    .get_recipient_request_view_tag(request_count)?,
-            ),
         };
         let RingDepositReceipt { utxo, .. } =
             env.run(deposit.send_with_fee_payer(env.client.as_async(), payer))?;
@@ -1122,30 +1115,25 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         transfer
     };
 
+    let first_nullifier = *prepared.first_nullifier();
     let transfer = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
     });
-    let sender_view_tag = env.sender.keypair.get_sender_view_tag(0)?;
     let mut proven = match anonymous {
         true => {
-            let recipient_viewing_pk = env.recipient.keypair.shielded_address()?.viewing_pubkey;
-            let transfer = transfer.with_anonymous_signer(
-                &env.sender.keypair.signing_key,
-                AnonymousViewTags::new(AnonymousOutputKeys {
-                    tag: sender_view_tag,
-                    pair_pk: X25519Keypair::new().pubkey(),
-                })
-                .with_recipient(
-                    recipient_viewing_pk,
-                    AnonymousOutputKeys {
-                        tag: env.recipient.keypair.recipient_bootstrap_view_tag(),
-                        pair_pk: X25519Keypair::new().pubkey(),
-                    },
-                ),
-            );
+            let transfer = transfer
+                .with_anonymous_signer(
+                    &env.sender.keypair.signing_key,
+                    &env.sender.keypair.viewing_key,
+                )
+                .with_recipient(AnonymousRecipient::Address(RingAddress {
+                    recipient: env.recipient.keypair.shielded_address()?,
+                    ring_program_id: ring_program,
+                    inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
+                }));
             env.run(transfer.prove(env.client.as_async()))?
         }
         false => env.run(transfer.prove(env.client.as_async()))?,
@@ -1227,9 +1215,17 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             .map(|slot| slot.view_tag)
             .collect();
         tags.sort_unstable();
+        // A fresh ring, the first payment lands on inbox index 0 and the change in slot 1.
         let mut expected = vec![
-            env.recipient.keypair.recipient_bootstrap_view_tag(),
-            sender_view_tag,
+            env.recipient
+                .keypair
+                .viewing_key
+                .inbox_secret(0)?
+                .view_tag(0)?,
+            env.sender
+                .keypair
+                .viewing_key
+                .ring_change_view_tag(&first_nullifier, 1)?,
         ];
         expected.sort_unstable();
         assert_eq!(tags, expected, "anonymous outputs carry view tags");
@@ -1774,7 +1770,6 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         asset: usdc_deposit(sender_usdc),
         amount: USDC_RING_DEPOSIT,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let RingDepositReceipt { utxo: receipt, .. } = env.run(deposit.send(env.client.as_async()))?;
     assert_eq!(
@@ -2102,7 +2097,6 @@ fn an_outflow_limit_ring_bounds_each_transfer() -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
-            anonymous_view_tag: None,
         };
         let RingDepositReceipt { utxo, .. } = env.run(deposit.send(env.client.as_async()))?;
         notes.push(utxo);
@@ -2258,7 +2252,6 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let RingDepositReceipt { signature, utxo } = env.run(deposit.send(env.client.as_async()))?;
     let input = indexed_note(utxo, member, &env, env.tree)?;
@@ -2452,7 +2445,6 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let RingDepositReceipt { signature, .. } = env.run(deposit.send(env.client.as_async()))?;
     assert_transaction_compute_units(
@@ -2539,7 +2531,6 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let RingDepositReceipt { utxo, .. } = env.run(deposit.send(env.client.as_async()))?;
     wait_for_merkle_proof(
@@ -2673,7 +2664,6 @@ fn a_transfer_outputs_apart_from_the_address_tree() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
-        anonymous_view_tag: None,
     };
     let RingDepositReceipt { utxo, .. } = env.run(deposit.send(env.client.as_async()))?;
     wait_for_merkle_proof(

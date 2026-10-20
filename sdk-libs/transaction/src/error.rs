@@ -283,6 +283,9 @@ pub enum TransactionError {
     #[error("viewing keys do not include the keypair's own, so this authority would encrypt to one key and scan with another")]
     AuthorityViewingKeyMismatch,
 
+    #[error("anonymous view tags were derived from another wallet's viewing key")]
+    AnonymousViewTagsSenderMismatch,
+
     /// A request named a viewing key this holder does not have. Distinct from
     /// [`Self::AuthorityViewingKeyMismatch`], which is raised when the holder is
     /// built rather than when it is asked for something.

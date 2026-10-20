@@ -123,9 +123,8 @@ impl RingNotes<'_> {
     pub fn deposit_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
         let env = self.env;
         let indexer = env.client.indexer();
-        (0u64..)
-            .take(self.count)
-            .map(|request_count| {
+        (0..self.count)
+            .map(|_| {
                 let deposit = RingDeposit {
                     ring: self.ring,
                     payer,
@@ -134,9 +133,6 @@ impl RingNotes<'_> {
                     asset: DepositAsset::Sol,
                     amount: self.amount,
                     cosigner: None,
-                    anonymous_view_tag: Some(
-                        self.owner.get_recipient_request_view_tag(request_count)?,
-                    ),
                 };
                 let RingDepositReceipt { utxo, .. } =
                     env.run(deposit.send(env.client.as_async()))?;

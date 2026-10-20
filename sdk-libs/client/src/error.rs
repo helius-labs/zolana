@@ -417,6 +417,9 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
+    #[error("every index of the tag stream is occupied")]
+    TagStreamExhausted,
+
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
     #[error("indexer returned the cursor it was given; paging would not end")]

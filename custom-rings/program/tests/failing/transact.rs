@@ -588,6 +588,40 @@ fn an_anonymous_ring_refuses_every_other_rail_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
 
+#[test]
+fn an_anonymous_exit_needs_a_published_owner() {
+    let (mollusk, _) = setup_mollusk();
+    let exit = |scheme, owner_tag| {
+        let mut data = anonymous_transact(2, 2);
+        data.outputs[1] = TransactOutput {
+            owner_tag,
+            ..confidential_output(scheme, auditor_pubkey(4), &[9])
+        };
+        anonymous_fixture(data)
+    };
+    exit(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, OwnerTag::Inline([5; 32]))
+        .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    for (scheme, owner_tag) in [
+        (CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, OwnerTag::Inline([0; 32])),
+        (CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, OwnerTag::Account(0)),
+        (
+            RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+            OwnerTag::Inline([5; 32]),
+        ),
+    ] {
+        exit(scheme, owner_tag)
+            .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+    }
+    let mut keyless = anonymous_transact(2, 2);
+    keyless.outputs[1] = TransactOutput {
+        owner_tag: OwnerTag::Inline([5; 32]),
+        ..encrypted_output(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG)
+    };
+    keyless.outputs[1].data = Some(vec![1, 1, 0, 0, 0, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG]);
+    anonymous_fixture(keyless)
+        .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+}
+
 /// An anonymous output's owner tag is its view tag, bound by the SPP proof.
 #[test]
 fn an_anonymous_output_view_tag_reaches_the_proof() {

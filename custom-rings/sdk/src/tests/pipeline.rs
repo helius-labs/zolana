@@ -6,16 +6,16 @@ use zolana_client::Shape;
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        confidential_encrypted_output_body, ring_confidential_encrypted_output_body, OwnerTag,
-        TransactOutput,
+        confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
+        ring_confidential_encrypted_output_body, OwnerTag, TransactOutput,
     },
     tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey, X25519Keypair};
+use zolana_keypair::{random_blinding, RingAddress, ShieldedKeypair, ViewingKey, X25519Keypair};
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{OutflowLimit, RuleTable};
 use zolana_transaction::{
-    instructions::transact::{AnonymousOutputKeys, AnonymousViewTags, ConfidentialTransaction},
+    instructions::transact::{AnonymousViewTags, ConfidentialTransaction},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry, Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError, SOL_MINT,
@@ -34,13 +34,6 @@ use crate::{
 
 fn program() -> Address {
     ring().program_id()
-}
-
-fn sender_keys() -> AnonymousOutputKeys {
-    AnonymousOutputKeys {
-        tag: [3; 32],
-        pair_pk: X25519Keypair::new().pubkey(),
-    }
 }
 
 fn audit_only() -> CustomRingConfig {
@@ -776,7 +769,7 @@ async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
     let (sender, prepared) = prepared_transfer(4);
     let other = ShieldedKeypair::new_ed25519().unwrap();
     let transfer = owner_transfer(&sender, prepared)
-        .with_anonymous_signer(&other.signing_key, AnonymousViewTags::new(sender_keys()));
+        .with_anonymous_signer(&other.signing_key, &sender.viewing_key);
     assert!(matches!(
         transfer
             .rail
@@ -786,7 +779,7 @@ async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
     ));
     let (sender, prepared) = prepared_transfer(4);
     let transfer = owner_transfer(&sender, prepared)
-        .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new(sender_keys()));
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
     assert!(matches!(
         transfer
             .rail
@@ -817,7 +810,7 @@ async fn the_hidden_owner_never_signs_in_public() {
             false => prepared,
         };
         let mut transfer = owner_transfer(&sender, prepared)
-            .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new(sender_keys()));
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
         if as_cosigner {
             transfer = transfer.with_cosigner(owner);
         }
@@ -836,9 +829,131 @@ async fn the_hidden_owner_never_signs_in_public() {
     }
 }
 
+#[tokio::test]
+async fn anonymous_staging_derives_every_tag_from_the_sender_key() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let address = RingAddress {
+        recipient: receiver,
+        ring_program_id: program(),
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let inbox_tag = address.inbox_secret.view_tag(0).unwrap();
+    let pair_tag = sender
+        .viewing_key
+        .pair_send_view_tag(&receiver.viewing_pubkey, 0)
+        .unwrap();
+    for (recipient, tag) in [
+        (AnonymousRecipient::Address(address.clone()), inbox_tag),
+        (
+            AnonymousRecipient::Paired(receiver.viewing_pubkey),
+            pair_tag,
+        ),
+    ] {
+        let mut transaction = ConfidentialTransaction::new_with_ring(
+            vec![note(&sender, 10, 0, Some(program()))],
+            Address::new_from_array([7; 32]),
+            program(),
+        )
+        .unwrap();
+        transaction.transfer_sol(&receiver, 4).unwrap();
+        transaction
+            .pad_utxos(Shape::IN2_OUT2, &sender.shielded_address().unwrap())
+            .unwrap();
+        let first_nullifier = *transaction.first_nullifier();
+        let transfer = owner_transfer(&sender, transaction)
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+            .with_recipient(recipient);
+        let staged = transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await
+            .unwrap();
+        let external = &staged.proof_inputs.external_data;
+        assert_eq!(external.resolved_owner_tags[0], tag);
+        assert_eq!(
+            external.resolved_owner_tags[1],
+            sender
+                .viewing_key
+                .ring_change_view_tag(&first_nullifier, 1)
+                .unwrap()
+        );
+        assert_eq!(
+            staged.proof_inputs.blinding_seed,
+            sender
+                .viewing_key
+                .ring_blinding_seed(&first_nullifier)
+                .unwrap()
+        );
+    }
+    let (_, transaction) = prepared_transfer(4);
+    let foreign = Address::new_from_array([9; 32]);
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_recipient(AnonymousRecipient::Address(RingAddress {
+            ring_program_id: foreign,
+            ..address
+        }));
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await,
+        Err(RingError::ForeignRing(ring)) if ring == foreign
+    ));
+}
+
+#[tokio::test]
+async fn an_anonymous_exit_publishes_the_default_ring_owner() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 10, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    transaction
+        .transfer_with_ring(&receiver, Mint::SOL, 4, None)
+        .unwrap();
+    transaction
+        .pad_utxos(Shape::IN2_OUT2, &sender.shielded_address().unwrap())
+        .unwrap();
+    let first_nullifier = *transaction.first_nullifier();
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
+    let staged = transfer
+        .rail
+        .stage(ring(), &Accounts::default(), &anonymous(), None)
+        .await
+        .unwrap();
+    let external = &staged.proof_inputs.external_data;
+    let owner_key = receiver.signing_pubkey.confidential_view_tag().unwrap();
+    assert_eq!(external.outputs[0].owner_tag, OwnerTag::Inline(owner_key));
+    assert_eq!(external.resolved_owner_tags[0], owner_key);
+    let exit = external.outputs[0].data.as_deref().unwrap();
+    assert!(confidential_encrypted_output_body(exit).is_some_and(|body| !body.is_empty()));
+    let change = external.outputs[1].data.as_deref().unwrap();
+    assert!(ring_anonymous_encrypted_output_body(change).is_some());
+    assert_eq!(
+        external.resolved_owner_tags[1],
+        sender
+            .viewing_key
+            .ring_change_view_tag(&first_nullifier, 1)
+            .unwrap()
+    );
+    assert_eq!(staged.proof_inputs.output_utxos[0].ring_program_id, None);
+    assert_eq!(
+        staged.proof_inputs.output_utxos[1].ring_program_id,
+        Some(program())
+    );
+}
+
 /// AnonymousRingEddsa keeps every note in the ring and refuses a slot it cannot prove.
 #[test]
-fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
+fn anonymous_slots_carry_ed25519_owners_in_the_ring_or_the_default_ring() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
     let mut transaction = ConfidentialTransaction::new_with_ring(
         vec![note(&sender, 10, 0, Some(program()))],
@@ -855,10 +970,14 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
     let key = transaction_key(&sender, *transaction.first_nullifier()).unwrap();
     let address = sender.shielded_address().unwrap();
     let inputs = transaction
-        .encrypt_anonymous_with_viewing_key(&address, &key, &AnonymousViewTags::new(sender_keys()))
+        .encrypt_anonymous_with_viewing_key(
+            &address,
+            &key,
+            &AnonymousViewTags::new(&sender.viewing_key),
+        )
         .unwrap();
     let shape = inputs.check_shape().unwrap();
-    anonymous::check_anonymous_slots(program(), shape, &inputs).unwrap();
+    anonymous::check_anonymous_slots(shape, &inputs).unwrap();
     for attach in [
         |output: &mut SppProofOutputUtxo| output.data_hash = Some([2; 32]),
         |output: &mut SppProofOutputUtxo| output.ring_data_hash = Some([2; 32]),
@@ -866,7 +985,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         let mut attached = inputs.clone();
         attach(&mut attached.output_utxos[0]);
         assert!(matches!(
-            anonymous::check_anonymous_slots(program(), shape, &attached),
+            anonymous::check_anonymous_slots(shape, &attached),
             Err(RingError::AnonymousOutputData)
         ));
     }
@@ -876,7 +995,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         ..Default::default()
     };
     compact.check_shape().unwrap();
-    anonymous::check_anonymous_slots(program(), shape, &compact).unwrap();
+    anonymous::check_anonymous_slots(shape, &compact).unwrap();
     compact.output_utxos.swap(0, 1);
     assert!(matches!(
         compact.check_shape(),
@@ -885,7 +1004,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
     let mut compact_input = inputs.clone();
     compact_input.input_utxos[1] = SppProofInputUtxo::compact(0).unwrap();
     assert!(matches!(
-        anonymous::check_anonymous_slots(program(), shape, &compact_input),
+        anonymous::check_anonymous_slots(shape, &compact_input),
         Err(RingError::InvalidAnonymousSlot)
     ));
     for output_cache in [false, true] {
@@ -896,20 +1015,17 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
             cached.input_utxos[0].cache_slot = Some(0);
         }
         assert!(matches!(
-            anonymous::check_anonymous_slots(program(), shape, &cached),
+            anonymous::check_anonymous_slots(shape, &cached),
             Err(RingError::InvalidAnonymousSlot)
         ));
     }
     assert!(matches!(
-        anonymous::check_anonymous_slots(program(), Shape::IN2_OUT8, &inputs),
+        anonymous::check_anonymous_slots(Shape::IN2_OUT8, &inputs),
         Err(RingError::AnonymousShapeUnsupported)
     ));
-    let mut foreign = inputs.clone();
-    foreign.output_utxos[0].ring_program_id = None;
-    assert!(matches!(
-        anonymous::check_anonymous_slots(program(), shape, &foreign),
-        Err(RingError::InvalidAnonymousSlot)
-    ));
+    let mut exit = inputs.clone();
+    exit.output_utxos[0].ring_program_id = None;
+    anonymous::check_anonymous_slots(shape, &exit).unwrap();
     let mut pda = inputs;
     pda.output_utxos[0]
         .owner_address
@@ -917,7 +1033,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         .unwrap()
         .signing_pubkey = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([9; 32]));
     assert!(matches!(
-        anonymous::check_anonymous_slots(program(), shape, &pda),
+        anonymous::check_anonymous_slots(shape, &pda),
         Err(RingError::InvalidAnonymousSlot)
     ));
 }

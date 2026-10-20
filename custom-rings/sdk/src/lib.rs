@@ -48,7 +48,7 @@ pub use crate::{
         ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     pipeline::{
-        ring_authority_width, Anonymous, AnonymousTransfer, CustomRingTransfer,
+        ring_authority_width, Anonymous, AnonymousRecipient, AnonymousTransfer, CustomRingTransfer,
         CustomRingTransferInput, DelegateOutput, DelegateTransfer, DelegateTransferInput,
         Delegated, Owner, ProvenDelegateTransfer, ProvenRingTransfer, ProvenTransfer, Rail,
         RailKind, RingTransfer,

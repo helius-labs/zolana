@@ -6,7 +6,7 @@ use zolana_transaction::{
     error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 
-pub const DEFAULT_TAG_WINDOW: u64 = 64;
+pub use zolana_client::DEFAULT_TAG_WINDOW;
 pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

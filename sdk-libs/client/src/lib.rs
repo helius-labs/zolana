@@ -25,6 +25,7 @@ pub mod program_data;
 pub mod prover;
 pub mod rpc;
 pub mod scan;
+pub mod tags;
 pub mod user_registry;
 
 pub use authority::ProofAuthority;
@@ -77,6 +78,7 @@ pub use rpc::{
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
+pub use tags::{TagStream, DEFAULT_TAG_WINDOW};
 pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.

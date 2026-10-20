@@ -97,6 +97,10 @@ x509-cert = { workspace = true, features = ["builder"] }
 [[test]]
 name = "scan"
 
+# Hermetic: tag stream occupancy against an in-memory indexer.
+[[test]]
+name = "tags"
+
 [[test]]
 name = "rpc"
 

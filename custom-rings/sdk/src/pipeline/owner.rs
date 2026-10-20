@@ -167,7 +167,7 @@ impl Owner<'_> {
         )?;
         let shape = proof_inputs.check_shape()?;
         if anonymous {
-            check_anonymous_slots(program, shape, &proof_inputs)?;
+            check_anonymous_slots(shape, &proof_inputs)?;
         }
         proof_inputs
             .external_data

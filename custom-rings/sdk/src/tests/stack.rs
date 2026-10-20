@@ -229,7 +229,6 @@ fn deposit(payer: &ShieldedKeypair) -> RingDeposit<'_> {
         asset: DepositAsset::Sol,
         amount: 1,
         cosigner: None,
-        anonymous_view_tag: None,
     }
 }
 

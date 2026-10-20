@@ -140,10 +140,6 @@ pub enum RingError {
     AnonymousDisclosureShape,
     #[error("an anonymous ring requires an Ed25519 recipient")]
     AnonymousRecipient,
-    #[error("an anonymous deposit requires a nonzero view tag")]
-    MissingAnonymousViewTag,
-    #[error("an anonymous deposit must not carry the recipient's bootstrap view tag")]
-    AnonymousBootstrapViewTag,
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]

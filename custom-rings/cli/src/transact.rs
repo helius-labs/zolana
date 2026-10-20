@@ -231,7 +231,6 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
             asset: t.asset,
             amount,
             cosigner,
-            anonymous_view_tag: None,
         };
         receipts.push(ctx.block(deposit.send(ctx.chain()))?);
     }

@@ -33,7 +33,7 @@ use crate::{
     rpc::{AsyncRpc, EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
-const PAGE_LIMIT: u32 = 1_000;
+pub(crate) const PAGE_LIMIT: u32 = 1_000;
 
 /// What [`UtxoScan::fetch`] read.
 #[derive(Clone, Debug)]
