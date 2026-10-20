@@ -249,7 +249,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | --- | --- | --- |
 | `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body. Prefix `0x00` is reserved and every decoder rejects it; `0x01`: Ed25519, 32-byte key then one zero byte; `0x02`: PDA, 32-byte Solana address then one zero byte (off-curve, cannot sign). The protocol's scheme-tagged key, used wherever the scheme varies — UTXO owners (`signing_pk` / `owner_pubkey`). |
 | `X25519Pubkey` | `[u8; 33]` | X25519 public key, `0x04 \|\| u` with `u` the little-endian Montgomery u-coordinate. Only a canonical `u < 2^255 - 19` decodes. No scheme prefix beyond the tag. Used where the key is X25519 by construction, the viewing and ECDH keys (`tx_viewing_pk`, registry `viewing_pk`, ring auditor keys, ephemeral envelope keys). |
-| `X25519Keypair` | — | An X25519 `(secret, public)` keypair. The secret is a clamped 32-byte RFC 7748 scalar, and its public half is an `X25519Pubkey`. |
+| `X25519Keypair` | — | An X25519 `(secret, public)` keypair. The secret is stored clamped: `clamp` is RFC 7748 `decodeScalar25519`, so each key has one secret byte string. Its public half is an `X25519Pubkey`. |
 | `Signature` | `[u8; 64]` | An Ed25519 signature. A Solana transaction signature, or a Ring RPC request signature under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
@@ -362,15 +362,14 @@ spend: authorization is the owner signature, checked by the proof
 for HPKE-style encryption and to derive view-tag secrets. Viewing keys can
 rotate. Each scenario defines how `viewing_sk` is produced.
 
-- `viewing_sk` is the clamped 32-byte scalar. `clamp` clears the low three bits of byte 0, clears bit 7 of byte 31 and sets bit 6 of byte 31, so one key has exactly one secret byte string. The ring audit circuits commit to this encoding, and a decoder that receives a secret from an audit envelope accepts only the clamped form.
 - `viewing_pk := 0x04 || X25519(viewing_sk, 9)`, the `X25519Pubkey` ([Glossary](#glossary)). A decoder rejects a non-canonical `u` (`u >= 2^255 - 19`) and any tag other than `0x04`.
 - `ECDH(sk, pk)` is the 32-byte RFC 7748 output `X25519(sk, pk.u)`. An all-zero result (a low-order peer) is rejected before any key derives from it.
 
 ### Derived secrets
 
-Secrets derive from `view_root`, a salted extract of the viewing secret itself. No key agreement reaches it. ECDH against any peer, including a fixed point, cannot reproduce the root.
+Secrets derive from `view_root`.
 
-- `view_root := HKDF-Extract(salt="TSPP/view_root/x25519/v1", IKM=viewing_sk)` — the clamped 32-byte secret is the IKM.
+- `view_root := HKDF-Extract(salt="TSPP/view_root/x25519/v1", IKM=viewing_sk)`
 - `sender_view_tag_secret    := HKDF-Expand(view_root, "TSPP/sender_view_tag",    L=32)`
 - `recipient_view_tag_secret := HKDF-Expand(view_root, "TSPP/recipient_view_tag", L=32)`
 - `tx_viewing_secret         := HKDF-Expand(view_root, "TSPP/tx_viewing/x25519/v1", L=32)` — seeds the transaction viewing keys.
@@ -391,7 +390,7 @@ This way the transaction viewing key can decrypt both the sender's change and re
   tx_viewing_sk := clamp(HKDF-SHA256(salt=first_nullifier, IKM=tx_viewing_secret, info="TSPP/tx_viewing/x25519/v1", L=32))
   tx_viewing_pk := 0x04 || X25519(tx_viewing_sk, 9)
   ```
-  `tx_viewing_secret` and `clamp` are defined in [ViewingKey](#viewingkey). Binding the HKDF salt to `first_nullifier` makes the keypair unique per Solana transaction (nullifier tree uniqueness implies `tx_viewing_pk` uniqueness).
+  `tx_viewing_secret` is defined in [ViewingKey](#viewingkey), `clamp` in [`X25519Keypair`](#glossary). Binding the HKDF salt to `first_nullifier` makes the keypair unique per Solana transaction (nullifier tree uniqueness implies `tx_viewing_pk` uniqueness).
 
 ### View Tags
 
@@ -400,6 +399,8 @@ The view-tag types in this section (`sender_view_tag`, `recipient_shared_view_ta
 Policy rings hide the recipient, so a wallet cannot find its outputs by owner pubkey as in the [default ring](#default-ring). Instead a view tag, a 32-byte value attached to a ciphertext, lets wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
+
+Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-utxo-serialization)) carry no `sender_pubkey`, so they establish no pair.
 
 **Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
@@ -424,7 +425,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
       ```
       shared := ECDH(self.viewing_sk, counterparty_pubkey)
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
-                           info = "TSPP/pair-domain/" || R_pubkey, L = 32)   // R_pubkey: the 33-byte X25519Pubkey
+                           info = "TSPP/pair-domain/" || R_pubkey, L = 32)
       return    HKDF-SHA256(salt = ∅, IKM = domain,
                            info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
       ```
@@ -478,7 +479,7 @@ Role expansion:
 
 - `prk := HKDF-Extract(salt=∅, IKM=derivation_seed)`
 - `nullifier_secret := HKDF-Expand(prk, nf_info, L=31)`
-- `viewing_sk := clamp(HKDF-Expand(prk, view_info, L=32))` — an X25519 scalar ([ViewingKey](#viewingkey))
+- `viewing_sk := clamp(HKDF-Expand(prk, view_info, L=32))` — an X25519 scalar ([`X25519Keypair`](#glossary))
 
 The [Solana wallet](#solana-wallet) scenario defines `derivation_seed`, `nf_info`, and `view_info`.
 
@@ -513,7 +514,7 @@ tree over the seed). `TSPP_COIN =
 - `seed := BIP-39(mnemonic, passphrase)` — PBKDF2-HMAC-SHA512, 64 bytes; `passphrase = ""` unless the wallet sets one.
 - `signing_sk := node(m/44'/501'/account'/0')` — Ed25519 secret on Solana's path: importing the mnemonic into a Solana wallet yields the same key.
 - `nullifier_secret := node(m/44'/TSPP_COIN'/account'/1'/0')[1..32]` — the node key with its first byte dropped (31 bytes).
-- `viewing_sk := clamp(node(m/44'/TSPP_COIN'/account'/2'/0'))` — the Ed25519 node key clamped as an X25519 scalar ([ViewingKey](#viewingkey)).
+- `viewing_sk := clamp(node(m/44'/TSPP_COIN'/account'/2'/0'))` — the Ed25519 node key clamped as an X25519 scalar ([`X25519Keypair`](#glossary)).
 - `account'` — each account index is an independent shielded keypair.
 
 Shares the signing key with the [Solana wallet](#solana-wallet) scenario but
@@ -526,10 +527,10 @@ No signing key: the owning program authorizes with `invoke_signed`. Both role
 keys expand from one viewing-key ECDH shared secret, with the PDA address in
 each info tag so a holder does not reuse one identity across PDAs.
 
-- `shared := ECDH(holder_viewing_sk, counterparty_viewing_pk)` — either participant derives the identity from its own viewing key and the counterparty's viewing pubkey. A sole holder uses its own clamped `viewing_sk` as `shared`, which no ECDH query can reproduce.
+- `shared := ECDH(holder_viewing_sk, counterparty_viewing_pk)` — either participant derives the identity from its own viewing key and the counterparty's viewing pubkey. A sole holder uses its own `viewing_sk` as `shared`, which no ECDH query can reproduce.
 - `prk := HKDF-Extract(salt="TSPP/pda_root/x25519/v1", IKM=shared)` — the salt separates PDA roles from the [view root](#derived-secrets) and from every shared view tag.
 - `nullifier_secret := HKDF-Expand(prk, "TSPP/pda_nf/v1" || pda, L=31)`
-- `viewing_sk := clamp(HKDF-Expand(prk, "TSPP/pda_view/v1" || pda, L=32))` — an X25519 scalar ([ViewingKey](#viewingkey))
+- `viewing_sk := clamp(HKDF-Expand(prk, "TSPP/pda_view/v1" || pda, L=32))` — an X25519 scalar ([`X25519Keypair`](#glossary))
 
 # UTXO
 
@@ -687,6 +688,7 @@ Schemes:
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — scheme byte `6`: the merged output's amount and mint encrypted for the owner with a key derived from the owner's nullifier secret (see [Merge](#merge)). On `merge_transact` the merge proof checks the ciphertext; on `merge_ring` SPP publishes it unverified.
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
+5. Ring Anonymous — scheme byte `9`: a custom-ring output in anonymous mode. The body is a [recipient plaintext](#recipient) without `owner_pubkey` or `sender_pubkey`, encrypted under the per-slot schedule below and published without the recipient viewing key. The owner tag is a [view tag](#view-tags), `sender_view_tag` on the sender's own outputs and `recipient_bootstrap_view_tag` on a recipient's. Wallets skip this scheme. The ring auditor reads it through the [Ring RPC](#ring-rpc) with the recipient viewing key from the proved anonymous disclosure.
 
 ## AES Key derivation
 
@@ -705,10 +707,7 @@ nonce      = okm[32..44]                                    // 12 B, the AES-CTR
 ciphertext = AES-256-CTR(key, nonce, plaintext)             // first counter block nonce || u32_be(2)
 ```
 
-`ECDH` and the public keys are the X25519 values of [ViewingKey](#viewingkey).
-Both 33-byte keys enter `ikm` with their `0x04` tag. A low-order
-`recipient_viewing_pk` is rejected before any key derives. A
-[`ring_deposit`](#ring_deposit) ciphertext uses the same schedule with the label
+A [`ring_deposit`](#ring_deposit) ciphertext uses the label
 `"TSPP/ring_deposit"` in place of `"TSPP/tx"` and slot `0`.
 
 Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against the covered output's `utxo_hash`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
@@ -752,7 +751,8 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 /// 50 B plaintext for confidential transfers with an empty `data` field and no
 /// `ring_program_id`. Anonymous transfers add `owner_pubkey: PublicKey` (34 B)
 /// and `sender_pubkey: X25519Pubkey` (33 B) before `asset_id` and omit
-/// `ring_program_id`. Each populated data record adds `3 + len` bytes. See
+/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use the confidential
+/// form. Each populated data record adds `3 + len` bytes. See
 /// [UTXO Data](#utxo-data).
 struct TransferRecipientPlaintext {
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
