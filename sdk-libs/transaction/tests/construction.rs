@@ -1084,7 +1084,6 @@ fn anonymous_ring_padding_publishes_random_tags() {
                 proof.external_data.outputs[index].owner_tag,
                 OwnerTag::Inline(tag)
             );
-            // A padding slot shares the real slot's framing, length and scheme byte.
             assert_eq!(slot_len(&proof, index), real_len);
             let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(
                 proof.external_data.outputs[index].data.as_ref().unwrap(),
@@ -1206,7 +1205,6 @@ fn anonymous_ring_encryption_refuses_another_wallets_viewing_key() {
     ));
 }
 
-/// The slot owner must be the address the tag was reserved for.
 #[test]
 fn anonymous_slot_tags_bind_the_recipient_address_to_its_slot() {
     let owner = keypair(1);
@@ -1256,7 +1254,6 @@ fn anonymous_slot_tags_bind_the_recipient_address_to_its_slot() {
     }
 }
 
-/// Two payments to one address take the two tags the sender reserved, one per slot.
 #[test]
 fn two_payments_to_one_address_publish_their_own_reserved_tags() {
     let owner = keypair(1);

@@ -130,10 +130,7 @@ export interface SyncReport {
    * `unknownAssetIds` is non-empty.
    */
   readonly unknownAssetFields: readonly Bytes32[];
-  /**
-   * Verified anonymous ring notes held back because the registry does not know
-   * their mint. The client sync layer backfills the registry and decrypts again.
-   */
+  /** Verified anonymous ring notes held back until the registry backfill knows their mint. */
   readonly pendingAssets: readonly PendingAnonymousNote[];
   /** Present when the sync was given an `AnonymousRingState`. */
   readonly anonymousRing?: AnonymousRingReport;

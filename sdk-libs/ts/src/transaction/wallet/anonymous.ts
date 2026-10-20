@@ -22,11 +22,7 @@ export interface AnonymousNote {
   readonly stream: AnonymousStream;
 }
 
-/**
- * A commitment-verified scheme-9 note whose mint the wallet registry does not
- * know yet. Registering the mint and decrypting the same transactions again
- * stores it, no indexer rescan is needed.
- */
+/** A commitment-verified scheme-9 note whose mint the registry does not know yet, registering the mint and decrypting again stores it. */
 export interface PendingAnonymousNote {
   readonly utxo: Utxo;
   readonly outputContext: OutputContext;

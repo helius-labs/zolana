@@ -52,8 +52,7 @@ type deliverySlot struct {
 	ringHash frontend.Variable
 }
 
-// Define returns the body hash chain the ring program recomputes from the published slots.
-// A pinned ordinary mode and a slot above a pinned capacity publish no body and prove nothing.
+// Define returns the body hash chain the ring program recomputes, zero under a pinned ordinary mode.
 func (d Delivery) Define(api frontend.API, rc frontend.Rangechecker, keys auditKeys, a Audit, tx AuditTx) frontend.Variable {
 	bodyHashes := make([]frontend.Variable, AuditOutputSlots)
 	for i := range bodyHashes {

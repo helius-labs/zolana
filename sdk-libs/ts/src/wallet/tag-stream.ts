@@ -118,11 +118,7 @@ export class TagStream {
   }
 }
 
-/**
- * Where one real output of an anonymous ring transfer goes. A paired payment
- * still names the full address, its viewing key must be the paired counterparty.
- * Change is the spender's own address under the change tag of the slot.
- */
+/** Where one real output goes, a paired payment names the full address and its viewing key must be the paired counterparty. */
 export type AnonymousRingDestination =
   | Readonly<{ kind: "inbox"; address: RingAddress; start?: bigint }>
   | Readonly<{ kind: "pair"; address: RingAddress; counterparty: X25519PublicKey; start?: bigint }>
@@ -135,13 +131,7 @@ interface StreamCursor {
   readonly reserved: Set<bigint>;
 }
 
-/**
- * Assigns one tag per real slot after the output order is fixed. Per stream the
- * lowest index absent from confirmed history and from this transaction's own
- * reservations wins, so two payments to one address take two indices and two
- * addresses sharing a viewing key never publish one pair tag twice. Concurrent
- * senders can still pick the same first free index before either confirms.
- */
+/** Assigns per stream the lowest index absent from confirmed history and from this transaction's own reservations, concurrent senders can still collide before either confirms. */
 export class AnonymousTagAllocator {
   readonly #stream: TagStream;
   readonly #sender: ViewingKey;

@@ -7,8 +7,7 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 )
 
-// deliveryCostCircuit runs the per-slot delivery proof Slots times over one witnessed slot. The
-// transaction key is a witness here, the production circuit derives it once for every slot.
+// deliveryCostCircuit repeats one witnessed delivery slot Slots times under a witnessed transaction key.
 type deliveryCostCircuit struct {
 	TxViewingSk [32]frontend.Variable
 	TxPk        [2]frontend.Variable

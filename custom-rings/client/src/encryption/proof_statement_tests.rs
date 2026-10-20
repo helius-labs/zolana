@@ -124,8 +124,6 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
             )
         })
         .collect();
-    // A real ring output publishes its scheme-9 body, an exit slot and every slot
-    // of a ring that is not anonymous chain zero.
     let output_body_hashes: Vec<[u8; 32]> = outputs
         .iter()
         .enumerate()

@@ -279,7 +279,6 @@ pub(crate) fn anonymous_disclosure(
                 identity_key: owner.signing_pubkey.confidential_view_tag()?,
                 viewing_pk: *owner.viewing_pubkey.as_bytes(),
                 nullifier_pk: owner.nullifier_pubkey,
-                ..AnonymousOutputOpening::default()
             })
         })
         .collect::<Result<_, RingError>>()?;

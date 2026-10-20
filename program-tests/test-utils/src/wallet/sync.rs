@@ -322,9 +322,7 @@ fn scan_anonymous_ring<I: Rpc + Sync>(
     Ok(store_anonymous_notes(wallet, &result.history.utxos, &notes))
 }
 
-/// Opens every scheme-9 slot of `ring_program_id` through the confirmed slot
-/// `head` without tags and stores the wallet's notes, the full scan a wallet
-/// runs when its tags cannot be trusted.
+/// Opens every scheme-9 slot of the ring through `head` without tags, the scan for a wallet whose tags cannot be trusted.
 pub fn recover_wallet<A, I>(
     wallet: &mut Wallet,
     authority: &A,
@@ -364,8 +362,7 @@ where
     Ok(result.report)
 }
 
-/// Stores the notes the wallet does not hold yet, a payment under any stream
-/// but the change stream becomes an inbound row.
+/// Skips held notes, a payment outside the change stream becomes an inbound row.
 fn store_anonymous_notes(
     wallet: &mut Wallet,
     owned: &[zolana_transaction::WalletUtxo],

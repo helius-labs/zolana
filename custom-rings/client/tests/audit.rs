@@ -447,8 +447,6 @@ fn anonymous_audit_opens_the_note_from_the_proven_body() {
     ));
 }
 
-/// A body of another note, or a slot whose commitment was swapped, loses its
-/// opening and nothing else: the recipient trace stays.
 #[test]
 fn a_tampered_anonymous_body_is_a_payload_error_with_the_trace_intact() {
     let fixture = anonymous_fixture();
@@ -482,7 +480,6 @@ fn a_tampered_anonymous_body_is_a_payload_error_with_the_trace_intact() {
     assert_eq!(audited.anonymous, Some(fixture.disclosure));
 }
 
-/// A pair hint that is no curve point is reported and the output is kept.
 #[test]
 fn a_bad_anonymous_pair_hint_keeps_the_output() {
     let fixture = anonymous_fixture();

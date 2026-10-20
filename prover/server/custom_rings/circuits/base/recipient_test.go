@@ -15,8 +15,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-// Every published anonymous slot carries one 105-byte scheme-9 body. A real body is the recipient's
-// encryption of the committed note, a padding body is random, and the statement binds both.
+// Every published anonymous slot carries one 105-byte scheme-9 body, random in a padding slot, and the statement binds both.
 
 const recipientVectorPath = "../../../../../test-vectors/anonymous_recipient_encryption.json"
 
@@ -318,7 +317,6 @@ func TestRecipientEncryptionRefusals(t *testing.T) {
 		})
 	}
 
-	// The public statement names another nullifier key for the delivered note.
 	t.Run("nullifier key", func(t *testing.T) {
 		other := valid
 		other.Notes[0].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(21))

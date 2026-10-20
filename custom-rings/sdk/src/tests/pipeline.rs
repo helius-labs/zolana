@@ -1034,15 +1034,13 @@ fn anonymous_slots_carry_ed25519_owners_in_the_ring_or_the_default_ring() {
     ));
 }
 
-/// Each stream is read once per window, every slot takes the lowest index free in history
-/// and not taken by an earlier slot, two addresses on one viewing key share the pair stream.
+/// One read per stream and window, two addresses on one viewing key share the pair stream.
 #[tokio::test]
 async fn anonymous_slots_reserve_distinct_indices_per_stream() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
     let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let other = ShieldedKeypair::new_ed25519().unwrap();
     let receiver = recipient.shielded_address().unwrap();
-    // A second address on the recipient's viewing key.
     let sibling = zolana_keypair::ShieldedAddress {
         viewing_pubkey: receiver.viewing_pubkey,
         ..other.shielded_address().unwrap()
@@ -1116,7 +1114,6 @@ async fn anonymous_slots_reserve_distinct_indices_per_stream() {
     assert_eq!(indexer.queries.lock().unwrap().len(), 1);
 }
 
-/// A padding slot and a real slot differ in no public byte class, the program parses both alike.
 #[tokio::test]
 async fn anonymous_padding_is_framed_like_a_real_slot() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();

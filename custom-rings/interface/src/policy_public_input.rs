@@ -11,8 +11,7 @@ pub const POLICY_PUBLIC_INPUT_ELEMENTS: usize = BASE_LEN + 9;
 pub const POLICY_INDEXED_INPUTS: usize = POLICY_PUBLIC_INPUT_ELEMENTS - BASE_LEN - 1;
 
 /// Binds audited transaction openings to the pinned rules, the member registry roots and
-/// outflow limits. The prefix is the base statement, a ring that is not anonymous sets
-/// one zero body hash per output.
+/// outflow limits.
 pub struct CustomRingPolicyPublicInput<'a> {
     pub audit: CustomRingBasePublicInput<'a>,
     pub policy_hash: &'a [u8; 32],

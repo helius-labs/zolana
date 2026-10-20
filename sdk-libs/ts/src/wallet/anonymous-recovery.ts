@@ -37,15 +37,7 @@ export interface AnonymousRingRecoveryReport {
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
 
-/**
- * The full recovery scan of one anonymous ring. Every scheme-9 slot of every
- * confirmed ring transaction through `head` is tried under the wallet's viewing
- * key regardless of its tag, and a slot is stored only on commitment equality.
- * The scan fails on its page limit, on a cursor that does not advance and on a
- * page without a terminal frontier, so a stated head is either covered or
- * reported as not covered. Completeness is relative to the indexer: pagination
- * cannot detect a transaction the indexer silently omits.
- */
+/** Tries every scheme-9 slot of every confirmed ring transaction through `head` regardless of tag, fails on an uncovered head, trusts the indexer for completeness. */
 export async function recoverAnonymousRing(
   params: AnonymousRingRecoveryParams,
   context?: RequestContext,
@@ -119,8 +111,13 @@ async function ringHistory(
     }
     // Photon also returns the last row's cursor on a terminal page, only the
     // scanned-through frontier marks a complete scan.
-    const next = response.scannedThrough === undefined ? response.nextCursor : undefined;
-    if (next === undefined) return transactions;
+    if (response.scannedThrough !== undefined) return transactions;
+    const next = response.nextCursor;
+    if (next === undefined) {
+      throw new WalletError("WALLET_RECOVERY_INCOMPLETE", {
+        details: { reason: "no scan frontier" },
+      });
+    }
     if (cursor !== undefined && equalBytes(cursor, next)) {
       throw new WalletError("WALLET_RECOVERY_INCOMPLETE", {
         details: { reason: "cursor did not advance" },

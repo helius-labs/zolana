@@ -23,12 +23,7 @@ import { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { equal } from "../internal.js";
 
-/**
- * Which cipher a ciphertext was sealed under. Every cipher is keyed by ECDH
- * between the wallet's viewing key and the transaction's viewing key: the
- * transfer cipher for ordinary slots, the ring-deposit envelope with its own
- * label, and the proven recipient stream of a scheme-9 anonymous ring output.
- */
+/** Which cipher a ciphertext was sealed under, every cipher is keyed by ECDH between the wallet's viewing key and the transaction's viewing key. */
 export type DecryptLabel = "transfer" | "ringDeposit" | "ringAnonymous";
 
 export interface DecryptRequest {
@@ -37,7 +32,7 @@ export interface DecryptRequest {
   readonly viewingPublicKey: X25519PublicKey;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
-  /** Zero for a ring deposit, which carries one envelope, below 256 for an anonymous ring output. */
+  /** Zero for a ring deposit, below 256 for an anonymous ring output. */
   readonly slotIndex: number;
   readonly label: DecryptLabel;
 }

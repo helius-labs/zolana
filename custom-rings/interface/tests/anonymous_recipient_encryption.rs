@@ -86,7 +86,7 @@ fn noncanonical_blinding_alias_does_not_open() {
     assert!(AnonymousOutputPlaintext::from_bytes(&plaintext).is_err());
 }
 
-/// The `statement` block of the vector, owned so the borrowed public input can be built from it.
+/// The vector's `statement` block, owned storage behind the borrowed public input.
 struct BaseStatement {
     private_tx_hash: [u8; 32],
     tx_viewing_pk: [u8; 33],

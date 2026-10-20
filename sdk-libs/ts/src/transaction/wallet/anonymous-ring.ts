@@ -59,12 +59,7 @@ export interface AnonymousRingTransferInput {
   readonly inputs: readonly AuditInputOpening[];
 }
 
-/**
- * Seals every slot of an anonymous ring transfer. A real slot carries the note
- * under the recipient stream, a padding slot a random body and a random tag, both
- * in the same framing, so no public byte tells them apart. The caller wipes the
- * returned audit secrets after proving.
- */
+/** Seals every slot, a padding slot carries a random body and tag in the real framing, the caller wipes the returned audit secrets after proving. */
 export function encryptAnonymousRingTransfer(
   tx: ViewingKey,
   input: AnonymousRingTransferInput,

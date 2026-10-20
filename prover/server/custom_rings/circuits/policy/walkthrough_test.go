@@ -175,8 +175,7 @@ func (s *statement) auditChainElements(t *testing.T) []*big.Int {
 	return s.keys.BaseChainElementsFor(t, s.auditStatement(t))
 }
 
-// auditStatement discloses the outputs, or in an anonymous ring every slot and its owner
-// identity, and delivers every ring note's body to its recipient.
+// auditStatement discloses the outputs, in an anonymous ring every slot, its owner identity and its delivered body.
 func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 	t.Helper()
 	statement := s.keys.Statement(s.privateTxHash)

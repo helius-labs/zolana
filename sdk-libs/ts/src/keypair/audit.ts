@@ -33,7 +33,7 @@ import { poseidon } from "./poseidon.js";
 export const AUDIT_ENC_INFO = new TextEncoder().encode("CRING/adt1");
 /** `"CR_S"`, Rust `DOM_SEP_CR_SHARED`. */
 const DOM_SEP_CR_SHARED = 0x4352_5f53;
-/** `"CR_R"`, Rust `RECIPIENT_KEY_DOMAIN`, the only separation between a recipient stream and the auditor envelope. */
+/** `"CR_R"`, Rust `RECIPIENT_KEY_DOMAIN`, separates a recipient stream from the auditor envelope. */
 export const RECIPIENT_KEY_DOMAIN = 0x4352_5f52;
 export const AUDIT_OUTPUT_SLOTS = 4;
 /** Rust `AUDIT_INPUT_SLOTS`, inputs are disclosed only in an anonymous ring. */
@@ -77,7 +77,7 @@ const DISCLOSURE_SENDER_LEN = 62;
 /** `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded to three chunks. */
 const DISCLOSURE_INPUT_LEN = 93;
 const DISCLOSURE_INPUT_BYTES = 74;
-/** `identity(33) || nullifier_pk(32) || viewing_pk(33)`, zero padded to four chunks. Rust `DISCLOSURE_OUTPUT_LEN`. */
+/** `identity(33) || nullifier_pk(32) || viewing_pk(33)`, zero padded to four chunks, Rust `DISCLOSURE_OUTPUT_LEN`. */
 const DISCLOSURE_OUTPUT_LEN = 124;
 const DISCLOSURE_OUTPUT_BYTES = 98;
 /** Position of the output body chain in the thirteen-element base statement, Rust `BODY_CHAIN_INDEX`. */
@@ -100,10 +100,7 @@ export interface AuditInputOpening {
   readonly blinding: Bytes32;
 }
 
-/**
- * The recipient address disclosed for one anonymous output, the auditor opens the note
- * itself from the proven body. A padding slot is all zero.
- */
+/** The recipient address disclosed for one anonymous output, all zero in a padding slot. */
 export interface AnonymousOutputOpening {
   readonly identityTag: number;
   readonly identityKey: Bytes32;
@@ -198,11 +195,7 @@ export interface AnonymousOutputStream {
   readonly slotIndex: number;
 }
 
-/**
- * Mirrors Rust `recipient_stream_secret` and the circuit's recipient key. A wrong
- * slot index or salt yields a stream the circuit refuses, a shared `dh` across two
- * slots never shares a keystream.
- */
+/** Mirrors Rust `recipient_stream_secret`, the salt and slot index in the key keep two slots sharing `dh` on distinct keystreams. */
 export function recipientStreamSecret(dh: Bytes32, stream: AnonymousOutputStream): Bytes32 {
   if (!Number.isInteger(stream.slotIndex) || stream.slotIndex < 0 || stream.slotIndex > 0xff)
     throw new RangeError("anonymous output slot index is out of range");
@@ -343,10 +336,7 @@ export interface CustomRingBasePublicInput {
   readonly auditorPublicKey: X25519PublicKey;
   readonly message: AuditorMessage;
   readonly outputHashes: readonly Bytes32[];
-  /**
-   * `hashBytes` of each published 105-byte scheme-9 body in slot order, one per
-   * output hash. Absent for a ring that is not anonymous, every slot then chains zero.
-   */
+  /** `hashBytes` of each published scheme-9 body in slot order, absent for a ring that is not anonymous, every slot then chains zero. */
   readonly outputBodyHashes?: readonly Bytes32[];
   readonly salt: Bytes16;
   /** Binds an anonymous statement when true. Ordinary rings are the default. */

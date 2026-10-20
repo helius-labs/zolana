@@ -415,8 +415,7 @@ fn two_payers_on_one_inbox_index_are_both_found() {
     }
 }
 
-/// A tag past its cap flags the stream and runs the recovery scan of its ring,
-/// so the payment the cap hid and a payment under a wrong tag are both found.
+/// The recovery scan finds the payment the cap hid and a payment under a wrong tag.
 #[test]
 fn a_spammed_inbox_index_advances_the_stream_and_runs_the_recovery_scan() {
     let recipient = keypair(1);

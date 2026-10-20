@@ -1110,11 +1110,7 @@ class SyncPass {
     }
   }
 
-  /**
-   * The body is proven to be the recipient's stream over the committed note, so
-   * the commitment recompute with the raw asset address decides before any
-   * registry lookup. Every hit under a tag opens, the cap only flags the tag.
-   */
+  /** The commitment recompute decides before any registry lookup, the per-tag cap only flags the tag and never skips a hit. */
   #decodeRingAnonymousSlot(
     viewingPublicKey: X25519PublicKey,
     site: Site,

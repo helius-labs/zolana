@@ -1,10 +1,4 @@
-//! A wallet's anonymous ring notes read without tags.
-//!
-//! The exact tags of [`UtxoScan`](crate::UtxoScan) are the fast path. A capped
-//! tag, a sender's wrong tag or a wallet without tag state falls back to every
-//! confirmed transaction of the ring from the checkpoint through the stated
-//! head, one key agreement per transaction and held viewing key, every scheme-9
-//! slot accepted on commitment equality alone.
+//! Anonymous ring notes read from the whole ring history without tags.
 
 use std::num::NonZeroUsize;
 
@@ -23,8 +17,6 @@ use crate::{
 /// Pages of [`PAGE_LIMIT`] transactions one recovery reads before it fails.
 pub const DEFAULT_RECOVERY_PAGE_LIMIT: NonZeroUsize = NonZeroUsize::new(1_024).unwrap();
 
-/// One full read of a ring's history for the wallet's notes, configured and then
-/// [`fetch`](Self::fetch) once.
 pub struct RingRecovery<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
@@ -35,8 +27,7 @@ pub struct RingRecovery<'a, K: ?Sized> {
     indexer_config: Option<IndexerRpcConfig>,
 }
 
-/// What one recovery read, complete relative to the indexer, paging detects a
-/// truncated page and never a transaction the indexer omitted.
+/// Complete relative to the indexer, paging never detects an omitted transaction.
 #[derive(Clone, Debug)]
 pub struct RingRecoveryResult {
     /// Every note the wallet owns among the ring's transactions, spent or not.
@@ -142,8 +133,7 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
         })
     }
 
-    /// Every ring transaction through `head`, the last page must state the
-    /// indexer's frontier and a history cut by the page limit is an error.
+    /// Fails without a stated frontier or past the page limit.
     fn history<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<RingHistory, ClientError> {
         let mut transactions = Vec::new();
         let mut cursor = self.checkpoint.clone();

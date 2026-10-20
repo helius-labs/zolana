@@ -388,9 +388,7 @@ impl DecryptionResult {
         Ok(resolved)
     }
 
-    /// One batch per site and acceptance on commitment equality before the asset
-    /// id is looked up, the commitment binds the wallet's keys, the public ring
-    /// and the on-chain tree id.
+    /// Commitment equality over the wallet's keys, the public ring and the tree id decides before any asset lookup.
     fn open_anonymous<K: ShieldedKeys + ?Sized>(
         &mut self,
         shielded_keys: &K,

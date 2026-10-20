@@ -1059,8 +1059,7 @@ fn hex_bytes<const N: usize>(value: &serde_json::Value) -> [u8; N] {
     decoded.try_into().expect("length")
 }
 
-/// The Go vector's real slot opens under the recipient's viewing key and its
-/// recomputed commitment is the statement's first output hash.
+/// The recomputed commitment is the vector statement's first output hash.
 #[test]
 fn anonymous_ring_output_opens_against_the_go_vector() {
     let v: serde_json::Value = serde_json::from_str(VECTOR).unwrap();
@@ -1336,7 +1335,6 @@ fn an_unknown_asset_keeps_the_verified_note_pending_until_registered() {
     assert_eq!(pending.owner, owner.signing_pubkey());
     assert_eq!(pending.nullifier_pk, note.nullifier_pubkey);
 
-    // Still unknown, nothing moves.
     assert!(decrypted
         .resolve_pending(&owner, &AssetRegistry::default())
         .unwrap()

@@ -12,7 +12,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
-// Properties: the base statement holds, so an anonymous ring delivers every ring output body to
+// Properties: the base statement holds, an anonymous ring delivers every ring output body to
 // its recipient, every enabled rule passes for each live subject on the lists its member record
 // carries, and the transfer's outflow stays within each cap, with every output owner's key
 // escrowed in the record when the ring escrows keys.

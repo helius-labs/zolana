@@ -89,12 +89,7 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
-/**
- * Why a slot's recipient payload yields no `AuditedRingOutput`, Rust `OutputPayloadErrorKind`.
- * `unreadable` is a ciphertext this audit cannot open, `openingMismatch` a plaintext that
- * disagrees with the proven opening, `unknownAsset` a proven asset the registry lacks and
- * `pairHint` a pair hint outside the canonical X25519 encoding beside a stored output.
- */
+/** Why a slot's recipient payload yields no `AuditedRingOutput`, Rust `OutputPayloadErrorKind`. */
 export type OutputPayloadErrorKind = "unreadable" | "openingMismatch" | "unknownAsset" | "pairHint";
 
 export const OUTPUT_PAYLOAD_ERROR_KINDS: readonly OutputPayloadErrorKind[] = Object.freeze([
@@ -523,12 +518,7 @@ interface AnonymousBody {
   readonly ringProgramId: Address;
 }
 
-/**
- * Opens the proven scheme-9 body under the recipient stream the transaction key
- * and the disclosed viewing key derive, Rust `anonymous_output_opening`. The
- * proof binds the body to the committed note, so a body that does not open is a
- * mismatch, not a payload error. `undefined` for a padding slot.
- */
+/** Opens the proven scheme-9 body, Rust `anonymous_output_opening`, `undefined` for a padding slot, a body that does not open is a mismatch since the proof binds it. */
 function openAnonymousBody(
   txKey: ViewingKey,
   salt: Bytes16,

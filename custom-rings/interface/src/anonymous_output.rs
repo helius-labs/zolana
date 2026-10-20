@@ -1,7 +1,4 @@
-//! Byte layout of a scheme-9 anonymous output body and the stream secret that keys it.
-//! The circuit (`prover/server/custom_rings/circuits/base/delivery.go`) proves a real
-//! body is the recipient's AES-256-CTR encryption of the committed note, and the Go
-//! vectors in `test-vectors/anonymous_recipient_encryption.json` pin every value here.
+//! Scheme-9 body layout and stream secret, pinned by `test-vectors/anonymous_recipient_encryption.json`.
 
 use thiserror::Error;
 use zolana_hasher::{
@@ -28,7 +25,6 @@ pub enum AnonymousOutputError {
     NoncanonicalBlinding,
 }
 
-/// The opened note a scheme-9 body encrypts, the recipient recomputes the commitment from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnonymousOutputPlaintext {
     pub asset_address: [u8; 32],
@@ -85,9 +81,7 @@ pub fn anonymous_output_body_hash(
     hash_bytes(body)
 }
 
-/// The secret keying slot `slot` of one transaction toward one recipient. The body is
-/// then `symmetric_apply_audit(secret, AUDIT_STREAM_INFO, ..)`, the auditor envelope's
-/// schedule, so a stream is separated from the envelope by `RECIPIENT_KEY_DOMAIN` alone.
+/// Shares the auditor envelope's schedule, `RECIPIENT_KEY_DOMAIN` is the only separation.
 pub fn recipient_stream_secret(
     dh: &[u8; 32],
     tx_pk: &[u8; TAGGED_X25519_KEY_LEN],

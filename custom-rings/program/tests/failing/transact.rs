@@ -664,9 +664,13 @@ fn an_anonymous_output_tag_is_checked_before_the_proof() {
 fn an_anonymous_output_body_has_one_length_and_framing() {
     let (mollusk, _) = setup_mollusk();
     let body = anonymous_output_body(&[7; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]);
+    // A longer body whose last 105 bytes start with the scheme byte.
+    let mut long = body.to_vec();
+    long.extend_from_slice(&body);
     for data in [
         framed(&body[..ANONYMOUS_OUTPUT_BODY_LEN - 1]),
         framed(&[body.as_slice(), &[7]].concat()),
+        framed(&long),
         framed(&body[..1]),
     ] {
         let mut transact = anonymous_transact(2, 2);

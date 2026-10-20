@@ -15,8 +15,7 @@ pub const BODY_CHAIN_INDEX: usize = 8;
 /// Spent notes the narrow anonymous base key opens, the wide key opens `AUDIT_INPUT_SLOTS`.
 pub const BASE_ANONYMOUS_INPUT_SLOTS: usize = 4;
 
-/// The base key the ring mode and the settled shape select, the program and the SDK
-/// pick through this one table.
+/// The one key table the program and the SDK select from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaseCircuit {
     Base,
@@ -60,9 +59,7 @@ pub struct CustomRingBasePublicInput<'a> {
     pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
-    /// One entry per published output in slot order, `hash_bytes` of the exact
-    /// 105-byte scheme-9 body in an anonymous ring, zero for a scheme-3 slot and
-    /// for every slot of a ring that is not anonymous. Same length as `output_hashes`.
+    /// One per `output_hashes` entry, zero for a scheme-3 slot and outside an anonymous ring.
     pub output_body_hashes: &'a [[u8; 32]],
     /// Folded with `HashChain4`, which does not hash the length: `[a, b]` and
     /// `[a, b, 0]` hash alike. Distinct lists stay distinct only because every

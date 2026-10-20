@@ -199,7 +199,7 @@ fn the_base_statement_binds_the_same_audit_fields() {
         disclosure: message.disclosure(),
         anonymous: false,
     };
-    // The confidential key proves the twelve audit elements.
+    // The confidential key proves the audit elements alone.
     let expected = zolana_hasher::hash_chain::create_hash_chain_from_slice(
         &statement.audit_elements().unwrap(),
     )

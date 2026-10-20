@@ -75,7 +75,6 @@ func TestAnonymousShapeDeliversEveryRingOutput(t *testing.T) {
 	}
 }
 
-// Prints the constraints the delivery adds to every anonymous shaped key.
 func TestAnonymousDeliveryCostPerShape(t *testing.T) {
 	for _, shape := range common.RingPolicyShapes {
 		if !shape.Anonymous || shape.Subtree {

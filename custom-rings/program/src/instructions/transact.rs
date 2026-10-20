@@ -5,8 +5,9 @@ use custom_ring_interface::{
     policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key, policy_verifying_key,
     AuditorMessage, BaseCircuit, CustomRingBasePublicInput, CustomRingError,
     CustomRingPolicyPublicInput, CustomRingProof, CustomRingTransactIxData, DisclosureShape,
-    PolicyConfig, PolicyProofKind, RingMode, ANONYMOUS_OUTPUT_BODY_LEN, ANONYMOUS_OUTPUT_SCHEME,
-    ANONYMOUS_RING_SHAPES, N_FOREIGN, TAGGED_X25519_KEY_LEN,
+    PolicyConfig, PolicyProofKind, RingMode, ANONYMOUS_OUTPUT_BODY_LEN,
+    ANONYMOUS_OUTPUT_PLAINTEXT_LEN, ANONYMOUS_OUTPUT_SCHEME, ANONYMOUS_RING_SHAPES, N_FOREIGN,
+    TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -630,10 +631,11 @@ fn anonymous_output_body(
         .as_deref()
         .ok_or(CustomRingError::UnsupportedOutputScheme)?;
     if anonymous {
-        if ring_anonymous_encrypted_output_body(data).is_some() {
-            // The framed body ends the data, the helper pinned its declared length.
+        if let Some(ciphertext) = ring_anonymous_encrypted_output_body(data) {
+            // The frame ends the data, the body is its last 105 bytes.
             let (_, body) = data
                 .split_last_chunk::<ANONYMOUS_OUTPUT_BODY_LEN>()
+                .filter(|_| ciphertext.len() == ANONYMOUS_OUTPUT_PLAINTEXT_LEN)
                 .filter(|(_, body)| body[0] == ANONYMOUS_OUTPUT_SCHEME)
                 .ok_or(CustomRingError::InvalidAnonymousOutputBody)?;
             return Ok(Some(body));

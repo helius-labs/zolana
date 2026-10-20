@@ -656,7 +656,7 @@ type statement struct {
 	limits          []limitRow
 	policyHash      *big.Int
 
-	// The ring every recipient note and change output stays in, ringID is HashBytes of it.
+	// The ring every recipient note and change output stays in, ringID its HashBytes.
 	ringProgramID [32]byte
 	ringID        *big.Int
 	approval      bool

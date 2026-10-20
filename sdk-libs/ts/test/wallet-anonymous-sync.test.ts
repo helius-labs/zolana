@@ -767,6 +767,12 @@ describe("anonymous ring sync", () => {
     await expect(
       recoverAnonymousRing({ wallet, keys, client: stuck, ringProgramId: RING, head: 1n }),
     ).rejects.toMatchObject({ causeCode: "WALLET_RECOVERY_INCOMPLETE" });
+    const unframed = syncReads({
+      getShieldedTransactionsByTags: async () => ({ context: CONTEXT, transactions: [] }),
+    });
+    await expect(
+      recoverAnonymousRing({ wallet, keys, client: unframed, ringProgramId: RING, head: 1n }),
+    ).rejects.toMatchObject({ causeCode: "WALLET_RECOVERY_INCOMPLETE" });
     expect(wallet.utxos()).toEqual([]);
   });
 

@@ -120,8 +120,7 @@ pub struct AuditInputOpening {
     pub blinding: [u8; 32],
 }
 
-/// The address an anonymous output discloses, all zero for a padding slot, the
-/// auditor reads the note from the proven body under its viewing key.
+/// All zero for a padding slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnonymousOutputOpening {
     pub identity_tag: u8,
