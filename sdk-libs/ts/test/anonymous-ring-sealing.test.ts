@@ -12,6 +12,7 @@ import type { IndexedShieldedTransaction } from "../src/transaction/instructions
 import { decodeAddress, equal, hashBytes } from "../src/transaction/internal.js";
 import {
   RING_ANONYMOUS_BODY_LENGTH,
+  decodeRingAnonymous,
   readOutputData,
   ringAnonymousBodyHash,
 } from "../src/transaction/serialization/codecs.js";
@@ -291,6 +292,35 @@ describe("anonymous ring sealing", () => {
     expect(() => encryptAnonymousRingTransfer(tx, { ...input, slots: missing })).toThrow(
       expect.objectContaining({ code: "TRANSACTION_ANONYMOUS_SLOT_MISMATCH" }),
     );
+  });
+
+  it("seals a slot sharing the sender's signing and nullifier keys to its address's viewing key", () => {
+    const twin = ShieldedKeypair.withViewingKey(
+      SigningKey.fromEd25519Bytes(bytes(1)),
+      keypair(3).viewingKey(),
+    );
+    const address = ringAddress(twin);
+    const encrypted = encryptAnonymousRingTransfer(tx, {
+      ...input,
+      outputs: [payment(twin, 10n, 1), ...outputs.slice(1)],
+      slots: [{ address, tag: address.inboxSecret.viewTag(0n) }, ...slots.slice(1)],
+    });
+    const opened = decodeRingAnonymous(
+      twin
+        .viewingKey()
+        .openAnonymousOutput(
+          encrypted.delivery[0]!.ciphertext,
+          encrypted.txViewingPublicKey,
+          encrypted.salt,
+          0,
+        ),
+    );
+    expect(opened.amount).toBe(10n);
+    expect(opened.pairU).toEqual(
+      sender.viewingKey().pairKey(twin.viewingPublicKey()).publicKey().u(),
+    );
+    encrypted.audit.txViewingSecret.fill(0);
+    encrypted.audit.ephemeralSecret.fill(0);
   });
 
   it("opens for the recipient under its inbox tag and for the auditor from the disclosed address", async () => {

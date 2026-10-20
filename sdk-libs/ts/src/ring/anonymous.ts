@@ -190,6 +190,7 @@ export async function anonymousSlotTags(
     ringProgramId: input.ringProgramId,
     inboxSecret: input.viewingKey.inboxSecret(0),
   });
+  const sender = input.sender.toBytes();
   const prepared = input.prepared.transfer;
   const destinations = prepared
     .proofOutputs()
@@ -197,11 +198,13 @@ export async function anonymousSlotTags(
       const owner = output.ownerAddress;
       // Padding and exits take no derived tag.
       if (owner === undefined || output.ringProgramId === undefined) return undefined;
-      if (owner.signingPublicKey.equals(input.sender.signingPublicKey))
-        return { kind: "change", address: change };
+      // A payment to the sender's own address keeps its inbox or pair stream.
       const recipient = input.prepared.recipient(slotIndex);
-      if (recipient === undefined)
-        throw new RingError("RING_ANONYMOUS_RECIPIENT_UNKNOWN", { details: { slotIndex } });
+      if (recipient === undefined) {
+        if (!equalBytes(owner.toBytes(), sender))
+          throw new RingError("RING_ANONYMOUS_RECIPIENT_UNKNOWN", { details: { slotIndex } });
+        return { kind: "change", address: change };
+      }
       return recipient.kind === "address"
         ? { kind: "inbox", address: recipient.address }
         : {
