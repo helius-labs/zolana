@@ -10,13 +10,23 @@ use crate::{err, shared::right_align_blinding};
 
 pub const DESTINATION_CIPHERTEXT_LEN: usize = 8 + 32 + 32;
 
-fn take_shared_secret(order_utxo_blinding: &Blinding) -> Result<[u8; 32]> {
+/// Keyed per destination output, two takes of one order never share a keystream.
+fn take_shared_secret(
+    order_utxo_blinding: &Blinding,
+    destination_output_hash: &[u8; 32],
+) -> Result<[u8; 32]> {
     let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
-    poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)
+    poseidon(&[
+        &right_align_blinding(order_utxo_blinding),
+        destination_output_hash,
+        &domain,
+    ])
+    .map_err(err)
 }
 
 pub fn destination_ciphertext_with_hash(
     order_utxo_blinding: &Blinding,
+    destination_output_hash: &[u8; 32],
     destination_mint: &Address,
     destination_amount: u64,
     destination_output_blinding: &Blinding,
@@ -26,7 +36,7 @@ pub fn destination_ciphertext_with_hash(
     plaintext[8..40].copy_from_slice(&hash_bytes(destination_mint.as_array()).map_err(err)?);
     plaintext[40..].copy_from_slice(destination_output_blinding);
     symmetric_apply(
-        &take_shared_secret(order_utxo_blinding)?,
+        &take_shared_secret(order_utxo_blinding, destination_output_hash)?,
         MERGE_INFO,
         &mut plaintext,
     )
@@ -37,11 +47,12 @@ pub fn destination_ciphertext_with_hash(
 
 pub fn decrypt_destination(
     order_utxo_blinding: &Blinding,
+    destination_output_hash: &[u8; 32],
     ciphertext: &[u8; DESTINATION_CIPHERTEXT_LEN],
 ) -> Result<([u8; 32], u64, Blinding)> {
     let mut plaintext = *ciphertext;
     symmetric_apply(
-        &take_shared_secret(order_utxo_blinding)?,
+        &take_shared_secret(order_utxo_blinding, destination_output_hash)?,
         MERGE_INFO,
         &mut plaintext,
     )

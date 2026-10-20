@@ -27,9 +27,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	takerOwnerHash := gnarksdk.Poseidon(api, c.Core.Order.TakerPkFe, c.TakerNullifierPk)
 	api.AssertIsEqual(c.Core.TakerIn.Owner, takerOwnerHash)
 
-	c.Core.Check(api, c.Public.PrivateTxHash)
+	destinationOutputHash := c.Core.Check(api, c.Public.PrivateTxHash)
 
-	ctHash := c.checkVerifiableEncryption(api)
+	ctHash := c.checkVerifiableEncryption(api, destinationOutputHash)
 
 	c.Public.Check(api, c.Core.Order.Expiry, ctHash)
 	return nil
@@ -46,8 +46,9 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
-func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
-	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, orderterms.TakeEncKdfDomain)
+func (c *Circuit) checkVerifiableEncryption(api frontend.API, destinationOutputHash frontend.Variable) frontend.Variable {
+	// A keystream shared by two takes of one order would reveal the XOR of their destination blindings.
+	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, destinationOutputHash, orderterms.TakeEncKdfDomain)
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
 
 	var plaintext [72]frontend.Variable

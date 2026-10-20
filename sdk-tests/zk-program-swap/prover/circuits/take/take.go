@@ -59,7 +59,7 @@ type Core struct {
 	PrivateTxBlinding frontend.Variable
 }
 
-func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
+func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) frontend.Variable {
 	f.Order.Check(api)
 	makerAddressFe := f.Order.MakerAddressFE(api)
 
@@ -75,6 +75,7 @@ func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
 		f.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(recomputedPrivateTxHash, privateTxHash)
+	return destinationOutputUtxoHash
 }
 
 func (f Core) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
