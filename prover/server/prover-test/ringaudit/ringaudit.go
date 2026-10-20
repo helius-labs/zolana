@@ -18,11 +18,8 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
-// Mirrors the unexported key-schedule info string and disclosure domain of package base.
-const (
-	auditEncInfo           = "CRING/adt1"
-	outputDisclosureDomain = 0x4352_5f4f44
-)
+// Mirrors the unexported key-schedule info string of package base.
+const auditEncInfo = "CRING/adt1"
 
 type Keys struct {
 	txSk      [32]byte
@@ -395,15 +392,14 @@ func bytesOf(values []frontend.Variable) []byte {
 	return out
 }
 
-// DisclosurePad mirrors the base disclosure pad, a two-input Poseidon chain seeded by the key and salt.
+// DisclosurePad mirrors the base disclosure pad, Poseidon(seed, i) over the keyed seed.
 func DisclosurePad(t testing.TB, key [32]byte, salt [16]byte, n int) []*big.Int {
 	t.Helper()
 	keyLo, keyHi := pack32(key)
-	state := spptest.MustPoseidon(t, 5, []*big.Int{new(big.Int).SetUint64(outputDisclosureDomain), keyLo, keyHi, new(big.Int).SetBytes(salt[:])})
+	seed := spptest.MustPoseidon(t, 5, []*big.Int{new(big.Int).SetUint64(base.OutputDisclosureDomain), keyLo, keyHi, new(big.Int).SetBytes(salt[:])})
 	pad := make([]*big.Int, n)
 	for i := range pad {
-		state = spptest.MustPoseidon(t, 3, []*big.Int{state, big.NewInt(int64(i))})
-		pad[i] = state
+		pad[i] = spptest.MustPoseidon(t, 3, []*big.Int{seed, big.NewInt(int64(i))})
 	}
 	return pad
 }

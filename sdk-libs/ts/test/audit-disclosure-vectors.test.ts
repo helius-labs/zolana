@@ -10,7 +10,8 @@ import {
   openAuditOutputDisclosure,
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
-import type { Bytes16, Bytes32 } from "../src/keypair/bytes.js";
+import { type Bytes16, type Bytes32, bigIntToBytes } from "../src/keypair/bytes.js";
+import { poseidon } from "../src/keypair/poseidon.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import { hashChain4 } from "../src/transaction/internal.js";
 
@@ -67,6 +68,13 @@ describe("shared audit disclosure vector (test-vectors/audit-disclosure.json)", 
     expect(
       seal(openings(Array.from({ length: AUDIT_DISCLOSURE_FIELD_COUNT }, () => zero))),
     ).toEqual(pad);
+  });
+
+  it("cannot derive the next pad from a known one", () => {
+    pad.slice(0, -1).forEach((known, index) => {
+      const chained = poseidon([known, bigIntToBytes(BigInt(index + 1))]);
+      expect(chained).not.toEqual(pad[index + 1]);
+    });
   });
 
   it("seals the fields to the pinned ciphertext", () => {

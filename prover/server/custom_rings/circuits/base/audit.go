@@ -17,8 +17,8 @@ const (
 	IdentityLen = 33
 	// auditEncInfo equals the Rust AUDIT_ENC_INFO.
 	auditEncInfo = "CRING/adt1"
-	// outputDisclosureDomain is "CR_OD", it separates the disclosure stream.
-	outputDisclosureDomain = 0x4352_5f4f44
+	// OutputDisclosureDomain is "CR_OD", the output disclosure pad seed domain mirrored by Rust and TS.
+	OutputDisclosureDomain = 0x4352_5f4f44
 )
 
 // Audit is the audit witness the base and policy circuits share.
@@ -237,13 +237,12 @@ func chainGroups(n int) int {
 	return (n - 1 + 2) / 3
 }
 
-// disclosurePad iterates a two-input Poseidon from the keyed seed, pad[i] is the state after step i.
+// disclosurePad is Poseidon(seed, i) per field, the seed never leaves the circuit, a known pad reveals no other.
 func disclosurePad(api frontend.API, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
-	state := gadget.PoseidonHash(api, []frontend.Variable{outputDisclosureDomain, key[0], key[1], salt})
+	seed := gadget.PoseidonHash(api, []frontend.Variable{OutputDisclosureDomain, key[0], key[1], salt})
 	pad := make([]frontend.Variable, n)
 	for i := range pad {
-		state = gadget.PoseidonHash(api, []frontend.Variable{state, i})
-		pad[i] = state
+		pad[i] = gadget.PoseidonHash(api, []frontend.Variable{seed, i})
 	}
 	return pad
 }

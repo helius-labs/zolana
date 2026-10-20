@@ -412,6 +412,9 @@ required migration.
 The dedicated auditor disclosure encrypts the note fields the circuit uses to
 compute commitments. Anonymous disclosure also binds the sender, spent notes
 and recipients to the private transaction hash. Settlement requires this proof.
+Disclosures published before the per-index pad seed are readable from any chunk
+whose plaintext is wholly known or low-entropy, and a key rotation does not
+change that.
 Ordinary recipient encryption stays wallet-side. A sender can make their own
 payment unreadable, but cannot use that to bypass conservation or double-spend
 checks. Protocols that rely on delivery, such as swaps, need a separate proof

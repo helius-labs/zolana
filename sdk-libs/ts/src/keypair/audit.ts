@@ -40,6 +40,7 @@ export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */
 export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
+/** `"CR_OD"`, Go `OutputDisclosureDomain`, seeds the output disclosure pad. */
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
 
 /** Two Poseidon outputs supply 31 key bytes, then one key byte and a 12-byte nonce. */
@@ -348,23 +349,26 @@ function outputFields(output: AuditOutputOpening): readonly Bytes32[] {
   ];
 }
 
-/** The circuit's disclosure keystream, one chained two-input Poseidon per published value. */
+/** The circuit's disclosure keystream, `Poseidon(seed, i)` per published value, a known pad reveals no other. */
 function disclosurePad(secret: Bytes32, salt: Bytes16, count: number): readonly bigint[] {
   const [keyLow, keyHigh] = pack32(secret);
+  const seed = new Uint8Array(32);
   try {
-    let state = poseidon([
-      bigIntToBytes(OUTPUT_DISCLOSURE_DOMAIN) as Bytes32,
-      keyLow,
-      keyHigh,
-      rightAlign(salt),
-    ]) as Bytes32;
-    return Array.from({ length: count }, (_, index) => {
-      state = poseidon([state, bigIntToBytes(BigInt(index)) as Bytes32]) as Bytes32;
-      return bytesToBigInt(state);
-    });
+    seed.set(
+      poseidon([
+        bigIntToBytes(OUTPUT_DISCLOSURE_DOMAIN) as Bytes32,
+        keyLow,
+        keyHigh,
+        rightAlign(salt),
+      ]),
+    );
+    return Array.from({ length: count }, (_, index) =>
+      bytesToBigInt(poseidon([seed, bigIntToBytes(BigInt(index)) as Bytes32])),
+    );
   } finally {
     keyLow.fill(0);
     keyHigh.fill(0);
+    seed.fill(0);
   }
 }
 

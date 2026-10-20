@@ -25,7 +25,7 @@ pub(crate) const AUDIT_ENC_INFO: &[u8; 10] = b"CRING/adt1";
 const NF_KEY_ENC_INFO: &[u8; 10] = b"CRING/nfk1";
 /// ASCII "CR_S", the Go `DomSepCRShared`.
 const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
-/// ASCII "CR_OD", the output disclosure stream domain.
+/// ASCII "CR_OD", the Go `OutputDisclosureDomain` seeding the output disclosure pad.
 const DISCLOSURE_DOMAIN: u64 = 0x4352_5f4f44;
 
 type Result<T> = core::result::Result<T, AuditError>;
@@ -526,20 +526,17 @@ fn disclosure_bytes<const N: usize>(slot: &[u8], at: usize) -> Result<[u8; N]> {
         .ok_or(AuditError::DisclosureShape)
 }
 
-/// The circuit's disclosure keystream, one chained two-input Poseidon per field.
+/// The circuit's disclosure keystream, `Poseidon(seed, i)` per field, a known pad reveals no other.
 fn disclosure_pad(secret: &[u8; 32], salt: [u8; 16], count: usize) -> Result<Vec<[u8; 32]>> {
     let FieldPair { lo, hi } = pack_2fe(secret);
-    let mut state = poseidon(&[
+    let seed = Zeroizing::new(poseidon(&[
         &right_align(&DISCLOSURE_DOMAIN.to_be_bytes()),
         &lo,
         &hi,
         &right_align(&salt),
-    ])?;
+    ])?);
     (0..count as u64)
-        .map(|index| {
-            state = poseidon(&[&state, &right_align(&index.to_be_bytes())])?;
-            Ok(state)
-        })
+        .map(|index| Ok(poseidon(&[&*seed, &right_align(&index.to_be_bytes())])?))
         .collect()
 }
 
@@ -1181,16 +1178,17 @@ mod tests {
         .expect("audit elements")[10]
     }
 
+    /// A fully known chunk unmasks its own pad and nothing else.
     #[test]
-    fn the_disclosure_pad_is_a_chained_two_input_poseidon() {
+    fn the_disclosure_pad_indexes_are_independent() {
         let vector = shared_vector();
         let zero = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
         let pad = disclosure_stream(&vector.key, vector.salt, &zero, true).expect("pad");
         assert_eq!(pad, vector.pad);
         for (index, window) in pad.windows(2).enumerate() {
-            let next = poseidon(&[&window[0], &right_align(&(index as u64 + 1).to_be_bytes())])
+            let chained = poseidon(&[&window[0], &right_align(&(index as u64 + 1).to_be_bytes())])
                 .expect("chain step");
-            assert_eq!(window[1], next);
+            assert_ne!(window[1], chained);
         }
         assert_eq!(
             disclosure_stream(&vector.key, vector.salt, &pad, false).expect("open"),

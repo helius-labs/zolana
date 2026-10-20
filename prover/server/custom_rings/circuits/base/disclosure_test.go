@@ -23,8 +23,8 @@ const disclosureVectorPath = "../../../../../test-vectors/audit-disclosure.json"
 
 const disclosureVectorDescription = "Known-answer vector for the ring audit output disclosure. " +
 	"key is the 32 transaction viewing secret bytes, key_lo and key_hi are PackBytesBE(key) (the first 31 bytes, then the last byte), " +
-	"salt_field is the 16 salt bytes right-aligned. s = Poseidon(0x4352_5f4f44, key_lo, key_hi, salt_field), then for i in 0..36 " +
-	"s = Poseidon(s, i) and pad[i] = s. ciphertext[i] = (fields[i] + pad[i]) mod r and disclosure_hash = hash_chain_4(ciphertext). " +
+	"salt_field is the 16 salt bytes right-aligned. seed = Poseidon(0x4352_5f4f44, key_lo, key_hi, salt_field), then for i in 0..36 " +
+	"pad[i] = Poseidon(seed, i). ciphertext[i] = (fields[i] + pad[i]) mod r and disclosure_hash = hash_chain_4(ciphertext). " +
 	"fields[i] = i, the last field is r - 1 so its sum wraps. All values are 32-byte big-endian hex. " +
 	"Produced by prover/server/custom_rings/circuits/base/disclosure_test.go with WRITE_AUDIT_VECTORS=1."
 
@@ -94,6 +94,23 @@ func TestDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 	solvePinned(t, keys, statement, got.DisclosureHash)
 }
 
+// A fully known chunk unmasks its own pad and nothing else, the seed stays secret.
+func TestDisclosurePadIndexesAreIndependent(t *testing.T) {
+	key, salt := vectorKey()
+	pad := ringaudit.DisclosurePad(t, key, salt, base.AuditOutputSlots*base.AuditOutputFieldCount)
+	var pinned disclosureVector
+	readVector(t, disclosureVectorPath, nil, &pinned)
+	if !reflect.DeepEqual(hexFields(t, pad), pinned.Pad) {
+		t.Fatal("the pad differs from test-vectors/audit-disclosure.json")
+	}
+	for i := 0; i+1 < len(pad); i++ {
+		chained := spptest.MustPoseidon(t, 3, []*big.Int{pad[i], big.NewInt(int64(i + 1))})
+		if chained.Cmp(pad[i+1]) == 0 {
+			t.Fatalf("pad[%d] derives pad[%d]", i, i+1)
+		}
+	}
+}
+
 // solvePinned solves the circuit only when its disclosure hash is the pinned one.
 func solvePinned(t *testing.T, keys ringaudit.Keys, statement ringaudit.Statement, pinnedHex string) {
 	t.Helper()
@@ -113,7 +130,7 @@ const chainDisclosureHash = 10
 const anonymousVectorPath = "../../../../../test-vectors/audit-disclosure-anonymous.json"
 
 const anonymousVectorDescription = "Known-answer vector for the anonymous ring audit disclosure. " +
-	"key and salt are the ones of audit-disclosure.json and the pad is the same chain, so its first 36 entries are that vector's pad. " +
+	"key and salt are the ones of audit-disclosure.json and the pad shares its seed, so its first 36 entries are that vector's pad. " +
 	"plaintext is the published slots, the sender identity padded to 62 bytes, then n_in input slots of 93 bytes " +
 	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 248 bytes (recipient identity, recipient viewing pk, " +
 	"nullifier pk, amount u64, asset, blinding, data hash, ring data hash, ring note flag), all big-endian and a dummy slot all zero. " +
