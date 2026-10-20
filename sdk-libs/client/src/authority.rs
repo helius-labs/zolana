@@ -184,7 +184,7 @@ mod tests {
             },
         ];
 
-        assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
+        assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa)
             .expect("assemble inputs")
             .inputs
     }

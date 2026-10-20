@@ -331,26 +331,30 @@ describe("reserved address inputs", () => {
     );
   });
 
-  it.each([
-    ["ring", { kind: "ring", ring: SOL_MINT }],
-    ["ring authority", { kind: "ringAuthority", ring: SOL_MINT }],
-  ] as const)("refuses an address on the %s rail before requesting proofs", (_, circuit) => {
+  it("refuses an address on the ring authority rail before requesting proofs", () => {
     const { proofInputs } = fixture();
-    expect(() => prepareTransfer(proofInputs, circuit)).toThrow(
+    expect(() => prepareTransfer(proofInputs, { kind: "ringAuthority", ring: SOL_MINT })).toThrow(
       expect.objectContaining({ code: "CLIENT_ADDRESS_INPUT_UNSUPPORTED", details: { index: 0 } }),
     );
   });
 
-  it("refuses an indexed request that proves an address off its rail or as another slot", () => {
+  it("proves an address on the owner-signed ring rail", () => {
+    const { proofInputs } = fixture();
+    const request = prepareTransfer(proofInputs, { kind: "ring", ring: SOL_MINT }).inputs;
+    expect(request.circuit).toBe("transferRing");
+    expect(decodeIndexedInputs(request).lookups.map((lookup) => lookup.commitment)).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("refuses an indexed request that proves an address as another slot", () => {
     const { proofInputs } = fixture();
     const request = prepareTransfer(proofInputs).inputs;
     expect(decodeIndexedInputs(request).lookups.map((lookup) => lookup.commitment)).toEqual([
       null,
       null,
     ]);
-    expect(() => decodeIndexedInputs({ ...request, circuit: "transferRing" })).toThrow(
-      expect.objectContaining({ code: "CLIENT_ADDRESS_INPUT_UNSUPPORTED", details: { index: 0 } }),
-    );
     const [first, second] = request.payload.inputs;
     if (first === undefined || second === undefined) throw new Error("fixture inputs missing");
     const withFirst = (patch: object) => ({

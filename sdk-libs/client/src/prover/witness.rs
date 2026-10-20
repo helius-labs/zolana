@@ -410,37 +410,3 @@ fn place_transaction_proofs(
         dummy_nullifier_proofs: exclusions.into_iter().map(|(_, proof)| proof).collect(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use solana_address::Address;
-    use zolana_keypair::PublicKey;
-
-    use super::*;
-
-    /// State proofs cover only the slots that need inclusion, so a spend and an
-    /// address in one tree expect one state proof and two nullifier proofs.
-    #[test]
-    fn incomplete_transaction_proofs_report_each_kind_separately() {
-        let owner = PublicKey::from_pda(&Address::new_from_array([7; 32]));
-        let mut spend = SppProofInputUtxo {
-            utxo_hash: [1; 32],
-            nullifier: [2; 32],
-            ..SppProofInputUtxo::dummy(7).unwrap()
-        };
-        spend.utxo.owner = owner;
-        let address = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
-        let inputs = [&spend, &address];
-        let groups = group_by_tree(&inputs);
-        assert!(matches!(
-            place_transaction_proofs(&groups, vec![(Vec::new(), Vec::new())]),
-            Err(ClientError::IncompleteTransactionProofs {
-                tree_id: 7,
-                expected_state: 1,
-                state: 0,
-                expected_nullifier: 2,
-                nullifier: 0,
-            })
-        ));
-    }
-}

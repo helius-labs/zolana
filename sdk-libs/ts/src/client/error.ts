@@ -131,7 +131,7 @@ export interface ClientErrorDetailsMap {
     kind?: "state" | "nullifier";
   }>;
   readonly CLIENT_PROOF_INPUT_COUNT_MISMATCH: CountDetails;
-  /** An address input reached a rail other than the confidential transfer. */
+  /** An address input reached the ring authority or merge rail, which have no address slot. */
   readonly CLIENT_ADDRESS_INPUT_UNSUPPORTED: IndexDetails;
   /** A prover request carries an address slot that is padding, cached, keyed or state-proved. */
   readonly CLIENT_INVALID_ADDRESS_INPUT: IndexDetails;

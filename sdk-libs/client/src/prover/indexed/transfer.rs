@@ -77,7 +77,7 @@ impl IndexedTransferPreparation {
                 return Err(ClientError::NonSpendInputNotAllowed { index });
             }
         }
-        if !matches!(rail, IndexedTransferRail::Confidential) {
+        if matches!(rail, IndexedTransferRail::RingAuthority(_)) {
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
@@ -862,59 +862,38 @@ mod tests {
             .unwrap()
     }
 
-    /// Address inputs are proven only on the confidential EdDSA rail.
+    /// The ring authority rail has no address slot; the owner-signed ring rail
+    /// proves addresses like the confidential rail.
     #[test]
-    fn address_inputs_are_refused_off_the_confidential_rail() {
+    fn only_the_ring_authority_rail_refuses_address_inputs() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = solana_address::Address::new_from_array([5; 32]);
-        for rail in [
-            IndexedTransferRail::Ring(ring),
-            IndexedTransferRail::RingAuthority(ring),
-        ] {
-            assert!(matches!(
-                IndexedTransferPreparation {
-                    transaction: address_only_transaction(&owner),
-                    rail,
-                }
-                .prepare(&owner),
-                Err(ClientError::AddressInputUnsupported { index: 0 })
-            ));
-        }
-    }
-
-    /// The direct ring EdDSA prover refuses address inputs like the indexed
-    /// ring rail does.
-    #[test]
-    fn the_direct_ring_prover_refuses_address_inputs() {
-        let owner = ShieldedKeypair::new_ed25519().unwrap();
-        let transaction = address_only_transaction(&owner);
-        let shape = transaction.check_shape().unwrap();
-        let result = crate::RingTransferProver {
-            inputs: transaction
-                .input_utxos
-                .iter()
-                .cloned()
-                .map(|utxo| crate::prover::TransferInputUtxo {
-                    utxo,
-                    proof: None,
-                    nullifier_proof: None,
-                })
-                .collect(),
-            outputs: transaction.output_utxos.clone(),
-            blinding_seed: transaction.blinding_seed,
-            output_tree_id: transaction.output_tree_id,
-            external_data: transaction.external_data.clone(),
-            public_transfers: transaction.public_transfers().unwrap(),
-            signer_pk_hashes: transaction.signer_pk_hashes(shape.signer_width()).unwrap(),
-            allow_dummy_inputs: true,
-            ring_program_id: Some(solana_address::Address::new_from_array([5; 32])),
-            shape,
-        }
-        .build();
         assert!(matches!(
-            result,
+            IndexedTransferPreparation {
+                transaction: address_only_transaction(&owner),
+                rail: IndexedTransferRail::RingAuthority(ring),
+            }
+            .prepare(&owner),
             Err(ClientError::AddressInputUnsupported { index: 0 })
         ));
+        let prepared = IndexedTransferPreparation {
+            transaction: address_only_transaction(&owner),
+            rail: IndexedTransferRail::Ring(ring),
+        }
+        .prepare(&owner)
+        .expect("address on the ring rail");
+        assert!(matches!(prepared.data.circuit, CircuitId::RingEddsa(..)));
+        assert_eq!(
+            prepared
+                .data
+                .inputs
+                .first()
+                .map(|input| input.nullifier_hash),
+            address_only_transaction(&owner)
+                .input_utxos
+                .first()
+                .map(|input| input.nullifier)
+        );
     }
 
     #[test]

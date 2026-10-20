@@ -254,7 +254,9 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   }
   const shape = proofInputs.checkShape();
   const address = proofInputs.inputUtxos.findIndex((input) => input.isAddress());
-  if (circuit.kind !== "confidential" && address >= 0) {
+  // The ring authority statement has no address slot; the owner-signed rails
+  // prove addresses.
+  if (circuit.kind === "ringAuthority" && address >= 0) {
     throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
   }
   const plan = circuitPlan(circuit, shape);

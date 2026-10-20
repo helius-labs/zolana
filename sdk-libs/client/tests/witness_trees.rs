@@ -228,6 +228,10 @@ enum TreeAnswer {
     /// Name tree 0 whatever was asked for, so a reader that does not check the
     /// tree against the input's own id lets a foreign proof through.
     AlwaysTreeZero,
+    /// Answer every request with one proof more than it asked for. The
+    /// indexer client waits for a short answer, so only a long one reaches
+    /// the reader's count check.
+    ExtraProof,
 }
 
 fn encode(bytes: [u8; 32]) -> String {
@@ -241,13 +245,16 @@ fn echo_proofs(path: &str, body: &Value, answer: TreeAnswer) -> Value {
         .expect("request names a tree account")
         .to_string();
     let tree = match answer {
-        TreeAnswer::AsAsked => asked,
+        TreeAnswer::AsAsked | TreeAnswer::ExtraProof => asked,
         TreeAnswer::AlwaysTreeZero => bs58::encode(pda::tree(0).to_bytes()).into_string(),
     };
-    let leaves = params["leaves"]
+    let mut leaves = params["leaves"]
         .as_array()
         .cloned()
         .expect("request names leaves");
+    if let (TreeAnswer::ExtraProof, Some(first)) = (answer, leaves.first().cloned()) {
+        leaves.push(first);
+    }
     let proofs: Vec<Value> = leaves
         .iter()
         .map(|leaf| match path {
@@ -408,4 +415,25 @@ async fn async_address_only_transaction_fetches_its_tree() {
             .map(|proof| (proof.leaf, proof.merkle_context.tree)),
         Some((input.nullifier, pda::tree(7)))
     );
+}
+
+/// State proofs cover only the slots that need inclusion, so a spend and an
+/// address in one tree expect one state proof and two nullifier proofs.
+#[test]
+fn incomplete_transaction_proofs_report_each_kind_separately() {
+    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::ExtraProof));
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let mut spend = input(0, 7, 1);
+    spend.utxo.owner = owner;
+    let address = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
+    assert!(matches!(
+        indexer.transaction_proofs(&[spend, address], None),
+        Err(ClientError::IncompleteTransactionProofs {
+            tree_id: 7,
+            expected_state: 1,
+            state: 2,
+            expected_nullifier: 2,
+            nullifier: 3,
+        })
+    ));
 }

@@ -141,13 +141,9 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
 /// A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
-    /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
-    /// no P256 gadget); ed25519 uses its `pk_field`. The only rail that takes
-    /// address inputs.
-    ConfidentialEddsa,
-    /// Custom-ring Solana-only rail: owners as on [`Self::ConfidentialEddsa`],
-    /// but address inputs are refused.
-    RingEddsa,
+    /// Solana-only rails (confidential and custom-ring): P256-owned inputs are
+    /// rejected (the rail has no P256 gadget); ed25519 uses its `pk_field`.
+    SolanaEddsa,
     /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
     /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
     /// their normal public owner hash.
@@ -324,8 +320,9 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
 /// nullifier non-inclusion witness. Inputs from different trees may
 /// interleave. Assembly preserves the order committed by the signing hash. A
 /// transaction must hold at least one real input or address, because the
-/// input trees come from those. Address inputs are refused on every rail but
-/// [`OwnerMode::ConfidentialEddsa`].
+/// input trees come from those. Address inputs are refused on
+/// [`OwnerMode::Merge`] and [`OwnerMode::RingAuthority`], whose circuits do not
+/// take them.
 pub(crate) fn assemble_inputs(
     input_utxos: &[TransferInputUtxo],
     owner_mode: &OwnerMode,
@@ -336,7 +333,9 @@ pub(crate) fn assemble_inputs(
         {
             return Err(ClientError::CachedInputUnsupported { index });
         }
-        if input.utxo.is_address() && !matches!(owner_mode, OwnerMode::ConfidentialEddsa) {
+        if input.utxo.is_address()
+            && matches!(owner_mode, OwnerMode::Merge | OwnerMode::RingAuthority)
+        {
             return Err(ClientError::AddressInputUnsupported { index });
         }
         input.validate(index)?;
@@ -422,7 +421,7 @@ pub(crate) fn assemble_inputs(
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
             (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
-            (OwnerMode::ConfidentialEddsa | OwnerMode::RingEddsa, true) => {
+            (OwnerMode::SolanaEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
             (OwnerMode::RingAuthority, true) => {
@@ -995,7 +994,7 @@ mod tests {
         let input_utxos = [cached_in(1, 0, 4, 0x33), dummy(Some((0x33, 7)))];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1026,8 +1025,8 @@ mod tests {
             [cached_in(1, 0, 4, 0x33), input_utxo(2, 0x12, 3, 0x33)],
             [input_utxo(2, 0x12, 3, 0x33), cached_in(1, 0, 4, 0x33)],
         ] {
-            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
-                .expect("assemble inputs");
+            let assembled =
+                assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
             assert_eq!(
                 assembled.tree_contexts,
@@ -1048,7 +1047,7 @@ mod tests {
         let input_utxos = [input_utxo_in(1, 0, 0x11, 3, 0x33), cached_in(2, 1, 0, 0x34)];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1071,14 +1070,14 @@ mod tests {
         let mut missing = cached_in(1, 0, 4, 0x33);
         missing.nullifier_proof = None;
         assert!(matches!(
-            assemble_inputs(&[missing], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[missing], &OwnerMode::SolanaEddsa),
             Err(ClientError::MissingCachedNullifierProof { index: 0 })
         ));
 
         let mut spent = cached_in(1, 0, 4, 0x33);
         spent.proof = input_utxo(1, 0x11, 3, 0x33).proof;
         assert!(matches!(
-            assemble_inputs(&[spent], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[spent], &OwnerMode::SolanaEddsa),
             Err(ClientError::UnexpectedInputProof { index: 0 })
         ));
     }
@@ -1088,7 +1087,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), cached_in(2, 0, 4, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1101,7 +1100,7 @@ mod tests {
         assert!(matches!(
             assemble_inputs(
                 &[input_utxo(1, 0x11, 3, 0x33), padding],
-                &OwnerMode::ConfidentialEddsa
+                &OwnerMode::SolanaEddsa
             ),
             Err(ClientError::CachedDummyInput { index: 1 })
         ));
@@ -1122,29 +1121,26 @@ mod tests {
         }
     }
 
-    /// Address inputs are proven only on the confidential EdDSA rail; the
-    /// ring EdDSA rail shares its owner handling but refuses them.
+    /// Every owner-signed transfer rail proves address inputs; merge and the
+    /// ring authority, whose circuits have no address slot, refuse them.
     #[test]
-    fn only_the_confidential_eddsa_rail_takes_address_inputs() {
+    fn only_owner_signed_transfer_rails_take_address_inputs() {
         let inputs = [input_utxo(1, 0x11, 3, 0x33), address_in(2, 0x33)];
-        let assembled = assemble_inputs(&inputs, &OwnerMode::ConfidentialEddsa)
-            .expect("address on the confidential rail");
-        assert_eq!(
-            (
-                assembled.input_hashes.get(1).copied(),
-                assembled.address_nullifiers,
-            ),
-            (
-                Some([0u8; 32]),
-                vec![[0u8; 32], inputs.get(1).expect("address").utxo.nullifier],
-            )
-        );
-        for owner_mode in [
-            OwnerMode::RingEddsa,
-            OwnerMode::RingP256,
-            OwnerMode::Merge,
-            OwnerMode::RingAuthority,
-        ] {
+        for owner_mode in [OwnerMode::SolanaEddsa, OwnerMode::RingP256] {
+            let assembled =
+                assemble_inputs(&inputs, &owner_mode).expect("address on an owner-signed rail");
+            assert_eq!(
+                (
+                    assembled.input_hashes.get(1).copied(),
+                    assembled.address_nullifiers,
+                ),
+                (
+                    Some([0u8; 32]),
+                    vec![[0u8; 32], inputs.get(1).expect("address").utxo.nullifier],
+                )
+            );
+        }
+        for owner_mode in [OwnerMode::Merge, OwnerMode::RingAuthority] {
             assert!(matches!(
                 assemble_inputs(&inputs, &owner_mode),
                 Err(ClientError::AddressInputUnsupported { index: 1 })
@@ -1347,7 +1343,7 @@ mod tests {
         ];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1385,7 +1381,7 @@ mod tests {
         ];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1456,7 +1452,7 @@ mod tests {
             .collect();
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
@@ -1466,7 +1462,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy_in(9, Some((0x33, 7)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeUnresolved { tree_id: 9 })
         ));
     }
@@ -1476,7 +1472,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x12, 3, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1486,7 +1482,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 4, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1496,7 +1492,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 3, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1506,7 +1502,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy(Some((0x33, 8)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1514,7 +1510,7 @@ mod tests {
     #[test]
     fn padding_without_a_real_input_has_no_slot_zero() {
         assert!(matches!(
-            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::SolanaEddsa),
             Err(ClientError::NoInputs)
         ));
     }

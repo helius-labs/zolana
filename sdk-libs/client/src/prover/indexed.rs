@@ -253,7 +253,12 @@ impl IndexedProofRequest {
             if address
                 && (dummy
                     || cached
-                    || metadata.circuit_type != IndexedCircuit::TransferConfidential)
+                    || !matches!(
+                        metadata.circuit_type,
+                        IndexedCircuit::TransferConfidential
+                            | IndexedCircuit::TransferRing
+                            | IndexedCircuit::TransferP256Ring
+                    ))
             {
                 return Err(invalid());
             }
@@ -773,10 +778,10 @@ mod tests {
     }
 
     /// An address slot proves only non-inclusion, so its lookup carries no
-    /// commitment, and only the confidential EdDSA circuit takes one. Each
-    /// refused request differs from the accepted one in a single field.
+    /// commitment, and only the owner-signed transfer circuits take one. Each
+    /// refused request differs from an accepted one in a single field.
     #[test]
-    fn address_lookups_need_no_commitment_and_the_confidential_circuit() {
+    fn address_lookups_need_no_commitment_and_an_owner_signed_circuit() {
         let address_domain = format!("0x{:x}", zolana_interface::ADDRESS_DOMAIN);
         let request = |circuit_type: &str, commitment: Option<[u8; 32]>| {
             let mut data = request_data();
@@ -792,18 +797,11 @@ mod tests {
         };
         request("transfer-confidential", None).expect("address on the confidential circuit");
         // The ring circuit takes the same public input count, so only the
-        // address rule refuses it.
-        IndexedProofRequest::new({
-            let mut data = request_data();
-            let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
-            wire["circuitType"] = json!("transfer-ring");
-            *data.witness = wire.to_string();
-            data
-        })
-        .expect("a spend on the ring circuit");
+        // address rule could refuse it.
+        request("transfer-ring", None).expect("address on the ring circuit");
         for refused in [
             request("transfer-confidential", Some(scalar_one())),
-            request("transfer-ring", None),
+            request("transfer-ring", Some(scalar_one())),
         ] {
             assert!(matches!(refused, Err(ClientError::InvalidIndexedRequest)));
         }

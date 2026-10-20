@@ -89,7 +89,7 @@ impl RingTransferProver {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::RingEddsa,
+            &OwnerMode::SolanaEddsa,
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =

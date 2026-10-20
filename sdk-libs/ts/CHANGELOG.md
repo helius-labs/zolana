@@ -100,7 +100,7 @@ Added
   `TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH` and
   `TRANSACTION_NOT_ADDRESS_INPUT` for an invalid address input, and
   `ClientErrorCode` adds `CLIENT_ADDRESS_INPUT_UNSUPPORTED` for an address
-  input on a ring or merge rail and `CLIENT_INVALID_ADDRESS_INPUT` for a prover
+  input on the ring authority or merge rail and `CLIENT_INVALID_ADDRESS_INPUT` for a prover
   request that proves an address as another kind of slot.
 - `transactCpiAccounts(input)` returns the `transactInstruction` accounts with
   a program's signing PDAs after the owner signers,
