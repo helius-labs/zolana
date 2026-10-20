@@ -103,7 +103,6 @@ pub(super) struct EntryWitness<'a> {
     pub namespace: Address,
     pub address_tree: PoolTree,
     pub output_tree: PoolTree,
-    pub payer: Address,
     pub draft: EntryDraft,
     pub spent: Option<LiveEntry>,
 }
@@ -171,7 +170,6 @@ impl EntryWitness<'_> {
             namespace: self.namespace,
             input_tree,
             output_tree: self.output_tree,
-            payer: self.payer,
             slot,
             output_data_hash,
         }
@@ -207,7 +205,6 @@ pub(crate) struct NamespaceWrite<'a> {
     /// The spent slot's tree, a claim spends its address from the address tree.
     pub input_tree: PoolTree,
     pub output_tree: PoolTree,
-    pub payer: Address,
     pub slot: InputSlot,
     /// Must not depend on the derived blinding.
     pub output_data_hash: [u8; 32],
@@ -288,8 +285,6 @@ impl NamespaceWrite<'_> {
 
         let owner_pk_hash = solana_owner_identity(self.namespace.as_array())
             .map_err(|_| EntryProofError::Hashing)?;
-        let payer_hash =
-            solana_owner_identity(self.payer.as_array()).map_err(|_| EntryProofError::Hashing)?;
 
         let output_data_hash = self.output_data_hash;
         let output_hash = self
@@ -343,7 +338,8 @@ impl NamespaceWrite<'_> {
         let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
         tree_slots[0] = TreeSlot::new(input_tree_id, utxo_root, non_inclusion.root);
 
-        let signer_hashes = [payer_hash, owner_pk_hash];
+        // The fee payer is not an owner signer; the namespace PDA signs alone.
+        let signer_hashes = [owner_pk_hash, [0u8; 32]];
         let output_hashes = [output_hash, padding_hash];
         let output_owner_hashes = [owner_pk_hash, [0u8; 32]];
         let public_transfers = PublicTransfers::default();

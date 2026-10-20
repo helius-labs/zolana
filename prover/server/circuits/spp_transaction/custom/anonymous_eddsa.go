@@ -171,7 +171,7 @@ func (c *CustomRingAnonymousEddsaCircuit) Define(api frontend.API) error {
 	}
 	// A dummy may repeat the hidden identity only while a default-ring
 	// hidden input already publishes it; a ring spend keeps it out of the set.
-	dummyIdentities := append(shared.Signers(nil), authorizedEddsa.WithoutPayer()...)
+	dummyIdentities := append(shared.Signers(nil), authorizedEddsa...)
 	dummyIdentities = append(dummyIdentities, c.Public.DefaultOwnerPkHash)
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,

@@ -32,9 +32,19 @@ cargo run -p forester -- run --settings <PUBKEY> [--tree <PUBKEY>] [--watch] [--
 cargo run -p forester -- close-nullifier-pdas --settings <PUBKEY> [--account-index N] [--tree <PUBKEY>] [--from-seq N] [--max-transactions N] [--watch] [--poll-secs S]
 ```
 
+### Reimbursements across workers
+
+`batch_update_nullifier_tree` caches proofs that arrive out of order and pays
+the append reimbursement for the whole applied cascade to the recipient of the
+call that triggers it, including updates other workers cached earlier: the cache
+records no submitter. Workers that share the forester authority but pay their
+own transaction fees should split reimbursements among themselves or submit
+in queue order.
+
 ### `close-nullifier-pdas`
 
-Every queued nullifier owns a ten-byte PDA funded from the tree. Once a
+Every queued nullifier owns an eleven-byte PDA funded from the tree; only
+accounts that start with the nullifier PDA discriminator count as open. Once a
 successor queue batch is fully appended, the tree's `close_before_index`
 advances past the preceding batch and its PDAs become closable by the
 forester; closing returns the PDA rent to the tree. Like `run`, the close is

@@ -67,6 +67,7 @@ func TestCustomRingAuthorityPublicInputHashBindsEveryField(t *testing.T) {
 		publicInputHashBindingOptions{
 			includeRingProgramID: true,
 			signerWidth:          1,
+			authorityPayer:       true,
 		},
 	)
 }

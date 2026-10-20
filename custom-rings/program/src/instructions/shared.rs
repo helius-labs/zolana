@@ -162,6 +162,9 @@ impl SppSigners {
 ///
 /// The generic account type lets callers either forward their whole account list
 /// (`deposit`, `transact`) or hand-pick a reordered subset (`init_spp_ring_config`).
+///
+/// A route whose depositor or payer comes from the caller's accounts must call
+/// `check_funding_signer` first: every ring PDA occurrence becomes a signer here.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 #[inline(never)]
 pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
@@ -232,4 +235,18 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
 ) -> ProgramResult {
     signers.namespace(program_id)?;
     Err(CustomRingError::InvalidShieldedPoolProgram.into())
+}
+
+/// Require the SPP account at `index`, the one SPP debits for lamports or
+/// tokens (`depositor`, `payer`), to have signed this instruction. The
+/// forwarder raises every ring PDA occurrence to a signer, so an unsigned slot
+/// is the only way a caller could spend what `ring_auth` controls.
+pub(crate) fn check_funding_signer(accounts: &[AccountView], index: usize) -> ProgramResult {
+    let funder = accounts
+        .get(index)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !funder.is_signer() {
+        return Err(CustomRingError::MissingFundingSigner.into());
+    }
+    Ok(())
 }

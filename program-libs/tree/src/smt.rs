@@ -52,7 +52,7 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         }
         let height_byte = u8::try_from(height).map_err(|_| TreeError::HeightTooLarge)?;
         let capacity =
-            u16::try_from(ROOT_HISTORY_CAPACITY).map_err(|_| TreeError::HeightTooLarge)?;
+            u16::try_from(ROOT_HISTORY_CAPACITY).map_err(|_| TreeError::InvalidCapacity)?;
         let zero_bytes = Poseidon::zero_bytes();
         let empty_root = *zero_bytes.get(height).ok_or(TreeError::HeightTooLarge)?;
 

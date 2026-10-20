@@ -6,7 +6,7 @@ use solana_address::Address;
 use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
 use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
-    verifying_keys::{merge_ring_24_1, merge_ring_54_1, merge_ring_8_1},
+    verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1},
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
@@ -108,7 +108,7 @@ impl MergeRingHarness {
         let vk = match result.nullifiers.len() {
             8 => &merge_ring_8_1::VERIFYINGKEY,
             24 => &merge_ring_24_1::VERIFYINGKEY,
-            54 => &merge_ring_54_1::VERIFYINGKEY,
+            52 => &merge_ring_52_1::VERIFYINGKEY,
             other => panic!("no committed verifying key for a {other}-input merge-ring"),
         };
         let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
@@ -123,8 +123,10 @@ impl MergeRingHarness {
             .len();
         assert_eq!(sent, n, "compact padding is left out of the instruction");
 
-        // The owner reconstructs the ciphertext-free merge-ring output from the
-        // first real input and its published nullifier.
+        // The owner derives the merge-ring output blinding from its nullifier
+        // key and the first real input's published nullifier; the amount and
+        // mint come from the output ciphertext, which the ring merge proof does
+        // not bind.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge-ring output blinding"),

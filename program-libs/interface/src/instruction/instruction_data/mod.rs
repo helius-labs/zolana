@@ -25,8 +25,9 @@ pub use deposit::{
 };
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
-    merge_circuit_width, MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData,
-    MergeTransactIxDataRef, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+    merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeProofRef,
+    MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+    MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     MERGE_SUPPORTED_INPUT_COUNTS,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};

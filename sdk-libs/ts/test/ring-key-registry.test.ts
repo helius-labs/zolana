@@ -10,6 +10,8 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import * as mergeKeys from "../src/keypair/merge/index.js";
+import * as mergeCipher from "../src/transaction/serialization/merge.js";
 import type { RingKeyRegistryEntry } from "../src/client/ports.js";
 import type {
   CustomRingRegisterKeyProofRequest,
@@ -34,7 +36,15 @@ import type {
   TransactInstructionData,
 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergeOutputKey,
+} from "../src/keypair/merge/index.js";
+import {
+  encodeMergeOutputData,
+  encryptMergeOutput,
+} from "../src/transaction/serialization/merge.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 
@@ -790,6 +800,7 @@ function mergeTransaction(
       tree: treeAddress(treeId),
       leafIndex: 4n,
     };
+    const salt = new Uint8Array(16).fill(treeId + 1) as Bytes16;
     return {
       transaction: {
         txSignature: "1".repeat(87) as Signature,
@@ -802,7 +813,15 @@ function mergeTransaction(
           {
             viewTag: first.nullifier,
             outputContext,
-            payload: ringDataHash,
+            payload: encodeMergeOutputData({
+              ringDataHash,
+              salt,
+              ciphertext: encryptMergeOutput(
+                { amount: utxo.amount, mint: utxo.asset },
+                mergeOutputKey(key, first.nullifier),
+                salt,
+              ),
+            }),
           },
         ],
         messages: [],
@@ -1002,6 +1021,109 @@ describe("recovery closure", () => {
     expect(incomplete.unopened).toEqual([second.note.outputContext.hash]);
     key.destroy();
     auditor.destroy();
+  });
+
+  it("decrypts a ring merge that folds in a note recovery never saw", async () => {
+    // Regression for M-03: the merge publishes its amount and mint under the
+    // owner's per-merge key, so an input recovery cannot decrypt does not keep the
+    // merged output undecrypted.
+    const source = actor(3);
+    const auditor = X25519Keypair.generate();
+    const key = source.keypair.nullifierKey();
+    const seed = ringTransaction({ auditor, source, outputs: [{ amount: 2n }] });
+    const seedSlot = seed.outputSlots[0];
+    if (seedSlot === undefined) throw new Error("seed output missing");
+    const known = new Utxo({
+      owner: source.address.signingPublicKey,
+      asset: SOL_MINT,
+      amount: 2n,
+      blinding: blinding(50),
+      ringProgramId: RING,
+    });
+    const unseenUtxo = new Utxo({
+      owner: source.address.signingPublicKey,
+      asset: SOL_MINT,
+      amount: 40n,
+      blinding: blinding(60),
+      ringProgramId: RING,
+    });
+    const unseenContext = { hash: blinding(61), tree: TREE, leafIndex: 9n };
+    const merged = mergeTransaction(source, [
+      {
+        utxo: known,
+        outputContext: seedSlot.outputContext,
+        nullifier: known.nullifier(seedSlot.outputContext.hash, key),
+        spent: false,
+      },
+      {
+        utxo: unseenUtxo,
+        outputContext: unseenContext,
+        nullifier: unseenUtxo.nullifier(unseenContext.hash, key),
+        spent: false,
+      },
+    ]);
+    const client = {
+      ...ringAuditReader({
+        getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [seed] }),
+      }),
+      getShieldedTransactionsByNullifiers: async (
+        request: Readonly<{ nullifiers: readonly Bytes32[] }>,
+      ) =>
+        transactionsPage({
+          transactions: merged.transaction.nullifiers.some((nullifier) =>
+            request.nullifiers.some((requested) => requested.join() === nullifier.join()),
+          )
+            ? [merged.transaction]
+            : [],
+        }),
+    };
+    const derived: Bytes32[] = [];
+    const deriveKey = mergeKeys.mergeOutputKey;
+    const keySpy = vi
+      .spyOn(mergeKeys, "mergeOutputKey")
+      .mockImplementation((nullifierKey, firstNullifier) => {
+        const value = deriveKey(nullifierKey, firstNullifier);
+        derived.push(value);
+        return value;
+      });
+    const params = {
+      client,
+      ringProgramId: RING,
+      auditor,
+      source: source.address,
+      nullifierKey: key,
+      assets: new AssetRegistry(),
+      resolveTreeId: () => 0,
+      origin: { ringInvoked: async () => true },
+    };
+    const decryptSpy = vi.spyOn(mergeCipher, "decryptMergeOutput");
+    try {
+      const result = await recoverRingMemberNotes(params);
+      expect(result.unopened).toEqual([]);
+      expect(result.notes).toHaveLength(1);
+      expect(result.notes[0]?.utxo.amount).toBe(42n);
+      expect(result.notes[0]?.outputContext).toEqual(merged.note.outputContext);
+      expect(result.notes[0]?.nullifier).toEqual(merged.note.nullifier);
+      expect(derived).toHaveLength(1);
+      expect(derived[0]).toEqual(new Uint8Array(32));
+      decryptSpy.mockImplementation(() => ({ amount: 43n, mint: SOL_MINT }));
+      const mismatch = await recoverRingMemberNotes(params);
+      expect(mismatch.notes).toEqual([]);
+      expect(mismatch.unopened).toEqual([merged.note.outputContext.hash]);
+      decryptSpy.mockImplementation(() => {
+        throw new Error("invalid merge plaintext");
+      });
+      const invalid = await recoverRingMemberNotes(params);
+      expect(invalid.notes).toEqual([]);
+      expect(invalid.unopened).toEqual([merged.note.outputContext.hash]);
+      expect(derived).toHaveLength(3);
+      for (const value of derived) expect(value).toEqual(new Uint8Array(32));
+    } finally {
+      keySpy.mockRestore();
+      decryptSpy.mockRestore();
+      key.destroy();
+      auditor.destroy();
+    }
   });
 
   it("recovers proof-bound data hashes without trusting a caller resolver", async () => {

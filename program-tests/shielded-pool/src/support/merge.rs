@@ -16,7 +16,7 @@ use zolana_interface::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRingIxData,
         MergeTransactIxData,
     },
-    verifying_keys::{merge_24_1, merge_54_1, merge_8_1},
+    verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
@@ -30,7 +30,8 @@ use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use zolana_user_registry_interface::{
-    state::UserRecord, user_record_pda, USER_REGISTRY_PROGRAM_ID,
+    state::{MergeEncryptionScheme, UserRecord},
+    user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
 use super::fixtures::Pool;
@@ -40,7 +41,7 @@ pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'
     match input_count {
         8 => &merge_8_1::VERIFYINGKEY,
         24 => &merge_24_1::VERIFYINGKEY,
-        54 => &merge_54_1::VERIFYINGKEY,
+        52 => &merge_52_1::VERIFYINGKEY,
         other => panic!("no committed verifying key for a {other}-input merge"),
     }
 }
@@ -63,7 +64,11 @@ pub fn write_user_record(
             .pubkey()
             .expect("fixture nullifier public key"),
         viewing_pubkey,
-        merging_enabled,
+        merge_encryption: if merging_enabled {
+            MergeEncryptionScheme::PoseidonCtrV1
+        } else {
+            MergeEncryptionScheme::Disabled
+        },
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     record

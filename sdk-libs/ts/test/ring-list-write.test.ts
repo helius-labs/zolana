@@ -122,7 +122,6 @@ describe("entry transition inputs", () => {
     ringEntryTransitionInputs({
       namespace: RECORDS_PDA,
       trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
-      payer: PAYER,
       entry: v0Draft,
       state: HEAD,
       absence: absenceOf(owner.entryAddress(v0Draft)),
@@ -143,18 +142,18 @@ describe("entry transition inputs", () => {
       "2084195c27c25c187bff6963df6beb0ce817719088662d4a83b575f99943b11c",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "28504492f258339afe5ae7af22744560006852fa9eed4af18e3fb548382be291",
+      "02c141d14f1b82218a84bd712a27431c754661e03c84c97931928165defab31d",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
     expect(input?.circuit.asset).toBe(0n);
     expect(input?.nullifier).toBe(BigInt(`0x${Buffer.from(address).toString("hex")}`));
     expect(input?.statePathIndex).toBe(0n);
-    expect(inputs.signerPublicKeyHashes).toHaveLength(2);
-    expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([
-      inputs.signerPublicKeyHashes[1],
-      0n,
-    ]);
+    // The namespace PDA signs alone, the fee payer holds no slot.
+    const [namespaceSigner] = inputs.signerPublicKeyHashes;
+    expect(inputs.signerPublicKeyHashes).toEqual([namespaceSigner, 0n]);
+    expect(namespaceSigner).not.toBe(0n);
+    expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([namespaceSigner, 0n]);
     expect(inputs.outputs[0]?.circuit.blinding).toBe(bytesToBigInt(entry.blinding));
     // The 1x2 shape's second output is compact padding: hash and owner 0.
     expect(inputs.outputs).toHaveLength(2);
@@ -175,7 +174,6 @@ describe("entry transition inputs", () => {
     const { inputs, nullifier } = ringEntryTransitionInputs({
       namespace: RECORDS_PDA,
       trees: { address: VECTOR_TREE_ID, input: VECTOR_TREE_ID, output: VECTOR_TREE_ID },
-      payer: PAYER,
       entry: { ...v0Draft, version: 1n },
       spent,
       state: { ...HEAD, leafIndex: 3n },
@@ -187,7 +185,7 @@ describe("entry transition inputs", () => {
       "05463251217cd0b40990a3f1163a0c1b6cb37b0b5fc4d27428798ad5c4d63679",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "0a98e151ecb39be8b75f1211965a1d986403927b21ae436e8845b79ee42808cc",
+      "0db22e5712ac75e1321c373a85b2014ff782f5fc9239c9717a53ef5256d1bd2b",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);
@@ -207,7 +205,6 @@ describe("entry transitions across trees", () => {
     const { inputs, nullifier, entry } = ringEntryTransitionInputs({
       namespace: RECORDS_PDA,
       trees,
-      payer: PAYER,
       entry: { ...v0Draft, version: 1n },
       spent,
       state: { ...HEAD, leafIndex: 3n },
@@ -281,7 +278,6 @@ describe("entry transition proving", () => {
       ringProgramId: RING,
       addressTree: { tree: ADDRESS_TREE, treeId: 0 },
       outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-      payer: PAYER,
       entry: v0Draft,
     });
     const namespace = RingListNamespace.of(await ringPolicyNamespaceAddress(RING), 0);
@@ -310,7 +306,6 @@ describe("entry transition proving", () => {
       ringProgramId: RING,
       addressTree: { tree: ADDRESS_TREE, treeId: 0 },
       outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-      payer: PAYER,
       entry: v1,
       spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
     });
@@ -332,7 +327,6 @@ describe("entry transition proving", () => {
         ringProgramId: RING,
         addressTree: { tree: ADDRESS_TREE, treeId: 0 },
         outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-        payer: PAYER,
         entry: v1,
         spent: { entry: v0, tree: ADDRESS_TREE, treeId: 0 },
       }),
@@ -344,7 +338,6 @@ describe("entry transition proving", () => {
         ringProgramId: RING,
         addressTree: { tree: ADDRESS_TREE, treeId: 0 },
         outputTree: { tree: ADDRESS_TREE, treeId: 0 },
-        payer: PAYER,
         entry: v0Draft,
       }),
     ).rejects.toMatchObject({ code: "RING_POLICY_TREE_INVALID" });

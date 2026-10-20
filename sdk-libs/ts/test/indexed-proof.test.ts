@@ -109,6 +109,38 @@ it.each([
   );
 });
 
+it("sizes a merge statement by its rail", () => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const input = ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+      }),
+      owner,
+    );
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    const { inputs } = prepareMerge(prepared, treeAddress(prepared.inputTreeId));
+    if (inputs.circuit !== "merge") throw new Error("merge fixture prepared another circuit");
+    // A default merge publishes 12 elements before the tree slots, a ring merge
+    // 8: it binds the output ring data hash and ring program id, no ciphertext.
+    expect(inputs.publicInputs).toHaveLength(12);
+    const ring = { ...inputs, payload: { ...inputs.payload, ringProgramId: asField(7n) } };
+    const ringStatement = { ...ring, publicInputs: inputs.publicInputs.slice(0, 8) };
+    expect(decodeIndexedInputs(inputs).publicInputs).toHaveLength(12);
+    expect(decodeIndexedInputs(ringStatement).publicInputs).toHaveLength(8);
+    for (const request of [ring, { ...inputs, publicInputs: inputs.publicInputs.slice(0, 8) }]) {
+      expect(() => decodeIndexedInputs(request)).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
+    }
+  } finally {
+    owner.destroy();
+  }
+});
+
 it("binds merge resolution and keeps preparation free of indexer calls", async () => {
   const owner = ShieldedKeypair.generate();
   const input = ProofInputUtxo.fromKeypair(
@@ -167,8 +199,15 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
     expect(decode.list(payload["inputs"], "inputs")).toHaveLength(ONE_INPUT_MERGE_WIDTH);
     expect(payload["privateTxHash"]).toBe(`0x${local.inputs.payload.privateTxHash.toString(16)}`);
     const publicInputs = decode.list(envelope["publicInputs"], "publicInputs");
-    expect(publicInputs).toHaveLength(8);
+    expect(publicInputs).toHaveLength(12);
     expect(publicInputs[7]).toBe(payload["userNullifierPk"]);
+    expect(publicInputs[8]).toBe(payload["outputCiphertextSalt"]);
+    expect(publicInputs[8]).toBe(
+      `0x${bytesToBigInt(prepared.outputCiphertextSalt()).toString(16)}`,
+    );
+    expect(publicInputs.slice(9)).toEqual(
+      prepared.outputCiphertext().map((element) => `0x${bytesToBigInt(element).toString(16)}`),
+    );
     for (const provingKeySha256 of [undefined, "00".repeat(32)]) {
       fetch.mockResolvedValueOnce(Response.json({ ...STANDARD_PROOF, provingKeySha256 }));
       await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({

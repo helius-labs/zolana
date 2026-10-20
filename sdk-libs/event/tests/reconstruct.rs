@@ -5,8 +5,8 @@ mod support;
 use solana_pubkey::Pubkey;
 use support::{
     emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
-    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT,
-    TX_VIEWING_PK,
+    merge_output_data, merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE,
+    OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
@@ -538,7 +538,7 @@ fn merge_transact_event_rebuilds_the_default_inputs_and_the_owner_indexed_output
     )
     .expect("reconstruct merge");
 
-    assert_eq!(event, expected_merge([0xD0; 32], Vec::new()));
+    assert_eq!(event, expected_merge([0xD0; 32], merge_output_data(None)));
 }
 
 #[test]
@@ -560,7 +560,10 @@ fn merge_ring_event_republishes_the_output_ring_data_hash() {
     )
     .expect("reconstruct merge ring");
 
-    assert_eq!(event, expected_merge([0x40; 32], vec![0xE0; 32]));
+    assert_eq!(
+        event,
+        expected_merge([0x40; 32], merge_output_data(Some([0xE0; 32])))
+    );
 }
 
 #[test]
@@ -686,10 +689,14 @@ fn cached_merges_reconstruct_under_the_existing_tags() {
             (
                 tag::RING_MERGE_TRANSACT,
                 wrapper.serialize().unwrap(),
-                vec![0xE0; 32],
+                merge_output_data(Some([0xE0; 32])),
             )
         } else {
-            (tag::MERGE_TRANSACT, merge.serialize().unwrap(), Vec::new())
+            (
+                tag::MERGE_TRANSACT,
+                merge.serialize().unwrap(),
+                merge_output_data(None),
+            )
         };
         let src = source(
             Pubkey::new_unique(),

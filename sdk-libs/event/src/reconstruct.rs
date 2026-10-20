@@ -8,12 +8,12 @@
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
-    SplTransfer, TransactEvent,
+    encode_merge_output_data, tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent,
+    MergeOutputDataRef, MessageData, OutputUtxo, SplTransfer, TransactEvent,
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
-    merge_transact::MergeTransactIxDataRef,
+    merge_transact::{MergeOutputEncryption, MergeTransactIxDataRef},
     settlement_accounts,
     transact::{InputUtxo, InterfaceTransfer, OwnerTag, TransactIxDataRef},
 };
@@ -165,26 +165,38 @@ fn settlement_transfers(
 }
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
-/// the emitted view tag, the instruction's `output_utxo_hash`, and, for
-/// `merge_ring`, the output `ring_data_hash` as its payload.
+/// the emitted view tag, the instruction's `output_utxo_hash`, and as its data
+/// the output ciphertext: proof-bound on `merge_transact`, unverified and led
+/// by the output `ring_data_hash` on `merge_ring`.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, output_data) = match source_tag {
+    let (merge, prefix) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, Vec::new())
+            (merge, [].as_slice())
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            let output_data = ring.output_ring_data_hash.to_vec();
-            (ring.merge, output_data)
+            (
+                ring.merge,
+                core::slice::from_ref(ring.output_ring_data_hash),
+            )
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
+    };
+    let output_data = match &merge.output_encryption {
+        MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
+            encode_merge_output_data(MergeOutputDataRef {
+                salt,
+                ciphertext,
+                prefix,
+            })
+        }
     };
 
     let input_tree = single_input_tree(&event.input_trees)?;

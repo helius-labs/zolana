@@ -141,7 +141,6 @@ impl CreateEntry {
             namespace,
             address_tree: self.address_tree,
             output_tree: self.output_tree,
-            payer: self.payer,
             draft: EntryDraft {
                 list_id: self.list_id,
                 member: self.member,
@@ -190,7 +189,6 @@ impl UpdateEntry {
             namespace,
             address_tree: self.address_tree,
             output_tree: self.output_tree,
-            payer: self.payer,
             draft: EntryDraft {
                 list_id: spent.list_id,
                 member: spent.member,

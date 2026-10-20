@@ -41,7 +41,8 @@ type CustomRingConfidentialEddsaPublic struct {
 	// nullifier tree capacity is less than remaining state tree capacity, to
 	// ensure that every new UTXO can be nullified.
 	InputFlags frontend.Variable
-	// Hashed EdDSA signer pubkeys, with the fee payer first.
+	// Hashed EdDSA owner-signer pubkeys, deduplicated and zero-padded. The
+	// fee payer is not one unless it is also listed as an owner signer.
 	SignerPkHashes []frontend.Variable
 	// Default-ring real outputs publish owner pubkey hashes; custom-ring real outputs
 	// publish zero. Marked dummy outputs may publish a constrained participant.
@@ -162,7 +163,7 @@ func (c *CustomRingConfidentialEddsaCircuit) Define(api frontend.API) error {
 		tx.Outputs,
 		tx.OutputIsCompact,
 		c.Public.PublishedOutputOwnerPkHashes,
-		authorized.WithoutPayer(),
+		authorized,
 	); err != nil {
 		return err
 	}

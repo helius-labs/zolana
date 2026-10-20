@@ -101,7 +101,7 @@ impl SppProofInputs {
         {
             let address = Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?);
             let hash = input_utxo.utxo.owner.owner_proof_input_hash()?;
-            if address == self.payer || signer_hashes.contains(&hash) {
+            if signer_hashes.contains(&hash) {
                 continue;
             }
             signer_hashes.push(hash);
@@ -110,10 +110,11 @@ impl SppProofInputs {
         Ok(signers)
     }
 
+    /// The owner-signed rails' public signer vector: every Ed25519 input owner,
+    /// deduplicated in input order and zero-padded to `width`. The fee payer is
+    /// not in it unless it owns an input, so paying never authorizes a spend.
     pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
-        let mut hashes = vec![zolana_hasher::primitives::solana_owner_identity(
-            self.payer.as_array(),
-        )?];
+        let mut hashes = Vec::with_capacity(width);
         for signer in self.owner_signer_pubkeys()? {
             hashes.push(zolana_hasher::primitives::solana_owner_identity(
                 signer.as_array(),

@@ -4,7 +4,12 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
-import { deriveAnswers, destroyTransactionKeys, transactionKeyAnswers } from "./key-batch.js";
+import {
+  deriveAnswers,
+  destroyTransactionKeys,
+  transactionKeyAnswers,
+  wipeByteAnswers,
+} from "./key-batch.js";
 import type { DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest } from "./keys.js";
 import { hex } from "./state.js";
 
@@ -86,29 +91,42 @@ export class KeyMemo {
     const settled = await Promise.allSettled([
       decrypts.length === 0
         ? []
-        : this.#keys.decrypt(
-            decrypts.map(([, request]) => request),
-            context,
+        : Promise.resolve().then(() =>
+            this.#keys.decrypt(
+              decrypts.map(([, request]) => request),
+              context,
+            ),
           ),
       derives.length === 0
         ? []
-        : this.#keys.derive(
-            derives.map(([, request]) => request),
-            context,
+        : Promise.resolve().then(() =>
+            this.#keys.derive(
+              derives.map(([, request]) => request),
+              context,
+            ),
           ),
       transactionKeys.length === 0
         ? []
-        : this.#keys.transactionKeys(
-            transactionKeys.map(([, request]) => request),
-            context,
+        : Promise.resolve().then(() =>
+            this.#keys.transactionKeys(
+              transactionKeys.map(([, request]) => request),
+              context,
+            ),
           ),
     ]);
+    const derivations = settled[1].status === "fulfilled" ? settled[1].value : [];
     const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
+    const plaintexts: Uint8Array[] = [];
     try {
-      const plaintexts = decodeBatch(
+      decodeBatch(
         fulfilled(settled[0]),
         decrypts.length,
-        (value) => (value instanceof Uint8Array ? copy(value) : undefined),
+        (value) => {
+          if (!(value instanceof Uint8Array)) return undefined;
+          const plaintext = copy(value);
+          plaintexts.push(plaintext);
+          return plaintext;
+        },
         batchMismatch,
       );
       const derived = deriveAnswers(fulfilled(settled[1]), derives.length, batchMismatch);
@@ -131,6 +149,8 @@ export class KeyMemo {
       });
     } catch (cause) {
       destroyTransactionKeys(minted);
+      wipeByteAnswers(plaintexts);
+      wipeByteAnswers(derivations);
       throw cause;
     }
   }
@@ -140,6 +160,7 @@ export class KeyMemo {
     this.#transactionKeys.clear();
     for (const plaintext of this.#decrypted.values()) plaintext.fill(0);
     this.#decrypted.clear();
+    for (const derived of this.#derived.values()) derived.fill(0);
     this.#derived.clear();
   }
 }
@@ -165,6 +186,8 @@ function deriveKey(request: DeriveRequest): string {
       return `mergeBlinding|${hex(request.firstNullifier)}`;
     case "mergePrivateTxBlinding":
       return `mergePrivateTxBlinding|${hex(request.firstNullifier)}`;
+    case "mergeOutputKey":
+      return `mergeOutputKey|${hex(request.firstNullifier)}`;
   }
 }
 

@@ -11,6 +11,7 @@ import type {
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
+import type { MergeEncryptionScheme } from "../interface/state.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -113,8 +114,11 @@ export interface RegistryRecord {
   /** Wallet-wide nullifier pubkey. Never rotates. */
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: X25519PublicKey;
-  /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
-  readonly mergingEnabled: boolean;
+  /**
+   * Merge opt-in and scheme: `Disabled` refuses `merge_transact`, any other
+   * scheme lets any caller merge this owner's UTXOs with exactly that scheme.
+   */
+  readonly mergeEncryption: MergeEncryptionScheme;
 }
 
 /**

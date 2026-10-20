@@ -27,7 +27,6 @@ use custom_ring_interface::{
     AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN,
     DISCLOSURE_SENDER_LEN, TAGGED_X25519_KEY_LEN,
 };
-use num_bigint::BigUint;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
@@ -37,6 +36,7 @@ use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, KeypairError, NullifierKey, ViewingKey, X25519Keypair, X25519Pubkey,
 };
+use zolana_transaction::field::{field_add, field_sub};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum AuditEncryptionError {
@@ -512,7 +512,6 @@ fn apply_disclosure_stream(
 ) -> Result<Vec<[u8; 32]>> {
     const DOMAIN: u64 = 0x4352_5f4f44;
     let FieldPair { lo, hi } = pack32_to_2fe(&tx_viewing_key.secret_bytes());
-    let modulus = BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
     let mut out = vec![[0u8; 32]; fields.len()];
     for (index, (field, result)) in fields.iter().zip(out.iter_mut()).enumerate() {
         let stream = poseidon(&[
@@ -522,15 +521,11 @@ fn apply_disclosure_stream(
             &right_align(&salt),
             &right_align(&(index as u64).to_be_bytes()),
         ])?;
-        let value = BigUint::from_bytes_be(field);
-        let mask = BigUint::from_bytes_be(&stream);
-        let transformed = if encrypt {
-            (value + mask) % &modulus
+        *result = if encrypt {
+            field_add(field, &stream)
         } else {
-            (value + &modulus - mask) % &modulus
+            field_sub(field, &stream)
         };
-        let bytes = transformed.to_bytes_be();
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
     }
     Ok(out)
 }

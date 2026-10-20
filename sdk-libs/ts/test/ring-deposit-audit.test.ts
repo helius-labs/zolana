@@ -22,7 +22,15 @@ import { ownerUtxoHash, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { encodeOutputData, EncryptedScheme } from "../src/transaction/serialization/codecs.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergeOutputKey,
+} from "../src/keypair/merge/index.js";
+import {
+  encodeMergeOutputData,
+  encryptMergeOutput,
+} from "../src/transaction/serialization/merge.js";
 import { buildRingDepositTransaction } from "../src/ring/deposit.js";
 import { decodeRingDepositAudit } from "../src/ring/codecs.js";
 import { fetchRingDepositAudit, setRingDepositAuditInstruction } from "../src/ring/config.js";
@@ -770,6 +778,7 @@ describe("deposit recovery", () => {
         ringProgramId: RING,
       });
       const mergedHash = merged.hash(address.nullifierPublicKey, 1, undefined, ringDataHash);
+      const mergeSalt = new Uint8Array(16).fill(3) as Bytes16;
       const merge: IndexedShieldedTransaction = {
         txSignature: "2".repeat(87) as Signature,
         slot: 2n,
@@ -787,7 +796,15 @@ describe("deposit recovery", () => {
           {
             viewTag: nullifier,
             outputContext: { hash: mergedHash, tree: treeAddress(1), leafIndex: 2n },
-            payload: ringDataHash,
+            payload: encodeMergeOutputData({
+              ringDataHash,
+              salt: mergeSalt,
+              ciphertext: encryptMergeOutput(
+                { amount: 7n, mint: SOL_MINT },
+                mergeOutputKey(key, nullifier),
+                mergeSalt,
+              ),
+            }),
           },
         ],
       };

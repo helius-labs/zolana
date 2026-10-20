@@ -44,7 +44,10 @@ impl TakeVerifiableEncryption {
             AccountMeta::new(tree, false),
         ];
         accounts.extend(nullifier_pdas);
+        // The order is the first input; the taker's own note is the second.
+        // The taker also pays, but must appear explicitly in the owner slots.
         accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
+        accounts.push(AccountMeta::new_readonly(payer, true));
         let mut instruction_data = vec![tag::TAKE_VERIFIABLE_ENCRYPTION];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

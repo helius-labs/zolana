@@ -45,6 +45,10 @@ describe("public input hash known-answer vectors", () => {
       "full_36",
       "compact_36",
     ]);
+    expect(vectors.ring_merges.map((vector) => vector.name)).toEqual([
+      "ring_full_8",
+      "ring_compact_24",
+    ]);
   });
 
   it.each(vectors.transfers)("transfer $name hashes to the committed value", (vector) => {
@@ -74,13 +78,48 @@ describe("public input hash known-answer vectors", () => {
   });
 
   it.each(vectors.merges)("merge $name hashes to the committed value", (vector) => {
+    const [ciphertext0, ciphertext1, ciphertext2, ...rest] = vector.output_ciphertext.map(field);
+    if (
+      ciphertext0 === undefined ||
+      ciphertext1 === undefined ||
+      ciphertext2 === undefined ||
+      rest.length !== 0
+    ) {
+      throw new Error(`merge vector ${vector.name} must carry three ciphertext elements`);
+    }
+    expect(vector.output_ciphertext_salt).toHaveLength(32);
     const publicInputs = mergePublicInputs({
       nullifiers: vector.nullifiers.map(field),
       outputHash: field(vector.output_hash),
       outputTreeId: vector.output_tree_id,
       privateTxHash: field(vector.private_tx_hash),
       externalDataHash: field(vector.external_data_hash),
-      owner: [field(vector.owner_pk_hash), field(vector.nullifier_pk)],
+      binding: {
+        kind: "default",
+        ownerPublicKeyHash: field(vector.owner_pk_hash),
+        nullifierPublicKey: field(vector.nullifier_pk),
+        // The 16-byte salt enters the hash right-aligned in its field element.
+        outputCiphertextSalt: field(vector.output_ciphertext_salt),
+        outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
+      },
+    });
+    expect(hex(resolvedPublicInputHash(publicInputs, treeSlots(vector.tree_slots)))).toBe(
+      vector.public_input_hash,
+    );
+  });
+
+  it.each(vectors.ring_merges)("ring merge $name hashes to the committed value", (vector) => {
+    const publicInputs = mergePublicInputs({
+      nullifiers: vector.nullifiers.map(field),
+      outputHash: field(vector.output_hash),
+      outputTreeId: vector.output_tree_id,
+      privateTxHash: field(vector.private_tx_hash),
+      externalDataHash: field(vector.external_data_hash),
+      binding: {
+        kind: "ring",
+        outputRingDataHash: field(vector.output_ring_data_hash),
+        ringProgramId: field(vector.ring_program_id),
+      },
     });
     expect(hex(resolvedPublicInputHash(publicInputs, treeSlots(vector.tree_slots)))).toBe(
       vector.public_input_hash,

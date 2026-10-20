@@ -1,6 +1,7 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::instruction::{
     CircuitId, InputUtxo, MergeTransactIxData, TransactIxData, TransactProof, TreeContext,
 };
@@ -46,6 +47,10 @@ fn merge_data() -> MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0u8; 32],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0u8; 16],
+            ciphertext: [[0u8; 32]; 3],
+        },
         private_tx_hash: [0u8; 32],
         nullifiers: merge_nullifiers(),
         utxo_tree_root_index: 0,

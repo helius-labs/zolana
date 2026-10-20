@@ -1,4 +1,4 @@
-//! Merging a wallet's UTXOs. A merge takes up to 54 plain UTXOs of one owner,
+//! Merging a wallet's UTXOs. A merge takes up to 52 plain UTXOs of one owner,
 //! one asset and one tree, and appends one UTXO holding their sum. The owner
 //! signs nothing: once its user record enables merging, a merge proved with its
 //! nullifier secret is valid from any fee payer.
@@ -13,7 +13,7 @@ use zolana_interface::{instruction::instruction_data::merge_transact::MergeTrans
 use zolana_keypair::{NullifierKey, ShieldedAddress};
 use zolana_program::instruction::MergeTransact;
 use zolana_transaction::instructions::merge::MergeProofInputs;
-use zolana_user_registry_interface::{user_record_pda, UserRecord};
+use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
 
 use crate::{
     error::ClientError,
@@ -33,8 +33,8 @@ use super::{
     UnsignedMessage, ZolanaClient,
 };
 
-/// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 54x1"
-/// in `program-tests/shielded-pool/CU_BENCHMARK.md`, measures 296,879 CU; the
+/// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
+/// in `program-tests/shielded-pool/CU_BENCHMARK.md`, measures 293,555 CU; the
 /// ceiling is the transaction-wide maximum.
 pub const MERGE_CU_LIMIT: u32 = 1_400_000;
 
@@ -226,17 +226,18 @@ impl<'a> MergeSubmission<'a> {
     }
 }
 
-/// Whether `record`, `owner`'s user record, lets `address` merge: merging is
-/// enabled, and the record holds `address`'s signing, nullifier and viewing
-/// keys. The program checks all but the viewing key, so a mismatch caught here
+/// Whether `record`, `owner`'s user record, lets `address` merge: the record
+/// selects the PoseidonCtrV1 merge encryption scheme (the one this client
+/// encrypts with; the program rejects any other), and the record holds
+/// `address`'s signing, nullifier and viewing keys. The program checks all but the viewing key, so a mismatch caught here
 /// saves a proof; a viewing key mismatch means the local keys are stale.
 pub fn check_merge_record(
     record: &UserRecord,
     owner: Address,
     address: &ShieldedAddress,
 ) -> Result<(), ClientError> {
-    if !record.merging_enabled {
-        return Err(ClientError::MergeDisabled { owner });
+    if record.merge_encryption != MergeEncryptionScheme::PoseidonCtrV1 {
+        return Err(ClientError::MergeEncryptionSchemeUnsupported { owner });
     }
     let signing = address.signing_pubkey;
     let signing_matches = signing.confidential_view_tag()? == owner.to_bytes();

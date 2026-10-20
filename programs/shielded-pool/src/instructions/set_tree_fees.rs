@@ -28,6 +28,5 @@ pub fn process_set_tree_fees(accounts: &mut [AccountView], data: &[u8]) -> Progr
         TREE_ACCOUNT_DISCRIMINATOR,
     )
     .map_err(tree_error)?;
-    tree_account.set_fee_schedule(fees);
-    Ok(())
+    tree_account.set_fee_schedule(fees).map_err(tree_error)
 }

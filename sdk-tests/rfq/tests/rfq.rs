@@ -16,8 +16,8 @@ use zolana_transaction::{
 };
 
 // `Transact` places the shielded-pool and System Program accounts after the
-// payer/tree prefix, so the additional taker signer lands at account index 5,
-// before the settlement accounts.
+// payer/tree prefix, so the owner signers (maker and taker) start at account
+// index 5, before the settlement accounts.
 
 #[test]
 fn cosigned_rfq_settlement() -> Result<()> {
@@ -78,6 +78,9 @@ fn cosigned_rfq_settlement() -> Result<()> {
         cache_accounts: Default::default(),
     };
 
+    // Both owners sign, in input order: the maker pays too, but paying alone
+    // authorizes no spend.
+    let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     let data = localnet
         .client
         .prove_transact(
@@ -93,7 +96,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         payer: maker_solana.pubkey(),
         input_trees: vec![localnet.tree],
         output_tree: localnet.tree,
-        owner_signers: vec![taker_solana.pubkey()],
+        owner_signers,
         interface_transfer_accounts: Vec::new(),
         data,
     }

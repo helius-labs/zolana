@@ -18,7 +18,6 @@ use zolana_transaction::{
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
 const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
-const PAYER: [u8; 32] = [0x01; 32];
 const STATE_ROOT: [u8; 32] = [0x06; 32];
 const NULLIFIER_ROOT: [u8; 32] = [0x07; 32];
 const TREE_ID: u16 = 3;
@@ -28,11 +27,11 @@ const EXTERNAL_HASH: &str = "001329a899d89d646ce5958e2ec09d0fec95f547a2ef76922e7
 const CLAIM_PRIVATE_TX_HASH: &str =
     "2084195c27c25c187bff6963df6beb0ce817719088662d4a83b575f99943b11c";
 const CLAIM_PUBLIC_INPUT_HASH: &str =
-    "28504492f258339afe5ae7af22744560006852fa9eed4af18e3fb548382be291";
+    "02c141d14f1b82218a84bd712a27431c754661e03c84c97931928165defab31d";
 const SPEND_PRIVATE_TX_HASH: &str =
     "05463251217cd0b40990a3f1163a0c1b6cb37b0b5fc4d27428798ad5c4d63679";
 const SPEND_PUBLIC_INPUT_HASH: &str =
-    "0a98e151ecb39be8b75f1211965a1d986403927b21ae436e8845b79ee42808cc";
+    "0db22e5712ac75e1321c373a85b2014ff782f5fc9239c9717a53ef5256d1bd2b";
 const CLAIM_BLINDING: &str = "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344";
 const SPEND_BLINDING: &str = "018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256";
 
@@ -102,7 +101,6 @@ fn transition(spent: Option<ListEntry>) -> Transition {
     .hash()
     .expect("private tx hash");
     let namespace_hash = solana_owner_identity(&RECORDS_PDA).expect("namespace");
-    let payer_hash = solana_owner_identity(&PAYER).expect("payer");
     let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
     tree_slots[0] = TreeSlot::new(TREE_ID, STATE_ROOT, NULLIFIER_ROOT);
     let public_input = PublicInputs {
@@ -115,7 +113,8 @@ fn transition(spent: Option<ListEntry>) -> Transition {
         public_transfers: &PublicTransfers::default(),
         ring_program_id: &[0u8; 32],
         input_flags: &pack_input_flags(true, [0u8]).expect("input flags"),
-        signer_pk_hashes: &[payer_hash, namespace_hash],
+        // The fee payer is not an owner signer; the namespace PDA signs alone.
+        signer_pk_hashes: &[namespace_hash, [0u8; 32]],
         output_owner_pk_hashes: Some(&[namespace_hash, [0u8; 32]]),
         cached_inputs: empty_cached_input_fields(1).expect("cache selection"),
     }

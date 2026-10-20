@@ -298,7 +298,7 @@ describe("private transaction construction", () => {
     );
     if (material === undefined) throw new Error("authorization was not minted");
     expect(material.proofInputs.payer).toBe(PAYER);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, PAYER)).toEqual([
+    expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([
       keypair.shieldedAddress().solanaAddress(),
     ]);
   });
@@ -370,11 +370,11 @@ describe("private transaction construction", () => {
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
 
-  it("pads named merge inputs to the narrowest proof and refuses more than 54", async () => {
+  it("pads named merge inputs to the narrowest proof and refuses more than 52", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(
       keypair,
-      Array.from({ length: 55 }, (_, index) => BigInt(index + 1)),
+      Array.from({ length: 53 }, (_, index) => BigInt(index + 1)),
     );
     const hashes = wallet.utxos().map((entry) => entry.outputContext.hash);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
@@ -382,8 +382,8 @@ describe("private transaction construction", () => {
       [8, 8],
       [9, 24],
       [24, 24],
-      [25, 54],
-      [54, 54],
+      [25, 52],
+      [52, 52],
     ] as const) {
       const merge = await createMerge({
         wallet,
@@ -399,7 +399,7 @@ describe("private transaction construction", () => {
       createMerge({ wallet, keys, asset: SOL_MINT, inputs: hashes }),
     ).rejects.toMatchObject({
       code: "WALLET_TOO_MANY_INPUTS",
-      details: { got: 55, max: 54 },
+      details: { got: 53, max: 52 },
     });
   });
 
@@ -751,7 +751,7 @@ describe("unsigned public transaction builders", () => {
       const material = authorizedPrivateTransactionMaterial(request.authorized);
       if (material === undefined) throw new Error("authorization was not minted");
       expect(material.proofInputs.payer).toBe(RECIPIENT);
-      expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
+      expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
     }
   });
 
@@ -1382,7 +1382,7 @@ describe("multi-recipient transfer", () => {
     const material = authorizedPrivateTransactionMaterial(request.authorized);
     if (material === undefined) throw new Error("authorization was not minted");
     expect(material.proofInputs.payer).toBe(RECIPIENT);
-    expect(ownerSignerAddresses(material.proofInputs.inputUtxos, RECIPIENT)).toEqual([owner]);
+    expect(ownerSignerAddresses(material.proofInputs.inputUtxos)).toEqual([owner]);
   });
 
   it("keeps a single payment a transfer approval", async () => {
@@ -1501,5 +1501,55 @@ describe("multi-recipient transfer", () => {
     await expect(
       createTransfer({ wallet: utxos(25), payer: PAYER, recipient, asset: SOL_MINT, amount: 100n }),
     ).resolves.toHaveProperty("transaction");
+  });
+});
+
+describe("merge encryption opt-in", () => {
+  it("refuses an owner whose record disables merging before proving", async () => {
+    const keypair = spendingKeypair();
+    const shielded = keypair.shieldedAddress();
+    const owner = shielded.solanaAddress();
+    const wallet = fundedWallet(keypair, [20n, 30n]);
+    const keys = localKeys(keypair);
+    const pda = await internalUserRecordPda(owner);
+    const record = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(owner),
+      pda.bump,
+      ...shielded.nullifierPublicKey,
+      ...shielded.viewingPublicKey.toBytes(),
+      0,
+    );
+    const unexpected = vi.fn((): never => {
+      throw new Error("a disabled record must fail before proving");
+    });
+    try {
+      await expect(
+        buildMergeTransaction({
+          client: {
+            proofDataSource: "client",
+            tree: TREE,
+            treeId: 0,
+            getAccount: vi.fn(async (key: Address) =>
+              key === pda.address
+                ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
+                : undefined,
+            ),
+            proveMerge: unexpected,
+            assembleAuthorizedMergeTransaction: unexpected,
+          },
+          wallet,
+          keys,
+          feePayer: owner,
+        }),
+      ).rejects.toMatchObject({
+        code: "WALLET_BUILD_MERGE",
+        causeCode: "WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED",
+      });
+      expect(unexpected).not.toHaveBeenCalled();
+    } finally {
+      keys.destroy();
+      keypair.destroy();
+    }
   });
 });

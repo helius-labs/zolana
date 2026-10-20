@@ -214,8 +214,8 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         &blinding_seed,
     );
     let shape = Shape::new(n_in, n_out);
-    let mut signer_pk_hashes = vec![[0u8; 32]; shape.signer_width()];
-    signer_pk_hashes[1] = solana_owner_identity(&owner_tag).expect("owner signer hash");
+    let mut signer_pk_hashes = vec![solana_owner_identity(&owner_tag).expect("owner signer hash")];
+    signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
 
     let prover = TransferProver {
         blinding_seed,
@@ -315,8 +315,8 @@ fn compact_transfer_2_4_proof_verifies() {
         external_data: dummy_external_data(owner_tag, 1),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![
-            [0u8; 32],
             solana_owner_identity(&owner_tag).expect("owner signer hash"),
+            [0u8; 32],
             [0u8; 32],
         ],
         allow_dummy_inputs: false,
@@ -371,8 +371,8 @@ fn dummy_transfer_2_4_proof_verifies() {
         external_data: dummy_external_data(owner_tag, 4),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![
-            [0u8; 32],
             solana_owner_identity(&owner_tag).expect("owner signer hash"),
+            [0u8; 32],
             [0u8; 32],
         ],
         allow_dummy_inputs: true,

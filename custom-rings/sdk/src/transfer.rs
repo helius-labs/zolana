@@ -1547,7 +1547,9 @@ impl StagedTransfer {
                     output_tree_id: self.proof_inputs.output_tree_id,
                     external_data: self.proof_inputs.external_data.clone(),
                     public_transfers: self.proof_inputs.public_transfers()?,
-                    signer_pk_hashes: anonymous_signers(self.payer, tx_shape.signer_width())?,
+                    // The hidden owner signs inside the proof and the payer is no
+                    // owner signer, so the vector is all padding.
+                    signer_pk_hashes: vec![[0; 32]; tx_shape.signer_width()],
                     allow_dummy_inputs: trees.allow_dummy_inputs,
                     owner,
                     ring_program_id: Some(self.program_id),
@@ -1978,17 +1980,6 @@ pub(crate) enum SppWitness {
     Complete(Box<RingTransferProofResult>),
     Anonymous(Box<AnonymousRingEddsaProofResult>),
     Indexed(Box<PreparedIndexedTransfer>),
-}
-
-/// Only the payer is public. The hidden owner signs inside the Ed25519 proof.
-fn anonymous_signers(payer: Address, width: usize) -> Result<Vec<[u8; 32]>, TransferError> {
-    let mut signers = vec![[0; 32]; width];
-    let first = signers
-        .first_mut()
-        .ok_or(TransferError::PolicyShapeUnsupported)?;
-    *first = zolana_hasher::primitives::solana_owner_identity(payer.as_array())
-        .map_err(|_| TransferError::PolicyHashing)?;
-    Ok(signers)
 }
 
 impl SppWitness {

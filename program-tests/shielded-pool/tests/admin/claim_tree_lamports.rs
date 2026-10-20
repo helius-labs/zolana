@@ -8,7 +8,7 @@ use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::UpdateProtocolConfigData, pda,
-    state::tree_working_capital_lamports, NULLIFIER_PDA_SIZE,
+    state::tree_liquid_working_capital_lamports, NULLIFIER_PDA_SIZE,
 };
 use zolana_program::instruction::ClaimTreeLamports;
 use zolana_program_test::Rejection;
@@ -33,12 +33,14 @@ use shielded_pool_tests::support::{
 const RECIPIENT_FUNDING: u64 = 1_000_000_000;
 
 /// The lamports a tree must keep: its rent, its fee balance, and the working
-/// capital for `NUM_BATCHES + 1` batches of nullifier PDAs, at `rent`.
+/// capital for the `NUM_BATCHES + 1` batches of nullifier PDAs not already
+/// open, at `rent`.
 fn reserve(rent: &Rent, tree: &Account) -> u64 {
     let mut data = tree.data.clone();
     let layout: &mut Layout = wincode::deserialize_mut(&mut data).expect("tree layout");
-    let working_capital = tree_working_capital_lamports(
+    let working_capital = tree_liquid_working_capital_lamports(
         layout.nullifier.batch_size,
+        layout.live_nullifier_pdas,
         rent.minimum_balance(NULLIFIER_PDA_SIZE),
     )
     .expect("working capital fits in u64");
@@ -235,6 +237,58 @@ fn claim_tree_lamports_recovers_a_rent_reduction() {
     let tree_after = pool.rpc.svm.get_account(&tree).expect("tree");
     assert_eq!(tree_after.lamports, reserve(&new_rent, &tree_after));
     assert_eq!(tree_after.data, tree_before.data);
+    assert_eq!(lamports(&pool, &recipient), RECIPIENT_FUNDING + released);
+}
+
+/// A batch of open nullifier PDAs holds part of the working
+/// capital, so after a rent decrease the claim reserves only the PDAs still to
+/// be funded, at the new rent, and the whole surplus is claimable.
+#[test]
+fn claim_tree_lamports_does_not_reserve_rent_held_by_open_nullifier_pdas() {
+    let mut pool = Pool::initialized();
+    let authority = pool.authority.insecure_clone();
+    let tree = pool.tree;
+    let recipient = pool.funded_signer(RECIPIENT_FUNDING).pubkey();
+    let old_rent: Rent = pool.rpc.svm.get_sysvar();
+    let nullifier_pda_rent = old_rent.minimum_balance(NULLIFIER_PDA_SIZE);
+
+    // One batch of nullifier PDAs is open: the tree counts them and their rent
+    // has left the tree.
+    let mut account = pool.rpc.svm.get_account(&tree).expect("tree");
+    let batch_size = {
+        let layout: &mut Layout = wincode::deserialize_mut(&mut account.data).expect("tree layout");
+        layout.live_nullifier_pdas = layout.nullifier.batch_size;
+        layout.nullifier.batch_size
+    };
+    account.lamports -= batch_size * nullifier_pda_rent;
+    pool.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("open one batch");
+    let tree_before = pool.rpc.svm.get_account(&tree).expect("tree");
+    assert_eq!(tree_before.lamports, reserve(&old_rent, &tree_before));
+
+    let new_rent = Rent {
+        lamports_per_byte: old_rent.lamports_per_byte / 2,
+        ..old_rent
+    };
+    pool.rpc.svm.set_sysvar(&new_rent);
+    let released = tree_before.lamports - reserve(&new_rent, &tree_before);
+    let new_nullifier_pda_rent = new_rent.minimum_balance(NULLIFIER_PDA_SIZE);
+    assert_eq!(
+        released,
+        old_rent.minimum_balance(tree_before.data.len())
+            - new_rent.minimum_balance(tree_before.data.len())
+            + 2 * batch_size * (nullifier_pda_rent - new_nullifier_pda_rent),
+        "the two batches still to be funded release their rent reduction"
+    );
+
+    pool.rpc
+        .claim_tree_lamports(&authority, &tree, &recipient)
+        .expect("claim the rent reduction");
+
+    let tree_after = pool.rpc.svm.get_account(&tree).expect("tree");
+    assert_eq!(tree_after.lamports, reserve(&new_rent, &tree_after));
     assert_eq!(lamports(&pool, &recipient), RECIPIENT_FUNDING + released);
 }
 

@@ -82,6 +82,7 @@ export {
   STATE_HEIGHT,
   STATE_ROOT_HISTORY_CAPACITY,
   STATE_ROOT_OFFSET,
+  MergeEncryptionScheme,
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   TREE_ALLOCATION_STEP,

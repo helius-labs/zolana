@@ -1,13 +1,13 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_user_registry_interface::instruction::{
-    discriminator, RegisterData, SetMergingEnabledData, UpdateKeysData,
+    discriminator, RegisterData, SetMergeEncryptionData, UpdateKeysData,
 };
 
 use crate::{
     error::{fail, UserRegistryError},
     instructions::{
-        register::process_register, set_merging_enabled::process_set_merging_enabled,
+        register::process_register, set_merge_encryption::process_set_merge_encryption,
         update_keys::process_update_keys,
     },
 };
@@ -27,10 +27,10 @@ pub fn process_instruction(
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
             process_register(program_id, accounts, data)
         }
-        discriminator::SET_MERGING_ENABLED => {
-            let data = SetMergingEnabledData::try_from_slice(payload)
+        discriminator::SET_MERGE_ENCRYPTION => {
+            let data = SetMergeEncryptionData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
-            process_set_merging_enabled(program_id, accounts, data)
+            process_set_merge_encryption(program_id, accounts, data)
         }
         discriminator::UPDATE_KEYS => {
             let data = UpdateKeysData::try_from_slice(payload)

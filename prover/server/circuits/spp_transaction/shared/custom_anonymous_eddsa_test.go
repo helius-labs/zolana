@@ -649,7 +649,8 @@ func TestCustomRingAnonymousEddsaAddressOnlyKeepsOwnerPrivate(t *testing.T) {
 	checkCachedWitness(t, ccs, claimingPublishedOwner(t, assignment, authorization), false)
 }
 
-// The payer is excluded from dummy markers on this rail as well.
+// A fee payer outside the signer vector is not a dummy marker on this rail
+// either.
 func TestCustomRingAnonymousEddsaRejectsDummyOutputPayerTag(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	owner := hiddenOwnerKey(11)
@@ -706,7 +707,7 @@ func TestCustomRingAnonymousEddsaRejectsOwnerKeyMismatch(t *testing.T) {
 	checkCachedWitness(t, compileEddsaRing(t, shape), asCustomRingAnonymousEddsa(assignment, authorization), false)
 }
 
-// Every note stays in the ring and the payer is the only public signer.
+// Every note stays in the ring and no owner signs publicly.
 func eddsaRingAssignment(t testing.TB, shape protocol.Shape, identity *big.Int) *testAssignment {
 	t.Helper()
 	a := buildCircuitAssignment(t, shape)
@@ -717,7 +718,6 @@ func eddsaRingAssignment(t testing.TB, shape protocol.Shape, identity *big.Int) 
 		a.Outputs[i].Utxo.RingProgramID = a.RingProgramID
 	}
 	a.SignerPkHashes = asFrontendVariables(zeroFields(shape.SignerWidth()))
-	a.SignerPkHashes[0] = testPayerPkHash()
 	for i := range a.Inputs {
 		rewriteInputAsHiddenOwnerWithIdentity(t, a, i, identity)
 	}
@@ -750,7 +750,7 @@ func TestCustomRingAnonymousEddsaRequiresHiddenInput(t *testing.T) {
 	nullifierPk := spptest.MustNullifierPk(t, spptest.AsBigInt(a.Inputs[1].NullifierSecret))
 	a.Inputs[1].Utxo.Owner = spptest.MustOwnerHash(t, signer, nullifierPk)
 	a.Inputs[1].OwnerPkHash = signer
-	a.SignerPkHashes[1] = signer
+	a.SignerPkHashes[0] = signer
 	rebuildAfterOwnerChange(t, a)
 	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, authorizeEddsa(t, a, owner, owner)), true)
 

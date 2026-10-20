@@ -22,8 +22,11 @@ import {
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
+  mergeOutputKey,
+  mergeOutputPads,
   mergePrivateTxBlinding,
 } from "../src/keypair/merge/index.js";
+import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 
 type RailVectors = Readonly<{
   signing_secret: string;
@@ -73,6 +76,11 @@ type KeyDerivationVectors = Readonly<{
     dummy_slot_index: number;
     dummy_nullifier: string;
     private_tx_blinding: string;
+    output_key: string;
+    output_ciphertext_salt: string;
+    output_amount: number;
+    output_mint: string;
+    output_ciphertext: readonly string[];
   }>;
   derivation_input_guard: readonly Readonly<{
     name: string;
@@ -189,6 +197,25 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     expect(hex(mergePrivateTxBlinding(nullifierKey, firstNullifier))).toBe(
       section.private_tx_blinding,
     );
+  });
+
+  it("derives the merge output key and ciphertext pads", () => {
+    const section = vectors.merge_recovery;
+    const nullifierKey = NullifierKey.fromSecret(bytes(section.nullifier_secret) as Bytes31);
+    const key = mergeOutputKey(nullifierKey, bytes(section.first_nullifier) as Bytes32);
+    expect(hex(key)).toBe(section.output_key);
+
+    const mint = bytes(section.output_mint);
+    const plaintext = [
+      BigInt(section.output_amount),
+      BigInt(`0x${hex(mint.subarray(0, 31))}`),
+      BigInt(`0x${hex(mint.subarray(31))}`),
+    ];
+    const pads = mergeOutputPads(key, bytes(section.output_ciphertext_salt));
+    const ciphertext = plaintext.map((element, index) =>
+      ((element + (pads[index] ?? 0n)) % BN254_SCALAR_ORDER).toString(16).padStart(64, "0"),
+    );
+    expect(ciphertext).toEqual(section.output_ciphertext);
   });
 
   it("detects derivation inputs exactly like Rust", () => {

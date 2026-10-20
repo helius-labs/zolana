@@ -112,8 +112,10 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the transfer.
     // Private transfers move balances only between private token accounts, not public token accounts.
+    // The sender owns the spent balance and also pays, so it signs as an owner too.
     const transferInstruction = await transactInstruction({
       payer: senderSigner,
+      ownerSigners: [senderSigner],
       inputTree: client.tree,
       outputTree: client.tree,
       data: transferData,
@@ -167,6 +169,7 @@ describe("example: deposit, transfer, withdraw", () => {
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the withdrawal.
     const withdrawalInstruction = await transactInstruction({
       payer: senderSigner,
+      ownerSigners: [senderSigner],
       inputTree: client.tree,
       outputTree: client.tree,
       withdrawal: TransactWithdrawal.sol({ recipient: senderSigner.address }),

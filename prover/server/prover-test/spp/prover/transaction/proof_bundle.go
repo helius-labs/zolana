@@ -191,16 +191,12 @@ func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash, err := protocol.SolanaPkField(payerPubkey)
-	if err != nil {
-		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
-	}
 	out := &ProofBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
 	}
 	for _, tx := range request.Transactions {
-		proved, err := buildProofTransaction(ps, tx, payerHash)
+		proved, err := buildProofTransaction(ps, tx)
 		if err != nil {
 			return nil, fmt.Errorf("spp: transaction %q: %w", tx.Name, err)
 		}
@@ -217,16 +213,12 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash, err := protocol.SolanaPkField(payerPubkey)
-	if err != nil {
-		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
-	}
 	out := &ProofSigningPayloadBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
 	}
 	for _, tx := range request.Transactions {
-		payload, err := buildProofSigningPayloadTransaction(ps.Shape, tx, payerHash)
+		payload, err := buildProofSigningPayloadTransaction(ps.Shape, tx)
 		if err != nil {
 			return nil, fmt.Errorf("spp: transaction %q: %w", tx.Name, err)
 		}
@@ -235,8 +227,8 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	return out, nil
 }
 
-func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
-	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
+func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest) (ProofTransaction, error) {
+	built, err := buildProofAssignment(ps.Shape, tx, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
@@ -346,8 +338,8 @@ func sentSlots(values []*big.Int) []*big.Int {
 	return values[:end]
 }
 
-func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest) (ProofSigningPayloadTransaction, error) {
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		return ProofSigningPayloadTransaction{}, err
 	}

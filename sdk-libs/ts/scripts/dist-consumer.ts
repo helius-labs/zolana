@@ -53,6 +53,7 @@ export { LocalKeys, NullifierKeyProofAuthority } from "@heliuslabs/zolana/client
 export type {
   DecryptRequest,
   DeriveRequest,
+  MergeOutputCiphertext,
   ShieldedKeys,
   TransactionKeyRequest,
 } from "@heliuslabs/zolana/transaction";

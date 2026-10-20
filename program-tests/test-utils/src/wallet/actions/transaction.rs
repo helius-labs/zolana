@@ -999,6 +999,7 @@ mod tests {
         instructions::transact::{SettlementTransfer, MAX_SPEND_INPUTS},
         AssetRegistry, Data, DataRecord, Utxo,
     };
+    use zolana_user_registry_interface::MergeEncryptionScheme;
 
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
@@ -1143,7 +1144,7 @@ mod tests {
             bump,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         let rpc = MockRpc {
             account: Some((
@@ -1187,7 +1188,7 @@ mod tests {
             bump,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         let rpc = MockRpc {
             account: Some((
@@ -2060,7 +2061,7 @@ mod tests {
             bump,
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         MockRpc {
             account: Some((

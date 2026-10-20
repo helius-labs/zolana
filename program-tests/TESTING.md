@@ -118,7 +118,7 @@ budget. `bench_cu` enforces no ceilings; it writes internal profiler
 breakdowns to `shielded-pool/CU_BENCHMARK.md` for a spread of EdDSA transact
 shapes (`1x2`, `2x2`, `2x4`, `4x4`, `5x4`, `24x4`, `1x8`, `16x8`, `1x16`,
 `8x16`, and `49x2`, the widest of each output count among them), `49x2` on the
-runtime EdDSA `ring_transact` rail, every `merge_transact` width (`8`, `24`, `54`), compact
+runtime EdDSA `ring_transact` rail, every `merge_transact` width (`8`, `24`, `52`), compact
 and cached variants, plus SOL/SPL withdrawals, but only under the manual
 `just bench-shielded-pool` run (it needs the profiling SBF build); CI does not
 run it. There is no separate split instruction: `1x16` is the widest
@@ -130,7 +130,7 @@ focused `proof_cu` binaries therefore pin EdDSA transact, ring transfers and
 withdrawals, ring-authority transact, an 8-input merge
 and an 8-input merge-ring (both on the `8x1` circuit) using confirmed
 transaction metadata. The `max_shapes` binaries confirm the widest transact
-shape of each output count and the 54-input merges on surfpool. This is an orthogonal matrix:
+shape of each output count and the 52-input merges on surfpool. This is an orthogonal matrix:
 the EdDSA profiler covers shape-dependent input/output work, while validator
 tests cover each extra proof rail and CPI boundary. The Photon forester lifecycle
 also pins every submitted batch nullifier-tree update when the in-test

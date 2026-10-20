@@ -21,8 +21,8 @@ use zolana_program_test::{
 use zolana_test_utils::smart_account::{self, ProtocolSigners, StandardSigners};
 use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 use zolana_user_registry_interface::{
-    instruction::{register, set_merging_enabled, RegisterData},
-    user_record_pda,
+    instruction::{register, set_merge_encryption, RegisterData},
+    user_record_pda, MergeEncryptionScheme,
 };
 
 pub mod cached_merge;
@@ -246,7 +246,11 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
                     viewing_pubkey: *sender.viewing_pubkey().as_bytes(),
                 },
             ),
-            set_merging_enabled(user_record, sender.pubkey(), true),
+            set_merge_encryption(
+                user_record,
+                sender.pubkey(),
+                MergeEncryptionScheme::PoseidonCtrV1,
+            ),
         ],
         sender.pubkey(),
         &[&sender],

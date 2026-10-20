@@ -255,7 +255,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
         payer: attacker.pubkey(),
         input_trees: vec![env.localnet.tree],
         output_tree: env.localnet.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![attacker.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }

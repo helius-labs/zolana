@@ -13,7 +13,7 @@ use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
 use zolana_client::{compile_message, ComputeBudgetConfig};
-use zolana_interface::{pda, NULLIFIER_PDA_SIZE};
+use zolana_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE};
 use zolana_program::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
@@ -162,17 +162,28 @@ fn batch_instruction_matches_the_interface_builder() {
 }
 
 #[test]
-fn retain_open_accounts_requires_program_owner_and_nullifier_pda_size() {
-    let nullifiers: Vec<[u8; 32]> = (0..5).map(nullifier).collect();
+fn retain_open_accounts_requires_program_owner_and_nullifier_pda_record() {
+    let nullifiers: Vec<[u8; 32]> = (0..6).map(nullifier).collect();
+    let record = NullifierPda {
+        queue_index: 1,
+        tree_id: 0,
+    }
+    .to_account_data()
+    .to_vec();
     let accounts = vec![
         Some(Account {
             owner: pda::shielded_pool_program_id(),
-            data: vec![0; NULLIFIER_PDA_SIZE],
+            data: record.clone(),
             ..Account::default()
         }),
         None,
         Some(Account {
             owner: Pubkey::default(),
+            data: record,
+            ..Account::default()
+        }),
+        Some(Account {
+            owner: pda::shielded_pool_program_id(),
             data: vec![0; NULLIFIER_PDA_SIZE],
             ..Account::default()
         }),

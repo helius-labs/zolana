@@ -691,11 +691,7 @@ mod tests {
                     )
                 }
                 3 => {
-                    let mut signers = vec![[0; 32]; shape.signer_width()];
-                    signers[0] = zolana_hasher::primitives::solana_owner_identity(
-                        transaction.payer.as_array(),
-                    )
-                    .unwrap();
+                    let signers = vec![[0; 32]; shape.signer_width()];
                     let result = crate::prover::transact::AnonymousRingEddsaProver {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
@@ -778,16 +774,8 @@ mod tests {
             signers.len(),
             transaction.check_shape().unwrap().signer_width()
         );
-        assert!(signers[1..]
-            .iter()
-            .all(|signer| signer == &hex_field(&[0; 32])));
-        assert_eq!(
-            witness["signerPkHashes"][0],
-            hex_field(
-                &zolana_hasher::primitives::solana_owner_identity(transaction.payer.as_array())
-                    .unwrap()
-            )
-        );
+        // The hidden owner signs inside the proof and the payer is no owner signer.
+        assert!(signers.iter().all(|signer| signer == &hex_field(&[0; 32])));
         assert_eq!(prepared.request.data.public_inputs.len(), 19);
         let digest = zolana_transaction::instructions::transact::transact_message_hash(
             &prepared.private_tx_hash(),

@@ -23,6 +23,10 @@ pub struct CustomRingBasePublicInput<'a> {
     pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
+    /// Folded with `HashChain4`, which does not hash the length: `[a]` and
+    /// `[a, 0]` hash alike. Distinct lists stay distinct only because every
+    /// entry is a published SPP output hash, which SPP rejects when zero
+    /// (`ZeroOutputUtxoHash`) in the same transaction.
     pub output_hashes: &'a [[u8; 32]],
     pub salt: &'a [u8; 16],
     /// The caller checks the field count against the ring mode and shape.

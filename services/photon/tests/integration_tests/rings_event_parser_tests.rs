@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use crate::rings_fixtures::{
     fixture_ring_program, fresh_rings_database, resolve_by_signature, resolve_by_tags,
@@ -282,9 +283,22 @@ fn parses_merge_event_with_photon_parser() {
             .collect::<Vec<_>>()
     );
     assert_eq!(rings_tx.output_tree, TEST_TREE);
+    // The merge output's payload is the proof-bound ciphertext: scheme 6, the
+    // salt, then the three ciphertext elements.
+    let mut merge_ciphertext = vec![6u8];
+    merge_ciphertext.extend_from_slice(&[0x5a; 16]);
+    for byte in [0x61u8, 0x62, 0x63] {
+        merge_ciphertext.extend_from_slice(&[byte; 32]);
+    }
     assert_eq!(
         rings_tx.outputs,
-        vec![expected_output(0, 12, 0x77, 0x66, Vec::new())]
+        vec![expected_output(
+            0,
+            12,
+            0x77,
+            0x66,
+            verifiably_encrypted(merge_ciphertext)
+        )]
     );
 }
 
@@ -2247,6 +2261,10 @@ fn merge_transaction_info() -> TransactionInfo {
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [0x66; 32],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0x5a; 16],
+            ciphertext: [[0x61; 32], [0x62; 32], [0x63; 32]],
+        },
         private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])

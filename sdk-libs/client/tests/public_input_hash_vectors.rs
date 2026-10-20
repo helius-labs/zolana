@@ -2,18 +2,19 @@
 //! values the TS SDK pins against `test-vectors/public_input_hash.json`.
 //!
 //! Transfers go through [`PublicInputs::hash`], the function the provers use.
-//! Merge has no standalone hash function, so its vector rebuilds the element
-//! list `MergeProver::build` hashes from the same interface helpers. Wide and
+//! Merges use [`MergePublicInputs::hash`], shared with both prover paths. Wide and
 //! compact shapes are the point: the nullifier, output and owner chains fold to
 //! the right, and only a chain longer than one Poseidon group tells a right
 //! fold from a left one.
 
 use serde::{Deserialize, Serialize};
-use zolana_client::{PublicInputs, PublicTransfers};
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use zolana_client::{
+    prover::merge::{MergePublicInputBinding, MergePublicInputs},
+    PublicInputs, PublicTransfers,
+};
 use zolana_interface::{
-    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
+    instruction::instruction_data::MergeOutputEncryption,
+    tree_slot::{tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
 };
 
@@ -25,6 +26,7 @@ struct PublicInputHashVectors {
     description: String,
     transfers: Vec<TransferVector>,
     merges: Vec<MergeVector>,
+    ring_merges: Vec<RingMergeVector>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -63,6 +65,8 @@ struct MergeVector {
     external_data_hash: String,
     owner_pk_hash: String,
     nullifier_pk: String,
+    output_ciphertext_salt: String,
+    output_ciphertext: Vec<String>,
     tree_slots: Vec<TreeSlotVector>,
     public_input_hash: String,
 }
@@ -186,6 +190,57 @@ impl TransferCase<'_> {
     }
 }
 
+/// A policy-ring merge: the shared prefix, then the output ring data hash and
+/// the ring program id. The ring merge proof binds no ciphertext.
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct RingMergeVector {
+    name: String,
+    nullifiers: Vec<String>,
+    output_hash: String,
+    output_tree_id: u16,
+    private_tx_hash: String,
+    external_data_hash: String,
+    output_ring_data_hash: String,
+    ring_program_id: String,
+    tree_slots: Vec<TreeSlotVector>,
+    public_input_hash: String,
+}
+
+fn ring_merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> RingMergeVector {
+    let output_hash = field(91);
+    let output_tree_id = 1u16;
+    let private_tx = field(92);
+    let external_data_hash = field(93);
+    let output_ring_data_hash = field(94);
+    let ring_program_id = field(95);
+    let public_input_hash = MergePublicInputs {
+        nullifiers: &nullifiers,
+        output_hash,
+        output_tree_id,
+        private_tx_hash: private_tx,
+        external_data_hash,
+        allow_dummy_inputs: true,
+        binding: MergePublicInputBinding::Ring {
+            output_data_hash: output_ring_data_hash,
+            program_id_hash: ring_program_id,
+        },
+    }
+    .hash(tree_slots_hash_chain(&tree_slots()).unwrap())
+    .unwrap();
+    RingMergeVector {
+        name: name.to_string(),
+        nullifiers: hexes(&nullifiers),
+        output_hash: hex(&output_hash),
+        output_tree_id,
+        private_tx_hash: hex(&private_tx),
+        external_data_hash: hex(&external_data_hash),
+        output_ring_data_hash: hex(&output_ring_data_hash),
+        ring_program_id: hex(&ring_program_id),
+        tree_slots: tree_slot_vectors(),
+        public_input_hash: hex(&public_input_hash),
+    }
+}
+
 fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let output_hash = field(81);
     let output_tree_id = 1u16;
@@ -193,19 +248,25 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let external_data_hash = field(83);
     let owner_pk_hash = field(84);
     let nullifier_pk = field(85);
-    // The element order `MergeProver::build` hashes; the 1 is the dummy-input
-    // policy merge always publishes.
-    let public_input_hash = create_hash_chain_4_from_slice(&[
-        create_padded_right_hash_chain_4(&nullifiers, nullifiers.len()).unwrap(),
+    let salt = [0xa5u8; 16];
+    let output_ciphertext = [field(86), field(87), field(88)];
+    let public_input_hash = MergePublicInputs {
+        nullifiers: &nullifiers,
         output_hash,
-        tree_slots_hash_chain(&tree_slots()).unwrap(),
-        tree_id_field(output_tree_id),
-        private_tx,
+        output_tree_id,
+        private_tx_hash: private_tx,
         external_data_hash,
-        field(1),
-        owner_pk_hash,
-        nullifier_pk,
-    ])
+        allow_dummy_inputs: true,
+        binding: MergePublicInputBinding::Owner {
+            signing_key_hash: owner_pk_hash,
+            nullifier_public_key: nullifier_pk,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt,
+                ciphertext: output_ciphertext,
+            },
+        },
+    }
+    .hash(tree_slots_hash_chain(&tree_slots()).unwrap())
     .unwrap();
     MergeVector {
         name: name.to_string(),
@@ -216,6 +277,8 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
         external_data_hash: hex(&external_data_hash),
         owner_pk_hash: hex(&owner_pk_hash),
         nullifier_pk: hex(&nullifier_pk),
+        output_ciphertext_salt: salt.iter().map(|byte| format!("{byte:02x}")).collect(),
+        output_ciphertext: hexes(&output_ciphertext),
         tree_slots: tree_slot_vectors(),
         public_input_hash: hex(&public_input_hash),
     }
@@ -273,19 +336,27 @@ fn compute_vectors() -> PublicInputHashVectors {
             padded(&[301, 302, 303, 304, 305, 306, 307, 308, 309], 36),
         ),
     ];
+    let ring_merges = vec![
+        ring_merge_vector(
+            "ring_full_8",
+            fields(&[401, 402, 403, 404, 405, 406, 407, 408]),
+        ),
+        ring_merge_vector("ring_compact_24", padded(&[401, 402, 403], 24)),
+    ];
     PublicInputHashVectors {
         description: "Known-answer vectors for the transfer and merge public input hashes. \
                       Every value is a 32-byte big-endian hex string; nullifier, output hash and \
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
-                      are zolana_client::PublicInputs::hash; merges hash the MergeProver::build \
-                      element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
+                      are zolana_client::PublicInputs::hash; merges and ring_merges hash the \
+                      MergeProver::build element order, ring_merges without the ciphertext. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
                       print_public_input_hash_vectors: cargo test -p zolana-client --test \
                       public_input_hash_vectors print_public_input_hash_vectors -- --ignored \
                       --nocapture"
             .to_string(),
         transfers,
         merges,
+        ring_merges,
     }
 }
 

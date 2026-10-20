@@ -73,8 +73,12 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	case common.TransferAnonymousRingEddsaCircuitType:
 		expected = 19
 	case common.MergeCircuitType:
-		expected = 8
+		// The prefix without the tree hash, the two-element owner tail, the
+		// ciphertext salt and the three ciphertext elements.
+		expected = 12
 	case common.MergeRingCircuitType:
+		// The prefix without the tree hash and the two-element ring tail; the
+		// ring merge proof binds no ciphertext.
 		expected = 8
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		expected = 19

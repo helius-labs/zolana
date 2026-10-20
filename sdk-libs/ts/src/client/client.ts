@@ -1,5 +1,5 @@
 import { prepareMerge } from "./prover/merge.js";
-import { prepareTransfer, checkedTransferCache, ownerSignerAddresses } from "./prover/assembly.js";
+import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
   assertIsAddress,
@@ -78,7 +78,7 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs } from "./prover/assembly.js";
+import { assemble, checkedProverInputs, ownerSignerAddresses } from "./prover/assembly.js";
 import {
   ProverClient,
   type AsyncPollConfig,
@@ -1102,10 +1102,9 @@ export class ZolanaClient
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
       feePayer,
-      // A sponsored fee payer is not the input owner, so the owner signs too.
-      ownerSigners: ownerSignerAddresses(authorized.proofInputs.inputUtxos, feePayer),
       inputTree: authorized.tree,
       outputTree: this.tree,
+      ownerSigners: ownerSignerAddresses(authorized.proofInputs.inputUtxos),
       setupInstructions: authorized.setupInstructions,
       ...(authorized.withdrawal === undefined ? {} : { withdrawal: authorized.withdrawal }),
       data,
@@ -1169,10 +1168,10 @@ export async function buildUnsignedTransaction(
     computeUnitLimit: number;
     priorityFeeLamports?: bigint;
     feePayer: Address;
-    /** Ed25519 input owners other than `feePayer`, each a required signer. */
-    ownerSigners?: readonly Address[];
     inputTree: Address;
     outputTree: Address;
+    /** Ed25519 input owners in signer-vector order, the fee payer too when it owns an input. */
+    ownerSigners: readonly Address[];
     setupInstructions?: readonly Instruction[];
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
@@ -1196,7 +1195,7 @@ export async function buildUnsignedTransaction(
         payer: input.feePayer,
         inputTree: input.inputTree,
         outputTree: input.outputTree,
-        ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
+        ownerSigners: input.ownerSigners,
         data: input.data,
         ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
       }),

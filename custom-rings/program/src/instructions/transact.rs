@@ -29,7 +29,7 @@ use crate::{
         policy_shared::{namespace_address, RecordNamespace, SpendRecordCarrier},
         policy_trees::{PolicyTrees, RevocationTargets},
         public_legs::PublicLegs,
-        shared::{cpi_spp_signed, SppSigners},
+        shared::{check_funding_signer, cpi_spp_signed, SppSigners},
         verifier::verify_groth16,
     },
 };
@@ -380,6 +380,8 @@ impl TransactRail {
         let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
         instruction_data.push(self.spp_tag());
         instruction_data.extend_from_slice(&transact_bytes);
+        // SPP ring transact accounts start with the payer.
+        check_funding_signer(spp_accounts, 0)?;
         cpi_spp_signed(program_id, spp_accounts, &instruction_data, signers)
     }
 }

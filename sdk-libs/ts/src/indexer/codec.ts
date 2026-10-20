@@ -29,6 +29,7 @@ import type {
   UserRecord,
 } from "./types.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
+import { isMergeEncryptionScheme, type MergeEncryptionScheme } from "../interface/state.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../interface/key-registry.js";
 import {
   checkedAddress,
@@ -182,13 +183,13 @@ function userRecord(value: unknown, path: string): UserRecord {
     "owner",
     "nullifierPubkey",
     "viewingPubkey",
-    "mergingEnabled",
+    "mergeEncryption",
   ]);
   return {
     owner: checkedAddress(record["owner"], `${path}.owner`),
     nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),
     viewingPubkey: checkedBase64(record["viewingPubkey"], `${path}.viewingPubkey`),
-    mergingEnabled: boolean(record["mergingEnabled"], `${path}.mergingEnabled`),
+    mergeEncryption: mergeEncryptionScheme(record["mergeEncryption"], `${path}.mergeEncryption`),
   };
 }
 
@@ -293,6 +294,19 @@ function unboundedU64(value: unknown, path: string): bigint {
 
 function unboundedI64(value: unknown, path: string): bigint {
   return unboundedWireInteger(value, path, I64_MIN, I64_MAX);
+}
+
+function mergeEncryptionScheme(value: unknown, path: string): MergeEncryptionScheme {
+  const integer = Number(wireInteger(value, path, 0n, 255n));
+  if (!isMergeEncryptionScheme(integer)) {
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_INTEGER",
+      path,
+      "a merge encryption scheme",
+      value,
+    );
+  }
+  return integer;
 }
 
 function u16(value: unknown, path: string): number {

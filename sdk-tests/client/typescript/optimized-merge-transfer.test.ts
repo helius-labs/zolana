@@ -2,8 +2,9 @@
 
 import {
   SOL_MINT,
+  MergeEncryptionScheme,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   createZolanaClient,
 } from "@heliuslabs/zolana";
 import { getCacheAddress } from "@heliuslabs/zolana/addresses";
@@ -41,7 +42,7 @@ import {
 // The most inputs one merge can spend while the cache creation shares its
 // 4,096-byte transaction; the merge proves on the MAX_MERGE_INPUTS circuit with
 // the rest compact-padded.
-const UTXO_COUNT = 53;
+const UTXO_COUNT = 51;
 const DEPOSITS_PER_TRANSACTION = 12;
 const DEPOSIT_AMOUNT = 100_000_000n;
 const TRANSFER_AMOUNT = 500_000_000n;
@@ -80,10 +81,10 @@ describe("example: optimized merge and transfer", () => {
     }
     await signSendAndConfirm(
       client,
-      await buildSetMergingEnabledTransaction({
+      await buildSetMergeEncryptionTransaction({
         client,
         owner: senderSigner.address,
-        enabled: true,
+        scheme: MergeEncryptionScheme.PoseidonCtrV1,
       }),
       [senderSigner],
     );
@@ -213,6 +214,7 @@ describe("example: optimized merge and transfer", () => {
     const transferTx = await sendAsSender([
       await transactInstruction({
         payer: senderSigner,
+        ownerSigners: [senderSigner],
         inputTree: client.tree,
         outputTree: client.tree,
         cache: TransactCacheAccounts.read(cache),

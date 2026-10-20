@@ -9,7 +9,6 @@ use zolana_transaction::{
     decrypt,
     error::TransactionError,
     instructions::transact::{OutputContext, ShieldedTransaction},
-    rebuild_merge,
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
         confidential::Confidential,
@@ -18,7 +17,7 @@ use zolana_transaction::{
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
-    AssetRegistry, EncryptedScheme, LocalShieldedKeys, MergeRebuild, WalletUtxo,
+    verify_owned, AssetRegistry, EncryptedScheme, LocalShieldedKeys, WalletUtxo,
 };
 
 use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
@@ -107,12 +106,6 @@ impl TxIndex {
 pub(super) struct SlotOutcome {
     pub(super) sender: Option<X25519Pubkey>,
     pub(super) recipients: Vec<X25519Pubkey>,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum MergeResolution {
-    Complete,
-    Pending,
 }
 
 pub(super) struct SyncCtx<'a> {
@@ -585,40 +578,30 @@ impl SyncCtx<'_> {
         &mut self,
         transactions: &[ShieldedTransaction],
         site: (usize, usize),
-    ) -> Result<MergeResolution, TransactionError> {
+    ) -> Result<(), TransactionError> {
         if self.processed_slots.contains(&site) {
-            return Ok(MergeResolution::Complete);
+            return Ok(());
         }
         let Some(tx) = transactions.get(site.0) else {
             self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
+            return Ok(());
         };
         if tx.output_slots.get(site.1).is_none() || !tx.may_be_merge() {
             self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
+            return Ok(());
         }
         self.reconstruct_merge(tx, site)
     }
 
+    /// Each merge output decrypts from its own transaction, so one pass resolves
+    /// every site in any order.
     fn resolve_merge_sites(
         &mut self,
         transactions: &[ShieldedTransaction],
         sites: &[(usize, usize)],
     ) -> Result<(), TransactionError> {
-        let mut pending = sites.to_vec();
-        while !pending.is_empty() {
-            let pending_count = pending.len();
-            let mut unresolved = Vec::new();
-            for site in pending {
-                if self.decode_merge_site(transactions, site)? == MergeResolution::Pending {
-                    unresolved.push(site);
-                }
-            }
-            if unresolved.len() == pending_count {
-                self.report.undecryptable_candidates += unresolved.len();
-                break;
-            }
-            pending = unresolved;
+        for &site in sites {
+            self.decode_merge_site(transactions, site)?;
         }
         Ok(())
     }
@@ -860,48 +843,43 @@ impl SyncCtx<'_> {
                     }
                 }
             }
-            OutputDataEncoding::VerifiablyEncrypted(blob) => {
-                // Merge outputs no longer carry verifiable encryption; the only
-                // remaining VerifiablyEncrypted payloads are legacy merge
-                // ciphertexts, which are undecodable here.
-                let _ = blob;
+            OutputDataEncoding::VerifiablyEncrypted(_) => {
+                // Only merges publish this encoding, and `TxIndex` routes
+                // every merge to `reconstruct_merge`; one here is malformed.
                 self.report.undecryptable_candidates += 1;
             }
         }
         Ok(outcome)
     }
 
-    /// Rebuild a merge's outputs with [`rebuild_merge`] from the UTXOs this
-    /// wallet holds, and store the one published in this slot.
+    /// Decrypt a merge's output from its own transaction with [`decrypt`], keep it
+    /// only if [`verify_owned`] recomputes its commitment, and store the one
+    /// published in this slot. No held input is needed: the proof binds the
+    /// ciphertext of the output's amount and mint.
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
         site: (usize, usize),
-    ) -> Result<MergeResolution, TransactionError> {
+    ) -> Result<(), TransactionError> {
         let Some(slot_site) = self.slot_site(tx, site.1) else {
             self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
+            return Ok(());
         };
-        let rebuilt = match rebuild_merge(&self.keys, tx, self.utxos.as_slice())? {
-            MergeRebuild::Rebuilt(rebuilt) => rebuilt,
-            MergeRebuild::Pending => return Ok(MergeResolution::Pending),
-            MergeRebuild::NotOurs => {
-                self.report.undecryptable_candidates += 1;
-                return Ok(MergeResolution::Complete);
-            }
-        };
-        let Some(output) = rebuilt
+        let decrypted = decrypt(&self.keys, std::slice::from_ref(tx), self.assets)?;
+        let owned = verify_owned(&self.keys, &decrypted)?;
+        let Some(output) = owned
+            .utxos
             .into_iter()
             .find(|output| output.slot_index == slot_site.slot_index)
         else {
             self.report.undecryptable_candidates += 1;
-            return Ok(MergeResolution::Complete);
+            return Ok(());
         };
         if self.store(output.utxo.clone(), slot_site, None, output.ring_data_hash)? {
             self.processed_slots.insert(site);
             self.record_merge(tx, slot_site.output_context, &output.utxo);
         }
-        Ok(MergeResolution::Complete)
+        Ok(())
     }
 }
 

@@ -31,10 +31,9 @@ pub struct ShieldedTransaction {
 }
 
 impl ShieldedTransaction {
-    /// A merge publishes no ciphertext and no transaction viewing key, and is
-    /// not a deposit. Other transactions can share that shape;
-    /// [`rebuild_merge`](crate::rebuild_merge) tells them apart by the
-    /// commitment.
+    /// A merge publishes no transaction viewing key or salt, and is not a
+    /// deposit. Other transactions can share that shape; callers must validate
+    /// the output payload and its rebuilt commitment before treating it as a merge.
     pub fn may_be_merge(&self) -> bool {
         !self.proofless && self.tx_viewing_pk.is_none() && self.salt.is_none()
     }
@@ -79,7 +78,7 @@ impl OutputSlot {
 
     /// Replaces the framing `ring_program_id` puts around its ring deposit
     /// ciphertexts with the recipient's ciphertext inside it, which is what
-    /// [`decrypt`](crate::decrypt) opens. Other outputs, deposits of other
+    /// [`decrypt`](crate::decrypt::decrypt) opens. Other outputs, deposits of other
     /// rings and unframed ciphertexts are left as published; framing that does
     /// not parse is an error rather than a deposit that silently never opens.
     pub fn unwrap_ring_deposit(

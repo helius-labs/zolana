@@ -31,6 +31,7 @@ use zolana_test_utils::{
     },
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
+use zolana_tree::TreeAccount;
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 
@@ -110,8 +111,8 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     .expect("real input");
 
     // Slot 0 is a real zero-amount change output owned by the payer and slots
-    // 1-2 are dummies naming it: the payer is this transaction's only signer
-    // and `AssertDummyTags` refuses a dummy tag that names only the payer.
+    // 1-2 are dummies naming it, as a wallet builds a spend with no change.
+    // The payer owns the input, so the instruction lists it as an owner signer.
     let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let change_nullifier_pk = change_nullifier_key
         .pubkey()
@@ -198,7 +199,7 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction:
         payer: env.rpc.payer.pubkey(),
         input_trees: vec![env.tree],
         output_tree: env.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![env.rpc.payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -214,6 +215,14 @@ fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
 
 fn tree_account(env: &Pool) -> Account {
     env.rpc.svm.get_account(&env.tree).expect("tree account")
+}
+
+fn live_nullifier_pdas(tree: &Account) -> u64 {
+    let mut data = tree.data.clone();
+    let live = TreeAccount::from_bytes(&mut data, [0u8; 32])
+        .expect("tree layout")
+        .live_nullifier_pdas();
+    live
 }
 
 fn payer_lamports(env: &Pool) -> u64 {
@@ -298,6 +307,11 @@ fn assert_creates_nullifier_pdas(fee_per_nullifier: u64) {
         tree_fees(&env.rpc, &tree).expect("tree fees after"),
         (fees_before, fee_balance_before + forester_fee),
         "transact credits exactly the collected fee to the fee balance"
+    );
+    assert_eq!(
+        live_nullifier_pdas(&tree_account(&env)),
+        live_nullifier_pdas(&tree_before) + nullifiers.len() as u64,
+        "transact counts every nullifier PDA it opens"
     );
     let trace = env
         .rpc
@@ -402,11 +416,12 @@ fn assert_tops_up_prefunded_nullifier_pdas(fee_per_nullifier: u64) {
         .expect("overfunded nullifier PDA account");
     let expected_overfunded = Account {
         lamports: overfunded,
-        data: borsh::to_vec(&NullifierPda {
+        data: NullifierPda {
             queue_index: queue_next_before + 1,
             tree_id: tree_id(&env.rpc, &tree).expect("tree id"),
-        })
-        .expect("serialize expected nullifier PDA"),
+        }
+        .to_account_data()
+        .to_vec(),
         owner: pda::shielded_pool_program_id(),
         executable: false,
         rent_epoch: overfunded_account.rent_epoch,

@@ -296,9 +296,17 @@ pub(crate) struct MergeParametersJson {
     pub tree_slots: Vec<TreeSlotJson>,
     #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
-    /// The single asset shared by every real input and the merged output.
-    #[serde(rename = "asset")]
-    pub asset: String,
+    /// The `hash_bytes_32` chunks of the mint shared by every real input and the
+    /// merged output; the circuit derives the asset from them.
+    #[serde(rename = "mintChunks")]
+    pub mint_chunks: Vec<String>,
+    /// Per-proof pad nonce of the PoseidonCtrV1 output ciphertext; `None` on
+    /// the merge-ring rail, whose circuit has no ciphertext.
+    #[serde(
+        rename = "outputCiphertextSalt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_ciphertext_salt: Option<String>,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -358,14 +366,15 @@ fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     }
 }
 
-fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
+fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> String {
     let json = MergeParametersJson {
         circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
         output: merge_output_to_json(&inputs.output),
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
-        asset: fe_to_string(&inputs.output.utxo.asset),
+        mint_chunks: inputs.mint_chunks.iter().map(big_uint_to_string).collect(),
+        output_ciphertext_salt: (!ring).then(|| big_uint_to_string(&inputs.output_ciphertext_salt)),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -381,13 +390,13 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
 
 /// Serialize the default merge witness to the prover server's JSON request body.
 pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge")
+    merge_params_json(inputs, "merge", false)
 }
 
 /// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
 /// to the merge-ring circuit and reads the top-level `ringProgramId`.
 pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge-ring")
+    merge_params_json(inputs, "merge-ring", true)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -621,6 +630,8 @@ mod merge_tests {
             },
             tree_slots: sample_tree_slots(),
             output_tree_id: BigUint::from(3u8),
+            mint_chunks: [BigUint::from(0x0102u16), BigUint::from(0x20u8)],
+            output_ciphertext_salt: BigUint::from(0x5a17u16),
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
@@ -639,7 +650,8 @@ mod merge_tests {
             "output",
             "treeSlots",
             "outputTreeId",
-            "asset",
+            "mintChunks",
+            "outputCiphertextSalt",
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
@@ -652,6 +664,11 @@ mod merge_tests {
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
+        assert_eq!(value["mintChunks"], serde_json::json!(["0x102", "0x20"]));
+        assert!(
+            value.get("asset").is_none(),
+            "the circuit derives the asset from the mint chunks"
+        );
         assert_eq!(value["inputs"].as_array().unwrap().len(), 8);
         let in0 = &value["inputs"][0];
         for key in [

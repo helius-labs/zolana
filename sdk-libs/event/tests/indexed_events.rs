@@ -6,8 +6,8 @@ mod support;
 
 use solana_pubkey::Pubkey;
 use support::{
-    emit_event_data, emit_instruction, input_trees, merge_event, merge_ix, merge_ring_ix, source,
-    transact_ix, transact_source, OUTPUT_TREE,
+    emit_event_data, emit_instruction, input_trees, merge_event, merge_ix, merge_output_data,
+    merge_ring_ix, source, transact_ix, transact_source, OUTPUT_TREE,
 };
 use zolana_event::{tag, EventKind, TransactEvent};
 use zolana_event_parser::{
@@ -104,9 +104,13 @@ fn merge_and_ring_merge_emit_events_are_indexed() {
         .serialize()
         .expect("serialize merge ring");
 
-    for (source_tag, ix_bytes) in [
-        (tag::MERGE_TRANSACT, merge_bytes),
-        (tag::RING_MERGE_TRANSACT, merge_ring_bytes),
+    for (source_tag, ix_bytes, output_data) in [
+        (tag::MERGE_TRANSACT, merge_bytes, merge_output_data(None)),
+        (
+            tag::RING_MERGE_TRANSACT,
+            merge_ring_bytes,
+            merge_output_data(Some([0xE0; 32])),
+        ),
     ] {
         let group = InstructionGroup {
             outer: source(spp, source_tag, Vec::new(), ix_bytes, 1),
@@ -122,6 +126,16 @@ fn merge_and_ring_merge_emit_events_are_indexed() {
         assert!(
             events.iter().all(|event| event.decoded.is_ok()),
             "source tag {source_tag}"
+        );
+        let published = events
+            .first()
+            .and_then(|event| event.decoded.as_ref().ok())
+            .and_then(|event| event.outputs.first())
+            .map(|output| output.data.clone());
+        assert_eq!(
+            published,
+            Some(output_data),
+            "the indexed merge output carries the output ciphertext, source tag {source_tag}"
         );
     }
 }

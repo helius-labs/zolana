@@ -15,8 +15,10 @@ import (
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The output UTXO is derived completely deterministically from the
-// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
+// 7. Every output field but the amount and mint is derived from the owner's
+// keys, the first nullifier, and the public ring values. The output ciphertext
+// a ring merge carries is not bound by this proof: SPP publishes it unverified,
+// and a ring that needs it recoverable enforces it in its own program.
 
 type RingCircuit struct {
 	NumInputs int `gnark:"-"`
@@ -24,7 +26,7 @@ type RingCircuit struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -57,7 +59,7 @@ func (c *RingCircuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
-		Asset:               c.Asset,
+		MintChunks:          c.MintChunks,
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,

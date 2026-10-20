@@ -7,7 +7,7 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::UpdateProtocolConfigData,
-    state::{nullifier_tree_params, TreeFeeSchedule},
+    state::{nullifier_tree_params, TreeFeeSchedule, MAX_FEE_PER_NULLIFIER},
 };
 use zolana_program::instruction::SetTreeFees;
 use zolana_program_test::Rejection;
@@ -202,6 +202,40 @@ fn set_tree_fees_stores_insolvent_schedules() {
             "{fees:?}"
         );
     }
+}
+
+#[test]
+fn set_tree_fees_caps_the_fee_per_nullifier() {
+    let mut pool = Pool::initialized();
+    let authority = pool.authority.insecure_clone();
+    let at_cap = TreeFeeSchedule {
+        fee_per_nullifier: MAX_FEE_PER_NULLIFIER,
+        ..SET_TREE_FEES_FIXTURE_SCHEDULE
+    };
+    pool.rpc
+        .set_tree_fees(&authority, &pool.tree, at_cap)
+        .expect("a fee at the cap is stored");
+    assert_eq!(
+        tree_fees(&pool.rpc, &pool.tree).expect("tree fees"),
+        (at_cap, 0)
+    );
+
+    let above_cap = TreeFeeSchedule {
+        fee_per_nullifier: MAX_FEE_PER_NULLIFIER + 1,
+        ..at_cap
+    };
+    let error = pool
+        .rpc
+        .create_and_send_default_payer_transaction(
+            &[set_fees_ix(&pool, &authority, above_cap)],
+            &[&authority],
+        )
+        .expect_err("a fee above the cap must fail");
+    Rejection::pool(ShieldedPoolError::TreeFeeTooHigh).assert_litesvm(error);
+    assert_eq!(
+        tree_fees(&pool.rpc, &pool.tree).expect("tree fees"),
+        (at_cap, 0)
+    );
 }
 
 #[test]

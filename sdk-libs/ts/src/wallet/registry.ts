@@ -4,7 +4,6 @@ import {
   fixEncoderSize,
   getAddressDecoder,
   getAddressEncoder,
-  getBooleanEncoder,
   getBytesEncoder,
   getProgramDerivedAddress,
   getStructEncoder,
@@ -25,6 +24,7 @@ import {
 } from "../interface/instructions/index.js";
 import { copyBytes } from "../interface/internal.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
+import { isMergeEncryptionScheme, type MergeEncryptionScheme } from "../interface/state.js";
 import {
   type Address,
   type Bytes32,
@@ -46,7 +46,7 @@ type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
 const REGISTER = 0;
-const SET_MERGING_ENABLED = 1;
+const SET_MERGE_ENCRYPTION = 1;
 const UPDATE_KEYS = 2;
 const USER_RECORD_SIZE = 100;
 const addressDecoder = getAddressDecoder();
@@ -64,9 +64,9 @@ const registryKeysDataEncoder = getStructEncoder([
   ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
 ]);
 
-const setMergingEnabledDataEncoder = getStructEncoder([
+const setMergeEncryptionDataEncoder = getStructEncoder([
   ["discriminator", getU8Encoder()],
-  ["enabled", getBooleanEncoder()],
+  ["scheme", getU8Encoder()],
 ]);
 
 export interface ResolvedAddress {
@@ -79,7 +79,8 @@ export interface UserRecord {
   readonly owner: Address;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
-  readonly mergingEnabled: boolean;
+  /** The scheme every default merge for this owner must encrypt its output with. */
+  readonly mergeEncryption: MergeEncryptionScheme;
   readonly bump: number;
 }
 
@@ -124,7 +125,7 @@ export async function internalUserRecordPda(
 /** @internal */
 export interface MergeRecord {
   readonly recordAddress: Address;
-  readonly mergingEnabled: boolean;
+  readonly mergeEncryption: MergeEncryptionScheme;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
 }
@@ -177,14 +178,16 @@ function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
   const bump = reader.u8();
   const nullifierPublicKey = reader.bytes(32) as Bytes32;
   const viewingPublicKey = reader.bytes(33) as Bytes33;
-  const mergingEnabled = reader.u8();
-  if (mergingEnabled > 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
+  const mergeEncryption = reader.u8();
+  if (!isMergeEncryptionScheme(mergeEncryption)) {
+    throw new WalletError("WALLET_INVALID_USER_RECORD");
+  }
   return Object.freeze({
     owner,
     nullifierPublicKey,
     viewingPublicKey,
     bump,
-    mergingEnabled: mergingEnabled === 1,
+    mergeEncryption,
   });
 }
 
@@ -240,7 +243,7 @@ export async function fetchUserRecord(
       owner: record.owner,
       nullifierPublicKey: record.nullifierPublicKey,
       viewingPublicKey: record.viewingPublicKey,
-      mergingEnabled: record.mergingEnabled,
+      mergeEncryption: record.mergeEncryption,
       bump: record.bump,
     });
   } catch (cause) {
@@ -465,17 +468,21 @@ export async function buildKeyUpdateTransaction(
   }
 }
 
-export async function buildSetMergingEnabledTransaction(
+/**
+ * Selects the scheme every default merge for `owner` must use, or turns merging
+ * off with `MergeEncryptionScheme.Disabled`. Only the owner signs.
+ */
+export async function buildSetMergeEncryptionTransaction(
   input: Readonly<{
     client: BlockhashProvider;
     owner: Address;
-    enabled: boolean;
+    scheme: MergeEncryptionScheme;
   }>,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
     const [instruction, lifetime] = await Promise.all([
-      setMergingEnabledInstruction({ owner: input.owner, enabled: input.enabled }),
+      setMergeEncryptionInstruction({ owner: input.owner, scheme: input.scheme }),
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
@@ -485,7 +492,7 @@ export async function buildSetMergingEnabledTransaction(
       instructions: [instruction],
     });
   } catch (cause) {
-    throw wrapWalletError("WALLET_BUILD_SET_MERGING_ENABLED", cause);
+    throw wrapWalletError("WALLET_BUILD_SET_MERGE_ENCRYPTION", cause);
   }
 }
 
@@ -549,9 +556,14 @@ export async function registerInstruction(
   };
 }
 
-export async function setMergingEnabledInstruction(
-  input: Readonly<{ owner: SignerAccount; enabled: boolean }>,
+export async function setMergeEncryptionInstruction(
+  input: Readonly<{ owner: SignerAccount; scheme: MergeEncryptionScheme }>,
 ): Promise<Instruction> {
+  if (!isMergeEncryptionScheme(input.scheme)) {
+    throw new WalletError("WALLET_INVALID_MERGE_ENCRYPTION_SCHEME", {
+      details: { scheme: String(input.scheme) },
+    });
+  }
   const userRecord = await internalUserRecordAddress(signerAddress(input.owner));
   return {
     programAddress: USER_REGISTRY_PROGRAM_ID,
@@ -559,9 +571,9 @@ export async function setMergingEnabledInstruction(
       { address: userRecord, role: AccountRole.WRITABLE },
       signerMeta(input.owner, AccountRole.READONLY_SIGNER),
     ],
-    data: setMergingEnabledDataEncoder.encode({
-      discriminator: SET_MERGING_ENABLED,
-      enabled: input.enabled,
+    data: setMergeEncryptionDataEncoder.encode({
+      discriminator: SET_MERGE_ENCRYPTION,
+      scheme: input.scheme,
     }),
   };
 }

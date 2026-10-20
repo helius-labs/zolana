@@ -5,7 +5,13 @@ import {
   treeSlotsHashChain,
   type TreeSlot,
 } from "../interface/tree-slot.js";
-import { SOLANA_OWNER_TAG, hashBytes } from "../hasher/index.js";
+import {
+  BN254_SCALAR_ORDER,
+  SOLANA_OWNER_TAG,
+  fieldAdd,
+  fieldSub,
+  hashBytes,
+} from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
@@ -33,8 +39,6 @@ export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */
 export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
 /** The anonymous circuit packs its plaintext into 31-byte big-endian chunks. */
 const DISCLOSURE_CHUNK_BYTES = 31;
@@ -240,7 +244,7 @@ export function parseAuditorMessage(
   const bytes = checkedBytes(data, 65 + 32 * count, "auditor message");
   const disclosure = Array.from({ length: count }, (_, index) => {
     const field = bytes.slice(65 + 32 * index, 65 + 32 * (index + 1)) as Bytes32;
-    if (bytesToBigInt(field) >= BN254_MODULUS)
+    if (bytesToBigInt(field) >= BN254_SCALAR_ORDER)
       throw new RangeError("non-canonical audit disclosure field");
     return field;
   });
@@ -339,8 +343,8 @@ function applyDisclosureStream(
     values.map((value, index) => {
       const pad = disclosureStream(secret, salt, index);
       const masked = seal
-        ? (bytesToBigInt(value) + pad) % BN254_MODULUS
-        : (bytesToBigInt(value) + BN254_MODULUS - pad) % BN254_MODULUS;
+        ? fieldAdd(bytesToBigInt(value), pad)
+        : fieldSub(bytesToBigInt(value), pad);
       return bigIntToBytes(masked) as Bytes32;
     }),
   );

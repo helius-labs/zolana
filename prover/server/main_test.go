@@ -16,7 +16,7 @@ func TestTransferSetupInputCount(t *testing.T) {
 				t.Fatalf("input count changed or rejected: got %d, err %v", got, err)
 			}
 			if (txcircuit.Shape{NInputs: int(got), NOutputs: 1}).SignerWidth() < 1 {
-				t.Fatal("accepted count leaves no signer slot for the payer")
+				t.Fatal("accepted count leaves no owner signer slot")
 			}
 		})
 	}

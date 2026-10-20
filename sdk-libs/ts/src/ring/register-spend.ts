@@ -193,7 +193,6 @@ async function buildRegistrationAttempt(
       ringProgramId: params.ringProgramId,
       addressTree,
       outputTree: addressTree,
-      payer,
       member,
       windowIndex,
     },

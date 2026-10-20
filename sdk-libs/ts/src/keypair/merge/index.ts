@@ -1,9 +1,18 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import { type Bytes32, bigIntToBytes, checkedBytes, concatBytes, copyBytes } from "../bytes.js";
+import {
+  type Bytes32,
+  bigIntToBytes,
+  bytesToBigInt,
+  checkedBytes,
+  concatBytes,
+  copyBytes,
+} from "../bytes.js";
 import {
   DOMAIN_MERGE_DUMMY_NULLIFIER,
   DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+  DOMAIN_MERGE_OUTPUT_CIPHERTEXT,
+  DOMAIN_MERGE_OUTPUT_KEY,
   DOM_SEP_KEY,
   DOM_SEP_NONCE,
   DOM_SEP_SILO,
@@ -79,6 +88,43 @@ export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: 
   } finally {
     secret.fill(0);
   }
+}
+
+/**
+ * The per-merge key of the output ciphertext, `Poseidon("TMOK",
+ * nullifier_secret, first_nullifier)`: separated by the first nullifier so no
+ * two merges share a key. Mirrors Rust `merge_output_key`.
+ */
+export function mergeOutputKey(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
+  const secret = alignedNullifierSecret(nullifierKey);
+  try {
+    return poseidon([
+      fieldU32(DOMAIN_MERGE_OUTPUT_KEY),
+      secret,
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    ]) as Bytes32;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+/** Field elements in a merge output ciphertext: the amount and two mint chunks. */
+export const MERGE_OUTPUT_CIPHERTEXT_ELEMENTS = 3;
+
+/**
+ * The output ciphertext pads, `Poseidon("TMOC", key, salt, i)`: element `i`
+ * of the plaintext is added to pad `i` in the BN254 scalar field. Mirrors Rust
+ * `pads` in `instructions/merge/serialization.rs` and the circuit's `PoseidonCtr`.
+ */
+export function mergeOutputPads(key: Bytes32, salt: Uint8Array): readonly [bigint, bigint, bigint] {
+  checkedBytes<Bytes32>(key, 32, "merge output key");
+  if (salt.length !== 16) throw invalidLength("merge output salt", 16, salt.length);
+  const alignedSalt = rightAlign(salt);
+  const pad = (index: number): bigint =>
+    bytesToBigInt(
+      poseidon([fieldU32(DOMAIN_MERGE_OUTPUT_CIPHERTEXT), key, alignedSalt, fieldU32(index)]),
+    );
+  return [pad(0), pad(1), pad(2)];
 }
 
 /**

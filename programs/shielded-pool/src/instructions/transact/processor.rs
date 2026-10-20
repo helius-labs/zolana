@@ -98,6 +98,7 @@ fn process_resolved_transact(
     let cache = TransactCache::load(transact_accounts.cache.take(), clock.unix_timestamp)?;
     // 7. Hash all signers before output owners: cache hits deduplicate signers.
     proof_inputs.fill_owner_signer_hashes(
+        ix.circuit.requires_input_signatures(),
         transact_accounts.payer,
         transact_accounts.owner_signers,
         &mut owner_hashes,
