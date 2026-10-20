@@ -271,9 +271,9 @@ fn transact_data(circuit: CircuitId) -> TransactIxData {
 fn circuit_json(circuit: CircuitId) -> Value {
     let (inputs, outputs, public_asset_slots) = circuit.shape();
     let kind = match circuit {
-        CircuitId::ConfidentialEddsa(..) => "confidentialEddsa",
+        CircuitId::ConfidentialSigner(..) => "confidentialEddsa",
         CircuitId::ConfidentialRingEddsa(..) => "confidentialRingEddsa",
-        CircuitId::ConfidentialEddsaCached(..) => "confidentialEddsaCached",
+        CircuitId::ConfidentialSignerCached(..) => "confidentialEddsaCached",
         CircuitId::ConfidentialRingEddsaCached(..) => "confidentialRingEddsaCached",
         _ => panic!("the shared vectors cover the EdDSA rails"),
     };
@@ -293,8 +293,8 @@ fn circuit_json(circuit: CircuitId) -> Value {
 fn transact_circuit_vectors() -> Value {
     Value::Array(
         [
-            CircuitId::ConfidentialEddsa(2, 4, 3),
-            CircuitId::ConfidentialEddsaCached(
+            CircuitId::ConfidentialSigner(2, 4, 3),
+            CircuitId::ConfidentialSignerCached(
                 2,
                 4,
                 3,
@@ -303,7 +303,7 @@ fn transact_circuit_vectors() -> Value {
                     write_slots: CacheAccess::NO_WRITES,
                 },
             ),
-            CircuitId::ConfidentialEddsaCached(
+            CircuitId::ConfidentialSignerCached(
                 1,
                 2,
                 3,

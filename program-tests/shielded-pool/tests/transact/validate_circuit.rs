@@ -79,7 +79,7 @@ fn selector_family_must_match_instruction() {
     };
     for (circuit, instruction) in [
         (
-            CircuitId::ConfidentialEddsa(2, 4, 3),
+            CircuitId::ConfidentialSigner(2, 4, 3),
             InstructionTag::Transact,
         ),
         (
@@ -122,7 +122,7 @@ fn selector_family_must_match_instruction() {
 
 #[test]
 fn selector_dimensions_are_fail_closed() {
-    let valid = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let valid = CircuitId::ConfidentialSigner(2, 4, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
     for (inputs, outputs) in [(0, 4), (3, 4), (2, 5)] {
@@ -134,7 +134,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(2, 4, 2),
+            CircuitId::ConfidentialSigner(2, 4, 2),
             InstructionTag::Transact,
             2,
             4,
@@ -143,7 +143,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(6, 6, 3),
+            CircuitId::ConfidentialSigner(6, 6, 3),
             InstructionTag::Transact,
             6,
             6,
@@ -153,7 +153,7 @@ fn selector_dimensions_are_fail_closed() {
     for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2), (51, 2)] {
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsa(inputs, outputs, 3),
+                CircuitId::ConfidentialSigner(inputs, outputs, 3),
                 InstructionTag::Transact,
                 inputs as usize,
                 outputs as usize,
@@ -164,7 +164,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 2, 3),
+            CircuitId::ConfidentialSigner(49, 2, 3),
             InstructionTag::Transact,
             49,
             2,
@@ -182,7 +182,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 4, 3),
+            CircuitId::ConfidentialSigner(49, 4, 3),
             InstructionTag::Transact,
             49,
             4,
@@ -233,7 +233,7 @@ fn selector_dimensions_are_fail_closed() {
 /// from that padding, so it is rejected.
 #[test]
 fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let circuit = CircuitId::ConfidentialSigner(2, 4, 3);
     for (inputs, outputs) in [(1, 4), (2, 1), (1, 0)] {
         assert_eq!(
             validate(circuit, InstructionTag::Transact, inputs, outputs),
@@ -284,7 +284,7 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
     };
     let cases = [
         (
-            CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
+            CircuitId::ConfidentialSignerCached(2, 2, 3, CACHE),
             InstructionTag::Transact,
         ),
         (
@@ -355,7 +355,7 @@ fn a_cached_selector_counts_only_the_sent_slots() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 4, 3, access),
+                CircuitId::ConfidentialSignerCached(2, 4, 3, access),
                 InstructionTag::Transact,
                 1,
                 1
@@ -398,7 +398,7 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 2, 3, access),
+                CircuitId::ConfidentialSignerCached(2, 2, 3, access),
                 InstructionTag::Transact,
                 2,
                 2

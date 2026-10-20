@@ -155,7 +155,10 @@ impl TransactProofInputs {
         {
             assignments |= ASSIGNED_CACHED_INPUTS;
         }
-        if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
+        if matches!(
+            circuit.uncached(),
+            CircuitId::ConfidentialSigner(..) | CircuitId::ConfidentialEddsa(..)
+        ) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
@@ -487,7 +490,7 @@ impl<'a> TransactProof<'a> {
             self.derived.output_tree_id,
             *self.ix.private_tx_hash,
         ]);
-        if self.ix.circuit.is_anonymous() {
+        if self.ix.circuit.has_message_hash() {
             let message_digest = Sha256::hashv(&[
                 self.ix.private_tx_hash.as_slice(),
                 self.derived.external_data_hash.as_slice(),
@@ -496,6 +499,14 @@ impl<'a> TransactProof<'a> {
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);
+        }
+        // The circuit commits the right hash chain of its verified owners'
+        // tagged Solana identities, which for the one owner this selector
+        // carries is that identity; no account signs for it.
+        if let Some(owner_pk) = self.ix.circuit.eddsa_owner_pk() {
+            fields.push(solana_owner_identity(owner_pk)?);
+        }
+        if self.ix.circuit.is_anonymous() {
             // The published default-ring hidden owner is its Ed25519 key; the
             // circuit commits it as the tagged Solana identity.
             fields.push(match self.ix.circuit.default_owner_tag() {

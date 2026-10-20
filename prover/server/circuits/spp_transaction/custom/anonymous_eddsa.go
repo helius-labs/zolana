@@ -189,15 +189,34 @@ func (c *CustomRingAnonymousEddsaCircuit) Define(api frontend.API) error {
 func (c *CustomRingAnonymousEddsaCircuit) ownerAuthorization(
 	api frontend.API,
 ) (frontend.Variable, frontend.Variable) {
+	return OwnerAuthorization(
+		api,
+		c.Public.MessageHashLow,
+		c.Public.MessageHashHigh,
+		c.Private.OwnerPublicKey,
+		c.Private.OwnerSignature,
+	)
+}
+
+// OwnerAuthorization verifies one Ed25519 signature over the 32-byte message
+// digest given as two 128-bit limbs. It returns the signer's Solana owner
+// identity and the untagged hash of the digest.
+func OwnerAuthorization(
+	api frontend.API,
+	messageHashLow frontend.Variable,
+	messageHashHigh frontend.Variable,
+	publicKey [32]frontend.Variable,
+	signature [64]frontend.Variable,
+) (frontend.Variable, frontend.Variable) {
 	messageBits := append(
-		api.ToBinary(c.Public.MessageHashLow, messageLimbBits),
-		api.ToBinary(c.Public.MessageHashHigh, messageLimbBits)...,
+		api.ToBinary(messageHashLow, messageLimbBits),
+		api.ToBinary(messageHashHigh, messageLimbBits)...,
 	)
 	// The message digest is not an identity, so it stays an untagged hash_bytes_32.
 	messageBytes := bytes32FromBits(api, messageBits)
 	key := ed25519.Verify(api, ed25519.Inputs{
-		PublicKey: c.Private.OwnerPublicKey,
-		Signature: c.Private.OwnerSignature,
+		PublicKey: publicKey,
+		Signature: signature,
 		Message:   messageBytes[:],
 	})
 	// Verify's SHA-512 transcript range-checks the key and message bytes.

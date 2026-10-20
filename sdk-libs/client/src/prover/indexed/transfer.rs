@@ -341,8 +341,8 @@ impl IndexedTransferPreparation<'_> {
                 let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?;
                 match rail {
                     IndexedTransferRail::Confidential => match cache.access {
-                        Some(access) => CircuitId::ConfidentialEddsaCached(n_in, n_out, slots, access),
-                        None => CircuitId::ConfidentialEddsa(n_in, n_out, slots),
+                        Some(access) => CircuitId::ConfidentialSignerCached(n_in, n_out, slots, access),
+                        None => CircuitId::ConfidentialSigner(n_in, n_out, slots),
                     },
                     IndexedTransferRail::Ring(_) => match cache.access {
                         Some(access) => CircuitId::ConfidentialRingEddsaCached(n_in, n_out, slots, access),

@@ -249,7 +249,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
 
 fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     let mut derived =
-        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
+        TransactProofInputs::new(CircuitId::ConfidentialSigner(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
     derived.input_flags = small_fe(1);
@@ -281,10 +281,10 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEddsa(2, 4, 3), 3usize, 2u8, true),
+        (CircuitId::ConfidentialSigner(2, 4, 3), 3usize, 2u8, true),
         (CircuitId::ConfidentialRingEddsa(2, 4, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(32, 2, 3), 29, 29, true),
+        (CircuitId::ConfidentialSigner(32, 2, 3), 29, 29, true),
         (CircuitId::ConfidentialRingEddsa(49, 2, 3), 12, 1, true),
     ] {
         let owned = ix_data(circuit);
@@ -362,7 +362,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
 /// leaves zero for unsent outputs.
 #[test]
 fn compact_program_assembly_matches_the_go_ordering() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let circuit = CircuitId::ConfidentialSigner(2, 3, 3);
     let mut owned = ix_data(circuit);
     owned.inputs.truncate(1);
     owned.outputs.truncate(1);

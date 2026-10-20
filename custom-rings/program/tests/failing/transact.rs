@@ -222,7 +222,7 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     for circuit in [
         anonymous,
         CircuitId::RingAuthority(2, 2, slots),
-        CircuitId::ConfidentialEddsa(2, 2, slots),
+        CircuitId::ConfidentialSigner(2, 2, slots),
     ] {
         let mut data = transact(vec![auditor_message(auditor_message_len(1))]);
         data.circuit = circuit;

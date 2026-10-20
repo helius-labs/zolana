@@ -129,7 +129,7 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
     ];
     assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =
-        transfer_payload(CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8));
+        transfer_payload(CircuitId::ConfidentialSigner(1, 2, N_PUBLIC_SLOTS as u8));
     let ring_transact_payload =
         transfer_payload(CircuitId::ConfidentialRingEddsa(1, 2, N_PUBLIC_SLOTS as u8));
     let ring_authority_payload =

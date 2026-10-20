@@ -23,7 +23,7 @@ fn both_take_rails_forward_the_order_and_paying_taker_as_owner_signers() {
     let data = TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0; 32],
-        circuit: CircuitId::ConfidentialEddsa(2, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialSigner(2, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [2; 33],
         salt: [0; 16],
         proof: TransactProof::zeroed(),

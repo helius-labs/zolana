@@ -327,6 +327,23 @@ var transferSupportedShapes = [][2]uint32{
 	{49, 2},
 }
 
+// confidentialEddsaShapes mirrors protocol.ConfidentialEddsaShapes; keep in
+// sync with prover-test/spp/protocol/shape.go.
+var confidentialEddsaShapes = [][2]uint32{
+	{2, 8},
+	{2, 16},
+	{4, 8},
+	{4, 16},
+	{8, 8},
+	{8, 16},
+	{16, 8},
+	{16, 16},
+	{24, 8},
+	{24, 16},
+	{48, 8},
+	{48, 16},
+}
+
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
@@ -351,6 +368,12 @@ func (shape ProofShape) Supported() bool {
 		}
 	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferAnonymousRingEddsaCircuitType:
 		for _, supported := range transferSupportedShapes {
+			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
+				return true
+			}
+		}
+	case TransferConfidentialEddsaCircuitType:
+		for _, supported := range confidentialEddsaShapes {
 			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
 				return true
 			}
@@ -389,6 +412,8 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		prefix = "transfer_eddsa_ring"
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
+	case TransferConfidentialEddsaCircuitType:
+		return fmt.Sprintf("transfer_confidential_eddsa_%d_%d.key", nInputs, nOutputs)
 	case MergeCircuitType:
 		return mergeKeyFile("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
@@ -434,6 +459,9 @@ func keyFileCircuits() map[string]CircuitType {
 				files[file] = circuit
 			}
 		}
+	}
+	for _, shape := range confidentialEddsaShapes {
+		files[TransferKeyFile(TransferConfidentialEddsaCircuitType, shape[0], shape[1])] = TransferConfidentialEddsaCircuitType
 	}
 	for _, circuit := range []CircuitType{MergeCircuitType, MergeRingCircuitType} {
 		for _, inputs := range mergeSupportedInputCounts {

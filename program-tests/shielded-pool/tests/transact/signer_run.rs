@@ -31,7 +31,7 @@ const WIDEST_SIGNER_SHAPE: Shape = Shape::IN32_OUT2;
 
 #[test]
 fn incomplete_proof_inputs_are_rejected() {
-    let proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
 
     assert_eq!(
         proof_inputs.ensure_complete(),
@@ -52,7 +52,7 @@ fn owner_signers_are_first_occurrence_deduplicated_without_the_payer() {
         get_account_view([2; 32], [0; 32], true, false, false, vec![]),
         get_account_view([3; 32], [0; 32], true, false, false, vec![]),
     ];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
@@ -76,7 +76,7 @@ fn owner_signers_are_first_occurrence_deduplicated_without_the_payer() {
 #[test]
 fn the_payer_alone_is_not_an_owner_signer() {
     let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
@@ -122,7 +122,7 @@ fn owner_signer_run_is_bounded_by_max_signers() {
     };
     let mut owner_signers: Vec<_> = (0..MAX_SIGNERS).map(unique_signer).collect();
 
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
     proof_inputs
         .fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes)
@@ -133,7 +133,7 @@ fn owner_signer_run_is_bounded_by_max_signers() {
     );
 
     owner_signers.push(unique_signer(MAX_SIGNERS));
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
     assert_eq!(
         proof_inputs.fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes),
@@ -167,7 +167,7 @@ fn small_fe(tag: u8) -> [u8; 32] {
 }
 
 fn widest_signer_ix_bytes() -> Vec<u8> {
-    let circuit = CircuitId::ConfidentialEddsa(
+    let circuit = CircuitId::ConfidentialSigner(
         WIDEST_SIGNER_SHAPE.n_inputs() as u8,
         WIDEST_SIGNER_SHAPE.n_outputs() as u8,
         3,
@@ -282,7 +282,7 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
         false,
         vec![],
     )];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 3, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 3, 1));
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
@@ -322,7 +322,7 @@ fn owner_signer_hashing_rejects_a_cache_populated_by_output_owners() {
         false,
         vec![],
     )];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialSigner(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
     proof_inputs
         .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)

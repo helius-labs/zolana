@@ -20,7 +20,7 @@ fn confidential_verifying_key(
     let n_in = u8::try_from(n_inputs).map_err(|_| shape_err())?;
     let n_out = u8::try_from(n_outputs).map_err(|_| shape_err())?;
     let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| shape_err())?;
-    CircuitId::ConfidentialEddsa(n_in, n_out, slots)
+    CircuitId::ConfidentialSigner(n_in, n_out, slots)
         .verifying_key()
         .ok_or_else(shape_err)
 }

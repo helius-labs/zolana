@@ -220,7 +220,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         inline_outputs(&output_hashes, &vec![input_owner_bytes; sent_outputs]),
     );
     transact_ix_data.circuit =
-        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
+        CircuitId::ConfidentialSigner(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
@@ -1733,7 +1733,7 @@ fn transact_accepts_the_widest_input_shape() {
     );
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::ConfidentialEddsa(49, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialSigner(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs

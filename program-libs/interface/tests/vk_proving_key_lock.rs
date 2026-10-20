@@ -66,7 +66,7 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
             for (rail, circuit) in [
                 (
                     "transfer_confidential",
-                    CircuitId::ConfidentialEddsa(n_inputs, n_outputs, slots),
+                    CircuitId::ConfidentialSigner(n_inputs, n_outputs, slots),
                 ),
                 (
                     "transfer_ring",

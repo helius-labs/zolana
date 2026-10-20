@@ -576,7 +576,7 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(
+            circuit: CircuitId::ConfidentialSigner(
                 n as u8,
                 outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
@@ -851,7 +851,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit =
-            CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
+            CircuitId::ConfidentialSigner(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
         zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],

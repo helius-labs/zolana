@@ -23,7 +23,7 @@ const PROOF_DATA: AnonymousRingEddsaProofData = AnonymousRingEddsaProofData {
 
 #[test]
 fn accessors_and_behavior_match_variants() {
-    let cached = CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE);
+    let cached = CircuitId::ConfidentialSignerCached(2, 3, 3, CACHE);
     assert_eq!(cached.shape(), (2, 3, 3));
     assert!(cached.is_confidential());
     assert!(!cached.is_ring());
@@ -53,8 +53,8 @@ fn accessors_and_behavior_match_variants() {
     // A cached selector is its rail plus a selection, and nothing else.
     for (rail, twin) in [
         (
-            CircuitId::ConfidentialEddsa(2, 3, 3),
-            CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE),
+            CircuitId::ConfidentialSigner(2, 3, 3),
+            CircuitId::ConfidentialSignerCached(2, 3, 3, CACHE),
         ),
         (
             CircuitId::ConfidentialRingEddsa(2, 3, 3),
@@ -75,7 +75,7 @@ fn accessors_and_behavior_match_variants() {
         assert!(rail.cache_access().is_none());
     }
     assert!(CircuitId::RingAuthority(2, 2, 3).cache_access().is_none());
-    let confidential = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let confidential = CircuitId::ConfidentialSigner(2, 3, 3);
     assert_eq!(confidential.shape(), (2, 3, 3));
     assert!(confidential.is_confidential());
     assert!(!confidential.is_ring());
@@ -114,23 +114,23 @@ fn accessors_and_behavior_match_variants() {
 
 #[test]
 fn supported_shapes_are_fail_closed() {
-    assert!(CircuitId::ConfidentialEddsa(2, 4, 3).is_supported());
+    assert!(CircuitId::ConfidentialSigner(2, 4, 3).is_supported());
     assert!(CircuitId::ConfidentialRingEddsa(1, 8, 3).is_supported());
     assert!(CircuitId::AnonymousRingEddsa(2, 4, 3, PROOF_DATA).is_supported());
     assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::ConfidentialSigner(49, 2, 3).is_supported());
     assert!(CircuitId::ConfidentialRingEddsa(49, 2, 3).is_supported());
     assert!(CircuitId::AnonymousRingEddsa(49, 2, 3, PROOF_DATA).is_supported());
-    assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
+    assert!(CircuitId::ConfidentialSigner(8, 16, 3).is_supported());
     assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
-    assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
+    assert!(!CircuitId::ConfidentialSigner(49, 4, 3).is_supported());
+    assert!(!CircuitId::ConfidentialSigner(51, 2, 3).is_supported());
+    assert!(!CircuitId::ConfidentialSigner(6, 6, 3).is_supported());
     assert!(!CircuitId::ConfidentialRingEddsa(2, 4, 2).is_supported());
     assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
     for (n_inputs, n_outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
         assert!(
-            !CircuitId::ConfidentialEddsa(n_inputs, n_outputs, 3).is_supported(),
+            !CircuitId::ConfidentialSigner(n_inputs, n_outputs, 3).is_supported(),
             "{n_inputs}x{n_outputs} was removed"
         );
     }
@@ -145,8 +145,8 @@ fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
         let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
         let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
         for circuit in [
-            CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::ConfidentialSigner(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialSignerCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
             CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
             CircuitId::AnonymousRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, PROOF_DATA),
         ] {
@@ -162,8 +162,8 @@ fn every_supported_shape_resolves_exactly_one_key() {
         let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
         let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
         for circuit in [
-            CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::ConfidentialSigner(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialSignerCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
             CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
             CircuitId::ConfidentialRingEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
             CircuitId::AnonymousRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, PROOF_DATA),
@@ -192,7 +192,7 @@ fn every_supported_shape_resolves_exactly_one_key() {
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
     }
-    assert!(CircuitId::ConfidentialEddsa(2, 3, PUBLIC_ASSET_SLOTS - 1)
+    assert!(CircuitId::ConfidentialSigner(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()
         .is_none());
     assert!(CircuitId::RingAuthority(49, 2, PUBLIC_ASSET_SLOTS)

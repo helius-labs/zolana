@@ -60,17 +60,32 @@ macro_rules! circuit_key_item {
                 (2, 2) => transfer_ring_authority_2_2;
                 (4, 4) => transfer_ring_authority_4_4;
             }
+            confidential_eddsa {
+                (2, 8) => transfer_confidential_eddsa_2_8;
+                (2, 16) => transfer_confidential_eddsa_2_16;
+                (4, 8) => transfer_confidential_eddsa_4_8;
+                (4, 16) => transfer_confidential_eddsa_4_16;
+                (8, 8) => transfer_confidential_eddsa_8_8;
+                (8, 16) => transfer_confidential_eddsa_8_16;
+                (16, 8) => transfer_confidential_eddsa_16_8;
+                (16, 16) => transfer_confidential_eddsa_16_16;
+                (24, 8) => transfer_confidential_eddsa_24_8;
+                (24, 16) => transfer_confidential_eddsa_24_16;
+                (48, 8) => transfer_confidential_eddsa_48_8;
+                (48, 16) => transfer_confidential_eddsa_48_16;
+            }
         )
     };
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $eddsa:ident;)* }
         authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
+        confidential_eddsa { $(($ei:literal, $eo:literal) => $confidential_eddsa:ident;)* }
     ) => {{
         use super::*;
 
         match $circuit {
             $(
-                CircuitId::ConfidentialEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                CircuitId::ConfidentialSigner($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => {
                     &$confidential::$item
                 }
                 CircuitId::ConfidentialRingEddsa($i, $o, CURRENT_PUBLIC_ASSET_SLOTS) => &$ring::$item,
@@ -78,6 +93,11 @@ macro_rules! circuit_key_item {
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
+            )*
+            $(
+                CircuitId::ConfidentialEddsa($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                    &$confidential_eddsa::$item
+                }
             )*
             _ => return None,
         }
@@ -102,6 +122,16 @@ pub struct AnonymousRingEddsaProofData {
     /// address slots do not count. `None` keeps ring-only ownership private.
     #[wincode(with = "FixedOptionOwnerTag")]
     pub default_owner_tag: Option<[u8; 32]>,
+}
+
+/// Proof-specific payload carried by [`CircuitId::ConfidentialEddsa`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct EddsaProofData {
+    pub bsb22_commitment: Bsb22Commitment,
+    /// The owner's Ed25519 key. The proof verifies its signature in-circuit
+    /// and SPP publishes its Solana owner identity as a public input; the key
+    /// is not an owner signer and takes no transaction address.
+    pub owner_pk: [u8; 32],
 }
 
 /// One cache shared by reads and writes.
@@ -261,21 +291,24 @@ pub enum OutputOwnerMode {
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
     /// NumInputs, NumOutputs, NumPublicAssets
-    ConfidentialEddsa(u8, u8, u8),
+    ConfidentialSigner(u8, u8, u8),
     ConfidentialRingEddsa(u8, u8, u8),
     RingAuthority(u8, u8, u8),
     AnonymousRingEddsa(u8, u8, u8, AnonymousRingEddsaProofData),
-    ConfidentialEddsaCached(u8, u8, u8, CacheAccess),
+    ConfidentialSignerCached(u8, u8, u8, CacheAccess),
     ConfidentialRingEddsaCached(u8, u8, u8, CacheAccess),
     AnonymousRingEddsaCached(u8, u8, u8, AnonymousRingEddsaProofData, CacheAccess),
+    ConfidentialEddsa(u8, u8, u8, EddsaProofData),
+    ConfidentialEddsaCached(u8, u8, u8, EddsaProofData, CacheAccess),
 }
 
 impl CircuitId {
     pub const fn cache_access(self) -> Option<CacheAccess> {
         match self {
-            Self::ConfidentialEddsaCached(_, _, _, selection)
+            Self::ConfidentialSignerCached(_, _, _, selection)
             | Self::ConfidentialRingEddsaCached(_, _, _, selection)
-            | Self::AnonymousRingEddsaCached(_, _, _, _, selection) => Some(selection),
+            | Self::AnonymousRingEddsaCached(_, _, _, _, selection)
+            | Self::ConfidentialEddsaCached(_, _, _, _, selection) => Some(selection),
             _ => None,
         }
     }
@@ -285,8 +318,8 @@ impl CircuitId {
     /// shape, rail and key accessor answers through this.
     pub const fn uncached(self) -> Self {
         match self {
-            Self::ConfidentialEddsaCached(n_in, n_out, slots, _) => {
-                Self::ConfidentialEddsa(n_in, n_out, slots)
+            Self::ConfidentialSignerCached(n_in, n_out, slots, _) => {
+                Self::ConfidentialSigner(n_in, n_out, slots)
             }
             Self::ConfidentialRingEddsaCached(n_in, n_out, slots, _) => {
                 Self::ConfidentialRingEddsa(n_in, n_out, slots)
@@ -294,43 +327,52 @@ impl CircuitId {
             Self::AnonymousRingEddsaCached(n_in, n_out, slots, proof_data, _) => {
                 Self::AnonymousRingEddsa(n_in, n_out, slots, proof_data)
             }
+            Self::ConfidentialEddsaCached(n_in, n_out, slots, proof_data, _) => {
+                Self::ConfidentialEddsa(n_in, n_out, slots, proof_data)
+            }
             other => other,
         }
     }
 
     pub const fn num_inputs(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(n, _, _)
+            Self::ConfidentialSigner(n, _, _)
             | Self::ConfidentialRingEddsa(n, _, _)
             | Self::RingAuthority(n, _, _)
             | Self::AnonymousRingEddsa(n, _, _, _)
-            | Self::ConfidentialEddsaCached(n, _, _, _)
+            | Self::ConfidentialSignerCached(n, _, _, _)
             | Self::ConfidentialRingEddsaCached(n, _, _, _)
-            | Self::AnonymousRingEddsaCached(n, _, _, _, _) => n,
+            | Self::AnonymousRingEddsaCached(n, _, _, _, _)
+            | Self::ConfidentialEddsa(n, _, _, _)
+            | Self::ConfidentialEddsaCached(n, _, _, _, _) => n,
         }
     }
 
     pub const fn num_outputs(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(_, n, _)
+            Self::ConfidentialSigner(_, n, _)
             | Self::ConfidentialRingEddsa(_, n, _)
             | Self::RingAuthority(_, n, _)
             | Self::AnonymousRingEddsa(_, n, _, _)
-            | Self::ConfidentialEddsaCached(_, n, _, _)
+            | Self::ConfidentialSignerCached(_, n, _, _)
             | Self::ConfidentialRingEddsaCached(_, n, _, _)
-            | Self::AnonymousRingEddsaCached(_, n, _, _, _) => n,
+            | Self::AnonymousRingEddsaCached(_, n, _, _, _)
+            | Self::ConfidentialEddsa(_, n, _, _)
+            | Self::ConfidentialEddsaCached(_, n, _, _, _) => n,
         }
     }
 
     pub const fn num_public_asset_slots(self) -> u8 {
         match self {
-            Self::ConfidentialEddsa(_, _, n)
+            Self::ConfidentialSigner(_, _, n)
             | Self::ConfidentialRingEddsa(_, _, n)
             | Self::RingAuthority(_, _, n)
             | Self::AnonymousRingEddsa(_, _, n, _)
-            | Self::ConfidentialEddsaCached(_, _, n, _)
+            | Self::ConfidentialSignerCached(_, _, n, _)
             | Self::ConfidentialRingEddsaCached(_, _, n, _)
-            | Self::AnonymousRingEddsaCached(_, _, n, _, _) => n,
+            | Self::AnonymousRingEddsaCached(_, _, n, _, _)
+            | Self::ConfidentialEddsa(_, _, n, _)
+            | Self::ConfidentialEddsaCached(_, _, n, _, _) => n,
         }
     }
 
@@ -345,9 +387,10 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self.uncached(),
-            Self::ConfidentialEddsa(..)
+            Self::ConfidentialSigner(..)
                 | Self::ConfidentialRingEddsa(..)
                 | Self::AnonymousRingEddsa(..)
+                | Self::ConfidentialEddsa(..)
         )
     }
 
@@ -368,12 +411,35 @@ impl CircuitId {
         matches!(self.uncached(), Self::AnonymousRingEddsa(..))
     }
 
+    /// Whether the proof verifies one Ed25519 signature over the transact
+    /// message in-circuit, binding the message digest into its public inputs.
+    pub const fn has_message_hash(self) -> bool {
+        matches!(
+            self.uncached(),
+            Self::AnonymousRingEddsa(..) | Self::ConfidentialEddsa(..)
+        )
+    }
+
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
             Self::AnonymousRingEddsa(_, _, _, proof_data)
             | Self::AnonymousRingEddsaCached(_, _, _, proof_data, _) => {
                 Some(&proof_data.bsb22_commitment)
             }
+            Self::ConfidentialEddsa(_, _, _, proof_data)
+            | Self::ConfidentialEddsaCached(_, _, _, proof_data, _) => {
+                Some(&proof_data.bsb22_commitment)
+            }
+            _ => None,
+        }
+    }
+
+    /// The owner key whose signature a [`CircuitId::ConfidentialEddsa`] proof
+    /// verifies in-circuit, authorized alongside the Solana owner signers.
+    pub const fn eddsa_owner_pk(&self) -> Option<&[u8; 32]> {
+        match self {
+            Self::ConfidentialEddsa(_, _, _, proof_data)
+            | Self::ConfidentialEddsaCached(_, _, _, proof_data, _) => Some(&proof_data.owner_pk),
             _ => None,
         }
     }
@@ -394,7 +460,10 @@ impl CircuitId {
 
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
-            Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
+            Self::ConfidentialSigner(..)
+            | Self::ConfidentialSignerCached(..)
+            | Self::ConfidentialEddsa(..)
+            | Self::ConfidentialEddsaCached(..) => OutputOwnerMode::All,
             Self::ConfidentialRingEddsa(..)
             | Self::AnonymousRingEddsa(..)
             | Self::ConfidentialRingEddsaCached(..)
@@ -411,13 +480,16 @@ impl CircuitId {
         }
         let shape = Shape::new(n_inputs as usize, n_outputs as usize);
         match self {
-            Self::ConfidentialEddsa(..)
+            Self::ConfidentialSigner(..)
             | Self::ConfidentialRingEddsa(..)
             | Self::AnonymousRingEddsa(..)
-            | Self::ConfidentialEddsaCached(..)
+            | Self::ConfidentialSignerCached(..)
             | Self::ConfidentialRingEddsaCached(..)
             | Self::AnonymousRingEddsaCached(..) => shape.is_supported(),
             Self::RingAuthority(..) => shape.is_ring_authority(),
+            Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => {
+                shape.is_confidential_eddsa()
+            }
         }
     }
 

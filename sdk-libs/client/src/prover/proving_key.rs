@@ -166,7 +166,7 @@ impl ExpectedProvingKey {
             "transfer_confidential",
             n_inputs,
             n_outputs,
-            CircuitId::ConfidentialEddsa,
+            CircuitId::ConfidentialSigner,
         )
     }
 
