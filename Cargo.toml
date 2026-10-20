@@ -142,7 +142,6 @@ solana-compute-budget = "3.1"
 solana-compute-budget-interface = "3.0"
 solana-cpi = "3.1"
 solana-curve25519 = "4.0"
-solana-derivation-path = "3.0.0"
 solana-epoch-info = "3.1"
 # Pin solana-hash to 4.5.0: the agave 4.2 graph (agave-feature-set,
 # solana-message, solana-transaction) is built against 4.5.x; letting it float
@@ -175,7 +174,6 @@ solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"
 solana-sdk = "4.0"
 solana-sdk-ids = "3.1"
-solana-seed-phrase = "3.0.0"
 solana-signature = "3.4"
 solana-signer = "3.0"
 solana-system-interface = { version = "3.2", features = ["bincode"] }
@@ -289,7 +287,6 @@ ark-std = "0.5"
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
 psl = "2"
 ed25519-dalek = "2.2.0"
-ed25519-dalek-bip32 = "0.3.0"
 aes = { version = "0.8", default-features = false }
 ctr = { version = "0.9", default-features = false }
 hkdf = "0.12"
