@@ -695,6 +695,22 @@ function unpackDisclosure(values: readonly Bytes32[], length: number): Uint8Arra
   return plaintext;
 }
 
+/** Masks a merge disclosure plaintext already zero padded to whole chunks, Rust `MergeDisclosureEncryption::seal`. */
+export function sealMergeDisclosureFields(
+  key: Bytes32,
+  salt: Bytes16,
+  plaintext: Uint8Array,
+): readonly Bytes32[] {
+  if (plaintext.length % DISCLOSURE_CHUNK_BYTES !== 0)
+    throw new RangeError("invalid audit disclosure length");
+  const chunks = packDisclosure(plaintext);
+  try {
+    return applyDisclosurePad(key, salt, chunks, true, MERGE_DISCLOSURE_DOMAIN);
+  } finally {
+    for (const chunk of chunks) chunk.fill(0);
+  }
+}
+
 /** Unmasks an anonymous merge disclosure, the plaintext zero padded to whole chunks, Rust `open_merge_disclosure`. */
 export function openMergeDisclosureFields(
   key: Bytes32,

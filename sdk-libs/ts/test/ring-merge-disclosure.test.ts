@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import vector from "../../../test-vectors/ring-merge-anonymous.json" with { type: "json" };
 import { initializePoseidon } from "../src/hasher/index.js";
-import { Reader, Writer, addressBytes } from "../src/interface/internal.js";
+import { Reader, Writer, addressBytes, encodeBase58 } from "../src/interface/internal.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
+import { customRingMergeAnonymousProofRequest } from "../src/client/prover/client.js";
 import {
   mergeDisclosureFieldCount,
   openRingMergeDisclosure,
+  sealRingMergeDisclosureWith,
   readRingMergeDisclosure,
   ringMergeAnonymousPublicInputHash,
   writeRingMergeDisclosure,
@@ -64,6 +66,74 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
       salt,
     });
     expect(`0x${Buffer.from(hash).toString("hex")}`).toBe(vector.public_input_hash);
+  });
+
+  it("seals the Go disclosure under the vector keys", async () => {
+    await initializePoseidon();
+    const auditor = X25519Keypair.fromBytes(bytes(vector.auditor_sk, 32));
+    const ephemeral = X25519Keypair.fromBytes(bytes(vector.request.ephSk, 32));
+    try {
+      const sealed = sealRingMergeDisclosureWith({
+        opening: {
+          ownerKey: encodeBase58(bytes(vector.request.ownerKey, 32)),
+          nullifierPublicKey: bytes(vector.nullifier_pk, 32),
+          mint: encodeBase58(bytes(vector.mint, 32)),
+          amount: BigInt(vector.amount),
+          outputBlinding: bytes(vector.output_blinding, 32),
+          inputCommitments: vector.input_commitments.map((value) => bytes<Bytes32>(value, 32)),
+        },
+        salt: bytes(vector.salt, 16),
+        auditor: auditor.publicKey(),
+        ephemeral,
+        disclosureKey: bytes(vector.request.disclosureKey, 32),
+      });
+      expect(sealed.disclosure).toEqual({
+        ephemeralPublicKey: bytes(vector.eph_pk, 33),
+        ciphertext: bytes(vector.envelope_ciphertext, 32),
+        fields: vector.fields.map((field) => bytes(field, 32)),
+      });
+      expect(sealed.ephemeralSecret).toEqual(bytes(vector.request.ephSk, 32));
+    } finally {
+      ephemeral.destroy();
+      auditor.destroy();
+    }
+  });
+
+  it("writes the Go prover body of custom-ring-merge-anonymous-8", () => {
+    const request = vector.request;
+    const field = (value: string) => bytes<Bytes32>(value, 32);
+    const body = customRingMergeAnonymousProofRequest({
+      publicInputHash: field(request.publicInputHash),
+      privateTxHash: field(request.privateTxHash),
+      outputUtxoHash: field(request.outputUtxoHash),
+      firstNullifier: field(request.firstNullifier),
+      ringProgramId: field(request.ringProgramId),
+      memberRegistryRoot: field(request.memberRegistryRoot),
+      auditorPublicKey: field(request.auditorPk),
+      salt: bytes(vector.salt, 16),
+      ephemeralSecret: field(request.ephSk),
+      disclosureKey: field(request.disclosureKey),
+      ownerKey: field(request.ownerKey),
+      nullifierSecret: field(request.nullifierSecret),
+      mint: encodeBase58(bytes(vector.mint, 32)),
+      inputs: request.inputs.map((slot) => ({
+        domain: field(slot.domain),
+        treeId: field(slot.treeId),
+        amount: field(slot.amount),
+        blinding: field(slot.blinding),
+        ringDataHash: field(slot.ringDataHash),
+      })),
+      outputTreeId: field(request.outputTreeId),
+      outputRingDataHash: field(request.outputRingDataHash),
+      memberRecord: {
+        next: field(request.memberRecord.next),
+        lists: BigInt(request.memberRecord.lists),
+        escrowKey: field(request.memberRecord.escrowKey),
+        index: BigInt(request.memberRecord.index),
+        path: request.memberRecord.path.map(field),
+      },
+    });
+    expect(JSON.parse(JSON.stringify(body))).toEqual(request);
   });
 
   it("writes the option ahead of the SPP body and reads back its own layout", () => {

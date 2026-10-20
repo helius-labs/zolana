@@ -132,14 +132,20 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
       if (
         payload["memberRegistryRoot"] !== undefined ||
         payload["registeredCiphertextHash"] !== undefined ||
-        payload["memberRecord"] !== undefined
+        payload["memberRecord"] !== undefined ||
+        payload["anonymous"] !== undefined
       )
         throw invalid();
       return {};
     }
+    const anonymous = payload["anonymous"];
+    if (anonymous !== undefined && anonymous !== true) throw invalid();
+    if (anonymous === true && payload["registeredCiphertextHash"] !== undefined) throw invalid();
     return {
       memberRegistryRoot: field("memberRegistryRoot"),
-      registeredCiphertextHash: field("registeredCiphertextHash"),
+      ...(anonymous === true
+        ? { anonymous }
+        : { registeredCiphertextHash: field("registeredCiphertextHash") }),
       memberRecord: decodeMergeMemberRecord(payload["memberRecord"]),
     };
   };

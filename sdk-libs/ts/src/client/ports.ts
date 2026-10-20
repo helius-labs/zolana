@@ -449,6 +449,10 @@ export interface Prover {
     inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
+  proveCustomRingMergeAnonymous(
+    inputs: import("./prover/types.js").CustomRingMergeAnonymousProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
   proveTransact(
     proofInputs: SppProofInputs,
     keys: ProofAuthority,
@@ -577,11 +581,19 @@ export interface ProvedMerge {
   readonly outputHash: Bytes32;
 }
 
-/** The registry opening a ring merge binds to its proof and on-chain root history. */
-export interface RingMergeRegistryProof {
-  readonly root: Bytes32;
-  readonly key: import("./prover/types.js").CustomRingRegistryKey;
-}
+/** The registry opening a ring merge binds to its proof and on-chain root history, Rust `MergeRegistration`. */
+export type RingMergeRegistryProof =
+  | Readonly<{
+      root: Bytes32;
+      key: import("./prover/types.js").CustomRingRegistryKey;
+      anonymous?: false;
+    }>
+  | Readonly<{
+      root: Bytes32;
+      /** An anonymous member escrows no key, the ring's merge disclosure proves the owner. */
+      record: import("./prover/types.js").CustomRingRecordWitness;
+      anonymous: true;
+    }>;
 
 /** A proved ring transfer with the tree history entries the ring statement binds. */
 export interface AnonymousRingTransactProofInput {
@@ -635,6 +647,7 @@ export type RingMergeClient = TreeContext &
   Pick<ChainReader, "getAccount"> &
   Pick<RingMemberRegistryReader, "getRingMemberRecord"> &
   Pick<MergeAssembler, "proveMerge"> &
+  Pick<Prover, "proveCustomRingMergeAnonymous"> &
   ProofDataSourceContext;
 
 /** A nullifier key encrypted to the ring auditor. */

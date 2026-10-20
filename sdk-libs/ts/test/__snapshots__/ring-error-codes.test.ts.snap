@@ -105,5 +105,7 @@ exports[`ring error codes > pins the public codes and their order 1`] = `
   "RING_ANONYMOUS_TAG",
   "RING_ANONYMOUS_DUPLICATE_TAG",
   "RING_SCAN_FRONTIER_MISSING",
+  "RING_ANONYMOUS_MERGE_TOO_WIDE",
+  "RING_ANONYMOUS_NULLIFIER_KEY_REQUIRED",
 ]
 `;

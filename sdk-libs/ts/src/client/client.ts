@@ -951,6 +951,13 @@ export class ZolanaClient
     return this.#provingRing(() => this.#prover.proveCustomRingDeposit(inputs, context));
   }
 
+  proveCustomRingMergeAnonymous(
+    inputs: import("./prover/types.js").CustomRingMergeAnonymousProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    return this.#provingRing(() => this.#prover.proveCustomRingMergeAnonymous(inputs, context));
+  }
+
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
     return this.#proving(async () => {
       const proof = await this.#prover.prove(checkedProverInputs(inputs), context);

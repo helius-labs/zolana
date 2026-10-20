@@ -429,10 +429,9 @@ export function prepareMerge(
     ...(ringRegistry === undefined
       ? {}
       : {
-          // The TypeScript builder merges registered members only, the anonymous flag stays clear.
           ringRegistry: {
             root: bytesField(ringRegistry.root, "member registry root"),
-            anonymous: false,
+            anonymous: ringRegistry.anonymous === true,
           },
         }),
     outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
@@ -453,15 +452,7 @@ export function prepareMerge(
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
-    ...(ringRegistry === undefined
-      ? {}
-      : {
-          memberRegistryRoot: asField(bytesField(ringRegistry.root, "member registry root")),
-          registeredCiphertextHash: asField(
-            bytesField(ringRegistry.key.ctHash, "registered ciphertext hash"),
-          ),
-          memberRecord: ringRegistry.key,
-        }),
+    ...(ringRegistry === undefined ? {} : mergeRegistryInputs(ringRegistry)),
   });
   return Object.freeze({
     inputs: Object.freeze({
@@ -530,6 +521,25 @@ export function prepareMerge(
       });
     },
   });
+}
+
+/** The anonymous flag replaces the sealed key hash. */
+function mergeRegistryInputs(
+  registry: RingMergeRegistryProof,
+): Pick<
+  PreparedMergeInputs,
+  "memberRegistryRoot" | "registeredCiphertextHash" | "memberRecord" | "anonymous"
+> {
+  const memberRegistryRoot = asField(bytesField(registry.root, "member registry root"));
+  if (registry.anonymous === true)
+    return { memberRegistryRoot, memberRecord: registry.record, anonymous: true };
+  return {
+    memberRegistryRoot,
+    registeredCiphertextHash: asField(
+      bytesField(registry.key.ctHash, "registered ciphertext hash"),
+    ),
+    memberRecord: registry.key,
+  };
 }
 
 function validateMergeTree(prepared: PreparedMerge, tree: Address): void {

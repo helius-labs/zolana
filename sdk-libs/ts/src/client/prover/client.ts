@@ -22,7 +22,7 @@ import {
   MEMBER_REGISTRY_HEIGHT,
   shareMemberSubtree,
 } from "../../interface/member-registry.js";
-import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
+import { ANONYMOUS_MERGE_WIDTHS, RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { validateRingPolicyShape, type Shape } from "../../interface/shape.js";
@@ -37,6 +37,8 @@ import {
   SHORT_AUDIT_MIN_INPUTS,
 } from "../../keypair/audit.js";
 import { RING_ANONYMOUS_PLAINTEXT_LENGTH } from "../../transaction/serialization/codecs.js";
+import { mergeMintChunks } from "../../transaction/serialization/merge.js";
+import { rightAlign } from "../../interface/merge-utils.js";
 
 import { InterfaceError } from "../../interface/errors.js";
 import { wireDecoder } from "../../interface/decode.js";
@@ -53,6 +55,7 @@ import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
 import { ClientError } from "../error.js";
 import {
   addressBytes,
+  bigintToBytes,
   checkedBytes,
   field,
   checkedServiceUrl,
@@ -88,6 +91,7 @@ import type {
   CustomRingAnonymousIdentities,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
+  CustomRingMergeAnonymousProofRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
   CustomRingPolicyProofRequest,
@@ -387,6 +391,18 @@ export class ProverClient {
   ): Promise<Proof> {
     const body = JSON.stringify(customRingDepositProofRequest(inputs));
     const key = provingKeyFor({ circuit: "custom-ring-deposit" });
+    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
+  }
+
+  async proveCustomRingMergeAnonymous(
+    inputs: CustomRingMergeAnonymousProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    const body = JSON.stringify(customRingMergeAnonymousProofRequest(inputs));
+    const key = provingKeyFor({
+      circuit: "custom-ring-merge-anonymous",
+      nInputs: inputs.inputs.length,
+    });
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -792,17 +808,23 @@ function mergeProverRequest(
 ): ProverRequestBody {
   checkMergeRingData(inputs.inputs, inputs.output, inputs.outputRingDataHash);
   const ring = mergeCircuit(inputs) === "merge-ring";
+  const anonymous = inputs.anonymous === true;
   const registry =
     inputs.memberRegistryRoot !== undefined &&
-    inputs.registeredCiphertextHash !== undefined &&
-    inputs.memberRecord !== undefined
+    inputs.memberRecord !== undefined &&
+    anonymous === (inputs.registeredCiphertextHash === undefined)
       ? {
           memberRegistryRoot: hex(inputs.memberRegistryRoot, "memberRegistryRoot"),
-          registeredCiphertextHash: hex(
-            inputs.registeredCiphertextHash,
-            "registeredCiphertextHash",
-          ),
+          ...(inputs.registeredCiphertextHash === undefined
+            ? {}
+            : {
+                registeredCiphertextHash: hex(
+                  inputs.registeredCiphertextHash,
+                  "registeredCiphertextHash",
+                ),
+              }),
           memberRecord: registryKeyJson(inputs.memberRecord),
+          ...(anonymous ? { anonymous } : {}),
         }
       : undefined;
   if (ring !== (registry !== undefined)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -1342,6 +1364,69 @@ function subjectJson(
     lowLists: u64Json(subject.lowLists, "lowLists"),
     lowEscrow: hex32(subject.lowEscrow, "lowEscrow"),
   };
+}
+
+/** Mirrors Rust `MergeAnonymousBody`. */
+export function customRingMergeAnonymousProofRequest(
+  input: CustomRingMergeAnonymousProofRequest,
+): Readonly<Record<string, unknown>> {
+  if (!Array.isArray(input.inputs) || !ANONYMOUS_MERGE_WIDTHS.includes(input.inputs.length))
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  const nullifierSecret = checkedBytes(input.nullifierSecret, 32, "nullifierSecret");
+  if (nullifierSecret[0] !== 0) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  try {
+    X25519Keypair.fromBytes(input.ephemeralSecret).destroy();
+  } catch {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const slots = input.inputs.map((slot) => [
+    slot.domain,
+    slot.treeId,
+    slot.amount,
+    slot.blinding,
+    slot.ringDataHash,
+  ]);
+  for (const value of [
+    input.publicInputHash,
+    input.privateTxHash,
+    input.outputUtxoHash,
+    input.firstNullifier,
+    input.ringProgramId,
+    input.memberRegistryRoot,
+    input.outputTreeId,
+    input.outputRingDataHash,
+    ...slots.flat(),
+  ]) {
+    if (!isCanonicalField(value)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  return Object.freeze({
+    circuitType: `custom-ring-merge-anonymous-${String(input.inputs.length)}`,
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    privateTxHash: hex32(input.privateTxHash, "privateTxHash"),
+    outputUtxoHash: hex32(input.outputUtxoHash, "outputUtxoHash"),
+    firstNullifier: hex32(input.firstNullifier, "firstNullifier"),
+    ringProgramId: hex32(input.ringProgramId, "ringProgramId"),
+    memberRegistryRoot: hex32(input.memberRegistryRoot, "memberRegistryRoot"),
+    auditorPk: auditorPkHex(input.auditorPublicKey),
+    salt: hex32(rightAlign(checkedBytes(input.salt, 16, "salt")), "salt"),
+    ephSk: hex32(input.ephemeralSecret, "ephSk"),
+    disclosureKey: hex32(input.disclosureKey, "disclosureKey"),
+    ownerKey: hex32(input.ownerKey, "ownerKey"),
+    nullifierSecret: bytesHex(nullifierSecret),
+    mintChunks: mergeMintChunks(input.mint).map((chunk) =>
+      hex32(bigintToBytes(chunk, "mintChunks"), "mintChunks"),
+    ),
+    inputs: input.inputs.map((slot) => ({
+      domain: hex32(slot.domain, "domain"),
+      treeId: hex32(slot.treeId, "treeId"),
+      amount: hex32(slot.amount, "amount"),
+      blinding: hex32(slot.blinding, "blinding"),
+      ringDataHash: hex32(slot.ringDataHash, "ringDataHash"),
+    })),
+    outputTreeId: hex32(input.outputTreeId, "outputTreeId"),
+    outputRingDataHash: hex32(input.outputRingDataHash, "outputRingDataHash"),
+    memberRecord: registryKeyJson(input.memberRecord),
+  });
 }
 
 function hex32(bytes: Uint8Array, field: string): string {

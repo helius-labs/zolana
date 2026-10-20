@@ -13,7 +13,18 @@ import { describe, expect, it, vi } from "vitest";
 import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
 import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
-import { mergeProverRequestBody } from "../src/client/prover/client.js";
+import {
+  customRingMergeAnonymousProofRequest,
+  mergeProverRequestBody,
+} from "../src/client/prover/client.js";
+import { decodeIndexedInputs } from "../src/client/prover/indexed.js";
+import { Reader, addressBytes } from "../src/interface/internal.js";
+import { encodeMergeTransactInstructionData } from "../src/interface/codecs/index.js";
+import {
+  openRingMergeDisclosure,
+  readRingMergeDisclosure,
+  ringMergeAnonymousPublicInputHash,
+} from "../src/ring/merge-disclosure.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import {
   treeAddress,
@@ -43,9 +54,23 @@ import { approveUnattended, intentHash } from "../src/transaction/wallet/intent.
 import { AssetRegistry } from "../src/transaction/asset.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
 import { buildRingMergeTransaction } from "../src/ring/merge.js";
-import type { MergeAssembler } from "../src/client/ports.js";
+import type {
+  MergeAssembler,
+  RingMemberRecordResponse,
+  RingMergeClient,
+  RingMergeRegistryProof,
+} from "../src/client/ports.js";
 import { BLOCKHASH, kitReads, transactionsPage } from "./helpers/clients.js";
-import { oneMemberRegistry, memberRegistryRootData } from "./helpers/member-registry.js";
+import {
+  firstInsertion,
+  oneMemberRegistry,
+  memberRegistryRootData,
+} from "./helpers/member-registry.js";
+import {
+  MEMBER_REGISTRY_EMPTY_ROOT,
+  MEMBER_REGISTRY_FIELD_MAX,
+  verifyMemberRegistryInsert,
+} from "../src/ring/member-registry-tree.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { memberOfIdentity } from "../src/ring/policy.js";
 import { auditRingMerges } from "../src/ring/audit-merge.js";
@@ -174,8 +199,11 @@ function ringWallet(amounts: readonly bigint[], hashes: readonly Bytes32[] = [])
   });
   return wallet;
 }
-function provenMerge(prepared: PreparedMerge) {
-  return prepareMerge(prepared, treeAddress(7), undefined, mergeRegistryProof)
+function provenMerge(
+  prepared: PreparedMerge,
+  registry: RingMergeRegistryProof = mergeRegistryProof,
+) {
+  return prepareMerge(prepared, treeAddress(7), undefined, registry)
     .finish({
       slot: { id: 7, utxoRoot: field(1), nullifierRoot: field(2) },
       utxoRootIndex: 0,
@@ -183,17 +211,56 @@ function provenMerge(prepared: PreparedMerge) {
     })
     .instructionData({ a: field(0), b: new Uint8Array(128) as Bytes128, c: field(0) });
 }
+/** An anonymous member's record, enrolled with no escrowed key. */
+const anonymousRegistry = (() => {
+  const member = memberOfIdentity(owner.signingPublicKey().ownerProofInputHash());
+  const insertion = firstInsertion(member);
+  const root = verifyMemberRegistryInsert({
+    root: MEMBER_REGISTRY_EMPTY_ROOT,
+    appendIndex: 1n,
+    member,
+    lists: 0n,
+    escrowKey: field(0),
+    lowMember: insertion.lowMember,
+    lowNext: insertion.lowNext,
+    lowLists: 0n,
+    lowEscrowKey: insertion.lowKeyHash,
+    lowIndex: insertion.lowIndex,
+    lowProof: insertion.lowProof,
+    newProof: insertion.newProof,
+  });
+  const entry: RingMemberRecordResponse = {
+    ...mergeRegistry.entry,
+    root,
+    record: {
+      member,
+      next: MEMBER_REGISTRY_FIELD_MAX,
+      lists: 0n,
+      escrowKey: field(0),
+      ephemeralPublicKey: null,
+      ciphertext: null,
+    },
+    path: insertion.newProof,
+  };
+  return { root, entry };
+})();
+
 function ringMergeParams({
   proveMerge,
   wallet,
   keys,
   proofDataSource,
+  anonymous = false,
+  proveCustomRingMergeAnonymous = vi.fn(),
 }: Readonly<{
   proveMerge: MergeAssembler["proveMerge"];
   wallet: Wallet;
   keys: LocalKeys;
   proofDataSource: "client" | "prover";
+  anonymous?: boolean;
+  proveCustomRingMergeAnonymous?: RingMergeClient["proveCustomRingMergeAnonymous"];
 }>) {
+  const registryFixture = anonymous ? anonymousRegistry : mergeRegistry;
   return {
     client: {
       proofDataSource,
@@ -201,21 +268,35 @@ function ringMergeParams({
       treeId: 7,
       getAccount: async (address: Address) => {
         const [registry, bump] = await ringMemberRegistryRootPda(RING);
+        const [config, configBump] = await ringConfigPda(RING);
+        if (address === config)
+          return ownedAccount(
+            RING,
+            ringProgramConfigData({
+              authority: RING,
+              auditorPublicKey: mergeAuditor.publicKey().toBytes(),
+              bump: configBump,
+              hasPolicy: false,
+              keyEscrow: !anonymous,
+              anonymous,
+            }),
+          );
         return address === registry
           ? ownedAccount(
               RING,
               memberRegistryRootData({
-                root: mergeRegistry.root,
-                nextIndex: mergeRegistry.entry.nextIndex,
+                root: registryFixture.root,
+                nextIndex: registryFixture.entry.nextIndex,
                 bump,
-                cursor: mergeRegistry.entry.rootIndex,
+                cursor: registryFixture.entry.rootIndex,
               }),
             )
           : undefined;
       },
-      getRingMemberRecord: async () => mergeRegistry.entry,
+      getRingMemberRecord: async () => registryFixture.entry,
       getLatestBlockhash: async () => BLOCKHASH,
       proveMerge,
+      proveCustomRingMergeAnonymous,
     },
     ringProgramId: RING,
     wallet,
@@ -961,5 +1042,221 @@ describe("ring merge", () => {
       intentHash({ ...intent, ringProgramId: treeAddress(1) }),
     );
     expect(intentHash(intent)).not.toEqual(intentHash({ ...intent, outputTree: treeAddress(9) }));
+  });
+});
+
+describe("anonymous ring merge", () => {
+  const anonymousProof: RingMergeRegistryProof = {
+    root: anonymousRegistry.root,
+    record: {
+      next: anonymousRegistry.entry.record!.next,
+      lists: 0n,
+      escrowKey: field(0),
+      index: anonymousRegistry.entry.index,
+      path: anonymousRegistry.entry.path,
+    },
+    anonymous: true,
+  };
+
+  function ringInstruction(transaction: Awaited<ReturnType<typeof buildRingMergeTransaction>>) {
+    const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+    if (compiled.version !== 1) throw new Error("expected V1");
+    const instruction = decompileTransactionMessage(compiled, {
+      lastValidBlockHeight: 1n,
+    }).instructions.find((candidate) => candidate.programAddress === RING);
+    if (instruction?.data === undefined) throw new Error("no ring instruction");
+    return instruction.data;
+  }
+
+  it("flags the SPP merge and drops the sealed key hash from its request", () => {
+    const inputs = [input(3n), input(5n)];
+    const prepared = merge(inputs).prepare();
+    const bodies = [mergeRegistryProof, anonymousProof].map((registry) => {
+      const local = prepareMerge(prepared, treeAddress(7), undefined, registry);
+      expect(decodeIndexedInputs(local.inputs).payload).toMatchObject(
+        registry === anonymousProof ? { anonymous: true } : {},
+      );
+      return {
+        flag: local.inputs.publicInputs[9],
+        body: mergeProverRequestBody(
+          assembleMergeWithProofs(
+            prepared,
+            inputs.map(spendProof),
+            treeAddress(7),
+            prepared.dummyNullifiers().map(nonInclusion),
+            undefined,
+            registry,
+          ).proverInputs,
+        ),
+      };
+    });
+    const [ordinary, anonymous] = bodies;
+    expect(ordinary?.flag).toBe(0n);
+    expect(ordinary?.body).toHaveProperty("registeredCiphertextHash");
+    expect(ordinary?.body).not.toHaveProperty("anonymous");
+    expect(anonymous?.flag).toBe(1n);
+    expect(anonymous?.body).not.toHaveProperty("registeredCiphertextHash");
+    expect(anonymous?.body).toMatchObject({
+      circuitType: "merge-ring",
+      anonymous: true,
+      memberRecord: { escrowKey: `0x${"0".repeat(64)}`, index: 1 },
+    });
+  });
+
+  it("opens the record without escrow, proves the disclosure and ships it in the instruction", async () => {
+    const wallet = ringWallet([3n, 5n]);
+    const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared, ringRegistry }) => {
+      const data = provenMerge(prepared, ringRegistry);
+      return { data, outputHash: data.outputUtxoHash };
+    });
+    const disclosureProof = new Uint8Array(192).fill(7);
+    const sent: Record<string, unknown>[] = [];
+    const proveCustomRingMergeAnonymous = vi.fn<RingMergeClient["proveCustomRingMergeAnonymous"]>(
+      async (request) => {
+        sent.push(customRingMergeAnonymousProofRequest(request));
+        return disclosureProof;
+      },
+    );
+    const keys = LocalKeys.fromKeypair(owner, { prove: vi.fn(), proveMerge: vi.fn() });
+    const nullifierKey = owner.nullifierKey();
+    try {
+      const params = ringMergeParams({
+        proveMerge,
+        wallet,
+        keys,
+        proofDataSource: "client",
+        anonymous: true,
+        proveCustomRingMergeAnonymous,
+      });
+      await expect(buildRingMergeTransaction(params)).rejects.toMatchObject({
+        code: "RING_BUILD_MERGE",
+        causeCode: "RING_ANONYMOUS_NULLIFIER_KEY_REQUIRED",
+      });
+      expect(wallet._reservationEntries()).toHaveLength(0);
+      const transaction = await buildRingMergeTransaction({ ...params, nullifierKey });
+      const registry = proveMerge.mock.calls[0]?.[0].ringRegistry;
+      expect(registry).toEqual(anonymousProof);
+      const request = proveCustomRingMergeAnonymous.mock.calls[0]?.[0];
+      if (request === undefined) throw new Error("no disclosure request");
+      // The request's secrets are wiped once the proof is back.
+      expect(request.ephemeralSecret.every((byte) => byte === 0)).toBe(true);
+      expect(request.nullifierSecret.every((byte) => byte === 0)).toBe(true);
+      expect(sent[0]).toMatchObject({
+        circuitType: "custom-ring-merge-anonymous-8",
+        memberRegistryRoot: `0x${Buffer.from(anonymousRegistry.root).toString("hex")}`,
+        ringProgramId: `0x${Buffer.from(hashBytes(addressBytes(RING))).toString("hex")}`,
+        ownerKey: `0x${Buffer.from(owner.signingPublicKey().ed25519()).toString("hex")}`,
+      });
+      expect(sent[0]?.["inputs"]).toHaveLength(8);
+
+      const data = ringInstruction(transaction);
+      expect(data[0]).toBe(20);
+      expect(data[1]).toBe(anonymousRegistry.entry.rootIndex);
+      const reader = new Reader(data.slice(34));
+      const disclosure = readRingMergeDisclosure(reader);
+      if (disclosure === undefined) throw new Error("no disclosure");
+      expect(disclosure.proof).toEqual(disclosureProof);
+      expect(disclosure.fields).toHaveLength(13);
+      const prepared = proveMerge.mock.calls[0]?.[0].prepared;
+      if (prepared === undefined) throw new Error("no merge");
+      const spp = provenMerge(prepared, anonymousProof);
+      // Rust `CustomRingMergeIxData` wincode puts the SPP body after the disclosure.
+      expect(data.slice(34 + 1 + 192 + 33 + 32 + 1 + 32 * 13)).toEqual(
+        encodeMergeTransactInstructionData(spp),
+      );
+      expect(
+        `0x${Buffer.from(
+          ringMergeAnonymousPublicInputHash({
+            privateTxHash: spp.privateTxHash,
+            outputUtxoHash: spp.outputUtxoHash,
+            firstNullifier: spp.nullifiers[0]!,
+            ringId: hashBytes(addressBytes(RING)) as Bytes32,
+            memberRegistryRoot: anonymousRegistry.root,
+            auditorPublicKey: mergeAuditor.publicKey(),
+            disclosure,
+            salt: prepared.outputCiphertextSalt(),
+          }),
+        ).toString("hex")}`,
+      ).toBe(sent[0]?.["publicInputHash"]);
+      const opened = openRingMergeDisclosure(
+        mergeAuditor,
+        disclosure,
+        prepared.outputCiphertextSalt(),
+      );
+      expect(opened.amount).toBe(8n);
+      expect(opened.mint).toBe(SOL_MINT);
+      expect(opened.nullifierPublicKey).toEqual(owner.nullifierPublicKey());
+      expect(opened.inputCommitments.slice(0, 2)).toEqual(
+        prepared.inputs.slice(0, 2).map((spend) => spend.hash()),
+      );
+    } finally {
+      nullifierKey.destroy();
+      keys.destroy();
+    }
+  });
+
+  it("keeps the escrow path and an empty disclosure on an ordinary ring", async () => {
+    const wallet = ringWallet([3n, 5n]);
+    const proveMerge = vi.fn<MergeAssembler["proveMerge"]>(async ({ prepared, ringRegistry }) => {
+      const data = provenMerge(prepared, ringRegistry);
+      return { data, outputHash: data.outputUtxoHash };
+    });
+    const proveCustomRingMergeAnonymous = vi.fn<RingMergeClient["proveCustomRingMergeAnonymous"]>();
+    const keys = LocalKeys.fromKeypair(owner, { prove: vi.fn(), proveMerge: vi.fn() });
+    try {
+      const transaction = await buildRingMergeTransaction(
+        ringMergeParams({
+          proveMerge,
+          wallet,
+          keys,
+          proofDataSource: "client",
+          proveCustomRingMergeAnonymous,
+        }),
+      );
+      expect(proveMerge.mock.calls[0]?.[0].ringRegistry).toEqual(mergeRegistryProof);
+      expect(proveCustomRingMergeAnonymous).not.toHaveBeenCalled();
+      expect(ringInstruction(transaction)[34]).toBe(0);
+    } finally {
+      keys.destroy();
+    }
+  });
+
+  it("refuses a 52-slot anonymous merge before any proof", async () => {
+    const wallet = ringWallet(Array.from({ length: 25 }, (_, index) => BigInt(index + 1)));
+    const proveMerge = vi.fn<MergeAssembler["proveMerge"]>();
+    const proveCustomRingMergeAnonymous = vi.fn<RingMergeClient["proveCustomRingMergeAnonymous"]>();
+    const keys = LocalKeys.fromKeypair(owner, { prove: vi.fn(), proveMerge: vi.fn() });
+    const derive = vi.spyOn(keys, "derive");
+    const nullifierKey = owner.nullifierKey();
+    try {
+      const params = ringMergeParams({
+        proveMerge,
+        wallet,
+        keys,
+        proofDataSource: "client",
+        anonymous: true,
+        proveCustomRingMergeAnonymous,
+      });
+      const getRingMemberRecord = vi.fn(params.client.getRingMemberRecord);
+      await expect(
+        buildRingMergeTransaction({
+          ...params,
+          client: { ...params.client, getRingMemberRecord },
+          nullifierKey,
+          maxInputs: 50,
+        }),
+      ).rejects.toMatchObject({
+        code: "RING_BUILD_MERGE",
+        causeCode: "RING_ANONYMOUS_MERGE_TOO_WIDE",
+      });
+      expect(proveMerge).not.toHaveBeenCalled();
+      expect(proveCustomRingMergeAnonymous).not.toHaveBeenCalled();
+      expect(getRingMemberRecord).not.toHaveBeenCalled();
+      expect(derive).not.toHaveBeenCalled();
+      expect(wallet._reservationEntries()).toHaveLength(0);
+    } finally {
+      nullifierKey.destroy();
+      keys.destroy();
+    }
   });
 });

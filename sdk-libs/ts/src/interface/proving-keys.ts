@@ -222,6 +222,7 @@ export type ProvingKeyCircuit =
     }
   | { readonly circuit: "merge"; readonly nInputs: number }
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
+  | { readonly circuit: "custom-ring-merge-anonymous"; readonly nInputs: number }
   | {
       readonly circuit:
         | "custom-ring-policy-shaped"
@@ -278,6 +279,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
       return `merge_ring_${request.nInputs}_1.key`;
+    case "custom-ring-merge-anonymous":
+      return `custom_ring_merge_anonymous_${request.nInputs}.key`;
     case "custom-ring-policy-shaped":
     case "custom-ring-delegate-policy-shaped":
     case "custom-ring-policy-anonymous-shaped":

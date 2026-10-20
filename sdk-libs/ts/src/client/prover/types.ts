@@ -118,8 +118,11 @@ export interface MergeInputs {
   readonly ringProgramId: Field;
   /** A ring merge proves a registered, auditor-recoverable owner key. Absent on plain merges. */
   readonly memberRegistryRoot?: Field;
+  /** Absent exactly when `anonymous` is set. */
   readonly registeredCiphertextHash?: Field;
   readonly memberRecord?: CustomRingRecordWitness;
+  /** An anonymous ring escrows no key, its merge disclosure proves the output owner instead. */
+  readonly anonymous?: true;
 }
 
 export type ProverInputs =
@@ -422,6 +425,40 @@ export interface CustomRingDepositProofRequest {
   readonly auditorPublicKey: Uint8Array;
   /** Present exactly when the ring escrows nullifier keys. */
   readonly memberRegistryRoot?: Bytes32;
+}
+
+/** Rust `ANONYMOUS_MERGE_WIDTHS`, the merge widths whose disclosure still fits one v1 transaction. */
+export const ANONYMOUS_MERGE_WIDTHS: readonly number[] = Object.freeze([8, 24]);
+
+/** One SPP merge slot as the disclosure circuit reopens it, Rust `MergeSlot`. */
+export interface CustomRingMergeSlot {
+  readonly domain: Bytes32;
+  readonly treeId: Bytes32;
+  readonly amount: Bytes32;
+  readonly blinding: Bytes32;
+  readonly ringDataHash: Bytes32;
+}
+
+/** Rust `MergeAnonymousBody`, one slot per SPP merge input. */
+export interface CustomRingMergeAnonymousProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly privateTxHash: Bytes32;
+  readonly outputUtxoHash: Bytes32;
+  readonly firstNullifier: Bytes32;
+  /** `hashBytes` of the ring program id. */
+  readonly ringProgramId: Bytes32;
+  readonly memberRegistryRoot: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+  readonly salt: Bytes16;
+  readonly ephemeralSecret: Bytes32;
+  readonly disclosureKey: Bytes32;
+  readonly ownerKey: Bytes32;
+  readonly nullifierSecret: Bytes32;
+  readonly mint: Address;
+  readonly inputs: readonly CustomRingMergeSlot[];
+  readonly outputTreeId: Bytes32;
+  readonly outputRingDataHash: Bytes32;
+  readonly memberRecord: CustomRingRecordWitness;
 }
 
 export interface CustomRingRegisterKeyProofRequest {
