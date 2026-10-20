@@ -6,6 +6,7 @@ import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "../asset.js";
+import type { AnonymousRingReport } from "./anonymous.js";
 
 export interface AssetBalance {
   readonly assetId: bigint;
@@ -129,6 +130,8 @@ export interface SyncReport {
    * `unknownAssetIds` is non-empty.
    */
   readonly unknownAssetFields: readonly Bytes32[];
+  /** Present when the sync was given an `AnonymousRingState`. */
+  readonly anonymousRing?: AnonymousRingReport;
 }
 
 /**

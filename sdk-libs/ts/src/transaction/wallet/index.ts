@@ -4,9 +4,19 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
+  type RingTagKeys,
+  type RingTagRequest,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "./keys.js";
+export {
+  AnonymousTagRoutes,
+  type AnonymousNote,
+  type AnonymousRingNote,
+  type AnonymousRingReport,
+  type AnonymousRingState,
+  type AnonymousStream,
+} from "./anonymous.js";
 export {
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,

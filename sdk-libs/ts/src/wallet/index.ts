@@ -6,6 +6,8 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
+  type RingTagKeys,
+  type RingTagRequest,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
@@ -58,6 +60,14 @@ export {
   type SyncWalletConfig,
   type SyncWalletInput,
 } from "./sync.js";
+export { ADDRESS_GAP, DECRYPTIONS_PER_INDEX } from "./anonymous-sync.js";
+export type {
+  AnonymousRingNote,
+  AnonymousRingReport,
+  AnonymousRingState,
+  AnonymousStream,
+} from "../transaction/wallet/anonymous.js";
+export { DEFAULT_TAG_WINDOW, TagStream, TagWindow } from "./tag-stream.js";
 export {
   loadPersistedWallet,
   savePersistedWallet,

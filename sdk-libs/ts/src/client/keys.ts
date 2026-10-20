@@ -7,6 +7,8 @@ import {
   LocalShieldedKeys,
   type DecryptRequest,
   type DeriveRequest,
+  type RingTagKeys,
+  type RingTagRequest,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
@@ -30,7 +32,7 @@ import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
  * same two things an enclave-backed implementation does behind its transport.
  * Application code takes `WalletKeys` and never learns which one it holds.
  */
-export class LocalKeys implements WalletKeys {
+export class LocalKeys implements WalletKeys, RingTagKeys {
   readonly #keys: LocalShieldedKeys;
   readonly #proofs: ProofService;
 
@@ -86,6 +88,10 @@ export class LocalKeys implements WalletKeys {
 
   transactionKeys(requests: readonly TransactionKeyRequest[]): Promise<readonly ViewingKey[]> {
     return this.#keys.transactionKeys(requests);
+  }
+
+  ringViewTags(requests: readonly RingTagRequest[]): Promise<readonly Bytes32[]> {
+    return this.#keys.ringViewTags(requests);
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {

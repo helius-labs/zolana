@@ -47,6 +47,27 @@ export interface TransactionKeyRequest {
   readonly firstNullifier: Bytes32;
 }
 
+export type RingTagRequest =
+  | Readonly<{
+      kind: "inbox";
+      viewingPublicKey: X25519PublicKey;
+      addressIndex: number;
+      j: bigint;
+    }>
+  | Readonly<{
+      kind: "pair";
+      viewingPublicKey: X25519PublicKey;
+      counterparty: X25519PublicKey;
+      k: bigint;
+    }>
+  | Readonly<{ kind: "deposit"; viewingPublicKey: X25519PublicKey; n: bigint }>
+  | Readonly<{
+      kind: "change";
+      viewingPublicKey: X25519PublicKey;
+      firstNullifier: Bytes32;
+      slot: number;
+    }>;
+
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
  * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
@@ -97,13 +118,20 @@ export interface ShieldedKeys {
   ): Promise<readonly ViewingKey[]>;
 }
 
+export interface RingTagKeys extends ShieldedKeys {
+  ringViewTags(
+    requests: readonly RingTagRequest[],
+    context?: RequestContext,
+  ): Promise<readonly Bytes32[]>;
+}
+
 const addressEncoder = getAddressEncoder();
 
 /**
  * In-process keys. The counterpart of the enclave-backed implementation: the
  * same interface answered from a `ViewingKey` and a `NullifierKey` held here.
  */
-export class LocalShieldedKeys implements ShieldedKeys {
+export class LocalShieldedKeys implements RingTagKeys {
   readonly #address: ShieldedAddress;
   /** Current first, retired after; `viewingPublicKeys` reports them in this order. */
   readonly #viewing: readonly ViewingKey[];
@@ -226,6 +254,10 @@ export class LocalShieldedKeys implements ShieldedKeys {
     return keys;
   }
 
+  async ringViewTags(requests: readonly RingTagRequest[]): Promise<readonly Bytes32[]> {
+    return requests.map((request) => this.ringViewTag(request));
+  }
+
   /** Synchronous forms, for callers that hold the keys in-process. */
   decryptOne(request: DecryptRequest): Uint8Array {
     checkDecryptRequest(request);
@@ -258,6 +290,20 @@ export class LocalShieldedKeys implements ShieldedKeys {
 
   transactionKey(request: TransactionKeyRequest): ViewingKey {
     return this.#viewingKey(request.viewingPublicKey).transactionViewingKey(request.firstNullifier);
+  }
+
+  ringViewTag(request: RingTagRequest): Bytes32 {
+    const viewing = this.#viewingKey(request.viewingPublicKey);
+    switch (request.kind) {
+      case "inbox":
+        return viewing.inboxSecret(request.addressIndex).viewTag(request.j);
+      case "pair":
+        return viewing.recipientSharedViewTag(request.counterparty, request.k);
+      case "deposit":
+        return viewing.senderViewTag(request.n);
+      case "change":
+        return viewing.ringChangeViewTag(request.firstNullifier, request.slot);
+    }
   }
 
   /**

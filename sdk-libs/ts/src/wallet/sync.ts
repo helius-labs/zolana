@@ -25,6 +25,7 @@ import { decodeOutputData } from "../transaction/serialization/codecs.js";
 import {
   checkKeysIdentity,
   checkViewingPublicKeys,
+  type RingTagKeys,
   type ShieldedKeys,
 } from "../transaction/wallet/keys.js";
 import {
@@ -35,8 +36,10 @@ import {
 } from "../transaction/wallet/state.js";
 import { decryptTransactions } from "../transaction/wallet/sync.js";
 
+import { AnonymousStreams, type AnonymousRingState } from "./anonymous-sync.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
+import { readChunk } from "./paging.js";
 import {
   advanceSessionCursors,
   beginSyncSession,
@@ -261,22 +264,6 @@ function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string
   ].join("|");
 }
 
-function checkedNextCursor(
-  method: string,
-  cursor: Uint8Array | undefined,
-  seen: Set<string>,
-): Uint8Array | undefined {
-  if (cursor === undefined) return undefined;
-  const key = bytesKey(cursor);
-  if (seen.has(key)) {
-    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method, path: "$.nextCursor" },
-    });
-  }
-  seen.add(key);
-  return cursor;
-}
-
 /**
  * Deposits are ordered by their leaf position first so that replaying a sync
  * inserts them in tree order regardless of which page surfaced them.
@@ -314,39 +301,6 @@ interface CollectByTagsInput {
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this group of tags was read to last sync, or undefined for never. */
   readonly from: Uint8Array | undefined;
-}
-
-/** One page of a cursor-ordered stream, reduced to what paging needs. */
-interface Page {
-  readonly nextCursor?: Uint8Array | undefined;
-  /** Where the server says its scan reached on a terminal page. */
-  readonly scannedThrough?: Uint8Array | undefined;
-}
-
-/**
- * Reads one chunk until the stream offers no further cursor.
- *
- * A cursor means there may be more, whatever the page size. Stopping on a short
- * page would make the non-advancing-cursor guard unreachable. Mirrors the Rust
- * SDK, which must agree or the two clients read different amounts.
- */
-async function readChunk(
-  method: string,
-  start: Uint8Array | undefined,
-  request: (cursor: Uint8Array | undefined) => Promise<Page>,
-): Promise<Uint8Array | undefined> {
-  let cursor = start;
-  let furthest = start;
-  // Seeded with the resume point, so an indexer handing back the cursor it was
-  // given trips the guard immediately rather than after a wasted round trip.
-  const seenCursors = new Set<string>(start === undefined ? [] : [bytesKey(start)]);
-  for (;;) {
-    const page = await request(cursor);
-    furthest = page.scannedThrough ?? page.nextCursor ?? furthest;
-    const next = checkedNextCursor(method, page.nextCursor, seenCursors);
-    if (next === undefined) return furthest;
-    cursor = next;
-  }
 }
 
 async function collectShieldedTransactions(
@@ -478,12 +432,15 @@ async function collectShieldedTransactionsByNullifiers(
   });
 }
 
-export interface SyncWalletInput {
-  readonly wallet: Wallet;
-  readonly keys: ShieldedKeys;
-  readonly client: SyncClient;
-  readonly config?: SyncWalletConfig;
-}
+export type SyncWalletInput = Readonly<{
+  wallet: Wallet;
+  client: SyncClient;
+  config?: SyncWalletConfig;
+}> &
+  (
+    | Readonly<{ keys: ShieldedKeys; anonymousRing?: undefined }>
+    | Readonly<{ keys: RingTagKeys; anonymousRing: AnonymousRingState }>
+  );
 
 export async function syncWallet(
   input: SyncWalletInput,
@@ -504,20 +461,14 @@ export async function runLockedWalletSync<T>(
 ): Promise<T> {
   await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
-  return input.wallet._withSyncLock(async () =>
-    after(await runWalletSync(input, input.keys, context)),
-  );
+  return input.wallet._withSyncLock(async () => after(await runWalletSync(input, context)));
 }
 
 async function runWalletSync(
-  input: Readonly<{
-    wallet: Wallet;
-    client: SyncClient;
-    config?: SyncWalletConfig;
-  }>,
-  keys: ShieldedKeys,
+  input: SyncWalletInput,
   context?: RequestContext,
 ): Promise<SyncReport> {
+  const { keys } = input;
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
@@ -648,6 +599,7 @@ async function runWalletSync(
     const followUpNullifiers = walletQueryNullifiers(session.staging).filter(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
+    for (const nullifier of followUpNullifiers) queriedNullifiers.add(bytesKey(nullifier));
     const beforeFollowUp = transactions.size;
     await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
@@ -675,6 +627,70 @@ async function runWalletSync(
           });
         }
       }
+    }
+
+    // Exact lookups with no cursor, every sync walks the streams from the start.
+    if (input.anonymousRing !== undefined) {
+      const streams = new AnonymousStreams(
+        input.keys,
+        input.keys.address().viewingPublicKey,
+        input.anonymousRing,
+      );
+      for (;;) {
+        const tags = await streams.nextWindows(context);
+        const windowRows = new Map<string, IndexedShieldedTransaction>();
+        const windowDeposits = new Map<string, IndexedShieldedTransaction>();
+        for (let offset = 0; offset < tags.length; offset += chunkSize) {
+          const chunk = tags.slice(offset, offset + chunkSize);
+          const collect = (
+            collector: typeof collectShieldedTransactions,
+            out: Map<string, IndexedShieldedTransaction>,
+          ) =>
+            collector(
+              { indexer: input.client, chunk, pageLimit, nextRpcConfig, out, from: undefined },
+              context,
+            );
+          await collect(collectShieldedTransactions, windowRows);
+          await collect(collectProoflessDeposits, windowDeposits);
+        }
+        streams.observe([...windowRows.values(), ...windowDeposits.values()]);
+        let moved = false;
+        for (const [key, tx] of windowRows) {
+          if (!transactions.has(key)) {
+            transactions.set(key, tx);
+            moved = true;
+          }
+        }
+        for (const [key, tx] of windowDeposits) {
+          if (!deposits.has(key)) {
+            deposits.set(key, tx);
+            moved = true;
+          }
+        }
+        const owned = new Set(session.staging.utxos().map((entry) => bytesKey(entry.nullifier)));
+        if (await streams.routeChange(transactions.values(), owned, context)) moved = true;
+        if (moved) {
+          ordered = orderedTransactions();
+          report = await decryptTransactions({
+            wallet: session.staging,
+            keys,
+            transactions: ordered,
+            config: decryptConfig,
+            anonymous: streams.routes,
+            context,
+          });
+          streams.record();
+        }
+        const newNullifiers = walletQueryNullifiers(session.staging).filter(
+          (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
+        );
+        for (const nullifier of newNullifiers) queriedNullifiers.add(bytesKey(nullifier));
+        const beforeSpends = transactions.size;
+        await scanNullifiers(newNullifiers);
+        if (transactions.size !== beforeSpends) moved = true;
+        if (!moved && streams.isDone()) break;
+      }
+      report = Object.freeze({ ...report, anonymousRing: streams.finish() });
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
     // advance the cursors past it and lose the UTXO until a full rescan.

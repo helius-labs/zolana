@@ -21,6 +21,7 @@ import {
   decodeAnonymousSender,
   decodePlaintextTransfer,
   decodeProofless,
+  decodeRingAnonymous,
   decodeSplitBundle,
   decodeConfidential,
   decryptConfidentialAsSender,
@@ -38,6 +39,7 @@ import {
 } from "../serialization/ring-deposit.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
 import { Utxo } from "../utxo.js";
+import type { AnonymousTagRoutes } from "./anonymous.js";
 import { KeyMemo } from "./key-memo.js";
 import {
   LocalShieldedKeys,
@@ -256,6 +258,7 @@ class SyncPass {
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
+  readonly #anonymousOpened = new Map<string, number>();
   readonly #unknownAssetsBySite = new Map<
     string,
     Readonly<{ ids: Set<bigint>; fields: Map<string, Bytes32> }>
@@ -1066,6 +1069,87 @@ class SyncPass {
     return this.#keys.decrypt(request);
   }
 
+  /** Unauthenticated cipher, only the commitment recompute proves the routed key sealed the output. */
+  processAnonymousRoutes(index: TagIndex, routes: AnonymousTagRoutes): void {
+    for (const [tag, route] of routes.entries()) {
+      for (const site of index.recipientSites.get(tag) ?? []) {
+        if (this.#isRingAnonymous(site)) {
+          this.#decodeRingAnonymousSlot(route.viewingPublicKey, site, routes);
+        } else if (route.stream.kind === "deposit") {
+          this.decodeSlot(route.viewingPublicKey, site);
+        }
+      }
+    }
+  }
+
+  #isRingAnonymous(site: Site): boolean {
+    const slot = this.#transactions[site.transaction]?.outputSlots[site.slot];
+    if (slot === undefined) return false;
+    try {
+      const frame = readOutputData(slot.payload);
+      return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringAnonymous;
+    } catch {
+      return false;
+    }
+  }
+
+  #decodeRingAnonymousSlot(
+    viewingPublicKey: X25519PublicKey,
+    site: Site,
+    routes: AnonymousTagRoutes,
+  ): void {
+    const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
+    if (this.#processedSlots.has(siteKey)) return;
+    const tx = this.#transactions[site.transaction];
+    const slot = tx?.outputSlots[site.slot];
+    const route = tx === undefined || slot === undefined ? undefined : routes.routeOf(slot.viewTag);
+    if (tx === undefined || slot === undefined || route === undefined) {
+      this.undecryptableCandidates++;
+      return;
+    }
+    let frame: ReturnType<typeof readOutputData>;
+    try {
+      frame = readOutputData(slot.payload);
+    } catch {
+      this.undecryptableCandidates++;
+      return;
+    }
+    const tag = hex(slot.viewTag);
+    const opened = this.#anonymousOpened.get(tag) ?? 0;
+    if (!routes.allows(opened)) {
+      routes.capped(slot.viewTag);
+      return;
+    }
+    this.#anonymousOpened.set(tag, opened + 1);
+    const decrypted = this.#decryptSlot(viewingPublicKey, tx, frame.body, site.slot, siteKey);
+    if (decrypted === undefined) return;
+    let utxo: Utxo;
+    let pairPublicKey: X25519PublicKey;
+    // An unknown asset is a failed match, spam under a public tag never stalls a sync.
+    try {
+      const plaintext = decodeRingAnonymous(decrypted);
+      pairPublicKey = plaintext.pairPublicKey;
+      utxo = confidentialUtxo(plaintext.output, this.#owner, this.#assets);
+    } catch {
+      this.undecryptableCandidates++;
+      return;
+    }
+    const { outputContext } = slot;
+    if (!equal(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), outputContext.hash)) {
+      this.undecryptableCandidates++;
+      return;
+    }
+    if (this.#store(utxo, outputContext, undefined, undefined) === "pending") return;
+    this.#processedSlots.add(siteKey);
+    routes.found({
+      viewTag: copy(slot.viewTag) as Bytes32,
+      utxoHash: copy(outputContext.hash) as Bytes32,
+      pairPublicKey,
+      stream: route.stream,
+    });
+    if (route.stream.kind !== "change") this.#recordReceived(tx, site.slot, pairPublicKey, utxo);
+  }
+
   /**
    * Open only the two stable discovery families: this viewing key's bootstrap
    * tag and the shielded identity's signing tag.
@@ -1096,6 +1180,8 @@ export async function decryptTransactions(
     keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
+    /** Scheme-9 slots under these tags open with the routed key, no other scheme-9 slot opens. */
+    anonymous?: AnonymousTagRoutes | undefined;
     /** Forwarded to every batch the key holder answers. */
     context?: RequestContext | undefined;
   }>,
@@ -1127,6 +1213,7 @@ export async function decryptTransactions(
         selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
       });
       pass.processStableTags({ identityTag, index });
+      if (input.anonymous !== undefined) pass.processAnonymousRoutes(index, input.anonymous);
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
         await memo.resolve(input.context);

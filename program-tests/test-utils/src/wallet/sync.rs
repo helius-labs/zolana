@@ -12,18 +12,21 @@ use zolana_event_parser::{decode_encrypted_ring_deposit_output_data, decode_outp
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
+    AssetBalance, LocalShieldedKeys, OutputContext, OutputSlot, ShieldedTransaction,
+    TransactionError,
 };
 
 use crate::wallet::{
-    CursorStream, PrivateTransaction, SyncReport, SyncWalletAuthority, Wallet, WalletAuthority,
-    WalletSyncMaterial, DEFAULT_TAG_WINDOW,
+    CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, SyncWalletAuthority, Wallet,
+    WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
 use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
     rpc::{IndexerPollConfig, IndexerRpcConfig},
+    AnonymousStream, UtxoScan,
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -264,8 +267,86 @@ where
     if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
+    report.stored_utxos += scan_anonymous_ring(wallet, &material, indexer, config)?;
 
     Ok(report)
+}
+
+fn scan_anonymous_ring<I: Rpc + Sync>(
+    wallet: &mut Wallet,
+    material: &WalletSyncMaterial,
+    indexer: &I,
+    config: SyncWalletConfig,
+) -> Result<usize, ClientError> {
+    let _t = timing::Phase::start("scan_anonymous_ring", 0);
+    let keys = LocalShieldedKeys::new(
+        material.identity,
+        material.viewing_keys.clone(),
+        material.nullifier_key.clone(),
+    )?;
+    let mut scan =
+        UtxoScan::new(&keys, &wallet.registry).with_anonymous_ring(wallet.anonymous_ring.clone());
+    if let Some((ring_program_id, deposit_payload)) = wallet.ring_deposit_payload {
+        scan = scan.with_ring_deposit_payload(ring_program_id, deposit_payload);
+    }
+    if let Some(indexer_config) = indexer_rpc_config(config) {
+        scan = scan.with_indexer_config(indexer_config);
+    }
+    let result = scan.fetch(indexer)?;
+    let Some(anonymous) = result.anonymous else {
+        return Ok(0);
+    };
+    wallet
+        .anonymous_ring
+        .known_counterparties
+        .extend(anonymous.new_counterparties);
+    wallet.anonymous_ring.issued_addresses = wallet
+        .anonymous_ring
+        .issued_addresses
+        .max(anonymous.used_addresses);
+    wallet.nullifiers.extend(
+        result
+            .history
+            .transactions
+            .iter()
+            .flat_map(|tx| tx.nullifiers.iter().copied()),
+    );
+    let mut stored = 0;
+    for note in anonymous.notes {
+        if wallet
+            .utxos
+            .iter()
+            .any(|held| held.utxo_hash == note.utxo_hash)
+        {
+            continue;
+        }
+        let Some(held) = result
+            .history
+            .utxos
+            .iter()
+            .find(|held| held.utxo_hash == note.utxo_hash)
+        else {
+            continue;
+        };
+        if !matches!(note.stream, AnonymousStream::Change { .. }) {
+            wallet.transactions.push(PrivateTransaction {
+                id: PrivateTransactionId {
+                    signature: held.tx_signature.to_string(),
+                    slot: held.slot,
+                    index: held.leaf_index,
+                },
+                kind: PrivateTransactionKind::PrivateTransfer,
+                direction: PrivateTransactionDirection::Inbound,
+                status: PrivateTransactionStatus::Confirmed,
+                asset: held.utxo.asset.asset,
+                amount: held.utxo.amount,
+                counterparty_viewing_pubkey: Some(note.pair_pk),
+            });
+        }
+        wallet.utxos.push(held.clone());
+        stored += 1;
+    }
+    Ok(stored)
 }
 
 pub async fn sync_wallet_async<A, I>(
@@ -1031,18 +1112,23 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
+    use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
     use zolana_interface::{
         event::{encode_output_data, ProoflessOutput},
         pda,
     };
-    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+    use zolana_keypair::{RingAddress, ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
             merge::MergeTransaction as MergePlan,
-            transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
+            transact::{
+                AnonymousViewTags, ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES,
+            },
         },
+        owner_utxo_hash,
         serialization::Proofless,
-        Address, AssetRegistry, Data, OwnerCx, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, Data, EncryptedScheme, Mint, OwnerCx, RingDepositPlaintext, Utxo,
+        UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
     use crate::wallet::{
@@ -2188,6 +2274,131 @@ mod tests {
             "history={:?}",
             wallet.private_transactions()
         );
+    }
+
+    #[test]
+    fn sync_wallet_finds_anonymous_ring_outputs_by_exact_tags() {
+        let alice = ed25519_keypair(3);
+        let bob = ed25519_keypair(5);
+        let ring = Address::new_from_array([42; 32]);
+        // Alice's funding is a ring deposit under her sender tag, the one note
+        // a fresh wallet of hers can reach without state.
+        let alice_address = alice.shielded_address().expect("alice address");
+        let mut blinding = [0u8; 32];
+        blinding[31] = 4;
+        let deposit = RingDepositPlaintext {
+            blinding,
+            utxo_data: None,
+            memo: None,
+            ring_data: Vec::new(),
+        };
+        let funded = deposit
+            .clone()
+            .into_utxo(alice.signing_pubkey(), Mint::SOL, 100, ring);
+        let mut input = input_utxo(funded, &alice);
+        input.ring_data_hash = Some([0; 32]);
+        let first_nullifier = input.nullifier;
+        let deposit_output = EncryptedRingDepositOutput {
+            owner_utxo_hash: owner_utxo_hash(
+                &alice_address.owner_hash().expect("owner hash"),
+                &blinding,
+            )
+            .expect("owner utxo hash"),
+            asset: *SOL_MINT.as_array(),
+            amount: 100,
+            data_hash: None,
+            ring_program_id: *ring.as_array(),
+            ring_data_hash: [0; 32],
+            encrypted: deposit
+                .encrypt(&alice_address.viewing_pubkey)
+                .expect("deposit ciphertext"),
+        };
+        let deposit_match = EncryptedUtxoMatch {
+            slot: 0,
+            tx_signature: signature_for_slot(0),
+            output_slot: OutputSlot {
+                view_tag: alice.get_sender_view_tag(0).expect("sender tag"),
+                output_context: OutputContext {
+                    hash: input.utxo_hash,
+                    tree_id: TEST_TREE_ID,
+                    leaf_index: 0,
+                },
+                payload: borsh::to_vec(&OutputDataEncoding::Encrypted(
+                    [
+                        &[EncryptedScheme::RingDeposit.as_byte()][..],
+                        &borsh::to_vec(&deposit_output).expect("deposit output"),
+                    ]
+                    .concat(),
+                ))
+                .expect("output data"),
+            },
+            tx_viewing_pk: None,
+            salt: None,
+        };
+        let mut transfer =
+            ConfidentialTransaction::new_with_ring(vec![input.clone()], Address::default(), ring)
+                .expect("ring transaction");
+        transfer
+            .transfer_sol(&bob.shielded_address().expect("bob address"), 30)
+            .expect("transfer");
+        let bob_ring_address = RingAddress {
+            recipient: bob.shielded_address().expect("bob address"),
+            ring_program_id: ring,
+            inbox_secret: bob.viewing_key.inbox_secret(0).expect("inbox secret"),
+        };
+        let proof_inputs = transfer
+            .encrypt_anonymous_with_viewing_key(
+                &alice.shielded_address().expect("alice address"),
+                &alice
+                    .viewing_key
+                    .get_transaction_viewing_key(&first_nullifier)
+                    .expect("tx key"),
+                &AnonymousViewTags::new(&alice.viewing_key)
+                    .with_inbox_recipient(&bob_ring_address, 0)
+                    .expect("inbox tag"),
+            )
+            .expect("encrypt");
+        let indexer = MockIndexer {
+            transactions: vec![signed_to_shielded_tx(proof_inputs, 1)],
+            matches: vec![deposit_match],
+            ..MockIndexer::default()
+        };
+
+        let mut bob_wallet = Wallet::new(
+            bob.shielded_address().expect("bob address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
+        sync_wallet(&mut bob_wallet, &local_authority(&bob), &indexer).expect("sync");
+        let amounts: Vec<_> = bob_wallet.unspent().map(|held| held.utxo.amount).collect();
+        assert_eq!(amounts, vec![30]);
+        let pair_pk = alice
+            .viewing_key
+            .pair_key(&bob.viewing_pubkey())
+            .expect("pair key")
+            .pubkey();
+        assert_eq!(bob_wallet.anonymous_ring.issued_addresses, 1);
+        assert!(bob_wallet
+            .anonymous_ring
+            .known_counterparties
+            .contains(&pair_pk));
+        assert_eq!(
+            bob_wallet
+                .transactions
+                .iter()
+                .map(|row| (row.direction, row.amount, row.counterparty_viewing_pubkey))
+                .collect::<Vec<_>>(),
+            vec![(PrivateTransactionDirection::Inbound, 30, Some(pair_pk))]
+        );
+
+        // A fresh wallet of the sender reaches the change through the deposit
+        // and the spend of its nullifier alone.
+        let mut wallet = Wallet::new(alice_address, AssetRegistry::default()).expect("wallet");
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync");
+        let amounts: Vec<_> = wallet.unspent().map(|held| held.utxo.amount).collect();
+        assert_eq!(amounts, vec![70]);
+        assert!(wallet.is_spent(&input));
+        assert!(wallet.anonymous_ring.known_counterparties.is_empty());
     }
 
     #[test]

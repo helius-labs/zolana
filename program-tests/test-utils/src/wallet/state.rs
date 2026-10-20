@@ -6,7 +6,7 @@ use zolana_transaction::{
     error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 
-pub use zolana_client::DEFAULT_TAG_WINDOW;
+pub use zolana_client::{AnonymousRingState, DEFAULT_TAG_WINDOW};
 pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +152,8 @@ pub struct Wallet {
     /// Per key, the position everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
     pub cursors: HashMap<CursorStream, Vec<u8>>,
+    /// Advanced by `sync_wallet`.
+    pub anonymous_ring: AnonymousRingState,
 }
 
 impl Wallet {
@@ -170,6 +172,7 @@ impl Wallet {
             nullifiers: HashSet::new(),
             last_synced: 0,
             cursors: HashMap::new(),
+            anonymous_ring: AnonymousRingState::default(),
         })
     }
 

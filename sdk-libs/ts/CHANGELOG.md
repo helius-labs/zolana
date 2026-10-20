@@ -164,6 +164,11 @@ Breaking
 
 Added
 
+- `syncWallet` given `anonymousRing: AnonymousRingState` and keys with `ringViewTags` walks the recipient's inbox, pair, deposit and change streams of an anonymous ring by exact tags, stores the scheme-9 notes whose commitments match, and returns `SyncReport.anonymousRing` with the notes, the new counterparties, the next index per stream and the addresses under spam.
+- `RingTagKeys` extends `ShieldedKeys` with `ringViewTags`, answered by `LocalShieldedKeys` and `LocalKeys`, and `RingTagRequest` names one inbox, pair, deposit or change tag.
+- `decryptTransactions` takes `anonymous: AnonymousTagRoutes` and opens a scheme-9 slot only under the key its tag is routed to, with `DECRYPTIONS_PER_INDEX` openings per tag.
+- `TagStream.firstFreeIndex` and `occupiedIndices` read a tag stream in `DEFAULT_TAG_WINDOW` sized windows against the indexer, an output nobody can open still occupies its index.
+- `WalletErrorCode` adds `WALLET_TAG_STREAM_EXHAUSTED` for a tag stream with no free index below 2^64.
 - `RingAddress` and `RingPaymentRequest` encode and parse the `zolana:` payment request a ring member shares off chain, with its checksum, amount, mint and label, and `InboxSecret.viewTag` gives a payer the tag of each first payment to that address.
 - `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.
 - `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the confidential fields followed by `pairPublicKey`, the payer's pseudonym toward the recipient.

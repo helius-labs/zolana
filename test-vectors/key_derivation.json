@@ -339,6 +339,16 @@
         "tag": "003f0e043160a00e0a3bd6f8985a527b1ec5c362bb3ce03d1da8bb79299c3b09"
       }
     ],
+    "shared_view_tags": [
+      {
+        "counter": "0",
+        "tag": "00f5d7d1cd53c93780d14749ee41e8dda0ba5a52466e8b2c0c635a26300f1fa5"
+      },
+      {
+        "counter": "1",
+        "tag": "004da5fc04b53a4faf85715d20351cb91943a5fc733e75734c1b9af3b39bd812"
+      }
+    ],
     "first_nullifier": "000000000000000000000000000000000000000000000000000000000000000d",
     "change_view_tags": [
       {

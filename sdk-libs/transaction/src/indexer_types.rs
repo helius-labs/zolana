@@ -62,6 +62,14 @@ impl OutputSlot {
         OutputDataEncoding::try_from_slice(&self.payload).ok()
     }
 
+    pub fn encrypted_body(&self, scheme: EncryptedScheme) -> Option<Vec<u8>> {
+        let OutputDataEncoding::Encrypted(blob) = self.output_data()? else {
+            return None;
+        };
+        let (&scheme_byte, body) = blob.split_first()?;
+        (scheme_byte == scheme.as_byte()).then(|| body.to_vec())
+    }
+
     /// The UTXO a proofless deposit publishes in the clear: owner hash, asset,
     /// amount and the derived blinding. `None` for encrypted output kinds, so
     /// this is how a depositor whose recipient holds no viewing key (a program

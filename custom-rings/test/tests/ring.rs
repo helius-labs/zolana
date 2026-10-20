@@ -86,7 +86,7 @@ use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
     ChainSource, Hub, RingRpcError, RootSecret, TransactionSource, Unauthorized, Upstreams,
 };
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_test_utils::wallet::{sync_wallet, KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{
     smart_account,
     spl::{create_token_account, mint_to},
@@ -1273,6 +1273,37 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             disclosure.inputs.iter().map(|input| input.amount).collect();
         input_amounts.sort_unstable();
         assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
+
+        // The recipient finds the inbox payment by its address, a fresh wallet
+        // of the sender its change through the deposit stream and the spend.
+        let recipient_authority =
+            KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
+        sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
+        assert_eq!(
+            sorted_unspent_notes(&env.recipient.wallet),
+            vec![(SOL_MINT, RING_TRANSFER_AMOUNT, Some(ring_program))]
+        );
+        let pair_pk = env
+            .sender
+            .keypair
+            .viewing_key
+            .pair_key(&env.recipient.keypair.viewing_pubkey())?
+            .pubkey();
+        assert!(env
+            .recipient
+            .wallet
+            .anonymous_ring
+            .known_counterparties
+            .contains(&pair_pk));
+        let mut fresh_sender =
+            Wallet::new(env.sender.keypair.shielded_address()?, env.assets.clone())?
+                .with_ring_deposit_payload(ring_program, zolana_ring_client::deposit_payload);
+        let sender_authority = KeypairWalletAuthority::new(Address::default(), &env.sender.keypair);
+        sync_wallet(&mut fresh_sender, &sender_authority, indexer)?;
+        assert_eq!(
+            sorted_unspent_notes(&fresh_sender),
+            vec![(SOL_MINT, RING_CHANGE, Some(ring_program))]
+        );
         return Ok(());
     }
 

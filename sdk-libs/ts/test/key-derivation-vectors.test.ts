@@ -105,6 +105,7 @@ type KeyDerivationVectors = Readonly<{
     }>[];
     pair_pubkey: string;
     pair_view_tags: readonly CounterTag[];
+    shared_view_tags: readonly CounterTag[];
     first_nullifier: string;
     change_view_tags: readonly Readonly<{ slot: number; tag: string }>[];
     blinding_seed: string;
@@ -262,6 +263,10 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     for (const { counter, tag } of section.pair_view_tags) {
       expect(hex(viewing.pairSendViewTag(recipient.publicKey(), BigInt(counter)))).toBe(tag);
       expect(hex(recipient.recipientSharedViewTag(pairPublicKey, BigInt(counter)))).toBe(tag);
+    }
+    for (const { counter, tag } of section.shared_view_tags) {
+      expect(hex(viewing.sendSharedViewTag(recipient.publicKey(), BigInt(counter)))).toBe(tag);
+      expect(hex(recipient.recipientSharedViewTag(viewing.publicKey(), BigInt(counter)))).toBe(tag);
     }
     const firstNullifier = bytes(section.first_nullifier) as Bytes32;
     for (const { slot, tag } of section.change_view_tags) {

@@ -128,6 +128,7 @@ struct RingDerivation {
     inbox_secrets: Vec<InboxSecretCase>,
     pair_pubkey: String,
     pair_view_tags: Vec<CounterTag>,
+    shared_view_tags: Vec<CounterTag>,
     first_nullifier: String,
     change_view_tags: Vec<SlotTag>,
     blinding_seed: String,
@@ -331,6 +332,19 @@ fn compute_ring_derivation() -> RingDerivation {
         },
         &[0, 1],
     );
+    let shared_view_tags = counter_tags(
+        &|k| {
+            let sent = key
+                .get_send_shared_view_tag(&recipient.pubkey(), k)
+                .unwrap();
+            let received = recipient
+                .get_recipient_shared_view_tag(&key.pubkey(), k)
+                .unwrap();
+            assert_eq!(sent, received);
+            sent
+        },
+        &[0, 1],
+    );
     RingDerivation {
         viewing_secret: hex::encode(viewing_secret),
         viewing_pubkey: hex::encode(key.pubkey().as_bytes()),
@@ -339,6 +353,7 @@ fn compute_ring_derivation() -> RingDerivation {
         inbox_secrets,
         pair_pubkey: hex::encode(pair_pubkey.as_bytes()),
         pair_view_tags,
+        shared_view_tags,
         first_nullifier: hex::encode(first_nullifier),
         change_view_tags: [0u8, 1]
             .into_iter()

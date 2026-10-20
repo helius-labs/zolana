@@ -11,8 +11,8 @@ use zolana_transaction::{
         MAX_MERGE_INPUTS,
     },
     utxo::{SppProofInputUtxo, Utxo},
-    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint, ShieldedKeys,
-    TransactionError, TransactionKeyRequest, WalletUtxo,
+    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint, RingTagRequest,
+    ShieldedKeys, TransactionError, TransactionKeyRequest, WalletUtxo,
 };
 
 fn inputs(owner: &ShieldedKeypair, count: u8) -> Vec<WalletUtxo> {
@@ -514,6 +514,12 @@ impl ShieldedKeys for RecordingKeys {
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         self.keys.borrow_mut().extend_from_slice(requests);
         self.owner.transaction_keys(requests)
+    }
+    fn ring_view_tags(
+        &self,
+        requests: &[RingTagRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.owner.ring_view_tags(requests)
     }
 }
 

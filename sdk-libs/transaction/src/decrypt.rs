@@ -1,10 +1,14 @@
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    num::NonZeroUsize,
+};
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
-    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
+    shielded::ShieldedAddress, viewing_key::ViewTag, x25519::X25519_PUBKEY_LEN, KeypairError,
+    X25519Pubkey,
 };
 
 use crate::{
@@ -14,9 +18,14 @@ use crate::{
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
     serialization::{
-        anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
-        proofless::Proofless, ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx,
-        UtxoSerialization,
+        anonymous::AnonymousRecipient,
+        confidential::Confidential,
+        plaintext::PlaintextTransfer,
+        proofless::Proofless,
+        ring_anonymous::{RingAnonymousOutput, RingAnonymousOutputPlaintext},
+        ring_deposit::RingDepositPlaintext,
+        scheme::EncryptedScheme,
+        OwnerCx, UtxoSerialization,
     },
     utxo::{owner_utxo_hash, Utxo, WalletUtxo},
 };
@@ -55,6 +64,67 @@ impl SpendableDecryptionResult {
             .flat_map(|balance| &balance.utxos)
             .chain(&self.utxos_with_data)
     }
+}
+
+/// A scheme-9 output under an unrouted tag is never decrypted.
+#[derive(Clone, Debug)]
+pub struct AnonymousTagRoutes {
+    keys: HashMap<ViewTag, X25519Pubkey>,
+    decryptions_per_tag: Option<NonZeroUsize>,
+}
+
+impl Default for AnonymousTagRoutes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AnonymousTagRoutes {
+    pub fn new() -> Self {
+        Self {
+            keys: HashMap::new(),
+            decryptions_per_tag: None,
+        }
+    }
+
+    /// Outputs opened under one tag per [`DecryptionResult::extend_ring_anonymous`], the rest are spam.
+    #[must_use]
+    pub fn with_decryptions_per_tag(mut self, cap: NonZeroUsize) -> Self {
+        self.decryptions_per_tag = Some(cap);
+        self
+    }
+
+    pub fn insert(&mut self, tag: ViewTag, viewing_pubkey: X25519Pubkey) {
+        self.keys.insert(tag, viewing_pubkey);
+    }
+
+    pub fn viewing_pubkey(&self, tag: &ViewTag) -> Option<X25519Pubkey> {
+        self.keys.get(tag).copied()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    fn allows(&self, opened: usize) -> bool {
+        self.decryptions_per_tag
+            .is_none_or(|cap| opened < cap.get())
+    }
+}
+
+/// A scheme-9 note whose recomputed commitment matched the published one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnonymousNote {
+    pub view_tag: ViewTag,
+    pub utxo_hash: [u8; 32],
+    pub pair_pk: X25519Pubkey,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AnonymousDecryption {
+    pub notes: Vec<AnonymousNote>,
+    /// Tags with more outputs than the routes open.
+    pub capped_tags: BTreeSet<ViewTag>,
 }
 
 /// Decrypts and verifies notes against the supplied transactions.
@@ -115,24 +185,91 @@ impl DecryptionResult {
                         }
                         Err(error) => return Err(error),
                     };
+                let site = Site {
+                    address: &address,
+                    tx,
+                    slot,
+                    slot_index,
+                };
                 for utxo in decoded.utxos {
-                    let hash = slot.output_context.hash;
-                    found.push(WalletUtxo {
-                        utxo,
-                        nullifier_pubkey: address.nullifier_pubkey,
-                        utxo_hash: hash,
-                        nullifier: [0; 32],
-                        data_hash: decoded.data_hash,
-                        ring_data_hash: decoded.ring_data_hash,
-                        tree_id: slot.output_context.tree_id,
-                        leaf_index: slot.output_context.leaf_index,
-                        slot: tx.slot,
-                        tx_signature: tx.tx_signature,
-                        slot_index,
-                    });
+                    found.push(site.wallet_utxo(utxo, decoded.data_hash, decoded.ring_data_hash));
                 }
             }
         }
+        self.absorb(
+            shielded_keys,
+            found,
+            transactions,
+            unknown_asset_ids,
+            unknown_mints,
+        )
+    }
+
+    /// A routed scheme-9 output is kept only when its recomputed commitment matches the published hash.
+    pub fn extend_ring_anonymous<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+        routes: &AnonymousTagRoutes,
+    ) -> Result<AnonymousDecryption, TransactionError> {
+        let address = shielded_keys.address()?;
+        let mut found = Vec::new();
+        let mut decryption = AnonymousDecryption::default();
+        let mut opened: HashMap<ViewTag, usize> = HashMap::new();
+        for tx in transactions {
+            for (position, slot) in tx.output_slots.iter().enumerate() {
+                let Some(viewing_pubkey) = routes.viewing_pubkey(&slot.view_tag) else {
+                    continue;
+                };
+                let Some(body) = slot.encrypted_body(EncryptedScheme::RingAnonymous) else {
+                    continue;
+                };
+                let count = opened.entry(slot.view_tag).or_default();
+                if !routes.allows(*count) {
+                    decryption.capped_tags.insert(slot.view_tag);
+                    continue;
+                }
+                *count += 1;
+                let slot_index =
+                    u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
+                let site = Site {
+                    address: &address,
+                    tx,
+                    slot,
+                    slot_index,
+                };
+                let Some(output) =
+                    site.decode_ring_anonymous(shielded_keys, &body, assets, viewing_pubkey)?
+                else {
+                    continue;
+                };
+                decryption.notes.push(AnonymousNote {
+                    view_tag: slot.view_tag,
+                    utxo_hash: slot.output_context.hash,
+                    pair_pk: output.pair_pk,
+                });
+                found.push(site.wallet_utxo(output.utxo, None, None));
+            }
+        }
+        self.absorb(
+            shielded_keys,
+            found,
+            transactions,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )?;
+        Ok(decryption)
+    }
+
+    fn absorb<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        mut found: Vec<WalletUtxo>,
+        transactions: &[ShieldedTransaction],
+        unknown_asset_ids: BTreeSet<u64>,
+        unknown_mints: BTreeSet<Address>,
+    ) -> Result<(), TransactionError> {
         assign_nullifiers(shielded_keys, &mut found)?;
         let mut utxos = self.utxos.clone();
         utxos.extend(found);
@@ -152,6 +289,84 @@ impl DecryptionResult {
         self.unknown_asset_ids.extend(unknown_asset_ids);
         self.unknown_mints.extend(unknown_mints);
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Site<'a> {
+    address: &'a ShieldedAddress,
+    tx: &'a ShieldedTransaction,
+    slot: &'a OutputSlot,
+    slot_index: u32,
+}
+
+impl Site<'_> {
+    fn wallet_utxo(
+        &self,
+        utxo: Utxo,
+        data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
+    ) -> WalletUtxo {
+        WalletUtxo {
+            utxo,
+            nullifier_pubkey: self.address.nullifier_pubkey,
+            utxo_hash: self.slot.output_context.hash,
+            nullifier: [0; 32],
+            data_hash,
+            ring_data_hash,
+            tree_id: self.slot.output_context.tree_id,
+            leaf_index: self.slot.output_context.leaf_index,
+            slot: self.tx.slot,
+            tx_signature: self.tx.tx_signature,
+            slot_index: self.slot_index,
+        }
+    }
+
+    /// Unauthenticated cipher, only the commitment recompute proves the routed key sealed the output.
+    /// An unknown asset is a failed match, spam under a public tag never stalls a sync.
+    fn decode_ring_anonymous<K: ShieldedKeys + ?Sized>(
+        &self,
+        shielded_keys: &K,
+        body: &[u8],
+        assets: &AssetRegistry,
+        viewing_pubkey: X25519Pubkey,
+    ) -> Result<Option<RingAnonymousOutput>, TransactionError> {
+        let (Some(tx_viewing_pubkey), Some(salt)) = (self.tx.tx_viewing_pk, self.tx.salt) else {
+            return Ok(None);
+        };
+        let request = DecryptRequest {
+            ciphertext: body,
+            viewing_pubkey,
+            tx_viewing_pubkey,
+            salt,
+            slot_index: self.slot_index,
+            label: DecryptLabel::Utxo,
+        };
+        let Some(plaintexts) = trial_decrypt(shielded_keys, &[request])? else {
+            return Ok(None);
+        };
+        let Some(plaintext) = plaintexts
+            .first()
+            .and_then(|bytes| RingAnonymousOutputPlaintext::deserialize(bytes).ok())
+        else {
+            return Ok(None);
+        };
+        let output = match plaintext.into_output(self.address.signing_pubkey, assets) {
+            Ok(output) => output,
+            Err(TransactionError::UnknownAsset(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let context = &self.slot.output_context;
+        let hash = output
+            .utxo
+            .hash(
+                &self.address.nullifier_pubkey,
+                &[0; 32],
+                &[0; 32],
+                context.tree_id,
+            )
+            .ok();
+        Ok((hash == Some(context.hash)).then_some(output))
     }
 }
 

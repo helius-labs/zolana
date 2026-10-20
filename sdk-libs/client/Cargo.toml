@@ -101,6 +101,10 @@ name = "scan"
 [[test]]
 name = "tags"
 
+# Hermetic: the anonymous ring streams against an in-memory indexer.
+[[test]]
+name = "anonymous_scan"
+
 [[test]]
 name = "rpc"
 

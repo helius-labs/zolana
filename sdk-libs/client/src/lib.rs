@@ -17,6 +17,7 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `solana-rpc`, the set the CLI and the examples enable
 
+pub mod anonymous;
 pub mod authority;
 pub mod client;
 pub mod error;
@@ -28,6 +29,10 @@ pub mod scan;
 pub mod tags;
 pub mod user_registry;
 
+pub use anonymous::{
+    AnonymousRingNote, AnonymousRingReport, AnonymousRingState, AnonymousStream, ADDRESS_GAP,
+    DECRYPTIONS_PER_INDEX,
+};
 pub use authority::ProofAuthority;
 pub use client::{
     check_merge_record, check_service_url, wait_for_indexed_transaction, AsyncIndexer,
@@ -78,7 +83,7 @@ pub use rpc::{
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
-pub use tags::{TagStream, DEFAULT_TAG_WINDOW};
+pub use tags::{TagStream, TagWindow, DEFAULT_TAG_WINDOW};
 pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.

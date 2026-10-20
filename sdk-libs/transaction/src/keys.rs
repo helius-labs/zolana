@@ -19,7 +19,7 @@
 
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::Salt,
+    viewing_key::{Salt, ViewTag},
     NullifierKey, ViewingKey, X25519Pubkey,
 };
 
@@ -82,6 +82,40 @@ pub struct TransactionKeyRequest {
     pub first_nullifier: [u8; 32],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RingTagRequest {
+    Inbox {
+        viewing_pubkey: X25519Pubkey,
+        address_index: u32,
+        j: u64,
+    },
+    Pair {
+        viewing_pubkey: X25519Pubkey,
+        counterparty: X25519Pubkey,
+        k: u64,
+    },
+    Deposit {
+        viewing_pubkey: X25519Pubkey,
+        n: u64,
+    },
+    Change {
+        viewing_pubkey: X25519Pubkey,
+        first_nullifier: [u8; 32],
+        slot: u8,
+    },
+}
+
+impl RingTagRequest {
+    pub fn viewing_pubkey(&self) -> X25519Pubkey {
+        match *self {
+            Self::Inbox { viewing_pubkey, .. }
+            | Self::Pair { viewing_pubkey, .. }
+            | Self::Deposit { viewing_pubkey, .. }
+            | Self::Change { viewing_pubkey, .. } => viewing_pubkey,
+        }
+    }
+}
+
 pub trait ShieldedKeys {
     fn address(&self) -> Result<ShieldedAddress, TransactionError>;
 
@@ -97,6 +131,9 @@ pub trait ShieldedKeys {
         &self,
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError>;
+
+    fn ring_view_tags(&self, requests: &[RingTagRequest])
+        -> Result<Vec<ViewTag>, TransactionError>;
 }
 
 /// In-process keys: the counterpart of a remote holder, answering the same
@@ -216,6 +253,33 @@ impl ShieldedKeys for LocalShieldedKeys {
             })
             .collect()
     }
+
+    fn ring_view_tags(
+        &self,
+        requests: &[RingTagRequest],
+    ) -> Result<Vec<ViewTag>, TransactionError> {
+        requests
+            .iter()
+            .map(|request| {
+                let viewing = self.viewing_key(&request.viewing_pubkey())?;
+                let tag = match *request {
+                    RingTagRequest::Inbox {
+                        address_index, j, ..
+                    } => viewing.inbox_secret(address_index)?.view_tag(j),
+                    RingTagRequest::Pair {
+                        counterparty, k, ..
+                    } => viewing.get_recipient_shared_view_tag(&counterparty, k),
+                    RingTagRequest::Deposit { n, .. } => viewing.get_sender_view_tag(n),
+                    RingTagRequest::Change {
+                        first_nullifier,
+                        slot,
+                        ..
+                    } => viewing.ring_change_view_tag(&first_nullifier, slot),
+                }?;
+                Ok(tag)
+            })
+            .collect()
+    }
 }
 
 /// A software keypair answers the same operations directly, which is what the
@@ -242,5 +306,12 @@ impl ShieldedKeys for ShieldedKeypair {
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         LocalShieldedKeys::from_keypair(self)?.transaction_keys(requests)
+    }
+
+    fn ring_view_tags(
+        &self,
+        requests: &[RingTagRequest],
+    ) -> Result<Vec<ViewTag>, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.ring_view_tags(requests)
     }
 }

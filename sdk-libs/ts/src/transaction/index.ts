@@ -93,6 +93,10 @@ export {
 } from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,
+  AnonymousRingNote,
+  AnonymousRingReport,
+  AnonymousRingState,
+  AnonymousStream,
   ApprovalRequest,
   AssetBalance,
   AuditWitness,
@@ -111,6 +115,8 @@ export type {
   PrivateTransactionKind,
   PrivateTransactionStatus,
   RingBalance,
+  RingTagKeys,
+  RingTagRequest,
   SealedMessageInput,
   ShieldedKeys,
   SplitBundlePlaintext,

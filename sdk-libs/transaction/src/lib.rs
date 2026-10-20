@@ -26,15 +26,15 @@ pub mod utxo;
 pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
-    decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
-    SpendableDecryptionResult,
+    decrypt, decrypt_spendable, verify_owned, verify_spendable, AnonymousDecryption, AnonymousNote,
+    AnonymousTagRoutes, DecryptionResult, OwnedUtxos, SpendableDecryptionResult,
 };
 pub use error::TransactionError;
 pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
-    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
+    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, RingTagRequest, ShieldedKeys,
     TransactionKeyRequest,
 };
 pub use selection::{
