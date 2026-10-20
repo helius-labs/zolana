@@ -2800,18 +2800,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ed25519-dalek-bip32"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b49a684b133c4980d7ee783936af771516011c8cd15f429dbda77245e282f03"
-dependencies = [
- "derivation-path",
- "ed25519-dalek 2.2.0",
- "hmac 0.12.1",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "educe"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7936,13 +7924,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "263d614c12aa267a3278703175fd6440552ca61bc960b5a02a4482720c53438b"
 dependencies = [
  "ed25519-dalek 2.2.0",
- "ed25519-dalek-bip32",
  "five8",
  "five8_core",
  "rand 0.9.5",
  "solana-address 2.6.1",
- "solana-derivation-path",
- "solana-seed-derivable",
  "solana-seed-phrase",
  "solana-signature",
  "solana-signer",
@@ -11869,7 +11854,6 @@ dependencies = [
  "bs58",
  "ctr",
  "ed25519-dalek 2.2.0",
- "ed25519-dalek-bip32",
  "hex",
  "hkdf",
  "p256 0.13.2",
@@ -11878,9 +11862,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
- "solana-derivation-path",
  "solana-keypair",
- "solana-seed-phrase",
  "solana-signer",
  "thiserror 2.0.20",
  "tokio",

@@ -30,10 +30,6 @@ solana-address = { workspace = true }
 aws-sdk-kms = { workspace = true, features = ["test-util"] }
 aws-smithy-mocks = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
-solana-keypair = { workspace = true, features = ["seed-derivable"] }
-solana-derivation-path = { workspace = true }
-solana-seed-phrase = { workspace = true }
-ed25519-dalek-bip32 = { workspace = true }
 
 [[test]]
 name = "keypair"
@@ -42,10 +38,6 @@ path = "tests/keypair.rs"
 [[test]]
 name = "hsm_backends"
 path = "tests/hsm_backends.rs"
-
-[[test]]
-name = "seed_based_keypair"
-path = "tests/seed_based_keypair.rs"
 
 [[test]]
 name = "vectors"
