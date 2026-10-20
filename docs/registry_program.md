@@ -80,7 +80,7 @@ Wire format: one-byte instruction discriminator, then borsh instruction data (em
 | `rotate_sync_delegate_key` | 2 | active sync delegate | Appends a new entry; `sync_delegate` address unchanged. |
 | `revoke_sync_delegate` | 3 | owner OR active sync delegate | Clears `sync_delegate`. Existing `entries` are not modified. |
 
-No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The program only checks P-256 compressed prefixes (`0x02` / `0x03`) and canonical `nullifier_pubkey`. A malformed entry only harms the registrant.
+No on-chain proof that `viewing_pubkey` equals `KDF(ECDH(...)) · G`. The program validates neither `viewing_pubkey` nor `nullifier_pubkey`. A malformed entry only harms the registrant.
 
 #### `register`
 

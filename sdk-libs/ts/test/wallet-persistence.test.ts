@@ -131,7 +131,7 @@ describe("wallet persistence", () => {
     expect(() => deserializeWallet(JSON.stringify(legacy))).toThrow("TRANSACTION_DESERIALIZE");
   });
 
-  it("rejects a P-256 viewing snapshot until it is migrated", () => {
+  it("rejects a P-256 viewing snapshot", () => {
     const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
     const snapshot = JSON.parse(serializeWallet(wallet)) as {
       identity: { viewingPublicKey: string };

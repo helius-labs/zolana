@@ -51,14 +51,12 @@ func DefaultKeys(t testing.TB) Keys {
 	}
 }
 
-// WithLegacyTxTag makes the host statement use an old P-256 key tag.
-func (k Keys) WithLegacyTxTag() Keys {
+func (k Keys) WithWrongTxTag() Keys {
 	k.txPk[0] = 2
 	return k
 }
 
-// WithLegacyEphTag makes the envelope transcript use an old P-256 key tag.
-func (k Keys) WithLegacyEphTag() Keys {
+func (k Keys) WithWrongEphTag() Keys {
 	k.ephPk[0] = 2
 	return k
 }

@@ -280,7 +280,7 @@ func TestDepositCircuitBindsEveryOpeningAndCiphertext(t *testing.T) {
 
 func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 	vector, _ := depositFixture(t, 2)
-	for _, name := range []string{"count", "short", "long", "alias", "padding", "low_order_auditor", "legacy_p256_length", "short_keys", "padding_key", "unescrowed", "zero_key_unescrowed", "root_without_escrow"} {
+	for _, name := range []string{"count", "short", "long", "alias", "padding", "low_order_auditor", "oversized_auditor", "short_keys", "padding_key", "unescrowed", "zero_key_unescrowed", "root_without_escrow"} {
 		t.Run(name, func(t *testing.T) {
 			encoded, err := json.Marshal(vector.Params)
 			if err != nil {
@@ -314,7 +314,7 @@ func TestDepositParametersRejectAliasesAndMalformedShapes(t *testing.T) {
 				raw.KeyRegistryRoot = raw.ContextHash
 			case "low_order_auditor":
 				raw.AuditorPk = "0x" + hex.EncodeToString(make([]byte, 32))
-			case "legacy_p256_length":
+			case "oversized_auditor":
 				raw.AuditorPk = "0x" + hex.EncodeToString(make([]byte, 65))
 			}
 			encoded, err = json.Marshal(raw)

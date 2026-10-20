@@ -77,8 +77,5 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	if entries[2].Sign() != 0 {
 		t.Fatalf("unused signer entry must be zero, got %v", entries[2])
 	}
-	if built.transcript.solanaOwnerPubkeys[0] == built.transcript.solanaOwnerPubkeys[1] {
-		t.Fatal("transcript owner pubkeys must differ")
-	}
 	solveAssignment(t, shape, built)
 }

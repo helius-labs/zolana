@@ -704,8 +704,7 @@ mod merge_tests {
     }
 
     // Guards the ring-authority request against the Go server: it must carry the
-    // "transfer-ring-authority" circuit type and the Solana-only transfer key set
-    // (no P256 fields).
+    // "transfer-ring-authority" circuit type and the Solana-only transfer key set.
     #[test]
     fn to_json_ring_authority_shape() {
         let inputs = TransferInputs {
@@ -766,8 +765,6 @@ mod merge_tests {
         );
         assert_tree_slot_contract(&value);
         assert_eq!(value["blindingSeed"], "0xa");
-        // Solana-only rail: no P256 fields on the request.
-        assert!(value.get("p256PubX").is_none());
         assert_eq!(value["ringProgramId"], "0x55");
         assert_eq!(value["nInputs"], 1);
     }

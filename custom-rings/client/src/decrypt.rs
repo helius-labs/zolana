@@ -106,7 +106,6 @@ impl TransactionAudit<'_> {
         let mut output_openings = Vec::with_capacity(self.transaction.output_slots.len());
         let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
-        // Keep the legacy output and spend-record checks after disclosure opens.
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;

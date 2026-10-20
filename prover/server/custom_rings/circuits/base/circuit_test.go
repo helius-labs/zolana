@@ -139,9 +139,9 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "legacy viewing key tag",
+			name: "wrong viewing key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithLegacyTxTag()
+				return k.WithWrongTxTag()
 			},
 		},
 		{
@@ -151,9 +151,9 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "legacy envelope key tag",
+			name: "wrong envelope key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithLegacyEphTag()
+				return k.WithWrongEphTag()
 			},
 		},
 	}

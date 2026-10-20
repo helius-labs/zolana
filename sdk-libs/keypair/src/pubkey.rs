@@ -115,7 +115,7 @@ impl PublicKey {
         )?)
     }
 
-    /// Verifies an Ed25519 message signature. A PDA or reserved encoding verifies nothing.
+    /// A PDA or unknown encoding verifies nothing.
     pub fn verify_message(&self, message: &[u8], sig: &[u8; 64]) -> bool {
         match self.curve() {
             Ok(Curve::Ed25519) => {

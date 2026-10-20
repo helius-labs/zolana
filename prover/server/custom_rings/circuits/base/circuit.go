@@ -134,7 +134,6 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [12]frontend.Variable
 	api.AssertIsEqual(top[7], 0)
 
 	// (c) Bind the published viewing key to the clamped ciphertext plaintext.
-	// The tag prevents interpreting the same bytes as a P-256 key.
 	txU := x25519.ScalarMulGenerator(api, w.TxViewingSk)
 	var txCompressed [33]frontend.Variable
 	txCompressed[0] = 4
@@ -147,12 +146,12 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [12]frontend.Variable
 		AuditorPk: w.AuditorPk,
 		Info:      auditEncInfo,
 	}.Seal(api)
-	legacyOutputHashChain, legacyDisclosureHash := disclosureElements(
+	outputHashChain, disclosureHash := disclosureElements(
 		api, w.TxViewingSk, w.Salt, w.Outputs, w.OutputCountSelected,
 	)
-	outputHashChain, disclosureHash := anonymousDisclosureElements(api, w)
-	outputHashChain = api.Select(w.Anonymous, outputHashChain, legacyOutputHashChain)
-	disclosureHash = api.Select(w.Anonymous, disclosureHash, legacyDisclosureHash)
+	anonymousOutputHashChain, anonymousDisclosureHash := anonymousDisclosureElements(api, w)
+	outputHashChain = api.Select(w.Anonymous, anonymousOutputHashChain, outputHashChain)
+	disclosureHash = api.Select(w.Anonymous, anonymousDisclosureHash, disclosureHash)
 	saltField := gadget.PackBytesBE(api, w.Salt[:])[0]
 
 	return [12]frontend.Variable{

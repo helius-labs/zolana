@@ -377,11 +377,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "legacy viewing key tag",
+			name: "wrong viewing key tag",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.keys = func(k audittest.Keys) audittest.Keys {
-					return k.WithLegacyTxTag()
+					return k.WithWrongTxTag()
 				}
 				return buildAssignment(t, f)
 			},

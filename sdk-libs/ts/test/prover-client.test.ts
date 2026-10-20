@@ -675,7 +675,6 @@ describe("prover request routing", () => {
       });
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = x25519.getPublicKey(bytes(4));
 
     await prover.proveCustomRingPolicy(ringRequest(auditorPublicKey));

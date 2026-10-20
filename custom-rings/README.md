@@ -482,8 +482,8 @@ Anonymous mode hides Ed25519 owners in custom rings and discloses them to
 the auditor. Deposit amounts remain public. The default ring stays nonanonymous.
 Anonymous builders are Rust-only and exclude delegates, merges, windowed
 policies, caches and direct outputs to the default ring. Auditor and viewing
-keys use canonical X25519 encodings. P-256 ownership and historical viewing
-data require migration before upgrading.
+keys use canonical X25519 encodings. P-256 owner and viewing keys are
+unsupported.
 
 The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its
