@@ -3197,9 +3197,9 @@ Wallet {
     1. Restore the signing and viewing keys.
     2. Append the wallet's [`ViewingKey`](#viewingkey) to `viewing_history`.
 
-2. **Default-ring sync, anonymous-ring sync, and merge sync run as independent parallel branches.**
+2. **Default-ring sync and merge sync run as independent parallel branches.**
 
-    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
+    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag and the `recipient_bootstrap_view_tag` of each retained viewing key. The owner tag matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. The bootstrap tags match the deposits of confidential rings. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The owner tag derives from the signing key, so discovery of default-ring outputs does not depend on the viewing key.
 
     2. **Anonymous-ring sync, under the current viewing key, across every ring.** The [anonymous ring guide](../custom-rings/docs/anonymous-rings.md#wallet-sync) explains the rules.
         1. Open the deposit stream and the pair stream of every known counterparty. Open the inbox stream of every address index below `issued_addresses + ADDRESS_GAP`, with `ADDRESS_GAP = 20`.
