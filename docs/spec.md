@@ -2947,7 +2947,6 @@ ViewingKeyEntry {
 Wallet {
     signing_key:        SigningKey,
     viewing_history:    Vec<ViewingKeyEntry>,   // locally retained keys, oldest first
-    known_rings:        map<ring_program_id → ring_rpc_url>,
     Utxos:              Vec<Utxo>,
     last_synced:        Timestamp,
 }
@@ -2959,53 +2958,19 @@ Wallet {
     1. Restore the signing and viewing keys.
     2. Append the wallet's [`ViewingKey`](#viewingkey) to `viewing_history`.
 
-2. **Default-ring sync, anonymous-ring sync, and merge sync run as independent parallel branches.**
+2. **Default-ring sync and merge sync run as independent parallel branches.**
 
-    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
+    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag and the `recipient_bootstrap_view_tag` of each retained viewing key. The owner tag matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. The bootstrap tags match ring deposits and anonymous recipient slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The owner tag derives from the signing key, so discovery of default-ring outputs does not depend on the viewing key.
 
-    2. **Anonymous-ring sync — for each anonymous ring in `known_rings`, for each viewing key `k` in parallel:**
-        1. **Phase 1 — scan own view tags (concurrent within `k`).**
-            1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.getShieldedTransactionsByTags(tags)`:
-                - `wallet.get_sender_view_tag(n)` under `k`,
-                - `wallet.get_recipient_request_view_tag(n)` under `k`,
-                - the single `recipient_bootstrap_view_tag` for `k` (one call, not a range).
-
-                A counter stream ends once the 64 counters after its highest counter in use match no transaction.
-            2. For each `ring_program_id` in `known_rings`, fetch ciphertexts or decrypted UTXOs from that ring's RPC.
-            3. **Decrypt and store.** Decrypt each ciphertext via the `k`-th viewing key. Store the UTXOs along with the transaction's `nullifiers` array. Track `max(observed index)` per stream.
-        2. **Phase 2 — scan `known_senders` and `known_recipients` view tags.** Depends on Phase 1 (the maps are populated from decrypted ciphertexts there).
-            1. **Fetch loop**, each counter stream ending by the Phase 1 rule:
-                1. for each known sender `s`, derive `wallet.get_recipient_shared_view_tag(s, n)`, then fetch matching ciphertexts.
-                2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)`, then fetch matching ciphertexts.
-            2. **Decrypt and store.** Decrypt and store UTXOs.
+    2. **Anonymous outputs.** Wallets query no `sender_view_tag`, `recipient_request_view_tag` or shared tag. A [Ring Anonymous](#output-utxo-serialization) output (scheme `9`) the bootstrap query returns is skipped, and the ring auditor reads it through the [Ring RPC](#ring-rpc).
 
     3. **Merge outputs.** On the default rail the event tags the output with the owner signing pubkey, so merges surface in the owner-pubkey fetch above. `merge_ring` indexes the output by the first input's published nullifier; `getShieldedTransactionsByNullifiers` returns a transaction for any of its nullifiers, so the wallet finds a ring merge whenever it holds any of its inputs. For each merge transaction, decrypt the output as defined under [Merge](#merge): derive `merge_output_key` and `merge_output_blinding` from the nullifier key and the first nullifier, decrypt the amount and mint, rebuild the UTXO, and check its hash against the published output commitment. The wallet needs none of the merge's inputs; a merge that spends none of its notes is income. Store the rebuilt UTXO with the transaction's `nullifiers`.
 
-3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
+3. **Merge** UTXOs and observed transaction nullifier sets across viewing keys.
 
 4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = nullifier_key.nullifier(utxo)` using the wallet-wide [NullifierKey](#nullifierkey) (the call uses `utxo.hash` and `utxo.blinding`), and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent. One sweep across all decrypted UTXOs.
 
-5. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, per-key counters `tx_count`, `request_count` (= `max(observed index) + 1`) from step 2, `last_synced = current_timestamp()`.
-
-**Sync Time Estimates**
-
-Assumptions:
-
-1. Indexer request size: `10 000` view tags per `view_tag IN (...)` query.
-2. Indexer RTT: 100 ms.
-3. X25519 per ciphertext: 100 μs.
-4. Per-key scans run concurrently. Within a key, Phase 1 (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) runs concurrently, and Phase 2 per-sender / per-recipient scans run concurrently.
-5. Each known sender has < 10 000 incoming transfers per key; each known recipient has < 10 000 outgoing transfers per key.
-
-Figures below are per locally retained viewing key.
-
-| Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | 1 | 2 | 2 | 4 | < 1 ms | ~400 ms | ~400 ms |
-| 1 000 | 100 | 2 | 2 | 4 | ~100 ms | ~500 ms | ~400 ms |
-| 10 000 | 1 000 | 2 | 2 | 4 | ~1 s | ~1.4 s | ~500 ms |
-| 100 000 | 10 000 | 11 | 2 | 13 | ~10 s | ~11 s | ~1.5 s |
-| 1 000 000 | 100 000 | 101 | 2 | 103 | ~100 s | ~110 s | ~12 s |
+5. **Set wallet state**: `Utxos`, `last_synced = current_timestamp()`.
 
 ## Merge Flow
 
