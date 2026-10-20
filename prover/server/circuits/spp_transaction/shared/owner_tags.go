@@ -63,7 +63,7 @@ func AssertPublishedOutputOwners(
 // transaction already publishes: an entry of publicIdentities or a real
 // output's published owner. Every entry of publicIdentities must itself be a
 // public input, which is what makes a dummy tag unable to disclose a private
-// identity such as a policy-ring recipient or the shared P256 owner during a
+// identity such as a policy-ring recipient or the hidden Ed25519 owner during a
 // ring spend. The fee payer is nameable only when it is also an owner
 // signer; otherwise it is not in the signer vector.
 //

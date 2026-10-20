@@ -30,7 +30,7 @@ use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use zolana_user_registry_interface::{
-    state::{MergeEncryptionScheme, UserRecord, P256_PUBKEY_LEN},
+    state::{MergeEncryptionScheme, UserRecord},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
@@ -49,18 +49,15 @@ pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'
 pub fn write_user_record(
     rpc: &mut ZolanaProgramTest,
     owner: Pubkey,
-    owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     merging_enabled: bool,
 ) -> Pubkey {
-    let mut viewing_pubkey = [7u8; P256_PUBKEY_LEN];
-    if let Some(first) = viewing_pubkey.first_mut() {
-        *first = 0x02;
-    }
+    let viewing_pubkey = *zolana_keypair::ViewingKey::from_bytes(&[7; 32])
+        .pubkey()
+        .as_bytes();
     let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
         owner,
         bump,
-        owner_p256,
         nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
             .expect("fixture keypair")
             .nullifier_key()
@@ -389,7 +386,7 @@ impl RealMergeProof {
         let tree = pool.tree;
         let tree_id = pool.tree_id;
         let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
-        let user_record = write_user_record(&mut pool.rpc, payer.pubkey(), None, true);
+        let user_record = write_user_record(&mut pool.rpc, payer.pubkey(), true);
         let nullifier_key = keypair.nullifier_key();
         let owner_public_key = keypair.signing_pubkey();
 

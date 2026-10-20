@@ -146,7 +146,7 @@ Reuse these exact spellings:
 - Exported circuit fields are `PascalCase` one-to-one mirrors of the Rust
   names: `Owner`, `Asset`, `Amount`, `Blinding`, `DataHash`,
   `RingDataHash`, `OwnerPkField`, `OwnerPkHash`.
-  Circuit-local mirrors are `camelCase` (`p256PkField`, `ownerKeyHash`).
+  Circuit-local mirrors are `camelCase` (`ownerPkField`, `ownerKeyHash`).
 - Renaming a circuit struct field renames its witness JSON key; the Go
   bindings, the Rust witness writers, and any fixtures move in one commit.
 - Do not shadow imported packages with locals (a `witness` map next to the

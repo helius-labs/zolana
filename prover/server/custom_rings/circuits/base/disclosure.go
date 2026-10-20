@@ -43,7 +43,6 @@ func (w AuditOutputWires) hash(api frontend.API) frontend.Variable {
 
 func disclosureElements(
 	api frontend.API,
-	rangeChecker frontend.Rangechecker,
 	txViewingSk [32]frontend.Variable,
 	salt [16]frontend.Variable,
 	outputs [AuditOutputSlots]AuditOutputWires,
@@ -60,9 +59,6 @@ func disclosureElements(
 		}
 	}
 
-	for _, b := range salt {
-		rangeChecker.Check(b, 8)
-	}
 	saltField := gadget.PackBytesBE(api, salt[:])[0]
 	keyLo, keyHi := Pack32To2FECircuit(api, txViewingSk)
 	ciphertext := make([]frontend.Variable, len(plaintext))

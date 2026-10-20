@@ -63,12 +63,12 @@ func baseParams(t *testing.T) *BaseParameters {
 	t.Helper()
 	p := &BaseParameters{
 		PrivateTxHash: big.NewInt(0xabcdef),
-		TxViewingSk:   testScalar(0x11),
+		TxViewingSk:   audittest.Clamped(testScalar(0x11)),
 		EphSk:         testScalar(0x22),
 		NOut:          1,
 	}
 	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditorKey, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,10 +110,10 @@ func rulesFreeParamsAtRoot(t *testing.T, root *big.Int) *PolicyParameters {
 	for i := range p.Velocity {
 		p.Velocity[i] = VelocityRow{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
 	}
-	p.TxViewingSk = testScalar(0x11)
+	p.TxViewingSk = audittest.Clamped(testScalar(0x11))
 	p.EphSk = testScalar(0x22)
 	auditorSk := testScalar(0x33)
-	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	auditorKey, err := ecdh.X25519().NewPrivateKey(auditorSk[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func zeroedOpening() Opening {
 	}
 }
 
-// testScalar is a non zero P256 scalar below the group order.
+// testScalar supplies a deterministic clamped X25519 private input.
 func testScalar(seed byte) [scalarLen]byte {
 	var out [scalarLen]byte
 	for i := range out {

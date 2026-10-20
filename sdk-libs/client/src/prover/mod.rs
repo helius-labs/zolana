@@ -28,7 +28,7 @@ pub use client::{
 pub use endpoint::redact_api_key;
 pub use inputs::{
     BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-    TransferOutput, TransferP256Inputs, TreeSlotFields,
+    TransferOutput, TreeSlotFields,
 };
 pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
@@ -38,9 +38,10 @@ pub use proving_key::{
 };
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use transact::{
-    attach_input_proofs, input_utxos_from_nullifiers, PublicInputs, PublicTransfers,
-    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
+    attach_input_proofs, input_utxos_from_nullifiers, AnonymousEddsaTransferInputs,
+    AnonymousRingEddsaProofResult, AnonymousRingEddsaProver, PublicInputs, PublicTransfers,
+    RingTransferProofResult, RingTransferProver, TransferInputUtxo, TransferProofResult,
+    TransferProver,
 };
 pub use verify::{
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,

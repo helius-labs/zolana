@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
     error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
@@ -48,20 +48,20 @@ pub struct PrivateTransaction {
     pub status: PrivateTransactionStatus,
     pub asset: Address,
     pub amount: u64,
-    pub counterparty_viewing_pubkey: Option<P256Pubkey>,
+    pub counterparty_viewing_pubkey: Option<X25519Pubkey>,
 }
 
 pub struct ViewingKeyEntry {
-    pub viewing_pubkey: P256Pubkey,
+    pub viewing_pubkey: X25519Pubkey,
     pub created_at: i64,
     pub tx_count: u64,
     pub request_count: u64,
-    pub known_senders: HashMap<P256Pubkey, u64>,
-    pub known_recipients: HashMap<P256Pubkey, u64>,
+    pub known_senders: HashMap<X25519Pubkey, u64>,
+    pub known_recipients: HashMap<X25519Pubkey, u64>,
 }
 
 impl ViewingKeyEntry {
-    pub fn new(viewing_pubkey: P256Pubkey, created_at: i64) -> Self {
+    pub fn new(viewing_pubkey: X25519Pubkey, created_at: i64) -> Self {
         Self {
             viewing_pubkey,
             created_at,
@@ -194,7 +194,7 @@ impl Wallet {
 
     pub(crate) fn ensure_viewing_key_entries(
         &mut self,
-        viewing_pubkeys: impl IntoIterator<Item = P256Pubkey>,
+        viewing_pubkeys: impl IntoIterator<Item = X25519Pubkey>,
     ) {
         for viewing_pubkey in viewing_pubkeys {
             if self
@@ -214,7 +214,7 @@ impl Wallet {
     /// on each sync, so it also holds keys a later scan's material omits. A scan
     /// snapshots this before it borrows the wallet mutably; a transfer addressed
     /// to any of these keys is addressed to this wallet.
-    pub(crate) fn self_viewing_pubkeys(&self) -> HashSet<P256Pubkey> {
+    pub(crate) fn self_viewing_pubkeys(&self) -> HashSet<X25519Pubkey> {
         self.viewing_key_history
             .iter()
             .map(|entry| entry.viewing_pubkey)

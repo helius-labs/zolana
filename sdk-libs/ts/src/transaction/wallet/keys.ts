@@ -15,7 +15,8 @@ import {
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
-import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -33,8 +34,8 @@ export type DecryptLabel = "transfer" | "ringDeposit";
 export interface DecryptRequest {
   readonly ciphertext: Uint8Array;
   /** Which of the wallet's viewing keys to open with; a retired key still opens what was sent to it. */
-  readonly viewingPublicKey: P256PublicKey;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   /** Zero for a ring deposit, which carries one envelope. */
   readonly slotIndex: number;
@@ -42,7 +43,7 @@ export interface DecryptRequest {
 }
 
 export interface TransactionKeyRequest {
-  readonly viewingPublicKey: P256PublicKey;
+  readonly viewingPublicKey: X25519PublicKey;
   readonly firstNullifier: Bytes32;
 }
 
@@ -65,13 +66,10 @@ export type DeriveRequest =
  * secret, and every method takes a batch so a remote holder answers a sync or
  * a spend in one round trip per method.
  *
- * `decrypt` returns the transfer cipher's output, not the ECDH shared point:
- * the view root is itself an ECDH with a fixed point, and ECDH is linear, so a
- * chosen-point oracle over the viewing key would leak every per-transaction
- * key this wallet ever used. Keystream results do not compose that way. The
- * cipher is unauthenticated, so a ciphertext not addressed to this wallet
- * decrypts to noise rather than failing, and the caller detects it by the
- * commitment; a batch is rejected as a whole only for a malformed request.
+ * `decrypt` exposes only cipher output. Viewing role roots are derived from
+ * the canonical local secret and are never returned by this capability.
+ * Ciphertext is unauthenticated, so callers must verify decoded commitments
+ * before accepting an output. Malformed requests reject the whole batch.
  *
  * Proving is the one place the nullifier secret is consumed rather than
  * derived from; it lives on the client-layer `ProofAuthority`, next to the
@@ -85,7 +83,7 @@ export type DeriveRequest =
 export interface ShieldedKeys {
   address(): ShieldedAddress;
   /** Every viewing key held, the current one first. Sync opens under each. */
-  viewingPublicKeys(): readonly P256PublicKey[];
+  viewingPublicKeys(): readonly X25519PublicKey[];
   decrypt(
     requests: readonly DecryptRequest[],
     context?: RequestContext,
@@ -202,7 +200,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
     return this.#address;
   }
 
-  viewingPublicKeys(): readonly P256PublicKey[] {
+  viewingPublicKeys(): readonly X25519PublicKey[] {
     return this.#viewing.map((key) => key.publicKey());
   }
 
@@ -281,8 +279,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
     this.#nullifier.destroy();
   }
 
-  #viewingKey(publicKey: P256PublicKey): ViewingKey {
-    if (!(publicKey instanceof P256PublicKey)) {
+  #viewingKey(publicKey: X25519PublicKey): ViewingKey {
+    if (!(publicKey instanceof X25519PublicKey)) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "viewingPublicKey" });
     }
     const wanted = publicKey.toBytes();
@@ -328,9 +326,9 @@ export function checkKeysIdentity(keys: ShieldedKeys, identity: ShieldedAddress)
 export function checkViewingPublicKeys(
   keys: ShieldedKeys,
   identity: ShieldedAddress,
-): readonly P256PublicKey[] {
+): readonly X25519PublicKey[] {
   const held = keys.viewingPublicKeys();
-  if (!held.every((key) => key instanceof P256PublicKey)) {
+  if (!held.every((key) => key instanceof X25519PublicKey)) {
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "viewingPublicKeys" });
   }
   const current = held[0];
@@ -341,7 +339,7 @@ export function checkViewingPublicKeys(
 }
 
 function checkDecryptRequest(request: DecryptRequest): void {
-  if (!(request.txViewingPublicKey instanceof P256PublicKey)) {
+  if (!(request.txViewingPublicKey instanceof X25519PublicKey)) {
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "txViewingPublicKey" });
   }
   checkedBytes<Bytes16>(request.salt, 16, "salt");

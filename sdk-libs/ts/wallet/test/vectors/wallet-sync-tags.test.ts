@@ -5,7 +5,7 @@ import {
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
-  type P256PublicKey,
+  type X25519PublicKey,
 } from "../../../src/keypair/index.js";
 import {
   AssetRegistry,
@@ -182,7 +182,7 @@ describe("wallet sync stable-tag vectors", () => {
     const owner = keypair();
     const other = keypair("other");
     const ownerKeys = keysFor(owner, [owner.viewingKey()]);
-    const rotatedOnly: readonly P256PublicKey[] = [viewingKey("rotated").publicKey()];
+    const rotatedOnly: readonly X25519PublicKey[] = [viewingKey("rotated").publicKey()];
     for (const [keys, causeCode] of [
       // Another wallet's keys.
       [keysFor(other, [other.viewingKey()]), "TRANSACTION_KEYS_IDENTITY_MISMATCH"],

@@ -47,11 +47,7 @@ pub(crate) fn validate_merge_owner(
     inputs: &[WalletUtxo],
 ) -> Result<(), TransactionError> {
     let owner = sender.signing_pubkey;
-    let owner_rail = owner.curve()?;
     for (index, input_utxo) in inputs.iter().enumerate() {
-        if input_utxo.utxo.owner.curve()? != owner_rail {
-            return Err(TransactionError::MergeInputRailMismatch { index });
-        }
         if input_utxo.utxo.owner != owner {
             return Err(TransactionError::MergeInputOwnerMismatch { index });
         }

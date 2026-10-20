@@ -6,7 +6,7 @@ use crate::{
     error::ClientError,
     prover::{
         client::ProveRequest,
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         proof::Proof,
         requests,
         transact::witness::{assemble_with_dummy_policy, SpendProof},
@@ -49,7 +49,7 @@ pub trait Prover: Send + Sync {
 /// backend cannot override a typed method: every client path, including the
 /// async ones that call [`Prover::prove`] directly, proves through `prove`.
 pub trait ProverExt: Prover {
-    /// Prove a Solana-only (eddsa) transfer. Call
+    /// Prove a Solana-only (Ed25519) transfer. Call
     /// [`ProofCompressed::try_from`](crate::ProofCompressed) for the wire format.
     fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer(inputs)?)
@@ -71,14 +71,9 @@ pub trait ProverExt: Prover {
         self.prove(&requests::merge_ring(inputs)?)
     }
 
-    /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
+    /// Prove an EdDSA confidential policy-ring transfer (`transfer-ring`).
     fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_ring(inputs)?)
-    }
-
-    /// Prove a custom-ring P256 transfer.
-    fn prove_transfer_p256_ring(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_p256_ring(inputs)?)
     }
 
     /// Prove a nullifier-tree batch address-append update. Call

@@ -58,10 +58,10 @@ const EDDSA_SHAPES: [MaxShape; 4] = [
     max_shape((16, 8), 16, 8),
     max_shape((8, 16), 8, 16),
 ];
-/// A P256 proof carries its BSB22 commitment and every output joins the
-/// ring, so the P256 rail fits fewer real inputs at 49x2 and fewer real
+/// An anonymous proof carries its BSB22 commitment and every output joins the
+/// ring, so the anonymous rail fits fewer real inputs at 49x2 and fewer real
 /// outputs at 8x16.
-const P256_SHAPES: [MaxShape; 4] = [
+const ANONYMOUS_SHAPES: [MaxShape; 4] = [
     max_shape((49, 2), 45, 2),
     max_shape((24, 4), 24, 4),
     max_shape((16, 8), 16, 8),
@@ -76,8 +76,8 @@ fn widest_ring_eddsa_transact_shapes_confirm() -> Result<()> {
 
 #[test]
 #[serial]
-fn widest_ring_p256_transact_shapes_confirm() -> Result<()> {
-    widest_ring_transact_shapes_confirm(RingRail::P256, &P256_SHAPES)
+fn widest_ring_anonymous_transact_shapes_confirm() -> Result<()> {
+    widest_ring_transact_shapes_confirm(RingRail::AnonymousEddsa, &ANONYMOUS_SHAPES)
 }
 
 #[test]
@@ -115,8 +115,8 @@ fn widest_ring_transact_shapes_confirm(rail: RingRail, shapes: &[MaxShape]) -> R
             "ring {rail:?} {n_inputs}x{n_outputs}, {real_inputs} real inputs, {real_outputs} real outputs"
         );
         let sender = format!("sender-{n_inputs}x{n_outputs}");
-        if rail == RingRail::P256 {
-            harness.make_p256_actor(&sender)?;
+        if rail == RingRail::AnonymousEddsa {
+            harness.make_anonymous_actor(&sender)?;
         }
         let recipients = (1..real_outputs)
             .map(|index| format!("recipient-{n_inputs}x{n_outputs}-{index}"))

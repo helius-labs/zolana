@@ -1,3 +1,5 @@
+export { P256ReaderKey } from "@heliuslabs/zolana/ring";
+export { X25519PublicKey, X25519Keypair } from "@heliuslabs/zolana/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -78,6 +80,7 @@ export type {
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type {
   CustomRingBasePublicInput,
+  DecryptedAnonymousRingTrace,
   RingAuditReader,
   RingRpcOptions,
   RingTransferClient,
@@ -119,6 +122,7 @@ export {
   ringDepositAuditAddress,
   sealRingDepositOpenings,
   openRingDepositOpening,
+  ConfirmedDeposit,
   ringDepositContextHash,
   ringDepositPublicInputHash,
 } from "@heliuslabs/zolana/ring";
@@ -127,6 +131,7 @@ export type {
   RingDepositClient,
   RingDepositAudit,
   RingDepositOpening,
+  AuditedDepositSource,
   RingDelegateTransferParams,
   RingSpendRegistrationClient,
   RingSpendRegistrationParams,

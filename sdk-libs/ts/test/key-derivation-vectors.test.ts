@@ -1,17 +1,10 @@
 import { readFileSync } from "node:fs";
 
-import { p256_hasher } from "@noble/curves/nist.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { describe, expect, it } from "vitest";
 
 import {
-  DST_DERIVE_P_DERIVE,
-  DST_PDA_ROOT_P_PDA,
-  DST_VIEW_ROOT_P_CONST,
   ED25519_DERIVATION_MSG,
-  P_CONST_SEC1,
-  P_DERIVE_SEC1,
-  P_PDA_SEC1,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
   isDerivationInput,
@@ -47,8 +40,7 @@ type RailVectors = Readonly<{
 }>;
 
 type KeyDerivationVectors = Readonly<{
-  ed25519_rail: RailVectors;
-  p256_rail: RailVectors;
+  eddsa_rail: RailVectors;
   tx_viewing: Readonly<{
     viewing_secret: string;
     first_nullifier: string;
@@ -95,7 +87,15 @@ type KeyDerivationVectors = Readonly<{
     message: string;
     is_derivation_input: boolean;
   }>[];
+  counter_view_tags: readonly Readonly<{
+    viewing_secret: string;
+    viewing_pubkey: string;
+    sender_view_tags: readonly CounterTag[];
+    recipient_request_view_tags: readonly CounterTag[];
+  }>[];
 }>;
+
+type CounterTag = Readonly<{ counter: string; tag: string }>;
 
 const vectors = JSON.parse(
   readFileSync(new URL("../../../test-vectors/key_derivation.json", import.meta.url), "utf8"),
@@ -125,30 +125,13 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     );
   });
 
-  it("pins each committed point to hash_to_curve of its DST", () => {
-    const cases: readonly [string, Uint8Array][] = [
-      [DST_VIEW_ROOT_P_CONST, P_CONST_SEC1],
-      [DST_DERIVE_P_DERIVE, P_DERIVE_SEC1],
-      [DST_PDA_ROOT_P_PDA, P_PDA_SEC1],
-    ];
-    for (const [dst, committed] of cases) {
-      const point = p256_hasher.hashToCurve(new Uint8Array(0), { DST: dst });
-      expect(hex(point.toBytes(true)), dst).toBe(hex(committed));
-    }
-  });
-
-  it("derives the ed25519 rail", () => {
-    const section = vectors.ed25519_rail;
+  it("derives the eddsa rail", () => {
+    const section = vectors.eddsa_rail;
     const signing = SigningKey.fromEd25519Bytes(bytes(section.signing_secret) as Bytes32);
     const signerPubkey = signing.publicKey().ed25519();
     expect(hex(signerPubkey)).toBe(section.signer_pubkey);
     expect(hex(ed25519DerivationMessage(signerPubkey))).toBe(section.derivation_message);
     assertRail(section, signing);
-  });
-
-  it("derives the p256 rail", () => {
-    const section = vectors.p256_rail;
-    assertRail(section, SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32));
   });
 
   it("derives the transaction viewing key", () => {
@@ -179,7 +162,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
   it("derives owner hashes and the compressed address hash", () => {
     const section = vectors.owner;
     const keypair = ShieldedKeypair.fromKeypair(
-      SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32),
+      SigningKey.fromEd25519Bytes(bytes(section.signing_secret) as Bytes32),
     );
     expect(hex(keypair.signingPublicKey().ownerProofInputHash())).toBe(
       section.owner_proof_input_hash,

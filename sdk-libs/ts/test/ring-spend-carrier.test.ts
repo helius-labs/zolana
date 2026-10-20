@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getAddressDecoder, type Address, type Signature } from "@solana/kit";
 import { initializePoseidon } from "../src/hasher/index.js";
@@ -44,7 +45,7 @@ beforeAll(initializePoseidon);
 /** `leafTreeId` is the tree the record lands in, its address hashes under tree 4. */
 function fixture(leafTreeId = 4) {
   const viewing = ViewingKey.fromBytes(field(12));
-  const auditor = ViewingKey.fromBytes(field(13));
+  const auditor = X25519Keypair.fromBytes(field(13));
   const nullifier = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
   const owner = RingListNamespace.of(ADDRESS, 4);
   const counters = {

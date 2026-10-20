@@ -359,7 +359,7 @@ fn confidential_marked_mode_hashes_only_marked_output_tags() {
             data: Some(&malformed_length),
         },
     ];
-    let mut proof_inputs = TransactProofInputs::new(CircuitId::RingEddsa(1, 3, 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialRingEddsa(1, 3, 1));
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs

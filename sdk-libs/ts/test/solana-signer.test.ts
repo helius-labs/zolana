@@ -13,7 +13,6 @@ import {
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { KeypairError } from "../src/keypair/error.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import type { Bytes32 } from "../src/keypair/bytes.js";
@@ -66,19 +65,6 @@ describe("ShieldedKeypair.toSolanaSigner", () => {
       expect(new Uint8Array(signatures[signer.address]!)).toEqual(
         new Uint8Array(theirs![kit.address]!),
       );
-    }
-  });
-
-  it("refuses a P256 keypair", () => {
-    expect.assertions(3);
-    const p256 = ShieldedKeypair.generate("p256");
-    try {
-      p256.toSolanaSigner();
-    } catch (error) {
-      expect(error).toBeInstanceOf(KeypairError);
-      const keypairError = error as KeypairError;
-      expect(keypairError.code).toBe("KEYPAIR_NOT_ED25519");
-      expect(keypairError.rustVariant).toBe("NotEd25519");
     }
   });
 });

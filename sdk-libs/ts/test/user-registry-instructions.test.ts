@@ -53,7 +53,6 @@ async function registryPublishing(owner: Address, published: ShieldedAddress) {
     1,
     ...getAddressEncoder().encode(owner),
     bump,
-    0,
     ...published.nullifierPublicKey,
     ...published.viewingPublicKey.toBytes(),
     0,
@@ -77,7 +76,7 @@ function onlyInstruction(transaction: Transaction): Instruction {
 }
 
 describe("getRegisterInstructionAsync", () => {
-  it("encodes tag 0, no P-256 owner, then the nullifier and viewing keys", async () => {
+  it("encodes tag 0, then the nullifier and viewing keys", async () => {
     const instruction = await getRegisterInstructionAsync({
       owner: OWNER,
       nullifierPublicKey: NULLIFIER_KEY,
@@ -85,7 +84,7 @@ describe("getRegisterInstructionAsync", () => {
     });
 
     expect(instruction.programAddress).toBe(USER_REGISTRY_PROGRAM_ID);
-    expect(instruction.data).toEqual(Uint8Array.of(0, 0, ...NULLIFIER_KEY, ...VIEWING_KEY));
+    expect(instruction.data).toEqual(Uint8Array.of(0, ...NULLIFIER_KEY, ...VIEWING_KEY));
     expect(accountsOf(instruction)).toEqual([
       { address: await getUserRecordAddress(OWNER), role: AccountRole.WRITABLE },
       { address: OWNER, role: AccountRole.READONLY_SIGNER },
@@ -185,7 +184,6 @@ describe("decodeUserRecordAccount", () => {
       1,
       ...getAddressEncoder().encode(OWNER),
       255,
-      0,
       ...NULLIFIER_KEY,
       ...new Uint8Array(33).fill(2),
       scheme,
@@ -302,7 +300,6 @@ describe("buildKeyUpdateTransaction", () => {
     expect(instruction.data).toEqual(
       Uint8Array.of(
         2,
-        0,
         ...replacement.nullifierPublicKey(),
         ...replacement.viewingPublicKey().toBytes(),
       ),

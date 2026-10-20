@@ -1,6 +1,6 @@
 # Shielded Pool -- CU Benchmark
 
-Compute unit profiling for feasible shielded-pool instruction families, replayed under mollusk from litesvm-built account state: protocol creation, tree pause, proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the narrowest and widest shape of every output count (up to the 1x16 split shape and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge pairing to verification), every supported `merge_transact` shape, compact padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL withdrawals. This target is a pure benchmark: no CI workflow runs the profiling build, so no CU ceilings are enforced here -- a ceiling that never runs would be unfalsifiable. Regression ceilings live in the fast cross_cutting_cu_budget suite, which pins every proofless instruction family per operation.
+Compute unit profiling for feasible shielded-pool instruction families, replayed under mollusk from litesvm-built account state: protocol creation, tree pause, proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the narrowest and widest shape of every output count (up to the 1x16 split shape and the 49x2 widest input shape), the 49x2 runtime-authorized `ring_transact` shape, every supported `merge_transact` shape, compact padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL withdrawals. This target is a pure benchmark: no CI workflow runs the profiling build, so no CU ceilings are enforced here -- a ceiling that never runs would be unfalsifiable. Regression ceilings live in the fast cross_cutting_cu_budget suite, which pins every proofless instruction family per operation.
 
 Regenerate with `just bench-shielded-pool`.
 
@@ -39,9 +39,8 @@ Regenerate with `just bench-shielded-pool`.
 26. [Transfer eddsa cached 32x2](#transfer-eddsa-cached-32x2)
 27. [Transfer eddsa cached 5x4](#transfer-eddsa-cached-5x4)
 28. [Transfer ring eddsa 49x2](#transfer-ring-eddsa-49x2)
-29. [Transfer ring p256 49x2](#transfer-ring-p256-49x2)
-30. [Withdrawal sol](#withdrawal-sol)
-31. [Withdrawal spl](#withdrawal-spl)
+29. [Withdrawal sol](#withdrawal-sol)
+30. [Withdrawal spl](#withdrawal-spl)
 
 ## 1. Create protocol config
 
@@ -397,22 +396,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_transact_ix`         |    299,846 |          0 |
 | `process_instruction`         |    299,898 |          0 |
 
-## 29. Transfer ring p256 49x2
-
-| Function                      |   Total CU |     Net CU |
-| ----------------------------- | ---------- | ---------- |
-| `fill_owner_signer_hashes`    |         24 |         24 |
-| `fill_output_owner_pk_hashes` |         46 |         46 |
-| `create_nullifier_pdas`       |     98,396 |     98,396 |
-| `apply_input_trees`           |    135,400 |     37,004 |
-| `apply_output_tree`           |     29,135 |     29,135 |
-| `public_input_hash`           |     47,388 |     47,388 |
-| `verify_groth16`              |    137,137 |    137,137 |
-| `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    359,285 |          0 |
-| `process_instruction`         |    359,337 |          0 |
-
-## 30. Withdrawal sol
+## 29. Withdrawal sol
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
@@ -428,7 +412,7 @@ Regenerate with `just bench-shielded-pool`.
 | `process_transact_ix`         |    144,843 |        606 |
 | `process_instruction`         |    144,895 |          0 |
 
-## 31. Withdrawal spl
+## 30. Withdrawal spl
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |

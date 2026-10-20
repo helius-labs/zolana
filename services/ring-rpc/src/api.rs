@@ -7,7 +7,7 @@ use thiserror::Error;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 use crate::{error::RingRpcError, keys::KeyMode, upstream::DepositHistory};
@@ -188,7 +188,7 @@ pub enum RingState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AuditorPubkey(P256Pubkey);
+pub struct AuditorPubkey(X25519Pubkey);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -297,9 +297,12 @@ pub struct DecryptedTransactionsPage {
 pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
-    /// Canonical compressed P256 transaction key.
+    /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
     pub outputs: Vec<DecryptedOutput>,
+    /// Proven hidden sender and spent note metadata in an anonymous ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anonymous: Option<DecryptedAnonymousTrace>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
     /// Required signers, fee payer first. The sender is the one matching an
@@ -309,6 +312,33 @@ pub struct DecryptedTransaction {
     pub withdrawals: Vec<DecryptedWithdrawal>,
     /// Empty outside velocity transfers.
     pub spend_records: Vec<DecryptedSpendRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousTrace {
+    pub sender: SerializablePubkey,
+    pub inputs: Vec<DecryptedAnonymousInput>,
+    pub recipients: Vec<DecryptedAnonymousRecipient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousInput {
+    pub tree_id: u16,
+    pub amount: u64,
+    pub asset: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedAnonymousRecipient {
+    pub slot_index: u32,
+    pub identity_tag: u8,
+    pub identity_key: Hash,
+    pub nullifier_pk: Hash,
+    pub amount: u64,
+    pub asset: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -373,7 +403,10 @@ pub enum SkippedReason {
 
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
 
-pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
+pub fn auditor_key_attestation(
+    ring_program_id: &Address,
+    auditor_pubkey: &X25519Pubkey,
+) -> Vec<u8> {
     [
         ATTESTATION_DOMAIN,
         ring_program_id.as_ref(),
@@ -383,13 +416,13 @@ pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256P
 }
 
 impl AuditorPubkey {
-    pub fn as_key(&self) -> &P256Pubkey {
+    pub fn as_key(&self) -> &X25519Pubkey {
         &self.0
     }
 }
 
-impl From<P256Pubkey> for AuditorPubkey {
-    fn from(value: P256Pubkey) -> Self {
+impl From<X25519Pubkey> for AuditorPubkey {
+    fn from(value: X25519Pubkey) -> Self {
         Self(value)
     }
 }
@@ -407,7 +440,7 @@ impl<'de> Deserialize<'de> for AuditorPubkey {
             .0
             .try_into()
             .map_err(|_| serde::de::Error::custom("auditor public key length is invalid"))?;
-        P256Pubkey::from_bytes(bytes)
+        X25519Pubkey::from_bytes(bytes)
             .map(Self)
             .map_err(|_| serde::de::Error::custom("auditor public key is invalid"))
     }

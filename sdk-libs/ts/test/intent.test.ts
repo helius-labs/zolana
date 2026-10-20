@@ -62,10 +62,10 @@ describe("intent hash", () => {
       defaultFunding: 1_500_000n,
     };
     expect(hex(intentHash(transfer))).toBe(
-      "725cd3a4932e9d4960b573320196c76e8780a03e2e3479d382fee231e6f9a911",
+      "837774fb4c6f1b2c0cae848f6777db59ffc2381a1270cc2ae958c8c536552b7f",
     );
     expect(hex(intentHash(ring))).toBe(
-      "ab073f7e3ee709822d2d857dab795914db0b5f898bd0620c717d2ba893e978e8",
+      "4ff6cac41e18b342e15eff51dd05b3e79ba8ee650b5b5bb70534ab575d4628b3",
     );
     const multi: TransactionIntent = {
       kind: "multiTransfer",
@@ -78,7 +78,7 @@ describe("intent hash", () => {
     // Recomputed outside the SDK from the layout: domain, tag 10, asset, count, then each
     // little-endian u64 amount and its recipient.
     expect(hex(intentHash(multi))).toBe(
-      "168ef8c1ab032dd2eedbef1225241eff31757fd51013187e18788bc5b5edae51",
+      "7067c9e7148adf598e9a7df6c093004bc9df69e8768038df67e878700f055ed5",
     );
   });
 

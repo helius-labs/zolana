@@ -20,7 +20,6 @@ import {
 } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
-import { isDerivationPoint } from "../keypair/derivation.js";
 
 import {
   checkRingCoSignerConfig,
@@ -163,7 +162,7 @@ export async function fetchRingProgramConfig(
     });
   }
   const config = decodeRingProgramConfig(account.data);
-  if (config.bump !== bump || isDerivationPoint(config.auditorPublicKey)) {
+  if (config.bump !== bump) {
     throw new RingError("RING_CONFIG_INVALID", { details: { ringProgramId, address } });
   }
   return config;
@@ -205,6 +204,15 @@ export async function fetchRingConfigs(
   if (!config.hasPolicy) return Object.freeze({ hasPolicy: false, config });
   const policy = await fetchRingPolicyConfig(client, ringProgramId, context);
   return Object.freeze({ hasPolicy: true, config, policy });
+}
+
+/** The transaction builders prove the non-anonymous circuit only, readers decode every mode. */
+export function checkBuildableRingMode(config: RingProgramConfig, operation: string): void {
+  if (config.mode === "anonymous") {
+    throw new RingError("RING_CONFIG_INVALID", {
+      details: { reason: "anonymous ring", operation },
+    });
+  }
 }
 
 /** The policy of a ring that keeps per-member spend records, else `undefined`. */

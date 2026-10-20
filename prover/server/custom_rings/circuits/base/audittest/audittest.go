@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -25,17 +25,17 @@ type Keys struct {
 	ephSk     [32]byte
 	txPk      [33]byte
 	ephPk     [33]byte
-	auditorPk [65]byte
+	auditorPk [32]byte
 	dh        [32]byte
 }
 
 func DefaultKeys(t testing.TB) Keys {
 	t.Helper()
-	txSk := Scalar(0x11)
+	txSk := Clamped(Scalar(0x11))
 	ephSk := Scalar(0x22)
-	txPriv := PrivateKey(t, txSk)
-	ephPriv := PrivateKey(t, ephSk)
-	auditorPriv := PrivateKey(t, Scalar(0x33))
+	txPriv := XPrivateKey(t, txSk)
+	ephPriv := XPrivateKey(t, ephSk)
+	auditorPriv := XPrivateKey(t, Scalar(0x33))
 
 	dh, err := ephPriv.ECDH(auditorPriv.PublicKey())
 	if err != nil {
@@ -44,26 +44,51 @@ func DefaultKeys(t testing.TB) Keys {
 	return Keys{
 		txSk:      txSk,
 		ephSk:     ephSk,
-		txPk:      compress(t, txPriv.PublicKey().Bytes()),
-		ephPk:     compress(t, ephPriv.PublicKey().Bytes()),
-		auditorPk: Uncompressed(t, auditorPriv.PublicKey().Bytes()),
+		txPk:      Tagged(txPriv.PublicKey().Bytes()),
+		ephPk:     Tagged(ephPriv.PublicKey().Bytes()),
+		auditorPk: [32]byte(auditorPriv.PublicKey().Bytes()),
 		dh:        [32]byte(dh),
 	}
 }
 
-// The gadget compresses its (0,0) infinity to 0x02||0^32.
-var infinityPk = [33]byte{0x02}
-
-func (k Keys) WithInfinityTxScalar(value *big.Int) Keys {
-	value.FillBytes(k.txSk[:])
-	k.txPk = infinityPk
+func (k Keys) WithWrongTxTag() Keys {
+	k.txPk[0] = 2
 	return k
 }
 
-func (k Keys) WithInfinityEphScalar(value *big.Int) Keys {
-	value.FillBytes(k.ephSk[:])
-	k.ephPk = infinityPk
-	k.dh = [32]byte{}
+func (k Keys) WithWrongEphTag() Keys {
+	k.ephPk[0] = 2
+	return k
+}
+
+// WithTxScalar computes the canonical viewing public key from a raw secret.
+func (k Keys) WithTxScalar(t testing.TB, scalar [32]byte) Keys {
+	t.Helper()
+	k.txSk = Clamped(scalar)
+	k.txPk = Tagged(XPrivateKey(t, k.txSk).PublicKey().Bytes())
+	return k
+}
+
+// WithRawTxScalar keeps a noncanonical secret while preserving its public key.
+func (k Keys) WithRawTxScalar(t testing.TB, scalar [32]byte) Keys {
+	k = k.WithTxScalar(t, scalar)
+	k.txSk = scalar
+	return k
+}
+
+// WithEphScalar computes an honest envelope, including RFC 7748 clamping.
+func (k Keys) WithEphScalar(t testing.TB, scalar [32]byte) Keys {
+	t.Helper()
+	key := XPrivateKey(t, scalar)
+	peer, err := ecdh.X25519().NewPublicKey(k.auditorPk[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	dh, err := key.ECDH(peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.ephSk, k.ephPk, k.dh = scalar, Tagged(key.PublicKey().Bytes()), [32]byte(dh)
 	return k
 }
 
@@ -71,7 +96,7 @@ func (k Keys) EphSk() [32]byte {
 	return k.ephSk
 }
 
-func (k Keys) AuditorPk() [65]byte {
+func (k Keys) AuditorPk() [32]byte {
 	return k.auditorPk
 }
 
@@ -88,7 +113,7 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	t.Helper()
 	dhLo, dhHi := pack32(k.dh)
 	ephLo, ephHi := pack33(k.ephPk)
-	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
+	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
 
 	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
 		tag(base.DomSepCRShared),
@@ -108,7 +133,7 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 }
 
 func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
-	w := base.AuditBlockWires{PrivateTxHash: privateTxHash}
+	w := base.AuditBlockWires{PrivateTxHash: privateTxHash, Anonymous: 0, Sender: base.ZeroAuditIdentity(), PrivateTxBlinding: 0}
 	setBytes(w.TxViewingSk[:], k.txSk[:])
 	setBytes(w.EphSk[:], k.ephSk[:])
 	setBytes(w.AuditorPk[:], k.auditorPk[:])
@@ -118,7 +143,16 @@ func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 	for i := range w.Outputs {
 		w.Outputs[i] = zeroOutput()
 		w.OutputCountSelected[i] = 0
+		w.AnonymousOutputs[i] = base.ZeroAuditUtxo()
+		w.Recipients[i] = base.ZeroAuditIdentity()
 	}
+	for i := range w.Inputs {
+		w.Inputs[i] = base.ZeroAuditUtxo()
+	}
+	for i := range w.InputCountSelected {
+		w.InputCountSelected[i] = 0
+	}
+	w.InputCountSelected[0] = 1
 	w.OutputCountSelected[0] = 1
 	return w
 }
@@ -173,6 +207,7 @@ func (k Keys) ChainElementsFor(t testing.TB, w base.AuditBlockWires, count int) 
 		outputHashChain,
 		new(big.Int).SetBytes(salt),
 		spptest.MustHashChain(t, ciphertext),
+		big.NewInt(0),
 	}
 }
 
@@ -204,36 +239,11 @@ func Scalar(seed byte) [32]byte {
 	return out
 }
 
-func PrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
-	t.Helper()
-	key, err := ecdh.P256().NewPrivateKey(scalar[:])
-	if err != nil {
-		t.Fatalf("private key: %v", err)
-	}
-	return key
-}
-
-func Uncompressed(t testing.TB, publicKey []byte) [65]byte {
-	t.Helper()
-	if len(publicKey) != 65 {
-		t.Fatalf("expected a 65-byte uncompressed key, got %d bytes", len(publicKey))
-	}
-	var out [65]byte
-	copy(out[:], publicKey)
-	if out[0] != 4 {
-		t.Fatalf("expected the 0x04 prefix, got %#x", out[0])
-	}
-	return out
-}
-
-// Mirrors p256.CompressPubkey, (0x02 + parity(y)) || x.
-func compress(t testing.TB, publicKey []byte) [33]byte {
-	t.Helper()
-	key := Uncompressed(t, publicKey)
-	var out [33]byte
-	out[0] = 2 + (key[64] & 1)
-	copy(out[1:], key[1:33])
-	return out
+// Clamped selects the unique byte encoding of an X25519 viewing secret.
+func Clamped(secret [32]byte) [32]byte {
+	secret[0] &= 248
+	secret[31] = (secret[31] & 127) | 64
+	return secret
 }
 
 // Mirrors base.Pack32To2FECircuit.
@@ -264,7 +274,7 @@ func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte
 	return key, nonce
 }
 
-// Mirrors aes.CTREncrypt, the first keystream block counts from nonce || 2.
+// Mirrors aes.Cipher.CTREncrypt, the first keystream block counts from nonce || 2.
 func ctrEncrypt(t testing.TB, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
 	t.Helper()
 	block, err := stdaes.NewCipher(key[:])
@@ -289,3 +299,13 @@ func setBytes(dst []frontend.Variable, src []byte) {
 		dst[i] = int(b)
 	}
 }
+
+func XPrivateKey(t testing.TB, scalar [32]byte) *ecdh.PrivateKey {
+	t.Helper()
+	key, err := ecdh.X25519().NewPrivateKey(scalar[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+func Tagged(key []byte) [33]byte { var out [33]byte; out[0] = 4; copy(out[1:], key); return out }

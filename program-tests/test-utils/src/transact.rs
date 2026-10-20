@@ -37,7 +37,7 @@ use zolana_interface::{
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
-    hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
+    hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress, ViewingKey, X25519Pubkey,
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_merkle_tree::MerkleTree;
@@ -368,7 +368,7 @@ pub struct TransferProverInputsArgs {
 ///
 /// It must be non-zero: the prover rejects a zero seed
 /// (`spp: blindingSeed must not be zero`,
-/// `prover/server/prover/transfer_eddsa_only/marshal.go:157`), because a zero
+/// `prover/server/prover/transfer_eddsa/marshal.go:157`), because a zero
 /// seed makes the output blinding seed and the private transaction blinding
 /// public functions of the first nullifier. The leading zero byte keeps the
 /// value below the BN254 scalar modulus.
@@ -522,11 +522,9 @@ pub fn prove_and_verify_transfer(
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
-/// P256 point works and a constant keeps the run deterministic.
-fn test_viewing_pubkey() -> P256Pubkey {
-    ViewingKey::from_bytes(&[5u8; 32])
-        .expect("viewing key")
-        .pubkey()
+/// X25519 key works and a constant keeps the run deterministic.
+fn test_viewing_pubkey() -> X25519Pubkey {
+    ViewingKey::from_bytes(&[5u8; 32]).pubkey()
 }
 
 fn expand_blinding(blinding: &[u8; 31]) -> [u8; 32] {

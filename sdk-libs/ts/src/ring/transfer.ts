@@ -41,7 +41,7 @@ import {
   policyIndexedInputs,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-import type { P256PublicKey } from "../keypair/public-key.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import {
@@ -90,6 +90,7 @@ import {
   type RuleTable,
 } from "./policy.js";
 import {
+  checkBuildableRingMode,
   fetchRingCoSigner,
   fetchRingConfigs,
   ringPolicyNamespaceAddress,
@@ -127,7 +128,7 @@ import { treeAddress } from "../interface/pda/index.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
-/** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
+/** Borsh `Encrypted` tag, its length, the scheme byte and the embedded X25519 key. */
 const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
 export type RingTransferClient = import("../client/ports.js").IndexedPolicyClient &
@@ -231,7 +232,7 @@ export type ProvenRingTransfer = RingTransactTrees &
   Readonly<{
     data: TransactInstructionData;
     proof: Uint8Array;
-    txViewingPublicKey: P256PublicKey;
+    txViewingPublicKey: X25519PublicKey;
     payer: Address;
     approvalRequired: boolean;
     /** Absent on an audit-only ring. */
@@ -467,6 +468,7 @@ async function buildRingSpend<R>(
       fetchRingCoSigner(params.client, params.ringProgramId, context),
       resolveRingOutputTree(params.client, params.outputTree, context),
     ]);
+    checkBuildableRingMode(ringConfigs.config, "spend");
     // A windowed ring spends the spend record in one input slot after the real inputs.
     const maxInputs =
       windowedPolicy(ringConfigs) === undefined ? RING_INPUT_SLOTS : RING_INPUT_SLOTS - 1;
@@ -692,6 +694,7 @@ async function proveRingTransferStatement(
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   // 1. Pin the ring tier and policy before extending the transaction statement.
   const config = configs.config;
+  checkBuildableRingMode(config, "transfer");
   // Mirrors the program's `DelegateRequiresPolicy` and escrow checks, before any prover round.
   if (flow.kind === "delegate" && !(configs.hasPolicy && config.keyEscrow)) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { reason: "keyEscrow" } });
@@ -903,7 +906,7 @@ async function proveRingTransferStatement(
           privateTxHash: data.privateTxHash,
           txViewingSecret: encrypted.audit.txViewingSecret,
           ephemeralSecret: encrypted.audit.ephemeralSecret,
-          auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+          auditorPublicKey: config.auditorPublicKey.u(),
           salt: encrypted.salt,
           nOut: openings.nOut,
           outputs: openings.outputs,
@@ -952,7 +955,7 @@ async function proveRingTransferStatement(
       privateTxHash: data.privateTxHash,
       txViewingSecret: encrypted.audit.txViewingSecret,
       ephemeralSecret: encrypted.audit.ephemeralSecret,
-      auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+      auditorPublicKey: config.auditorPublicKey.u(),
       salt: encrypted.salt,
       nIn,
       nOut: openings.nOut,

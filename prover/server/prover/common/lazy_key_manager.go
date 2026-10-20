@@ -214,7 +214,7 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 		Str("cache_key", key).
 		Uint32("n_inputs", ps.NInputs).
 		Uint32("n_outputs", ps.NOutputs).
-		Bool("requires_p256", ps.RequiresP256).
+		Bool("has_commitment", ps.HasCommitment).
 		Str("circuit_type", string(ps.CircuitType)).
 		Msg("TransferProofSystem loaded and cached successfully")
 
@@ -349,7 +349,7 @@ func (shape ProofShape) Supported() bool {
 				return true
 			}
 		}
-	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferP256RingCircuitType:
+	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferAnonymousRingEddsaCircuitType:
 		for _, supported := range transferSupportedShapes {
 			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
 				return true
@@ -385,8 +385,8 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		prefix = "transfer_confidential"
 	case TransferRingCircuitType:
 		prefix = "transfer_ring"
-	case TransferP256RingCircuitType:
-		prefix = "transfer_p256_ring"
+	case TransferAnonymousRingEddsaCircuitType:
+		prefix = "transfer_eddsa_ring"
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
 	case MergeCircuitType:
@@ -426,7 +426,7 @@ func keyFileCircuits() map[string]CircuitType {
 	for _, circuit := range []CircuitType{
 		TransferConfidentialCircuitType,
 		TransferRingCircuitType,
-		TransferP256RingCircuitType,
+		TransferAnonymousRingEddsaCircuitType,
 		TransferRingAuthorityCircuitType,
 	} {
 		for _, shape := range transferSupportedShapes {

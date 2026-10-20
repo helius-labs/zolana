@@ -9,7 +9,7 @@ use wincode::{
 use zolana_interface::instruction::{instruction_data::transact::TreeContext, TransactIxData};
 use zolana_ring_policy::{VelocityRow, ANSWER_SLOTS};
 
-use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
+use crate::{ReaderKeyBytes, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
 
 pub mod tag {
     pub const CREATE_CONFIG: u8 = 1;
@@ -72,10 +72,12 @@ pub struct SetDepositAuditIxData {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
-    /// Auditor P256 public key in SEC1 compressed form.
-    pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
     /// One selects a policy ring, zero an audit-only ring.
     pub has_policy: u8,
+    /// One selects an anonymous ring, fixed for the ring's life.
+    pub anonymous: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -115,7 +117,7 @@ pub struct SetSpendWindowIxData {
     pub withdrawal_cap: u64,
 }
 
-/// Groth16 proof of the custom-ring circuit. The circuit's emulated P256
+/// Groth16 proof of the custom-ring circuit. The circuit's emulated field
 /// arithmetic adds one BSB22 commitment, so the commitment and its
 /// proof-of-knowledge are not optional here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -293,8 +295,8 @@ pub struct RegisterKeyIxData {
     pub registry_next_index: u64,
     /// The member's nullifier public key, bound by the proof to the ciphertext.
     pub nullifier_pk: [u8; 32],
-    /// SEC1-compressed ephemeral key the auditor rederives the shared secret from.
-    pub eph_pk: [u8; COMPRESSED_P256_KEY_LEN],
+    /// Tagged X25519 ephemeral key the auditor rederives the shared secret from.
+    pub eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     /// AES-256-CTR ciphertext of the nullifier secret, sealed to the auditor.
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
 }

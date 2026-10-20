@@ -13,6 +13,13 @@ wallet sync recovers a default merge output from the merge transaction alone.
 
 Breaking
 
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
+- `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
+- `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
+- `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, and `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl`
@@ -22,11 +29,13 @@ Breaking
   own, and set `proverUrl` to keep another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
-- `MAX_MERGE_INPUTS` is 52, the widest merge takes 52 notes instead of 54, and
-  `ProverClient` requires rotated confidential, ring and P256-ring transfer
-  keys and both merge key sets, with 52-input merge keys in place of the
-  54-input ones → select at most 52 notes per merge, at most 51 on a custom
-  ring, and deploy the matching prover key set before upgrading.
+- Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte opening that also discloses the Ed25519 owner key of an anonymous ring deposit, `RingDepositOpening` takes it as `ownerKey` and `openRingDepositOpening` returns it → re-prove audited deposits with this version, a capsule sealed by an earlier version no longer decodes.
+- `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now pass the ring config as the second account and the program refuses a windowed velocity table on an anonymous ring → rebuild the instruction with this version and keep anonymous rings on per-transfer caps.
+- `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
+- `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
+- `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
+- `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
+  select at most 52 notes per merge, and at most 51 on a custom ring.
 - `MergeTransactInstructionData` contains `outputEncryption`, a
   `MergeOutputEncryption` tagged with its scheme, `Merge` and `PreparedMerge`
   require the encrypted output (`MergeOutputCiphertext` from
@@ -60,6 +69,12 @@ Breaking
   payer too when it is one of them, and `RingEntryTransitionInput` and
   `RingEntryTransitionProofInputs` no longer take `payer` → pass those owners,
   or `[]` when there are none, and drop `payer`.
+- `MergeInputs` and `PreparedMergeInputs` replace `asset` with required
+  `mintChunks` and `outputCiphertextSalt` → pass the mint's two field chunks
+  and the merge output ciphertext salt, or use the SDK's merge builders.
+- `ProverClient` requires rotated confidential, ring and anonymous ring
+  transfer keys and both merge key sets, replacing the 54-input merge keys
+  with 52-input keys → deploy the matching prover key set before upgrading.
 - `buildDepositTransaction` now reads the chain for an SPL deposit and, when
   the mint has no vault, adds its creation paid for by the depositor, failing
   with `WALLET_PROTOCOL_CONFIG_NOT_FOUND` when the chain has no protocol config
@@ -70,6 +85,7 @@ Breaking
 
 Added
 
+- `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), accepts a `feePayer` other than
@@ -92,7 +108,6 @@ Added
   constructor's `address` option read and build such an input, and
   `createInputUtxo` and `InputUtxo` take its `addressNullifier`.
 - `TransactionErrorCode` adds `TRANSACTION_ADDRESS_INPUT_ZERO_OWNER`,
-  `TRANSACTION_ADDRESS_INPUT_P256_OWNER`,
   `TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED`,
   `TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD`,
   `TRANSACTION_ADDRESS_INPUT_COMPACT`, `TRANSACTION_ADDRESS_INPUT_CACHED`,
@@ -125,6 +140,8 @@ Changed
 
 Fixed
 
+- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
+- `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `syncWallet` and custom ring recovery could not recover a merge output
   without every input, and `syncWallet` committed past an unreadable owned
   merge; both now recover merge outputs from valid ciphertext alone,

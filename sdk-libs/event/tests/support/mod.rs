@@ -97,7 +97,6 @@ pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
             salt: MERGE_CIPHERTEXT_SALT,
             ciphertext: MERGE_CIPHERTEXT,
         },
-        eddsa_owner: true,
         private_tx_hash: [7u8; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x40 + u8::try_from(i).expect("test shape"); 32])

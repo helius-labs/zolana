@@ -80,8 +80,7 @@ pub struct History {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`](crate::DecryptionResult).
     pub unknown_mints: BTreeSet<Address>,
-    /// The wallet's own tags, which its transactions are read by: the owner
-    /// tag and each viewing key's tag.
+    /// The owner tag and each viewing key's tag the wallet reads its transactions by.
     pub view_tags: BTreeSet<[u8; 32]>,
 }
 

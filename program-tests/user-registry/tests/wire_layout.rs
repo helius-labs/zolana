@@ -6,22 +6,16 @@ use zolana_user_registry_interface::{
     MergeEncryptionScheme, UserRecord,
 };
 
-/// The custom error codes are the declaration-order discriminants; clients and
-/// tests observe them as `Custom(n)`, so reordering the enum is a wire break.
-/// (The sync-delegate variants were removed in main's #167 cleanup.) Every
-/// variant is pinned, so a new one has to be appended rather than inserted.
+/// Active error codes retain their wire values after retired variants are removed.
 #[test]
 fn error_codes_are_stable() {
-    let pinned: [(UserRegistryError, u32); 10] = [
+    let pinned = [
         (UserRegistryError::InvalidInstructionData, 0),
         (UserRegistryError::UnauthorizedSigner, 1),
         (UserRegistryError::InvalidRecordPda, 2),
         (UserRegistryError::OwnerMismatch, 3),
         (UserRegistryError::InvalidRecordAccount, 4),
         (UserRegistryError::InvalidSystemProgram, 5),
-        (UserRegistryError::InvalidInstructionsSysvar, 6),
-        (UserRegistryError::MissingP256Proof, 7),
-        (UserRegistryError::InvalidP256Proof, 8),
         (UserRegistryError::NullifierPubkeyRotation, 9),
     ];
     for (variant, code) in pinned {
@@ -33,9 +27,8 @@ fn sample(merge_encryption: MergeEncryptionScheme) -> UserRecord {
     UserRecord {
         owner: [7u8; 32].into(),
         bump: 251,
-        owner_p256: Some([2u8; 33]),
         nullifier_pubkey: [9u8; 32],
-        viewing_pubkey: [3u8; 33],
+        viewing_pubkey: [4u8; 33],
         merge_encryption,
     }
 }
@@ -48,10 +41,8 @@ fn record_byte_layout_is_locked() {
     let mut expected = Vec::new();
     expected.extend_from_slice(&[7u8; 32]);
     expected.push(251);
-    expected.push(1);
-    expected.extend_from_slice(&[2u8; 33]);
     expected.extend_from_slice(&[9u8; 32]);
-    expected.extend_from_slice(&[3u8; 33]);
+    expected.extend_from_slice(&[4u8; 33]);
     expected.push(1);
     assert_eq!(body, expected);
 
@@ -93,13 +84,11 @@ fn set_merge_encryption_payload_is_the_scheme_byte() {
 }
 
 #[test]
-fn from_account_data_round_trips_with_trailing_padding() {
-    let mut record = sample(MergeEncryptionScheme::Disabled);
-    record.owner_p256 = None;
+fn from_account_data_round_trips() {
+    let record = sample(MergeEncryptionScheme::Disabled);
     let body = to_vec(&record).unwrap();
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend_from_slice(&body);
-    account_data.resize(UserRecord::SIZE, 0);
     assert_eq!(
         UserRecord::try_from_account_data(&account_data).unwrap(),
         record
@@ -127,17 +116,11 @@ fn from_account_data_rejects_legacy_record_size() {
 
 #[test]
 fn register_instruction_uses_one_byte_discriminator() {
-    let ix = build_register_ix(
-        &solana_pubkey::Pubkey::new_unique(),
-        None,
-        [1u8; 32],
-        [2u8; 33],
-    );
+    let ix = build_register_ix(&solana_pubkey::Pubkey::new_unique(), [1u8; 32], [4u8; 33]);
     assert_eq!(ix.data[0], discriminator::REGISTER);
     let payload = RegisterData {
-        owner_p256: None,
         nullifier_pubkey: [1u8; 32],
-        viewing_pubkey: [2u8; 33],
+        viewing_pubkey: [4u8; 33],
     };
     assert_eq!(ix.data[1..], to_vec(&payload).unwrap());
 }

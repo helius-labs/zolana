@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use swap_prover::TAKE_MODE_DERIVED;
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
 use zolana_transaction::{
     instructions::transact::{OutputContext, OutputSlot, SppProofInputs, SppProofOutputUtxo},
     utxo::{SppProofInputUtxo, Utxo},
@@ -53,7 +53,7 @@ fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
         slot: 0,
         tx_signature: Signature::default(),
         event_index: Some(0),
-        tx_viewing_pk: P256Pubkey::from_bytes(external.tx_viewing_pk).ok(),
+        tx_viewing_pk: X25519Pubkey::from_bytes(external.tx_viewing_pk).ok(),
         salt: Some(external.salt),
         output_slots,
         messages: external.messages.clone(),

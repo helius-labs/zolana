@@ -1,6 +1,5 @@
 use solana_address::Address;
 use zolana_interface::MAX_INPUT_TREES;
-use zolana_keypair::Curve;
 
 use crate::{
     error::TransactionError,
@@ -116,12 +115,7 @@ impl SppProofInputs {
         let mut signers = Vec::new();
         let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
         for owner in input_owners.chain(data_output_owners) {
-            let address = match owner.curve()? {
-                Curve::P256 => continue,
-                Curve::Ed25519 | Curve::Pda => {
-                    Address::new_from_array(owner.confidential_view_tag()?)
-                }
-            };
+            let address = Address::new_from_array(owner.confidential_view_tag()?);
             let hash = owner.owner_proof_input_hash()?;
             if signer_hashes.contains(&hash) {
                 continue;

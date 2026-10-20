@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../../src/keypair/x25519.js";
 import { readFile, stat } from "node:fs/promises";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
@@ -18,7 +19,6 @@ import { setRingActivationInstruction } from "../../src/interface/instructions/i
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, ZERO_NULLIFIER_PK } from "../../src/interface/program.js";
 import { ShieldedAddress } from "../../src/keypair/shielded.js";
-import { ViewingKey } from "../../src/keypair/viewing-key.js";
 import {
   RingProgramBinary,
   RingError,
@@ -180,7 +180,7 @@ describe("fresh ring controls", () => {
     const cosigner = (await freshActor(client)).signer;
     const program = await generateKeyPairSigner();
     const ringProgramId = program.address;
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     try {
       for (let i = 0; i < 6; i++) await airdrop(client, authority.address);
       await airdrop(client, delegate.address);

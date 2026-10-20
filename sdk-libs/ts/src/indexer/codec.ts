@@ -181,15 +181,12 @@ export function decodeUserRecordsResponse(value: unknown): GetUserRecordsRespons
 function userRecord(value: unknown, path: string): UserRecord {
   const record = object(value, path, [
     "owner",
-    "ownerP256",
     "nullifierPubkey",
     "viewingPubkey",
     "mergeEncryption",
   ]);
-  const ownerP256 = optional(record["ownerP256"], `${path}.ownerP256`, checkedBase64);
   return {
     owner: checkedAddress(record["owner"], `${path}.owner`),
-    ...(ownerP256 === undefined ? {} : { ownerP256 }),
     nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),
     viewingPubkey: checkedBase64(record["viewingPubkey"], `${path}.viewingPubkey`),
     mergeEncryption: mergeEncryptionScheme(record["mergeEncryption"], `${path}.mergeEncryption`),

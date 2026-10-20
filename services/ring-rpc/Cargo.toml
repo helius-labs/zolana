@@ -54,3 +54,6 @@ zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
 zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+zolana-ring-transaction = { workspace = true }

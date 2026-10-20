@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 
 use crate::{
     error::TransactionError,
@@ -20,7 +20,7 @@ pub struct ShieldedTransaction {
     /// Position of this event within the transaction. Required when a caller
     /// verifies which program invocation emitted it.
     pub event_index: Option<u16>,
-    pub tx_viewing_pk: Option<P256Pubkey>,
+    pub tx_viewing_pk: Option<X25519Pubkey>,
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
     pub messages: Vec<MessageData>,

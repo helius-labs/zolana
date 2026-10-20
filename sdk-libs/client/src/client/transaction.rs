@@ -42,7 +42,7 @@ pub struct SignedPrivateTransaction {
 }
 
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
-    /// Ask the configured prover for a default-ring Ed25519 transfer proof and
+    /// Ask the configured prover for a default-ring EdDSA transfer proof and
     /// verify it locally before returning its transaction wire encoding.
     pub async fn prove_confidential_transfer_result(
         &self,

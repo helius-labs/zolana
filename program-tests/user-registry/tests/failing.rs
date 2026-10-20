@@ -45,12 +45,9 @@ fn register_rejects_duplicate_atomically() {
     let record_address = user_record_pda(&owner.pubkey()).0;
     let original = rig.svm.get_account(&record_address).expect("record");
 
-    // No `owner_p256`: the key binding check runs before the already-initialized
-    // check, so a P256 key here would fire `MissingP256Proof` and never reach the
-    // duplicate gate this test is about.
     assert_error(
         rig.send(
-            build_register_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
+            build_register_ix(&owner.pubkey(), value.nullifier, value.viewing),
             &[&owner],
         ),
         InstructionError::AccountAlreadyInitialized,
@@ -70,7 +67,6 @@ fn register_rejects_wrong_pda() {
         owner.pubkey(),
         owner.pubkey(),
         RegisterData {
-            owner_p256: Some(value.owner_p256),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
         },
@@ -95,7 +91,6 @@ fn register_requires_owner_signature() {
         unsigned_owner.pubkey(),
         rent_payer.pubkey(),
         RegisterData {
-            owner_p256: Some(unsigned_value.owner_p256),
             nullifier_pubkey: unsigned_value.nullifier,
             viewing_pubkey: unsigned_value.viewing,
         },
@@ -120,7 +115,6 @@ fn register_rejects_invalid_system_program() {
     let bad_system_value = keys(5);
     let mut bad_system_ix = build_register_ix(
         &bad_system_owner.pubkey(),
-        Some(bad_system_value.owner_p256),
         bad_system_value.nullifier,
         bad_system_value.viewing,
     );
@@ -147,7 +141,6 @@ fn register_requires_payer_signature() {
         owner.pubkey(),
         rent_payer.pubkey(),
         RegisterData {
-            owner_p256: None,
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
         },
@@ -177,7 +170,6 @@ fn update_keys_rejects_a_non_owner_without_mutating_the_record() {
         record_address,
         stranger.pubkey(),
         UpdateKeysData {
-            owner_p256: Some(updated.owner_p256),
             nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
@@ -202,7 +194,6 @@ fn update_keys_rejects_a_rotated_nullifier_pubkey() {
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            owner_p256: None,
             nullifier_pubkey: rotated.nullifier,
             viewing_pubkey: rotated.viewing,
         },
@@ -292,7 +283,6 @@ fn update_keys_requires_owner_signature() {
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            owner_p256: Some(updated.owner_p256),
             nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
@@ -476,12 +466,7 @@ fn register_rejects_readonly_record() {
     let value = keys(16);
     let record_address = user_record_pda(&owner.pubkey()).0;
     rig.fund(&record_address, 1_000_000);
-    let mut readonly = build_register_ix(
-        &owner.pubkey(),
-        Some(value.owner_p256),
-        value.nullifier,
-        value.viewing,
-    );
+    let mut readonly = build_register_ix(&owner.pubkey(), value.nullifier, value.viewing);
     readonly
         .accounts
         .first_mut()
@@ -505,7 +490,6 @@ fn register_rejects_too_few_accounts() {
     let record_address = user_record_pda(&owner.pubkey()).0;
     rig.fund(&record_address, 1_000_000);
     let data = RegisterData {
-        owner_p256: Some(value.owner_p256),
         nullifier_pubkey: value.nullifier,
         viewing_pubkey: value.viewing,
     };

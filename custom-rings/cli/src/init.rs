@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::SolanaRpc;
 use zolana_interface::error::ShieldedPoolError;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::X25519Pubkey;
 use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
@@ -34,7 +34,7 @@ use crate::{
 pub enum AuditorKeySource<'a> {
     File(&'a Path),
     /// The config already pins the key.
-    Chain(P256Pubkey),
+    Chain(X25519Pubkey),
     RingRpc {
         client: &'a RingRpcClient,
         release: AuditorKeyRelease<'a>,
@@ -48,14 +48,14 @@ pub struct KeySelection {
     pub file_present: bool,
     pub hosted_rpc: bool,
     pub local_auditor: bool,
-    pub configured: Option<P256Pubkey>,
+    pub configured: Option<X25519Pubkey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub enum KeyChoice {
     File,
-    Chain(P256Pubkey),
+    Chain(X25519Pubkey),
     RingRpc,
 }
 
@@ -71,7 +71,7 @@ pub struct Init<'a> {
     /// Needed until the config authority holds the config.
     pub upgrade_authority: Option<&'a dyn Signer>,
     pub config_authority: &'a dyn Signer,
-    pub auditor_pk: P256Pubkey,
+    pub auditor_pk: X25519Pubkey,
     /// `None` for an audit-only ring.
     pub policy: Option<&'a CompiledPolicy>,
     pub existing: Option<CustomRingConfig>,
@@ -325,7 +325,7 @@ impl KeySelection {
 }
 
 impl AuditorKeySource<'_> {
-    pub fn resolve(&self) -> Result<P256Pubkey, InitError> {
+    pub fn resolve(&self) -> Result<X25519Pubkey, InitError> {
         match self {
             Self::File(path) => Ok(read_auditor_pubkey(path)?),
             Self::Chain(auditor_pk) => Ok(*auditor_pk),
@@ -673,8 +673,6 @@ fn hint(code: u32) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::ViewingKey;
-
     use super::*;
 
     fn select(file_present: bool, hosted_rpc: bool, local_auditor: bool) -> KeySelection {
@@ -688,7 +686,7 @@ mod tests {
 
     #[test]
     fn a_config_wins_over_the_file_and_the_service() {
-        let pinned = ViewingKey::new().pubkey();
+        let pinned = zolana_keypair::X25519Keypair::new().pubkey();
         for file_present in [true, false] {
             for hosted_rpc in [true, false] {
                 for local_auditor in [true, false] {

@@ -17,12 +17,10 @@ import {
   EncryptedScheme,
   decodeAnonymousRecipient,
   decodeAnonymousSender,
+  decodeConfidential,
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  decryptAnonymous,
-  decryptConfidential,
-  decryptSplit,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -36,6 +34,16 @@ import {
 } from "../dist/transaction/serialization/index.js";
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
+
+function decryptAnonymous(viewing, txPublicKey, body, salt, slot) {
+  return viewing.decryptUtxo(body, txPublicKey, salt, slot);
+}
+
+const decryptSplit = decryptAnonymous;
+
+function decryptConfidential(viewing, txPublicKey, body, salt, slot) {
+  return decodeConfidential(viewing.decryptUtxo(body.subarray(33), txPublicKey, salt, slot));
+}
 
 function readJson(name) {
   return JSON.parse(readFileSync(new URL(name, FIXTURES), "utf8"));
@@ -54,7 +62,7 @@ function hex(value) {
 }
 
 function keypairFromInputs(inputs) {
-  const signing = SigningKey.fromP256Bytes(bytes(inputs.signingSecretBytes));
+  const signing = SigningKey.fromEd25519Bytes(bytes(inputs.signingSecretBytes));
   const viewing = ViewingKey.fromBytes(bytes(inputs.viewingSecretBytes));
   return { keypair: ShieldedKeypair.withViewingKey(signing, viewing), signing };
 }
@@ -81,11 +89,25 @@ const authority = readJson("transaction/authority-v1.json");
 {
   const { keypair, signing } = keypairFromInputs(authority.inputs);
   const nullifierPubkey = hex(keypair.nullifierPublicKey());
+  authority.expected.authority.shieldedAddress.signingPubkeyBytes = hex(
+    keypair.signingPublicKey().toBytes(),
+  );
+  authority.expected.ed25519Signature ??= {};
+  authority.expected.ed25519Signature.pubkeyBytes = hex(keypair.signingPublicKey().ed25519());
+  authority.expected.ed25519Signature.verified = true;
+  authority.responsibility =
+    "authority material, approval input, deterministic Ed25519 signature, and envelope fields";
   authority.expected.authority.nullifierPubkeyBytes = nullifierPubkey;
   authority.expected.authority.shieldedAddress.nullifierPubkeyBytes = nullifierPubkey;
+  authority.expected.authority.shieldedAddress.viewingPubkeyBytes = hex(
+    keypair.viewingPublicKey().toBytes(),
+  );
+  authority.expected.envelope.txViewingPkBytes = hex(
+    ViewingKey.fromBytes(bytes(authority.inputs.txViewingSecretBytes)).publicKey().toBytes(),
+  );
   const signature = signing.sign(bytes(authority.inputs.messageHashBytes));
-  authority.expected.p256Signature.rBytes = hex(signature.slice(0, 32));
-  authority.expected.p256Signature.sBytes = hex(signature.slice(32));
+  authority.expected.ed25519Signature.rBytes = hex(signature.slice(0, 32));
+  authority.expected.ed25519Signature.sBytes = hex(signature.slice(32));
   writeJson("transaction/authority-v1.json", authority);
 }
 
@@ -94,10 +116,20 @@ const walletState = readJson("transaction/wallet-state-v1.json");
   const { keypair } = keypairFromInputs(walletState.inputs);
   const nullifierKey = keypair.nullifierKey();
   for (const row of walletState.inputs.walletUtxos) {
+    row.utxo.ownerBytes = hex(keypair.signingPublicKey().toBytes());
     row.nullifierBytes = hex(
       nullifierKey.nullifier(bytes(row.hashBytes), bytes(row.utxo.blindingBytes)),
     );
   }
+  const recipient = ViewingKey.fromBytes(
+    bytes(readJson("transaction/serialization-v1.json").inputs.recipientViewingSecretBytes),
+  );
+  for (const row of walletState.expected.history) {
+    if (row.counterpartyViewingPkBytes !== null) {
+      row.counterpartyViewingPkBytes = hex(recipient.publicKey().toBytes());
+    }
+  }
+  recipient.destroy();
   writeJson("transaction/wallet-state-v1.json", walletState);
 }
 
@@ -112,7 +144,7 @@ const serialization = readJson("transaction/serialization-v1.json");
   const { keypair } = keypairFromInputs(inputs);
   const recipientViewing = ViewingKey.fromBytes(bytes(inputs.recipientViewingSecretBytes));
   const recipient = ShieldedKeypair.withViewingKey(
-    SigningKey.fromP256Bytes(bytes(inputs.recipientSigningSecretBytes)),
+    SigningKey.fromEd25519Bytes(bytes(inputs.recipientSigningSecretBytes)),
     recipientViewing,
   );
   const tx = ViewingKey.fromBytes(bytes(inputs.txViewingSecretBytes));
@@ -263,6 +295,29 @@ const serialization = readJson("transaction/serialization-v1.json");
   );
 
   writeJson("transaction/serialization-v1.json", serialization);
+}
+
+const walletSync = readJson("transaction/wallet-sync-v1.json");
+{
+  const viewing = ViewingKey.fromBytes(bytes(walletSync.inputs.viewingSecretBytes));
+  const tag = hex(viewing.recipientBootstrapViewTag());
+  for (const tx of walletSync.inputs.transactions) {
+    for (const slot of tx.outputSlots) {
+      if (tx.proofless === true) slot.viewTagBytes = tag;
+    }
+  }
+  for (const tx of walletSync.inputs.history.transactions) {
+    for (const slot of tx.outputSlots) {
+      if (tx.proofless === true) slot.viewTagBytes = tag;
+    }
+  }
+  for (const step of walletSync.expected.history.steps) {
+    for (const entry of step.viewingKeyHistory) {
+      entry.viewingPkBytes = hex(viewing.publicKey().toBytes());
+    }
+  }
+  viewing.destroy();
+  writeJson("transaction/wallet-sync-v1.json", walletSync);
 }
 
 const manifest = readJson("manifest.json");

@@ -201,7 +201,7 @@ fn bench_cu_deposit() {
              proof-free SOL/SPL shields, Groth16-proven EdDSA transact shapes covering the \
              narrowest and widest shape of every output count (up to the 1x16 split shape \
              and the 49x2 widest input shape), the 49x2 shape on both `ring_transact` rails \
-             (EdDSA, and P256 whose BSB22 commitment adds a Pedersen proof-of-knowledge \
+             (EdDSA, and anonymous EdDSA whose BSB22 commitment adds a Pedersen proof-of-knowledge \
              pairing to verification), every supported `merge_transact` shape, compact \
              padding on the 2x4 and 49x2 transact shapes and every merge shape, and SOL/SPL \
              withdrawals. This target is a pure \
@@ -257,7 +257,7 @@ fn bench_cu_deposit() {
     for (n_inputs, n_outputs) in [(2, 4), (49, 2)] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, true, &mut bench);
     }
-    for rail in [RingRail::Eddsa, RingRail::P256] {
+    for rail in [RingRail::Eddsa, RingRail::AnonymousEddsa] {
         bench_ring_transfer_shape(
             &mut mollusk,
             &program_id,
@@ -438,7 +438,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -475,7 +475,7 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut C
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -529,7 +529,7 @@ fn bench_deposit_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, 1_000_000).expect("mint_to");
 
-    let recipient = ShieldedKeypair::new_p256()
+    let recipient = ShieldedKeypair::new_ed25519()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");

@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeSet, HashSet},
     num::{NonZeroU32, NonZeroUsize},
 };
+use zolana_keypair::X25519Keypair;
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
@@ -13,7 +14,7 @@ use zolana_event::{
 };
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
-use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{NullifierKey, ShieldedAddress};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
     instructions::merge::{
@@ -43,7 +44,8 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(1000) {
 #[must_use = "run the recovery explicitly"]
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Keypair,
+    mode: custom_ring_interface::RingMode,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -83,7 +85,7 @@ pub struct RecoveredNotes {
     /// Audited or merge commitments without verified openings or confirmed
     /// spends.
     pub unopened: Vec<[u8; 32]>,
-    /// Tagged deposits with unknown ownership and spentness.
+    /// Deposits with unknown ownership and spentness.
     pub unsupported_deposits: Vec<[u8; 32]>,
     /// Mints of merge outputs the asset registry has no id for; those merges
     /// stay in `unopened`. Register the mints and recover again.
@@ -91,10 +93,11 @@ pub struct RecoveredNotes {
 }
 
 impl<'a> RingRecovery<'a> {
-    pub fn new(ring_program_id: Address, auditor: &'a ViewingKey) -> Self {
+    pub fn new(ring_program_id: Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring_program_id,
             auditor,
+            mode: custom_ring_interface::RingMode::Off,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
@@ -104,6 +107,13 @@ impl<'a> RingRecovery<'a> {
     #[must_use = "use the updated recovery"]
     pub fn with_page_size(mut self, page_size: NonZeroU32) -> Self {
         self.page_size = page_size;
+        self
+    }
+
+    /// Selects the ring's proved disclosure layout before recovery scans it.
+    #[must_use = "use the updated recovery"]
+    pub fn with_mode(mut self, mode: custom_ring_interface::RingMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -178,7 +188,7 @@ impl<'a> MemberRecovery<'a> {
                 transaction,
                 assets,
             }
-            .run()?;
+            .run_with_mode(self.recovery.mode)?;
             for output in &audited.outputs {
                 if output.recipient_viewing_pk != self.source.address.viewing_pubkey
                     || Member::owner_tag(&output.owner_tag)? != source_member
@@ -253,7 +263,6 @@ impl<'a> MemberRecovery<'a> {
         let mut unsupported_deposits = Vec::new();
         let mut unknown_mints = BTreeSet::new();
         let source_owner_hash = self.source.address.owner_hash()?;
-        let bootstrap_tag = self.source.address.viewing_pubkey.x();
         for deposit in (DepositHistory {
             environment: ring,
             ring: self.recovery.ring_program_id,
@@ -266,30 +275,29 @@ impl<'a> MemberRecovery<'a> {
             let DepositHistoryEntry {
                 output_context,
                 output,
-                tag,
                 slot,
                 tx_signature,
                 slot_index,
+                confirmed,
             } = deposit;
             if seen.contains(&output_context.hash) {
                 continue;
             }
-            let Ok(Some(capsule)) = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
-            else {
-                if tag == bootstrap_tag {
-                    unsupported_deposits.push(output_context.hash);
-                }
+            let (Ok(Some(capsule)), Some(confirmed)) = (
+                RingDepositAuditCapsule::parse(&output.encrypted.ciphertext),
+                confirmed.as_ref(),
+            ) else {
+                unsupported_deposits.push(output_context.hash);
                 continue;
             };
             let Ok(opening) = (DepositOpen {
                 capsule,
                 auditor: self.recovery.auditor,
                 owner_utxo_hash: &output.owner_utxo_hash,
+                confirmed,
             })
             .open() else {
-                if tag == bootstrap_tag {
-                    unsupported_deposits.push(output_context.hash);
-                }
+                unsupported_deposits.push(output_context.hash);
                 continue;
             };
             if opening.owner_hash != source_owner_hash {
@@ -462,10 +470,10 @@ struct DepositHistory<'a, I, O> {
 struct DepositHistoryEntry {
     output_context: OutputContext,
     output: EncryptedRingDepositOutput,
-    tag: [u8; 32],
     slot: u64,
     tx_signature: solana_signature::Signature,
     slot_index: u32,
+    confirmed: Option<crate::ConfirmedDeposit>,
 }
 
 impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
@@ -497,10 +505,10 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                             DepositHistoryEntry {
                                 output_context: slot.output_context.clone(),
                                 output,
-                                tag: slot.view_tag,
                                 slot: transaction.slot,
                                 tx_signature: transaction.tx_signature,
                                 slot_index: slot_index as u32,
+                                confirmed: None,
                             },
                         )
                     })
@@ -511,15 +519,20 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 let event_index = transaction
                     .event_index
                     .ok_or(AuditError::MissingEventIndex)?;
-                if !self
+                let origin = self
                     .environment
                     .origin
-                    .ring_invoked(transaction.tx_signature, event_index, self.ring)
-                    .map_err(AuditError::from)?
-                {
+                    .origin(transaction.tx_signature, event_index, self.ring)
+                    .map_err(AuditError::from)?;
+                if !origin.ring_invoked {
                     continue;
                 }
-                for deposit in tagged {
+                for mut deposit in tagged {
+                    deposit.confirmed = origin
+                        .deposits
+                        .iter()
+                        .find(|binding| u32::from(binding.slot_index()) == deposit.slot_index)
+                        .cloned();
                     if seen.insert(deposit.output_context.hash) {
                         deposits.push(deposit);
                     }

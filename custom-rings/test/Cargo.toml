@@ -33,6 +33,7 @@ zolana-program = { workspace = true, features = ["protocol"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-transaction = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }

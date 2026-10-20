@@ -1,4 +1,5 @@
 use std::num::NonZeroU64;
+use zolana_keypair::X25519Keypair;
 
 use anyhow::Result;
 use custom_ring_cli::transact;
@@ -13,7 +14,7 @@ use custom_ring_test_validator::shared::{
 use solana_signer::Signer;
 use zolana_client::ProverClient;
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::ShieldedKeypair;
 use zolana_ring_policy::{Member, RuleTable, VelocityRow};
 use zolana_transaction::instructions::transact::{canonical_shape, ConfidentialTransaction};
 
@@ -37,7 +38,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Keypair::new().pubkey(),
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;
@@ -77,6 +78,7 @@ fn two_members_land_windowed_transfers_proven_against_the_same_roots() -> Result
             asset: DepositAsset::Sol,
             amount: 2_000_000,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .send(DepositProofEnvironment {
             indexer,
@@ -141,7 +143,7 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
     RegisterRing {
         ring,
         payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
+        auditor_pubkey: X25519Keypair::new().pubkey(),
         tier: Tier::policy(&RULES, env.tree),
     }
     .send(rpc)?;
@@ -177,6 +179,7 @@ fn a_spend_record_migrates_to_the_output_tree() -> Result<()> {
             asset: DepositAsset::Sol,
             amount: 2_000_000,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .send(DepositProofEnvironment {
             indexer,

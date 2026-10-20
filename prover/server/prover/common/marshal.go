@@ -182,14 +182,14 @@ func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var totalWritten int64 = 0
 	var intBuf [4]byte
 
-	requiresP256 := uint32(0)
-	if ps.RequiresP256 {
-		requiresP256 = 1
+	hasCommitment := uint32(0)
+	if ps.HasCommitment {
+		hasCommitment = 1
 	}
 	fieldsToWrite := []uint32{
 		ps.NInputs,
 		ps.NOutputs,
-		requiresP256,
+		hasCommitment,
 	}
 
 	for _, field := range fieldsToWrite {
@@ -226,11 +226,11 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var totalRead int64 = 0
 	var intBuf [4]byte
 
-	var requiresP256 uint32
+	var hasCommitment uint32
 	fieldsToRead := []*uint32{
 		&ps.NInputs,
 		&ps.NOutputs,
-		&requiresP256,
+		&hasCommitment,
 	}
 
 	for _, field := range fieldsToRead {
@@ -241,7 +241,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		}
 		*field = binary.BigEndian.Uint32(intBuf[:])
 	}
-	ps.RequiresP256 = requiresP256 != 0
+	ps.HasCommitment = hasCommitment != 0
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
 	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
@@ -332,7 +332,7 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	lowerPath := strings.ToLower(path)
+	lowerPath := strings.ToLower(filepath.Base(path))
 	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
 		ps := &RingProofSystem{
 			CircuitType: circuitType,
@@ -351,18 +351,18 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.ProvingKeySha256 = digest
 		// Transfer variants are resolved from canonical key filenames. The
-		// RequiresP256 header is retained as a consistency check for P256 keys.
-		ring := strings.Contains(strings.ToLower(path), "ring")
-		p256Ring := strings.Contains(strings.ToLower(path), "p256_ring")
+		// HasCommitment header retains its historical value independently of the rail.
+		ring := strings.Contains(lowerPath, "ring")
+		eddsaRing := strings.Contains(lowerPath, "eddsa_ring")
 		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "ring" case: the name contains both
 		// "transfer" (matched this branch) and "ring".
-		ringAuthority := strings.Contains(strings.ToLower(path), "ring_authority")
+		ringAuthority := strings.Contains(lowerPath, "ring_authority")
 		switch {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
-		case p256Ring:
-			ps.CircuitType = TransferP256RingCircuitType
+		case eddsaRing:
+			ps.CircuitType = TransferAnonymousRingEddsaCircuitType
 		case ring:
 			ps.CircuitType = TransferRingCircuitType
 		default:
@@ -370,7 +370,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		ps.Confidential = !ringAuthority
 		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "merge") {
+	} else if strings.Contains(lowerPath, "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
 		// (merge_24_1.key) carries no "transfer" substring, so it needs its own
 		// branch or it would fall through to the unrecognized-file error.
@@ -382,13 +382,13 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		ps.ProvingKeySha256 = digest
 		// merge_ring_24_1.key is the policy-ring variant; the default merge file is
 		// merge_24_1.key.
-		if strings.Contains(strings.ToLower(path), "ring") {
+		if strings.Contains(lowerPath, "ring") {
 			ps.CircuitType = MergeRingCircuitType
 		} else {
 			ps.CircuitType = MergeCircuitType
 		}
 		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "address-append") {
+	} else if strings.Contains(lowerPath, "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)

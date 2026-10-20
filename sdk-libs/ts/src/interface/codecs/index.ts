@@ -1,6 +1,9 @@
 import type {
   Address,
   Bytes32,
+  Bytes16,
+  Bytes33,
+  DepositAssetKind,
   CacheAccount,
   CircuitId,
   CreateCacheData,
@@ -127,6 +130,35 @@ export function encodeRingDepositInstructionData(value: RingDepositInstructionDa
   return encoded(value, writeRingDepositData);
 }
 
+/** Decodes the unchanged SPP deposit wire, including its u16 ciphertext lengths. */
+export function decodeRingDepositInstructionData(bytes: Uint8Array): RingDepositInstructionData {
+  const reader = new Reader(bytes);
+  const assets = Array.from({ length: reader.u8("assets.length") }, (): DepositAssetKind => {
+    const kind = reader.u8("asset.kind");
+    if (kind === 0) return { kind: "sol" };
+    if (kind === 1) return { kind: "spl", splInterfaceBump: reader.u8("splInterfaceBump") };
+    return fail("INTERFACE_CODEC", { field: "asset.kind" });
+  });
+  const deposits = Array.from({ length: reader.u8("deposits.length") }, () => {
+    const assetIndex = reader.u8("assetIndex");
+    if (assetIndex >= assets.length) fail("INTERFACE_CODEC", { field: "assetIndex" });
+    return {
+      assetIndex,
+      viewTag: reader.bytes(32, "viewTag") as Bytes32,
+      ownerUtxoHash: reader.bytes(32, "ownerUtxoHash") as Bytes32,
+      amount: reader.u64("amount"),
+      ringDataHash: reader.bytes(32, "ringDataHash") as Bytes32,
+      encrypted: {
+        txViewingPublicKey: reader.bytes(33, "txViewingPublicKey") as Bytes33,
+        salt: reader.bytes(16, "salt") as Bytes16,
+        ciphertext: reader.bytes(reader.u16("ciphertext.length"), "ciphertext"),
+      },
+    };
+  });
+  reader.done();
+  return { assets, deposits };
+}
+
 function writeNullifierTreeParams(writer: Writer, value: NullifierTreeParams): void {
   writer
     .u64(value.inputQueueBatchSize, "inputQueueBatchSize")
@@ -211,13 +243,13 @@ function circuitTag(value: CircuitId): number {
   switch (value.kind) {
     case "confidentialEddsa":
       return 0;
-    case "ringEddsa":
+    case "confidentialRingEddsa":
       return 1;
     case "ringAuthority":
       return 2;
     case "confidentialEddsaCached":
       return 4;
-    case "ringEddsaCached":
+    case "confidentialRingEddsaCached":
       return 5;
     default:
       return fail("INTERFACE_CODEC", { name: "circuit.kind" });
@@ -230,7 +262,8 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
-  if (value.kind !== "confidentialEddsaCached" && value.kind !== "ringEddsaCached") return;
+  if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
+    return;
   if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
     fail("INTERFACE_INVALID_SHAPE", {
       name: "circuit.cacheAccess",
@@ -344,7 +377,6 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash");
   writeMergeOutputEncryption(writer, value.outputEncryption);
   writer
-    .bool(value.eddsaOwner, "eddsaOwner")
     .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
@@ -356,7 +388,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 384;
+const MERGE_FIXED_DATA_LENGTH = 383;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,

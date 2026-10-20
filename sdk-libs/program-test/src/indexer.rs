@@ -11,7 +11,7 @@ use zolana_client::{ProofInputUtxo, NULLIFIER_TREE_HEIGHT};
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
-use zolana_keypair::{P256Pubkey, PublicKey};
+use zolana_keypair::{PublicKey, X25519Pubkey};
 use zolana_merkle_tree::{
     indexed::{IndexedMerkleTree, NonInclusionProof},
     MerkleTree,
@@ -428,11 +428,11 @@ pub fn shielded_transaction_from_general_event(
     }
 }
 
-fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<P256Pubkey> {
+fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<X25519Pubkey> {
     if bytes.iter().all(|byte| *byte == 0) {
         return None;
     }
-    P256Pubkey::from_bytes(*bytes).ok()
+    X25519Pubkey::from_bytes(*bytes).ok()
 }
 
 /// Recompute the UTXO commitment through the shared transaction helper. A

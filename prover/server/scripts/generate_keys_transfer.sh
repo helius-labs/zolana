@@ -60,7 +60,7 @@ shapes=(
 rails=(
     "transfer-confidential transfer_confidential"
     "transfer-ring transfer_ring"
-    "transfer-p256-ring transfer_p256_ring"
+    "transfer-eddsa-ring transfer_eddsa_ring"
 )
 
 for entry in "${rails[@]}"; do

@@ -1,4 +1,4 @@
-export const RING_DEPOSIT_AUDIT_SLOTS = 8;
+export { RING_DEPOSIT_AUDIT_SLOTS } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
   Bytes16,
@@ -298,7 +298,7 @@ export function velocityProofInputOff(
   });
 }
 
-/** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
+/** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the canonical 32-byte X25519 coordinate. */
 export interface CustomRingPolicyProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;

@@ -248,7 +248,7 @@ impl<'a> Proof<'a> {
                 webauthn::Verification {
                     assertion,
                     signature_der,
-                    pubkey: &key.pubkey(),
+                    pubkey: &key,
                     attestation,
                     origins,
                 }
@@ -297,7 +297,6 @@ mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::ViewingKey;
 
     use crate::api::{unix_now, GetDecryptedTransactionsRequest};
 
@@ -367,11 +366,19 @@ mod tests {
     #[test]
     fn the_signature_scheme_must_match_the_declared_reader_key() {
         let mut passkey_tag = signed_auth();
-        passkey_tag.reader = ReaderKey::p256(ViewingKey::new().pubkey())
-            .expect("passkey reader")
-            .to_bytes()
-            .to_vec()
-            .into();
+        passkey_tag.reader = ReaderKey::p256(
+            zolana_ring_client::P256ReaderKey::from_bytes(
+                hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .expect("passkey reader")
+        .to_bytes()
+        .to_vec()
+        .into();
         assert_eq!(
             decide(&passkey_tag),
             Err(Unauthorized::PasskeyNeedsAssertion)

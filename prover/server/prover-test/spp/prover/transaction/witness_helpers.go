@@ -6,7 +6,6 @@ import (
 	"math/big"
 
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/parse"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
@@ -88,16 +87,4 @@ func fillPathElements(pathElements []frontend.Variable, proofElements []*big.Int
 
 func pathIndexVariable(index uint64) frontend.Variable {
 	return new(big.Int).SetUint64(index)
-}
-
-func proofBigIntHexes(values []*big.Int) []string {
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = parse.FieldHex(value)
-	}
-	return out
-}
-
-func proofFieldInput(value *big.Int) string {
-	return "0x" + parse.FieldHex(value)
 }

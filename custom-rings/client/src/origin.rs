@@ -3,6 +3,7 @@
 //! The indexer matches the auditor view tag without knowing rings. The ring
 //! is recovered from the call stack of the confirmed transaction instead.
 
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
@@ -10,6 +11,7 @@ use zolana_client::ClientError;
 use zolana_event::tag;
 use zolana_event_parser::{event_parent, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
+    instruction::instruction_data::deposit::RingDepositIxData,
     instruction::{settlement_accounts, InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
@@ -23,6 +25,33 @@ pub struct RingOrigin {
     /// Required signers, fee payer first. Every real input owner signs.
     pub signers: Vec<Address>,
     pub withdrawals: Vec<RingWithdrawal>,
+    /// Capsule bindings from this event's confirmed audited deposit instruction.
+    pub deposits: Vec<ConfirmedDeposit>,
+}
+
+/// An opening authenticated by successful execution of the ring's deposit proof.
+/// Only the confirmed instruction parser constructs this binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedDeposit {
+    slot_index: u8,
+    owner_utxo_hash: [u8; 32],
+    capsule_hash: [u8; 32],
+}
+
+impl ConfirmedDeposit {
+    pub fn slot_index(&self) -> u8 {
+        self.slot_index
+    }
+
+    pub(crate) fn matches(
+        &self,
+        capsule: custom_ring_interface::RingDepositAuditCapsule<'_>,
+        owner_utxo_hash: &[u8; 32],
+    ) -> bool {
+        self.slot_index == capsule.slot_index
+            && &self.owner_utxo_hash == owner_utxo_hash
+            && self.capsule_hash == <[u8; 32]>::from(Sha256::digest(capsule.encode()))
+    }
 }
 
 /// One public settlement leg out of the ring.
@@ -66,12 +95,16 @@ pub enum OriginError {
     InvalidStackHeight(u32),
     #[error("ring transact instruction data is undecodable {0}")]
     InvalidTransactData(String),
+    #[error("confirmed audited deposit data is undecodable {0}")]
+    InvalidDepositData(String),
     #[error("ring transact settlement accounts do not match its interface transfers")]
     SettlementAccounts,
     #[error("trusted event index {0} is unavailable")]
     InvalidEventIndex(u16),
 }
 
+/// Attributes an event in trusted instruction groups from successful confirmed
+/// execution. Indexed or caller-provided transaction claims are not evidence.
 pub fn ring_event_origin_in(
     groups: &[InstructionGroup],
     event_index: u16,
@@ -93,7 +126,58 @@ pub fn ring_event_origin_in(
         ring_invoked,
         signers: Vec::new(),
         withdrawals,
+        deposits: confirmed_deposits(groups, source, ring)?,
     })
+}
+
+/// Bind only capsules whose proof ran in the direct caller of this exact event.
+/// A plain deposit may carry arbitrary capsule bytes and grants no binding.
+fn confirmed_deposits(
+    groups: &[InstructionGroup],
+    source: &ParsedInstruction,
+    ring: Address,
+) -> Result<Vec<ConfirmedDeposit>, OriginError> {
+    if source.data.first() != Some(&tag::RING_DEPOSIT) {
+        return Ok(Vec::new());
+    }
+    let caller = groups.iter().find_map(|group| {
+        let index = group
+            .inner
+            .iter()
+            .position(|inner| core::ptr::eq(inner, source))?;
+        event_parent(group, index)
+    });
+    if !caller.is_some_and(|caller| {
+        caller.program_id == ring
+            && caller.data.first() == Some(&custom_ring_interface::tag::AUDITED_DEPOSIT)
+            && caller
+                .data
+                .get(2 + custom_ring_interface::CustomRingProof::SIZE..)
+                == Some(source.data.as_slice())
+    }) {
+        return Ok(Vec::new());
+    }
+    let deposit = RingDepositIxData::deserialize(&source.data[1..])
+        .map_err(|error| OriginError::InvalidDepositData(error.to_string()))?;
+    deposit
+        .deposits
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let capsule =
+                custom_ring_interface::RingDepositAuditCapsule::parse(&entry.encrypted.ciphertext)
+                    .map_err(|error| OriginError::InvalidDepositData(error.to_string()))?
+                    .filter(|capsule| usize::from(capsule.slot_index) == index)
+                    .ok_or_else(|| {
+                        OriginError::InvalidDepositData("missing or misplaced capsule".into())
+                    })?;
+            Ok(ConfirmedDeposit {
+                slot_index: capsule.slot_index,
+                owner_utxo_hash: entry.owner_utxo_hash,
+                capsule_hash: Sha256::digest(&entry.encrypted.ciphertext).into(),
+            })
+        })
+        .collect()
 }
 
 /// `ring_transact` needs the ring's `ring_auth` PDA as signer, so only a pool
@@ -268,6 +352,15 @@ mod rpc {
         }
 
         pub fn origin(self, event_index: u16, ring: Address) -> Result<RingOrigin, OriginError> {
+            if !matches!(&self.transaction.transaction.transaction,
+                EncodedTransaction::Json(ui)
+                    if ui.signatures.first().is_some_and(|value| value == &self.signature.to_string()))
+            {
+                return Err(OriginError::Unavailable {
+                    signature: self.signature,
+                    message: "confirmed transaction signature does not match the request".into(),
+                });
+            }
             let signers = signers_of(&self.transaction);
             let groups = ConfirmedInstructionGroups::try_from(self.transaction)?;
             let mut origin = ring_event_origin_in(&groups.groups, event_index, ring)?;

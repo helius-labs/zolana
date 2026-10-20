@@ -17,7 +17,7 @@ use crate::{
 
 /// The single BSB22 Pedersen commitment a proof carries: the commitment point and
 /// its proof-of-knowledge (uncompressed G1, big-endian, not negated). Present only
-/// for the P256 `transfer` rail; the Solana-only `transfer-eddsa` rail is vanilla
+/// for the anonymous EdDSA rail. The confidential rail is vanilla
 /// Groth16 with no commitment.
 #[derive(Debug, Clone, Copy)]
 pub struct Commitments {
@@ -26,8 +26,8 @@ pub struct Commitments {
 }
 
 /// Uncompressed Groth16 proof with `proof_a` already negated. `commitment` is
-/// `Some` for the P256 rail (verify with `Groth16Verifier::new_with_commitment`)
-/// and `None` for the eddsa rail (verify with `Groth16Verifier::new`).
+/// `Some` for the anonymous EdDSA rail (verify with `Groth16Verifier::new_with_commitment`)
+/// and `None` for the confidential rail (verify with `Groth16Verifier::new`).
 #[derive(Debug, Clone, Copy)]
 pub struct Proof {
     pub a: [u8; 64],
@@ -46,7 +46,7 @@ pub struct CompressedCommitments {
 /// The Groth16 proof as the SPP instructions carry it: the G1 points of
 /// [`Proof`] compressed to 32 bytes, `b` kept as the raw 128-byte G2 point so
 /// the program skips the G2 decompression syscall. Mirrors [`Proof`]:
-/// `commitment` is `Some` for the P256 rail.
+/// `commitment` is `Some` for the anonymous EdDSA rail.
 #[derive(Debug, Clone, Copy)]
 pub struct ProofCompressed {
     pub a: [u8; 32],
@@ -94,12 +94,12 @@ impl ProofCompressed {
     }
 
     /// Split a committed custom-ring proof into the unchanged transact proof
-    /// triple and the BSB22 payload embedded in `CircuitId::RingP256`.
-    pub fn into_ring_p256_transact_parts(
+    /// triple and the BSB22 payload embedded in `CircuitId::AnonymousRingEddsa`.
+    pub fn into_committed_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {
         let commitment = self.commitment.ok_or_else(|| {
-            ClientError::ProofParse("P256 ring proof is missing its BSB22 commitment".to_string())
+            ClientError::ProofParse("EdDSA ring proof is missing its BSB22 commitment".to_string())
         })?;
         Ok((
             TransactProof {
@@ -115,8 +115,7 @@ impl ProofCompressed {
     }
 
     /// The merge proof: a vanilla Groth16 triple ([`MergeProof`]). The merge
-    /// circuit carries no P256 gadget, so it has no BSB22 commitment; one is
-    /// rejected (wrong rail?).
+    /// circuit has no BSB22 commitment, so committed proofs are rejected.
     pub fn to_merge_proof(&self) -> Result<MergeProof, ClientError> {
         if self.commitment.is_some() {
             return Err(ClientError::ProofParse(
@@ -240,7 +239,7 @@ pub(crate) fn proof_from_value(
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)
 /// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
-/// only when both commitment fields are present (P256 rail).
+/// only when both commitment fields are present (EdDSA rail).
 pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
     let json: GnarkProofJson = serde_json::from_str(json_str).ok()?;
 
@@ -329,7 +328,7 @@ mod tests {
         assert_eq!(proof.c, [3u8; 32]);
     }
 
-    /// The merge circuit has no P256 gadget: a BSB22-committed proof is not a
+    /// The merge circuit accepts no BSB22 commitment, so this is not a
     /// merge proof.
     #[test]
     fn to_merge_proof_rejects_a_proof_with_a_commitment() {
@@ -341,10 +340,10 @@ mod tests {
     }
 
     #[test]
-    fn p256_transact_parts_keep_the_existing_proof_and_extract_commitment() {
+    fn committed_transact_parts_keep_the_existing_proof_and_extract_commitment() {
         let (proof, commitment) = proof_with_commitment()
-            .into_ring_p256_transact_parts()
-            .expect("committed P256 proof maps");
+            .into_committed_transact_parts()
+            .expect("committed EdDSA proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
         assert_eq!(proof.b, [2u8; 128]);
@@ -392,14 +391,14 @@ mod tests {
     }
 
     #[test]
-    fn p256_transact_parts_reject_vanilla_proof() {
+    fn committed_transact_parts_reject_vanilla_proof() {
         let vanilla = ProofCompressed {
             commitment: None,
             ..proof_with_commitment()
         };
         let error = vanilla
-            .into_ring_p256_transact_parts()
-            .expect_err("vanilla proof is not a P256 ring proof");
+            .into_committed_transact_parts()
+            .expect_err("vanilla proof is not a EdDSA ring proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

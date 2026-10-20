@@ -1,0 +1,47 @@
+package transfereddsa
+
+import (
+	"fmt"
+
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+
+	"github.com/consensys/gnark/backend/groth16"
+)
+
+// SetupTransferCircuit runs trusted setup for the Solana-only spp_transaction
+// circuit. Returns a TransferProofSystem for proof generation and verification.
+func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
+	switch circuit {
+	case common.TransferConfidentialCircuitType:
+		return SetupTransfer(nInputs, nOutputs, ConfidentialVariant)
+	case common.TransferRingCircuitType:
+		return SetupTransfer(nInputs, nOutputs, RingVariant)
+	case common.TransferRingAuthorityCircuitType:
+		return SetupTransfer(nInputs, nOutputs, RingAuthorityVariant)
+	default:
+		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
+	}
+}
+
+func SetupTransfer(nInputs uint32, nOutputs uint32, variant Variant) (*common.TransferProofSystem, error) {
+	circuitType := variant.CircuitType()
+	fmt.Println("Setting up", circuitType, "(eddsa/solana-only): nInputs", nInputs, "nOutputs", nOutputs)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, variant)
+	if err != nil {
+		return nil, err
+	}
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		return nil, err
+	}
+	return &common.TransferProofSystem{
+		CircuitType:      circuitType,
+		NInputs:          nInputs,
+		NOutputs:         nOutputs,
+		HasCommitment:    false,
+		Confidential:     variant != RingAuthorityVariant,
+		ProvingKey:       pk,
+		VerifyingKey:     vk,
+		ConstraintSystem: ccs,
+	}, nil
+}

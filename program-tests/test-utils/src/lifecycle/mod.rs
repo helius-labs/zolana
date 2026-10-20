@@ -149,7 +149,7 @@ impl Deposit<'_> {
         // The recipient `owner_hash` is public address material, so a
         // third-party depositor shares no secret with the recipient.
         let owner = self.recipient.owner_hash()?;
-        let view_tag = self.recipient.viewing_pubkey.x();
+        let view_tag = self.recipient.viewing_pubkey.u();
 
         let sender_account = rpc.get_account(Address::new_from_array(self.sender.to_bytes()))?;
         let system_owned = sender_account

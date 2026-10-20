@@ -109,7 +109,7 @@ func TestPublicInputHashRejectsWrongTreeSlotCount(t *testing.T) {
 	}
 }
 
-// PreimageAfterPrivateTxHash is the P256 rail's insertion point: its elements
+// PreimageAfterPrivateTxHash is the anonymous EdDSA rail's insertion point: its elements
 // land directly after private_tx_hash and before external_data_hash, so the
 // two rails cannot reinterpret each other's preimage.
 func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {

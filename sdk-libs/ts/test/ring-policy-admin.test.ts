@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   AccountRole,
   getAddressDecoder,
@@ -151,6 +152,7 @@ describe("policy admin instructions", () => {
     });
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.WRITABLE],
       [RING, AccountRole.READONLY],
       [await ringProgramDataAddress(RING), AccountRole.READONLY],
@@ -298,7 +300,9 @@ describe("policy admin transactions", () => {
           RING,
           ringProgramConfigData({
             authority: AUTHORITY,
-            auditorPublicKey: new Uint8Array(33).fill(2),
+            auditorPublicKey: X25519Keypair.fromBytes(new Uint8Array(32).fill(9))
+              .publicKey()
+              .toBytes(),
             bump: configBump,
             hasPolicy: input.hasPolicy ?? true,
           }),

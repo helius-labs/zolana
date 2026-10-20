@@ -8,7 +8,6 @@ use std::{
 use zolana_user_registry_interface::MergeEncryptionScheme;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use serde_json::{json, Value};
 
 use solana_address::Address;
@@ -25,14 +24,12 @@ use zolana_client::{
     ClientError,
 };
 use zolana_indexer_api::{Hash as ApiHash, SerializablePubkey};
-use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_keypair::{x25519::X25519_PUBKEY_LEN, ViewingKey, X25519Pubkey};
 use zolana_user_registry_interface::user_record_pda;
 
 #[test]
-fn decodes_compressed_p256_pubkey() {
-    let secret = SecretKey::from_slice(&[1u8; 32]).unwrap();
-    let public = secret.public_key();
-    let point = public.to_encoded_point(true);
+fn decodes_tagged_x25519_pubkey() {
+    let key = ViewingKey::from_bytes(&[1u8; 32]).pubkey();
     let response = rpc_result(json!({
         "context": { "blockTime": 1, "slot": 1 },
         "transactions": [{
@@ -40,7 +37,7 @@ fn decodes_compressed_p256_pubkey() {
             "transaction": {
                 "slot": 1,
                 "txSignature": signature(1).to_string(),
-                "txViewingPk": STANDARD.encode(point.as_bytes()),
+                "txViewingPk": STANDARD.encode(key.as_bytes()),
                 "outputSlots": [],
                 "messages": [],
                 "nullifiers": [],
@@ -53,7 +50,7 @@ fn decodes_compressed_p256_pubkey() {
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect("decode transaction viewing key");
     let _ = server.request();
-    let key = result
+    let decoded = result
         .transactions
         .first()
         .unwrap()
@@ -61,7 +58,7 @@ fn decodes_compressed_p256_pubkey() {
         .tx_viewing_pk
         .unwrap();
 
-    assert_eq!(key.as_bytes(), point.as_bytes());
+    assert_eq!(decoded, key);
 }
 
 #[test]
@@ -71,7 +68,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
     let utxo_hash = bytes32(4);
     let output_tree_id = 5u16;
     let signature = signature(9);
-    let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
+    let (tx_viewing_pk_bytes, tx_viewing_pk) = tagged_x25519_pubkey(3);
     let response = rpc_result(json!({
         "context": { "blockTime": 42, "slot": 1 },
         "outputTreeId": 6,
@@ -604,7 +601,7 @@ fn by_signature_error_path_includes_transaction_nesting() {
             "transaction": {
                 "slot": 1,
                 "txSignature": signature.to_string(),
-                "txViewingPk": STANDARD.encode([1u8; 16]),
+                "salt": STANDARD.encode([1u8; 15]),
                 "outputSlots": [],
                 "messages": [],
                 "nullifiers": [],
@@ -617,12 +614,10 @@ fn by_signature_error_path_includes_transaction_nesting() {
 
     let err = indexer
         .get_shielded_transactions_by_signature(signature, None)
-        .expect_err("short viewing key must fail");
+        .expect_err("short salt must fail");
     let _ = server.request();
 
-    assert!(err
-        .to_string()
-        .contains("transactions[0].transaction.txViewingPk"));
+    assert!(err.to_string().contains("transactions[0].transaction.salt"));
 }
 
 fn spend_record_query() -> RingSpendRecordRequest {
@@ -679,17 +674,15 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
         "records": [
             {
                 "owner": encode_pubkey_string(owners[0]),
-                "ownerP256": STANDARD.encode([7; P256_PUBKEY_LEN]),
                 "nullifierPubkey": encode_hash_string(bytes32(3)),
-                "viewingPubkey": STANDARD.encode([4; P256_PUBKEY_LEN]),
+                "viewingPubkey": STANDARD.encode([4; X25519_PUBKEY_LEN]),
                 "mergeEncryption": 1,
             },
             null,
             {
                 "owner": encode_pubkey_string(owners[2]),
-                "ownerP256": null,
                 "nullifierPubkey": encode_hash_string(bytes32(5)),
-                "viewingPubkey": STANDARD.encode([6; P256_PUBKEY_LEN]),
+                "viewingPubkey": STANDARD.encode([6; X25519_PUBKEY_LEN]),
                 "mergeEncryption": 0,
             },
         ],
@@ -717,18 +710,16 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 Some(UserRecord {
                     owner: owners[0],
                     bump: user_record_pda(&owners[0]).1,
-                    owner_p256: Some([7; P256_PUBKEY_LEN]),
                     nullifier_pubkey: bytes32(3),
-                    viewing_pubkey: [4; P256_PUBKEY_LEN],
+                    viewing_pubkey: [4; X25519_PUBKEY_LEN],
                     merge_encryption: MergeEncryptionScheme::PoseidonCtrV1,
                 }),
                 None,
                 Some(UserRecord {
                     owner: owners[2],
                     bump: user_record_pda(&owners[2]).1,
-                    owner_p256: None,
                     nullifier_pubkey: bytes32(5),
-                    viewing_pubkey: [6; P256_PUBKEY_LEN],
+                    viewing_pubkey: [6; X25519_PUBKEY_LEN],
                     merge_encryption: MergeEncryptionScheme::Disabled,
                 }),
             ],
@@ -743,7 +734,6 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
         "context": { "blockTime": 42, "slot": 77 },
         "records": [{
             "owner": encode_pubkey_string(owner),
-            "ownerP256": null,
             "nullifierPubkey": encode_hash_string(bytes32(3)),
             "viewingPubkey": STANDARD.encode([4; 32]),
             "mergeEncryption": 0,
@@ -753,7 +743,7 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
     let error = AsyncZolanaIndexer::new(server.url())
         .get_user_records(vec![owner], None)
         .await
-        .expect_err("a 32-byte viewing key is not a P256 point");
+        .expect_err("a 32-byte viewing key is not a tagged X25519 point");
     let _ = server.request();
 
     assert!(
@@ -813,14 +803,9 @@ fn encode_pubkey_string(pubkey: Address) -> String {
     bs58::encode(pubkey.to_bytes()).into_string()
 }
 
-fn compressed_p256_pubkey(seed: u8) -> (Vec<u8>, P256Pubkey) {
-    let secret = SecretKey::from_slice(&[seed; 32]).unwrap();
-    let public = secret.public_key();
-    let point = public.to_encoded_point(true);
-    let bytes = point.as_bytes().to_vec();
-    let key_bytes: [u8; P256_PUBKEY_LEN] = bytes.clone().try_into().unwrap();
-    let key = P256Pubkey::from_bytes(key_bytes).unwrap();
-    (bytes, key)
+fn tagged_x25519_pubkey(seed: u8) -> (Vec<u8>, X25519Pubkey) {
+    let key = ViewingKey::from_bytes(&[seed; 32]).pubkey();
+    (key.as_bytes().to_vec(), key)
 }
 
 struct RecordedRequest {

@@ -13,10 +13,10 @@ use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
 use ed25519_dalek::Signer;
 use zolana_keypair::{
     constants::BLINDING_LEN,
-    derivation::{self, INFO_NF_KEY_ED25519, INFO_VIEW_KEY_ED25519},
+    derivation::{self, INFO_NF_KEY_ED25519, INFO_VIEW_KEY_ED25519_X25519},
     hash,
     shielded::{CompressedShieldedAddress, ShieldedAddress},
-    Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey,
+    Curve, KeypairError, NullifierKey, PublicKey, ShieldedKeypairTrait, ViewingKey, X25519Pubkey,
 };
 
 pub const KEY_ID: &str = "arn:aws:kms:us-east-1:111122223333:key/mock-ed25519";
@@ -165,26 +165,13 @@ fn expand_roles(seed: &[u8]) -> (NullifierKey, ViewingKey) {
     let mut nullifier_secret = [0u8; BLINDING_LEN];
     hkdf.expand(INFO_NF_KEY_ED25519, &mut nullifier_secret)
         .expect("nullifier expand");
-    let mut okm = [0u8; 48];
-    hkdf.expand(INFO_VIEW_KEY_ED25519, &mut okm)
+    let mut okm = [0u8; 32];
+    hkdf.expand(INFO_VIEW_KEY_ED25519_X25519, &mut okm)
         .expect("viewing expand");
-    let viewing_secret = viewing_secret_from_okm(&okm);
     (
         NullifierKey::from_secret(nullifier_secret),
-        ViewingKey::from_bytes(&viewing_secret).expect("viewing key from expanded scalar"),
+        ViewingKey::from_bytes(&okm),
     )
-}
-
-#[allow(deprecated)]
-fn viewing_secret_from_okm(okm: &[u8; 48]) -> [u8; 32] {
-    use p256::elliptic_curve::{
-        generic_array::{typenum::U48, GenericArray},
-        hash2curve::FromOkm,
-    };
-
-    let scalar = p256::Scalar::from_okm(GenericArray::<u8, U48>::from_slice(okm));
-    let nonzero = p256::NonZeroScalar::new(scalar).expect("nonzero viewing scalar");
-    p256::SecretKey::from(nonzero).to_bytes().into()
 }
 
 impl ShieldedKeypairTrait for KmsShieldedKeypair {
@@ -192,7 +179,7 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
         self.signing_pubkey
     }
 
-    fn viewing_pubkey(&self) -> P256Pubkey {
+    fn viewing_pubkey(&self) -> X25519Pubkey {
         self.viewing_key.pubkey()
     }
 
@@ -241,10 +228,6 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
             .as_ref()
             .try_into()
             .map_err(|_| KeypairError::SigningFailed)
-    }
-
-    fn sign_hash(&self, _hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
-        Err(KeypairError::NotP256)
     }
 
     fn nullifier(

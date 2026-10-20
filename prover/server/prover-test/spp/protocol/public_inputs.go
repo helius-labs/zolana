@@ -31,7 +31,7 @@ var publicInputNames = [...]string{
 
 // PublicInputNames returns the PublicInputHash preimage order. Variant-specific
 // elements inserted after private_tx_hash (PreimageAfterPrivateTxHash) are not
-// listed; they exist only on the P256 rail. The two trailing cache elements
+// listed; they exist only on the anonymous EdDSA rail. The two trailing cache elements
 // are the PreimageTail every owner-signed rail publishes, empty or not; ring
 // authority binds neither them nor the output owner tags.
 func PublicInputNames() []string {
@@ -51,8 +51,8 @@ type PublicInputs struct {
 	OutputTreeID  *big.Int
 	PrivateTxHash *big.Int
 	// PreimageAfterPrivateTxHash holds the variant-specific elements inserted
-	// right after PrivateTxHash: nil for the EdDSA rails, the P256 message hash
-	// and the default P256 owner identity for the P256 rail.
+	// right after PrivateTxHash: nil for the runtime-authorized EdDSA rails, the
+	// message hash and the default owner identity for the anonymous EdDSA rail.
 	PreimageAfterPrivateTxHash []*big.Int
 	PreimageTail               []*big.Int
 	ExternalDataHash           *big.Int

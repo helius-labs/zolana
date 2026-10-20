@@ -12,6 +12,7 @@ export type Bytes31 = FixedBytes<31>;
 export type Bytes32 = FixedBytes<32>;
 export type Bytes33 = FixedBytes<33>;
 export type Bytes64 = FixedBytes<64>;
+export type Bytes96 = FixedBytes<96>;
 export type Bytes128 = FixedBytes<128>;
 
 export interface RequestContext {
@@ -147,7 +148,7 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "ringEddsa";
+      kind: "confidentialRingEddsa";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -166,7 +167,7 @@ export type CircuitId =
       cacheAccess: CacheAccess;
     }>
   | Readonly<{
-      kind: "ringEddsaCached";
+      kind: "confidentialRingEddsaCached";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -309,7 +310,6 @@ export interface MergeTransactInstructionData {
    * merge carries it unverified.
    */
   readonly outputEncryption: MergeOutputEncryption;
-  readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;

@@ -88,8 +88,7 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 	}
 	// The proved transact path queues the view tag alongside the nullifiers, so
 	// it must be in the same indexed-tree domain (0 < v < p - 1) the on-chain
-	// queue insert enforces. Reject out-of-domain values here rather than
-	// emitting a bundle that proves but is rejected at queue insert.
+	// queue insert enforces.
 	if !protocol.InNullifierDomain(senderViewTag) {
 		return externalValues{}, fmt.Errorf("sender_view_tag must be in the nullifier tree domain 0 < v < p-1")
 	}

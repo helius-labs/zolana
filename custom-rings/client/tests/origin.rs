@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 use zolana_interface::{
     instruction::{InputUtxo, MessageData, OwnerTag, TransactOutput},
-    verifying_keys::{Bsb22Commitment, CacheAccess, CacheWrite, RingP256ProofData},
+    verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite},
 };
 use zolana_ring_client::{
     ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
@@ -268,12 +268,12 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         write_slots: CacheAccess::NO_WRITES,
     };
     let circuits = [
-        CircuitId::RingEddsaCached(1, 2, 1, selection),
-        CircuitId::RingP256Cached(
+        CircuitId::ConfidentialRingEddsaCached(1, 2, 1, selection),
+        CircuitId::AnonymousRingEddsaCached(
             1,
             2,
             1,
-            RingP256ProofData {
+            AnonymousRingEddsaProofData {
                 bsb22_commitment: Bsb22Commitment {
                     commitment: [17; 32],
                     commitment_pok: [18; 32],
@@ -286,8 +286,8 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
     let mut writing = circuits;
     for circuit in &mut writing {
         match circuit {
-            CircuitId::RingEddsaCached(_, _, _, access)
-            | CircuitId::RingP256Cached(_, _, _, _, access) => {
+            CircuitId::ConfidentialRingEddsaCached(_, _, _, access)
+            | CircuitId::AnonymousRingEddsaCached(_, _, _, _, access) => {
                 access.write_slots = CacheAccess::NO_WRITES;
                 for (entry, (output, slot)) in access.write_slots.iter_mut().zip([(0, 0), (1, 1)]) {
                     *entry = CacheWrite { output, slot };
@@ -302,100 +302,125 @@ fn cached_settlement_vectors_match_rust_and_exclude_the_cache() {
         .collect();
     assert_eq!(vectors.len(), circuits.len());
     for (circuit, encoded) in circuits.into_iter().zip(vectors) {
-        let data = TransactIxData {
-            expiry_unix_ts: 0,
-            private_tx_hash: [1; 32],
-            circuit,
-            tx_viewing_pk: [2; 33],
-            salt: [3; 16],
-            proof: TransactProof::zeroed(),
-            interface_transfers: vec![
-                InterfaceTransfer::SolWithdrawal { amount: 7 },
-                InterfaceTransfer::SplWithdrawal {
-                    amount: 9,
-                    spl_interface_bump: 254,
-                },
-            ],
-            data_hash: Some([4; 32]),
-            ring_data_hash: Some([5; 32]),
-            outputs: vec![
-                TransactOutput {
-                    utxo_hash: [6; 32],
-                    owner_tag: OwnerTag::Inline([7; 32]),
-                    data: Some(vec![8, 9]),
-                },
-                TransactOutput {
-                    utxo_hash: [10; 32],
-                    owner_tag: OwnerTag::Account(1),
-                    data: None,
-                },
-            ],
-            messages: vec![MessageData {
-                view_tag: [11; 32],
-                data: vec![12, 13, 14],
-            }],
-            inputs: vec![InputUtxo {
-                nullifier_hash: [20; 32],
-                tree_index: 0,
-            }],
-            tree_contexts: vec![TreeContext {
-                utxo_tree_root_index: 0,
-                nullifier_tree_root_index: 0,
-            }],
-        };
-        let bytes = hex::decode(encoded).expect("pinned wire vector");
-        assert_eq!(data.serialize().expect("serialize"), bytes);
-        let mut answers = instruction(POOL, 2);
-        answers.data = [vec![tag::RING_TRANSACT], bytes].concat();
-        answers.accounts = vec![
-            OTHER,
-            SOL,
-            RECIPIENT,
-            CPI_AUTHORITY,
-            MINT,
-            OTHER,
-            TOKEN_ACCOUNT,
-            OTHER,
-            OTHER,
-        ];
-        if circuit
-            .cache_access()
-            .is_some_and(|access| access.writes_cache())
-        {
+        assert_settlement_vector(circuit, encoded);
+    }
+}
+
+#[test]
+fn anonymous_settlement_vector_matches_rust_and_has_no_cache() {
+    let circuit = CircuitId::AnonymousRingEddsa(
+        1,
+        2,
+        1,
+        AnonymousRingEddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [21; 32],
+                commitment_pok: [22; 32],
+            },
+            default_owner_tag: None,
+        },
+    );
+    assert_settlement_vector(
+        circuit,
+        include_str!("../../../test-vectors/anonymous_ring_settlement.hex").trim(),
+    );
+}
+
+fn assert_settlement_vector(circuit: CircuitId, encoded: &str) {
+    let data = TransactIxData {
+        expiry_unix_ts: 0,
+        private_tx_hash: [1; 32],
+        circuit,
+        tx_viewing_pk: [2; 33],
+        salt: [3; 16],
+        proof: TransactProof::zeroed(),
+        interface_transfers: vec![
+            InterfaceTransfer::SolWithdrawal { amount: 7 },
+            InterfaceTransfer::SplWithdrawal {
+                amount: 9,
+                spl_interface_bump: 254,
+            },
+        ],
+        data_hash: Some([4; 32]),
+        ring_data_hash: Some([5; 32]),
+        outputs: vec![
+            TransactOutput {
+                utxo_hash: [6; 32],
+                owner_tag: OwnerTag::Inline([7; 32]),
+                data: Some(vec![8, 9]),
+            },
+            TransactOutput {
+                utxo_hash: [10; 32],
+                owner_tag: OwnerTag::Account(1),
+                data: None,
+            },
+        ],
+        messages: vec![MessageData {
+            view_tag: [11; 32],
+            data: vec![12, 13, 14],
+        }],
+        inputs: vec![InputUtxo {
+            nullifier_hash: [20; 32],
+            tree_index: 0,
+        }],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
+    };
+    let bytes = hex::decode(encoded).expect("pinned wire vector");
+    assert_eq!(data.serialize().expect("serialize"), bytes);
+    let mut answers = instruction(POOL, 2);
+    answers.data = [vec![tag::RING_TRANSACT], bytes].concat();
+    answers.accounts = vec![
+        OTHER,
+        SOL,
+        RECIPIENT,
+        CPI_AUTHORITY,
+        MINT,
+        OTHER,
+        TOKEN_ACCOUNT,
+        OTHER,
+    ];
+    if let Some(access) = circuit.cache_access() {
+        if access.read_bitmap != 0 {
+            answers.accounts.push(OTHER);
+        }
+        if access.writes_cache() {
             answers.accounts.extend([OTHER, OTHER]);
         }
-        let mut groups = [InstructionGroup {
-            outer: instruction(RING, 1),
-            inner: vec![answers],
-        }];
-        assert_eq!(
-            ring_withdrawals_in(&groups, RING).expect("cached settlement"),
-            vec![
-                RingWithdrawal {
-                    recipient: RECIPIENT,
-                    asset: SOL_MINT,
-                    amount: 7
-                },
-                RingWithdrawal {
-                    recipient: TOKEN_ACCOUNT,
-                    asset: MINT,
-                    amount: 9
-                },
-            ]
-        );
-        groups
-            .first_mut()
-            .expect("group")
-            .inner
-            .first_mut()
-            .expect("instruction")
-            .accounts
-            .truncate(7);
-        assert!(matches!(
-            ring_withdrawals_in(&groups, RING),
-            Err(OriginError::SettlementAccounts)
-        ));
     }
+    let mut groups = [InstructionGroup {
+        outer: instruction(RING, 1),
+        inner: vec![answers],
+    }];
+    assert_eq!(
+        ring_withdrawals_in(&groups, RING).expect("settlement"),
+        vec![
+            RingWithdrawal {
+                recipient: RECIPIENT,
+                asset: SOL_MINT,
+                amount: 7
+            },
+            RingWithdrawal {
+                recipient: TOKEN_ACCOUNT,
+                asset: MINT,
+                amount: 9
+            },
+        ]
+    );
+    groups
+        .first_mut()
+        .expect("group")
+        .inner
+        .first_mut()
+        .expect("instruction")
+        .accounts
+        .truncate(7);
+    assert!(matches!(
+        ring_withdrawals_in(&groups, RING),
+        Err(OriginError::SettlementAccounts)
+    ));
 }
 
 #[test]
@@ -415,7 +440,7 @@ fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
     let data = TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::RingEddsa(0, 0, 3),
+        circuit: CircuitId::ConfidentialRingEddsa(0, 0, 3),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
@@ -609,4 +634,30 @@ fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
     .origin(0, RING);
 
     assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
+}
+
+#[test]
+fn a_confirmed_response_for_another_signature_is_rejected() {
+    let result = ConfirmedTransaction {
+        signature: Signature::from([7; 64]),
+        transaction: withdrawing_transaction(Vec::new(), Vec::new()),
+    }
+    .origin(0, RING);
+    assert!(matches!(result, Err(OriginError::Unavailable { .. })));
+}
+
+#[test]
+fn a_failed_transaction_grants_no_origin() {
+    let mut response =
+        serde_json::to_value(withdrawing_transaction(Vec::new(), Vec::new())).unwrap();
+    response["meta"]["err"] = serde_json::json!("AccountNotFound");
+    let result = ConfirmedTransaction {
+        signature: Signature::from([6; 64]),
+        transaction: serde_json::from_value(response).unwrap(),
+    }
+    .origin(0, RING);
+    assert!(matches!(
+        result,
+        Err(OriginError::Decode(ClientError::TransactionFailed(_)))
+    ));
 }

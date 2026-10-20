@@ -125,7 +125,7 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 // The smallest-fit search returns the first shape that holds a transaction, so
 // the list must be sorted by proving cost for that shape to be the cheapest
 // fit. Measured on the confidential rail: about 22.7k constraints per input and
-// 2k per output; the P256 rail adds a constant on top.
+// 2k per output; the anonymous EdDSA rail adds a constant on top.
 func TestSupportedShapesAreCostOrdered(t *testing.T) {
 	cost := func(s Shape) int { return 22700*s.NInputs + 2050*s.NOutputs }
 	for i := 1; i < len(SupportedShapes); i++ {

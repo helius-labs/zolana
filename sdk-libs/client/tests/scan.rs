@@ -276,7 +276,7 @@ fn deposit(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> (EncryptedUtxoMat
         slot: u64::from(nonce),
         tx_signature: Signature::from([nonce; 64]),
         output_slot: output_slot(
-            address.viewing_pubkey.x(),
+            address.viewing_pubkey.u(),
             deposited.hash,
             u64::from(nonce),
             message.data,
@@ -421,7 +421,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     );
     assert_eq!(
         indexer.queried_tags.borrow().first(),
-        Some(&vec![owner_tag, address.viewing_pubkey.x()])
+        Some(&vec![owner_tag, address.viewing_pubkey.u()])
     );
     // Each round queries only the UTXOs found since the last one.
     let queried = indexer.queried_nullifiers.borrow();
@@ -541,7 +541,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
 
     assert_eq!(
         history.view_tags,
-        BTreeSet::from([owner_tag, address.viewing_pubkey.x()])
+        BTreeSet::from([owner_tag, address.viewing_pubkey.u()])
     );
     let unspent: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(unspent, [merged.hash]);
@@ -669,7 +669,7 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
             slot: 1,
             tx_signature: Signature::from([1; 64]),
             output_slot: output_slot(
-                address.viewing_pubkey.x(),
+                address.viewing_pubkey.u(),
                 deposited.hash,
                 1,
                 borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),

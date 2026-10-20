@@ -60,7 +60,7 @@ function circuit(vector: CircuitVector): CircuitId {
     case "confidentialEddsa":
       return { kind: "confidentialEddsa", ...shape };
     case "confidentialEddsaCached":
-    case "ringEddsaCached":
+    case "confidentialRingEddsaCached":
       if (vector.readBitmap === undefined || vector.writeSlots === undefined) {
         throw new Error("a cached vector names its access");
       }

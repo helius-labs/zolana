@@ -6,8 +6,8 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"zolana/gnarksdk"
 )
 
@@ -48,14 +48,13 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable, ctHash f
 
 func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable {
 	sharedSecret := gnarksdk.Poseidon(api, c.Core.OrderUtxo.Blinding, orderterms.TakeEncKdfDomain)
-	aesGadget := aes.NewAESGadget(api)
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
 
 	var plaintext [72]frontend.Variable
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
 	copy(plaintext[40:72], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 32))
-	ciphertext := aes.CTREncrypt(api, aesGadget, key, nonce, plaintext[:])
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext[:])
 	return gnarksdk.HashBytes(api, ciphertext)
 }
 

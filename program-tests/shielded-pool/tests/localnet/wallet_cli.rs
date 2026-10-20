@@ -823,9 +823,9 @@ fn phase_spl_deposit_and_transfers(
     );
 
     // Pay alice by her plain Solana pubkey: she was registered up front, so the
-    // registry resolves it to her shielded address (owner_p256 = None -> ed25519
-    // owner) and the same kind of input that just fell back for an unregistered
-    // pubkey now lands as a confidential shielded transfer.
+    // registry resolves it to her Ed25519 shielded address and the same kind of
+    // input that just fell back for an unregistered pubkey now lands as a
+    // confidential shielded transfer.
     let paid_by_pubkey = run_cli_with_env(
         &[
             "transfer",

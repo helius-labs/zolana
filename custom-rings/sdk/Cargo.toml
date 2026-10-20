@@ -22,10 +22,7 @@ custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 # `try_join` for the two independent prover requests `prove_async` issues.
 futures = { workspace = true }
-p256 = { workspace = true }
 rand = { workspace = true }
-# Only for the uncompressed SEC1 encoding of the auditor key that the circuit
-# witnesses; `zolana-keypair` hands out compressed keys.
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-instruction = { workspace = true }
@@ -55,6 +52,7 @@ zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true }
 zolana-ring-policy = { workspace = true }
+zolana-ring-transaction = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 

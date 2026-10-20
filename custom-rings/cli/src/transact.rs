@@ -477,6 +477,7 @@ impl<'a> RingTransfer<'a> {
                 asset: self.asset,
                 amount,
                 cosigner: self.cosigner,
+                anonymous_view_tag: None,
             }
             .send(DepositProofEnvironment {
                 indexer: env.indexer,

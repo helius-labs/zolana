@@ -1,5 +1,4 @@
 import { encodeRingDepositCapsule } from "../src/ring/deposit-capsule.js";
-import { customRingDepositPayload } from "../src/ring/deposit-payload.js";
 import {
   address,
   getAddressEncoder,
@@ -10,7 +9,7 @@ import {
 } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey, ViewingKey, X25519PublicKey } from "../src/keypair/index.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
@@ -21,7 +20,7 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   type Bytes16,
   type Bytes32,
-  type Bytes64,
+  type Bytes96,
 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
@@ -260,7 +259,6 @@ function decryptWithKeys(
   return decryptTransactions({
     ...input,
     keys,
-    config: { ...input.config, depositPayloadDecoder: customRingDepositPayload },
   });
 }
 
@@ -274,6 +272,50 @@ describe("wallet sync atomicity", () => {
       getShieldedTransactionsByNullifiers: vi.fn(),
     };
   }
+
+  it("queries the bootstrap tag in both streams and resumes its own cursor", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const cursor = Uint8Array.of(4, 5);
+    const page = { context: { blockTime: 1_700_000_000n, slot: 0n }, scannedThrough: cursor };
+    const transactions = vi.fn(
+      async (_request: { tags: readonly Bytes32[]; cursor?: Uint8Array }) => ({
+        ...page,
+        transactions: [],
+      }),
+    );
+    const proofless = vi.fn(
+      async (_request: { tags: readonly Bytes32[]; cursor?: Uint8Array }) => ({
+        ...page,
+        matches: [],
+      }),
+    );
+    const client = syncReads({
+      getShieldedTransactionsByTags: transactions,
+      getEncryptedUtxosByTags: proofless,
+      getShieldedTransactionsByNullifiers: vi.fn(),
+    });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    const bootstrap = keypair.viewingPublicKey().x();
+    const isBootstrap = (request: { tags: readonly Bytes32[] }) =>
+      request.tags.some((tag) => tag.every((byte, index) => byte === bootstrap[index]));
+    const isZero = (request: { tags: readonly Bytes32[] }) =>
+      request.tags.some((tag) => tag.every((byte) => byte === 0));
+
+    await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
+    for (const query of [transactions, proofless]) {
+      expect(query.mock.calls.filter(([request]) => isBootstrap(request))).toHaveLength(1);
+      expect(query.mock.calls.filter(([request]) => isZero(request))).toHaveLength(0);
+    }
+
+    transactions.mockClear();
+    proofless.mockClear();
+    await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
+    for (const query of [transactions, proofless]) {
+      const resumed = query.mock.calls.find(([request]) => isBootstrap(request));
+      expect(resumed?.[0].cursor).toEqual(cursor);
+    }
+  });
 
   it("commits no cursor from a sync that failed partway", async () => {
     const keypair = ShieldedKeypair.generate();
@@ -1777,6 +1819,38 @@ describe("wallet sync", () => {
     expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
   });
 
+  it("counts a tagged output under a small-order transaction key as not ours", async () => {
+    const recipient = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const lowOrder = X25519PublicKey.fromBytes(Uint8Array.of(4, 1, ...new Uint8Array(31)));
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: lowOrder,
+          salt: new Uint8Array(16).fill(3) as Bytes16,
+          outputSlots: [
+            {
+              viewTag: recipient.viewingPublicKey().x(),
+              outputContext: { hash: bytes(56), tree: TREE, leafIndex: 4n },
+              payload: encodeOutputData(
+                EncryptedScheme.anonymousRecipient,
+                new Uint8Array(80),
+                "encrypted",
+              ),
+            },
+          ],
+          messages: [],
+          nullifiers: [bytes(33)],
+          proofless: false,
+        },
+      ],
+    });
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
+  });
+
   /** Borsh `RingDepositOutput`: owner UTXO hash, asset, amount, no data hash, ring, zero ring data hash, then the envelope. */
   function ringDepositBody(
     envelope: ViewingKey,
@@ -1802,141 +1876,167 @@ describe("wallet sync", () => {
     ]);
   }
 
-  it("opens a ring deposit through the key holder under the ring-deposit label", async () => {
-    // A ring deposit carries its own envelope in the published output and is
-    // opened under the ring-deposit cipher label, the one request in a sync
-    // that is not the transfer cipher. The holder must see that label, and the
-    // UTXO it opens is stored ring-bound.
-    const recipient = ShieldedKeypair.generate();
-    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
-    const envelope = ViewingKey.generate();
-    const salt = new Uint8Array(16).fill(5) as Bytes16;
-    const blinding = bytes(29);
-    const utxo = new Utxo({
-      owner: recipient.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 7_000_000n,
-      blinding,
-      data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
-      ringProgramId: OWNER,
-    });
-    const ciphertext = envelope.encryptRingDeposit(
-      recipient.viewingPublicKey(),
-      encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
-      salt,
-    );
-    const body = ringDepositBody(envelope, salt, utxo.amount, ciphertext);
-    const seen: Parameters<ShieldedKeys["decrypt"]>[0][] = [];
-    const local = LocalShieldedKeys.fromKeypair(recipient);
-    const holder: ShieldedKeys = {
-      ...remoteOver(local),
-      decrypt: (requests) => {
-        seen.push(requests);
-        return local.decrypt(requests);
-      },
-    };
-
-    const report = await decryptWithKeys(holder, {
-      wallet,
-      transactions: [
-        {
-          slot: 3n,
-          txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: recipient.viewingPublicKey().x(),
-              outputContext: {
-                hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
-                tree: TREE,
-                leafIndex: 9n,
-              },
-              payload: encodeOutputData(EncryptedScheme.ringDeposit, body, "encrypted"),
-            },
-          ],
-          messages: [],
-          nullifiers: [],
-          proofless: true,
-        },
-      ],
-    });
-
-    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(seen.flat().map((request) => [request.label, request.slotIndex])).toEqual([
-      ["ringDeposit", 0],
-    ]);
-    expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
-    expect(wallet.ringBalances()).toMatchObject([
-      { ringProgramId: OWNER, assets: [{ mint: SOL_MINT, amount: 7_000_000n }] },
-    ]);
-  });
-
-  it("opens an audited ring deposit from the recipient ciphertext inside the auditor capsule", async () => {
-    const recipient = ShieldedKeypair.generate();
-    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
-    const envelope = ViewingKey.generate();
-    const salt = new Uint8Array(16).fill(6) as Bytes16;
-    const blinding = bytes(30);
-    const utxo = new Utxo({
-      owner: recipient.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 2_000_000_000n,
-      blinding,
-      data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
-      ringProgramId: OWNER,
-    });
-    const capsule = encodeRingDepositCapsule({
-      slotIndex: 3,
-      ephemeralPublicKey: ViewingKey.generate().publicKey().toBytes(),
-      ciphertext: new Uint8Array(64).fill(9) as Bytes64,
-      recipientCiphertext: envelope.encryptRingDeposit(
+  it.each([false, true])(
+    "opens a ring deposit through the key holder only under a wallet tag, zero tag %s",
+    async (zeroTag) => {
+      // A ring deposit carries its own envelope in the published output and is
+      // opened under the ring-deposit cipher label, the one request in a sync
+      // that is not the transfer cipher. The holder must see that label, and the
+      // UTXO it opens is stored ring-bound.
+      const recipient = ShieldedKeypair.generate();
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      const envelope = ViewingKey.generate();
+      const salt = new Uint8Array(16).fill(5) as Bytes16;
+      const blinding = bytes(29);
+      const utxo = new Utxo({
+        owner: recipient.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 7_000_000n,
+        blinding,
+        data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
+        ringProgramId: OWNER,
+      });
+      const ciphertext = envelope.encryptRingDeposit(
         recipient.viewingPublicKey(),
         encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
         salt,
-      ),
-    });
-    const seen: Parameters<ShieldedKeys["decrypt"]>[0][] = [];
-    const local = LocalShieldedKeys.fromKeypair(recipient);
-    const holder: ShieldedKeys = {
-      ...remoteOver(local),
-      decrypt: (requests) => {
-        seen.push(requests);
-        return local.decrypt(requests);
-      },
-    };
-
-    const report = await decryptWithKeys(holder, {
-      wallet,
-      transactions: [
-        {
-          slot: 3n,
-          txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: recipient.viewingPublicKey().x(),
-              outputContext: {
-                hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
-                tree: TREE,
-                leafIndex: 9n,
-              },
-              payload: encodeOutputData(
-                EncryptedScheme.ringDeposit,
-                ringDepositBody(envelope, salt, utxo.amount, capsule),
-                "encrypted",
-              ),
-            },
-          ],
-          messages: [],
-          nullifiers: [],
-          proofless: true,
+      );
+      const body = ringDepositBody(envelope, salt, utxo.amount, ciphertext);
+      const seen: Parameters<ShieldedKeys["decrypt"]>[0][] = [];
+      const local = LocalShieldedKeys.fromKeypair(recipient);
+      const holder: ShieldedKeys = {
+        ...remoteOver(local),
+        decrypt: (requests) => {
+          seen.push(requests);
+          return local.decrypt(requests);
         },
-      ],
-    });
+      };
 
-    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    // The holder never sees the auditor slot, only the recipient ciphertext.
-    expect(seen.flat().map((request) => request.ciphertext.length)).toEqual([capsule.length - 106]);
-    expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
-  });
+      const report = await decryptWithKeys(holder, {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            outputSlots: [
+              {
+                viewTag: zeroTag ? bytes(0) : recipient.viewingPublicKey().x(),
+                outputContext: {
+                  hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
+                  tree: TREE,
+                  leafIndex: 9n,
+                },
+                payload: encodeOutputData(EncryptedScheme.ringDeposit, body, "encrypted"),
+              },
+            ],
+            messages: [],
+            nullifiers: [],
+            proofless: true,
+          },
+        ],
+      });
+
+      if (zeroTag) {
+        expect(report).toMatchObject({ storedUtxos: 0 });
+        expect(seen).toEqual([]);
+        return;
+      }
+      expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+      expect(seen.flat().map((request) => [request.label, request.slotIndex])).toEqual([
+        ["ringDeposit", 0],
+      ]);
+      expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
+      expect(wallet.ringBalances()).toMatchObject([
+        { ringProgramId: OWNER, assets: [{ mint: SOL_MINT, amount: 7_000_000n }] },
+      ]);
+    },
+  );
+
+  it.each([false, true])(
+    "opens audited deposits without a decoder hook, malformed %s",
+    async (malformed) => {
+      const recipient = ShieldedKeypair.generate();
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      const envelope = ViewingKey.generate();
+      const salt = new Uint8Array(16).fill(6) as Bytes16;
+      const blinding = bytes(30);
+      const utxo = new Utxo({
+        owner: recipient.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 2_000_000_000n,
+        blinding,
+        data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
+        ringProgramId: OWNER,
+      });
+      const capsule = encodeRingDepositCapsule({
+        slotIndex: 3,
+        ephemeralPublicKey: ViewingKey.generate().publicKey().toBytes(),
+        ciphertext: new Uint8Array(96).fill(9) as Bytes96,
+        recipientCiphertext: envelope.encryptRingDeposit(
+          recipient.viewingPublicKey(),
+          encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
+          salt,
+        ),
+      });
+      const seen: Parameters<ShieldedKeys["decrypt"]>[0][] = [];
+      const local = LocalShieldedKeys.fromKeypair(recipient);
+      const holder: ShieldedKeys = {
+        ...remoteOver(local),
+        decrypt: (requests) => {
+          seen.push(requests);
+          return local.decrypt(requests);
+        },
+      };
+
+      const before = serializeWallet(wallet);
+      const pending = decryptWithKeys(holder, {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            outputSlots: [
+              {
+                viewTag: recipient.viewingPublicKey().x(),
+                outputContext: {
+                  hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
+                  tree: TREE,
+                  leafIndex: 9n,
+                },
+                payload: encodeOutputData(
+                  EncryptedScheme.ringDeposit,
+                  ringDepositBody(
+                    envelope,
+                    salt,
+                    utxo.amount,
+                    malformed ? capsule.slice(0, 12) : capsule,
+                  ),
+                  "encrypted",
+                ),
+              },
+            ],
+            messages: [],
+            nullifiers: [],
+            proofless: true,
+          },
+        ],
+      });
+
+      if (malformed) {
+        await expect(pending).rejects.toMatchObject({ code: "INTERFACE_CODEC" });
+        expect(serializeWallet(wallet)).toEqual(before);
+        expect(seen).toEqual([]);
+        return;
+      }
+      const report = await pending;
+      expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+      // The holder never sees the auditor slot, only the recipient ciphertext.
+      expect(seen.flat().map((request) => request.ciphertext.length)).toEqual([
+        capsule.length - 138,
+      ]);
+      expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
+    },
+  );
 
   it("selects the ring confidential marker for a ring output", () => {
     const recipient = ShieldedKeypair.generate();

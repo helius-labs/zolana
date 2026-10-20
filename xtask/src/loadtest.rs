@@ -141,7 +141,7 @@ impl Options {
 
 /// Load every `*.json` Solana keypair in a directory, sorted for determinism.
 ///
-/// Plain solana-keygen files, not the CLI's wallet format: on the ed25519 rail
+/// Plain solana-keygen files, not the CLI's wallet format: on the eddsa rail
 /// the shielded keypair is derived from the funding key, so the funding key is
 /// the only secret needed and there is no reason to reimplement the CLI's file
 /// parsing here.

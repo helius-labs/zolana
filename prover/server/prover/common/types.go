@@ -10,9 +10,9 @@ const (
 	// TransferRingCircuitType is the confidential policy-ring transfer.
 	TransferRingCircuitType CircuitType = "transfer-ring"
 
-	// TransferP256RingCircuitType is the custom-ring transfer with an in-circuit
-	// P256 authorization shared by every P256-owned input.
-	TransferP256RingCircuitType CircuitType = "transfer-p256-ring"
+	// TransferAnonymousRingEddsaCircuitType is the custom-ring transfer with an
+	// in-circuit Ed25519 authorization shared by every hidden-owner input.
+	TransferAnonymousRingEddsaCircuitType CircuitType = "transfer-eddsa-ring"
 
 	// TransferRingAuthorityCircuitType is the anonymous policy-ring transfer used by
 	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so

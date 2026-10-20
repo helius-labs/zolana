@@ -1,4 +1,4 @@
-use custom_ring_interface::{KeyEscrow, KEY_REGISTRY_HEIGHT};
+use custom_ring_interface::{RingMode, KEY_REGISTRY_HEIGHT};
 use futures::future::try_join_all;
 use zolana_client::{AsyncRpc, ClientError, Rpc};
 use zolana_ring_policy::Member;
@@ -68,9 +68,9 @@ impl KeyRegistry {
     }
 
     pub fn of(ring: CustomRing, config: &CustomRingConfig) -> Option<Self> {
-        match config.key_escrow {
-            KeyEscrow::Off => None,
-            KeyEscrow::Registry => Some(Self { ring }),
+        match config.mode {
+            RingMode::Off | RingMode::Anonymous => None,
+            RingMode::Registry => Some(Self { ring }),
         }
     }
 

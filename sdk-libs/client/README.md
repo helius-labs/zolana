@@ -149,7 +149,7 @@ applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 
 `IndexedTransferPreparation` selects confidential, ring, ring-authority or
-P256 authorization. `IndexedMergePreparation` supports both merge rails and
+anonymous EdDSA authorization. `IndexedMergePreparation` supports both merge rails and
 cache outputs. Pass the prepared request to `prove_indexed`, which checks the
 returned roots, verifies the proof and returns transaction data. A ring merge
 returns `ProvenIndexedMerge::Ring`.

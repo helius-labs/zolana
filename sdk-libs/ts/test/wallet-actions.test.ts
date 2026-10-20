@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   address,
   assertIsFullySignedTransaction,
@@ -459,7 +460,6 @@ describe("prover indexer lag", () => {
         1,
         ...getAddressEncoder().encode(owner),
         pda.bump,
-        0,
         ...shielded.nullifierPublicKey,
         ...shielded.viewingPublicKey.toBytes(),
         1,
@@ -635,35 +635,6 @@ describe("keys at the wallet boundary", () => {
       keys.destroy();
       owner.destroy();
     }
-  });
-
-  it("treats the fee payer as the Solana account of a P256 owner", async () => {
-    // A P256 identity has no Solana key of its own; the account that registered
-    // it and signs for it is the fee payer, so approval and the registry record
-    // both go by that account.
-    const keypair = ShieldedKeypair.generate("p256");
-    const wallet = fundedWallet(keypair, [20n, 30n]);
-    const { approve, requests } = recordingApproval();
-    const never = (member: string) => (): never => {
-      throw new Error(`${member} must not be called`);
-    };
-    const client: MergeClient = {
-      proofDataSource: "client",
-      tree: TREE,
-      treeId: 0,
-      getAccount: vi.fn(async () => undefined),
-      proveMerge: never("proveMerge"),
-      assembleAuthorizedMergeTransaction: never("assembleAuthorizedMergeTransaction"),
-    };
-
-    await expect(
-      buildMergeTransaction({ client, wallet, keys: localKeys(keypair), approve, feePayer: PAYER }),
-    ).rejects.toMatchObject({
-      code: "WALLET_BUILD_MERGE",
-      causeCode: "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
-    });
-    expect(requests.map((request) => request.solanaPublicKey)).toEqual([PAYER]);
-    expect(wallet._reservationEntries()).toHaveLength(0);
   });
 
   it("refuses keys without a prover before copying any secret", () => {
@@ -1162,7 +1133,7 @@ describe("selectRingInputs", () => {
 });
 
 describe("ring approval summary", () => {
-  async function approvalClient(keypair: ShieldedKeypair) {
+  async function approvalClient(_keypair: ShieldedKeypair) {
     const [config, bump] = await ringConfigPda(RING);
     return ringTransferClient({
       tree: TREE,
@@ -1173,7 +1144,9 @@ describe("ring approval summary", () => {
               lamports: 1n,
               data: ringProgramConfigData({
                 authority: PAYER,
-                auditorPublicKey: keypair.viewingPublicKey().toBytes(),
+                auditorPublicKey: X25519Keypair.fromBytes(new Uint8Array(32).fill(9))
+                  .publicKey()
+                  .toBytes(),
                 bump,
                 hasPolicy: false,
               }),
@@ -1547,7 +1520,6 @@ describe("merge encryption opt-in", () => {
       1,
       ...getAddressEncoder().encode(owner),
       pda.bump,
-      0,
       ...shielded.nullifierPublicKey,
       ...shielded.viewingPublicKey.toBytes(),
       0,

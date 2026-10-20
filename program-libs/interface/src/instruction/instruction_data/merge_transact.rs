@@ -24,8 +24,7 @@ pub const MERGE_OUTPUT_CIPHERTEXT_ELEMENTS: usize = 3;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
-/// raw big-endian G2 point (128 bytes). The merge circuit carries no P256
-/// gadget, so there is no BSB22 commitment.
+/// raw big-endian G2 point (128 bytes). Merge proofs carry no lookup commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],
@@ -116,9 +115,6 @@ pub struct MergeTransactIxData {
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
     pub output_encryption: MergeOutputEncryption,
-    /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
-    /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
-    pub eddsa_owner: bool,
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
@@ -158,7 +154,6 @@ pub struct MergeTransactIxDataRef<'a> {
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
     pub output_encryption: MergeOutputEncryption,
-    pub eddsa_owner: bool,
     pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,

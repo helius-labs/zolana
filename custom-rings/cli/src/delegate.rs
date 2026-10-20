@@ -1,4 +1,5 @@
 use std::{collections::BTreeSet, path::Path};
+use zolana_keypair::X25519Keypair;
 
 use custom_ring_sdk::{
     ring_authority_width, CoSignScope, DelegateOutput, DelegateTransfer, DelegateTransferInput,
@@ -10,7 +11,9 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc};
 use zolana_interface::pda;
-use zolana_keypair::{ShieldedAddress, ViewingKey};
+use zolana_keypair::ShieldedAddress;
+#[cfg(test)]
+use zolana_keypair::ViewingKey;
 use zolana_ring_client::{
     RecoveryEnvironment, RecoveryError, RingEnvironment, RingRecovery, SourceMember,
 };
@@ -289,7 +292,7 @@ fn run_move(ctx: &mut Context, args: DelegateMoveArgs) -> Result<(), DelegateErr
 }
 
 /// The auditor read key cannot authorize ownership transfers or withdrawals.
-fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<ViewingKey, DelegateError> {
+fn ring_auditor_key(ctx: &Context, path: &Path) -> Result<X25519Keypair, DelegateError> {
     let ring_auditor = ctx
         .ring
         .read_config(&ctx.rpc)?
@@ -667,7 +670,7 @@ mod tests {
 
     struct RingTx<'a> {
         tx_key: &'a ViewingKey,
-        auditor: &'a ViewingKey,
+        auditor: &'a X25519Keypair,
         signature: u8,
         output_slots: Vec<OutputSlot>,
         audit_openings: Vec<ProofInputUtxo>,
@@ -774,13 +777,14 @@ mod tests {
                 ring_invoked: true,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
+                deposits: Vec::new(),
             })
         }
     }
 
     fn recover(
         indexer: &StubIndexer,
-        auditor: &ViewingKey,
+        auditor: &X25519Keypair,
         source: SourceMember<'_>,
     ) -> Result<Vec<WalletUtxo>, RecoveryError> {
         RingRecovery::new(ring().program_id(), auditor)
@@ -798,7 +802,7 @@ mod tests {
     #[test]
     fn recovery_returns_the_source_unspent_notes_and_drops_the_spent_one() {
         let source = ShieldedKeypair::new_ed25519().expect("keypair");
-        let auditor = ViewingKey::new();
+        let auditor = X25519Keypair::new();
         let tx_unspent = ViewingKey::new();
         let tx_spent = ViewingKey::new();
         let tx_burn = ViewingKey::new();
@@ -879,7 +883,7 @@ mod tests {
         assert!(matches!(
             recover(
                 &indexer,
-                &ViewingKey::new(),
+                &X25519Keypair::new(),
                 SourceMember {
                     address: &address,
                     nullifier_key: &stranger.nullifier_key,

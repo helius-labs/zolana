@@ -48,7 +48,7 @@ use zolana_interface::{
         TreeFeeSchedule,
     },
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
-    verifying_keys::RingP256ProofData,
+    verifying_keys::AnonymousRingEddsaProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -491,7 +491,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     transact_ix_data.circuit = if IS_AUTHORITY {
         CircuitId::RingAuthority(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     } else {
-        CircuitId::RingEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     };
 
     let owner_pk_hashes =
@@ -527,9 +527,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
 
     // Public-input layout: the 6-element base chain, the interleaved public
     // transfer slots (all idle here), then ring/signer/dummy-policy, then the
-    // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
-    // nothing — its signer element is the bare payer hash). On RingEddsa the
-    // payer owns the real input, so the instruction lists it as the owner
+    // variant appendix (ConfidentialRingEddsa: the output-owner chain; RingAuthority:
+    // nothing — its signer element is the bare payer hash). On ConfidentialRingEddsa
+    // the payer owns the real input, so the instruction lists it as the owner
     // signer that fills slot 0.
     let mut signer_hashes =
         vec![zero; Shape::new(usize::from(n_inputs), usize::from(n_outputs)).signer_width()];
@@ -552,7 +552,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     if IS_AUTHORITY {
         chain.extend_from_slice(&[ring_field, payer_hash, fe(1)]);
     } else {
-        // RingEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
+        // ConfidentialRingEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
         // carry `data: None` (unmarked), so every published owner slot is 0.
         let published_owners = vec![zero; usize::from(n_outputs)];
         chain.push(ring_field);
@@ -588,7 +588,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         prover_inputs.signer_pk_hashes = vec![be(&payer_hash)];
         prover_inputs.published_output_owner_pk_hashes = Vec::new();
     } else {
-        // RingEddsa publishes only confidential-marked owner tags; these
+        // ConfidentialRingEddsa publishes only confidential-marked owner tags; these
         // outputs are unmarked, so every published slot is 0.
         prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); usize::from(n_outputs)];
     }
@@ -1473,7 +1473,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::ConfidentialRingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1523,7 +1523,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         4,
         false,
     );
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::ConfidentialRingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_trees: vec![tree],
@@ -1800,7 +1800,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
         build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
     assert_eq!(
         transact_ix_data.circuit,
-        CircuitId::RingEddsa(49, 2, N_PUBLIC_SLOTS as u8)
+        CircuitId::ConfidentialRingEddsa(49, 2, N_PUBLIC_SLOTS as u8)
     );
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -1850,7 +1850,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
 }
 
 #[test]
-fn ring_p256_transact_accepts_the_widest_input_shape() {
+fn anonymous_ring_eddsa_transact_accepts_the_widest_input_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
@@ -1858,7 +1858,7 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     let shape = Shape::IN49_OUT2;
     let ring_config = Keypair::new();
     let proof = RealRingTransact {
-        rail: RingRail::P256,
+        rail: RingRail::AnonymousEddsa,
         n_inputs: shape.n_inputs(),
         n_outputs: shape.n_outputs(),
         ring_config: ring_config.pubkey(),
@@ -1866,11 +1866,11 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     .build(&mut env);
     assert!(matches!(
         proof.data.circuit,
-        CircuitId::RingP256(
+        CircuitId::AnonymousRingEddsa(
             49,
             2,
             _,
-            RingP256ProofData {
+            AnonymousRingEddsaProofData {
                 default_owner_tag: Some(_),
                 ..
             }
@@ -1884,7 +1884,7 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
             &[&ring_config],
             ComputeBudgetConfig::new(1_400_000),
         )
-        .expect("widest-input-shape P256 ring transact");
+        .expect("widest-input-shape anonymous ring transact");
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
@@ -1897,9 +1897,9 @@ fn ring_p256_transact_accepts_the_widest_input_shape() {
     let trace = env
         .rpc
         .last_transaction_trace()
-        .expect("widest-input-shape P256 ring transact trace");
+        .expect("widest-input-shape anonymous ring transact trace");
     println!(
-        "transact ring p256 49x2: {} CU",
+        "transact ring anonymous eddsa 49x2: {} CU",
         trace.compute_units_consumed
     );
     assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");

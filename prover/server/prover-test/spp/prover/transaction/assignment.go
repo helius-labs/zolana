@@ -3,7 +3,6 @@ package transaction
 import (
 	"fmt"
 	"math/big"
-	"strings"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
@@ -14,30 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// TransactionRequiresP256 reports whether a transaction uses the removed P256
-// ownership rail (any input is P256-owned). Such transactions can no longer be
-// proven; callers should reject them.
-func TransactionRequiresP256(tx ProofTransactionRequest) bool {
-	for i := range tx.Inputs {
-		if strings.TrimSpace(tx.Inputs[i].Utxo.OwnerP256Pubkey) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 type proofBuildOptions struct {
-}
-
-// assignmentTranscript holds values computed while building the witness that
-// the bundle/payload need beyond the circuit: the input/output hash chains and
-// nullifiers (some surface as real public outputs, see BuildProofBundle), plus
-// the ownership metadata. These are production values, not debug-only.
-type assignmentTranscript struct {
-	inputHashes        []*big.Int
-	outputHashes       []*big.Int
-	nullifiers         []*big.Int
-	solanaOwnerPubkeys []string
 }
 
 type stateWitnesses struct {
@@ -58,16 +34,9 @@ type proofTrees struct {
 	slots         []protocol.TreeSlot
 }
 
-// proofAssignment bundles everything buildProofAssignment produces: the circuit
-// witness, the public inputs and their hash, the output-UTXO responses, and the
-// transcript. Returning a struct keeps callers from positionally
-// unpacking six values.
 type proofAssignment struct {
-	witness         frontend.Circuit
-	publicInputs    protocol.PublicInputs
-	publicInputHash *big.Int
-	outputUtxos     []ProofUtxoResponse
-	transcript      assignmentTranscript
+	witness      frontend.Circuit
+	publicInputs protocol.PublicInputs
 }
 
 func buildProofAssignment(
@@ -142,11 +111,6 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	// The P256 ownership rail is removed; only Solana-owned inputs can be
-	// proven.
-	if inputs.requiresP256OwnerWitness {
-		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
-	}
 	publicInputs, err := buildPublicInputs(shape, inputs, outputs, external, privateTxHash, trees)
 	if err != nil {
 		return proofAssignment{}, err
@@ -157,18 +121,9 @@ func buildProofAssignment(
 	}
 
 	witness := customRingWitness(inputs, outputs, publicInputs, publicInputHash, blindingSeed)
-	transcript := assignmentTranscript{
-		inputHashes:        inputs.hashes,
-		outputHashes:       outputs.hashes,
-		nullifiers:         inputs.nullifiers,
-		solanaOwnerPubkeys: inputs.solanaOwnerPubkeys,
-	}
 	return proofAssignment{
-		witness:         witness,
-		publicInputs:    publicInputs,
-		publicInputHash: publicInputHash,
-		outputUtxos:     outputs.responses,
-		transcript:      transcript,
+		witness:      witness,
+		publicInputs: publicInputs,
 	}, nil
 }
 
@@ -201,9 +156,9 @@ func customRingWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
-	return &customring.CustomRingEddsaOnlyCircuit{
+	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: uncachedInputs(publicInputs.PreimageTail, len(publicInputs.Nullifiers)),
-		Public: customring.CustomRingEddsaOnlyPublic{
+		Public: customring.CustomRingConfidentialEddsaPublic{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
 			TreeSlots:                    treeSlotVariables(publicInputs.TreeSlots),
@@ -218,7 +173,7 @@ func customRingWitness(
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
 		},
-		Private: customring.CustomRingEddsaOnlyPrivate{
+		Private: customring.CustomRingConfidentialEddsaPrivate{
 			Inputs:              inputs.inputs,
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,

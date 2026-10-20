@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `ring_lifecycle`, `p256_ring_lifecycle`, `proof_cu` and
+# Only the explicit `ring_lifecycle`, `anonymous_ring_lifecycle`, `proof_cu` and
 # `max_shapes` test targets build; each consumes the shared fixture from
 # `zolana-test-utils` (`ring` module).
 autotests = false
@@ -32,7 +32,6 @@ zolana-interface = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
-p256 = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 solana-account = { workspace = true }
@@ -61,8 +60,8 @@ name = "ring_lifecycle"
 path = "tests/ring_lifecycle.rs"
 
 [[test]]
-name = "p256_ring_lifecycle"
-path = "tests/p256_ring_lifecycle.rs"
+name = "anonymous_ring_lifecycle"
+path = "tests/anonymous_ring_lifecycle.rs"
 
 [[test]]
 name = "proof_cu"

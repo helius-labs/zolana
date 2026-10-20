@@ -11,8 +11,6 @@ pub enum AddressInputError {
     NotAnAddress,
     #[error("the address has no owner")]
     MissingOwner,
-    #[error("the owner is a P256 key, but an address owner must be a Solana signer")]
-    P256Owner,
     #[error("the seed is not a canonical BN254 scalar")]
     NonCanonicalSeed,
     #[error("the nullifier pubkey is not the zero nullifier key's")]
@@ -113,6 +111,9 @@ pub enum TransactionError {
 
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
+
+    #[error("output slot {slot_index} has no view tag chosen for its recipient")]
+    RecipientViewTagUnset { slot_index: usize },
 
     #[error("owner tag count mismatch: {got} owner tag(s) for {expected} output(s)")]
     OwnerTagCountMismatch { got: usize, expected: usize },
@@ -259,8 +260,8 @@ pub enum TransactionError {
     #[error("too many transaction assets: got {got}, max {max}")]
     TooManyAssets { got: usize, max: usize },
 
-    #[error("default transact supports Ed25519 owners only")]
-    P256TransactUnsupported,
+    #[error("recipient owner key is the zero dummy marker")]
+    ZeroRecipientOwner,
 
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
@@ -273,9 +274,6 @@ pub enum TransactionError {
 
     #[error("too many outputs: got {got}, max {max}")]
     TooManyOutputsForShape { got: usize, max: usize },
-
-    #[error("merge input {index} has a different owner rail")]
-    MergeInputRailMismatch { index: usize },
 
     #[error("merge input {index} has a different owner than the merging keypair")]
     MergeInputOwnerMismatch { index: usize },
@@ -297,9 +295,6 @@ pub enum TransactionError {
 
     #[error("merge input {index} carries program or ring data, which is not supported")]
     MergeInputHasData { index: usize },
-
-    #[error("p256 error: {0}")]
-    P256(String),
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),

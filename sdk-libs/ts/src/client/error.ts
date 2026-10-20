@@ -160,7 +160,6 @@ export interface ClientErrorDetailsMap {
       }>
     | undefined;
   readonly CLIENT_INVALID_BASE64: Readonly<{ field: string }>;
-  readonly CLIENT_INVALID_P256_KEY: NoDetails;
   readonly CLIENT_INVALID_CONTEXT: Readonly<{ field: string; method: string }>;
   readonly CLIENT_ABORTED: Readonly<{ method?: string; retryable?: boolean }> | undefined;
   readonly CLIENT_TIMEOUT: Readonly<{ method: string; retryable: boolean }>;
@@ -258,7 +257,6 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INVALID_FIELD",
   "CLIENT_INVALID_BASE58",
   "CLIENT_INVALID_BASE64",
-  "CLIENT_INVALID_P256_KEY",
   "CLIENT_INVALID_CONTEXT",
   "CLIENT_ABORTED",
   "CLIENT_TIMEOUT",
@@ -354,7 +352,6 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
-  "CLIENT_INVALID_P256_KEY",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_PROVER_INPUT",
   "CLIENT_MISSING_NULLIFIER_SECRET",

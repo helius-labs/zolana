@@ -3,10 +3,7 @@ use zolana_user_registry_interface::{
     instruction::RegisterData, MergeEncryptionScheme, UserRecord,
 };
 
-use super::{
-    common::{check_record_pda, check_system_program, create_record_account, write_record},
-    p256_proof::verify_p256_key_binding,
-};
+use super::common::{check_record_pda, check_system_program, create_record_account, write_record};
 use crate::error::{fail, UserRegistryError};
 
 /// Creates a per-owner record with its shielded keys and merging disabled.
@@ -35,11 +32,6 @@ pub fn process_register(
     let owner_address = *owner.address();
     let bump = check_record_pda(record, &owner_address, program_id)?;
 
-    if let Some(owner_p256) = &data.owner_p256 {
-        let instructions = tail.get(3).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        verify_p256_key_binding(instructions, record.address(), &owner_address, owner_p256)?;
-    }
-
     if record.owned_by(program_id) || !record.is_data_empty() {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
@@ -56,7 +48,6 @@ pub fn process_register(
     let state = UserRecord {
         owner: (*owner_address.as_array()).into(),
         bump,
-        owner_p256: data.owner_p256,
         nullifier_pubkey: data.nullifier_pubkey,
         viewing_pubkey: data.viewing_pubkey,
         merge_encryption: MergeEncryptionScheme::Disabled,

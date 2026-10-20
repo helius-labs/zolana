@@ -47,7 +47,7 @@
       {
         "amount": "7",
         "assetBytes": "2525252525252525252525252525252525252525252525252525252525252525",
-        "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+        "counterpartyViewingPkBytes": "04387bdda58bd0767d408dddd907569393cca4ee07a4fddc3036f60c50a0f5731d",
         "direction": "Outbound",
         "id": {
           "index": "2",
@@ -71,42 +71,42 @@
       {
         "hashBytes": "2626262626262626262626262626262626262626262626262626262626262626",
         "leafIndex": "1",
-        "nullifierBytes": "2f3ceb81bf46600ce7d0020bf3e2cd3eba1936ff1ad547c1fac7ce061c1daec6",
+        "nullifierBytes": "173355bc2fcb7ecf5cda2e786970ced8631d0b1c28072fb51be31c84b24a81e2",
         "spent": false,
         "utxo": {
           "amount": "40",
           "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
           "blindingBytes": "00e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
           "data": [],
-          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "ownerBytes": "013ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde00",
           "ringProgramIdBytes": null
         }
       },
       {
         "hashBytes": "2727272727272727272727272727272727272727272727272727272727272727",
         "leafIndex": "2",
-        "nullifierBytes": "1c76fae77e1efc590f53521e92f5f20111905836f77cd6abcb9f8184b4292753",
+        "nullifierBytes": "22e55a7596ccf6bf706f94655bc07d548f8a36a4a7ef2c818455a10cb3c5dafb",
         "spent": false,
         "utxo": {
           "amount": "70",
           "assetBytes": "2525252525252525252525252525252525252525252525252525252525252525",
           "blindingBytes": "0015875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
           "data": [],
-          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "ownerBytes": "013ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde00",
           "ringProgramIdBytes": null
         }
       },
       {
         "hashBytes": "2828282828282828282828282828282828282828282828282828282828282828",
         "leafIndex": "3",
-        "nullifierBytes": "1c9c14ef011426fa157758ed9ceba26c5c1dc51202687ba56eac52115f0fe620",
+        "nullifierBytes": "18a81538d867e61dee4a7f0fd973ec9215284ea5176c0a2619165f339b561f65",
         "spent": true,
         "utxo": {
           "amount": "5",
           "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
           "blindingBytes": "004c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d12",
           "data": [],
-          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "ownerBytes": "013ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde00",
           "ringProgramIdBytes": null
         }
       }

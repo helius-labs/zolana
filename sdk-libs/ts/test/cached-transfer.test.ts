@@ -463,7 +463,7 @@ describe("a transfer reading its input from a cache", () => {
       [nonInclusionProof(input(value, 0).nullifier())],
       { kind: "ring", ring: RING },
     );
-    expect(assembled.instructionData.circuit.kind).toBe("ringEddsaCached");
+    expect(assembled.instructionData.circuit.kind).toBe("confidentialRingEddsaCached");
     expect(assembled.proverInputs.circuit).toBe("transferRing");
   });
 });
@@ -940,7 +940,7 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(417);
+    expect(encodeMergeTransactInstructionData(data)).toHaveLength(416);
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,

@@ -2265,7 +2265,6 @@ fn merge_transaction_info() -> TransactionInfo {
             salt: [0x5a; 16],
             ciphertext: [[0x61; 32], [0x62; 32], [0x63; 32]],
         },
-        eddsa_owner: true,
         private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])

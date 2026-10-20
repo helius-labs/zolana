@@ -25,7 +25,7 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 /// nullifiers against root-history slot 0, so every parse and tree step
 /// succeeds and only the checks under test can fail. The output ciphertext
 /// elements are canonical field elements.
-fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
+fn merge_ix_data() -> MergeTransactIxData {
     MergeTransactIxData {
         cache_slot: None,
         expiry_unix_ts: u64::MAX,
@@ -35,7 +35,6 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
             salt: [0x5a; 16],
             ciphertext: [fe(42), fe(43), fe(44)],
         },
-        eddsa_owner,
         private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
         utxo_tree_root_index: 0,
@@ -48,7 +47,7 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
 const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 2] = [0, MAX_MERGE_INPUTS + 1];
 
 fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
-    let mut data = merge_ix_data(true);
+    let mut data = merge_ix_data();
     data.nullifiers = (1..=input_count as u64).map(fe).collect();
     data
 }
@@ -83,7 +82,7 @@ fn merge_rejects_a_user_record_not_owned_by_the_registry() {
     rpc.airdrop(&impostor, 1_000_000).expect("fund impostor");
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
-    let ix = merge_instruction(&rpc, &tree, impostor, merge_ix_data(true));
+    let ix = merge_instruction(&rpc, &tree, impostor, merge_ix_data());
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a non-registry record account must be rejected");
@@ -114,7 +113,7 @@ fn merge_rejects_a_malformed_user_record() {
         )
         .expect("write malformed record");
 
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data());
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a malformed user record must be rejected");
@@ -122,25 +121,10 @@ fn merge_rejects_a_malformed_user_record() {
 }
 
 #[test]
-fn merge_rejects_a_p256_rail_without_a_registered_p256_owner() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    // Valid record, merging enabled, but no P256 owner registered while the
-    // instruction selects the P256 rail.
-    let record = write_user_record(&mut rpc, payer, None, true);
-
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(false));
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a P256 merge without a registered P256 owner must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidUserRecord).assert_litesvm(error);
-}
-
-#[test]
 fn merge_rejects_a_wrong_input_count_shape() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
         let data = merge_ix_data_at_input_count(input_count);
@@ -160,10 +144,10 @@ fn merge_rejects_a_wrong_input_count_shape() {
 fn merge_rejects_a_sent_zero_nullifier() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     for slot in [0, 3, MERGE_DEFAULT_INPUT_COUNT - 1] {
-        let mut data = merge_ix_data(true);
+        let mut data = merge_ix_data();
         *data.nullifiers.get_mut(slot).expect("nullifier slot") = [0u8; 32];
         let ix = merge_instruction(&rpc, &tree, record, data);
         let error = rpc
@@ -181,11 +165,11 @@ fn merge_rejects_a_sent_zero_nullifier() {
 fn merge_rejects_a_non_canonical_ciphertext_element() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     for element in 0..3 {
-        let mut data = merge_ix_data(true);
+        let mut data = merge_ix_data();
         let mut ciphertext = [fe(42), fe(43), fe(44)];
         *ciphertext.get_mut(element).expect("ciphertext element") = [0xff; 32];
         data.output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
@@ -216,7 +200,7 @@ fn merge_rejects_a_non_canonical_ciphertext_element() {
 fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     let data = merge_ix_data_at_input_count(MAX_MERGE_INPUTS);
     let ix = merge_instruction(&rpc, &tree, record, data);
@@ -238,11 +222,11 @@ fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
 fn merge_rejects_an_expired_transaction() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // The merge dispatch shares transact's expiry gate (`check_not_expired`).
     // Pin the sysvar clock one second past the instruction's expiry.
-    let mut data = merge_ix_data(true);
+    let mut data = merge_ix_data();
     data.expiry_unix_ts = 1_000;
     let mut clock = rpc.svm.get_sysvar::<solana_clock::Clock>();
     clock.unix_timestamp = 1_001;
@@ -258,11 +242,11 @@ fn merge_rejects_an_expired_transaction() {
 fn merge_rejects_a_negative_clock() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // A negative clock must reject regardless of `expiry_unix_ts` (here the
     // maximal one), before the `as u64` comparison could wrap it around.
-    let data = merge_ix_data(true);
+    let data = merge_ix_data();
     let mut clock = rpc.svm.get_sysvar::<solana_clock::Clock>();
     clock.unix_timestamp = -1;
     rpc.svm.set_sysvar(&clock);
@@ -277,9 +261,9 @@ fn merge_rejects_a_negative_clock() {
 fn merge_rejects_a_non_writable_tree() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
-    let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data());
     // input_tree and output_tree are duplicate metas of one account; the
     // runtime unions their privileges, so both must be downgraded.
     ix.accounts
@@ -303,7 +287,7 @@ fn merge_rejects_a_non_writable_tree() {
 fn merge_rejects_an_unsigned_payer() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // The instruction payer differs from the transaction fee payer and never
     // signs; the payer signer check is the only authorization on merge.
@@ -313,7 +297,7 @@ fn merge_rejects_an_unsigned_payer() {
         output_tree: tree,
         payer: outsider,
         user_record: record,
-        data: merge_ix_data(true),
+        data: merge_ix_data(),
         cache: None,
     }
     .instruction();
@@ -335,7 +319,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: merge_ix_data(),
         output_ring_data_hash: fe(99),
         cache: None,
     }
@@ -361,7 +345,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
 fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
     // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
     // merge would leave fewer nullifier leaves than the state tree's total
@@ -411,7 +395,7 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
         .set_account(tree, account)
         .expect("write threshold tree account");
 
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data());
     // The eight nullifier PDA creations precede proof verification, so the default
     // 200k budget no longer reaches it.
     let error = rpc
@@ -442,9 +426,9 @@ fn merge_rejects_a_paused_tree() {
     } = Pool::initialized();
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
 
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data());
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a merge against a paused tree must be rejected");
@@ -458,10 +442,10 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
     // Fully valid record and wire-valid merge data; the zeroed proof is the
     // only defect, so the failure is proof verification on the default
     // (registry-bound) rail.
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
-    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data());
     // Proof verification needs more than the 200k default budget.
     let error = rpc
         .create_and_send_default_payer_transaction_with_budget(
@@ -485,13 +469,13 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
 fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
+    let record = write_user_record(&mut rpc, payer, true);
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
     // fails at G1 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
-    let mut data = merge_ix_data(true);
+    let mut data = merge_ix_data();
     data.proof = MergeProof {
         a: [0xFF; 32],
         b: [0xFF; 128],
@@ -572,7 +556,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_owner() {
     rpc.airdrop(&impostor.pubkey(), 1_000_000)
         .expect("fund impostor");
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(), fe(90));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = impostor.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
@@ -590,7 +574,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let fake = Keypair::new();
     write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, true, false);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(), fe(91));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
@@ -621,7 +605,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
-        data: merge_ix_data(true),
+        data: merge_ix_data(),
         output_ring_data_hash: fe(92),
         cache: None,
     }
@@ -646,7 +630,7 @@ fn merge_ring_rejects_a_paused_ring_config() {
     let ring_config = Keypair::new();
     write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true, true);
 
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(94));
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(), fe(94));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -666,7 +650,7 @@ fn merge_ring_rejects_an_inactive_ring_config() {
         let ring_config = Keypair::new();
         write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, false, paused);
 
-        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(93));
+        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(), fe(93));
         ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
         let error = rpc
             .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -717,7 +701,7 @@ fn merge_ring_rejects_a_paused_tree() {
         output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data: merge_ix_data(true),
+        data: merge_ix_data(),
         output_ring_data_hash: fe(95),
         cache: None,
     }

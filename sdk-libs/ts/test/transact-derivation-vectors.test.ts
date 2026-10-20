@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import vectors from "../../../test-vectors/transact_derivation.json" with { type: "json" };
-import {
-  P256_OWNER_TAG,
-  SOLANA_OWNER_TAG,
-  hashBytes,
-  p256OwnerIdentity,
-  poseidon,
-  solanaOwnerIdentity,
-} from "../src/hasher/index.js";
+import { SOLANA_OWNER_TAG, hashBytes, poseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
   INPUT_TREES,
   ZERO_TREE_SLOT,
@@ -40,18 +33,13 @@ function field(value: number): Bytes32 {
 }
 
 describe("shared transact derivation vectors (test-vectors/transact_derivation.json)", () => {
-  it("tags owner identities by signing algorithm", () => {
+  it("tags Solana owner identities", () => {
     const section = vectors.owner_identity;
     expect(SOLANA_OWNER_TAG).toBe(0x53);
-    expect(P256_OWNER_TAG).toBe(0x50);
     const solanaPubkey = bytes(section.solana_pubkey);
-    const p256X = bytes(section.p256_x);
     expect(hex(solanaOwnerIdentity(solanaPubkey))).toBe(section.solana_owner_identity);
-    expect(hex(p256OwnerIdentity(p256X))).toBe(section.p256_owner_identity);
     expect(hex(hashBytes(bytes(section.hash_bytes_33_input)))).toBe(section.hash_bytes_33);
-    // The tag is what keeps equal key bytes apart across algorithms and from
-    // the untagged encoding assets use.
-    expect(hex(solanaOwnerIdentity(p256X))).not.toBe(hex(p256OwnerIdentity(p256X)));
+    // Owner identities cannot alias the untagged encoding assets use.
     expect(hex(solanaOwnerIdentity(solanaPubkey))).not.toBe(hex(hashBytes(solanaPubkey)));
     expect(() => solanaOwnerIdentity(new Uint8Array(31))).toThrow();
   });

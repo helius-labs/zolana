@@ -1,6 +1,8 @@
 use zolana_interface::{
     shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
-    verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode, RingP256ProofData},
+    verifying_keys::{
+        AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode,
+    },
     N_PUBLIC_SLOTS,
 };
 
@@ -14,7 +16,7 @@ const COMMITMENT: Bsb22Commitment = Bsb22Commitment {
     commitment: [4u8; 32],
     commitment_pok: [5u8; 32],
 };
-const P256_PROOF_DATA: RingP256ProofData = RingP256ProofData {
+const PROOF_DATA: AnonymousRingEddsaProofData = AnonymousRingEddsaProofData {
     bsb22_commitment: COMMITMENT,
     default_owner_tag: None,
 };
@@ -29,22 +31,22 @@ fn accessors_and_behavior_match_variants() {
     assert_eq!(cached.output_owner_mode(), OutputOwnerMode::All);
     assert_eq!(cached.cache_access(), Some(CACHE));
 
-    let ring_cached = CircuitId::RingEddsaCached(2, 3, 3, CACHE);
+    let ring_cached = CircuitId::ConfidentialRingEddsaCached(2, 3, 3, CACHE);
     assert!(ring_cached.is_ring());
-    assert!(!ring_cached.is_p256());
+    assert!(!ring_cached.is_anonymous());
     assert_eq!(ring_cached.cache_access(), Some(CACHE));
     assert_eq!(
         ring_cached.output_owner_mode(),
         OutputOwnerMode::ConfidentialMarked
     );
 
-    let p256_cached = CircuitId::RingP256Cached(2, 3, 3, P256_PROOF_DATA, CACHE);
-    assert!(p256_cached.is_ring());
-    assert!(p256_cached.is_p256());
-    assert_eq!(p256_cached.cache_access(), Some(CACHE));
-    assert_eq!(p256_cached.bsb22_commitment(), Some(&COMMITMENT));
+    let anonymous_cached = CircuitId::AnonymousRingEddsaCached(2, 3, 3, PROOF_DATA, CACHE);
+    assert!(anonymous_cached.is_ring());
+    assert!(anonymous_cached.is_anonymous());
+    assert_eq!(anonymous_cached.cache_access(), Some(CACHE));
+    assert_eq!(anonymous_cached.bsb22_commitment(), Some(&COMMITMENT));
     assert_eq!(
-        p256_cached.output_owner_mode(),
+        anonymous_cached.output_owner_mode(),
         OutputOwnerMode::ConfidentialMarked
     );
 
@@ -55,12 +57,12 @@ fn accessors_and_behavior_match_variants() {
             CircuitId::ConfidentialEddsaCached(2, 3, 3, CACHE),
         ),
         (
-            CircuitId::RingEddsa(2, 3, 3),
-            CircuitId::RingEddsaCached(2, 3, 3, CACHE),
+            CircuitId::ConfidentialRingEddsa(2, 3, 3),
+            CircuitId::ConfidentialRingEddsaCached(2, 3, 3, CACHE),
         ),
         (
-            CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA),
-            CircuitId::RingP256Cached(2, 3, 3, P256_PROOF_DATA, CACHE),
+            CircuitId::AnonymousRingEddsa(2, 3, 3, PROOF_DATA),
+            CircuitId::AnonymousRingEddsaCached(2, 3, 3, PROOF_DATA, CACHE),
         ),
     ] {
         assert_eq!(twin.uncached(), rail);
@@ -68,7 +70,7 @@ fn accessors_and_behavior_match_variants() {
         assert_eq!(twin.output_owner_mode(), rail.output_owner_mode());
         assert_eq!(twin.is_supported(), rail.is_supported());
         assert_eq!(twin.is_ring(), rail.is_ring());
-        assert_eq!(twin.is_p256(), rail.is_p256());
+        assert_eq!(twin.is_anonymous(), rail.is_anonymous());
         assert_eq!(twin.is_confidential(), rail.is_confidential());
         assert!(rail.cache_access().is_none());
     }
@@ -80,7 +82,7 @@ fn accessors_and_behavior_match_variants() {
     assert!(confidential.requires_input_signatures());
     assert_eq!(confidential.output_owner_mode(), OutputOwnerMode::All);
 
-    let ring = CircuitId::RingEddsa(1, 8, 3);
+    let ring = CircuitId::ConfidentialRingEddsa(1, 8, 3);
     assert!(ring.is_ring());
     assert!(ring.is_confidential());
     assert!(!ring.is_authority());
@@ -96,35 +98,35 @@ fn accessors_and_behavior_match_variants() {
     assert!(!authority.requires_input_signatures());
     assert_eq!(authority.output_owner_mode(), OutputOwnerMode::None);
 
-    let p256 = CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA);
-    assert_eq!(p256.shape(), (2, 3, 3));
-    assert!(p256.is_ring());
-    assert!(p256.is_confidential());
-    assert!(p256.is_p256());
-    assert!(p256.requires_input_signatures());
+    let anonymous = CircuitId::AnonymousRingEddsa(2, 3, 3, PROOF_DATA);
+    assert_eq!(anonymous.shape(), (2, 3, 3));
+    assert!(anonymous.is_ring());
+    assert!(anonymous.is_confidential());
+    assert!(anonymous.is_anonymous());
+    assert!(anonymous.requires_input_signatures());
     assert_eq!(
-        p256.output_owner_mode(),
+        anonymous.output_owner_mode(),
         OutputOwnerMode::ConfidentialMarked
     );
-    assert_eq!(p256.bsb22_commitment(), Some(&COMMITMENT));
-    assert_eq!(p256.default_p256_owner_tag(), None);
+    assert_eq!(anonymous.bsb22_commitment(), Some(&COMMITMENT));
+    assert_eq!(anonymous.default_owner_tag(), None);
 }
 
 #[test]
 fn supported_shapes_are_fail_closed() {
     assert!(CircuitId::ConfidentialEddsa(2, 4, 3).is_supported());
-    assert!(CircuitId::RingEddsa(1, 8, 3).is_supported());
-    assert!(CircuitId::RingP256(2, 4, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::ConfidentialRingEddsa(1, 8, 3).is_supported());
+    assert!(CircuitId::AnonymousRingEddsa(2, 4, 3, PROOF_DATA).is_supported());
     assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
     assert!(CircuitId::ConfidentialEddsa(49, 2, 3).is_supported());
-    assert!(CircuitId::RingEddsa(49, 2, 3).is_supported());
-    assert!(CircuitId::RingP256(49, 2, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::ConfidentialRingEddsa(49, 2, 3).is_supported());
+    assert!(CircuitId::AnonymousRingEddsa(49, 2, 3, PROOF_DATA).is_supported());
     assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
     assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
-    assert!(!CircuitId::RingEddsa(2, 4, 2).is_supported());
+    assert!(!CircuitId::ConfidentialRingEddsa(2, 4, 2).is_supported());
     assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
     for (n_inputs, n_outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
         assert!(
@@ -145,8 +147,8 @@ fn every_supported_shape_is_supported_on_every_owner_signed_rail() {
         for circuit in [
             CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
             CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
-            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::RingP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
+            CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::AnonymousRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, PROOF_DATA),
         ] {
             assert!(circuit.is_supported(), "{circuit:?}");
         }
@@ -162,14 +164,14 @@ fn every_supported_shape_resolves_exactly_one_key() {
         for circuit in [
             CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
             CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
-            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::RingEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
-            CircuitId::RingP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
-            CircuitId::RingP256Cached(
+            CircuitId::ConfidentialRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::ConfidentialRingEddsaCached(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, CACHE),
+            CircuitId::AnonymousRingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, PROOF_DATA),
+            CircuitId::AnonymousRingEddsaCached(
                 n_inputs,
                 n_outputs,
                 PUBLIC_ASSET_SLOTS,
-                P256_PROOF_DATA,
+                PROOF_DATA,
                 CACHE,
             ),
         ] {

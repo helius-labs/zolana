@@ -6,10 +6,10 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{EncodedRuleTable, ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    address_tree, address_tree_account, audit_only_config_account, auditor_pubkey, authority,
-    consumed, create_policy_fixture, create_policy_fixture_with, largest_table, namespace_pda,
-    own_source_slots, own_specs, policy_hash_for, program_id, setup_mollusk, stored_policy_config,
-    table_ix_data, PINNED_RULES, WARPED_SLOT,
+    address_tree, address_tree_account, anonymous_config_account, audit_only_config_account,
+    auditor_pubkey, authority, consumed, create_policy_fixture, create_policy_fixture_with,
+    largest_table, namespace_pda, own_source_slots, own_specs, policy_hash_for, program_id,
+    setup_mollusk, stored_policy_config, table_ix_data, PINNED_RULES, VELOCITY_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -222,7 +222,7 @@ fn create_policy_on_an_audit_only_ring_is_rejected_exactly() {
     let mut fixture = create_policy_fixture();
     fixture.set_account(
         "config",
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyOnAuditOnlyRing));
 }
@@ -246,4 +246,16 @@ fn an_address_tree_too_short_for_its_id_is_rejected_exactly() {
     short.data.truncate(short.data.len() - 1);
     fixture.set_account("address_tree", short);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAddressTree));
+}
+
+#[test]
+fn an_anonymous_ring_refuses_a_windowed_policy_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture =
+        create_policy_fixture_with(&table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES)));
+    fixture.set_account("config", anonymous_config_account());
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::UnsupportedAnonymousPolicy),
+    );
 }

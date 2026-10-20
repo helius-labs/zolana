@@ -3,15 +3,15 @@ mod common;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use user_registry_tests::{
-    build_register_ix, build_set_merge_encryption_ix, build_update_keys_ix, build_update_keys_ixs,
-    p256_binding_signature, user_registry_program_id, UserRecord, UserRegistryTestRig,
+    build_register_ix, build_set_merge_encryption_ix, build_update_keys_ix,
+    user_registry_program_id, UserRecord, UserRegistryTestRig,
 };
 use zolana_user_registry_interface::{
-    instruction::{self, p256_key_binding_message, p256_verify_instruction, RegisterData},
+    instruction::{self, RegisterData},
     user_record_pda, MergeEncryptionScheme,
 };
 
-use common::{funded_keypair, keys, register, signing_key};
+use common::{funded_keypair, keys, register};
 
 #[test]
 fn register_initializes_the_complete_record() {
@@ -24,7 +24,6 @@ fn register_initializes_the_complete_record() {
     let record = rig.record(&owner.pubkey());
     assert_eq!(record.owner, owner.pubkey());
     assert_eq!(record.bump, user_record_pda(&owner.pubkey()).1);
-    assert_eq!(record.owner_p256, Some(value.owner_p256));
     assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, value.viewing);
     assert_eq!(record.merge_encryption, MergeEncryptionScheme::Disabled);
@@ -38,7 +37,7 @@ fn register_initializes_the_complete_record() {
 }
 
 #[test]
-fn register_supports_a_prefunded_pda_and_an_absent_p256_key() {
+fn register_supports_a_prefunded_pda() {
     let mut rig = UserRegistryTestRig::new();
     let owner = funded_keypair(&mut rig);
     let value = keys(2);
@@ -46,13 +45,12 @@ fn register_supports_a_prefunded_pda_and_an_absent_p256_key() {
     rig.fund(&record_address, 1_000_000);
 
     rig.send(
-        build_register_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
+        build_register_ix(&owner.pubkey(), value.nullifier, value.viewing),
         &[&owner],
     )
     .expect("register over prefunded PDA");
 
     let record = rig.record(&owner.pubkey());
-    assert_eq!(record.owner_p256, None);
     assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, value.viewing);
     assert_eq!(record.owner, owner.pubkey());
@@ -89,7 +87,6 @@ fn register_charges_rent_to_a_separate_payer() {
             owner.pubkey(),
             rent_payer.pubkey(),
             RegisterData {
-                owner_p256: None,
                 nullifier_pubkey: value.nullifier,
                 viewing_pubkey: value.viewing,
             },
@@ -103,7 +100,6 @@ fn register_charges_rent_to_a_separate_payer() {
         UserRecord {
             owner: owner.pubkey(),
             bump,
-            owner_p256: None,
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
             merge_encryption: MergeEncryptionScheme::Disabled,
@@ -121,10 +117,9 @@ fn register_charges_rent_to_a_separate_payer() {
     assert_eq!(rent_payer_before.checked_sub(rent_payer_after), Some(rent));
 }
 
-/// With a P256 key the Instructions sysvar follows the payer slot, and over a
-/// prefunded PDA the separate payer covers only the top-up to rent exemption.
+/// A separate payer covers only the missing rent of a prefunded record.
 #[test]
-fn register_tops_up_a_prefunded_pda_from_a_separate_payer_with_a_p256_key() {
+fn register_tops_up_a_prefunded_pda_from_a_separate_payer() {
     let mut rig = UserRegistryTestRig::new();
     let owner = Keypair::new();
     let rent_payer = funded_keypair(&mut rig);
@@ -137,33 +132,25 @@ fn register_tops_up_a_prefunded_pda_from_a_separate_payer_with_a_p256_key() {
         .svm
         .get_balance(&rent_payer.pubkey())
         .expect("rent payer balance");
-    let (owner_p256, signature) = p256_binding_signature(&owner.pubkey(), &signing_key(value.tag));
-    let binding = p256_key_binding_message(&user_record, &owner.pubkey(), &owner_p256);
-
-    rig.send_all(
-        &[
-            p256_verify_instruction(&binding, &signature, &owner_p256),
-            instruction::register(
-                user_record,
-                owner.pubkey(),
-                rent_payer.pubkey(),
-                RegisterData {
-                    owner_p256: Some(owner_p256),
-                    nullifier_pubkey: value.nullifier,
-                    viewing_pubkey: value.viewing,
-                },
-            ),
-        ],
+    rig.send(
+        instruction::register(
+            user_record,
+            owner.pubkey(),
+            rent_payer.pubkey(),
+            RegisterData {
+                nullifier_pubkey: value.nullifier,
+                viewing_pubkey: value.viewing,
+            },
+        ),
         &[&owner, &rent_payer],
     )
-    .expect("register a P256 key with a separate payer");
+    .expect("register with a separate payer");
 
     assert_eq!(
         rig.record(&owner.pubkey()),
         UserRecord {
             owner: owner.pubkey(),
             bump,
-            owner_p256: Some(owner_p256),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
             merge_encryption: MergeEncryptionScheme::Disabled,
@@ -180,95 +167,8 @@ fn register_tops_up_a_prefunded_pda_from_a_separate_payer_with_a_p256_key() {
     );
 }
 
-/// Clearing the P256 key (`owner_p256: Some -> None`) shortens the borsh body
-/// by the 33-byte key while the account allocation stays fixed at
-/// `UserRecord::SIZE`. Main's `write_record` zeroes the whole account before
-/// writing, so the vacated tail is all zeros; the record then regrows
-/// correctly when a key is registered again.
 #[test]
-fn update_keys_clears_and_restores_the_p256_key() {
-    let mut rig = UserRegistryTestRig::new();
-    let owner = funded_keypair(&mut rig);
-    let value = keys(18);
-    register(&mut rig, &owner, value);
-    let record_address = user_record_pda(&owner.pubkey()).0;
-    let account_before = rig.svm.get_account(&record_address).expect("record");
-    let body_before = borsh::to_vec(&rig.record(&owner.pubkey()))
-        .expect("serialize pre-update record")
-        .len();
-
-    rig.send(
-        build_update_keys_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
-        &[&owner],
-    )
-    .expect("clear the P256 key");
-
-    let account = rig.svm.get_account(&record_address).expect("record");
-    assert_eq!(
-        account.data.len(),
-        UserRecord::SIZE,
-        "the allocation must not shrink"
-    );
-    let cleared = rig.record(&owner.pubkey());
-    assert_eq!(cleared.owner_p256, None, "re-parsed record is cleared");
-    assert_eq!(cleared.nullifier_pubkey, value.nullifier);
-    assert_eq!(cleared.viewing_pubkey, value.viewing);
-    assert_eq!(cleared.owner, owner.pubkey());
-
-    // The borsh body is exactly 33 bytes (the vacated key) shorter than the
-    // pre-update body, and the vacated tail is all zeros: main's
-    // `write_record` fills the account before writing.
-    let body_len = borsh::to_vec(&cleared)
-        .expect("serialize cleared record")
-        .len();
-    assert_eq!(
-        body_len + 33,
-        body_before,
-        "clearing the key must shorten the serialized body by the key length"
-    );
-    let needed = UserRecord::DISCRIMINATOR_LEN + body_len;
-    assert_eq!(
-        account.data.get(needed..),
-        Some(&vec![0u8; account_before.data.len() - needed][..]),
-        "the vacated tail is zeroed (write_record fills before writing)"
-    );
-
-    // None -> Some regrow with a fresh key, which needs its own proof of possession.
-    let regrown = signing_key(0xD1);
-    let (regrown_key, regrown_signature) = p256_binding_signature(&owner.pubkey(), &regrown);
-    rig.send_all(
-        &build_update_keys_ixs(
-            &owner.pubkey(),
-            Some(regrown_key),
-            value.nullifier,
-            value.viewing,
-            Some(regrown_signature),
-        ),
-        &[&owner],
-    )
-    .expect("restore a P256 key");
-
-    let restored = rig.record(&owner.pubkey());
-    assert_eq!(restored.owner_p256, Some(regrown_key));
-    assert_eq!(restored.nullifier_pubkey, value.nullifier);
-    assert_eq!(restored.viewing_pubkey, value.viewing);
-    let account = rig.svm.get_account(&record_address).expect("record");
-    assert_eq!(
-        account.data.len(),
-        UserRecord::SIZE,
-        "regrowth fits the original allocation"
-    );
-    let restored_body_len = borsh::to_vec(&restored)
-        .expect("serialize restored record")
-        .len();
-    assert_eq!(
-        restored_body_len, body_before,
-        "the regrown body matches the original full-key encoding length"
-    );
-}
-
-#[test]
-fn update_keys_changes_only_the_static_keys() {
+fn update_keys_changes_only_the_viewing_key() {
     let mut rig = UserRegistryTestRig::new();
     let owner = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(6));
@@ -283,30 +183,25 @@ fn update_keys_changes_only_the_static_keys() {
     .expect("enable merging");
     let before = rig.record(&owner.pubkey());
     let updated = keys(7);
-    let (updated_p256, updated_signature) =
-        p256_binding_signature(&owner.pubkey(), &signing_key(updated.tag));
-
-    // The nullifier pubkey never rotates, so it carries the registered value;
-    // only the P256 owner key and the viewing key move.
-    rig.send_all(
-        &build_update_keys_ixs(
-            &owner.pubkey(),
-            Some(updated_p256),
-            keys(6).nullifier,
-            updated.viewing,
-            Some(updated_signature),
-        ),
+    rig.send(
+        build_update_keys_ix(&owner.pubkey(), keys(6).nullifier, updated.viewing),
         &[&owner],
     )
-    .expect("update keys");
+    .expect("update viewing key");
 
     let after = rig.record(&owner.pubkey());
-    assert_eq!(after.owner_p256, Some(updated.owner_p256));
     assert_eq!(after.nullifier_pubkey, keys(6).nullifier);
     assert_eq!(after.viewing_pubkey, updated.viewing);
     assert_eq!(after.owner, before.owner);
     assert_eq!(after.bump, before.bump);
     assert_eq!(after.merge_encryption, before.merge_encryption);
+    let account = rig
+        .svm
+        .get_account(&user_record_pda(&owner.pubkey()).0)
+        .expect("record");
+    assert_eq!(account.data.len(), UserRecord::SIZE);
+    let body_len = borsh::to_vec(&after).expect("serialized record").len();
+    assert_eq!(body_len + UserRecord::DISCRIMINATOR_LEN, UserRecord::SIZE);
 }
 
 #[test]

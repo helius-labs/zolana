@@ -846,7 +846,7 @@
     {
       "circuit": {
         "inputs": 2,
-        "kind": "ringEddsaCached",
+        "kind": "confidentialRingEddsaCached",
         "outputs": 2,
         "publicAssetSlots": 3,
         "readBitmap": "3",

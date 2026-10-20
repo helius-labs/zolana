@@ -155,7 +155,7 @@ function positiveInteger(value: number, field: string, maximum = Number.MAX_SAFE
  * The stable tags a wallet asks the indexer about: one shielded-identity
  * signing tag for confidential transactions and one bootstrap tag per held
  * viewing key for deposits and key rotation. The bootstrap tag is the key's
- * x-coordinate, so the public keys are enough to derive it.
+ * u-coordinate, so the public keys are enough to derive it.
  *
  * Keys that do not belong to this wallet are refused here rather than by the
  * decrypt pass further down, because a tag is a query the indexer sees: a

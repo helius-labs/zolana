@@ -1,20 +1,18 @@
 use groth16_solana::groth16::Groth16Verifier;
-use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::field::be, ProofCompressed, ProverClient, ProverExt, TransferOutput,
-    TransferP256Inputs, TreeSlotFields,
+    prover::{field::be, transact::AnonymousEddsaAuthorization},
+    AnonymousEddsaTransferInputs, ProofCompressed, Prover, ProverClient, ProverExt, TransferOutput,
 };
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
         create_right_hash_chain_from_slice,
     },
-    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
+    primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
     instruction::{
@@ -24,10 +22,10 @@ use zolana_interface::{
     shape::Shape,
     state::{cache::empty_cached_input_fields, discriminator::RING_CONFIG, RingConfig},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
-    verifying_keys::RingP256ProofData,
+    verifying_keys::AnonymousRingEddsaProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{pubkey::PublicKey, NullifierKey, ShieldedKeypair, SigningKey};
+use zolana_keypair::{pubkey::PublicKey, NullifierKey, SigningKey};
 use zolana_program::instruction::Transact;
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
@@ -37,7 +35,6 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_test_utils::wallet::SyncWalletAuthority;
 use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
 
 use super::fixtures::Pool;
@@ -47,14 +44,14 @@ use super::transact::write_ring_config_account;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingRail {
     Eddsa,
-    P256,
+    AnonymousEddsa,
 }
 
 impl RingRail {
     pub fn label(self) -> &'static str {
         match self {
             Self::Eddsa => "ring eddsa",
-            Self::P256 => "ring p256",
+            Self::AnonymousEddsa => "ring anonymous eddsa",
         }
     }
 }
@@ -65,7 +62,7 @@ pub struct RingTransactProof {
     pub ring_config: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
     /// The Ed25519 input owners in the proof's signer vector: the payer on the
-    /// Eddsa rail, none on the P256 rail.
+    /// Eddsa rail, none on the anonymous rail.
     pub owner_signers: Vec<Pubkey>,
 }
 
@@ -132,13 +129,10 @@ impl RealRingTransact {
         );
         let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
 
-        let p256_keypair = ShieldedKeypair::from_keypair(
-            SigningKey::from_p256_bytes(&[7u8; 32]).expect("fixed P256 signing key"),
-        )
-        .expect("P256 shielded keypair");
+        let hidden_owner = SigningKey::from_ed25519_bytes(&[7u8; 32]);
         let (owner_public_key, input_owner_pk_hash) = match rail {
             RingRail::Eddsa => (PublicKey::from_ed25519(&payer_bytes), payer_hash),
-            RingRail::P256 => (p256_keypair.signing_pubkey(), zero),
+            RingRail::AnonymousEddsa => (hidden_owner.pubkey(), zero),
         };
 
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -227,15 +221,15 @@ impl RealRingTransact {
         .hash()
         .expect("private tx hash");
 
-        // The payer owns the Eddsa rail's real input and signs as its owner. A
-        // P256 owner signs in the proof, so that rail's vector is all padding.
+        // The payer owns the Eddsa rail's real input and signs as its owner. The
+        // hidden owner signs in the proof, so that rail's vector is all padding.
         let owner_signers = match rail {
             RingRail::Eddsa => vec![payer.pubkey()],
-            RingRail::P256 => Vec::new(),
+            RingRail::AnonymousEddsa => Vec::new(),
         };
         let mut signer_pk_hashes = match rail {
             RingRail::Eddsa => vec![payer_hash],
-            RingRail::P256 => Vec::new(),
+            RingRail::AnonymousEddsa => Vec::new(),
         };
         signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
@@ -249,17 +243,22 @@ impl RealRingTransact {
             private_tx,
         ];
         let message_digest = transact_message_hash(&private_tx, &external_data_hash);
-        let p256_authorization = match rail {
+        let authorization = match rail {
             RingRail::Eddsa => None,
-            RingRail::P256 => {
-                let authorization = SyncWalletAuthority::sign_p256(&p256_keypair, &message_digest)
-                    .expect("P256 authorization");
-                let default_owner_tag = authorization.pubkey.x();
-                let default_p256_owner_pk_hash =
-                    p256_owner_identity(&default_owner_tag).expect("default P256 owner identity");
-                chain.push(hash_bytes(&message_digest).expect("P256 message proof input hash"));
-                chain.push(default_p256_owner_pk_hash);
-                Some((authorization, default_owner_tag, default_p256_owner_pk_hash))
+            RingRail::AnonymousEddsa => {
+                let owner_public_key = owner_public_key.as_ed25519().expect("Ed25519 owner");
+                let authorization = AnonymousEddsaAuthorization {
+                    owner_public_key,
+                    owner_signature: hidden_owner
+                        .sign_message(&message_digest)
+                        .expect("hidden owner signature"),
+                    message_digest,
+                    default_owner_pk_hash: solana_owner_identity(&owner_public_key)
+                        .expect("default owner identity"),
+                };
+                chain.push(hash_bytes(&message_digest).expect("message proof input hash"));
+                chain.push(authorization.default_owner_pk_hash);
+                Some(authorization)
             }
         };
         chain.push(external_data_hash);
@@ -276,8 +275,7 @@ impl RealRingTransact {
             create_right_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
         );
-        // This helper spends from the state tree, so both ring rails publish the
-        // empty cache selection rather than omitting it.
+        // State-tree spends bind an empty cache selection into the statement.
         let cached_inputs = empty_cached_input_fields(n_inputs).expect("cache selection");
         chain.extend_from_slice(&cached_inputs);
         let public_input_hash =
@@ -286,30 +284,30 @@ impl RealRingTransact {
         let n_in = u8::try_from(n_inputs).expect("supported ring input count");
         let n_out = u8::try_from(n_outputs).expect("supported ring output count");
         let n_slots = N_PUBLIC_SLOTS as u8;
-        let (proof, circuit) = match p256_authorization {
+        let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+            inputs,
+            outputs,
+            tree_slots,
+            output_tree_id: tree_id,
+            blinding_seed: TEST_BLINDING_SEED,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            public_slot_assets,
+            public_slot_amounts,
+            signer_pk_hashes: signer_pk_hashes.clone(),
+            public_input_hash,
+        });
+        prover_inputs.ring_program_id = be(&ring_field);
+        prover_inputs.published_output_owner_pk_hashes =
+            published_output_owner_pk_hashes.iter().map(be).collect();
+        let (proof, circuit) = match authorization {
             None => {
-                let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-                    inputs,
-                    outputs,
-                    tree_slots,
-                    output_tree_id: tree_id,
-                    blinding_seed: TEST_BLINDING_SEED,
-                    external_data_hash,
-                    private_tx_hash: private_tx,
-                    public_slot_assets,
-                    public_slot_amounts,
-                    signer_pk_hashes: signer_pk_hashes.clone(),
-                    public_input_hash,
-                });
-                prover_inputs.ring_program_id = be(&ring_field);
-                prover_inputs.published_output_owner_pk_hashes =
-                    published_output_owner_pk_hashes.iter().map(be).collect();
                 let proof = ProverClient::local()
                     .prove_transfer_ring(&prover_inputs)
                     .unwrap_or_else(|error| {
                         panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
                     });
-                let circuit = CircuitId::RingEddsa(n_in, n_out, n_slots);
+                let circuit = CircuitId::ConfidentialRingEddsa(n_in, n_out, n_slots);
                 let public_inputs = [public_input_hash];
                 let verifying_key = circuit
                     .verifying_key()
@@ -323,60 +321,29 @@ impl RealRingTransact {
                     circuit,
                 )
             }
-            Some((authorization, default_owner_tag, default_p256_owner_pk_hash)) => {
-                let point = authorization
-                    .pubkey
-                    .to_p256()
-                    .expect("P256 public key")
-                    .to_encoded_point(false);
-                let mut pub_y = [0u8; 32];
-                pub_y.copy_from_slice(point.y().expect("P256 y coordinate"));
-                let (high, low) = message_digest.split_at(16);
-                let prover_inputs = TransferP256Inputs {
-                    inputs,
-                    outputs,
-                    tree_slots: TreeSlotFields::encode_all(&tree_slots),
-                    output_tree_id: BigUint::from(tree_id),
-                    blinding_seed: be(&TEST_BLINDING_SEED),
-                    external_data_hash: be(&external_data_hash),
-                    private_tx_hash: be(&private_tx),
-                    p256_pub_x: be(&default_owner_tag),
-                    p256_pub_y: be(&pub_y),
-                    p256_sig_r: be(&authorization.sig_r),
-                    p256_sig_s: be(&authorization.sig_s),
-                    p256_message_hash_low: BigUint::from_bytes_be(low),
-                    p256_message_hash_high: BigUint::from_bytes_be(high),
-                    default_p256_owner_pk_hash: be(&default_p256_owner_pk_hash),
-                    public_assets: public_slot_assets.map(|asset| be(&asset)),
-                    public_amounts: public_slot_amounts.map(|amount| be(&amount)),
-                    ring_program_id: be(&ring_field),
-                    signer_pk_hashes: signer_pk_hashes.iter().map(be).collect(),
-                    input_flags: be(&input_flags),
-                    published_output_owner_pk_hashes: published_output_owner_pk_hashes
-                        .iter()
-                        .map(be)
-                        .collect(),
-                    cache: zolana_client::CacheReadInputs::uncached(cached_inputs),
-                    public_input_hash: be(&public_input_hash),
-                };
+            Some(authorization) => {
+                let default_owner_tag = Some(authorization.owner_public_key);
                 let proof = ProverClient::local()
-                    .prove_transfer_p256_ring(&prover_inputs)
+                    .prove(&AnonymousEddsaTransferInputs {
+                        transfer: prover_inputs,
+                        authorization,
+                    })
                     .unwrap_or_else(|error| {
-                        panic!("prove P256 ring transfer {n_inputs}x{n_outputs}: {error}")
+                        panic!("prove anonymous ring transfer {n_inputs}x{n_outputs}: {error}")
                     });
                 let (compressed_proof, bsb22_commitment) = ProofCompressed::try_from(proof)
-                    .expect("compress P256 ring proof")
-                    .into_ring_p256_transact_parts()
-                    .expect("split P256 ring proof");
+                    .expect("compress anonymous ring proof")
+                    .into_committed_transact_parts()
+                    .expect("split anonymous ring proof");
                 (
                     compressed_proof,
-                    CircuitId::RingP256(
+                    CircuitId::AnonymousRingEddsa(
                         n_in,
                         n_out,
                         n_slots,
-                        RingP256ProofData {
+                        AnonymousRingEddsaProofData {
                             bsb22_commitment,
-                            default_owner_tag: Some(default_owner_tag),
+                            default_owner_tag,
                         },
                     ),
                 )

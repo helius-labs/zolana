@@ -34,8 +34,9 @@ import (
 
 // refreshNullifierAttackHashes keeps these fixtures' real outputs and transaction
 // hashes consistent with a changed first nullifier. inputHashes contains zero
-// for each dummy slot and the UTXO hash for each spent input. The P256 caller
-// must then authorize the new private transaction hash and refresh its public hash.
+// for each dummy slot and the UTXO hash for each spent input. The anonymous
+// EdDSA caller must then authorize the new private transaction hash and refresh
+// its public hash.
 func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inputHashes []*big.Int) {
 	t.Helper()
 	refreshDerivedOutputBlindings(t, assignment)
@@ -58,14 +59,14 @@ func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inpu
 func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
 	refreshNullifierAttackHashes(t, assignment, []*big.Int{spptest.Fe(0)})
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestDummyInputRejectsZeroNullifier (INV-TRANSACT-31): slot 0's nullifier seeds
@@ -76,12 +77,12 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0)
 	refreshNullifierAttackHashes(t, assignment, []*big.Int{spptest.Fe(0)})
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestCircuitRejectsSharedNullifierAcrossSlots (INV-TRANSACT-31): two input slots carrying
@@ -94,7 +95,7 @@ func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	// Duplicate slot 0 into slot 1: identical private witness and public signals,
@@ -120,18 +121,18 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
-// TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
-// a real P256 spend authorizes the transaction alongside a dummy in slot 1.
-// Changing the dummy's public nullifier must fail only its derived-nullifier
-// binding, with output blindings, transaction hashes, and P256 authorization
-// refreshed to agree with the attacker-chosen value.
-func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
-	assert := test.NewAssert(t)
+// TestAnonymousEddsaDummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31,
+// anonymous EdDSA rail): a real hidden-owner spend authorizes the transaction
+// alongside a dummy in slot 1. Changing the dummy's public nullifier must fail
+// only its derived-nullifier binding, with output blindings, transaction
+// hashes, and Ed25519 authorization refreshed to agree with the
+// attacker-chosen value.
+func TestAnonymousEddsaDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	ccs := compileEddsaRing(t, shape)
 	assignment := buildCircuitAssignment(t, shape)
 
 	// Keep the 100-unit spend in slot 0 and replace slot 1 with padding.
@@ -146,19 +147,19 @@ func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 		assignment.Outputs[i].Utxo.Amount = spptest.Fe(50)
 	}
 
-	owner := spptest.FixedP256Key(t, 11)
-	rewriteInputAsP256(t, assignment, 0, owner)
+	owner := hiddenOwnerKey(11)
+	rewriteInputAsHiddenOwner(t, assignment, 0, owner)
 	inputHashes := []*big.Int{
 		testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0)),
 		spptest.Fe(0),
 	}
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
-	authorization := authorizeP256(t, assignment, owner, owner)
-	assert.SolvingSucceeded(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
+	authorization := authorizeEddsa(t, assignment, owner, owner)
+	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(assignment, authorization), true)
 
 	assignment.Inputs[1].Nullifier = spptest.Fe(0xF01)
 	refreshNullifierAttackHashes(t, assignment, inputHashes)
-	authorization = authorizeP256(t, assignment, owner, owner)
+	authorization = authorizeEddsa(t, assignment, owner, owner)
 
-	assert.SolvingFailed(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
+	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(assignment, authorization), false)
 }

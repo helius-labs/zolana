@@ -21,8 +21,8 @@ import (
 //     variant's own slices)
 //  3. assert its ring rule                 (ring.go) and its RingProgramID value
 //  4. assert its published owner-tag rules (owner_tags.go)
-//  5. resolve who signed into Signers      (signers.go; the P256 rails first
-//     verify their one shared P256 signature)
+//  5. resolve who signed into Signers      (signers.go; the anonymous EdDSA rail
+//     first verifies its one shared Ed25519 signature)
 //  6. Transaction.Constrain:
 //     6.1. inputs (inputs.go): nullifier pubkeys, utxo hashes, owner binding,
 //     nullifiers, inclusion, nullifier non-inclusion, uniqueness

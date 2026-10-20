@@ -26,6 +26,7 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
+use zolana_keypair::X25519Keypair;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_cli::transact::{self, Probe};
@@ -75,7 +76,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair};
 use zolana_program::instruction::{
     AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
     TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
@@ -90,6 +91,7 @@ use zolana_ring_rpc::{
     ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
     Unauthorized, Upstreams,
 };
+use zolana_ring_transaction::AnonymousViewTags;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{
     smart_account,
@@ -430,7 +432,7 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let project = RingProject::create(&env, &auditor.pubkey())?;
     let init = || project.run(&["init"]);
 
@@ -485,7 +487,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
     let indexer = env.client.indexer();
     let tree = env.register_default_tree()?;
     let ring = CustomRing::new(custom_ring_program_id()?);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let project = RingProject::create(&env, &auditor.pubkey())?;
     project.write_config(RingToml {
         env: &env,
@@ -514,6 +516,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
             indexer: env.client.indexer(),
@@ -549,7 +552,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 1. The auditor is off chain. Only its public key ever reaches the program;
     //    the secret never leaves this test and is what the final decryption uses.
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let auditor_pubkey = *auditor_pk.as_bytes();
 
@@ -602,7 +605,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             auditor_pubkey,
             bump: config_bump,
             has_policy: 1,
-            key_escrow: 0,
+            mode: 0,
         },
         "custom-ring config account"
     );
@@ -652,6 +655,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         asset: DepositAsset::Sol,
         amount,
         cosigner: None,
+        anonymous_view_tag: None,
     };
     let pause = |authority: Address, paused: bool| {
         SetPaused {
@@ -1044,20 +1048,33 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 /// audit statement and the auditor still recovers every output.
 #[test]
 fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
+    audit_only_lifecycle(false)
+}
+
+#[test]
+fn an_anonymous_ring_hides_owners_and_preserves_auditor_access() -> Result<()> {
+    audit_only_lifecycle(true)
+}
+
+fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     let mut env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
 
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
 
     RegisterRing {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        tier: Tier::AuditOnly,
+        tier: if anonymous {
+            Tier::AnonymousAuditOnly
+        } else {
+            Tier::AuditOnly
+        },
     }
     .send(rpc)?;
 
@@ -1068,16 +1085,30 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let config: RingProgramConfig = fetch_state(rpc, &ring.config_pda())?;
     assert_eq!(config.has_policy, 0, "audit-only config flag");
 
+    let payer: &dyn Signer = if anonymous {
+        &env.payer
+    } else {
+        &env.sender.keypair
+    };
+    let deposit_source = env.funded_keypair()?;
+    env.fund(deposit_source.pubkey(), RING_DEPOSIT_A + RING_DEPOSIT_B)?;
+    assert_ne!(deposit_source.pubkey(), payer.pubkey());
+    assert_ne!(deposit_source.pubkey(), env.sender.keypair.pubkey());
     let mut spendable = Vec::with_capacity(2);
-    for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
+    for (request_count, amount) in (0..).zip([RING_DEPOSIT_A, RING_DEPOSIT_B]) {
         let RingDepositReceipt { utxo, .. } = RingDeposit {
             ring,
-            payer: &env.sender.keypair,
+            payer: &deposit_source,
             recipient: &env.sender.keypair,
             tree: env.tree,
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
+            anonymous_view_tag: Some(
+                env.sender
+                    .keypair
+                    .get_recipient_request_view_tag(request_count)?,
+            ),
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
             indexer: env.client.indexer(),
@@ -1087,7 +1118,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         spendable.push(utxo);
     }
 
-    let sender_address = env.sender.keypair.pubkey();
+    let sender_address = payer.pubkey();
     let inputs = spendable
         .into_iter()
         .map(|utxo| indexed_note(utxo, &env.sender.keypair, &env, env.tree))
@@ -1109,22 +1140,90 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         transfer
     };
 
-    let prover = ProverClient::local();
-    let proven = CustomRingTransfer::new(CustomRingTransferInput {
+    // Exercise Go admission and witness resolution for the Rust indexed request.
+    let prover = ProverClient::local().with_proof_data_source(ProofDataSource::Prover);
+    let mut builder = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
         nullifier_key: Some(&env.sender.keypair.nullifier_key),
         transaction: prepared,
-    })
-    .prove(TransferProofEnvironment {
+    });
+    let sender_view_tag = env.sender.keypair.get_sender_view_tag(0)?;
+    if anonymous {
+        builder = builder
+            .with_anonymous_signer(&env.sender.keypair.signing_key)
+            .with_anonymous_view_tags(
+                AnonymousViewTags::new(sender_view_tag)
+                    .with_bootstrap_tag(env.recipient.keypair.shielded_address()?.viewing_pubkey),
+            );
+    }
+    let mut proven = builder.prove(TransferProofEnvironment {
         indexer,
         rpc,
         prover: &prover,
     })?;
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
+    if anonymous {
+        use zolana_interface::instruction::instruction_data::transact::{
+            AnonymousRingEddsaProofData, CircuitId,
+        };
+
+        assert_ne!(payer.pubkey(), env.sender.keypair.pubkey());
+        assert!(proven.owner_signers.is_empty());
+        let valid_circuit = proven.data.circuit;
+        let CircuitId::AnonymousRingEddsa(inputs, outputs, slots, proof_data) = valid_circuit
+        else {
+            panic!("anonymous transfer must prove its hidden Ed25519 owner");
+        };
+        let commitment = proof_data.bsb22_commitment;
+        let committed = |bsb22_commitment| {
+            CircuitId::AnonymousRingEddsa(
+                inputs,
+                outputs,
+                slots,
+                AnonymousRingEddsaProofData {
+                    bsb22_commitment,
+                    ..proof_data
+                },
+            )
+        };
+        let mut malformed_commitment = commitment;
+        malformed_commitment.commitment = [0xff; 32];
+        let mut malformed_pok = commitment;
+        malformed_pok.commitment_pok = [0xff; 32];
+        let mut invalid_pok = commitment;
+        invalid_pok.commitment_pok = commitment.commitment;
+
+        // Keep both valid proofs fixed while corrupting the inner commitment or its selector.
+        let tree_before = fetch_account(rpc, &env.tree)?;
+        for (circuit, error) in [
+            (
+                committed(malformed_commitment),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                committed(malformed_pok),
+                ShieldedPoolError::InvalidTransactProofEncoding as u32,
+            ),
+            (
+                committed(invalid_pok),
+                ShieldedPoolError::TransactProofVerificationFailed as u32,
+            ),
+            (
+                CircuitId::ConfidentialRingEddsa(inputs, outputs, slots),
+                CustomRingError::UnsupportedCircuit as u32,
+            ),
+        ] {
+            proven.data.circuit = circuit;
+            let rejection = send_expecting_rejection(rpc, payer, proven.instruction()?)?;
+            Rejection::custom(error).at(0).assert_client(&rejection);
+            assert_account_unchanged(rpc, &env.tree, &tree_before)?;
+        }
+        proven.data.circuit = valid_circuit;
+    }
 
     let transaction = TransactSend {
-        payer: &env.sender.keypair,
+        payer,
         signers: &[],
         instruction: proven.instruction()?,
     }
@@ -1143,7 +1242,32 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         "the on-chain tx_viewing_pk is the sender's"
     );
 
+    if anonymous {
+        let mut tags: Vec<_> = indexed
+            .output_slots
+            .iter()
+            .map(|slot| slot.view_tag)
+            .collect();
+        tags.sort_unstable();
+        let mut expected = vec![
+            env.recipient.keypair.recipient_bootstrap_view_tag(),
+            sender_view_tag,
+        ];
+        expected.sort_unstable();
+        assert_eq!(tags, expected, "anonymous outputs carry view tags");
+        assert!(indexed.output_slots.iter().all(|slot| matches!(
+            slot.output_data(),
+            Some(zolana_interface::event::OutputDataEncoding::Encrypted(ref body))
+                if body.first() == Some(&zolana_transaction::EncryptedScheme::RingAnonymous.as_byte())
+        )));
+    }
+    let mode = if anonymous {
+        custom_ring_interface::RingMode::Anonymous
+    } else {
+        custom_ring_interface::RingMode::Off
+    };
     let audited = RingAudit::new(ring_program, &auditor)
+        .with_mode(mode)
         .run(
             RingEnvironment {
                 indexer,
@@ -1166,6 +1290,19 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let mut expected = vec![RING_CHANGE, RING_TRANSFER_AMOUNT];
     expected.sort_unstable();
     assert_eq!(amounts, expected, "auditor decrypts both output amounts");
+
+    if anonymous {
+        let disclosure = audited.anonymous.as_ref().context("anonymous disclosure")?;
+        assert_eq!(
+            disclosure.sender,
+            env.sender.keypair.signing_pubkey().as_ed25519()?
+        );
+        let mut input_amounts: Vec<_> =
+            disclosure.inputs.iter().map(|input| input.amount).collect();
+        input_amounts.sort_unstable();
+        assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
+        return Ok(());
+    }
 
     let recipient_authority =
         KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
@@ -1252,7 +1389,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     RegisterRing {
         ring,
@@ -1488,7 +1625,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     RegisterRing {
         ring,
@@ -1672,6 +1809,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         asset: usdc_deposit(sender_usdc),
         amount: USDC_RING_DEPOSIT,
         cosigner: None,
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer: env.client.indexer(),
@@ -1997,7 +2135,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     advance_local_clock(rpc, (rpc.get_slot()? / WINDOW_SLOTS + 1) * WINDOW_SLOTS)?;
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -2023,6 +2161,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
             indexer: env.client.indexer(),
@@ -2282,6 +2421,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: VELOCITY_CAP + 1,
         cosigner: Some(&cosigner),
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer: env.client.indexer(),
@@ -2487,7 +2627,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -2512,6 +2652,7 @@ fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
             asset: DepositAsset::Sol,
             amount,
             cosigner: None,
+            anonymous_view_tag: None,
         }
         .send(custom_ring_sdk::DepositProofEnvironment {
             indexer: env.client.indexer(),
@@ -2680,7 +2821,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let auditor_tag = auditor_view_tag(&auditor_pk);
     RegisterRing {
@@ -2721,6 +2862,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer: env.client.indexer(),
@@ -2934,6 +3076,7 @@ fn the_key_escrow_lifecycle_ends_in_a_delegate_move() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer,
@@ -3009,7 +3152,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
@@ -3034,6 +3177,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer: env.client.indexer(),
@@ -3150,7 +3294,7 @@ fn a_transfer_outputs_apart_from_the_address_tree() -> Result<()> {
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
     let ring = CustomRing::new(ring_program);
-    let auditor = ViewingKey::new();
+    let auditor = X25519Keypair::new();
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
@@ -3181,6 +3325,7 @@ fn a_transfer_outputs_apart_from_the_address_tree() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
         cosigner: None,
+        anonymous_view_tag: None,
     }
     .send(custom_ring_sdk::DepositProofEnvironment {
         indexer: env.client.indexer(),
@@ -3327,7 +3472,7 @@ impl<'a> DefaultRingDeposit<'a> {
         assets: &AssetRegistry,
     ) -> Result<Note<'a>> {
         let address = self.depositor.shielded_address()?;
-        let view_tag = address.viewing_pubkey.x();
+        let view_tag = address.viewing_pubkey.u();
         let deposit = SppDeposit {
             tree: self.tree,
             depositor: self.depositor.pubkey(),
@@ -3524,7 +3669,7 @@ fn nullifier_hashes(proven: &ProvenTransfer) -> Vec<[u8; 32]> {
 
 struct AuditLookup<'a> {
     ring_program: Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Keypair,
     signature: Signature,
 }
 

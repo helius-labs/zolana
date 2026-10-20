@@ -51,7 +51,7 @@ resumes the ring, writes the authority-written lists and points a list at a
 curator or back at the ring's own entries. A curator is a ring whose lists
 other rings read. It writes its own entries and touches nothing on its
 subscribers, every subscriber trusts its writes wholly.
-The auditor holds the ring's P-256 viewing key and reads transfers. That key
+The auditor holds the ring's X25519 viewing key and reads transfers. That key
 does not authorize a transfer to another owner or a withdrawal. A permanent
 delegate is a separate Solana signer authorized to move members' notes. An
 operator holding both keys can recover notes as the auditor and move them as
@@ -92,7 +92,7 @@ for the ring with `set_ring_activation`. A move spends
 the source member's notes with that member's nullifier key. `init` creates
 the ring's key registry, a member-keyed tree the ring owns and Photon
 indexes, and `transact` and `transfer` escrow the sender's key there on
-first use, sealed to the ring auditor's P-256 key with a proof that binds
+first use, sealed to the ring auditor's X25519 key with a proof that binds
 the ciphertext to the auditor the config pins. `zolana-ring key register`
 runs that step alone. Registration binds the member's signature to an
 encrypted nullifier key, but does not prove that the key matches the member's
@@ -122,9 +122,9 @@ binds the zero nullifier key `Poseidon(0)`. A plain deposit is refused with
 `DepositAuditRequired`, the audited deposit carries the check in its proof. A
 merge keeps the key of its inputs. Notes created before the delegate is set
 carry no check, so members register first. The SDKs refuse an unregistered
-output key before proving, `UnregisteredOutputKey` in Rust. A P-256 owner
-cannot sign `register_key` and cannot receive on an escrowed ring. A PDA owner
-registers only through a signed CPI from its program. `register_key` needs no
+output key before proving, `UnregisteredOutputKey` in Rust. Ed25519 owners
+sign registration directly. A PDA owner registers through a signed CPI
+from its program. `register_key` needs no
 ring authority, so more than 32 registrations between a proof and its landing
 make the proof stale, and the SDKs prove again on `StaleKeyRegistryRoot`.
 
@@ -212,6 +212,120 @@ pool note, and every such transact still carries the custom-ring proof, so the
 auditor sees the exit. An exit slot is a default-ring slot on chain, its owner
 tag is public like any default note. An entry moves the change into the ring
 with the sent amount. A note bound to another ring is refused before proving.
+
+## Ring modes
+
+`create_config` sets `RingProgramConfig.mode`. A ring starts in `Off`, or in
+`Anonymous` when the config is created with the anonymous flag. `set_delegate`
+moves an `Off` ring to `Registry`, and no instruction leaves `Anonymous`. The
+mode selects the SPP rail of a member `transact` and the instructions the ring
+accepts.
+
+`Off` and `Registry` rings prove member transfers on `ConfidentialRingEddsa`.
+A delegate move proves on `RingAuthority` and needs a policy and `Registry`
+mode. `Registry` and `Anonymous` refuse a plain deposit with
+`DepositAuditRequired`, whatever the deposit-audit setting.
+
+An `Anonymous` ring hides the owner of the spent notes and discloses every
+opening to the auditor. Member transfers prove on `AnonymousRingEddsa`. The
+program refuses any other circuit with `UnsupportedCircuit`. SPP must see no signer other than the payer
+(`InvalidAnonymousSigner`), so the hidden owner signs only inside the proof.
+Every output must carry the anonymous encrypted scheme, scheme byte `9`, with a
+nonempty body (`UnsupportedOutputScheme`). The key-registry root index must be
+zero. The anonymous disclosure admits no address input, so an anonymous
+transfer creates no address.
+
+An anonymous ring refuses `merge` with `InvalidMergeDisclosure`, because a
+merge has no audit proof to disclose the balance change. It refuses
+`register_key` and `set_delegate` with `AnonymousRingRefused`, so it never has
+a delegate. A per-window velocity policy fails at `create_policy`,
+`set_policy_rules` and `transact` with `UnsupportedAnonymousPolicy`, because a
+spend record names its member.
+
+Anonymous outputs carry view tags in their owner tag, never an owner key.
+`zolana-ring-transaction` encodes them from the `AnonymousViewTags` that
+`CustomRingTransfer::with_anonymous_view_tags` supplies, and staging fails
+without them (`MissingAnonymousViewTags`). A recipient output carries the
+recipient's bootstrap tag. Anyone who knows the recipient's viewing key can
+link outputs under that tag, so encryption refuses a recipient not named with
+`with_bootstrap_tag` (`RecipientViewTagUnset`). Every other output with a
+ciphertext carries the sender's next unused `sender_view_tag`. Staging also
+refuses an output with data, ring data or a nonzero data or ring data hash
+(`AnonymousOutputData`). The recipient
+recomputes an anonymous commitment with zero data hashes.
+
+An audited deposit into an anonymous ring keeps `ring_data_hash` zero
+(`InvalidAnonymousOutput`), because public deposit fields would name the
+recipient. Its view tag is nonzero and the depositor picks it. A self deposit
+uses the depositor's `sender_view_tag`, a deposit to another wallet uses the
+recipient's request tag or a shared tag of the pair. `RingDeposit` refuses a
+missing or zero tag (`MissingAnonymousViewTag`) and the recipient's bootstrap
+tag (`AnonymousBootstrapViewTag`). The bootstrap tag links the recipient to the
+public depositor and amount.
+
+## Audit encodings
+
+The transfer, key-registration and deposit ciphertexts for the auditor share
+one X25519 envelope. A fresh ephemeral key agrees a secret with the auditor
+key. The Poseidon key schedule of
+[`symmetric_apply`](../sdk-libs/keypair/src/encryption.rs) turns the secret
+into an AES-256-CTR key and nonce:
+
+```
+dh            = ECDH(eph_sk, auditor_pk)     // nonzero, canonical auditor u
+shared_secret = Poseidon("CR_S", dh_lo, dh_hi, eph_pk_lo, eph_pk_hi, auditor_pk_lo, auditor_pk_hi)
+ciphertext    = AES-256-CTR(KeySchedule(shared_secret, label), plaintext)
+```
+
+`"CR_S"` is the ASCII tag read as a big-endian `u32`.
+[`pack.go`](../prover/server/custom_rings/circuits/base/pack.go) splits the
+32-byte `dh` and the 33-byte tagged keys into `lo` and `hi`. The ten-byte label
+separates the uses. `CRING/adt1` seals the transaction viewing key of a
+transfer, `CRING/nfk1` seals a nullifier key for `register_key`, and
+`CRING/dep1` seals deposit openings.
+
+A transfer publishes exactly one `MessageData` under the auditor key's `u`, and
+it is the last message. Its data is `eph_pk(33) || ciphertext(32) ||
+disclosure`, where `ciphertext` seals the clamped `tx_viewing_sk`. The base
+proof shows that the ciphertext opens to the secret behind `tx_viewing_pk`. Its
+single public input chains the twelve elements the package doc of
+[`circuit.go`](../prover/server/custom_rings/circuits/base/circuit.go) lists,
+and the program recomputes the chain with
+[`CustomRingBasePublicInput::hash`](interface/src/base_public_input.rs).
+
+The disclosure fields open the transfer under a stream keyed by
+`tx_viewing_sk` and the transaction salt. Published field `j` is plaintext
+field `j` plus `Poseidon("CR_OD", sk_lo, sk_hi, salt, j)` in the BN254 field,
+with `tx_viewing_sk` split as `pack.go` splits `dh`. The proof chains the
+published fields into `disclosure_hash`. In an `Off` or `Registry` ring the
+disclosure is four output slots of nine fields each, the note opening
+[`disclosure.go`](../prover/server/custom_rings/circuits/base/disclosure.go)
+lists.
+
+In an `Anonymous` ring the disclosure opens the whole spend. A header names the
+sender identity, then one slot follows per published input and one per
+published output. Each slot is zero padded to whole 31-byte chunks, so `n_in`
+inputs and `n_out` outputs give `2 + 3·n_in + 8·n_out` fields.
+[`anonymous_disclosure.go`](../prover/server/custom_rings/circuits/base/anonymous_disclosure.go)
+gives the byte layout. The proof binds every real input owner to the sender
+identity and every real output owner to its disclosed identity. A ring-bound
+output must have a Solana identity, tag `0x53`, and every disclosed viewing key
+must be a canonical tagged X25519 key. The proof also reopens
+`private_tx_hash` with an empty address chain.
+
+An audited deposit wraps the SPP `ring_deposit` bytes in a deposit proof.
+Each entry's ciphertext starts with a 138-byte capsule, `CRDEP001 || slot ||
+eph_pk(33) || opening(96)`, followed by the recipient ciphertext. The opening
+is `owner_hash || blinding || owner_key`, 32 bytes each. The batch shares one
+ephemeral key and one `CRING/dep1` stream, and slot `i` takes bytes `96·i` to
+`96·i + 95` of it. The owner key is zero outside an anonymous ring. In an
+anonymous ring the owner key must hash to the note's owner identity, and the
+auditor then attributes the deposit before it is spent. The public input binds
+the ring program id, the destination tree and the exact SPP deposit bytes. It
+also binds the anonymous flag, each owner commitment, the hash of its encrypted
+opening and both keys. In `Registry` mode it binds the key-registry root each
+slot opens its escrowed key against.
+[`DepositPublicInput::hash`](interface/src/deposit.rs) fixes the order.
 
 ## Prerequisites
 
@@ -367,10 +481,12 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 
 ## Limits
 
-Senders are not anonymous and deposits are public. Supported SDK paths accept
-validated P-256 auditor keys. Raw config data is checked only for compressed
-form and reserved points. An invalid P-256 curve point makes its ring unable
-to transact.
+Anonymous mode hides Ed25519 owners in custom rings and discloses them to
+the auditor. Deposit amounts remain public. The default ring stays nonanonymous.
+Anonymous builders are Rust-only and exclude delegates, merges, windowed
+policies, caches and direct outputs to the default ring. Auditor and viewing
+keys use canonical X25519 encodings. P-256 owner and viewing keys are
+unsupported.
 
 The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its

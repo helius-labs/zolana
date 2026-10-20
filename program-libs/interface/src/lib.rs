@@ -16,7 +16,6 @@ pub mod tree_slot;
 pub mod verifying_keys;
 
 pub use state::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};
-pub use zolana_hasher::p256::{P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1};
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.
 #[macro_export]
@@ -49,10 +48,6 @@ pub const INPUT_TREES: usize = 5;
 pub const MAX_INPUT_TREES: usize = 2;
 
 const _: () = assert!(MAX_INPUT_TREES > 0 && MAX_INPUT_TREES <= INPUT_TREES);
-
-pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
-    zolana_hasher::p256::is_reserved_derivation_point(key)
-}
 
 /// Protocol maximum number of interface-transfer legs in one transaction.
 ///

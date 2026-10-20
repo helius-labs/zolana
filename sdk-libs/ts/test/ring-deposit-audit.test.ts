@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { decryptRingDepositUtxo } from "../src/ring/deposit-payload.js";
 import { address, AccountRole, getAddressDecoder, type Signature } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -7,7 +8,7 @@ import { ZolanaClient } from "../src/client/client.js";
 import { wireDecoder } from "../src/interface/decode.js";
 import type { CustomRingDepositProofRequest } from "../src/client/prover/types.js";
 import { DepositAsset } from "../src/interface/types.js";
-import type { Bytes16, Bytes32 } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes96 } from "../src/interface/types.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ringConfigPda, ringDepositAuditPda, treeAddress } from "../src/interface/pda/index.js";
 import { encodeRingDepositCapsule, readRingDepositCapsule } from "../src/ring/deposit-capsule.js";
@@ -15,7 +16,7 @@ import { InstructionTag } from "../src/interface/program.js";
 import { Writer, addressBytes } from "../src/interface/internal.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
-import { bigIntToBytes } from "../src/keypair/bytes.js";
+import { bigIntToBytes, checkedBytes } from "../src/keypair/bytes.js";
 import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { ownerUtxoHash, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
@@ -44,6 +45,8 @@ import {
 import { depositClient, ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { proofFor } from "./helpers/proofs.js";
+import { ConfirmedDeposit } from "../src/ring/origin.js";
+import { confirmedDepositTransaction } from "./helpers/confirmed-deposits.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const TREE = treeAddress(0);
@@ -54,10 +57,10 @@ beforeAll(initializePoseidon);
 
 describe("deposit disclosure", () => {
   it("pins the shared Rust and Go encryption and statement vector", () => {
-    const auditor = ViewingKey.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
+    const auditor = X25519Keypair.fromBytes(new Uint8Array(32).fill(0x11) as Bytes32);
     const generate = vi
-      .spyOn(ViewingKey, "generate")
-      .mockImplementation(() => ViewingKey.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
+      .spyOn(X25519Keypair, "generate")
+      .mockImplementation(() => X25519Keypair.fromBytes(new Uint8Array(32).fill(0x22) as Bytes32));
     const sealed = sealRingDepositOpenings(
       [
         { ownerHash: field(1n), blinding: field(3n), recipientCiphertext: Uint8Array.of(1) },
@@ -77,8 +80,8 @@ describe("deposit disclosure", () => {
       expect(
         sealed.capsules.map((capsule) => Buffer.from(capsule.ciphertext).toString("hex")),
       ).toEqual([
-        "146b393f9c81cad9bc22887e500644f69ea8293e2253f55869e88127e5483e9b12a46abadf0068bd73c83584a8e47a550e88a35558642ba87646ff0765c5e3b5",
-        "74e42b590ba76cfee5c6d8e3e05e03a460e0c02c7330fd977dc4eb71e34645616f616fb39595f1ecadfdd87feffd48fb4177741341dd2d507c474094e252f89c",
+        "006d5d4d188464de0e852c806b11ef3850cd683b977fea9bd1b9278b6461669f631350fa47a91f10cceb37738a4fefe7f88ded2f36b08fa08cb0ebba0268414424ab3ee9887da5fa32d2074fbd7155bc72723a28dacb3fd92f045649bba3cdf6",
+        "588ca73e11d9094a68cc5e7c26aadac08f1bc0f41c3580bf9ddc70518b26a826aaeab0368c456598c7641706ce6de7dcdbafa8c64f3eba9526b5012da75c1a4c4fb93b88049bc84e8589460c06610c931447f57d2d4a9955f6ec638727886729",
       ]);
       const hash = ringDepositPublicInputHash({
         contextHash,
@@ -90,7 +93,7 @@ describe("deposit disclosure", () => {
         auditorPublicKey: auditor.publicKey(),
       });
       expect(Buffer.from(hash).toString("hex")).toBe(
-        "0bc3f76e72b6d6bd1a557447da49e445dafb11e6d9168005742013130b45e030",
+        "0313e323a3870bacb7042d78648a0d01d5f5b4ddfa56ee3024bcd26207ebe4f3",
       );
     } finally {
       generate.mockRestore();
@@ -99,13 +102,27 @@ describe("deposit disclosure", () => {
     }
   });
   it("opens every slot of one shared stream and preserves recipient ciphertext", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
+    // Odd slots disclose an owner key like an anonymous ring.
     const openings = Array.from({ length: 8 }, (_, index) => ({
       ownerHash: field(BigInt(index + 1)),
       blinding: field(BigInt(index + 11)),
+      ...(index % 2 === 0 ? {} : { ownerKey: new Uint8Array(32).fill(index) as Bytes32 }),
       recipientCiphertext: Uint8Array.of(index, 9),
     }));
     const sealed = sealRingDepositOpenings(openings, auditor.publicKey());
+    const signature = "1".repeat(87) as Signature;
+    const confirmed = ConfirmedDeposit.fromTransaction(
+      confirmedDepositTransaction(
+        RING,
+        signature,
+        sealed.capsules,
+        openings.map((opening) => ownerUtxoHash(opening.ownerHash, opening.blinding)),
+      ),
+      signature,
+      0,
+      RING,
+    );
     try {
       for (const [index, encoded] of sealed.payloads.entries()) {
         const capsule = readRingDepositCapsule(encoded);
@@ -115,16 +132,20 @@ describe("deposit disclosure", () => {
         expect(capsule.recipientCiphertext).toEqual(openings[index]?.recipientCiphertext);
         const opening = openings[index];
         if (opening === undefined) throw new Error("missing opening");
+        const binding = confirmed[index];
+        if (binding === undefined) throw new Error("missing confirmation");
         const opened = openRingDepositOpening(
           capsule,
           auditor,
           ownerUtxoHash(opening.ownerHash, opening.blinding),
+          binding,
         );
         expect(opened.ownerHash).toEqual(openings[index]?.ownerHash);
         expect(opened.blinding).toEqual(openings[index]?.blinding);
+        expect(opened.ownerKey).toEqual(opening.ownerKey);
         opened.ownerHash.fill(0);
         opened.blinding.fill(0);
-        expect(() => openRingDepositOpening(capsule, auditor, field(0n))).toThrow(
+        expect(() => openRingDepositOpening(capsule, auditor, field(0n), binding)).toThrow(
           expect.objectContaining({ code: "RING_AUDIT_MESSAGE" }),
         );
       }
@@ -132,7 +153,7 @@ describe("deposit disclosure", () => {
       const first = sealed.capsules[0];
       if (first === undefined) throw new Error("missing capsule");
       expect(() =>
-        readRingDepositCapsule(sealed.payloads[0]?.slice(0, 105) ?? new Uint8Array()),
+        readRingDepositCapsule(sealed.payloads[0]?.slice(0, 137) ?? new Uint8Array()),
       ).toThrow(
         expect.objectContaining({ code: "INTERFACE_CODEC", details: { field: "deposit capsule" } }),
       );
@@ -147,7 +168,7 @@ describe("deposit disclosure", () => {
   });
 
   it("binds the entire SPP wire, both program addresses, commitments, and ciphertext", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const sealed = sealRingDepositOpenings(
       [{ ownerHash: field(1n), blinding: field(2n), recipientCiphertext: Uint8Array.of(3) }],
       auditor.publicKey(),
@@ -180,7 +201,7 @@ describe("deposit disclosure", () => {
   });
 
   it("accepts legacy recipient ciphertext and unwraps disclosed deposits", () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const envelope = ViewingKey.generate();
     const recipient = ShieldedKeypair.generate();
     const r = field(15n);
@@ -228,7 +249,7 @@ describe("deposit disclosure", () => {
   });
 
   it("wraps one proof around eight capsules and leaves the SPP deposit bytes intact", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const sealed = sealRingDepositOpenings(
       Array.from({ length: 8 }, () => ({
         ownerHash: field(1n),
@@ -298,8 +319,8 @@ describe("deposit disclosure", () => {
   });
 
   it("serializes the queued circuit contract and rejects noncanonical fields or padding", async () => {
-    const auditor = ViewingKey.generate();
-    const ephemeral = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
+    const ephemeral = X25519Keypair.generate();
     const input: CustomRingDepositProofRequest = {
       publicInputHash: field(1n),
       contextHash: field(2n),
@@ -309,7 +330,7 @@ describe("deposit disclosure", () => {
       blindings: [field(4n), ...Array.from({ length: 7 }, () => field(0n))],
       keys: Array.from({ length: 8 }, () => undefined),
       ephemeralSecret: ephemeral.secretBytes(),
-      auditorPublicKey: auditor.publicKey().toUncompressed(),
+      auditorPublicKey: auditor.publicKey().u(),
     };
     try {
       expect(customRingDepositProofRequest(input)).toMatchObject({
@@ -330,9 +351,9 @@ describe("deposit disclosure", () => {
       ).toThrow(invalidInputs);
       expect(() => customRingDepositProofRequest({ ...input, count: 0 })).toThrow(invalidInputs);
       expect(() => customRingDepositProofRequest({ ...input, count: 9 })).toThrow(invalidInputs);
-      expect(() => customRingDepositProofRequest({ ...input, ephemeralSecret: field(0n) })).toThrow(
-        invalidInputs,
-      );
+      expect(() =>
+        customRingDepositProofRequest({ ...input, auditorPublicKey: new Uint8Array(32).fill(255) }),
+      ).toThrow(invalidInputs);
       expect(() =>
         customRingDepositProofRequest({ ...input, auditorPublicKey: new Uint8Array(65) }),
       ).toThrow(invalidInputs);
@@ -457,7 +478,7 @@ describe("deposit audit control", () => {
   });
 
   it("sets the control with config authority and enables it only on opt-in initialization", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     try {
       const input = {
         ringProgramId: RING,
@@ -490,7 +511,7 @@ describe("deposit audit control", () => {
     { required: true, fails: false },
     { required: true, fails: true },
   ])("honors the deposit setting and wipes proof inputs %o", async ({ required, fails }) => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const recipient = ShieldedKeypair.generate();
     const [config, bump] = await ringConfigPda(RING);
     const [setting, settingBump] = await ringDepositAuditPda(RING);
@@ -547,9 +568,55 @@ describe("deposit audit control", () => {
   });
 });
 
+describe("deposit builder ring mode", () => {
+  it("refuses an anonymous ring before reading the deposit setting", async () => {
+    const auditor = X25519Keypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const [config, bump] = await ringConfigPda(RING);
+    const proveCustomRingDeposit = vi.fn();
+    try {
+      const client = {
+        ...depositClient({
+          getAccount: async (address) =>
+            address === config
+              ? ownedAccount(
+                  RING,
+                  ringProgramConfigData({
+                    authority: RING,
+                    auditorPublicKey: auditor.publicKey().toBytes(),
+                    bump,
+                    hasPolicy: false,
+                    anonymous: true,
+                  }),
+                )
+              : undefined,
+        }),
+        proofDataSource: "client" as const,
+        proveCustomRingDeposit,
+        getRingKeyRegistryEntry: vi.fn(async () => {
+          throw new Error("the mode check comes first");
+        }),
+      };
+      await expect(
+        buildRingDepositTransaction({
+          client,
+          ringProgramId: RING,
+          feePayer: TREE,
+          recipient: recipient.shieldedAddress(),
+          amount: 1n,
+        }),
+      ).rejects.toMatchObject({ code: "RING_BUILD_DEPOSIT", causeCode: "RING_CONFIG_INVALID" });
+      expect(proveCustomRingDeposit).not.toHaveBeenCalled();
+    } finally {
+      auditor.destroy();
+      recipient.destroy();
+    }
+  });
+});
+
 describe("deposit recovery", () => {
   it("refuses a ring history truncated by the page budget", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const source = ShieldedKeypair.generate();
     const key = source.nullifierKey();
     const client = {
@@ -582,7 +649,7 @@ describe("deposit recovery", () => {
     }
   });
   it("recovers disclosed deposits with committed metadata and follows their ring merges", async () => {
-    const auditor = ViewingKey.generate();
+    const auditor = X25519Keypair.generate();
     const source = ShieldedKeypair.generate();
     const address = source.shieldedAddress();
     const key = source.nullifierKey();
@@ -642,7 +709,7 @@ describe("deposit recovery", () => {
         payload: encodeOutputData(EncryptedScheme.ringDeposit, malformedBody, "encrypted"),
       })),
     };
-    let history = [deposit, malformed];
+    let history = [deposit];
     let spends: IndexedShieldedTransaction[] = [];
     const client = {
       ...ringAuditReader({
@@ -664,6 +731,17 @@ describe("deposit recovery", () => {
       assets: new AssetRegistry(),
       resolveTreeId: (tree: typeof TREE) => (tree === TREE ? 0 : 1),
       origin: { ringInvoked: async () => true },
+      depositSource: {
+        confirmedDeposits: async () =>
+          ConfirmedDeposit.fromTransaction(
+            confirmedDepositTransaction(RING, deposit.txSignature, sealed.capsules, [
+              ownerUtxoHash(address.ownerHash(), blinding),
+            ]),
+            deposit.txSignature,
+            0,
+            RING,
+          ),
+      },
     };
     try {
       const result = await recoverRingMemberNotes(params);
@@ -683,7 +761,14 @@ describe("deposit recovery", () => {
           })),
         },
       ];
-      expect((await recoverRingMemberNotes(params)).unsupportedDeposits).toEqual([field(99n)]);
+      await expect(recoverRingMemberNotes(params)).rejects.toMatchObject({
+        code: "RING_AUDIT_MESSAGE",
+      });
+      const unsupported = await recoverRingMemberNotes({
+        ...params,
+        depositSource: { confirmedDeposits: async () => [] },
+      });
+      expect(unsupported.unsupportedDeposits).toEqual([commitment, field(99n)]);
       history = [deposit];
       const merged = new Utxo({
         owner: address.signingPublicKey,
@@ -744,6 +829,93 @@ describe("deposit recovery", () => {
       key.destroy();
       auditor.destroy();
       source.destroy();
+    }
+  });
+});
+
+describe("confirmed deposit attribution", () => {
+  it("opens an unknown owner only with its confirmed capsule and rejects altered or swapped bytes", () => {
+    const auditor = X25519Keypair.generate();
+    const signature = "1".repeat(87) as Signature;
+    const ownerKey = new Uint8Array(32).fill(7) as Bytes32;
+    const owners = [ownerUtxoHash(field(1n), field(2n)), ownerUtxoHash(field(3n), field(4n))];
+    const sealed = sealRingDepositOpenings(
+      [
+        {
+          ownerHash: field(1n),
+          blinding: field(2n),
+          ownerKey,
+          recipientCiphertext: Uint8Array.of(9),
+        },
+        { ownerHash: field(3n), blinding: field(4n), recipientCiphertext: Uint8Array.of(8) },
+      ],
+      auditor.publicKey(),
+    );
+    try {
+      const transaction = confirmedDepositTransaction(RING, signature, sealed.capsules, owners);
+      const bindings = ConfirmedDeposit.fromTransaction(transaction, signature, 0, RING);
+      const first = sealed.capsules[0];
+      const binding = bindings[0];
+      const other = bindings[1];
+      if (
+        first === undefined ||
+        binding === undefined ||
+        other === undefined ||
+        owners[0] === undefined
+      )
+        throw new Error("missing confirmation");
+      expect(openRingDepositOpening(first, auditor, owners[0], binding).ownerKey).toEqual(ownerKey);
+      const forged: unknown = Object.create(ConfirmedDeposit.prototype);
+      expect(ConfirmedDeposit.is(forged)).toBe(false);
+      expect(ConfirmedDeposit.is(binding)).toBe(true);
+      for (const offset of [0, 32, 64, 95]) {
+        const ciphertext = checkedBytes<Bytes96>(first.ciphertext, 96, "deposit ciphertext");
+        ciphertext[offset] = (ciphertext[offset] ?? 0) ^ 1;
+        expect(() =>
+          openRingDepositOpening({ ...first, ciphertext }, auditor, owners[0]!, binding),
+        ).toThrow("RING_AUDIT_MESSAGE");
+      }
+      expect(() =>
+        openRingDepositOpening(
+          { ...first, recipientCiphertext: Uint8Array.of(10) },
+          auditor,
+          owners[0]!,
+          binding,
+        ),
+      ).toThrow("RING_AUDIT_MESSAGE");
+      expect(() => openRingDepositOpening(first, auditor, owners[0]!, other)).toThrow(
+        "RING_AUDIT_MESSAGE",
+      );
+      expect(() => ConfirmedDeposit.fromTransaction(transaction, signature, 1, RING)).toThrow(
+        "RING_ORIGIN_DECODE",
+      );
+      expect(() =>
+        ConfirmedDeposit.fromTransaction(transaction, "2".repeat(87) as Signature, 0, RING),
+      ).toThrow("RING_ORIGIN_DECODE");
+      expect(() =>
+        ConfirmedDeposit.fromTransaction(
+          { ...transaction, meta: { ...transaction.meta, err: { InstructionError: [0, 1] } } },
+          signature,
+          0,
+          RING,
+        ),
+      ).toThrow("RING_ORIGIN_DECODE");
+      const source = transaction.meta.innerInstructions[0]?.instructions[0];
+      if (source === undefined) throw new Error("missing source");
+      const unaudited = {
+        ...transaction,
+        transaction: {
+          ...transaction.transaction,
+          message: {
+            ...transaction.transaction.message,
+            instructions: [{ ...source, programIdIndex: 0 }],
+          },
+        },
+      };
+      expect(ConfirmedDeposit.fromTransaction(unaudited, signature, 0, RING)).toEqual([]);
+    } finally {
+      sealed.ephemeralSecret.fill(0);
+      auditor.destroy();
     }
   });
 });

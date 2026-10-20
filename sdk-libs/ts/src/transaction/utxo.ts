@@ -623,9 +623,6 @@ function dummyNullifier(utxo: Utxo, treeId: TreeId): Bytes32 {
  */
 function addressUtxoHash(utxo: Utxo, treeId: TreeId): Bytes32 {
   if (utxo.owner.isZero()) throw new TransactionError("TRANSACTION_ADDRESS_INPUT_ZERO_OWNER");
-  if (utxo.owner.signatureType() === "p256") {
-    throw new TransactionError("TRANSACTION_ADDRESS_INPUT_P256_OWNER");
-  }
   if (!isCanonicalField(utxo.blinding)) {
     throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED");
   }

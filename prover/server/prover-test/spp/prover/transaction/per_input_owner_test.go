@@ -1,7 +1,6 @@
 package transaction
 
 import (
-	"crypto/elliptic"
 	"math/big"
 	"testing"
 
@@ -32,8 +31,8 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 }
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingEddsaOnlyCircuit {
-	circuit, err := customring.NewCustomRingEddsaOnlyCircuit(shape)
+func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingConfidentialEddsaCircuit {
+	circuit, err := customring.NewCustomRingConfidentialEddsaCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -78,27 +77,5 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	if entries[2].Sign() != 0 {
 		t.Fatalf("unused signer entry must be zero, got %v", entries[2])
 	}
-	if built.transcript.solanaOwnerPubkeys[0] == built.transcript.solanaOwnerPubkeys[1] {
-		t.Fatal("transcript owner pubkeys must differ")
-	}
 	solveAssignment(t, shape, built)
-}
-
-// The P256 ownership rail is removed: a request carrying a P256-owned input
-// must fail to build.
-func TestBuildProofAssignmentRejectsP256Owner(t *testing.T) {
-	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, _, err := benchmarkTransaction(shape)
-	if err != nil {
-		t.Fatal(err)
-	}
-	x, y := elliptic.P256().ScalarBaseMult(big.NewInt(11).Bytes())
-	compressed := elliptic.MarshalCompressed(elliptic.P256(), x, y)
-	tx.Inputs[0].Utxo.OwnerSolanaPubkey = ""
-	tx.Inputs[0].Utxo.OwnerP256Pubkey = parse.BytesHex(compressed)
-	refreshStateEntry(t, &tx, 0)
-
-	if _, err := buildProofAssignment(shape, tx, proofBuildOptions{}); err == nil {
-		t.Fatal("a P256-owned input must be rejected: the rail is removed")
-	}
 }

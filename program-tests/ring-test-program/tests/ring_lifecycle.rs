@@ -193,10 +193,6 @@ fn dump_ring_transact_fixture() -> Result<()> {
     Ok(())
 }
 
-// NOTE(pr164): PR164 removed the P256 ring-transfer rail
-// (`ring_transfer_p256` is gone; only the eddsa rail remains), so the
-// `p256_ring_transfer_updates_recipient_wallet` case was dropped.
-
 /// INV-RING-TRANSACT-07: `ring_transact` does not require the ring's
 /// `ring_authority_transact_is_enabled` flag — a valid ring transfer succeeds
 /// end-to-end while the flag is 0 (the flag gates only

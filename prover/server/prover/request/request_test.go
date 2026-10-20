@@ -17,7 +17,7 @@ import (
 	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	merge "github.com/helius-labs/zolana/prover/server/prover/merge"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 func fixture(t *testing.T) string {
@@ -100,7 +100,7 @@ func TestParseStrictRejectsAdversarialInput(t *testing.T) {
 			t.Fatalf("case %d accepted: %v", index, err)
 		}
 	}
-	for _, circuit := range []string{"transfer-p256-ring", "custom-ring-policy", "address-append", "unknown", ""} {
+	for _, circuit := range []string{"transfer-eddsa-ring", "custom-ring-policy", "address-append", "unknown", ""} {
 		input := strings.Replace(body, `"transfer-confidential"`, `"`+circuit+`"`, 1)
 		if _, err := ParseStrict([]byte(input)); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("circuit %q: %v", circuit, err)

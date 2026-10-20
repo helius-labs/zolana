@@ -968,15 +968,7 @@ func servedCircuits(served *ServedKeys) []common.CircuitType {
 
 // allCircuits is every circuit this binary proves.
 func allCircuits() []common.CircuitType {
-	circuits := []common.CircuitType{
-		common.BatchAddressAppendCircuitType,
-		common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType,
-		common.TransferRingAuthorityCircuitType,
-		common.MergeCircuitType,
-		common.MergeRingCircuitType,
-	}
+	circuits := append(common.TransferCircuitTypes(), common.BatchAddressAppendCircuitType)
 	for _, ring := range customring.RingCircuits {
 		circuits = append(circuits, ring.Type)
 	}
@@ -1303,19 +1295,13 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	if circuitType.IsRing() {
 		return "zk_custom_ring_queue"
 	}
-	switch circuitType {
-	case common.BatchAddressAppendCircuitType:
-		return "zk_address_append_queue"
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType,
-		common.TransferRingAuthorityCircuitType,
-		common.MergeCircuitType,
-		common.MergeRingCircuitType:
+	if circuitType.IsTransfer() {
 		return "zk_transfer_queue"
-	default:
-		return ""
 	}
+	if circuitType == common.BatchAddressAppendCircuitType {
+		return "zk_address_append_queue"
+	}
+	return ""
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
@@ -1325,7 +1311,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "1-5 minutes"
-	case common.TransferP256RingCircuitType:
+	case common.TransferAnonymousRingEddsaCircuitType:
 		return "30-180 seconds"
 	default:
 		return "1-3 seconds"

@@ -50,7 +50,7 @@ func TestTransferExecutionSharesHTTPAndQueueCapacity(t *testing.T) {
 func TestTransferDeliveryDefaultsAndFallback(t *testing.T) {
 	for _, circuit := range []common.CircuitType{
 		common.TransferConfidentialCircuitType, common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType, common.TransferRingAuthorityCircuitType,
+		common.TransferAnonymousRingEddsaCircuitType, common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType, common.MergeRingCircuitType,
 		common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType,
 		common.BatchAddressAppendCircuitType,

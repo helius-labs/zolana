@@ -19,7 +19,7 @@ test-sbf = []
 bincode = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
-# `bsb22`: the custom-ring circuit's emulated P256 arithmetic adds one BSB22
+# `bsb22`: the custom-ring circuit's lookup arithmetic adds one BSB22
 # commitment, so its proofs verify through `Groth16Verifier::new_with_commitment`.
 groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
@@ -30,6 +30,7 @@ solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
+zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-ring-policy = { workspace = true }
@@ -39,6 +40,7 @@ zolana-tree = { workspace = true }
 curve25519-dalek = "4.1"
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
+x25519-dalek = { workspace = true }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }
 solana-instruction = { workspace = true }

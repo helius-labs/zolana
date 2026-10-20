@@ -11,7 +11,7 @@ import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 import { NO_UTXO_ROOT, type Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { bigIntToBytes, bytes16, bytes32 } from "../src/keypair/bytes.js";
-import { P256PublicKey, ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
+import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
 import {
   Data,
   type InputUtxo,
@@ -192,12 +192,6 @@ describe("reserved address inputs", () => {
 
   it.each([
     ["zero", () => ShieldedPublicKey.zeroed(), "TRANSACTION_ADDRESS_INPUT_ZERO_OWNER"],
-    [
-      "P256",
-      () =>
-        ShieldedPublicKey.fromP256(P256PublicKey.fromSecret(bytes32(new Uint8Array(32).fill(5)))),
-      "TRANSACTION_ADDRESS_INPUT_P256_OWNER",
-    ],
   ] as const)("refuses an address with a %s owner", (_, owner, code) => {
     const { reserved } = fixture();
     expect(() =>

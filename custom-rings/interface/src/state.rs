@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
-use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
+use crate::{ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
 
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
 pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
@@ -41,18 +41,23 @@ const _: () = assert!(DepositAudit::SIZE == 3);
 pub struct RingProgramConfig {
     pub discriminator: u8,
     pub authority: Address,
-    /// Auditor P256 public key in SEC1 compressed form (`0x02`/`0x03 || x`).
-    pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
+    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
     pub bump: u8,
     /// Nonzero selects the folded policy proof, zero the audit-only proof.
     pub has_policy: u8,
-    pub key_escrow: u8,
+    /// [`RingMode`] byte.
+    pub mode: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum KeyEscrow {
-    Off,
-    Registry,
+#[repr(u8)]
+pub enum RingMode {
+    Off = 0,
+    /// Escrows every output nullifier key in the registry.
+    Registry = 1,
+    /// Hides the sender and discloses every opening to the auditor.
+    Anonymous = 2,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
@@ -67,11 +72,13 @@ impl RingProgramConfig {
     pub const SEED: &'static [u8] = CONFIG_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    /// Any nonzero byte reads as on, escrow fails closed.
-    pub const fn key_escrow(&self) -> KeyEscrow {
-        match self.key_escrow {
-            0 => KeyEscrow::Off,
-            _ => KeyEscrow::Registry,
+    /// `None` for an unknown byte, which every caller refuses.
+    pub const fn mode(&self) -> Option<RingMode> {
+        match self.mode {
+            0 => Some(RingMode::Off),
+            1 => Some(RingMode::Registry),
+            2 => Some(RingMode::Anonymous),
+            _ => None,
         }
     }
 }

@@ -60,7 +60,6 @@ export interface MergeAssembly {
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
   /// re-derive it.
   readonly externalDataHash: Bytes32;
-  readonly eddsaOwner: boolean;
   readonly cacheSlot?: number;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
 }
@@ -239,12 +238,10 @@ function assembleMergeUnchecked(
       }
       checkNullifierRoot(inputTree, proof.nullifier, index);
     }
-    // A P256 owner contributes the 0 sentinel: the merge circuit recomputes its
-    // pk_field from the witnessed point and ignores the per-input value.
-    const ownerPublicKeyHash =
-      input.utxo.owner.signatureType() === "p256"
-        ? 0n
-        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
+    const ownerPublicKeyHash = bytesField(
+      input.utxo.owner.ownerProofInputHash(),
+      "merge owner public key",
+    );
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
     proofIndex++;
@@ -354,10 +351,9 @@ export function prepareMerge(
   const slots = prepared.inputs.map((input, index) => {
     const nullifier = input.isDummy() ? dummyNullifiers[dummyIndex++] : input.nullifier();
     if (nullifier === undefined) throw new ClientError("CLIENT_INVALID_MERGE");
-    const owner =
-      input.isDummy() || input.utxo.owner.signatureType() === "p256"
-        ? 0n
-        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
+    const owner = input.isDummy()
+      ? 0n
+      : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     return Object.freeze({
       input: prepareInput(input, {
         owner,
@@ -401,7 +397,6 @@ export function prepareMerge(
     outputHashes: [outputHash],
     blinding: privateTxBlinding,
   });
-  const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
@@ -492,7 +487,6 @@ export function prepareMerge(
               new Uint8Array(outputCiphertext[2]) as Bytes32,
             ] as const),
           }),
-          eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           // The trailing compact padding is left out; SPP fills it back in.
           nullifiers: Object.freeze(
@@ -520,7 +514,6 @@ export function prepareMerge(
         privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
         publicInputHash,
         externalDataHash,
-        eddsaOwner,
         ...(cache === undefined ? {} : { cacheSlot: cache.slot }),
         instructionData,
       });

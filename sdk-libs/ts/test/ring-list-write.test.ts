@@ -1,3 +1,4 @@
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   AccountRole,
   getAddressDecoder,
@@ -17,7 +18,7 @@ import {
 } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
-import { ViewingKey } from "../src/keypair/viewing-key.js";
+
 import { bigintToBytes, bytesToBigInt } from "../src/client/internal.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import {
@@ -457,7 +458,7 @@ describe("list writes", () => {
           RING,
           ringProgramConfigData({
             authority: AUTHORITY,
-            auditorPublicKey: ViewingKey.generate().publicKey().toBytes(),
+            auditorPublicKey: X25519Keypair.generate().publicKey().toBytes(),
             bump: configBump,
             hasPolicy: input.hasPolicy ?? true,
           }),

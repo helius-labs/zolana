@@ -16,7 +16,7 @@ pub fn process_delegate_transact_ix(
     data: &[u8],
 ) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("payer")?;
+    let payer = iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
     let cosigner_account = iter.next_account("cosigner_pda")?;
     let cosigner = iter.next_account("cosigner")?;
@@ -33,6 +33,7 @@ pub fn process_delegate_transact_ix(
     TransactRail::Delegate.verify_and_forward(
         TransactControls {
             program_id,
+            payer,
             config_account,
             cosigner_account,
             cosigner,

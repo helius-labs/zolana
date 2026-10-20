@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use solana_address::Address;
 use zolana_event::OutputDataEncoding;
 use zolana_keypair::{
-    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
+    viewing_key::ViewTag, KeypairError, NullifierKey, PublicKey, ViewingKey, X25519Pubkey,
 };
 use zolana_transaction::{
     decrypt,
@@ -86,6 +86,8 @@ impl TxIndex {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
                     }
+                    // Wallets do not discover anonymous ring outputs yet.
+                    EncryptedScheme::RingAnonymous => continue,
                 }
             }
             if !classified {
@@ -102,8 +104,8 @@ impl TxIndex {
 
 #[derive(Default)]
 pub(super) struct SlotOutcome {
-    pub(super) sender: Option<P256Pubkey>,
-    pub(super) recipients: Vec<P256Pubkey>,
+    pub(super) sender: Option<X25519Pubkey>,
+    pub(super) recipients: Vec<X25519Pubkey>,
 }
 
 pub(super) struct SyncCtx<'a> {
@@ -113,7 +115,7 @@ pub(super) struct SyncCtx<'a> {
     /// Every viewing key this wallet has held, current and rotated-out. A
     /// transfer addressed to a retired key is still addressed to this wallet,
     /// so `self`-recognition must not narrow to the current key.
-    pub(super) self_viewing_pubkeys: HashSet<P256Pubkey>,
+    pub(super) self_viewing_pubkeys: HashSet<X25519Pubkey>,
     pub(super) owner: PublicKey,
     pub(super) nullifier_pk: [u8; 32],
     pub(super) assets: &'a AssetRegistry,
@@ -254,14 +256,14 @@ impl SyncCtx<'_> {
         }
     }
 
-    fn is_self(&self, viewing_pubkey: &P256Pubkey) -> bool {
+    fn is_self(&self, viewing_pubkey: &X25519Pubkey) -> bool {
         self.self_viewing_pubkeys.contains(viewing_pubkey)
     }
 
     /// A transfer whose every real recipient is this wallet moved nothing out,
     /// so it is a self transfer on any rail. An empty recipient set stays
     /// outbound: that is a public withdrawal, and the value did leave.
-    fn transfer_direction(&self, recipients: &[P256Pubkey]) -> PrivateTransactionDirection {
+    fn transfer_direction(&self, recipients: &[X25519Pubkey]) -> PrivateTransactionDirection {
         if !recipients.is_empty() && recipients.iter().all(|recipient| self.is_self(recipient)) {
             PrivateTransactionDirection::SelfTransfer
         } else {
@@ -287,7 +289,7 @@ impl SyncCtx<'_> {
         &mut self,
         tx: &ShieldedTransaction,
         slot_index: usize,
-        sender: Option<P256Pubkey>,
+        sender: Option<X25519Pubkey>,
         utxo: &Utxo,
     ) {
         let direction = match sender {
@@ -341,7 +343,7 @@ impl SyncCtx<'_> {
         spent: HashMap<Address, u64>,
         change: &[Utxo],
         kind: PrivateTransactionKind,
-        counterparty: Option<P256Pubkey>,
+        counterparty: Option<X25519Pubkey>,
         direction: PrivateTransactionDirection,
     ) {
         let mut by_asset = spent;
@@ -483,7 +485,7 @@ impl SyncCtx<'_> {
         tx: &ShieldedTransaction,
         t: usize,
         key: &ViewingKey,
-        known_recipients: &mut HashMap<P256Pubkey, u64>,
+        known_recipients: &mut HashMap<X25519Pubkey, u64>,
     ) -> Result<(), TransactionError> {
         let (Some(published_pk), Some(first_nullifier), Some(salt)) =
             (tx.tx_viewing_pk, tx.nullifiers.first(), tx.salt)
@@ -1124,7 +1126,7 @@ impl Wallet {
                 }
             }
 
-            let senders: Vec<P256Pubkey> = known_senders.keys().copied().collect();
+            let senders: Vec<X25519Pubkey> = known_senders.keys().copied().collect();
             let shared_in = F::probe_each(&senders, |sender| {
                 probe_stream(
                     window,
@@ -1148,7 +1150,7 @@ impl Wallet {
                 ctx.record_confidential_send(tx, t, key, known_recipients)?;
             }
 
-            let recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();
+            let recipients: Vec<X25519Pubkey> = known_recipients.keys().copied().collect();
             let shared_out = F::probe_each(&recipients, |recipient| {
                 probe_presence(
                     window,

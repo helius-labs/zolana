@@ -33,7 +33,7 @@ func (c *counterCircuit) Define(api frontend.API) error {
 
 func counterVector() spptest.CounterDisclosure {
 	var secret [32]byte
-	secret[31] = 17
+	secret[31] = 0x51
 	salt := [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 	return spptest.CounterDisclosure{Secret: secret, TransactionSalt: salt,
 		CounterSalt: new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1)),

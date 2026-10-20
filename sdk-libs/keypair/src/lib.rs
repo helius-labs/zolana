@@ -9,19 +9,19 @@
 //! ```
 //!
 //! # Keys
-//! - [`SigningKey`] — P-256 spend-authorizing key; signs `private_tx_hash` to
-//!   authorize a spend, which the SPP proof checks.
+//! - [`SigningKey`] — Ed25519 spend-authorizing key.
 //! - [`NullifierKey`] — derives `nullifier_pk` and the per-UTXO nullifiers that
 //!   prevent double-spends.
-//! - [`ViewingKey`] — P-256 key for HPKE-style UTXO encryption and labelled
+//! - [`ViewingKey`] — X25519 key for HPKE-style UTXO encryption and labelled
 //!   HKDF derivation of the view-tag secrets a wallet scans for. Secrets expand
-//!   from an ECDH-derived `view_root`, so the key can stay in an HSM.
+//!   from a `view_root`, HKDF-Extract over the clamped secret with the salt
+//!   `TSPP/view_root/x25519/v1`, so no ECDH with a fixed peer reaches it.
 //!
 //! # Addresses
 //! - [`ShieldedKeypair`] — bundles the three keys and builds the
 //!   [`ShieldedAddress`] and compressed [`CompressedShieldedAddress`].
-//! - [`PublicKey`], [`P256Pubkey`], [`Curve`] — scheme-tagged public
-//!   keys: P-256 for shielded owners, Ed25519 for Solana-only owners.
+//! - [`PublicKey`], [`Curve`] — scheme-tagged owner signing
+//!   keys. [`X25519Pubkey`] identifies a viewing key separately.
 //!
 //! # Hashing
 //! - [`hash`] — Poseidon helpers plus [`PublicKey::owner_proof_input_hash`] and
@@ -57,7 +57,7 @@ pub use encryption::symmetric_apply;
 pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
-pub use pubkey::{Curve, P256Pubkey, PublicKey};
+pub use pubkey::{Curve, PublicKey};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
 };
@@ -67,4 +67,5 @@ pub use viewing_key::{random_blinding, random_salt, ViewingKey};
 
 pub type Signature = [u8; 64];
 
-pub type ECDSASignature = [u8; 64];
+pub mod x25519;
+pub use x25519::{X25519Keypair, X25519Pubkey};

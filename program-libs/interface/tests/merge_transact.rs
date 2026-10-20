@@ -27,7 +27,6 @@ fn data() -> MergeTransactIxData {
         utxo_tree_root_index: 4,
         nullifier_tree_root_index: 10,
         private_tx_hash: [3u8; 32],
-        eddsa_owner: false,
     }
 }
 
@@ -35,7 +34,7 @@ fn data() -> MergeTransactIxData {
 fn fixed_shape_wire_length_matches_the_protocol_contract() {
     let bytes = data().serialize().expect("serialize merge instruction");
 
-    assert_eq!(bytes.len(), 384 + 32 * MERGE_DEFAULT_INPUT_COUNT);
+    assert_eq!(bytes.len(), 383 + 32 * MERGE_DEFAULT_INPUT_COUNT);
 }
 
 #[test]

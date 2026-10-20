@@ -11,7 +11,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base/audittest"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -110,13 +109,13 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "auditor key off curve",
+			name: "auditor key high bit set",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
-				c.AuditorPk[64] = 0
+				c.AuditorPk[31] = 128
 			},
 		},
 		{
-			name: "auditor key uncompressed prefix not 4",
+			name: "auditor key byte changed",
 			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.AuditorPk[0] = 6
 			},
@@ -132,35 +131,29 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			// public input hash commits to.
 			name: "valid but different auditor key",
 			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
-				other := audittest.PrivateKey(t, audittest.Scalar(0x44))
-				substitute := audittest.Uncompressed(t, other.PublicKey().Bytes())
+				other := audittest.XPrivateKey(t, audittest.Scalar(0x44))
+				substitute := other.PublicKey().Bytes()
 				for i, value := range substitute {
 					c.AuditorPk[i] = value
 				}
 			},
 		},
 		{
-			name: "tx scalar zero",
+			name: "wrong viewing key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityTxScalar(big.NewInt(0))
+				return k.WithWrongTxTag()
 			},
 		},
 		{
-			name: "tx scalar at the group order",
+			name: "noncanonical viewing secret with matching public key",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityTxScalar(p256.GroupOrder())
+				return k.WithRawTxScalar(t, [32]byte{})
 			},
 		},
 		{
-			name: "eph scalar zero",
+			name: "wrong envelope key tag",
 			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityEphScalar(big.NewInt(0))
-			},
-		},
-		{
-			name: "eph scalar at the group order",
-			keys: func(k audittest.Keys) audittest.Keys {
-				return k.WithInfinityEphScalar(p256.GroupOrder())
+				return k.WithWrongEphTag()
 			},
 		},
 	}
@@ -210,11 +203,34 @@ func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCirc
 	return &base.CustomRingBaseCircuit{
 		PublicInputHash:     spptest.MustHashChain(t, keys.ChainElementsFor(t, wires, 1)),
 		PrivateTxHash:       wires.PrivateTxHash,
+		Anonymous:           wires.Anonymous,
 		TxViewingSk:         wires.TxViewingSk,
 		EphSk:               wires.EphSk,
 		AuditorPk:           wires.AuditorPk,
 		Salt:                wires.Salt,
 		Outputs:             wires.Outputs,
 		OutputCountSelected: wires.OutputCountSelected,
+		Sender:              wires.Sender,
+		Inputs:              wires.Inputs,
+		InputCountSelected:  wires.InputCountSelected,
+		AnonymousOutputs:    wires.AnonymousOutputs,
+		Recipients:          wires.Recipients,
+		PrivateTxBlinding:   wires.PrivateTxBlinding,
+	}
+}
+
+// X25519 accepts raw byte secrets and clamps before both public-key bindings.
+func TestCircuitAcceptsClampedSecrets(t *testing.T) {
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &base.CustomRingBaseCircuit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var max [32]byte
+	for i := range max {
+		max[i] = 0xff
+	}
+	for _, secret := range [][32]byte{{}, max} {
+		keys := audittest.DefaultKeys(t).WithEphScalar(t, secret).WithTxScalar(t, secret)
+		solve(t, cs, buildAssignment(t, keys))
 	}
 }

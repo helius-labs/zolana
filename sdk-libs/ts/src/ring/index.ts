@@ -1,17 +1,27 @@
 export {
   auditorMessageData,
   auditorViewTag,
+  auditDisclosureLength,
   auditPublicInputHash,
   policyPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
+  AUDIT_INPUT_SLOTS,
   AUDITOR_MESSAGE_LENGTH,
+  anonymousAuditDisclosureShape,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
+  isDummyAnonymousOutput,
+  openAnonymousAuditDisclosure,
   openAuditOutputDisclosure,
   parseAuditorMessage,
 } from "../keypair/audit.js";
 export type {
+  AnonymousAuditDisclosure,
+  AnonymousOutputOpening,
+  AuditDisclosureInput,
+  AuditDisclosureShape,
+  AuditInputOpening,
   AuditOutputOpening,
   AuditorEncryption,
   AuditorMessage,
@@ -118,6 +128,7 @@ export {
   encodeRingDepositCapsule,
   readRingDepositCapsule,
   RING_DEPOSIT_AUDIT_SLOTS,
+  RING_DEPOSIT_OPENING_LENGTH,
   type RingDepositCapsule,
 } from "./deposit-capsule.js";
 export {
@@ -140,6 +151,7 @@ export type {
   RingCoSigner,
   RingDelegate,
   RingDepositAudit,
+  RingMode,
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,
@@ -313,6 +325,7 @@ export {
   readAccessRecordAddress,
   revokeReadAccessInstruction,
 } from "./reader.js";
+export { P256ReaderKey } from "./reader.js";
 export type { ReaderKey, ReadAccessRecord } from "./reader.js";
 export {
   auditorKeyAttestation,
@@ -326,6 +339,7 @@ export {
   RING_READ_PAGE_LIMIT,
 } from "./rpc.js";
 export type {
+  DecryptedAnonymousRingTrace,
   DecryptedRingOutput,
   DecryptedRingSpendCounter,
   DecryptedRingSpendRecord,
@@ -362,6 +376,7 @@ export type {
 } from "./audit.js";
 export {
   CachedTransactionOrigin,
+  ConfirmedDeposit,
   confirmedInstructionGroups,
   confirmedRingWithdrawals,
   senderOf,
@@ -372,6 +387,7 @@ export {
   RpcTransactionOrigin,
 } from "./origin.js";
 export type {
+  AuditedDepositSource,
   OriginInstruction,
   OriginInstructionGroup,
   RingWithdrawal,

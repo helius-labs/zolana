@@ -8,7 +8,7 @@ use zolana_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
     verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1},
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
 use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
 
@@ -33,14 +33,7 @@ impl MergeRingHarness {
             "real inputs must be 1..={MAX_MERGE_INPUTS}"
         );
 
-        let sender = if self.plan.eddsa {
-            let mut seed = [0u8; 32];
-            seed.copy_from_slice(&random_blinding());
-            ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
-                .expect("eddsa sender keypair")
-        } else {
-            ShieldedKeypair::new_p256().expect("sender keypair")
-        };
+        let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
         let asset = Mint::SOL;
         let ring = ring_program();
         let owner = sender.signing_pubkey();

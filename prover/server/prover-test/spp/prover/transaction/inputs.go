@@ -11,12 +11,10 @@ import (
 )
 
 type parsedInput struct {
-	utxo              protocol.Utxo
-	leafIndex         uint64
-	nullifierSecret   *big.Int
-	ownerKeyHash      *big.Int
-	ownerSolanaPubkey string
-	isP256            bool
+	utxo            protocol.Utxo
+	leafIndex       uint64
+	nullifierSecret *big.Int
+	ownerKeyHash    *big.Int
 }
 
 type inputWitnesses struct {
@@ -25,10 +23,8 @@ type inputWitnesses struct {
 	nullifiers []*big.Int
 	// treeSlots is the slot index every input selected, in input order. It is
 	// the private witness the packed InputFlags element publishes.
-	treeSlots                []*big.Int
-	inputOwnerPkHashes       []*big.Int
-	solanaOwnerPubkeys       []string
-	requiresP256OwnerWitness bool
+	treeSlots          []*big.Int
+	inputOwnerPkHashes []*big.Int
 }
 
 // buildInputWitnesses fills every physical input slot, real spends first and
@@ -51,7 +47,6 @@ func buildInputWitnesses(
 		nullifiers:         make([]*big.Int, shape.NInputs),
 		treeSlots:          make([]*big.Int, shape.NInputs),
 		inputOwnerPkHashes: make([]*big.Int, shape.NInputs),
-		solanaOwnerPubkeys: make([]string, len(requests)),
 	}
 	for i := range inputs.treeSlots {
 		inputs.treeSlots[i] = new(big.Int).Set(trees.inputTreeSlot)
@@ -78,13 +73,7 @@ func buildInputWitnesses(
 		witness := newInputWitness(inputs.treeSlots[i])
 		witness.Utxo = toProofCircuitFields(input.utxo)
 		witness.NullifierSecret = input.nullifierSecret
-		if input.isP256 {
-			inputs.requiresP256OwnerWitness = true
-			inputs.inputOwnerPkHashes[i] = big.NewInt(0)
-		} else {
-			inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
-			inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
-		}
+		inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
 
 		proof, ok := state.proofs[input.leafIndex]
 		if !ok {
@@ -185,7 +174,7 @@ func parseProofInput(input ProofInputRequest) (parsedInput, error) {
 	if err != nil {
 		return parsedInput{}, fmt.Errorf("nullifier_secret: %w", err)
 	}
-	if strings.TrimSpace(input.Utxo.OwnerSolanaPubkey) == "" && strings.TrimSpace(input.Utxo.OwnerP256Pubkey) == "" {
+	if strings.TrimSpace(input.Utxo.OwnerSolanaPubkey) == "" {
 		return parsedInput{}, fmt.Errorf("input owner components are required")
 	}
 	parsed, err := parseProofUtxo(input.Utxo, nullifierSecret)
@@ -193,11 +182,9 @@ func parseProofInput(input ProofInputRequest) (parsedInput, error) {
 		return parsedInput{}, err
 	}
 	return parsedInput{
-		utxo:              parsed.utxo,
-		leafIndex:         input.LeafIndex,
-		nullifierSecret:   nullifierSecret,
-		ownerKeyHash:      parsed.ownerKeyHash,
-		ownerSolanaPubkey: parsed.normalized.OwnerSolanaPubkey,
-		isP256:            parsed.isP256,
+		utxo:            parsed.utxo,
+		leafIndex:       input.LeafIndex,
+		nullifierSecret: nullifierSecret,
+		ownerKeyHash:    parsed.ownerKeyHash,
 	}, nil
 }

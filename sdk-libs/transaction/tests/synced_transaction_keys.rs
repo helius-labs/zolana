@@ -3,7 +3,7 @@ mod common;
 use std::cell::RefCell;
 
 use common::{keypair, wallet_utxo};
-use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     decrypt_spendable,
     instructions::transact::ConfidentialTransaction,
@@ -38,7 +38,7 @@ impl ShieldedKeys for CountingKeys {
         self.local.address()
     }
 
-    fn viewing_public_keys(&self) -> Vec<P256Pubkey> {
+    fn viewing_public_keys(&self) -> Vec<X25519Pubkey> {
         self.local.viewing_public_keys()
     }
 
@@ -309,7 +309,7 @@ fn a_synced_transfer_needs_no_key_request_after_sync() {
 }
 
 #[test]
-fn a_synced_key_that_is_not_a_p256_scalar_is_rejected() {
+fn a_synced_key_that_is_not_a_clamped_x25519_scalar_is_rejected() {
     let owner = keypair(53);
     let receiver = keypair(54).shielded_address().unwrap();
     let payer = owner.shielded_address().unwrap().solana_address().unwrap();

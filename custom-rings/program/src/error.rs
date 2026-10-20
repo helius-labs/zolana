@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8172 range is reserved for the ring program and is collision-free
+/// The 8100..8179 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -156,6 +156,18 @@ pub enum CustomRingError {
     InvalidPolicyTrees = 8172,
     #[error("the SPP depositor or payer must have signed this instruction")]
     MissingFundingSigner = 8173,
+    #[error("the ring mode is unknown")]
+    InvalidRingMode = 8174,
+    #[error("an anonymous ring refuses this operation")]
+    AnonymousRingRefused = 8175,
+    #[error("an anonymous ring takes no windowed velocity policy")]
+    UnsupportedAnonymousPolicy = 8176,
+    #[error("an anonymous ring output must carry a zero owner tag")]
+    InvalidAnonymousOutput = 8177,
+    #[error("an anonymous ring transaction takes no owner signer")]
+    InvalidAnonymousSigner = 8178,
+    #[error("the merge disclosure does not match the ring mode or the auditor key")]
+    InvalidMergeDisclosure = 8179,
 }
 
 impl From<CustomRingError> for ProgramError {

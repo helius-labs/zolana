@@ -23,7 +23,7 @@ use crate::transact::{body, transact_data};
 /// Stateless caps do not confine transaction trees.
 fn transfer_cap_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
         body(0, 0, approval_required, transact),
     );
     fixture.set_account("policy_config", transfer_cap_policy_config_account());

@@ -27,10 +27,9 @@ fn ed25519_registration(payer: Option<Pubkey>) -> (Pubkey, solana_message::v1::M
     let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
         .expect("ed25519 keypair");
     let address = keypair.shielded_address().expect("shielded address");
-    let message =
-        build_registration_transaction_sync(&RegistryAbsent, owner, &address, None, payer)
-            .expect("build registration")
-            .expect("registration required");
+    let message = build_registration_transaction_sync(&RegistryAbsent, owner, &address, payer)
+        .expect("build registration")
+        .expect("registration required");
     let VersionedMessage::V1(message) = message else {
         panic!("expected v1 registration message");
     };
@@ -82,7 +81,6 @@ fn merge_owner(merge_encryption: MergeEncryptionScheme) -> (Pubkey, ShieldedAddr
     let record = UserRecord {
         owner,
         bump: 255,
-        owner_p256: None,
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
         merge_encryption,
@@ -99,12 +97,6 @@ fn a_merge_needs_the_supported_scheme_and_the_owners_registered_keys() {
     assert!(matches!(
         check_merge_record(&disabled, owner, &address),
         Err(ClientError::MergeEncryptionSchemeUnsupported { owner: got }) if got == owner
-    ));
-    let mut p256 = record.clone();
-    p256.owner_p256 = Some([2u8; 33]);
-    assert!(matches!(
-        check_merge_record(&p256, owner, &address),
-        Err(ClientError::MergeSigningKeyMismatch)
     ));
     assert!(matches!(
         check_merge_record(&record, Pubkey::new_unique(), &address),

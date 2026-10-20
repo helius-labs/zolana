@@ -315,7 +315,7 @@ mod tests {
     use solana_address::Address;
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::X25519Keypair;
     use zolana_ring_client::{OriginError, RingOrigin};
     use zolana_transaction::AssetRegistry;
 
@@ -362,6 +362,7 @@ mod tests {
                 ring_invoked: false,
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
+                deposits: Vec::new(),
             })
         }
 
@@ -419,10 +420,11 @@ mod tests {
     }
 
     fn hub(mut source: TestSource, origins: Origins) -> Arc<Hub<TestSource>> {
-        let auditor = ViewingKey::new();
+        let auditor = X25519Keypair::new();
         source.config = Some(RingConfiguration {
             auditor_pubkey: auditor.pubkey(),
             authority: Address::new_from_array([2; 32]),
+            mode: custom_ring_interface::RingMode::Off,
         });
         Arc::new(
             Hub::builder(source, TEST_GENESIS)

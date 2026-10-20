@@ -239,7 +239,7 @@ pub struct DelegateMoveArgs {
     pub mint: Option<config::Mint>,
     #[arg(long)]
     pub delegate_keypair: PathBuf,
-    /// The P256 auditor read key, separate from the Solana delegate signer.
+    /// The X25519 auditor read key, separate from the Solana delegate signer.
     #[arg(long, default_value = AUDITOR_KEY_FILE)]
     pub auditor_key: PathBuf,
     /// The co-signer keypair when the ring's co-signer scope covers transfers.
@@ -395,7 +395,7 @@ pub struct InitArgs {
     /// init.
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub deposit_audit: Option<bool>,
-    /// Hex SEC1 compressed auditor key, created by the ring RPC and written here when absent.
+    /// Hex tagged X25519 auditor key, created by the ring RPC and written here when absent.
     #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
     pub auditor_pubkey_file: PathBuf,
     /// Accept the ring RPC's auditor key without a pinned service key in ring.toml.

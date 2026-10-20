@@ -31,7 +31,7 @@ pub const UNLOCK_TIMESTAMP: u64 = 1_000_000;
 // two are unrelated fields; see timelock_escrow.md's Escrow Terms section).
 pub const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 
-// The creator is the only actor: one ed25519 identity whose signing key
+// The creator is the only actor: one eddsa identity whose signing key
 // doubles as the Solana fee payer (`to_solana_keypair`), holding the asset
 // registry and synced spendable notes.
 pub struct TestEnv {

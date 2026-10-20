@@ -95,9 +95,9 @@ func fingerprintGadget(t *testing.T, circuit frontend.Circuit) gadgetFingerprint
 
 // Pins each gadget independently of the circuits that use it.
 var expectedGadgetFingerprints = map[string]gadgetFingerprint{
-	"x25519_ecdh":      {constraints: 20758, matrix: "76abc85d036a5545524f4ba4e9194324abe39c31a3fa1503d539ea6389757c24", serialized: "14ad9b5a0a44c5d0f468bbdee1593364cf861115a68ffe96c35e1a88dec85492"},
-	"x25519_generator": {constraints: 5948, matrix: "e9fb1a264897a14324333153beaa1cd0c641ef4487fce46e4a4d75b66c12de20", serialized: "8ec15eb93e812c505bf46ace797e68e484916e6ad89a259be12a2810993dcc20"},
-	"ed25519_verify":   {constraints: 50604, matrix: "bd954d4ad2bd76805bfc2105956147436d7c98f0cb87bd0b7318aee0b0b035ba", serialized: "150923532451a92112af7a2af8efb79ed71210699776a016089e0774b60796c9"},
+	"x25519_ecdh":      {constraints: 20758, matrix: "76abc85d036a5545524f4ba4e9194324abe39c31a3fa1503d539ea6389757c24", serialized: "714f348a02b1d95ea2997003539e2fc999c903719f6f5325fa437b3464b1f6c1"},
+	"x25519_generator": {constraints: 5948, matrix: "e9fb1a264897a14324333153beaa1cd0c641ef4487fce46e4a4d75b66c12de20", serialized: "1ba9ead4fcc3920d2df7a5395aa4e5c28462074455bad24d6c20abdea3e3b49d"},
+	"ed25519_verify":   {constraints: 50604, matrix: "bd954d4ad2bd76805bfc2105956147436d7c98f0cb87bd0b7318aee0b0b035ba", serialized: "d7ec0429624331377f2f1a735888ebf75bff84d04ca5c7c2402ef527a6f3d827"},
 }
 
 func TestGadgetFingerprints(t *testing.T) {

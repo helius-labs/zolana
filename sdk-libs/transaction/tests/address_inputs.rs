@@ -26,12 +26,6 @@ fn address() -> SppProofInputUtxo {
 
 type Mutation = fn(&mut SppProofInputUtxo);
 
-fn p256_owner() -> PublicKey {
-    ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&[3; 32]).unwrap())
-        .unwrap()
-        .signing_pubkey()
-}
-
 fn refused(reason: A) -> Result<(), E> {
     Err(E::InvalidAddressInput(reason))
 }
@@ -70,13 +64,12 @@ fn address_matches_the_canonical_new_address_derivation() {
 }
 
 #[test]
-fn new_address_refuses_a_missing_or_p256_owner_and_a_non_canonical_seed() {
+fn new_address_refuses_a_missing_owner_and_a_non_canonical_seed() {
     let owner = keypair(1).signing_pubkey();
     let result = |owner: PublicKey, seed: [u8; 32]| {
         SppProofInputUtxo::new_address(owner, seed, TREE).map(|_| ())
     };
     assert_eq!(result(PublicKey::zeroed(), SEED), refused(A::MissingOwner));
-    assert_eq!(result(p256_owner(), SEED), refused(A::P256Owner));
     assert_eq!(result(owner, [0xff; 32]), refused(A::NonCanonicalSeed));
     assert_eq!(result(owner, SEED), Ok(()));
 }
@@ -90,7 +83,6 @@ fn validate_address_names_the_broken_rule() {
         (A::MissingOwner, |input| {
             input.utxo.owner = PublicKey::zeroed()
         }),
-        (A::P256Owner, |input| input.utxo.owner = p256_owner()),
         (A::NonCanonicalSeed, |input| {
             input.utxo.blinding = [0xff; 32]
         }),

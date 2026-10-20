@@ -199,7 +199,7 @@ impl LifecycleHarness {
             .actor(from)
             .solana_signer
             .as_ref()
-            .expect("lifecycle actors are eddsa-owned")
+            .expect("lifecycle actors are ed25519-owned")
             .insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
@@ -268,8 +268,7 @@ impl LifecycleHarness {
             })
             .collect();
 
-        // All actors are eddsa-owned since the P256 rail was removed: the owner
-        // authorizes the spend by signing the transaction.
+        // The Ed25519 owner authorizes the spend by signing the transaction.
         let owner_signers = proof_inputs.owner_signer_pubkeys()?;
         let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;

@@ -28,7 +28,7 @@ pub enum AuditError {
     /// with after indexing.
     #[error("recovered transaction viewing key does not match the published tx_viewing_pk")]
     TxViewingKeyMismatch,
-    #[error("recovered transaction viewing scalar is not a valid P256 secret key {0}")]
+    #[error("recovered transaction viewing secret is not canonical X25519 {0}")]
     RecoveredKeyInvalid(KeypairError),
     #[error("output slot count exceeds the bound u32 slot index {0}")]
     SlotIndexOverflow(usize),

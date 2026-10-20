@@ -1,6 +1,6 @@
 //! Pins independent public deposit and withdrawal counters for each mint.
 
-use custom_ring_interface::{SpendWindow, AUDITOR_MESSAGE_LEN, SPEND_WINDOW};
+use custom_ring_interface::{SpendWindow, SPEND_WINDOW};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
 use pinocchio::Address;
@@ -12,11 +12,11 @@ use zolana_interface::instruction::{
 };
 
 use crate::common::{
-    account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
-    clear_spend_window_fixture, custom, deposit_fixture, rent_recipient, ring_deposit_data,
-    set_spend_window_data, set_spend_window_fixture, setup_mollusk, sol_settlement,
-    spend_window_pda, spl_settlement, stored, window_slot, Fixture, Slot, WindowState, SOL,
-    SOL_DEPOSIT_AMOUNT, USDC,
+    account, audit_only_config_account, audit_transact_fixture, auditor_message_len,
+    auditor_pubkey, authority, clear_spend_window_fixture, custom, deposit_fixture, rent_recipient,
+    ring_deposit_data, set_spend_window_data, set_spend_window_fixture, setup_mollusk,
+    sol_settlement, spend_window_pda, spl_settlement, stored, window_slot, Fixture, Slot,
+    WindowState, SOL, SOL_DEPOSIT_AMOUNT, USDC,
 };
 use crate::transact::{audit_instruction_data, auditor_message, bogus_proof, transact};
 
@@ -193,10 +193,10 @@ fn windowed_transact(
     windows: Vec<Slot>,
     settlements: Vec<Slot>,
 ) -> Fixture {
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut content = transact(vec![auditor_message(auditor_message_len(1))]);
     content.interface_transfers = legs;
     let mut fixture = audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         audit_instruction_data(bogus_proof(), content),
     );
     fixture.insert_windows(windows);

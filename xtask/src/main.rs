@@ -599,7 +599,7 @@ fn tx_size(args: Vec<String>) {
     // Output 0 is the sender's change under the sender's tag, every other output
     // a recipient under an Inline tag, and each output carries its own
     // ciphertext of `data_len` bytes. The sender tag is Account(0) when the
-    // owner is the payer and Inline(..) for a relayed Ed25519 transfer.
+    // owner is the payer and Inline(..) for a relayed EdDSA transfer.
     let confidential_layout =
         |m: usize, sender_tag: OwnerTag, data_len: usize| -> Vec<(OwnerTag, usize)> {
             (0..m)
@@ -762,7 +762,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     // Sender owner-tag sensitivity: Account(0) is compact when the owner is the
-    // payer; Inline is the relayed-Ed25519 case.
+    // payer; Inline is the relayed-EdDSA case.
     println!();
     println!("Sender owner-tag sensitivity (3 in 4 out, confidential rail, 1 change output):");
     println!(
@@ -886,14 +886,14 @@ fn tx_size(args: Vec<String>) {
         .instruction()
     };
     let slots = N_PUBLIC_SLOTS as u8;
-    let ring_eddsa = |n: usize, m: usize| CircuitId::RingEddsa(n as u8, m as u8, slots);
-    let ring_p256 = |n: usize, m: usize| {
-        use zolana_interface::verifying_keys::{Bsb22Commitment, RingP256ProofData};
-        CircuitId::RingP256(
+    let ring_eddsa = |n: usize, m: usize| CircuitId::ConfidentialRingEddsa(n as u8, m as u8, slots);
+    let anonymous = |n: usize, m: usize| {
+        use zolana_interface::verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment};
+        CircuitId::AnonymousRingEddsa(
             n as u8,
             m as u8,
             slots,
-            RingP256ProofData {
+            AnonymousRingEddsaProofData {
                 bsb22_commitment: Bsb22Commitment {
                     commitment: [0u8; 32],
                     commitment_pok: [0u8; 32],
@@ -932,8 +932,8 @@ fn tx_size(args: Vec<String>) {
             ring_transact_ix(n, m, ring_eddsa(n, m)),
         );
         transact_row(
-            format!("ring transact p256 {n} in {m} out"),
-            ring_transact_ix(n, m, ring_p256(n, m)),
+            format!("ring transact anonymous {n} in {m} out"),
+            ring_transact_ix(n, m, anonymous(n, m)),
         );
     }
     // Every 49x2 slot fits as a real input on the confidential rail; the ring
@@ -949,8 +949,8 @@ fn tx_size(args: Vec<String>) {
         ("ring transact eddsa", &|n| {
             ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2))
         }),
-        ("ring transact p256", &|n| {
-            ring_transact_ix(n, 2, ring_p256(MAX_TRANSACT_INPUTS, 2))
+        ("ring transact anonymous", &|n| {
+            ring_transact_ix(n, 2, anonymous(MAX_TRANSACT_INPUTS, 2))
         }),
     ];
     for (label, build) in widest {
@@ -981,7 +981,6 @@ fn tx_size(args: Vec<String>) {
                 salt: [0u8; 16],
                 ciphertext: [[0u8; 32]; 3],
             },
-            eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
             utxo_tree_root_index: 0,

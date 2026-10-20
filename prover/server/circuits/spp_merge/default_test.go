@@ -113,7 +113,7 @@ func TestMergeCircuitProves(t *testing.T) {
 }
 
 func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
-	assignment := buildWitness(t, true)
+	assignment := buildWitness(t)
 	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("eddsa merge witness not solved: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
 }
 
 func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
-	a := buildWitness(t, true)
+	a := buildWitness(t)
 	a.OwnerPkHash = big.NewInt(0xBADBAD)
 	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected eddsa ownership-uniformity failure, got solved")

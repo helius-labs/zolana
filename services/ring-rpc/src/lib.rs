@@ -14,7 +14,8 @@ mod webauthn;
 
 pub use api::{
     auditor_key_attestation, unix_now, AuditorKeyRequest, AuditorPubkey, AuthorityAuth,
-    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedOutput, DecryptedSpendCounter,
+    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedAnonymousInput,
+    DecryptedAnonymousRecipient, DecryptedAnonymousTrace, DecryptedOutput, DecryptedSpendCounter,
     DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
     DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
     HealthResponse, ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature,

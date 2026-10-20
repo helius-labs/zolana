@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"crypto/elliptic"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -108,17 +107,6 @@ func FieldBytes(value *big.Int) ([32]byte, error) {
 	}
 	copy(out[32-len(bytes):], bytes)
 	return out, nil
-}
-
-func P256Scalar(value string) (*big.Int, error) {
-	parsed, err := BigInt(value)
-	if err != nil {
-		return nil, err
-	}
-	if parsed.Sign() <= 0 || parsed.Cmp(elliptic.P256().Params().N) >= 0 {
-		return nil, fmt.Errorf("scalar is outside P256 scalar field")
-	}
-	return parsed, nil
 }
 
 func validateFieldElement(name string, value *big.Int) error {

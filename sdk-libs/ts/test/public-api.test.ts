@@ -121,7 +121,7 @@ describe("public package surface", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     expect(ShieldedKeypair).not.toHaveProperty("fromEd25519");
     expect(SigningKey).not.toHaveProperty("fromBytes");
-    expect(SigningKey.fromP256Bytes).toBeTypeOf("function");
+    expect(SigningKey.fromEd25519Bytes).toBeTypeOf("function");
     expect(ViewingKey).not.toHaveProperty("fromSeed");
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
@@ -161,7 +161,6 @@ describe("public package surface", () => {
       1,
       ...getAddressEncoder().encode(recipient),
       pda.bump,
-      0,
       ...keypair.nullifierPublicKey(),
       ...keypair.viewingPublicKey().toBytes(),
       0,
@@ -303,7 +302,6 @@ describe("public package surface", () => {
       1,
       ...getAddressEncoder().encode(owner),
       pda.bump,
-      0,
       ...current.nullifierPublicKey,
       ...current.viewingPublicKey.toBytes(),
       0,
@@ -370,7 +368,6 @@ describe("public package surface", () => {
       1,
       ...getAddressEncoder().encode(owner),
       pda.bump,
-      0,
       ...current.nullifierPublicKey,
       ...current.viewingPublicKey.toBytes(),
       0,
@@ -415,27 +412,6 @@ describe("public package surface", () => {
 
     expect(transaction).toBeDefined();
     expect(Object.keys(transaction!.signatures)).toEqual([owner]);
-  });
-
-  it("rejects P256 registration before building or reading RPC state", async () => {
-    const getAccount = vi.fn(async () => undefined);
-    const getLatestBlockhash = vi.fn(async () => ({
-      blockhash: BLOCKHASH,
-      lastValidBlockHeight: 1n,
-    }));
-
-    await expect(
-      buildRegistrationTransaction({
-        client: { getAccount, getLatestBlockhash },
-        owner: OWNER,
-        address: ShieldedKeypair.generate("p256").shieldedAddress(),
-      }),
-    ).rejects.toMatchObject({
-      code: "WALLET_BUILD_REGISTRATION",
-      causeCode: "WALLET_P256_REGISTRATION_UNSUPPORTED",
-    });
-    expect(getAccount).not.toHaveBeenCalled();
-    expect(getLatestBlockhash).not.toHaveBeenCalled();
   });
 });
 

@@ -211,10 +211,10 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 	return out
 }
 
-func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
-	return &customring.CustomRingEddsaOnlyCircuit{
+func asCustomRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
+	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: a.CachedInputs,
-		Public: customring.CustomRingEddsaOnlyPublic{
+		Public: customring.CustomRingConfidentialEddsaPublic{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
 			TreeSlots:                    a.TreeSlots,
@@ -229,7 +229,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
 			PublicInputHash:              a.PublicInputHash,
 		},
-		Private: customring.CustomRingEddsaOnlyPrivate{
+		Private: customring.CustomRingConfidentialEddsaPrivate{
 			Inputs:              a.coreInputs(),
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			Outputs:             a.outputUtxos(),
@@ -265,10 +265,10 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 	}
 }
 
-func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
-	return &defaultring.DefaultRingEddsaOnlyCircuit{
+func asDefaultRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
+	return &defaultring.DefaultRingConfidentialEddsaCircuit{
 		CachedInputs: a.CachedInputs,
-		Public: defaultring.DefaultRingEddsaOnlyPublic{
+		Public: defaultring.DefaultRingConfidentialEddsaPublic{
 			Nullifiers:          a.InputNullifiers(),
 			OutputHashes:        a.OutputHashes(),
 			TreeSlots:           a.TreeSlots,
@@ -282,7 +282,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
 		},
-		Private: defaultring.DefaultRingEddsaOnlyPrivate{
+		Private: defaultring.DefaultRingConfidentialEddsaPrivate{
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),

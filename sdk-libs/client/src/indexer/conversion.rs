@@ -3,7 +3,7 @@ use zolana_api::{
     Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey,
 };
-use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_keypair::{x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey};
 use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 
 use crate::{
@@ -46,7 +46,7 @@ pub(super) fn convert_encrypted_utxo_match(
         slot: item.slot,
         tx_signature: item.tx_signature.0,
         output_slot: convert_output_slot(item.output_slot),
-        tx_viewing_pk: decode_optional_p256(
+        tx_viewing_pk: decode_optional_x25519(
             item.tx_viewing_pk,
             &format!("matches[{index}].txViewingPk"),
         )?,
@@ -110,7 +110,7 @@ pub(super) fn convert_shielded_transaction(
         slot: item.slot,
         tx_signature: item.tx_signature.0,
         event_index: item.event_index,
-        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
+        tx_viewing_pk: decode_optional_x25519(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
             .output_slots
@@ -208,14 +208,10 @@ fn convert_user_record(
     Ok(UserRecord {
         owner: record.owner.0,
         bump: user_record_pda(&record.owner.0).1,
-        owner_p256: record
-            .owner_p256
-            .map(|key| fixed_bytes(key.0, P256_PUBKEY_LEN, &field("ownerP256")))
-            .transpose()?,
         nullifier_pubkey: record.nullifier_pubkey.0,
         viewing_pubkey: fixed_bytes(
             record.viewing_pubkey.0,
-            P256_PUBKEY_LEN,
+            X25519_PUBKEY_LEN,
             &field("viewingPubkey"),
         )?,
         merge_encryption: MergeEncryptionScheme::from_byte(record.merge_encryption).ok_or_else(
@@ -249,16 +245,22 @@ pub(super) fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
     cursor.map(Base64String::from)
 }
 
-fn decode_optional_p256(
+/// Chosen by the sender, a malformed key reads as absent and leaves its outputs undecryptable.
+fn decode_optional_x25519(
     value: Option<Base64String>,
     field: &str,
-) -> Result<Option<P256Pubkey>, ClientError> {
-    value
-        .map(|value| {
-            let bytes = fixed_bytes(value.0, P256_PUBKEY_LEN, field)?;
-            P256Pubkey::from_bytes(bytes).map_err(|error| decode_error(field, error))
-        })
-        .transpose()
+) -> Result<Option<X25519Pubkey>, ClientError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let Ok(bytes) = <[u8; X25519_PUBKEY_LEN]>::try_from(value.0) else {
+        return Ok(None);
+    };
+    match X25519Pubkey::from_bytes(bytes) {
+        Ok(key) => Ok(Some(key)),
+        Err(KeypairError::InvalidPublicKey) => Ok(None),
+        Err(error) => Err(decode_error(field, error)),
+    }
 }
 
 fn decode_optional_salt(
@@ -289,6 +291,30 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
+    use zolana_api::Base64String;
+
+    #[test]
+    fn malformed_transaction_keys_read_as_absent() {
+        let mut wrong_tag = [9; 33];
+        wrong_tag[0] = 2;
+        let mut non_canonical = [255; 33];
+        non_canonical[0] = 4;
+        for bytes in [vec![4; 32], wrong_tag.to_vec(), non_canonical.to_vec()] {
+            assert_eq!(
+                super::decode_optional_x25519(Some(Base64String(bytes)), "txViewingPk").unwrap(),
+                None
+            );
+        }
+        let mut low_order = [0; 33];
+        low_order[0] = 4;
+        assert!(super::decode_optional_x25519(
+            Some(Base64String(low_order.to_vec())),
+            "txViewingPk"
+        )
+        .unwrap()
+        .is_some());
+    }
+
     #[test]
     fn ring_history_request_pins_the_ring_without_a_view_tag() {
         let ring = solana_address::Address::new_from_array([19; 32]);

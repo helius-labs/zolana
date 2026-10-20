@@ -1,8 +1,5 @@
 use sha2::{Digest, Sha256};
-use zolana_keypair::{
-    hash::{owner_hash, sha256, sha256_be},
-    PublicKey, SigningKey,
-};
+use zolana_keypair::hash::{owner_hash, sha256, sha256_be};
 
 use crate::KeypairWorld;
 
@@ -51,14 +48,4 @@ pub(crate) fn owner_hash_binds_nullifier(world: &mut KeypairWorld, name: String)
     let mut other = nullifier_pubkey;
     other[31] ^= 1;
     assert_ne!(base, owner_hash(&signing_pubkey, &other).unwrap());
-}
-
-pub(crate) fn p256_ed25519_owner_hash_differ() {
-    let nullifier_pubkey = [9u8; 32];
-    let p256 = SigningKey::new_p256().pubkey();
-    let ed25519 = PublicKey::from_ed25519(&[7u8; 32]);
-    assert_ne!(
-        owner_hash(&p256, &nullifier_pubkey).unwrap(),
-        owner_hash(&ed25519, &nullifier_pubkey).unwrap()
-    );
 }

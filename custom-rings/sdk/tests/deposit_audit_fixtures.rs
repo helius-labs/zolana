@@ -10,11 +10,11 @@ use custom_ring_interface::{
 use custom_ring_sdk::{
     to_instruction_proof, CustomRing, Deposit, DepositAsset, EscrowBinding, RingDepositProofRequest,
 };
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::{Prover, ProverClient};
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::X25519Keypair;
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
 use zolana_ring_client::{DepositOpening, DepositSeal};
 use zolana_transaction::{owner_utxo_hash, RingDepositPlaintext};
@@ -51,9 +51,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     let ring = CustomRing::new(Address::new_from_array(RING));
     let tree = Address::new_from_array(TREE);
     let depositor = Address::new_from_array(DEPOSITOR);
-    let auditor = ViewingKey::from_bytes(&AUDITOR_SECRET)
-        .expect("auditor key")
-        .pubkey();
+    let auditor = X25519Keypair::from_bytes(&AUDITOR_SECRET).pubkey();
     // 1. Deposit to one recipient per slot, each output keeps its recipient
     // ciphertext behind the auditor capsule.
     let mut owner_pk_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];
@@ -81,6 +79,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         openings.push(DepositOpening {
             owner_hash,
             blinding: Zeroizing::new(blinding),
+            owner_key: None,
         });
         deposits.push(RingAssetDeposit {
             asset: DepositAsset::Sol,
@@ -136,6 +135,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
         .collect();
     let public_input_hash = DepositPublicInput {
         context_hash: &context_hash,
+        anonymous: false,
         owner_utxo_hashes: &owners,
         ciphertexts: &encryption.ciphertexts,
         auditor_pk: auditor.as_bytes(),
@@ -144,26 +144,20 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     }
     .hash()
     .expect("public input hash");
-    let mut auditor_uncompressed = [0; 65];
-    auditor_uncompressed.copy_from_slice(
-        auditor
-            .to_p256()
-            .expect("auditor point")
-            .to_encoded_point(false)
-            .as_bytes(),
-    );
     let proof = prover
         .prove(&RingDepositProofRequest {
             public_input_hash: &public_input_hash,
             context_hash: &context_hash,
             count: count as u8,
+            anonymous: false,
             owner_pk_hashes: &owner_pk_hashes,
+            owner_keys: &[[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS],
             nullifier_pks: &nullifier_pks,
             blindings: &blindings,
             keys: &[None; MAX_RING_DEPOSIT_AUDIT_SLOTS],
             key_registry_root: None,
             ephemeral_sk: &encryption.ephemeral_sk,
-            auditor_pk: &auditor_uncompressed,
+            auditor_pk: &auditor.u(),
         })
         .expect("deposit proof");
     // 3. Wrap the SPP bytes with the SDK and drop the registry index byte.

@@ -26,7 +26,7 @@ import {
   type TransactOutput,
 } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
-import { P256PublicKey } from "../../keypair/public-key.js";
+import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -218,7 +218,7 @@ export interface ExternalData {
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
   readonly resolvedOwnerTags: readonly Bytes32[];
@@ -239,7 +239,7 @@ export interface ExternalDataInit {
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
-  readonly txViewingPublicKey: P256PublicKey;
+  readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
   readonly resolvedOwnerTags: readonly Bytes32[];
@@ -779,13 +779,6 @@ export class SppProofInputs {
   ) {
     this.payer = input.payer;
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
-    if (
-      this.inputUtxos.some(
-        (entry) => !entry.isDummy() && entry.utxo.owner.signatureType() === "p256",
-      )
-    ) {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     inputTreeIds(this.inputUtxos);
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
@@ -977,7 +970,7 @@ export interface PreparedTransfer {
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
-      txViewingPublicKey: P256PublicKey;
+      txViewingPublicKey: X25519PublicKey;
       salt: Bytes16;
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
       messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
@@ -1037,9 +1030,6 @@ export class ConfidentialTransfer {
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (owner.signingPublicKey.signatureType() === "p256") {
-      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
@@ -1069,10 +1059,6 @@ export class ConfidentialTransfer {
   withShape(shape: Shape): this {
     this.#shape = shape;
     return this;
-  }
-
-  requiresP256Owner(): boolean {
-    return false;
   }
 
   /** Binds the change and every `send` to one ring, mirrors Rust `with_ring_program_id`. */
@@ -1754,6 +1740,8 @@ function dummyCiphertextLength(salt: Bytes16): number {
 export interface OutputContext {
   readonly hash: Bytes32;
   readonly tree: Address;
+  /** Raw id `hash` folds in, present when the indexer reported it. */
+  readonly treeId?: number;
   readonly leafIndex: bigint;
 }
 
@@ -1767,7 +1755,7 @@ export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
   readonly eventIndex?: number;
-  readonly txViewingPublicKey?: P256PublicKey;
+  readonly txViewingPublicKey?: X25519PublicKey;
   readonly salt?: Bytes16;
   readonly outputSlots: readonly OutputSlot[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];

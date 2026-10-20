@@ -10,7 +10,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
 use zolana_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
-use zolana_keypair::{Curve, NullifierKey, ShieldedAddress};
+use zolana_keypair::{NullifierKey, ShieldedAddress};
 use zolana_program::instruction::MergeTransact;
 use zolana_transaction::instructions::merge::MergeProofInputs;
 use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
@@ -240,14 +240,7 @@ pub fn check_merge_record(
         return Err(ClientError::MergeEncryptionSchemeUnsupported { owner });
     }
     let signing = address.signing_pubkey;
-    let signing_matches = match signing.curve()? {
-        Curve::P256 => record.owner_p256 == Some(*signing.as_p256()?.as_bytes()),
-        // The ed25519 rail takes the signing identity from the record's
-        // Solana `owner`; a PDA owner is the same.
-        Curve::Ed25519 | Curve::Pda => {
-            record.owner_p256.is_none() && signing.confidential_view_tag()? == owner.to_bytes()
-        }
-    };
+    let signing_matches = signing.confidential_view_tag()? == owner.to_bytes();
     if !signing_matches {
         return Err(ClientError::MergeSigningKeyMismatch);
     }

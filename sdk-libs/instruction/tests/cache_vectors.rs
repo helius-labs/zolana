@@ -272,9 +272,9 @@ fn circuit_json(circuit: CircuitId) -> Value {
     let (inputs, outputs, public_asset_slots) = circuit.shape();
     let kind = match circuit {
         CircuitId::ConfidentialEddsa(..) => "confidentialEddsa",
-        CircuitId::RingEddsa(..) => "ringEddsa",
+        CircuitId::ConfidentialRingEddsa(..) => "confidentialRingEddsa",
         CircuitId::ConfidentialEddsaCached(..) => "confidentialEddsaCached",
-        CircuitId::RingEddsaCached(..) => "ringEddsaCached",
+        CircuitId::ConfidentialRingEddsaCached(..) => "confidentialRingEddsaCached",
         _ => panic!("the shared vectors cover the EdDSA rails"),
     };
     let mut value = json!({
@@ -312,7 +312,7 @@ fn transact_circuit_vectors() -> Value {
                     write_slots: writes(&[(1, 35), (0, 34)]),
                 },
             ),
-            CircuitId::RingEddsaCached(
+            CircuitId::ConfidentialRingEddsaCached(
                 2,
                 2,
                 3,

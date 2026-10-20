@@ -245,17 +245,7 @@ function validateMergeBuild(record: MergeRecord, owner: Address, address: Shield
     });
   }
   const signingPublicKey = address.signingPublicKey;
-  if (signingPublicKey.signatureType() === "p256") {
-    if (
-      record.ownerP256 === undefined ||
-      !equalBytes(record.ownerP256, signingPublicKey.p256().toBytes())
-    ) {
-      throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
-    }
-  } else if (
-    record.ownerP256 !== undefined ||
-    !equalBytes(signingPublicKey.ed25519(), new Uint8Array(addressEncoder.encode(owner)))
-  ) {
+  if (!equalBytes(signingPublicKey.ed25519(), new Uint8Array(addressEncoder.encode(owner)))) {
     throw new WalletError("WALLET_MERGE_SIGNING_KEY_MISMATCH");
   }
   if (!equalBytes(record.nullifierPublicKey, address.nullifierPublicKey)) {

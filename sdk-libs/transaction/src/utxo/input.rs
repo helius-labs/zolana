@@ -1,7 +1,7 @@
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 use zolana_interface::{state::cache::CACHE_CAPACITY, ZERO_NULLIFIER_PUBKEY};
 use zolana_keypair::{
-    constants::BLINDING_LEN, viewing_key::random_blinding, Curve, NullifierKey, PublicKey,
+    constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
 };
 
 use super::{dummy_utxo_hash, Utxo};
@@ -175,8 +175,6 @@ impl SppProofInputUtxo {
         let utxo = &self.utxo;
         let fault = if self.is_dummy() {
             AddressInputError::MissingOwner
-        } else if utxo.owner.curve()? == Curve::P256 {
-            AddressInputError::P256Owner
         } else if !is_canonical_bn254_scalar_be(&utxo.blinding) {
             AddressInputError::NonCanonicalSeed
         } else if self.nullifier_pubkey != ZERO_NULLIFIER_PUBKEY {

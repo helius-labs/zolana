@@ -25,11 +25,11 @@ fn confidential_verifying_key(
         .ok_or_else(shape_err)
 }
 
-/// Verify a default-ring Ed25519 transfer proof against the committed
+/// Verify a default-ring EdDSA transfer proof against the committed
 /// shape-specific verifying key and the locally constructed public input.
 ///
 /// Call this before allowing an external prover response to influence a
-/// signing request. Custom-ring and P-256 proofs use different public inputs
+/// signing request. Custom-ring proofs use different public inputs
 /// and verifying keys and are intentionally outside this function.
 pub fn verify_confidential_transfer_proof(
     result: &TransferProofResult,

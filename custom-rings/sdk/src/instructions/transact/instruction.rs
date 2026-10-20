@@ -176,7 +176,7 @@ pub struct CustomRingTransact {
     /// `None` for an audit-only ring.
     pub policy: Option<PolicyReads>,
     pub cosigner: Option<Address>,
-    /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
+    /// The Ed25519 owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
     /// order.

@@ -46,7 +46,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-04: every eddsa-owned input's signer account must sign**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_unsigned_eddsa_input_owner`
   - Kind: precondition
-  - Statement: for every input, the account at `eddsa_signer_index` in the raw account list must be a signer (an index of 255 — the retired P256 sentinel — is rejected with 7006 at selector validation); a non-signer account at that index makes the instruction return Err.
+  - Statement: for every input, the account at the Ed25519 signer index in the raw account list must be a signer (an index of 255 — the retired P256 sentinel — is rejected with 7006 at selector validation); a non-signer account at that index makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:41-59` (`fn check_input_signers`)
   - Error: account-checks signer error; missing index: `ProgramError::NotEnoughAccountKeys`
   - Severity: Critical (spend authorization)
@@ -70,14 +70,10 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (spend authorization)
   - Suggested test: unit (exists) + negative overflow + negative unsigned owner (exist); harness: `cargo test -p shielded-pool-tests --test transact_signer_run` + program-tests integration
 
-- [x] **INV-TRANSACT-06: P256-owned inputs are authorized in-circuit (RingP256 only)**
-  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_p256_test.go` (`TestCustomRingP256Solves`, `TestCustomRingP256KeepsRingOnlyOwnerPrivate`, `TestCustomRingP256AcceptsMixedOwners`), `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs`
-  - Kind: postcondition
-  - Statement: on the RingP256 rail there is no per-input signer element (and no shared `p256_signing_pk_x` instruction field): ownership is proved inside the circuit by a P256 signature over `Sha256(private_tx_hash || external_data_hash)`, split low/high as public inputs; the owner's pubkey x-coordinate is published in the instruction data as `RingP256ProofData.default_owner_tag` ONLY when a real default-ring P256 input is present (ring-only P256 ownership stays private). The confidential (default-ring) transact rail has no P256 variant — that scope stays not applicable.
-  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs`, `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `is_p256()` appendix)
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+- [x] **INV-TRANSACT-06: anonymous ownership is authorized in-circuit**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_anonymous_eddsa_test.go` wrong-digest, wrong-signer, public-owner and subgroup tests.
+  - Statement: AnonymousRingEddsa verifies a private owner signature over `Sha256(private_tx_hash || external_data_hash)`. The hidden owner cannot appear in the public signer run. The default ring accepts only runtime-authorized ownership.
   - Severity: Critical (spend authorization)
-  - Suggested test: positive per ownership layout (exists, Go) + on-chain owner-tag binding (exists); harness: `go test` + program-tests integration
 
 - [ ] **INV-TRANSACT-40: input/output tree split**
   - Partial coverage: all functional tests exercise the two-account layout; no test asserts distinct input/output trees.
@@ -118,7 +114,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-09: an input count with no circuit is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (seven inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_widest_input_shape`, `ring_transact_accepts_the_widest_input_shape` and `ring_p256_transact_accepts_the_widest_input_shape` (49 inputs, real proofs)
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (seven inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_widest_input_shape`, `ring_transact_accepts_the_widest_input_shape` (49 inputs, real proofs)
   - Kind: precondition
   - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The supported counts are 1 to 6, 8, 12, 16, 24, 32, 40, 48 and 49 (`SPP_SUPPORTED_SHAPES`), so seven inputs is rejected while forty-nine is accepted; `MAX_INPUTS` (`MAX_TRANSACT_INPUTS`, 49) sizes the program's buffers and is not itself the check.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:53-56` (`fn check_input_signers`), `transact/tree.rs:25-29` (`fn apply_input_tree`), `verify.rs:20` (`MAX_INPUTS`)
@@ -135,14 +131,11 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-11: a RingP256 proof with an invalid BSB22 commitment is rejected before pairing**
-  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet` (bad-commitment leg)
-  - Kind: precondition
-  - Statement: a `CircuitId::RingP256` selector whose embedded `RingP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, commitment leg)
-  - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007`
+- [x] **INV-TRANSACT-11: anonymous proofs require a valid BSB22 commitment**
+  - Statement: AnonymousRingEddsa carries its lookup commitment in the selector. Invalid encodings return 7007 and failed verification returns 7008.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs`
+  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_auditor_access` rejects malformed commitments and PoKs, a well-formed invalid PoK, then spends the unchanged valid proof.
   - Severity: Critical (spend authorization)
-  - Suggested test: negative (exists); harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-TRANSACT-12: both public amounts set is rejected**
   - Not applicable post-PR164 (the `public_sol_amount`/`public_spl_amount` fields were replaced by an ordered `interface_transfers` list; multiple legs -- including SOL and SPL legs in one instruction -- are legal and settle independently per leg, so the both-present guard is unnecessary). The covering `both_public_amounts_are_rejected` test was removed with the fields.
@@ -150,7 +143,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-34: circuit selector family must match the dispatched tag**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `RingTransact` only `RingEddsa`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
+  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `RingTransact` only `ConfidentialRingEddsa`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
@@ -159,7 +152,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-35: the payload must fit the selector shape, which must be supported**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected`, `a_cached_selector_counts_only_the_sent_slots`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/signer_run.rs` `owner_signer_run_is_bounded_by_max_signers`, `program-libs/interface/tests/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
-  - Statement: the instruction returns Err unless `1 <= inputs.len() <= circuit.num_inputs()`, `outputs.len() <= circuit.num_outputs()` (the slots past the sent ones are compact padding), no sent `nullifier_hash` or `utxo_hash` is 0 (`ZeroInputNullifier = 7078`, `ZeroOutputUtxoHash = 7079`), `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the deduplicated owner signer run fits `Shape::signer_width` owner accounts and the fixed-width `MAX_SIGNERS` (the widest `Shape::signer_width`, 29) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
+  - Statement: the instruction returns Err unless `1 <= inputs.len() <= circuit.num_inputs()`, `outputs.len() <= circuit.num_outputs()` (the slots past the sent ones are compact padding), no sent `nullifier_hash` or `utxo_hash` is 0 (`ZeroInputNullifier = 7078`, `ZeroOutputUtxoHash = 7079`), `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the deduplicated owner signer run fits `Shape::signer_width` owner accounts and the fixed-width `MAX_SIGNERS` (the widest `Shape::signer_width`, 29) array. The retired per-input Ed25519 signer index field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/account.rs` (`fn from_iter`, `owner_signer_slots`) and `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical
@@ -270,9 +263,9 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative + positive per shape; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-19: the proof rail is selected exactly by the CircuitId selector**
-  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`, `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: the proof rail (uncommitted eddsa vs BSB22-committed P256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
+  - Statement: the proof rail (runtime-authorized EdDSA vs BSB22-committed anonymous EdDSA) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired Ed25519 signer index field is deleted from the wire.)
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
@@ -474,19 +467,15 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-RING-TRANSACT-05: ring variant folds no output-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `ring_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the RingP256 selector additionally appends the P256 message hash and the default-owner-tag element after `private_tx_hash` (RingEddsa/RingP256 bind output owners; RingAuthority omits the owner chain and folds a bare payer element).
+  - Statement: the `ring_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the AnonymousRingEddsa selector additionally appends the signed message hash and a zero default-owner element after `private_tx_hash` (ConfidentialRingEddsa/AnonymousRingEddsa bind output owners; RingAuthority omits the owner chain and folds a bare payer element).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
-- [x] **INV-RING-TRANSACT-06: ring-only P256 ownership stays private on the wire**
-  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet`, `default_ring_p256_input_exposes_and_binds_owner_tag`
-  - Kind: postcondition
-  - Statement: for a ring-owned P256 input the wire carries NO owner identifier — `RingP256ProofData.default_owner_tag` is `None` and the public input's owner-tag element is 0; ownership exists only inside the proof. Only a real DEFAULT-ring P256 input exposes the pubkey x-coordinate (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
-  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs` (`has_default_p256_input`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: High (confidentiality + binding)
-  - Suggested test: positive private-by-default + positive exposed-and-bound + negative wrong tag (all exist); harness: program-tests integration (`cargo test-sbf`)
+- [x] **INV-RING-TRANSACT-06: anonymous ownership stays private on the wire**
+  - Covered by: `custom-rings/test/tests/ring.rs` anonymous lifecycle and `prover/server/circuits/spp_transaction/shared/custom_anonymous_eddsa_test.go`.
+  - Statement: the anonymous selector publishes no owner key. Its circuit rejects default-ring hidden inputs, public owner signers and published output owners. The default-owner hash element is fixed to zero.
+  - Severity: High (confidentiality and binding)
 
 - [x] **INV-RING-TRANSACT-07: enabled flag is not required for ring_transact**
   - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_transact_succeeds_while_ring_authority_transact_is_disabled`
@@ -538,10 +527,10 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted (non-P256) encoding**
+- [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted encoding**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `RingP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
+  - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `AnonymousRingEddsa` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: High

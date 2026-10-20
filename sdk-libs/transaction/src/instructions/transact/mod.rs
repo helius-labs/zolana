@@ -7,7 +7,7 @@
 //! automatically selected [`Shape`], then finalizes it into a keyless
 //! [`FinalizedTransaction`] that the key holder encrypts into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs, and [`transact_message_hash`] the digest a P256
+//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous EdDSA
 //! owner signs over it and the external data hash.
 
 mod cache;
@@ -31,12 +31,11 @@ use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::ResolvedOwnerTag;
+pub use encryption::{OutputEncoder, OutputEncryption, ResolvedOwnerTag};
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use finalized::FinalizedTransaction;
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
-pub use ring::inputs_require_p256;
 pub use settlement::{
     asset_field, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
     SettlementTarget, BN254_MODULUS_DEC,

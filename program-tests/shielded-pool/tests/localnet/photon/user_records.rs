@@ -61,7 +61,6 @@ fn registered_user_record_is_served_by_photon() -> TestResult {
     assert_eq!(response.records, expected);
 
     let address = shielded.shielded_address()?;
-    assert_eq!(on_chain.owner_p256, None);
     assert_eq!(on_chain.nullifier_pubkey, address.nullifier_pubkey);
     assert_eq!(on_chain.viewing_pubkey, *address.viewing_pubkey.as_bytes());
     assert_eq!(

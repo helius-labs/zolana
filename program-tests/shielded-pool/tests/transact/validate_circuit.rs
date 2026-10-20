@@ -4,8 +4,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, RingP256ProofData, TransactIxData,
-            TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
+            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
         },
         tag::InstructionTag,
     },
@@ -83,18 +83,21 @@ fn selector_family_must_match_instruction() {
             InstructionTag::Transact,
         ),
         (
-            CircuitId::RingP256(
+            CircuitId::AnonymousRingEddsa(
                 2,
                 4,
                 3,
-                RingP256ProofData {
+                AnonymousRingEddsaProofData {
                     bsb22_commitment: commitment,
                     default_owner_tag: None,
                 },
             ),
             InstructionTag::RingTransact,
         ),
-        (CircuitId::RingEddsa(2, 4, 3), InstructionTag::RingTransact),
+        (
+            CircuitId::ConfidentialRingEddsa(2, 4, 3),
+            InstructionTag::RingTransact,
+        ),
         (
             CircuitId::RingAuthority(2, 2, 3),
             InstructionTag::RingAuthorityTransact,
@@ -108,7 +111,7 @@ fn selector_family_must_match_instruction() {
 
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(2, 4, 3),
+            CircuitId::ConfidentialRingEddsa(2, 4, 3),
             InstructionTag::Transact,
             2,
             4,
@@ -170,7 +173,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::RingEddsa(49, 2, 3),
+            CircuitId::ConfidentialRingEddsa(49, 2, 3),
             InstructionTag::RingTransact,
             49,
             2,
@@ -207,11 +210,11 @@ fn selector_dimensions_are_fail_closed() {
             "ring authority {width}x{width}"
         );
     }
-    let p256 = CircuitId::RingP256(
+    let anonymous = CircuitId::AnonymousRingEddsa(
         2,
         4,
         3,
-        RingP256ProofData {
+        AnonymousRingEddsaProofData {
             bsb22_commitment: Bsb22Commitment {
                 commitment: [1u8; 32],
                 commitment_pok: [2u8; 32],
@@ -219,7 +222,10 @@ fn selector_dimensions_are_fail_closed() {
             default_owner_tag: None,
         },
     );
-    assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 4), Ok(()));
+    assert_eq!(
+        validate(anonymous, InstructionTag::RingTransact, 2, 4),
+        Ok(())
+    );
 }
 
 /// The instruction carries at least one input and at most the circuit's slots;
@@ -269,7 +275,7 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
         read_bitmap: 3,
         write_slots: CacheAccess::NO_WRITES,
     };
-    let p256_proof_data = RingP256ProofData {
+    let proof_data = AnonymousRingEddsaProofData {
         bsb22_commitment: Bsb22Commitment {
             commitment: [1u8; 32],
             commitment_pok: [2u8; 32],
@@ -282,11 +288,11 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
             InstructionTag::Transact,
         ),
         (
-            CircuitId::RingEddsaCached(2, 2, 3, CACHE),
+            CircuitId::ConfidentialRingEddsaCached(2, 2, 3, CACHE),
             InstructionTag::RingTransact,
         ),
         (
-            CircuitId::RingP256Cached(2, 2, 3, p256_proof_data, CACHE),
+            CircuitId::AnonymousRingEddsaCached(2, 2, 3, proof_data, CACHE),
             InstructionTag::RingTransact,
         ),
     ];
@@ -402,7 +408,7 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
         );
         assert_eq!(
             validate(
-                CircuitId::RingEddsaCached(2, 2, 3, access),
+                CircuitId::ConfidentialRingEddsaCached(2, 2, 3, access),
                 InstructionTag::RingTransact,
                 2,
                 2

@@ -13,14 +13,15 @@
 //! attributed to the ring through its confirmed call stack
 //! ([`TransactionOrigin`]).
 
+use custom_ring_interface::RingMode;
 use std::{
     collections::HashMap,
     num::{NonZeroU32, NonZeroUsize},
 };
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 
 use solana_signature::Signature;
 use zolana_client::{IndexerRpcConfig, Rpc};
-use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -58,7 +59,7 @@ pub struct AuditedPage {
 /// matches output tags and message tags.
 pub struct RingScan<'a> {
     ring_program_id: solana_address::Address,
-    auditor_key: &'a P256Pubkey,
+    auditor_key: &'a X25519Pubkey,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -69,7 +70,8 @@ pub struct RingScan<'a> {
 /// Scans and audits the bounded page range in one operation.
 pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
-    auditor: &'a ViewingKey,
+    auditor: &'a X25519Keypair,
+    mode: RingMode,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -86,7 +88,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = match NonZeroU32::new(100) {
 };
 
 impl<'a> RingScan<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor_key: &'a P256Pubkey) -> Self {
+    pub fn new(ring_program_id: solana_address::Address, auditor_key: &'a X25519Pubkey) -> Self {
         Self {
             ring_program_id,
             auditor_key,
@@ -192,15 +194,23 @@ impl<'a> RingScan<'a> {
 }
 
 impl<'a> RingAudit<'a> {
-    pub fn new(ring_program_id: solana_address::Address, auditor: &'a ViewingKey) -> Self {
+    pub fn new(ring_program_id: solana_address::Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring_program_id,
             auditor,
+            mode: RingMode::Off,
             cursor: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
         }
+    }
+
+    /// Selects the ring's proved disclosure layout before auditing its slots.
+    #[must_use = "use the updated audit"]
+    pub fn with_mode(mut self, mode: RingMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     #[must_use = "use the updated audit"]
@@ -252,7 +262,7 @@ impl<'a> RingAudit<'a> {
                     transaction,
                     assets,
                 }
-                .run()
+                .run_with_mode(self.mode)
             })
             .collect::<Result<_, _>>()?;
         Ok(AuditedPage {

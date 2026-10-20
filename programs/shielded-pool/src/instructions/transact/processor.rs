@@ -194,9 +194,10 @@ pub fn validate_circuit_type(
     let circuit = ix.circuit.uncached();
     let circuit_matches = match instruction_tag {
         InstructionTag::Transact => matches!(circuit, CircuitId::ConfidentialEddsa(..)),
-        InstructionTag::RingTransact => {
-            matches!(circuit, CircuitId::RingEddsa(..) | CircuitId::RingP256(..))
-        }
+        InstructionTag::RingTransact => matches!(
+            circuit,
+            CircuitId::ConfidentialRingEddsa(..) | CircuitId::AnonymousRingEddsa(..)
+        ),
         InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,
     };

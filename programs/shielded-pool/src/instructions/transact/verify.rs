@@ -9,7 +9,7 @@ use tinyvec::ArrayVec;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_hasher::{
     hash_chain::create_hash_chain_4_from_slice,
-    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
+    primitives::{hash_bytes, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
 };
@@ -487,7 +487,7 @@ impl<'a> TransactProof<'a> {
             self.derived.output_tree_id,
             *self.ix.private_tx_hash,
         ]);
-        if self.ix.circuit.is_p256() {
+        if self.ix.circuit.is_anonymous() {
             let message_digest = Sha256::hashv(&[
                 self.ix.private_tx_hash.as_slice(),
                 self.derived.external_data_hash.as_slice(),
@@ -496,10 +496,10 @@ impl<'a> TransactProof<'a> {
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);
-            // The published default-ring P256 owner is its x-coordinate; the
-            // circuit commits it as the tagged P256 identity.
-            fields.push(match self.ix.circuit.default_p256_owner_tag() {
-                Some(owner_x) => p256_owner_identity(owner_x)?,
+            // The published default-ring hidden owner is its Ed25519 key; the
+            // circuit commits it as the tagged Solana identity.
+            fields.push(match self.ix.circuit.default_owner_tag() {
+                Some(owner) => solana_owner_identity(owner)?,
                 None => [0u8; 32],
             });
         }
@@ -686,7 +686,7 @@ pub fn fixed_signer_hash_chain(
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    // A zero `unique_count` (only P256 or dummy inputs) is valid: the vector
+    // A zero `unique_count` (only hidden-owner or dummy inputs) is valid: the vector
     // is all padding and folds to the precomputed zero chain below.
     let shape = ShieldedPoolError::InvalidTransactShape;
     let mut index = unique_count;

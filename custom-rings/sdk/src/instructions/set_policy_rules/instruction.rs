@@ -38,6 +38,7 @@ impl SetPolicyRules<'_> {
         .body()?;
         let mut accounts = vec![
             AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
             AccountMeta::new(ring.policy_config_pda(), false),
             AccountMeta::new_readonly(ring.program_id(), false),
             AccountMeta::new_readonly(ring.program_data_pda(), false),

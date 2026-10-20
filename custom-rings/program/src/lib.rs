@@ -3,7 +3,7 @@
 //! then forwards the transaction to SPP signed with the ring authority PDA.
 //!
 //! The scope includes confidential transfers, owner preserving merges, Solana
-//! eddsa signers, and reader grants. See `custom-rings/program/tests` for the
+//! EdDSA signers, and reader grants. See `custom-rings/program/tests` for the
 //! enforced contract.
 
 mod error;

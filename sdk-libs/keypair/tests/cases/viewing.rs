@@ -12,7 +12,7 @@ pub(crate) fn ecdh_symmetric(world: &mut KeypairWorld, a: String, b: String) {
 pub(crate) fn viewing_roundtrip(world: &mut KeypairWorld, name: String) {
     let vk = world.vk(&name);
     let bytes = vk.secret_bytes();
-    let restored = ViewingKey::from_bytes(&bytes).unwrap();
+    let restored = ViewingKey::from_bytes(&bytes);
     assert_eq!(vk.pubkey(), restored.pubkey());
     assert_eq!(*bytes, *restored.secret_bytes());
 }
@@ -78,7 +78,7 @@ pub(crate) fn shared_tag_per_index(
 
 pub(crate) fn bootstrap_tag(world: &mut KeypairWorld, name: String) {
     let vk = world.vk(&name);
-    assert_eq!(vk.recipient_bootstrap_view_tag(), vk.pubkey().x());
+    assert_eq!(vk.recipient_bootstrap_view_tag(), vk.pubkey().u());
 }
 
 pub(crate) fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {
@@ -88,23 +88,6 @@ pub(crate) fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {
     assert_eq!(k1.pubkey(), k2.pubkey());
     let other = vk.get_transaction_viewing_key(&[4u8; 32]).unwrap();
     assert_ne!(k1.pubkey(), other.pubkey());
-}
-
-pub(crate) fn p_const_matches() {
-    use p256::{
-        elliptic_curve::{
-            hash2curve::{ExpandMsgXmd, GroupDigest},
-            sec1::ToEncodedPoint,
-        },
-        NistP256,
-    };
-    use sha2::Sha256;
-    use zolana_keypair::derivation::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
-
-    let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_VIEW_ROOT_P_CONST])
-        .unwrap();
-    let sec1 = point.to_affine().to_encoded_point(true);
-    assert_eq!(sec1.as_bytes(), P_CONST_SEC1);
 }
 
 pub(crate) fn sender_view_tag_golden(

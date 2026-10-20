@@ -5,9 +5,9 @@ import (
 	"github.com/consensys/gnark/std/hash/sha2"
 	"github.com/consensys/gnark/std/math/uints"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/p256"
 )
 
 const CountersDisclosureDomain = "CRING/spend-counters/v1"
@@ -19,9 +19,15 @@ type successorCounters struct {
 }
 
 func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, salt [16]frontend.Variable) (frontend.Variable, error) {
-	public := p256.ScalarMulGenerator(api, secret)
-	compressed := p256.CompressPubkey(api, public)
-	dh := p256.ECDH(api, secret, public)
+	// 1. Derive the same tagged viewing key as the base proof. Its canonical
+	// nonzero coordinate supplies a safe self-agreement peer.
+	public := x25519.ScalarMulGenerator(api, secret)
+	var compressed [33]frontend.Variable
+	compressed[0] = 4
+	copy(compressed[1:], public[:])
+	// 2. The shared secret and key schedule mirror the host's counter seal.
+	// This peer is derived from the secret, not supplied by an untrusted caller.
+	dh := x25519.ECDH(api, secret, public)
 	ikm := append(append(append([]frontend.Variable{}, dh[:]...), compressed[:]...), compressed[:]...)
 	zeros := make([]frontend.Variable, 32)
 	for i := range zeros {
@@ -59,7 +65,7 @@ func (s successorCounters) seal(api frontend.API, secret [32]frontend.Variable, 
 			plaintext = append(plaintext, api.FromBinary(bits[j*8:(j+1)*8]...))
 		}
 	}
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, plaintext)
+	ciphertext := aes.NewCipher(api, key).CTREncrypt(nonce, plaintext)
 	disclosure := counterConstants([]byte(CountersDisclosureDomain))
 	disclosure = append(disclosure, salt[:]...)
 	disclosure = append(disclosure, compressed[:]...)
@@ -95,8 +101,8 @@ func counterHMAC(api frontend.API, key, message []frontend.Variable) ([]frontend
 	outer := make([]frontend.Variable, 64)
 	for i := range inner {
 		if i < len(key) {
-			inner[i] = aes.XorByte(api, key[i], 0x36)
-			outer[i] = aes.XorByte(api, key[i], 0x5c)
+			inner[i] = counterXorPad(api, key[i], 0x36)
+			outer[i] = counterXorPad(api, key[i], 0x5c)
 		} else {
 			inner[i], outer[i] = 0x36, 0x5c
 		}
@@ -124,4 +130,15 @@ func counterSHA256(api frontend.API, input []frontend.Variable) ([]frontend.Vari
 		out[i] = b.Val
 	}
 	return out, nil
+}
+
+// HMAC pads are constants. Constrain each key byte before flipping its pad bits.
+func counterXorPad(api frontend.API, value frontend.Variable, pad byte) frontend.Variable {
+	bits := api.ToBinary(value, 8)
+	for i := range bits {
+		if pad&(1<<i) != 0 {
+			bits[i] = api.Sub(1, bits[i])
+		}
+	}
+	return api.FromBinary(bits...)
 }

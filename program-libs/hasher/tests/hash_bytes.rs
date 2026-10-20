@@ -1,9 +1,6 @@
 use serde::Deserialize;
 use zolana_hasher::{
-    primitives::{
-        hash_bytes, p256_owner_identity, right_align, solana_owner_identity, P256_OWNER_TAG,
-        SOLANA_OWNER_TAG,
-    },
+    primitives::{hash_bytes, right_align, solana_owner_identity, SOLANA_OWNER_TAG},
     Hasher, Poseidon,
 };
 
@@ -69,21 +66,14 @@ fn owner_identities_are_tagged_hash_bytes_33() {
         solana_owner_identity(&key).unwrap(),
         expected_identity(SOLANA_OWNER_TAG, &key)
     );
-    assert_eq!(
-        p256_owner_identity(&key).unwrap(),
-        expected_identity(P256_OWNER_TAG, &key)
-    );
 }
 
 #[test]
-fn owner_identities_differ_from_each_other_and_from_untagged_hash() {
+fn owner_identity_differs_from_untagged_hash() {
     let key = key();
     let solana = solana_owner_identity(&key).unwrap();
-    let p256 = p256_owner_identity(&key).unwrap();
     let untagged = hash_bytes(&key).unwrap();
-    assert_ne!(solana, p256);
     assert_ne!(solana, untagged);
-    assert_ne!(p256, untagged);
 }
 
 #[test]
@@ -95,14 +85,6 @@ fn owner_identity_vectors_are_pinned() {
             0x27, 0x7e, 0x7b, 0x24, 0x9a, 0xd4, 0x3c, 0xf3, 0xb0, 0x90, 0xb9, 0x88, 0x08, 0xcd,
             0xd8, 0x31, 0x6a, 0xa7, 0x2f, 0x72, 0xe1, 0xfc, 0x09, 0x8d, 0xcd, 0x84, 0x53, 0x2f,
             0xa3, 0xc3, 0x55, 0x5f,
-        ]
-    );
-    assert_eq!(
-        p256_owner_identity(&key).unwrap(),
-        [
-            0x07, 0x20, 0xe7, 0xed, 0x52, 0x8b, 0xcd, 0xd2, 0x59, 0x07, 0xa4, 0xf2, 0xd2, 0xc9,
-            0xb7, 0xe0, 0xf1, 0x2d, 0x70, 0x07, 0x96, 0xd2, 0xbf, 0x15, 0xe4, 0x27, 0xbf, 0x3f,
-            0xe4, 0x65, 0x9b, 0x50,
         ]
     );
 }

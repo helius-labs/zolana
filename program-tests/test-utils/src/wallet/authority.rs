@@ -5,7 +5,8 @@ use zolana_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    Curve, NullifierKey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    X25519Pubkey,
 };
 use zolana_transaction::{
     serialization::{
@@ -16,7 +17,7 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     },
-    P256Signature, SppProofOutputUtxo, TransactionError, UtxoSerialization,
+    SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +29,7 @@ pub struct ApprovalRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousRecipientSlot {
     pub view_tag: ViewTag,
-    pub recipient_pubkey: P256Pubkey,
+    pub recipient_pubkey: X25519Pubkey,
     pub plaintext: AnonymousTransferRecipientPlaintext,
 }
 
@@ -37,7 +38,7 @@ pub struct AnonymousRecipientSlot {
 /// (published in the clear), plus the sealed payload the operation produced.
 #[derive(Clone, Debug)]
 pub struct EncryptedEnvelope<P> {
-    pub tx_viewing_pk: P256Pubkey,
+    pub tx_viewing_pk: X25519Pubkey,
     pub salt: Salt,
     pub payload: P,
 }
@@ -101,8 +102,6 @@ pub trait WalletAuthority: Send + Sync {
         Ok(())
     }
 
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
-
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
 
@@ -142,8 +141,6 @@ pub trait SyncWalletAuthority: Send + Sync {
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
         Ok(())
     }
-
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
 }
@@ -198,10 +195,6 @@ where
         request: ApprovalRequest,
     ) -> Result<(), TransactionError> {
         SyncWalletAuthority::request_user_approval(self, request)
-    }
-
-    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        SyncWalletAuthority::sign_p256(self, message_hash)
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -440,24 +433,6 @@ fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
     })
 }
 
-fn sign_p256_with<K: ShieldedKeypairTrait>(
-    keypair: &K,
-    message_hash: &[u8; 32],
-) -> Result<P256Signature, TransactionError> {
-    let bytes = keypair
-        .sign_hash(message_hash)
-        .map_err(|e| TransactionError::P256(e.to_string()))?;
-    let mut sig_r = [0u8; 32];
-    let mut sig_s = [0u8; 32];
-    sig_r.copy_from_slice(&bytes[..32]);
-    sig_s.copy_from_slice(&bytes[32..]);
-    Ok(P256Signature {
-        pubkey: keypair.signing_pubkey().as_p256()?,
-        sig_r,
-        sig_s,
-    })
-}
-
 impl SyncWalletAuthority for ClientEd25519WalletAuthority {
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey
@@ -497,10 +472,6 @@ impl SyncWalletAuthority for ClientEd25519WalletAuthority {
             sender,
             recipients,
         )
-    }
-
-    fn sign_p256(&self, _message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        Err(TransactionError::P256TransactUnsupported)
     }
 
     /// Deliberately a no-op rather than the inherited trait default, so that
@@ -560,10 +531,6 @@ impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
         )
     }
 
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        sign_p256_with(self.keypair, message_hash)
-    }
-
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         Ok(ShieldedKeypairTrait::nullifier_key(self.keypair))
     }
@@ -601,10 +568,6 @@ impl SyncWalletAuthority for ShieldedKeypair {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError> {
         encrypt_anonymous_transfer_with(self, first_nullifier, sender_view_tag, sender, recipients)
-    }
-
-    fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        sign_p256_with(self, message_hash)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
@@ -697,10 +660,6 @@ mod tests {
             SyncWalletAuthority::spend_nullifier_key(&client)
                 .unwrap()
                 .secret()
-        );
-        assert_eq!(
-            SyncWalletAuthority::sign_p256(&client, &[0; 32]),
-            Err(TransactionError::P256TransactUnsupported)
         );
     }
 }

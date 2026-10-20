@@ -341,7 +341,7 @@ pub(crate) struct ConfigAddAssetOptions {
 pub(crate) enum WalletCommand {
     #[command(
         name = "new",
-        about = "Create a local wallet keypair (ed25519 by default, or P256 with --p256). Offline: publish it on-chain separately with `zolana wallet register`."
+        about = "Create a local wallet keypair. Offline: publish it on-chain separately with `zolana wallet register`."
     )]
     New(NewWalletOptions),
 
@@ -587,13 +587,6 @@ pub(crate) struct NewWalletOptions {
         value_name = "PATH"
     )]
     pub(crate) funding_keypair: Option<String>,
-
-    #[arg(
-        long = "p256",
-        action = ArgAction::SetTrue,
-        help = "Mint an independent random P256 shielded identity instead of the default ed25519 rail (where the Solana funding key is the identity)"
-    )]
-    pub(crate) p256: bool,
 
     #[arg(
         long = "rpc-url",
@@ -1282,21 +1275,10 @@ mod tests {
         let expected = NewWalletOptions {
             outfile: Some("/tmp/alice.pid.json".to_string()),
             funding_keypair: Some("/tmp/solana.json".to_string()),
-            p256: false,
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             airdrop_lamports: Some(1_000_000_000),
         };
         assert_eq!(opts, expected);
-
-        let WalletCommand::New(p256_opts) = parse_wallet(&["new", "--p256"]) else {
-            panic!("expected wallet new command");
-        };
-        assert!(p256_opts.p256);
-
-        let WalletCommand::New(default_opts) = parse_wallet(&["new"]) else {
-            panic!("expected wallet new command");
-        };
-        assert!(!default_opts.p256);
     }
 
     #[test]

@@ -37,10 +37,8 @@ impl SyncWorld {
     /// copy cannot leak that state into the next one.
     fn fresh_keypair(&self, name: &str) -> ShieldedKeypair {
         let keypair = self.kp(name);
-        let signing = SigningKey::from_p256_bytes(&keypair.signing_key.secret_bytes())
-            .expect("signing key round-trip");
-        let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())
-            .expect("viewing key round-trip");
+        let signing = SigningKey::from_ed25519_bytes(&keypair.signing_key.secret_bytes());
+        let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes());
         ShieldedKeypair::with_viewing_key(signing, viewing).expect("keypair rebuild")
     }
 }
@@ -49,7 +47,7 @@ fn add_keypairs(world: &mut SyncWorld, names: &[&str]) {
     for name in names {
         world.keypairs.insert(
             (*name).to_string(),
-            ShieldedKeypair::new_p256().expect("shielded keypair"),
+            ShieldedKeypair::new_ed25519().expect("shielded keypair"),
         );
     }
 }

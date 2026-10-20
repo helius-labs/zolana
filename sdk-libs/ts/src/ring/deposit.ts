@@ -19,7 +19,12 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
-import { fetchRingCoSigner, fetchRingDepositAudit, fetchRingProgramConfig } from "./config.js";
+import {
+  checkBuildableRingMode,
+  fetchRingCoSigner,
+  fetchRingDepositAudit,
+  fetchRingProgramConfig,
+} from "./config.js";
 import { DEPOSIT_DEMAND, checkRingCoSigner } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";
 import { openRingEscrowedKeys, unregisteredOutputKey } from "./key-escrow.js";
@@ -86,11 +91,13 @@ async function buildRingDepositOnce(
   const tree = input.tree ?? input.client.tree;
   const asset = input.asset ?? SOL_MINT;
   // 1. Read the ring's signature, deposit disclosure and key escrow requirements.
-  const [{ auditorPublicKey, keyEscrow }, coSigner, depositAudit] = await Promise.all([
+  const [config, coSigner, depositAudit] = await Promise.all([
     fetchRingProgramConfig(input.client, input.ringProgramId, context),
     fetchRingCoSigner(input.client, input.ringProgramId, context),
     fetchRingDepositAudit(input.client, input.ringProgramId, context),
   ]);
+  checkBuildableRingMode(config, "deposit");
+  const { auditorPublicKey, keyEscrow } = config;
   checkRingCoSigner({
     ringProgramId: input.ringProgramId,
     configured: coSigner,
@@ -198,7 +205,7 @@ async function buildRingDepositOnce(
         blindings: firstSlot(blinding, ZERO_32),
         keys: firstSlot(escrow?.keys[0], undefined),
         ephemeralSecret: sealed.ephemeralSecret,
-        auditorPublicKey: auditorPublicKey.toUncompressed(),
+        auditorPublicKey: auditorPublicKey.u(),
         ...(escrow === undefined ? {} : { keyRegistryRoot: escrow.root }),
       };
       let proof: Uint8Array;

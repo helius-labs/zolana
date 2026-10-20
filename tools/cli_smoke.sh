@@ -4,7 +4,7 @@
 # Zolana environment (localnet or devnet): the shielded-pool program, pool tree,
 # prover, and Photon indexer must all be reachable. Runs every CLI operation once,
 # in dependency order, asserting each step, and exercises both the SOL and SPL
-# asset rails on the supported ed25519 wallet rail. Replaces the older
+# asset rails on the supported eddsa wallet rail. Replaces the older
 # pingpong.sh / pingpong_parallel.sh soak scripts, which targeted a superseded
 # wallet-name/SOL-float CLI surface.
 #
@@ -66,8 +66,8 @@ TREE="${ZOLANA_TREE:-}"
 # WORKDIR so the run never touches the operator's ~/.config/zolana.
 export ZOLANA_CONFIG_DIR="$WORKDIR"
 
-ALICE="$WORKDIR/alice.json"   # ed25519 rail, primary actor
-BOB="$WORKDIR/bob.json"       # ed25519 rail, transfer recipient
+ALICE="$WORKDIR/alice.json"   # eddsa rail, primary actor
+BOB="$WORKDIR/bob.json"       # eddsa rail, transfer recipient
 
 PASS=0 FAIL=0 SKIP=0
 LAST_OUT=""

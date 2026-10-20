@@ -6,12 +6,13 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_policy_config, UpgradeAuthorityCheck},
-        policy_shared::{namespace_pda, repin, Repin, TableBinding},
+        loader::{load_config, load_policy_config, UpgradeAuthorityCheck},
+        policy_shared::{check_anonymous_policy, namespace_pda, repin, Repin, TableBinding},
     },
 };
 
 /// Takes effect at once, a proof over the old hash fails at verification.
+/// A windowed table on an anonymous ring would freeze every member, the config gates it.
 #[inline(never)]
 pub fn process_set_policy_rules_ix(
     program_id: &Address,
@@ -23,6 +24,7 @@ pub fn process_set_policy_rules_ix(
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
+    let config = iter.next_account("config")?;
     let policy_config = iter.next_mut("policy_config")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
@@ -35,6 +37,9 @@ pub fn process_set_policy_rules_ix(
         program_data,
     }
     .verify()?;
+    let mode = load_config(program_id, config)?
+        .mode()
+        .ok_or(CustomRingError::InvalidRingMode)?;
     let (address_tree, old_window_slots) = {
         let config = load_policy_config(program_id, policy_config)?;
         (config.address_tree, config.rules.window_slots())
@@ -48,6 +53,7 @@ pub fn process_set_policy_rules_ix(
         address_tree: &address_tree,
     }
     .bind()?;
+    check_anonymous_policy(mode, &bound.rules)?;
 
     if old_window_slots != 0 && bound.rules.window_slots() != old_window_slots {
         return Err(CustomRingError::VelocityWindowImmutable.into());

@@ -23,11 +23,11 @@ pub use output_utxo::OutputUtxo;
 pub use proofless::{
     confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
     encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
-    is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
-    EncryptedRingDepositData, EncryptedRingDepositDataRef, EncryptedRingDepositOutput,
-    EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput, ProoflessOutputRef,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
-    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN,
+    is_confidential_encrypted_output, ring_anonymous_encrypted_output_body,
+    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
+    EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
+    ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
+    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
@@ -43,9 +43,8 @@ pub struct GeneralEvent {
     /// Published data slots bound to no output position, republished from
     /// `TransactIxData::messages`.
     pub messages: Vec<MessageData>,
-    /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
-    /// indexer can decrypt without parsing the per-output `data`. Zeroed for
-    /// proofless deposits, which have no shared viewing key.
+    /// Tagged canonical X25519 viewing key shared by every output ciphertext.
+    /// Zeroed for proofless deposits, which carry their own viewing keys.
     pub tx_viewing_pk: [u8; 33],
     /// Per-transaction encryption salt shared by every output ciphertext, so a
     /// wallet can derive the AES key/nonce without parsing the per-output `data`.

@@ -33,7 +33,6 @@ pub mod bigint;
 pub mod errors;
 pub mod hash_chain;
 pub mod keccak;
-pub mod p256;
 pub mod poseidon;
 pub mod primitives;
 pub mod sha256;

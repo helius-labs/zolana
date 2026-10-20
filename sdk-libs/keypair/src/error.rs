@@ -7,6 +7,8 @@ use zolana_hasher::HasherError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum KeypairError {
+    #[error("X25519 agreement with a low-order key")]
+    NonContributoryKey,
     #[error("invalid public key")]
     InvalidPublicKey,
 
@@ -16,19 +18,13 @@ pub enum KeypairError {
     #[error("invalid secret key")]
     InvalidSecretKey,
 
-    #[error("derived scalar is zero")]
-    ZeroScalar,
-
     #[error("invalid signature-type prefix: {0}")]
     InvalidSignatureType(u8),
 
     #[error("signing key is not ed25519")]
     NotEd25519,
 
-    #[error("signing key is not P256")]
-    NotP256,
-
-    #[error("a P256 owner has no Solana address")]
+    #[error("owner has no Solana address")]
     NoSolanaAddress,
 
     #[error("input would produce the derivation seed; use ShieldedKeypair::from_keypair")]

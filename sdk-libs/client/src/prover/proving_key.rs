@@ -9,7 +9,8 @@
 use serde::Deserialize;
 use zolana_interface::{
     verifying_keys::{
-        Bsb22Commitment, CircuitId, RingP256ProofData, PROVING_KEY_SHA256S as TRANSACT_KEYS,
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId,
+        PROVING_KEY_SHA256S as TRANSACT_KEYS,
     },
     N_PUBLIC_SLOTS,
 };
@@ -170,7 +171,12 @@ impl ExpectedProvingKey {
     }
 
     pub(crate) fn transfer_ring(n_inputs: usize, n_outputs: usize) -> Result<Self, ClientError> {
-        Self::transfer("transfer_ring", n_inputs, n_outputs, CircuitId::RingEddsa)
+        Self::transfer(
+            "transfer_ring",
+            n_inputs,
+            n_outputs,
+            CircuitId::ConfidentialRingEddsa,
+        )
     }
 
     pub(crate) fn transfer_ring_authority(
@@ -185,12 +191,12 @@ impl ExpectedProvingKey {
         )
     }
 
-    pub(crate) fn transfer_p256_ring(
+    pub(crate) fn transfer_anonymous_ring_eddsa(
         n_inputs: usize,
         n_outputs: usize,
     ) -> Result<Self, ClientError> {
         // The proof data does not select the key; only rail and shape do.
-        let proof_data = RingP256ProofData {
+        let proof_data = AnonymousRingEddsaProofData {
             bsb22_commitment: Bsb22Commitment {
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
@@ -198,10 +204,10 @@ impl ExpectedProvingKey {
             default_owner_tag: None,
         };
         Self::transfer(
-            "transfer_p256_ring",
+            "transfer_eddsa_ring",
             n_inputs,
             n_outputs,
-            |n_in, n_out, slots| CircuitId::RingP256(n_in, n_out, slots, proof_data),
+            |n_in, n_out, slots| CircuitId::AnonymousRingEddsa(n_in, n_out, slots, proof_data),
         )
     }
 

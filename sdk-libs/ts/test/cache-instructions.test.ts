@@ -133,7 +133,6 @@ function mergeData(cacheSlot?: number): MergeTransactInstructionData {
       salt: filled(5, 16) as Bytes16,
       ciphertext: [field(6), field(7), field(8)],
     },
-    eddsaOwner: true,
     privateTxHash: field(3),
     nullifiers: Array.from({ length: 8 }, (_, index) => field(index + 1)),
     utxoTreeRootIndex: 4,
@@ -405,7 +404,7 @@ describe("transact cache accounts", () => {
         outputTree: OUTPUT_TREE,
         proof: new Uint8Array(),
         data: transactData({
-          kind: "ringEddsaCached",
+          kind: "confidentialRingEddsaCached",
           inputs: 2,
           outputs: 2,
           publicAssetSlots: 3,
@@ -414,7 +413,7 @@ describe("transact cache accounts", () => {
       }),
     ).rejects.toMatchObject({
       code: "RING_CACHE_UNSUPPORTED",
-      details: { kind: "ringEddsaCached" },
+      details: { kind: "confidentialRingEddsaCached" },
     });
   });
 });
@@ -441,7 +440,7 @@ describe("merge cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-    expect(cached.data).toHaveLength(1 + 641);
+    expect(cached.data).toHaveLength(1 + 640);
     expect(Array.from(cached.data?.slice(-2) ?? [])).toEqual([1, 7]);
     expect(plain.data?.at(-1)).toBe(0);
   });

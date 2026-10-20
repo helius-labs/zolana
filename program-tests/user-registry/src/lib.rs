@@ -11,12 +11,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use zolana_keypair::SigningKey;
 use zolana_user_registry_interface::{
-    instruction::{
-        self as user_registry_instruction, p256_key_binding_message, p256_verify_instruction,
-        RegisterData, UpdateKeysData,
-    },
+    instruction::{self as user_registry_instruction, RegisterData, UpdateKeysData},
     user_record_pda, MergeEncryptionScheme,
 };
 pub use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
@@ -64,13 +60,6 @@ impl UserRegistryTestRig {
         self.send_all(&[instruction], signers)
     }
 
-    /// Sends several instructions in one transaction. Required for the P256
-    /// proof of possession, which the program reads at relative index -1 and so
-    /// must ride in the same transaction as the registry instruction.
-    ///
-    /// v1 states its compute ceiling in the message header, so nothing is
-    /// prepended to `instructions` and the relative index the program reads is
-    /// exactly the caller's own ordering.
     pub fn send_all(
         &mut self,
         instructions: &[Instruction],
@@ -120,40 +109,8 @@ pub fn user_registry_program_path() -> PathBuf {
         .join("zolana_user_registry.so")
 }
 
-/// A throwaway P256 owner key. Unlike [`test_p256_pubkey`] this is a real
-/// curve point, so it can produce the proof of possession `register` /
-/// `update_keys` require alongside an `owner_p256`.
-pub fn p256_owner_key() -> SigningKey {
-    SigningKey::new_p256()
-}
-
-/// The compressed `owner_p256` for `key` and its proof-of-possession signature
-/// over the record's binding message, in the form Solana's secp256r1
-/// precompile verifies (ECDSA over SHA-256, low-S normalized).
-pub fn p256_binding_signature(owner: &Pubkey, key: &SigningKey) -> ([u8; 33], [u8; 64]) {
-    let pubkey = *key
-        .pubkey()
-        .as_p256()
-        .expect("p256 owner key exposes a compressed p256 pubkey")
-        .as_bytes();
-    let (user_record, _bump) = user_record_pda(owner);
-    let message = p256_key_binding_message(&user_record, owner, &pubkey);
-    let signature = key
-        .sign_message(&message)
-        .expect("p256 owner key signs the binding message");
-    (pubkey, signature)
-}
-
-pub fn test_p256_pubkey(tag: u8) -> [u8; 33] {
-    let mut pubkey = [0u8; 33];
-    pubkey[0] = 0x02;
-    pubkey[1] = tag;
-    pubkey
-}
-
 pub fn build_register_ix(
     owner: &Pubkey,
-    owner_p256: Option<[u8; 33]>,
     nullifier_pubkey: [u8; 32],
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
@@ -163,22 +120,10 @@ pub fn build_register_ix(
         *owner,
         *owner,
         RegisterData {
-            owner_p256,
             nullifier_pubkey,
             viewing_pubkey,
         },
     )
-}
-
-pub fn build_register_ixs(
-    owner: &Pubkey,
-    owner_p256: Option<[u8; 33]>,
-    nullifier_pubkey: [u8; 32],
-    viewing_pubkey: [u8; 33],
-    p256_signature: Option<[u8; 64]>,
-) -> Vec<Instruction> {
-    let registry = build_register_ix(owner, owner_p256, nullifier_pubkey, viewing_pubkey);
-    compose_p256_proof(owner, owner_p256, p256_signature, registry)
 }
 
 pub fn build_set_merge_encryption_ix(
@@ -192,7 +137,6 @@ pub fn build_set_merge_encryption_ix(
 
 pub fn build_update_keys_ix(
     owner: &Pubkey,
-    owner_p256: Option<[u8; 33]>,
     nullifier_pubkey: [u8; 32],
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
@@ -201,42 +145,10 @@ pub fn build_update_keys_ix(
         user_record,
         *owner,
         UpdateKeysData {
-            owner_p256,
             nullifier_pubkey,
             viewing_pubkey,
         },
     )
-}
-
-pub fn build_update_keys_ixs(
-    owner: &Pubkey,
-    owner_p256: Option<[u8; 33]>,
-    nullifier_pubkey: [u8; 32],
-    viewing_pubkey: [u8; 33],
-    p256_signature: Option<[u8; 64]>,
-) -> Vec<Instruction> {
-    let registry = build_update_keys_ix(owner, owner_p256, nullifier_pubkey, viewing_pubkey);
-    compose_p256_proof(owner, owner_p256, p256_signature, registry)
-}
-
-fn compose_p256_proof(
-    owner: &Pubkey,
-    owner_p256: Option<[u8; 33]>,
-    p256_signature: Option<[u8; 64]>,
-    registry: Instruction,
-) -> Vec<Instruction> {
-    match (owner_p256, p256_signature) {
-        (Some(pubkey), Some(signature)) => {
-            let user_record = user_record_pda(owner).0;
-            let message = p256_key_binding_message(&user_record, owner, &pubkey);
-            vec![
-                p256_verify_instruction(&message, &signature, &pubkey),
-                registry,
-            ]
-        }
-        (None, None) => vec![registry],
-        _ => panic!("P256 registry key and proof signature must be supplied together"),
-    }
 }
 
 pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserRecord> {

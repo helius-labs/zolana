@@ -1,8 +1,6 @@
 //! Pins permanent delegate authorization and transfer confinement.
 
-use custom_ring_interface::{
-    tag, CoSignScope, Delegate, KeyEscrow, RingProgramConfig, AUDITOR_MESSAGE_LEN, DELEGATE,
-};
+use custom_ring_interface::{tag, CoSignScope, Delegate, RingMode, RingProgramConfig, DELEGATE};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use pinocchio::Address;
@@ -13,10 +11,11 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, audit_only_config_account, auditor_pubkey, authority, config_pda, cosigner_account,
-    custom, delegate, delegate_account, delegate_pda, delegate_transact_fixture,
-    initialized_config_account, policy_delegate_transact_fixture, program_id, set_delegate_data,
-    set_delegate_fixture, setup_mollusk, stored, Fixture,
+    account, anonymous_config_account, audit_only_config_account, auditor_message_len,
+    auditor_pubkey, authority, config_pda, cosigner_account, custom, delegate, delegate_account,
+    delegate_pda, delegate_transact_fixture, initialized_config_account,
+    policy_delegate_transact_fixture, program_id, set_delegate_data, set_delegate_fixture,
+    setup_mollusk, stored, Fixture,
 };
 use crate::transact::{
     audit_instruction_data, auditor_message, bogus_proof, instruction_data, transact,
@@ -43,7 +42,7 @@ fn set_delegate_creates_the_account_at_the_canonical_bump() {
     );
     assert_eq!(state.bump, delegate_pda().1);
     let config: RingProgramConfig = stored(&result, config_pda().0);
-    assert_eq!(config.key_escrow(), KeyEscrow::Registry);
+    assert_eq!(config.mode(), Some(RingMode::Registry));
 }
 
 #[test]
@@ -52,9 +51,18 @@ fn set_delegate_on_an_audit_only_ring_is_rejected_exactly() {
     let mut fixture = set_delegate_fixture(set_delegate_data(delegate()), None);
     fixture.set_account(
         "config",
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
+}
+
+/// An anonymous ring hides its senders, a delegate key escrow would not.
+#[test]
+fn set_delegate_on_an_anonymous_ring_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = set_delegate_fixture(set_delegate_data(delegate()), None);
+    fixture.set_account("config", anonymous_config_account());
+    fixture.expect_err(&mollusk, custom(CustomRingError::AnonymousRingRefused));
 }
 
 #[test]
@@ -124,7 +132,7 @@ fn delegate_data(
 
 /// Authority context reaches program checks before the deliberately invalid proof.
 fn delegate_move(legs: Vec<InterfaceTransfer>) -> Fixture {
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut content = transact(vec![auditor_message(auditor_message_len(1))]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     content.interface_transfers = legs;
     let mut data = instruction_data(bogus_proof(), content);
@@ -142,12 +150,12 @@ fn a_delegate_move_reaches_the_policy_proof() {
 #[test]
 fn an_audit_only_ring_refuses_the_delegate_rail_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut content = transact(vec![auditor_message(auditor_message_len(1))]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     let mut data = audit_instruction_data(bogus_proof(), content);
     data[0] = tag::DELEGATE_TRANSACT;
     delegate_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         data,
     )
     .expect_err(&mollusk, custom(CustomRingError::DelegateRequiresPolicy));
@@ -160,12 +168,21 @@ fn the_delegate_rail_requires_the_key_registry() {
     let mut unescrowed = delegate_move(Vec::new());
     unescrowed.set_account(
         "config",
-        initialized_config_account(authority(), auditor_pubkey(2)),
+        initialized_config_account(authority(), auditor_pubkey(4)),
     );
     unescrowed.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
     let mut missing = delegate_move(Vec::new());
     missing.remove("key_registry_root");
     missing.expect_err(&mollusk, custom(CustomRingError::InvalidKeyRegistryRoot));
+}
+
+/// An anonymous ring hides its senders, which a delegate move would publish.
+#[test]
+fn the_delegate_rail_refuses_an_anonymous_ring_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut anonymous = delegate_move(Vec::new());
+    anonymous.set_account("config", anonymous_config_account());
+    anonymous.expect_err(&mollusk, custom(CustomRingError::AnonymousRingRefused));
 }
 
 #[test]
@@ -208,8 +225,8 @@ fn a_public_leg_on_the_delegate_rail_is_rejected_exactly() {
 fn the_member_circuit_on_the_delegate_rail_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     policy_delegate_transact_fixture(delegate_data(
-        CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
-        vec![auditor_message(AUDITOR_MESSAGE_LEN)],
+        CircuitId::ConfidentialRingEddsa(2, 2, N_PUBLIC_SLOTS as u8),
+        vec![auditor_message(auditor_message_len(1))],
     ))
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
 }
@@ -217,10 +234,10 @@ fn the_member_circuit_on_the_delegate_rail_is_rejected_exactly() {
 #[test]
 fn the_authority_circuit_on_the_member_rail_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    let mut content = transact(vec![auditor_message(auditor_message_len(1))]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
     crate::common::audit_transact_fixture(
-        audit_only_config_account(authority(), auditor_pubkey(2)),
+        audit_only_config_account(authority(), auditor_pubkey(4)),
         audit_instruction_data(bogus_proof(), content),
     )
     .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));

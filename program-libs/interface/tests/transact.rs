@@ -3,10 +3,10 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            fetch_tag, validate_input_tree_contexts, validate_interface_transfers, Bsb22Commitment,
-            CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
-            RingP256ProofData, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
-            TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
+            fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
+            AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, ExternalDataPreimage,
+            InputUtxo, InterfaceTransfer, MessageData, OwnerTag, TransactIxData, TransactIxDataRef,
+            TransactOutput, TransactProof, TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
         },
         tag,
     },
@@ -20,7 +20,7 @@ use zolana_interface::{
 fn circuit_id_wire_layout_and_unknown_rejection() {
     let vanilla_ids = [
         CircuitId::ConfidentialEddsa(1, 2, 3),
-        CircuitId::RingEddsa(2, 3, 3),
+        CircuitId::ConfidentialRingEddsa(2, 3, 3),
         CircuitId::RingAuthority(4, 4, 3),
     ];
     for (value, id) in vanilla_ids.into_iter().enumerate() {
@@ -39,12 +39,12 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
         commitment: [4u8; 32],
         commitment_pok: [5u8; 32],
     };
-    let proof_data = RingP256ProofData {
+    let proof_data = AnonymousRingEddsaProofData {
         bsb22_commitment: commitment,
         default_owner_tag: None,
     };
-    let p256 = CircuitId::RingP256(2, 3, 3, proof_data);
-    let bytes = wincode::serialize(&p256).unwrap();
+    let anonymous = CircuitId::AnonymousRingEddsa(2, 3, 3, proof_data);
+    let bytes = wincode::serialize(&anonymous).unwrap();
     let mut expected = 3u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[2, 3, 3]);
     expected.extend_from_slice(&commitment.commitment);
@@ -54,14 +54,14 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
     assert_eq!(bytes, expected);
     assert_eq!(
         wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(),
-        p256
+        anonymous
     );
 
-    let tagged = CircuitId::RingP256(
+    let tagged = CircuitId::AnonymousRingEddsa(
         2,
         3,
         3,
-        RingP256ProofData {
+        AnonymousRingEddsaProofData {
             bsb22_commitment: commitment,
             default_owner_tag: Some([7u8; 32]),
         },

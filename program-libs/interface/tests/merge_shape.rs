@@ -22,7 +22,6 @@ fn data_with(input_count: usize) -> MergeTransactIxData {
         utxo_tree_root_index: 4,
         nullifier_tree_root_index: 10,
         private_tx_hash: [3u8; 32],
-        eddsa_owner: false,
     }
 }
 
@@ -32,7 +31,7 @@ fn every_supported_shape_has_the_contracted_encoded_length() {
         let bytes = data_with(input_count)
             .serialize()
             .expect("serialize merge instruction");
-        assert_eq!(bytes.len(), 384 + 32 * input_count);
+        assert_eq!(bytes.len(), 383 + 32 * input_count);
         MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
     }
 }
@@ -84,7 +83,7 @@ fn cache_slot_round_trips_in_both_merge_rails() {
     use zolana_interface::instruction::{
         instruction_data::merge_ring::MergeRingIxDataRef, MergeRingIxData,
     };
-    for (cache_slot, encoded_len) in [(None, 640), (Some(0), 641), (Some(35), 641)] {
+    for (cache_slot, encoded_len) in [(None, 639), (Some(0), 640), (Some(35), 640)] {
         let mut data = data_with(8);
         data.cache_slot = cache_slot;
         let bytes = data.serialize().unwrap();

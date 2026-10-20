@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"crypto/elliptic"
 	"encoding/json"
 	"errors"
 	"github.com/helius-labs/zolana/prover/server/logging"
@@ -342,8 +341,9 @@ func validCustomRingBasePayload(t *testing.T) []byte {
 		params.TxViewingSk[i] = byte(i + 1)
 		params.EphSk[i] = byte(0x20 + i)
 	}
-	curve := elliptic.P256().Params()
-	copy(params.AuditorPk[:], elliptic.Marshal(elliptic.P256(), curve.Gx, curve.Gy))
+	params.TxViewingSk[0] &= 248
+	params.TxViewingSk[31] = params.TxViewingSk[31]&127 | 64
+	params.AuditorPk[0] = 9
 	for i := range params.Outputs {
 		params.Outputs[i] = customring.AuditOpening{
 			Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),

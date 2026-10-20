@@ -176,7 +176,7 @@ fn ring_instruction(
             N_PUBLIC_SLOTS as u8,
         )
     } else {
-        CircuitId::RingEddsa(
+        CircuitId::ConfidentialRingEddsa(
             data.circuit.num_inputs(),
             data.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
@@ -332,7 +332,7 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
         interface_transfer_accounts: Vec::new(),
         data: {
             let mut data = transfer_ix_data(2, 4);
-            data.circuit = CircuitId::RingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
+            data.circuit = CircuitId::ConfidentialRingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
             data
         },
     }

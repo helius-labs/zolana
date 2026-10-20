@@ -53,7 +53,6 @@ fn merge_data() -> MergeTransactIxData {
             salt: [0u8; 16],
             ciphertext: [[0u8; 32]; 3],
         },
-        eddsa_owner: true,
         private_tx_hash: [0u8; 32],
         nullifiers: merge_nullifiers(),
         utxo_tree_root_index: 0,
@@ -131,7 +130,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         ring_program_id,
         owner_signers: vec![owner_signer],
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::RingEddsa(2, 2, 3), &nullifiers),
+        data: transact_data(CircuitId::ConfidentialRingEddsa(2, 2, 3), &nullifiers),
     }
     .cpi_instruction();
     let mut expected_ring = vec![
@@ -226,7 +225,7 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         ring_program_id,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::RingEddsa(0, 0, 3), &[]),
+        data: transact_data(CircuitId::ConfidentialRingEddsa(0, 0, 3), &[]),
     }
     .instruction();
     assert_eq!(ring.program_id, ring_program_id);
@@ -401,7 +400,7 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
 
     let ring_program_id = Pubkey::new_unique();
     let ring_auth = pda::ring_auth(&ring_program_id).0;
-    data.circuit = CircuitId::RingEddsa(3, 2, 3);
+    data.circuit = CircuitId::ConfidentialRingEddsa(3, 2, 3);
     let ring = RingTransact {
         payer,
         input_trees: vec![first_tree, second_tree],
