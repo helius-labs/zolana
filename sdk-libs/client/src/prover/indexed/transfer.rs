@@ -77,6 +77,15 @@ impl IndexedTransferPreparation {
                 return Err(ClientError::NonSpendInputNotAllowed { index });
             }
         }
+        if !matches!(rail, IndexedTransferRail::Confidential) {
+            if let Some(index) = transaction
+                .input_utxos
+                .iter()
+                .position(|input| input.is_address())
+            {
+                return Err(ClientError::AddressInputUnsupported { index });
+            }
+        }
         let shape = transaction.check_shape()?;
         let proof_inputs = transaction
             .input_utxos
@@ -126,9 +135,13 @@ impl IndexedTransferPreparation {
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
         let mut input_hashes = Vec::new();
+        let mut address_nullifiers = Vec::new();
         let mut nullifiers = Vec::new();
         let mut indexes = Vec::new();
         for input in &transaction.input_utxos {
+            if input.is_address() {
+                input.validate_address()?;
+            }
             // Inputs from different trees may interleave; a dummy joins the
             // tree it names, which a real input must already have opened.
             // Compact padding names the first tree, since SPP never receives
@@ -189,15 +202,24 @@ impl IndexedTransferPreparation {
                 tree_slot: tree_slot.into(),
                 nullifier: be(&nullifier),
                 owner_pk_hash: be(&owner),
-                nullifier_secret: input.is_dummy().then(|| 0u8.into()),
+                nullifier_secret: (input.is_dummy() || input.is_address()).then(|| 0u8.into()),
             });
             lookups.push(IndexedLookup {
                 tree_slot,
-                commitment: (!input.is_dummy() && input.cache_slot.is_none()).then_some(hash),
+                commitment: input.requires_inclusion().then_some(hash),
                 nullifier: input.is_compact().then_some(input.nullifier),
             });
             indexes.push(tree_slot);
-            input_hashes.push(if input.is_dummy() { [0; 32] } else { hash });
+            input_hashes.push(if input.is_dummy() || input.is_address() {
+                [0; 32]
+            } else {
+                hash
+            });
+            address_nullifiers.push(if input.is_address() {
+                nullifier
+            } else {
+                [0; 32]
+            });
             nullifiers.push(nullifier);
         }
         authority.complete_inputs(&mut local_inputs)?;
@@ -212,9 +234,13 @@ impl IndexedTransferPreparation {
         let outputs = assemble_outputs(&transaction.output_utxos, transaction.output_tree_id)?;
         let external_hash = cache.external_data_hash;
         let blinding = derive_private_tx_blinding(first, &transaction.blinding_seed)?;
-        let private_tx =
-            PrivateTxHash::new(&input_hashes, &outputs.private_tx_output_hashes, &blinding)
-                .hash()?;
+        let private_tx = PrivateTxHash {
+            input_hashes: &input_hashes,
+            output_hashes: &outputs.private_tx_output_hashes,
+            address_nullifiers: Some(&address_nullifiers),
+            blinding: &blinding,
+        }
+        .hash()?;
         let public_transfers = transaction.public_transfers()?;
         let signers = if authority_rail {
             vec![zolana_hasher::primitives::solana_owner_identity(
@@ -554,10 +580,12 @@ mod tests {
             nullifier_pubkey,
             utxo_hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             tree_id: 3,
             leaf_index: 0,
+            latest_tree_id: None,
             slot: 0,
             tx_signature: Default::default(),
             slot_index: 0,
@@ -813,5 +841,67 @@ mod tests {
             prepare(transaction),
             Err(ClientError::InvalidP256Authorization(_))
         ));
+    }
+    #[test]
+    fn address_only_preparation_uses_non_inclusion_and_commits_the_address() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let sender = owner.shielded_address().unwrap();
+        let payer = sender.solana_address().unwrap();
+        let address = SppProofInputUtxo::new_address(
+            owner.signing_pubkey(),
+            zolana_hasher::primitives::right_align(&[42]),
+            3,
+        )
+        .unwrap();
+        let nullifier = address.nullifier;
+        let keys = zolana_transaction::LocalShieldedKeys::from_keypair(&owner).unwrap();
+        let mut transaction = zolana_transaction::instructions::transact::ConfidentialTransaction::new_with_addresses(
+            Vec::new(), vec![address], payer,
+        ).unwrap();
+        transaction
+            .add_output_utxo(SppProofOutputUtxo::new(Mint::SOL, 0, sender).unwrap())
+            .unwrap();
+        let transaction = transaction
+            .finalize(&sender)
+            .unwrap()
+            .encrypt_with_keys(&keys)
+            .unwrap();
+        let expected = transaction.padding_independent_private_tx_hash().unwrap();
+        let mut corrupted = transaction.clone();
+        let nullifier_byte = corrupted
+            .input_utxos
+            .first_mut()
+            .unwrap()
+            .nullifier
+            .last_mut()
+            .unwrap();
+        *nullifier_byte ^= 1;
+        assert!(matches!(
+            IndexedTransferPreparation {
+                transaction: corrupted,
+                rail: IndexedTransferRail::Confidential,
+            }
+            .prepare(&owner),
+            Err(ClientError::Transaction(
+                zolana_transaction::TransactionError::InvalidAddressInput
+            ))
+        ));
+        let prepared = IndexedTransferPreparation {
+            transaction,
+            rail: IndexedTransferRail::Confidential,
+        }
+        .prepare(&owner)
+        .unwrap();
+        assert_eq!(prepared.data.private_tx_hash, expected);
+        assert_eq!(
+            prepared.data.inputs.first().unwrap().nullifier_hash,
+            nullifier
+        );
+        assert!(prepared
+            .request
+            .data
+            .inputs
+            .iter()
+            .all(|lookup| lookup.commitment.is_none()));
     }
 }

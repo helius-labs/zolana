@@ -7,6 +7,52 @@ use zolana_client::rpc::{
     compile_message, sign_transaction, ComputeBudgetConfig, MAX_LOADED_ACCOUNTS_DATA_SIZE,
 };
 
+#[tokio::test]
+async fn blocking_transaction_witnesses_use_the_custom_reader() {
+    use std::thread::{self, ThreadId};
+    use zolana_client::{
+        rpc::{Blocking, IndexerRpcConfig, Rpc},
+        AsyncWitnessReader, ClientError, InputWitnesses, WitnessReader,
+    };
+    use zolana_transaction::utxo::SppProofInputUtxo;
+
+    struct CustomReader {
+        caller: ThreadId,
+    }
+
+    impl Rpc for CustomReader {}
+
+    impl WitnessReader for CustomReader {
+        fn transaction_witnesses(
+            &self,
+            inputs: &[SppProofInputUtxo],
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<InputWitnesses, ClientError> {
+            assert_ne!(thread::current().id(), self.caller);
+            assert_eq!(
+                inputs.iter().map(|input| input.tree_id).collect::<Vec<_>>(),
+                vec![7, 9],
+            );
+            assert_eq!(config.and_then(|config| config.require_slot), Some(42));
+            Ok(InputWitnesses::default())
+        }
+    }
+
+    let reader = Blocking::new(CustomReader {
+        caller: thread::current().id(),
+    });
+    let inputs = [
+        SppProofInputUtxo::dummy_with_blinding([0; 32], 7).unwrap(),
+        SppProofInputUtxo::dummy_with_blinding([0; 32], 9).unwrap(),
+    ];
+    let witnesses = reader
+        .transaction_witnesses(&inputs, Some(IndexerRpcConfig::at_slot(42)))
+        .await
+        .expect("custom witnesses must not require individual proof RPCs");
+    assert!(witnesses.spend_proofs.is_empty());
+    assert!(witnesses.dummy_nullifier_proofs.is_empty());
+}
+
 /// An unset v1 header field is zero, not a default, so a config that omits
 /// either ceiling produces a transaction that cannot execute at all. Both
 /// are always written.
