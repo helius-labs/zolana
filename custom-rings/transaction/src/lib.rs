@@ -190,14 +190,22 @@ impl AnonymousViewTags {
         transaction: &ConfidentialTransaction,
         sender: &ShieldedAddress,
     ) -> Result<Vec<AnonymousSlot>, TransactionError> {
-        transaction
+        let slots = transaction
             .outputs()
             .iter()
             .enumerate()
             .map(|(slot_index, output)| {
                 self.resolve(output, sender, transaction.first_nullifier(), slot_index)
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        match self
+            .slots
+            .keys()
+            .find(|slot_index| !matches!(slots.get(**slot_index), Some(AnonymousSlot::Hidden(_))))
+        {
+            Some(&slot_index) => Err(TransactionError::AnonymousPaymentSlot { slot_index }),
+            None => Ok(slots),
+        }
     }
 
     /// Every slot's tag in order, a padding tag drawn from `sample` until it differs from

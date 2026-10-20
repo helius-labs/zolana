@@ -115,6 +115,9 @@ pub enum TransactionError {
     #[error("anonymous output slot {slot_index} pays a recipient with no view tag and pair key")]
     UnknownAnonymousRecipient { slot_index: usize },
 
+    #[error("anonymous payment slot {slot_index} holds no ring output")]
+    AnonymousPaymentSlot { slot_index: usize },
+
     #[error(
         "ring transfer output {index} has an encryption marker incompatible with its ring binding"
     )]

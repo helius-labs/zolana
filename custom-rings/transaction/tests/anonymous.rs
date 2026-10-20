@@ -561,6 +561,37 @@ fn change_is_only_the_senders_unpaid_output() {
     }
 }
 
+#[test]
+fn a_payment_on_a_padding_or_missing_slot_is_refused() {
+    let owner = keypair(1);
+    let other = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let elsewhere = RingAddress {
+        recipient: other.shielded_address().unwrap(),
+        ring_program_id: RING,
+        inbox_secret: other.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let tag = elsewhere.inbox_secret.view_tag(0).unwrap();
+    for slot_index in [3, 9] {
+        let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+        let key = owner
+            .viewing_key
+            .get_transaction_viewing_key(&input.nullifier)
+            .unwrap();
+        let mut tx =
+            ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), RING).unwrap();
+        tx.transfer_sol(&sender, 3).unwrap();
+        tx.pad_utxos(Shape::IN2_OUT4, &sender).unwrap();
+        let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+            .with_slot(slot_index, &elsewhere, tag)
+            .unwrap();
+        assert_eq!(
+            encrypt_anonymous(tx, &sender, &key, &view_tags).err(),
+            Some(E::AnonymousPaymentSlot { slot_index })
+        );
+    }
+}
+
 /// A retry of the same outputs keeps its salt, other outputs under the sealed key are refused.
 #[test]
 fn a_session_seals_one_stream_per_transaction_key() {
