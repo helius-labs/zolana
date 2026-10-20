@@ -177,6 +177,7 @@ Breaking
 
 Added
 
+- `buildRingMergeTransaction` merges notes in an anonymous ring from a `nullifierKey`, opening the member record without an escrowed key and proving the auditor disclosure of the merged note, and refuses a merge wider than 24 inputs with `RING_ANONYMOUS_MERGE_TOO_WIDE` and a missing key with `RING_ANONYMOUS_NULLIFIER_KEY_REQUIRED`.
 - `syncWallet` given `anonymousRing: AnonymousRingState` and keys with `ringViewTags` walks the recipient's inbox, pair, deposit and change streams of an anonymous ring by exact tags, stores the scheme-9 notes whose commitments match, and returns `SyncReport.anonymousRing` with the notes, the new counterparties, the next index per stream and the addresses under spam.
 - `RingTagKeys` extends `ShieldedKeys` with `ringViewTags`, answered by `LocalShieldedKeys` and `LocalKeys`, and `RingTagRequest` names one inbox, pair, deposit or change tag.
 - `decryptTransactions` takes `anonymous: AnonymousTagRoutes` and opens a scheme-9 slot only under the key its tag is routed to, with `DECRYPTIONS_PER_INDEX` openings per tag.
@@ -273,6 +274,7 @@ Changed
 
 Fixed
 
+- `syncWallet` aborted on an anonymous note whose pair hint is a low-order X25519 key, now the note is kept and the hint is reported in `badPairHints`. It also checked every output against tree 0, so a merge into another tree failed with `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` or was dropped, now each output is checked against its indexed tree id.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.
 - `auditRingMerges` now surfaces registry read failures instead of reporting members as merely unavailable.
