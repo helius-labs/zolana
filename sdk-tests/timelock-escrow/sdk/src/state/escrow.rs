@@ -128,6 +128,7 @@ impl EscrowUtxo {
             leaf_index,
             cache_slot: None,
             compact: false,
+            address: false,
         })
     }
 

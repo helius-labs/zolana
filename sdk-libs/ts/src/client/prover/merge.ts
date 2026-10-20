@@ -583,7 +583,10 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
     });
   }
   let total = 0n;
-  prepared.inputs.forEach((input) => {
+  prepared.inputs.forEach((input, index) => {
+    if (input.isAddress()) {
+      throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index } });
+    }
     if (!input.isDummy()) {
       if (
         input.utxo.ringProgramId !== prepared.output.ringProgramId ||

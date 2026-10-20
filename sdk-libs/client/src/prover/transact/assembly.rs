@@ -56,6 +56,7 @@ pub struct TransferInputUtxo {
 pub(crate) struct AssembledInputs {
     pub inputs: Vec<TransferInput>,
     pub input_hashes: Vec<[u8; 32]>,
+    pub address_nullifiers: Vec<[u8; 32]>,
     pub nullifiers: Vec<[u8; 32]>,
     /// The circuit's tree slots: one populated slot per input tree, in the
     /// order the tree accounts are passed; the remaining slots are all zero.
@@ -140,9 +141,9 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
 /// A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
-    /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
-    /// no P256 gadget); ed25519 uses its `pk_field`.
-    ConfidentialEddsa,
+    /// Solana-only rails (confidential and custom-ring): P256-owned inputs are
+    /// rejected (the rail has no P256 gadget); ed25519 uses its `pk_field`.
+    SolanaEddsa,
     /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
     /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
     /// their normal public owner hash.
@@ -242,7 +243,9 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
                 Some((proof.state.root, proof.state.root_index)),
                 &proof.nullifier,
             ),
-            (None, Some(nullifier_proof)) if input_utxo.utxo.cache_slot.is_some() => {
+            (None, Some(nullifier_proof))
+                if input_utxo.utxo.cache_slot.is_some() || input_utxo.utxo.is_address() =>
+            {
                 (None, nullifier_proof)
             }
             _ => continue,
@@ -281,7 +284,7 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
         });
     }
     // The input trees supply the ids every dummy is hashed under, so a proof
-    // without a real input has nothing to anchor its padding to.
+    // without a real input or an address has nothing to anchor its padding to.
     if trees.is_empty() {
         return Err(ClientError::NoInputs);
     }
@@ -311,12 +314,15 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no
 /// padding decisions: each slot with a [`SpendProof`] is a real input hashed
-/// under its own tree's id; each slot without one is a dummy hashed under the
-/// tree it was assigned, with a zero private owner hash and its own nullifier
-/// non-inclusion witness. Inputs from different trees may interleave.
-/// Assembly preserves the order committed by the signing hash. A transaction
-/// must spend at least one real input, because the input trees come from the
-/// real ones.
+/// under its own tree's id; a cached input or an address carries only its
+/// nullifier non-inclusion witness; each other slot is a dummy hashed under
+/// the tree it was assigned, with a zero private owner hash and its own
+/// nullifier non-inclusion witness. Inputs from different trees may
+/// interleave. Assembly preserves the order committed by the signing hash. A
+/// transaction must hold at least one real input or address, because the
+/// input trees come from those. Address inputs are refused on
+/// [`OwnerMode::Merge`] and [`OwnerMode::RingAuthority`], whose circuits do not
+/// take them.
 pub(crate) fn assemble_inputs(
     input_utxos: &[TransferInputUtxo],
     owner_mode: &OwnerMode,
@@ -327,6 +333,11 @@ pub(crate) fn assemble_inputs(
         {
             return Err(ClientError::CachedInputUnsupported { index });
         }
+        if input.utxo.is_address()
+            && matches!(owner_mode, OwnerMode::Merge | OwnerMode::RingAuthority)
+        {
+            return Err(ClientError::AddressInputUnsupported { index });
+        }
         input.validate(index)?;
     }
     let trees = resolve_input_trees(input_utxos)?;
@@ -334,6 +345,7 @@ pub(crate) fn assemble_inputs(
     let mut inputs = Vec::with_capacity(input_utxos.len());
     let mut input_hashes = Vec::with_capacity(input_utxos.len());
     let mut nullifiers = Vec::with_capacity(input_utxos.len());
+    let mut address_nullifiers = Vec::with_capacity(input_utxos.len());
     let mut input_tree_indexes = Vec::with_capacity(input_utxos.len());
 
     for (index, input_utxo) in input_utxos.iter().enumerate() {
@@ -350,6 +362,7 @@ pub(crate) fn assemble_inputs(
             });
         }
         input_tree_indexes.push(tree_index);
+        address_nullifiers.push(input_utxo.utxo.private_tx_address_nullifier());
         // A dummy witnesses non-inclusion of its derived nullifier whether or
         // not it publishes it: compact padding publishes 0 instead, and SPP
         // never receives the slot.
@@ -384,19 +397,22 @@ pub(crate) fn assemble_inputs(
                     BigUint::from(proof.state.leaf_index),
                     &proof.nullifier,
                 ),
-                (None, Some(nullifier_proof)) if input_utxo.utxo.cache_slot.is_some() => (
-                    vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-                    BigUint::ZERO,
-                    nullifier_proof,
-                ),
+                (None, Some(nullifier_proof))
+                    if input_utxo.utxo.cache_slot.is_some() || input_utxo.utxo.is_address() =>
+                {
+                    (
+                        vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                        BigUint::ZERO,
+                        nullifier_proof,
+                    )
+                }
                 _ => return Err(ClientError::MissingInputMerkleProof { index }),
             };
 
         let utxo_inputs = ProofInputUtxo::try_from(&input_utxo.utxo)?;
-        // Both arrive computed on the input UTXO. Recomputing them would give a
-        // second source for one value, and a disagreement would only surface as
-        // a proof that does not verify.
-        let utxo_hash = input_utxo.utxo.utxo_hash;
+        // The commitment and nullifier arrive computed on the input UTXO.
+        // Recomputing them would give a second source for one value, and a
+        // disagreement would only surface as a proof that does not verify.
         let nullifier = input_utxo.utxo.nullifier;
 
         let is_p256 = input_utxo.utxo.utxo.owner.curve()? == Curve::P256;
@@ -405,7 +421,7 @@ pub(crate) fn assemble_inputs(
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
             (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
-            (OwnerMode::ConfidentialEddsa, true) => {
+            (OwnerMode::SolanaEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
             (OwnerMode::RingAuthority, true) => {
@@ -429,16 +445,18 @@ pub(crate) fn assemble_inputs(
             // A real input proves ownership from the secret itself, and this is
             // the one witness field no input UTXO carries. It stays absent
             // until the owner's authority completes the witness, so assembly
-            // never touches key material.
-            nullifier_secret: None,
+            // never touches key material. An address is derived under the
+            // zero nullifier key, so it carries a genuine zero.
+            nullifier_secret: input_utxo.utxo.is_address().then_some(BigUint::ZERO),
         });
-        input_hashes.push(utxo_hash);
+        input_hashes.push(input_utxo.utxo.private_tx_input_hash());
         nullifiers.push(nullifier);
     }
 
     Ok(AssembledInputs {
         inputs,
         input_hashes,
+        address_nullifiers,
         nullifiers,
         tree_slots: trees.tree_slots(),
         tree_contexts: trees.tree_contexts(),
@@ -460,11 +478,12 @@ pub(crate) fn private_tx_hash(
     outputs: &AssembledOutputs,
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ClientError> {
-    Ok(PrivateTxHash::new(
-        &inputs.input_hashes,
-        &outputs.private_tx_output_hashes,
-        private_tx_blinding,
-    )
+    Ok(PrivateTxHash {
+        input_hashes: &inputs.input_hashes,
+        output_hashes: &outputs.private_tx_output_hashes,
+        address_nullifiers: Some(&inputs.address_nullifiers),
+        blinding: private_tx_blinding,
+    }
     .hash()?)
 }
 
@@ -645,7 +664,9 @@ pub(crate) fn without_compact_padding(values: &[[u8; 32]]) -> &[[u8; 32]] {
 impl TransferInputUtxo {
     pub(crate) fn validate(&self, index: usize) -> Result<(), ClientError> {
         let input = &self.utxo;
-        if ProofInputUtxo::try_from(input)?.hash()? != input.utxo_hash {
+        if input.is_address() {
+            input.validate_address()?;
+        } else if ProofInputUtxo::try_from(input)?.hash()? != input.utxo_hash {
             return Err(
                 zolana_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
             );
@@ -662,7 +683,7 @@ impl TransferInputUtxo {
                 .as_ref()
                 .ok_or(ClientError::MissingDummyNullifierProof { index })?;
             validate_nullifier_proof(proof, input, index)
-        } else if input.cache_slot.is_some() {
+        } else if input.cache_slot.is_some() || input.is_address() {
             if self.proof.is_some() {
                 return Err(ClientError::UnexpectedInputProof { index });
             }
@@ -763,10 +784,12 @@ mod tests {
             nullifier_pubkey,
             utxo_hash,
             nullifier,
+            tx_viewing_key: None,
             data_hash: None,
             ring_data_hash: None,
             tree_id,
             leaf_index: 0,
+            latest_tree_id: None,
             slot: 0,
             tx_signature: Default::default(),
             slot_index: 0,
@@ -971,7 +994,7 @@ mod tests {
         let input_utxos = [cached_in(1, 0, 4, 0x33), dummy(Some((0x33, 7)))];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1002,8 +1025,8 @@ mod tests {
             [cached_in(1, 0, 4, 0x33), input_utxo(2, 0x12, 3, 0x33)],
             [input_utxo(2, 0x12, 3, 0x33), cached_in(1, 0, 4, 0x33)],
         ] {
-            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
-                .expect("assemble inputs");
+            let assembled =
+                assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
             assert_eq!(
                 assembled.tree_contexts,
@@ -1024,7 +1047,7 @@ mod tests {
         let input_utxos = [input_utxo_in(1, 0, 0x11, 3, 0x33), cached_in(2, 1, 0, 0x34)];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1047,14 +1070,14 @@ mod tests {
         let mut missing = cached_in(1, 0, 4, 0x33);
         missing.nullifier_proof = None;
         assert!(matches!(
-            assemble_inputs(&[missing], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[missing], &OwnerMode::SolanaEddsa),
             Err(ClientError::MissingCachedNullifierProof { index: 0 })
         ));
 
         let mut spent = cached_in(1, 0, 4, 0x33);
         spent.proof = input_utxo(1, 0x11, 3, 0x33).proof;
         assert!(matches!(
-            assemble_inputs(&[spent], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[spent], &OwnerMode::SolanaEddsa),
             Err(ClientError::UnexpectedInputProof { index: 0 })
         ));
     }
@@ -1064,7 +1087,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), cached_in(2, 0, 4, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1077,10 +1100,52 @@ mod tests {
         assert!(matches!(
             assemble_inputs(
                 &[input_utxo(1, 0x11, 3, 0x33), padding],
-                &OwnerMode::ConfidentialEddsa
+                &OwnerMode::SolanaEddsa
             ),
             Err(ClientError::CachedDummyInput { index: 1 })
         ));
+    }
+
+    /// An address slot of `seed`'s owner under tree 0, with its own
+    /// non-inclusion witness.
+    fn address_in(seed: u8, nullifier_root: u8) -> TransferInputUtxo {
+        let utxo =
+            SppProofInputUtxo::new_address(keypair(seed).signing_pubkey(), [seed; 32], 0).unwrap();
+        let mut nullifier = non_inclusion_proof(nullifier_root, 7);
+        nullifier.leaf = utxo.nullifier;
+        nullifier.merkle_context.tree = zolana_interface::pda::tree(0);
+        TransferInputUtxo {
+            utxo,
+            proof: None,
+            nullifier_proof: Some(nullifier),
+        }
+    }
+
+    /// Every owner-signed transfer rail proves address inputs; merge and the
+    /// ring authority, whose circuits have no address slot, refuse them.
+    #[test]
+    fn only_owner_signed_transfer_rails_take_address_inputs() {
+        let inputs = [input_utxo(1, 0x11, 3, 0x33), address_in(2, 0x33)];
+        for owner_mode in [OwnerMode::SolanaEddsa, OwnerMode::RingP256] {
+            let assembled =
+                assemble_inputs(&inputs, &owner_mode).expect("address on an owner-signed rail");
+            assert_eq!(
+                (
+                    assembled.input_hashes.get(1).copied(),
+                    assembled.address_nullifiers,
+                ),
+                (
+                    Some([0u8; 32]),
+                    vec![[0u8; 32], inputs.get(1).expect("address").utxo.nullifier],
+                )
+            );
+        }
+        for owner_mode in [OwnerMode::Merge, OwnerMode::RingAuthority] {
+            assert!(matches!(
+                assemble_inputs(&inputs, &owner_mode),
+                Err(ClientError::AddressInputUnsupported { index: 1 })
+            ));
+        }
     }
 
     #[test]
@@ -1278,7 +1343,7 @@ mod tests {
         ];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1316,7 +1381,7 @@ mod tests {
         ];
 
         let assembled =
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1387,7 +1452,7 @@ mod tests {
             .collect();
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
@@ -1397,7 +1462,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy_in(9, Some((0x33, 7)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeUnresolved { tree_id: 9 })
         ));
     }
@@ -1407,7 +1472,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x12, 3, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1417,7 +1482,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 4, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1427,7 +1492,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 3, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1437,7 +1502,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy(Some((0x33, 8)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1445,7 +1510,7 @@ mod tests {
     #[test]
     fn padding_without_a_real_input_has_no_slot_zero() {
         assert!(matches!(
-            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::ConfidentialEddsa),
+            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::SolanaEddsa),
             Err(ClientError::NoInputs)
         ));
     }

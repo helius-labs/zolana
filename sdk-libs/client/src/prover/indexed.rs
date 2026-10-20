@@ -241,7 +241,28 @@ impl IndexedProofRequest {
             {
                 return Err(invalid());
             }
-            if (dummy || cached) != lookup.commitment.is_none()
+            let address = input
+                .utxo
+                .as_ref()
+                .map(|utxo| decode_field(&utxo.domain))
+                .transpose()
+                .map_err(|_| invalid())?
+                == Some(right_align_slice(
+                    &zolana_interface::ADDRESS_DOMAIN.to_be_bytes(),
+                )?);
+            if address
+                && (dummy
+                    || cached
+                    || !matches!(
+                        metadata.circuit_type,
+                        IndexedCircuit::TransferConfidential
+                            | IndexedCircuit::TransferRing
+                            | IndexedCircuit::TransferP256Ring
+                    ))
+            {
+                return Err(invalid());
+            }
+            if (dummy || cached || address) != lookup.commitment.is_none()
                 || lookup
                     .commitment
                     .as_ref()
@@ -453,6 +474,7 @@ struct PreparedMetadata {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PreparedInputMetadata {
+    utxo: Option<PreparedUtxoMetadata>,
     tree_slot: String,
     domain: Option<String>,
     is_dummy: Option<String>,
@@ -462,6 +484,11 @@ struct PreparedInputMetadata {
     nullifier_next_value: Option<serde::de::IgnoredAny>,
     nullifier_low_path_elements: Option<serde::de::IgnoredAny>,
     nullifier_low_path_index: Option<serde::de::IgnoredAny>,
+}
+
+#[derive(Deserialize)]
+struct PreparedUtxoMetadata {
+    domain: String,
 }
 
 impl PreparedInputMetadata {
@@ -747,6 +774,36 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// An address slot proves only non-inclusion, so its lookup carries no
+    /// commitment, and only the owner-signed transfer circuits take one. Each
+    /// refused request differs from an accepted one in a single field.
+    #[test]
+    fn address_lookups_need_no_commitment_and_an_owner_signed_circuit() {
+        let address_domain = format!("0x{:x}", zolana_interface::ADDRESS_DOMAIN);
+        let request = |circuit_type: &str, commitment: Option<[u8; 32]>| {
+            let mut data = request_data();
+            let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
+            wire["circuitType"] = json!(circuit_type);
+            wire["inputs"] = json!([{"treeSlot":"0x0", "isDummy":"0x0",
+                "utxo": {"domain": address_domain}}]);
+            *data.witness = wire.to_string();
+            if let Some(lookup) = data.inputs.first_mut() {
+                lookup.commitment = commitment;
+            }
+            IndexedProofRequest::new(data)
+        };
+        request("transfer-confidential", None).expect("address on the confidential circuit");
+        // The ring circuit takes the same public input count, so only the
+        // address rule could refuse it.
+        request("transfer-ring", None).expect("address on the ring circuit");
+        for refused in [
+            request("transfer-confidential", Some(scalar_one())),
+            request("transfer-ring", Some(scalar_one())),
+        ] {
+            assert!(matches!(refused, Err(ClientError::InvalidIndexedRequest)));
         }
     }
 

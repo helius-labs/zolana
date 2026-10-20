@@ -20,7 +20,12 @@ import type {
 import type { NonInclusionProof } from "../client/rpc.js";
 import { externalDataHash } from "../interface/external-data-hash.js";
 import { addressBytes } from "../interface/internal.js";
-import { ADDRESS_DOMAIN, InstructionTag, UTXO_DOMAIN } from "../interface/program.js";
+import {
+  ADDRESS_DOMAIN,
+  InstructionTag,
+  UTXO_DOMAIN,
+  ZERO_NULLIFIER_PK,
+} from "../interface/program.js";
 import { inputTreeSlots, type TreeSlot } from "../interface/tree-slot.js";
 import type {
   Address,
@@ -45,7 +50,6 @@ import { ringPolicyNamespaceAddress } from "./config.js";
 import { checkedEntryProof, readTreeHeads } from "./policy-trees.js";
 import {
   RingListNamespace,
-  ZERO_NULLIFIER_PK,
   type LeafTree,
   encodeListEntry,
   entrySeed,

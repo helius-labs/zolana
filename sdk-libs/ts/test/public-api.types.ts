@@ -15,6 +15,10 @@ export type SyncWalletReportMustStayAbsent = SyncWalletReport;
 // @ts-expect-error -- stable discovery has no configurable counter window.
 export const obsoleteSyncConfig: SyncWalletConfig = { tagWindow: 1n };
 
+import type { ExternalData, SettlementTransfer } from "../src/transaction/index.js";
+declare const settlementTransfers: readonly SettlementTransfer[];
+export const externalDataTransfers: ExternalData["interfaceTransfers"] = settlementTransfers;
+
 import type { ShieldedKeys } from "../src/transaction/index.js";
 import type { WalletKeys } from "../src/client/index.js";
 declare const keys: ShieldedKeys;

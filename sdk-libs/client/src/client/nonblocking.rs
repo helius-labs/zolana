@@ -306,14 +306,9 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
                 circuit_id: 0,
             });
         }
-        let commitments = transaction.input_utxo_hashes()?;
-        let witnesses = AsyncWitnessReader::input_witnesses(
-            &self.indexer,
-            &commitments,
-            &transaction.dummy_nullifiers(),
-            None,
-        )
-        .await?;
+        let witnesses =
+            AsyncWitnessReader::transaction_proofs(&self.indexer, &transaction.input_utxos, None)
+                .await?;
         let mut assembled = assemble(
             transaction,
             &witnesses.spend_proofs,

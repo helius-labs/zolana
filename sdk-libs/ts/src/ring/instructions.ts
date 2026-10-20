@@ -203,7 +203,10 @@ type RingTransactCommon = RingTransactTrees &
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
-      /** Ed25519 input owners in signer-vector order, the fee payer too when it owns an input. */
+      /**
+       * The Ed25519 and PDA owners of inputs and of outputs that carry data, in
+       * signer-vector order, the fee payer too when it is one of them.
+       */
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
       withdrawal?: TransactWithdrawal;

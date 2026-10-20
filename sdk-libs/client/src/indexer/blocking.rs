@@ -90,13 +90,7 @@ impl ZolanaIndexer {
         proof_inputs: SppProofInputs,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        let commitments = proof_inputs.input_utxo_hashes()?;
-        let witnesses = WitnessReader::input_witnesses(
-            self,
-            &commitments,
-            &proof_inputs.dummy_nullifiers(),
-            None,
-        )?;
+        let witnesses = WitnessReader::transaction_proofs(self, &proof_inputs.input_utxos, None)?;
         ProverClient::local().prove_transact(
             proof_inputs,
             &witnesses.spend_proofs,

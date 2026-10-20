@@ -10,7 +10,7 @@ use crate::{
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
-    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
+    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
         anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
         proofless::Proofless, ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx,
@@ -52,6 +52,63 @@ impl SpendableDecryptionResult {
             .iter()
             .flat_map(|balance| &balance.utxos)
             .chain(&self.utxos_with_data)
+    }
+
+    /// Attach to every spendable UTXO the transaction viewing key of a
+    /// transaction that spends it first, derived for the holder's viewing key
+    /// in one [`ShieldedKeys::transaction_keys`] request, so encrypting that
+    /// transaction needs no further key request.
+    pub fn with_transaction_keys<K: ShieldedKeys + ?Sized>(
+        mut self,
+        shielded_keys: &K,
+    ) -> Result<Self, TransactionError> {
+        let viewing_pubkey = shielded_keys.address()?.viewing_pubkey;
+        let mut utxos: Vec<&mut WalletUtxo> = self
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| balance.utxos.iter_mut())
+            .chain(self.utxos_with_data.iter_mut())
+            .collect();
+        let requests: Vec<TransactionKeyRequest> = utxos
+            .iter()
+            .map(|utxo| TransactionKeyRequest {
+                viewing_pubkey,
+                first_nullifier: utxo.nullifier,
+            })
+            .collect();
+        if requests.is_empty() {
+            return Ok(self);
+        }
+        let keys = shielded_keys.transaction_keys(&requests)?;
+        if keys.len() != requests.len() {
+            return Err(TransactionError::IncompleteDerivation {
+                got: keys.len(),
+                want: requests.len(),
+            });
+        }
+        for (utxo, key) in utxos.iter_mut().zip(keys) {
+            utxo.tx_viewing_key = Some(*key.secret_bytes());
+        }
+        Ok(self)
+    }
+
+    /// Stamp every spendable UTXO with the newest output tree the indexer
+    /// reported on the pages it came from (`output_tree_id`), so a
+    /// transaction spending one appends its outputs there by default. `None`
+    /// means the indexer named no unpaused tree.
+    #[must_use]
+    pub fn with_latest_tree_id(mut self, latest_tree_id: Option<u16>) -> Self {
+        for utxo in self
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| &mut balance.utxos)
+            .chain(&mut self.utxos_with_data)
+        {
+            utxo.latest_tree_id = latest_tree_id;
+        }
+        self
     }
 }
 
@@ -120,10 +177,12 @@ impl DecryptionResult {
                         nullifier_pubkey: address.nullifier_pubkey,
                         utxo_hash: hash,
                         nullifier: [0; 32],
+                        tx_viewing_key: None,
                         data_hash: decoded.data_hash,
                         ring_data_hash: decoded.ring_data_hash,
                         tree_id: slot.output_context.tree_id,
                         leaf_index: slot.output_context.leaf_index,
+                        latest_tree_id: None,
                         slot: tx.slot,
                         tx_signature: tx.tx_signature,
                         slot_index,

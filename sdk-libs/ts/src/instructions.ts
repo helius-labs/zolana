@@ -18,6 +18,7 @@ export {
   type CacheWriteAccounts,
   type ProtocolConfigUpdate,
   type SignerAccount,
+  type TransactAccountsInput,
 } from "./interface/instructions/index.js";
 export {
   registerInstruction as getRegisterInstructionAsync,

@@ -293,6 +293,15 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
 }
 
 impl<T: Rpc + WitnessReader + Send + Sync + 'static> AsyncWitnessReader for Blocking<T> {
+    fn transaction_proofs(
+        &self,
+        inputs: &[SppProofInputUtxo],
+        config: Option<IndexerRpcConfig>,
+    ) -> impl std::future::Future<Output = Result<InputWitnesses, ClientError>> + Send {
+        let inputs = inputs.to_vec();
+        self.run(move |reader| reader.transaction_proofs(&inputs, config))
+    }
+
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],

@@ -11,6 +11,8 @@ use crate::prover::tee::TeeError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("address input {index} is not supported by merge or ring authority proofs")]
+    AddressInputUnsupported { index: usize },
     #[error("the ring key-registry indexer is catching up or recovering")]
     RingKeyRegistryOutOfSync,
     #[error("the ring key-registry root has changed")]
@@ -388,6 +390,19 @@ pub enum ClientError {
     IncompleteInputProofs {
         expected: usize,
         state: usize,
+        nullifier: usize,
+    },
+
+    /// A tree's proofs for whole transaction slots: state proofs cover only
+    /// the inputs that need inclusion, nullifier proofs cover every slot.
+    #[error(
+        "indexer returned incomplete proofs for tree {tree_id}: expected {expected_state} state and {expected_nullifier} nullifier proofs, got {state} and {nullifier}"
+    )]
+    IncompleteTransactionProofs {
+        tree_id: u16,
+        expected_state: usize,
+        state: usize,
+        expected_nullifier: usize,
         nullifier: usize,
     },
 

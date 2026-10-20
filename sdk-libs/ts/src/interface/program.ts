@@ -6,7 +6,7 @@ import {
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 } from "./state.js";
-import type { TreeFeeSchedule } from "./types.js";
+import type { Bytes32, TreeFeeSchedule } from "./types.js";
 
 export interface NullifierTreeParams {
   readonly inputQueueBatchSize: bigint;
@@ -40,6 +40,16 @@ export const ASSOCIATED_TOKEN_PROGRAM_ID = address("ATokenGPvbdGVxr1b2hvZbsiqW5x
 export const DUMMY_DOMAIN = 1 as const;
 export const ADDRESS_DOMAIN = 2 as const;
 export const UTXO_DOMAIN = 3 as const;
+
+/**
+ * @internal Mirrors Rust `ZERO_NULLIFIER_PUBKEY`, `Poseidon(0)`: the nullifier
+ * public key of the zero secret, which address inputs and ring namespace
+ * entries commit to.
+ */
+export const ZERO_NULLIFIER_PK = Uint8Array.from([
+  0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
+  0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
+]) as Bytes32;
 
 export const InstructionTag = Object.freeze({
   createProtocolConfig: 0,

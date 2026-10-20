@@ -4,7 +4,8 @@
 //! UTXOs (ring/swap flows). The high level is
 //! [`ConfidentialTransaction`], which validates input order at construction,
 //! derives the change outputs and pads both inputs and outputs to a declared or
-//! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
+//! automatically selected [`Shape`], then finalizes it into a keyless
+//! [`FinalizedTransaction`] that the key holder encrypts into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
 //! the SPP and ring proofs, and [`transact_message_hash`] the digest a P256
 //! owner signs over it and the external data hash.
@@ -12,6 +13,7 @@
 mod cache;
 mod encryption;
 pub mod external_data;
+mod finalized;
 mod inputs;
 mod outputs;
 mod ring;
@@ -31,6 +33,7 @@ pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
 pub use encryption::ResolvedOwnerTag;
 pub use external_data::{ExternalData, SettlementTransfer};
+pub use finalized::FinalizedTransaction;
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
 pub use ring::inputs_require_p256;
@@ -83,6 +86,7 @@ use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo, 
 #[derive(Clone)]
 pub struct ConfidentialTransaction {
     inputs: Vec<WalletUtxo>,
+    addresses: Vec<SppProofInputUtxo>,
     outputs: Vec<SppProofOutputUtxo>,
     public_transfers: Vec<PublicTransferRequest>,
     payer: Address,
@@ -108,6 +112,14 @@ impl ConfidentialTransaction {
         &self.blinding_seed
     }
 
+    pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Result<Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.blinding_seed = blinding_seed;
+        Ok(self)
+    }
+
     pub fn first_nullifier(&self) -> &[u8; 32] {
         &self.first_nullifier
     }
@@ -124,19 +136,38 @@ impl ConfidentialTransaction {
     /// 3. Read the first nullifier and initialize the transaction with a fresh
     ///    blinding seed and no outputs or public transfers.
     pub fn new(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
+        Self::new_with_addresses(inputs, Vec::new(), payer)
+    }
+
+    /// Reserve addresses before the wallet spends. Address slots require only
+    /// nullifier non-inclusion proofs; their signing owners must authorize SPP.
+    pub fn new_with_addresses(
+        inputs: Vec<WalletUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        for address in &addresses {
+            address.validate_address()?;
+        }
         // 1. Require a real input in the first slot.
-        if inputs
-            .first()
-            .ok_or(TransactionError::NoInputs)?
-            .utxo
-            .owner
-            .is_zero()
+        if addresses.is_empty()
+            && inputs
+                .first()
+                .ok_or(TransactionError::NoInputs)?
+                .utxo
+                .owner
+                .is_zero()
         {
             return Err(TransactionError::DummyInFirstInputSlot);
         }
 
         // 2. Verify real inputs and collect their tree IDs.
         let mut input_tree_ids: Vec<u16> = Vec::with_capacity(1);
+        for address in &addresses {
+            if !input_tree_ids.contains(&address.tree_id) {
+                input_tree_ids.push(address.tree_id);
+            }
+        }
         for (index, input) in inputs.iter().enumerate() {
             if input.utxo.owner.is_zero() {
                 continue;
@@ -179,15 +210,20 @@ impl ConfidentialTransaction {
         }
 
         // 3. Read the first nullifier and initialize the transaction.
-        let first_nullifier = inputs.first().ok_or(TransactionError::NoInputs)?.nullifier;
+        let first_nullifier = addresses
+            .first()
+            .map(|input| input.nullifier)
+            .or_else(|| inputs.first().map(|input| input.nullifier))
+            .ok_or(TransactionError::NoInputs)?;
 
         Ok(Self {
+            output_tree_id: WalletUtxo::default_output_tree_id(&inputs),
             inputs,
+            addresses,
             outputs: Vec::new(),
             public_transfers: Vec::new(),
             payer,
             blinding_seed: random_blinding(),
-            output_tree_id: 0,
             first_nullifier,
             input_tree_ids,
             ring_program_id: None,
@@ -201,7 +237,16 @@ impl ConfidentialTransaction {
     /// instruction and costs no nullifier account, queue entry or tree leaf, but
     /// the transaction then reveals its real input and output counts.
     pub fn new_compact(inputs: Vec<WalletUtxo>, payer: Address) -> Result<Self, TransactionError> {
-        let mut transaction = Self::new(inputs, payer)?;
+        Self::new_compact_with_addresses(inputs, Vec::new(), payer)
+    }
+
+    /// Create a transaction with address reservations and compact padding.
+    pub fn new_compact_with_addresses(
+        inputs: Vec<WalletUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        let mut transaction = Self::new_with_addresses(inputs, addresses, payer)?;
         transaction.compact_padding = true;
         Ok(transaction)
     }

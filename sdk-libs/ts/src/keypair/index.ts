@@ -7,7 +7,16 @@ export {
   solanaOwnerIdentity,
 } from "../hasher/index.js";
 
-export { randomBlinding, randomSalt } from "./bytes.js";
+export {
+  bytes16,
+  bytes31,
+  bytes32,
+  bytes33,
+  bytes34,
+  bytes64,
+  randomBlinding,
+  randomSalt,
+} from "./bytes.js";
 export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes34, Bytes64 } from "./bytes.js";
 export type { EcdsaSignature } from "./signing-key.js";
 export type { SignatureType, ViewTag } from "./public-key.js";

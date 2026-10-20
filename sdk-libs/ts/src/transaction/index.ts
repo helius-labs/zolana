@@ -47,6 +47,7 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   RecordSlotExtension,
+  SettlementTransfer,
   Shape,
 } from "./instructions/index.js";
 export {

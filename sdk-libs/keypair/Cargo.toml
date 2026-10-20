@@ -21,6 +21,17 @@ solana-address = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signer = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_bytes = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde", "dep:serde_bytes"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
+
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen"]
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -42,3 +53,8 @@ path = "tests/hsm_backends.rs"
 [[test]]
 name = "vectors"
 path = "tests/vectors.rs"
+
+[[test]]
+name = "serde"
+path = "tests/serde.rs"
+required-features = ["serde"]
