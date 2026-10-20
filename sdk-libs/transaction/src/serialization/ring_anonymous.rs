@@ -9,7 +9,7 @@ use solana_address::Address;
 use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_keypair::{
     constants::SALT_LEN, random_blinding, random_salt, symmetric_apply_audit, viewing_key::ViewTag,
-    PublicKey, ViewingKey, X25519Pubkey,
+    PublicKey, ViewingKey, X25519Keypair, X25519Pubkey,
 };
 
 use crate::{error::TransactionError, utxo::Utxo, AssetRegistry, Data};
@@ -18,7 +18,7 @@ use crate::{error::TransactionError, utxo::Utxo, AssetRegistry, Data};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingAnonymousOutput {
     pub utxo: Utxo,
-    /// `None` when the sealed hint is no X25519 point, the note itself stands.
+    /// `None` for a bad pair hint, the note itself stands.
     pub pair_pk: Option<X25519Pubkey>,
 }
 
@@ -39,9 +39,17 @@ impl RingAnonymousOutput {
                 ring_program_id: Some(ring),
                 data: Data::default(),
             },
-            pair_pk: X25519Pubkey::from_u(opening.pair_u).ok(),
+            pair_pk: pair_hint(opening.pair_u),
         })
     }
+}
+
+/// `None` unless `pair_u` is a canonical contributory X25519 key, the circuit only bounds its bytes.
+pub(crate) fn pair_hint(pair_u: [u8; 32]) -> Option<X25519Pubkey> {
+    let pair_pk = X25519Pubkey::from_u(pair_u).ok()?;
+    // Clamped secrets are cofactor multiples below 8q, so one fixed secret rejects exactly the low-order keys every secret rejects.
+    X25519Keypair::from_bytes(&[0; 32]).ecdh(&pair_pk).ok()?;
+    Some(pair_pk)
 }
 
 /// The slot byte a change tag and a recipient key stream index.

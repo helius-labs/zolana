@@ -36,14 +36,15 @@ use custom_ring_interface::{
 };
 use custom_ring_sdk::{
     compute_unit_limit, AnonymousRecipient, CoSignScope, CoSignThreshold, CustomRing,
-    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
-    DelegateTransfer, DelegateTransferInput, Deposit, EscrowBinding, InstructionTag,
-    ProvenDelegateTransfer, ProvenTransfer, ReadMemberRecord, RegisterKey, RegistryBinding,
-    RingDeposit, RingDepositReceipt, RingError, RingOperation, RingSubmission, SettledSubmission,
+    CustomRingMerge, CustomRingTransact, CustomRingTransfer, CustomRingTransferInput,
+    DelegateOutput, DelegateTransfer, DelegateTransferInput, Deposit, EscrowBinding,
+    InstructionTag, MergeProofInput, ProvenDelegateTransfer, ProvenTransfer, ReadMemberRecord,
+    RegisterKey, RegistryBinding, RingDeposit, RingDepositReceipt, RingError, RingMergeOperation,
+    RingOperation, RingSubmission, SettledSubmission,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
-    policy::{EMPTY, LIMIT_CAP, LIMIT_COSIGN_ABOVE, OUTFLOW_LIMIT},
+    policy::{RegistryWrite, EMPTY, LIMIT_CAP, LIMIT_COSIGN_ABOVE, OUTFLOW_LIMIT},
     shared::{
         custom_ring_program_id, prover_url, send, send_expecting_rejection, setup, ExpectRejection,
         RegisterRing, RejectedTransact, TestEnv, Tier, USDC_ASSET_ID,
@@ -82,7 +83,7 @@ use zolana_ring_client::{
     auditor_view_tag, rpc::CreateAuditorKeyRequest, AuditedOutput, AuditedTransaction,
     RingRecovery, RingScan, SourceMember,
 };
-use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
+use zolana_ring_policy::{ListId, Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
     ChainSource, Hub, RingRpcError, RootSecret, TransactionSource, Unauthorized, Upstreams,
 };
@@ -131,6 +132,7 @@ const SECOND_HOP_AMOUNT: u64 = 400_000_000;
 /// Paid from the sender's second-hop note under an inbox secret the recipient never issued.
 const WRONG_TAG_AMOUNT: u64 = 250_000_000;
 const RECOVERED_SPEND: u64 = 100_000_000;
+const MERGED_AMOUNT: u64 = RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT + WRONG_TAG_AMOUNT;
 
 /// Output slot layout this test publishes: the sender's change first, the
 /// recipient second. A slot's index is what its ciphertext is bound to, so these
@@ -1389,13 +1391,79 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             .iter()
             .any(|note| note.utxo_hash == recovered.utxo_hash));
 
-        // The recovered note spends like any other.
+        // A fresh wallet finds the merge of the recovered note by recovering the ring.
+        let change = env
+            .recipient
+            .wallet
+            .unspent()
+            .find(|held| held.utxo.amount == RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT)
+            .cloned()
+            .ok_or_else(|| anyhow!("the recipient's change"))?;
+        send(
+            rpc,
+            &env.payer,
+            &[ring.create_member_registry_root(env.payer.pubkey(), env.payer.pubkey())],
+        )?;
+        RegistryWrite {
+            ring,
+            list_id: ListId::Allow,
+            member: Member::owner_tag(&env.recipient.keypair.signing_pubkey().as_ed25519()?)?,
+            present: true,
+            env: &env,
+        }
+        .send()?;
+        let tree_id = env.tree_id(env.tree)?;
+        let prepared = CustomRingMerge::new(ring, vec![recovered.clone(), change.clone()], None)?
+            .with_output_tree_id(tree_id)
+            .encrypt(&env.recipient.keypair)?;
+        let merged_hash = prepared.output().hash(tree_id)?;
+        let merge = RingMergeOperation::new(
+            prepared,
+            MergeProofInput {
+                nullifier_key: env.recipient.keypair.nullifier_key.clone(),
+                input_tree: env.tree,
+                output_tree: env.tree,
+            },
+        );
+        let signature = land(&env, merge, &env.payer, &[])?;
+        let merge_slot = wait_for_indexed_transaction(indexer, recovered.nullifier, signature).slot;
+
+        let mut fresh_recipient = Wallet::new(
+            env.recipient.keypair.shielded_address()?,
+            env.assets.clone(),
+        )?;
+        sync_wallet(&mut fresh_recipient, &recipient_authority, indexer)?;
+        let report = recover_wallet(
+            &mut fresh_recipient,
+            &recipient_authority,
+            indexer,
+            ring_program,
+            merge_slot,
+        )?;
+        assert!(report
+            .notes
+            .iter()
+            .any(|note| note.utxo_hash == recovered.utxo_hash));
+        assert!(fresh_recipient.is_spent(&recovered));
+        assert!(fresh_recipient.is_spent(&change));
+        assert_eq!(
+            sorted_unspent_notes(&fresh_recipient),
+            vec![(SOL_MINT, MERGED_AMOUNT, Some(ring_program))],
+            "recovery opens the merge of the recovered note"
+        );
+
+        // The merged note spends like any other.
+        let merged = fresh_recipient
+            .unspent()
+            .find(|held| held.utxo_hash == merged_hash)
+            .cloned()
+            .ok_or_else(|| anyhow!("the merged note"))?;
         AnonymousPayment {
             ring,
             sender: &env.recipient.keypair,
             payer: &env.payer,
             inputs: vec![indexed_note(
-                recovered.utxo.clone(),
+                merged.utxo.clone(),
                 &env.recipient.keypair,
                 &env,
                 env.tree,
@@ -1404,8 +1472,8 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             amount: RECOVERED_SPEND,
         }
         .send(&env, auditor_tag)?;
-        sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
-        assert!(env.recipient.wallet.is_spent(&recovered));
+        sync_wallet(&mut fresh_recipient, &recipient_authority, indexer)?;
+        assert!(fresh_recipient.is_spent(&merged));
         return Ok(());
     }
 

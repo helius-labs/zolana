@@ -464,12 +464,13 @@ where
     )?;
     let result =
         RingRecovery::new(&keys, &wallet.registry, ring_program_id, head).fetch(indexer)?;
-    wallet.nullifiers.extend(
-        result
-            .transactions
-            .iter()
-            .flat_map(|tx| tx.nullifiers.iter().copied()),
-    );
+    // Merges and confidential outputs of the history carry no scheme-9 slot.
+    wallet.sync_with_material(
+        &material,
+        &result.transactions,
+        wallet.last_synced,
+        DEFAULT_TAG_WINDOW,
+    )?;
     let notes: Vec<AnonymousRingNote> = result
         .report
         .notes

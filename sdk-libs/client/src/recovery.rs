@@ -100,7 +100,7 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
 
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<RingRecoveryResult, ClientError> {
         let mut decrypted = DecryptionResult::default();
-        let recovered = self.open_into(indexer, &mut decrypted)?;
+        let recovered = self.open_into(indexer, &mut decrypted, Ok)?;
         let owned = verify_owned(self.keys, &decrypted)?;
         Ok(RingRecoveryResult {
             spendable: owned.spendable(),
@@ -110,12 +110,18 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
         })
     }
 
-    /// Opens the ring's slots into a result another scan already filled.
-    pub(crate) fn open_into<I: Rpc + ?Sized>(
+    /// Opens the ring's slots into a result another scan already filled,
+    /// `unseen` keeps the transactions it has not decoded yet.
+    pub(crate) fn open_into<I, F>(
         &self,
         indexer: &I,
         decrypted: &mut DecryptionResult,
-    ) -> Result<Recovered, ClientError> {
+        unseen: F,
+    ) -> Result<Recovered, ClientError>
+    where
+        I: Rpc + ?Sized,
+        F: FnOnce(Vec<ShieldedTransaction>) -> Result<Vec<ShieldedTransaction>, ClientError>,
+    {
         let history = self.history(indexer)?;
         let found = decrypted.extend_ring_anonymous_untagged(
             self.keys,
@@ -129,8 +135,11 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                 defect: malformed.defect,
             });
         }
+        // A merge of a recovered note publishes its output on the ordinary path alone.
+        let transactions = unseen(history.transactions)?;
+        decrypted.extend(self.keys, &transactions, self.assets)?;
         Ok(Recovered {
-            transactions: history.transactions,
+            transactions,
             report: RingRecoveryReport {
                 ring_program_id: self.ring_program_id,
                 head: self.head,

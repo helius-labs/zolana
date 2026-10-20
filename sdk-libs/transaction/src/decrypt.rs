@@ -23,9 +23,14 @@ use crate::{
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
-        anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
-        proofless::Proofless, ring_anonymous::RingAnonymousOutputPlaintext,
-        ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx, UtxoSerialization,
+        anonymous::AnonymousRecipient,
+        confidential::Confidential,
+        plaintext::PlaintextTransfer,
+        proofless::Proofless,
+        ring_anonymous::{pair_hint, RingAnonymousOutputPlaintext},
+        ring_deposit::RingDepositPlaintext,
+        scheme::EncryptedScheme,
+        OwnerCx, UtxoSerialization,
     },
     utxo::{owner_utxo_hash, Blinding, Utxo, WalletUtxo},
 };
@@ -237,13 +242,13 @@ impl AnonymousTagRoutes {
 pub struct AnonymousNote {
     pub view_tag: ViewTag,
     pub utxo_hash: [u8; 32],
-    /// `None` when the body's pair hint is no curve point, the note stays.
+    /// `None` for a bad pair hint, the note stays.
     pub pair_pk: Option<X25519Pubkey>,
     /// Held in `pending_assets` until its mint is registered.
     pub pending: bool,
 }
 
-/// A verified note whose `pair_u` names no X25519 point, the note itself is kept.
+/// A verified note whose `pair_u` names no contributory X25519 key, the note itself is kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PairHintError {
     pub utxo_hash: [u8; 32],
@@ -538,7 +543,7 @@ impl DecryptionResult {
                 {
                     continue;
                 }
-                let pair_pk = X25519Pubkey::from_u(opening.pair_u).ok();
+                let pair_pk = pair_hint(opening.pair_u);
                 if pair_pk.is_none() {
                     decryption.bad_pair_hints.push(PairHintError {
                         utxo_hash: context.hash,

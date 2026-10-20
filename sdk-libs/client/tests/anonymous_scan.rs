@@ -15,9 +15,12 @@ use zolana_client::{
     RingHistoryOptions, RingRecovery, Rpc, ShieldedTransaction, UtxoScan, ADDRESS_GAP,
     DECRYPTIONS_PER_INDEX,
 };
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_event::{
+    encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
+};
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
+    instructions::merge::{merge_output_blinding, merge_output_key, MergeOutputPlaintext},
     owner_utxo_hash,
     serialization::ring_anonymous::{
         ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot,
@@ -236,6 +239,19 @@ fn anonymous_slot(
     tag: ViewTag,
     slot_index: u32,
 ) -> OutputSlot {
+    let pair_u = payer.pair_key(&recipient).unwrap().pubkey().u();
+    sealed_slot(tx, recipient, note, tag, slot_index, pair_u)
+}
+
+/// `note` sealed to `recipient` with the pair hint `pair_u`.
+fn sealed_slot(
+    tx: &ViewingKey,
+    recipient: X25519Pubkey,
+    note: &Note,
+    tag: ViewTag,
+    slot_index: u32,
+    pair_u: [u8; 32],
+) -> OutputSlot {
     let body = RingAnonymousSlot {
         tx_viewing_pk: tx.pubkey(),
         recipient_pk: recipient,
@@ -248,7 +264,7 @@ fn anonymous_slot(
             asset_address: note.utxo.asset.asset.to_bytes(),
             amount: note.utxo.amount,
             blinding: note.utxo.blinding,
-            pair_u: payer.pair_key(&recipient).unwrap().pubkey().u(),
+            pair_u,
         },
     )
     .unwrap();
@@ -364,6 +380,88 @@ fn ring_deposit(
     (matched, deposited)
 }
 
+/// A ring merge of `inputs` into one note of their total, tagged by its first nullifier.
+fn ring_merge(owner: &ShieldedKeypair, inputs: &[&Note], nonce: u8) -> (ShieldedTransaction, Note) {
+    let first_nullifier = inputs[0].nullifier;
+    let amount = inputs.iter().map(|input| input.utxo.amount).sum();
+    let blinding = merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap();
+    let utxo = Utxo {
+        owner: owner.signing_pubkey(),
+        asset: Mint::SOL,
+        amount,
+        blinding,
+        ring_program_id: Some(RING),
+        data: Data::default(),
+    };
+    let hash = utxo
+        .hash(
+            &owner.nullifier_key.pubkey().unwrap(),
+            &[0; 32],
+            &[0; 32],
+            TREE,
+        )
+        .unwrap();
+    let salt = [nonce; 16];
+    let ciphertext = MergeOutputPlaintext {
+        amount,
+        mint: Mint::SOL.asset,
+    }
+    .encrypt(
+        &merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
+        &salt,
+    )
+    .unwrap();
+    let merge = ShieldedTransaction {
+        slot: u64::from(nonce),
+        tx_signature: Signature::from([nonce; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: first_nullifier,
+            output_context: OutputContext {
+                hash,
+                tree_id: TREE,
+                leaf_index: u64::from(nonce),
+            },
+            payload: encode_merge_output_data(MergeOutputDataRef {
+                salt: &salt,
+                ciphertext: &ciphertext,
+                ring_data_hash: Some(&[0; 32]),
+            }),
+        }],
+        messages: Vec::new(),
+        nullifiers: inputs.iter().map(|input| input.nullifier).collect(),
+        proofless: false,
+        ring_config: None,
+        ring_program_id: Some(RING),
+    };
+    let merged = Note {
+        nullifier: owner.nullifier(&hash, &blinding).unwrap(),
+        hash,
+        utxo,
+    };
+    (merge, merged)
+}
+
+/// `count` payments under `recipient`'s first inbox tag, sealed to the spammer's own key.
+fn inbox_spam(recipient: &ShieldedKeypair, count: u8) -> Vec<ShieldedTransaction> {
+    let spammer = keypair(4);
+    let tag = recipient
+        .viewing_key
+        .inbox_secret(0)
+        .unwrap()
+        .view_tag(0)
+        .unwrap();
+    (0..count)
+        .map(|nonce| {
+            let (mut tx, _) = inbox_payment(&spammer, &spammer, 0, 0, 1, 20 + nonce);
+            tx.output_slots[0].view_tag = tag;
+            tx
+        })
+        .collect()
+}
+
 fn found_hashes(result: &zolana_client::UtxoScanResult) -> BTreeSet<[u8; 32]> {
     result
         .spendable
@@ -424,19 +522,10 @@ fn two_payers_on_one_inbox_index_are_both_found() {
 #[test]
 fn a_spammed_inbox_index_advances_the_stream_and_runs_the_recovery_scan() {
     let recipient = keypair(1);
-    let spammer = keypair(4);
-    let mut tagged = Vec::new();
-    for nonce in 0..u8::try_from(DECRYPTIONS_PER_INDEX.get()).unwrap() {
-        // Sealed to the spammer's own key, so nothing opens, under the recipient's tag.
-        let (mut tx, _) = inbox_payment(&spammer, &spammer, 0, 0, 1, 20 + nonce);
-        tx.output_slots[0].view_tag = recipient
-            .viewing_key
-            .inbox_secret(0)
-            .unwrap()
-            .view_tag(0)
-            .unwrap();
-        tagged.push(tx);
-    }
+    let mut tagged = inbox_spam(
+        &recipient,
+        u8::try_from(DECRYPTIONS_PER_INDEX.get()).unwrap(),
+    );
     // The payment past the cap, under the spammed tag.
     let (hidden_tx, hidden) = inbox_payment(&keypair(3), &recipient, 0, 0, 5, 50);
     tagged.push(hidden_tx);
@@ -1108,4 +1197,109 @@ fn without_a_state_no_anonymous_stream_is_read() {
     assert!(result.anonymous.is_none());
     assert!(found_hashes(&result).is_empty());
     assert_eq!(indexer.queried_tags.borrow().len(), 1);
+}
+
+#[test]
+fn low_order_pair_hints_keep_their_notes_and_open_no_pair_stream() {
+    let recipient = keypair(1);
+    let inbox = recipient.viewing_key.inbox_secret(0).unwrap();
+    let mut tagged = Vec::new();
+    let mut hints = BTreeSet::new();
+    for (j, low_order) in [0u8, 1].into_iter().enumerate() {
+        let mut pair_u = [0; 32];
+        pair_u[0] = low_order;
+        let nonce = 30 + low_order;
+        let paid = note(&recipient, 10 + u64::from(low_order), nonce);
+        let tx_key = keypair(nonce).viewing_key;
+        let tag = inbox.view_tag(j as u64).unwrap();
+        let slot = sealed_slot(&tx_key, recipient.viewing_pubkey(), &paid, tag, 0, pair_u);
+        tagged.push(transaction(&tx_key, nonce, vec![[nonce; 32]], vec![slot]));
+        hints.insert((paid.hash, pair_u));
+    }
+    let indexer = Indexer {
+        tagged,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let result = UtxoScan::new(&recipient, &assets)
+        .with_anonymous_ring(AnonymousRingState::default())
+        .fetch(&indexer)
+        .unwrap();
+
+    assert_eq!(
+        found_hashes(&result),
+        hints.iter().map(|(hash, _)| *hash).collect()
+    );
+    let report = result.anonymous.unwrap();
+    assert_eq!(
+        report
+            .bad_pair_hints
+            .iter()
+            .map(|hint| (hint.utxo_hash, hint.pair_u))
+            .collect::<BTreeSet<_>>(),
+        hints
+    );
+    assert!(report.notes.iter().all(|note| note.pair_pk.is_none()));
+    assert!(report.new_counterparties.is_empty());
+    assert!(report.pair_next.is_empty());
+    assert_eq!(report.inbox_next.get(&0), Some(&2));
+}
+
+#[test]
+fn recovery_opens_the_merge_of_a_wrong_tag_note() {
+    let recipient = keypair(1);
+    let payer = keypair(2);
+    let (mut first_tx, first) = inbox_payment(&payer, &recipient, 0, 5, 10, 11);
+    first_tx.output_slots[0].view_tag = [9; 32];
+    let (mut second_tx, second) = inbox_payment(&payer, &recipient, 0, 6, 12, 12);
+    second_tx.output_slots[0].view_tag = [9; 32];
+    let (merge_tx, merged) = ring_merge(&recipient, &[&first, &second], 13);
+    let history = vec![first_tx, second_tx, merge_tx];
+    let assets = AssetRegistry::default();
+
+    let indexer = Indexer {
+        ring_history: history.clone(),
+        ..Indexer::default()
+    };
+    let result = RingRecovery::new(&recipient, &assets, RING, 100)
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(
+        result
+            .spendable
+            .utxos()
+            .map(|utxo| (utxo.utxo_hash, utxo.utxo.amount))
+            .collect::<Vec<_>>(),
+        [(merged.hash, 22)]
+    );
+    assert_eq!(
+        result.owned.spent,
+        HashSet::from([first.nullifier, second.nullifier])
+    );
+
+    // A capped inbox tag runs the same recovery inside the scan.
+    let spam = inbox_spam(
+        &recipient,
+        u8::try_from(DECRYPTIONS_PER_INDEX.get() + 1).unwrap(),
+    );
+    let indexer = Indexer {
+        tagged: spam.clone(),
+        ring_history: [spam, history].concat(),
+        ..Indexer::default()
+    };
+    let result = UtxoScan::new(&recipient, &assets)
+        .with_anonymous_ring(AnonymousRingState::default())
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(found_hashes(&result), BTreeSet::from([merged.hash]));
+    let report = result.anonymous.unwrap();
+    assert_eq!(report.recoveries.len(), 1);
+    assert_eq!(
+        report.recoveries[0]
+            .notes
+            .iter()
+            .map(|note| note.utxo_hash)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([first.hash, second.hash])
+    );
 }

@@ -209,8 +209,11 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                             if let Some(config) = self.indexer_config {
                                 recovery = recovery.with_indexer_config(config);
                             }
-                            let recovered = recovery.open_into(indexer, &mut decrypted)?;
-                            transactions.extend(self.unseen(&mut seen, recovered.transactions)?);
+                            let recovered =
+                                recovery.open_into(indexer, &mut decrypted, |history| {
+                                    self.unseen(&mut seen, history)
+                                })?;
+                            transactions.extend(recovered.transactions);
                             streams.record_recovery(recovered.report);
                         }
                         // The recovered notes' spends are read like any other round's.
