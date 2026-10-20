@@ -1,3 +1,5 @@
+#[cfg(feature = "borsh")]
+use alloc::vec::Vec;
 pub mod instruction_data;
 #[cfg(feature = "borsh")]
 use borsh::BorshSerialize;

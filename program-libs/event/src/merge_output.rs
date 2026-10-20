@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::OutputDataEncoding;
 
 /// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` output

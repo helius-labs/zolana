@@ -1,12 +1,12 @@
 use solana_address::Address;
 use zolana_event::MessageData;
+use zolana_instruction::{SettlementAccounts, TransactExternalData};
 use zolana_interface::instruction::{
     instruction_data::transact::{InterfaceTransfer, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
-use zolana_program::{SettlementAccounts, TransactExternalData};
 
 use crate::{error::TransactionError, SOL_MINT};
 

@@ -11,7 +11,7 @@ zolana-interface = { workspace = true }
 zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
-zolana-program = { workspace = true }
+zolana-instruction = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

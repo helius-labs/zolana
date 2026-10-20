@@ -1,6 +1,9 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_hasher::hash_chain::create_right_hash_chain_4_from_slice;
+use zolana_instruction::instruction::{
+    CacheWriteAccounts, CloseCache, CreateCache, MergeRing, MergeTransact,
+};
 use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::{
     instruction::{
@@ -10,9 +13,6 @@ use zolana_interface::{
     state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY, CACHE_SEED},
     verifying_keys::MAX_CACHE_WRITES,
     MAX_TRANSACT_INPUTS, PROGRAM_ID_PUBKEY,
-};
-use zolana_program::instruction::{
-    CacheWriteAccounts, CloseCache, CreateCache, MergeRing, MergeTransact,
 };
 
 fn create_data(nonce: u64) -> CreateCacheData {

@@ -1,14 +1,16 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
+use zolana_instruction::instruction::{
+    nullifier_pda_accounts, MergeRing, MergeTransact, RingAuthorityTransact, RingTransact,
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::instruction::{
-    CircuitId, InputUtxo, MergeTransactIxData, TransactIxData, TransactProof, TreeContext,
+    CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, TransactIxData, TransactProof,
+    TreeContext,
 };
-use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
-use zolana_program::instruction::{
-    nullifier_pda_accounts, MergeRing, MergeTransact, RingAuthorityTransact, RingTransact, Transact,
-};
+use zolana_interface::{pda, PROGRAM_ID_PUBKEY, SOL_INTERFACE_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
     TransactIxData {
@@ -277,6 +279,61 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
             AccountMeta::new(tree, false),
         ]
     );
+}
+
+/// The CPI account list is the instruction's list with the calling program's
+/// signer PDAs inserted, readonly and not signing, between the owner signers
+/// and the interface transfer accounts. The PDAs sign through
+/// `invoke_signed`, so the metas must not demand a transaction signature.
+#[test]
+fn transact_cpi_accounts_insert_signer_pdas_before_interface_transfers() {
+    let payer = Pubkey::new_unique();
+    let input_tree = Pubkey::new_unique();
+    let output_tree = Pubkey::new_unique();
+    let owner_signer = Pubkey::new_unique();
+    let recipient = Pubkey::new_unique();
+    let signer_pdas = [Pubkey::new_unique(), Pubkey::new_unique()];
+    let nullifiers = [[11u8; 32]];
+    let mut data = transact_data(CircuitId::ConfidentialEddsa(1, 2, 3), &nullifiers);
+    data.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 5 }];
+    let transact = Transact {
+        payer,
+        input_trees: vec![input_tree],
+        output_tree,
+        owner_signers: vec![owner_signer],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
+        data,
+    };
+
+    let mut expected_prefix = vec![
+        AccountMeta::new(payer, true),
+        AccountMeta::new(output_tree, false),
+        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(input_tree, false),
+    ];
+    expected_prefix.extend(nullifier_pdas(&input_tree, &nullifiers));
+    expected_prefix.push(AccountMeta::new_readonly(owner_signer, true));
+    let interface_transfer_metas = [
+        AccountMeta::new(SOL_INTERFACE_PUBKEY, false),
+        AccountMeta::new(recipient, false),
+    ];
+
+    let mut expected_cpi = expected_prefix.clone();
+    expected_cpi.extend(
+        signer_pdas
+            .iter()
+            .map(|pda| AccountMeta::new_readonly(*pda, false)),
+    );
+    expected_cpi.extend(interface_transfer_metas.clone());
+    assert_eq!(transact.cpi_accounts(&signer_pdas), expected_cpi);
+
+    let mut expected_instruction = expected_prefix;
+    expected_instruction.extend(interface_transfer_metas);
+    assert_eq!(transact.cpi_accounts(&[]), expected_instruction);
+    assert_eq!(transact.instruction().accounts, expected_instruction);
 }
 
 /// A spend across two trees: the tree run follows the fixed prefix in context order,

@@ -11818,6 +11818,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-instruction"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "pinocchio 0.11.2",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+ "thiserror 2.0.20",
+ "wincode",
+ "zolana-account-checks",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-tree",
+]
+
+[[package]]
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
@@ -11886,17 +11905,13 @@ name = "zolana-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "bytemuck",
  "pinocchio 0.11.2",
- "serde_json",
  "solana-address 2.6.1",
- "solana-instruction",
- "solana-pubkey 4.2.1",
- "thiserror 2.0.20",
  "wincode",
  "zolana-account-checks",
  "zolana-client",
  "zolana-hasher",
+ "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
@@ -12134,9 +12149,9 @@ dependencies = [
  "wincode",
  "zolana-event",
  "zolana-hasher",
+ "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
- "zolana-program",
 ]
 
 [[package]]

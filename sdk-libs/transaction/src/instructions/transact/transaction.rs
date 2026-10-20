@@ -1,6 +1,6 @@
 use solana_address::Address;
+pub use zolana_instruction::PrivateTxHash;
 use zolana_keypair::hash::sha256;
-pub use zolana_program::PrivateTxHash;
 
 use super::{
     cache::{cache_bound_external_data_hash, cache_write_slots},
