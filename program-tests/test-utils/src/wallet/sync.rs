@@ -2886,7 +2886,7 @@ mod tests {
                 payload: zolana_event::encode_merge_output_data(zolana_event::MergeOutputDataRef {
                     salt: &prepared.output_ciphertext_salt,
                     ciphertext: &prepared.output_ciphertext,
-                    ring_data_hash: None,
+                    prefix: &[],
                 }),
             }],
             messages: Vec::new(),

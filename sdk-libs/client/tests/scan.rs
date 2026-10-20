@@ -316,7 +316,7 @@ fn merge(
     let payload = encode_merge_output_data(MergeOutputDataRef {
         salt: &salt,
         ciphertext: &ciphertext,
-        ring_data_hash: None,
+        prefix: &[],
     });
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {

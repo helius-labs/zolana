@@ -195,7 +195,7 @@ impl Fixture {
                 payload: encode_merge_output_data(MergeOutputDataRef {
                     salt: &prepared.output_ciphertext_salt,
                     ciphertext: &prepared.output_ciphertext,
-                    ring_data_hash: Some(
+                    prefix: core::slice::from_ref(
                         prepared
                             .output_utxo
                             .ring_data_hash

@@ -173,16 +173,19 @@ pub fn merge_general_event(
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, ring_data_hash) = match source_tag {
+    let (merge, prefix) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, None)
+            (merge, [].as_slice())
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (ring.merge, Some(ring.output_ring_data_hash))
+            (
+                ring.merge,
+                core::slice::from_ref(ring.output_ring_data_hash),
+            )
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };
@@ -191,7 +194,7 @@ pub fn merge_general_event(
             encode_merge_output_data(MergeOutputDataRef {
                 salt,
                 ciphertext,
-                ring_data_hash,
+                prefix,
             })
         }
     };

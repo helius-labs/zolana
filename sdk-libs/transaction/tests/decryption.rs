@@ -1112,7 +1112,7 @@ fn merge_publication(
     let payload = encode_merge_output_data(MergeOutputDataRef {
         salt: &salt,
         ciphertext: &ciphertext,
-        ring_data_hash: ring_data_hash.as_ref(),
+        prefix: ring_data_hash.as_slice(),
     });
     let mut tx = publication(&output, vec![slot(&output, payload)]);
     tx.nullifiers = nullifiers;
