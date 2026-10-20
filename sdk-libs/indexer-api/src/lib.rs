@@ -981,8 +981,10 @@ pub struct UserRecord {
     pub nullifier_pubkey: Hash,
     /// Tagged X25519 viewing pubkey (0x04 followed by a canonical 32-byte u-coordinate).
     pub viewing_pubkey: Base64String,
-    /// Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
-    pub merging_enabled: bool,
+    /// Merge output encryption scheme the owner accepts for `merge_transact`:
+    /// 0 disables merging, 1 is PoseidonCtrV1. While a scheme is selected, any
+    /// caller may merge this owner's UTXOs under that scheme.
+    pub merge_encryption: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1032,7 +1034,7 @@ mod tests {
                     "owner": SerializablePubkey::from([5; 32]).to_string(),
                     "nullifierPubkey": Hash::from([6; 32]).to_base58(),
                     "viewingPubkey": "AQID",
-                    "mergingEnabled": true,
+                    "mergeEncryption": 1,
                 },
             ],
         });
@@ -1041,7 +1043,7 @@ mod tests {
         let record = response.records[1].as_ref().unwrap();
         assert_eq!(record.owner, SerializablePubkey::from([5; 32]));
         assert_eq!(record.viewing_pubkey, Base64String(vec![1, 2, 3]));
-        assert!(record.merging_enabled);
+        assert_eq!(record.merge_encryption, 1);
 
         // Unregistered slots remain explicit null values.
         let value = serde_json::to_value(&response).unwrap();

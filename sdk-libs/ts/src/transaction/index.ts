@@ -171,3 +171,5 @@ export type { ErrorEnvelope } from "../errors/internal.js";
 export type { PendingWalletSubmission } from "./wallet/state.js";
 
 export type { DepositPayloadDecoder } from "./serialization/ring-deposit.js";
+
+export type { MergeOutputCiphertext } from "./serialization/merge.js";

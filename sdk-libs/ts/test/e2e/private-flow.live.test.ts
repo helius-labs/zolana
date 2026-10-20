@@ -9,6 +9,7 @@ import {
 import {
   ClientError,
   LocalKeys,
+  MergeEncryptionScheme,
   SOL_MINT,
   ShieldedKeypair,
   SPL_TOKEN_2022_PROGRAM_ID,
@@ -16,7 +17,7 @@ import {
   buildDepositTransaction,
   buildMergeTransaction,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,
@@ -37,7 +38,7 @@ import type { ZolanaClient } from "../../src/client/client.js";
 import { compileUnsignedTransaction } from "../../src/flows/compile.js";
 import {
   getRegisterInstructionAsync,
-  getSetMergingEnabledInstructionAsync,
+  getSetMergeEncryptionInstructionAsync,
 } from "../../src/instructions.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
 import {
@@ -264,17 +265,17 @@ async function registerIfAbsent(
   return Object.freeze({ kind: "written", signature });
 }
 
-async function setMergingEnabled(
+async function setMergeEncryption(
   input: Readonly<{
     client: ZolanaClient;
     owner: SolanaSigner;
-    enabled: boolean;
+    scheme: MergeEncryptionScheme;
   }>,
 ): Promise<Signature> {
-  const transaction = await buildSetMergingEnabledTransaction({
+  const transaction = await buildSetMergeEncryptionTransaction({
     client: input.client,
     owner: input.owner.address,
-    enabled: input.enabled,
+    scheme: input.scheme,
   });
   return signSendAndConfirm(input.client, transaction, [input.owner]);
 }
@@ -321,7 +322,10 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
           nullifierPublicKey: shielded.nullifierPublicKey,
           viewingPublicKey: shielded.viewingPublicKey.toBytes(),
         }),
-        await getSetMergingEnabledInstructionAsync({ owner: owner.signer, enabled: true }),
+        await getSetMergeEncryptionInstructionAsync({
+          owner: owner.signer,
+          scheme: MergeEncryptionScheme.PoseidonCtrV1,
+        }),
       ],
     });
     await signSendAndConfirm(harness.client, transaction, [owner.signer]);
@@ -330,7 +334,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       rpc: harness.client,
       owner: owner.signer.address,
     });
-    expect(record.mergingEnabled).toBe(true);
+    expect(record.mergeEncryption).toBe(MergeEncryptionScheme.PoseidonCtrV1);
     await expect(
       validateRegisteredKeypair({
         rpc: harness.client,
@@ -710,15 +714,15 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       amount: 80_000_000n,
     });
 
-    await setMergingEnabled({
+    await setMergeEncryption({
       client: harness.client,
       owner: owner.signer,
-      enabled: true,
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
     });
     expect(
       (await fetchUserRecordChecked({ rpc: harness.client, owner: owner.signer.address }))
-        .mergingEnabled,
-    ).toBe(true);
+        .mergeEncryption,
+    ).toBe(MergeEncryptionScheme.PoseidonCtrV1);
     const mergeTransaction = await buildMergeTransaction({
       client: harness.client,
       wallet: owner.wallet,
@@ -737,15 +741,15 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       direction: "selfTransfer",
       amount: 80_000_000n,
     });
-    await setMergingEnabled({
+    await setMergeEncryption({
       client: harness.client,
       owner: owner.signer,
-      enabled: false,
+      scheme: MergeEncryptionScheme.Disabled,
     });
     expect(
       (await fetchUserRecordChecked({ rpc: harness.client, owner: owner.signer.address }))
-        .mergingEnabled,
-    ).toBe(false);
+        .mergeEncryption,
+    ).toBe(MergeEncryptionScheme.Disabled);
   }, 1_200_000);
 
   it("merges three UTXOs with compact padding and recovers the output", async () => {
@@ -768,7 +772,11 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     });
     await sync(harness.client, owner, { pageLimit: 1 });
     expect(unspent(owner)).toHaveLength(8);
-    await setMergingEnabled({ client: harness.client, owner: owner.signer, enabled: true });
+    await setMergeEncryption({
+      client: harness.client,
+      owner: owner.signer,
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
+    });
 
     // Three sent nullifiers select the 24-input circuit; the 21 compact
     // slots never reach the instruction.

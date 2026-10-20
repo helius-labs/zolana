@@ -1,14 +1,15 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::instruction::SetMergingEnabledData;
+use zolana_user_registry_interface::instruction::SetMergeEncryptionData;
 
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Enables or disables merging for this record. Only the record owner may sign.
-pub fn process_set_merging_enabled(
+/// Selects the merge encryption scheme for this record, or disables merging.
+/// Only the record owner may sign.
+pub fn process_set_merge_encryption(
     program_id: &Address,
     accounts: &mut [AccountView],
-    data: SetMergingEnabledData,
+    data: SetMergeEncryptionData,
 ) -> ProgramResult {
     let (record, tail) = accounts
         .split_first_mut()
@@ -26,6 +27,6 @@ pub fn process_set_merging_enabled(
         return Err(fail(UserRegistryError::UnauthorizedSigner));
     }
 
-    state.merging_enabled = data.enabled;
+    state.merge_encryption = data.scheme;
     write_record(record, &state)
 }

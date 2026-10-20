@@ -1,6 +1,7 @@
 use shielded_pool_tests::support::{
     fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
 };
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use solana_account::Account;
 use solana_keypair::Keypair;
@@ -30,8 +31,10 @@ fn merge_ix_data() -> MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
         proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
-        output_ciphertext_salt: [0x5a; 16],
-        output_ciphertext: [fe(42), fe(43), fe(44)],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0x5a; 16],
+            ciphertext: [fe(42), fe(43), fe(44)],
+        },
         private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
         utxo_tree_root_index: 0,
@@ -167,10 +170,8 @@ fn merge_rejects_a_non_canonical_ciphertext_element() {
 
     for element in 0..3 {
         let mut data = merge_ix_data();
-        *data
-            .output_ciphertext
-            .get_mut(element)
-            .expect("ciphertext element") = [0xff; 32];
+        let MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } = &mut data.output_encryption;
+        *ciphertext.get_mut(element).expect("ciphertext element") = [0xff; 32];
         let ix = merge_instruction(&rpc, &tree, record, data);
         let error = rpc
             .create_and_send_default_payer_transaction_with_budget(

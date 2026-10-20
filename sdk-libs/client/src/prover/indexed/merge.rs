@@ -1,19 +1,17 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
 use zolana_hasher::primitives::pack_be;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_interface::{
-    instruction::{
-        instruction_data::{
-            merge_ring::MergeRingIxData,
-            merge_transact::{
-                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
-            },
+use zolana_interface::instruction::{
+    instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{
+            merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
+            MergeTransactIxData,
         },
-        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
-    tree_slot::tree_id_field,
+    tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
 };
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::NullifierKey;
 use zolana_transaction::instructions::{
     merge::{
@@ -23,14 +21,14 @@ use zolana_transaction::instructions::{
 };
 
 use super::{
-    hex_field, invalid, invalid_resolution, scalar_one, transfer::SecretField, IndexedCircuit,
-    IndexedLookup, IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree, Request,
+    hex_field, invalid, invalid_resolution, transfer::SecretField, IndexedCircuit, IndexedLookup,
+    IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree, Request,
 };
 use crate::{
     prover::{
         field::{right_align, right_align_slice},
         json::{merge_registration_to_json, MergeOutputParamsJson, MergeRegistrationJson},
-        merge::check_output_ciphertext,
+        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, MergeRegistration, Proof, ProofCompressed, ProofInputUtxo,
@@ -209,32 +207,31 @@ impl IndexedMergePreparation {
         )
         .hash()?;
         let salt = right_align(&merge.output_ciphertext_salt);
-        let [ciphertext_0, ciphertext_1, ciphertext_2] = merge.output_ciphertext;
-        let mut public_inputs = vec![
-            create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
+        let public_inputs = MergePublicInputs {
+            nullifiers: &nullifiers,
             output_hash,
-            tree_id_field(merge.output_tree_id),
-            private,
-            external,
-            scalar_one(),
-            if merge.ring_program_id.is_some() {
-                ring_data_hash
+            output_tree_id: merge.output_tree_id,
+            private_tx_hash: private,
+            external_data_hash: external,
+            allow_dummy_inputs: true,
+            binding: if merge.ring_program_id.is_some() {
+                MergePublicInputBinding::Ring {
+                    output_data_hash: ring_data_hash,
+                    program_id_hash: ring_hash,
+                    member_registry_root: registration.as_ref().map(|registered| registered.root),
+                }
             } else {
-                owner_pk_hash
+                MergePublicInputBinding::Owner {
+                    signing_key_hash: owner_pk_hash,
+                    nullifier_public_key: nullifier_pk,
+                }
             },
-            if merge.ring_program_id.is_some() {
-                ring_hash
-            } else {
-                nullifier_pk
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: merge.output_ciphertext_salt,
+                ciphertext: merge.output_ciphertext,
             },
-            salt,
-            ciphertext_0,
-            ciphertext_1,
-            ciphertext_2,
-        ];
-        if let Some(registered) = &registration {
-            public_inputs.insert(8, registered.root);
         }
+        .elements(None)?;
         let [mint_chunk_0, mint_chunk_1] =
             pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
         let witness = PreparedMergeJson {
@@ -280,8 +277,10 @@ impl IndexedMergePreparation {
                 c: [0; 32],
             },
             output_utxo_hash: output_hash,
-            output_ciphertext_salt: merge.output_ciphertext_salt,
-            output_ciphertext: merge.output_ciphertext,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: merge.output_ciphertext_salt,
+                ciphertext: merge.output_ciphertext,
+            },
             nullifiers: without_compact_padding(&nullifiers).to_vec(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,

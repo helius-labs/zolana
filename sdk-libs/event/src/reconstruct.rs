@@ -13,7 +13,7 @@ use zolana_event::{
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
-    merge_transact::MergeTransactIxDataRef,
+    merge_transact::{MergeOutputEncryption, MergeTransactIxDataRef},
     settlement_accounts,
     transact::{InputUtxo, InterfaceTransfer, OwnerTag, TransactIxDataRef},
 };
@@ -186,11 +186,15 @@ pub fn merge_general_event(
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };
-    let output_data = encode_merge_output_data(MergeOutputDataRef {
-        salt: merge.output_ciphertext_salt,
-        ciphertext: merge.output_ciphertext,
-        ring_data_hash,
-    });
+    let output_data = match &merge.output_encryption {
+        MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
+            encode_merge_output_data(MergeOutputDataRef {
+                salt,
+                ciphertext,
+                ring_data_hash,
+            })
+        }
+    };
 
     let input_tree = single_input_tree(&event.input_trees)?;
     let inputs = inputs_from_nullifiers(input_tree, merge.nullifiers.iter())?;

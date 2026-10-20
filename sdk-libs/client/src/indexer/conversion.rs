@@ -4,7 +4,7 @@ use zolana_api::{
     SerializablePubkey,
 };
 use zolana_keypair::{x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey};
-use zolana_user_registry_interface::user_record_pda;
+use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 
 use crate::{
     error::ClientError,
@@ -214,7 +214,15 @@ fn convert_user_record(
             X25519_PUBKEY_LEN,
             &field("viewingPubkey"),
         )?,
-        merging_enabled: record.merging_enabled,
+        merge_encryption: MergeEncryptionScheme::from_byte(record.merge_encryption).ok_or_else(
+            || {
+                ClientError::Rpc(format!(
+                    "invalid indexer field {}: unknown merge encryption scheme {}",
+                    field("mergeEncryption"),
+                    record.merge_encryption
+                ))
+            },
+        )?,
     })
 }
 

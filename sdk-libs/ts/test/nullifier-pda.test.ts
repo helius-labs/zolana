@@ -11,7 +11,12 @@ import {
   ringTransactAccounts,
   transactInstruction,
 } from "../src/interface/instructions/index.js";
-import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
+import {
+  InstructionTag,
+  MergeEncryptionScheme,
+  SHIELDED_POOL_PROGRAM_ID,
+  SOL_INTERFACE,
+} from "../src/interface/index.js";
 import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js";
 import type {
   Address,
@@ -295,12 +300,15 @@ describe("nullifier PDA accounts", () => {
         c: filled(45, 32) as Bytes32,
       },
       outputUtxoHash: filled(46, 32) as Bytes32,
-      outputCiphertextSalt: filled(48, 16) as Bytes16,
-      outputCiphertext: [
-        filled(49, 32) as Bytes32,
-        filled(50, 32) as Bytes32,
-        filled(51, 32) as Bytes32,
-      ],
+      outputEncryption: {
+        scheme: MergeEncryptionScheme.PoseidonCtrV1,
+        salt: filled(48, 16) as Bytes16,
+        ciphertext: [
+          filled(49, 32) as Bytes32,
+          filled(50, 32) as Bytes32,
+          filled(51, 32) as Bytes32,
+        ],
+      },
       privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,
       utxoTreeRootIndex: 0,

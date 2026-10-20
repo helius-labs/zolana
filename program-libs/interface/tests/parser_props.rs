@@ -11,6 +11,7 @@
 
 use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_event::MessageData;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
@@ -176,8 +177,10 @@ mod strategies {
                         expiry_unix_ts,
                         proof: MergeProof { a, b, c },
                         output_utxo_hash,
-                        output_ciphertext_salt,
-                        output_ciphertext,
+                        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                            salt: output_ciphertext_salt,
+                            ciphertext: output_ciphertext,
+                        },
                         private_tx_hash,
                         nullifiers,
                         utxo_tree_root_index,

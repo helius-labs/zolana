@@ -4,6 +4,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::{
@@ -380,8 +381,10 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: fe(9),
-            output_ciphertext_salt: [0; 16],
-            output_ciphertext: [fe(10), fe(11), fe(12)],
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: [0; 16],
+                ciphertext: [fe(10), fe(11), fe(12)],
+            },
             private_tx_hash: [0; 32],
             nullifiers: (1..=8).map(fe).collect(),
             utxo_tree_root_index: 0,

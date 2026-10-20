@@ -12,7 +12,8 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
 };
 use zolana_user_registry_interface::{
-    state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
+    state::{MergeEncryptionScheme, UserRecord},
+    USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
 };
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
@@ -77,15 +78,16 @@ pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub nullifier_pk: [u8; 32],
     pub signing_view_tag: [u8; 32],
-    pub merging_enabled: bool,
+    pub merge_encryption: MergeEncryptionScheme,
 }
 
 /// Load and validate the `user_record`: owned by the registry program, stored at
 /// the canonical PDA for its owner, and containing a valid `UserRecord`
-/// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
-/// the owner identity; the processor rejects the merge when it is `false`.
-/// A Solana owner derives `signing_pk_field` as the tagged Solana identity of
-/// the registry account `owner` (ed25519).
+/// discriminator/body. Returns the per-user `merge_encryption` scheme alongside
+/// the owner identity; the processor rejects the merge when it is `Disabled` or
+/// differs from the instruction's scheme. A Solana owner derives
+/// `signing_pk_field` as the tagged Solana identity of the registry account
+/// `owner` (ed25519).
 #[inline(never)]
 pub fn load_user_record(account: &AccountView) -> Result<UserPkFields, ProgramError> {
     let registry_id = Address::from(USER_REGISTRY_PROGRAM_ID);
@@ -103,13 +105,13 @@ pub fn load_user_record(account: &AccountView) -> Result<UserPkFields, ProgramEr
     if account.address() != &expected_record || record.bump != expected_bump {
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }
-    let merging_enabled = record.merging_enabled;
+    let merge_encryption = record.merge_encryption;
     let signing_view_tag = record.owner.to_bytes();
     let signing_pk_field = solana_owner_identity(&signing_view_tag)?;
     Ok(UserPkFields {
         signing_pk_field,
         nullifier_pk: record.nullifier_pubkey,
         signing_view_tag,
-        merging_enabled,
+        merge_encryption,
     })
 }

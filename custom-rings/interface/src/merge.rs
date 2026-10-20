@@ -52,7 +52,9 @@ impl<'a> CustomRingMergeIxDataRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
+    use zolana_interface::instruction::instruction_data::merge_transact::{
+        MergeOutputEncryption, MergeProof,
+    };
 
     #[test]
     fn compact_request_round_trips_and_rejects_trailing_bytes() {
@@ -63,8 +65,10 @@ mod tests {
                 expiry_unix_ts: 42,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [1; 32],
-                output_ciphertext_salt: [2; 16],
-                output_ciphertext: [[3; 32]; 3],
+                output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                    salt: [2; 16],
+                    ciphertext: [[3; 32]; 3],
+                },
                 private_tx_hash: [4; 32],
                 nullifiers: vec![[5; 32]],
                 utxo_tree_root_index: 0,

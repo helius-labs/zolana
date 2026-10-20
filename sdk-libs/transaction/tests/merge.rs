@@ -876,3 +876,42 @@ fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
         [0; 32]
     );
 }
+
+#[test]
+fn merge_decrypt_rejects_non_canonical_ciphertext_aliases() {
+    use num_bigint::BigUint;
+    use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+    let plaintext = MergeOutputPlaintext {
+        amount: 123,
+        mint: Mint::SOL.asset,
+    };
+    let key = [7; 32];
+    let salt = [8; 16];
+    let ciphertext = plaintext.encrypt(&key, &salt).unwrap();
+    let body = |elements: &[[u8; 32]; 3]| {
+        salt.iter()
+            .chain(elements.iter().flatten())
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        MergeOutputPlaintext::decrypt(&body(&ciphertext), &key),
+        Ok(plaintext)
+    );
+    for (index, element) in ciphertext.iter().enumerate() {
+        let alias =
+            BigUint::from_bytes_be(element) + BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE);
+        let alias: [u8; 32] = alias
+            .to_bytes_be()
+            .try_into()
+            .expect("alias is a 32-byte scalar encoding");
+        for replacement in [alias, BN254_SCALAR_MODULUS_BE] {
+            let mut noncanonical = ciphertext;
+            *noncanonical.get_mut(index).unwrap() = replacement;
+            assert!(matches!(
+                MergeOutputPlaintext::decrypt(&body(&noncanonical), &key),
+                Err(TransactionError::NonCanonicalMergeCiphertext { index: got }) if got == index
+            ));
+        }
+    }
+}

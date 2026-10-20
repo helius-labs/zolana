@@ -7,7 +7,9 @@ private transfer can pay several recipients. Viewing keys and ring auditors
 move to X25519, and the auditor of an anonymous ring reads its hidden
 senders, inputs and recipients. A ring policy bounds each transfer's outflow
 per mint, and member registries hold list membership and escrowed keys.
-Paying a transaction fee no longer authorizes a spend. Merge outputs encrypt their amount and mint for the owner, so recovery needs none of their input ciphertexts.
+Paying a transaction fee no longer authorizes a spend. A merge publishes its
+output's amount and mint encrypted for the owner with the scheme the owner's
+registry record names, so recovery needs none of its input ciphertexts.
 
 Breaking
 
@@ -56,7 +58,8 @@ Breaking
   run, or a policy of its own.
 - `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` now proves
   through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and
-  refuses `"prover"` → set `proverUrl` to keep another prover.
+  refuses `"prover"` (`ProverClient.hasIndexedRoute` identifies indexer-backed
+  provers and is false for this gateway) → set `proverUrl` to keep another prover.
 - `PROVING_KEY_SHA256S` pins rotated custom ring proving keys and the RingEd25519
   transfer keys and drops `custom_ring_compressed_policy.key`, so
   `ProverClient` rejects a ring proof from a prover on the previous keys with
@@ -118,6 +121,46 @@ Breaking
 - `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
 - `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
 - `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
+- `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
+  select at most 52 notes per merge, and at most 51 on a custom ring.
+- `MergeTransactInstructionData` contains `outputEncryption`, a
+  `MergeOutputEncryption` tagged with its scheme, and `Merge` and
+  `PreparedMerge` require the encrypted output (`MergeOutputCiphertext` from
+  `@heliuslabs/zolana/transaction`) → build merges with
+  `Merge.fromKeypair` or the client's merge flow, or pass the wallet's
+  `mergeOutputKey` answer as `Merge`'s `outputKey`.
+- `UserRecord`, `RegistryRecord` and `getUserRecords` records contain
+  `mergeEncryption`, a `MergeEncryptionScheme`, in place of `mergingEnabled`,
+  and `buildSetMergingEnabledTransaction`, `getSetMergingEnabledInstructionAsync`
+  and `WALLET_BUILD_SET_MERGING_ENABLED` are `buildSetMergeEncryptionTransaction`,
+  `getSetMergeEncryptionInstructionAsync` and `WALLET_BUILD_SET_MERGE_ENCRYPTION`,
+  which take a `scheme` → opt in with `MergeEncryptionScheme.PoseidonCtrV1` and
+  out with `MergeEncryptionScheme.Disabled`.
+- `ShieldedPoolError.MergeDisabled` (7017) is `MergeEncryptionSchemeMismatch`,
+  which the program returns for a merge whose scheme differs from the owner's
+  registered scheme, a disabled record included, and `WALLET_MERGE_DISABLED`
+  is `WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED` for a disabled or unsupported
+  scheme → update error matches to the new names.
+- `DeriveRequest` has a `mergeOutputKey` kind and `ShieldedKeys.derive` transfers
+  ownership of its returned buffers → answer with
+  `mergeOutputKey(nullifierKey, firstNullifier)` and return fresh buffers that
+  the caller can wipe.
+- `transactInstruction` (`getTransactInstructionAsync`) and
+  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
+  in first-input order, the fee payer too when it owns an input → pass the
+  input owners, or `[]` when no Ed25519 owner spends.
+- `RingEntryTransitionInput` and `RingEntryTransitionProofInputs` no longer
+  take `payer` → drop the field.
+- `MergeInputs` and `PreparedMergeInputs` replace `asset` with required
+  `mintChunks` and `outputCiphertextSalt` → pass the mint's two field chunks
+  and the merge output ciphertext salt, or use the SDK's merge builders.
+- `ProverClient` requires rotated confidential, ring and anonymous ring
+  transfer keys and both merge key sets, replacing the 54-input merge keys
+  with 52-input keys → deploy the matching prover key set before upgrading.
+- `buildDepositTransaction` now reads the chain for an SPL deposit and, when
+  the mint has no vault, adds its creation paid for by the depositor, failing
+  the build when the protocol config cannot be read or forbids it → pass
+  `createSplInterface: false` to keep building the deposit alone.
 
 Added
 
@@ -130,10 +173,22 @@ Added
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other
-  than the wallet owner like `buildTransferTransaction`, and `WalletErrorCode`
-  adds `WALLET_INVALID_PAYMENT_COUNT` and `WALLET_INVALID_PAYMENT` for a
-  payment list that is empty, longer than fifteen, or holds a malformed
-  payment.
+  than the wallet owner like `buildTransferTransaction`.
+- `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
+  `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
+  fifteen, or holds a malformed payment, and
+  `WALLET_INVALID_MERGE_ENCRYPTION_SCHEME` for an unsupported merge scheme.
+- `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
+  tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
+  tree creation step that differs from the step that started it, and
+  `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
+  BN254 field.
+- `buildDepositTransaction` accepts `setupInstructions`, which it places
+  before every other instruction in the transaction.
+- `WalletErrorCode` adds `WALLET_SPL_INTERFACE_CREATION_RESTRICTED` for a
+  deposit that would create a mint's vault the protocol config does not let
+  the depositor create, and `WALLET_PROTOCOL_CONFIG_NOT_FOUND` for a chain
+  with no protocol config.
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover, and `ProverClient.hasIndexedRoute` says
   whether the prover reads proof data from its own indexer, false for the
@@ -154,8 +209,11 @@ Changed
 - `RingDelegateTransferParams.compactPadding` lets ordinary and recovered delegate builders omit unused public slots, revealing actual counts and allowing the exact 2×3 policy proof when the registry paths share a subtree, while the default keeps padded counts.
 
 - `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.
-- `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
-  its measurements and encryption key included, where it threw before.
+- `defaultTeePolicy()` now returns the pinned devnet enclave's measurements
+  and encryption key instead of throwing, and `DEFAULT_TEE_PROVER_ENDPOINT`
+  exposes that deployment's prover URL.
+- Merge decryption rejects non-canonical ciphertext with
+  `TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT`.
 - Transfers, withdrawals, splits and custom ring transfers list an input owner
   who also pays as an owner signer, and a fee payer that owns no input no
   longer appears in their proofs.
@@ -169,10 +227,12 @@ Fixed
 - `RingRpc.getDecryptedTransactions` now includes the SPP event index on opened and skipped records, so separate ring events in one Solana transaction have distinct identities.
 - `auditRing` now recognizes a terminal scan at the page limit even when Photon also returns a row cursor, so `recoverRingMemberNotes` does not report a complete history as incomplete, and invalid page limits fail instead of returning an empty audit.
 
-- `syncWallet` and custom ring recovery could not recover a merge output whose
-  merge folded in a note the wallet never received, which left the wallet's own
-  notes in that merge unspendable, and now recover it from the merge
-  transaction alone.
+- `syncWallet` and custom ring recovery now recover merge outputs from valid
+  ciphertext without every input, and `syncWallet` rejects an unreadable owned
+  merge with cause `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` while preserving
+  wallet state and cursors instead of committing past it.
+- `Merge.fromKeypair`, wallet merge building, wallet sync and ring recovery
+  now wipe temporary merge output keys on both success and failure.
 
 - `recoverRingMemberNotes` reconstructs notes from proved auditor openings even when recipient ciphertext is missing, misleading or addressed to another viewing key, and unresolved assets remain explicit.
 - `RingTransactionSubmission` retries proofs invalidated by either the own or curator registry history and retains pending state when a registry read fails.

@@ -2,19 +2,19 @@
 //! values the TS SDK pins against `test-vectors/public_input_hash.json`.
 //!
 //! Transfers go through [`PublicInputs::hash`], the function the provers use.
-//! Merge has no standalone hash function, so its vector rebuilds the element
-//! list `MergeProver::build` hashes from the same interface helpers. Wide and
+//! Merges use [`MergePublicInputs::hash`], shared with both prover paths. Wide and
 //! compact shapes are the point: the nullifier, output and owner chains fold to
 //! the right, and only a chain longer than one Poseidon group tells a right
 //! fold from a left one.
 
 use serde::{Deserialize, Serialize};
-use zolana_client::{PublicInputs, PublicTransfers};
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_hasher::primitives::right_align;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use zolana_client::{
+    prover::merge::{MergePublicInputBinding, MergePublicInputs},
+    PublicInputs, PublicTransfers,
+};
 use zolana_interface::{
-    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
+    instruction::instruction_data::MergeOutputEncryption,
+    tree_slot::{tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
 };
 
@@ -198,25 +198,23 @@ fn merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> MergeVector {
     let nullifier_pk = field(85);
     let salt = [0xa5u8; 16];
     let output_ciphertext = [field(86), field(87), field(88)];
-    let [ciphertext_0, ciphertext_1, ciphertext_2] = output_ciphertext;
-    // The element order `MergeProver::build` hashes; the 1 is the dummy-input
-    // policy merge always publishes, and the salt sits right-aligned in its
-    // field element.
-    let public_input_hash = create_hash_chain_4_from_slice(&[
-        create_padded_right_hash_chain_4(&nullifiers, nullifiers.len()).unwrap(),
+    let public_input_hash = MergePublicInputs {
+        nullifiers: &nullifiers,
         output_hash,
-        tree_slots_hash_chain(&tree_slots()).unwrap(),
-        tree_id_field(output_tree_id),
-        private_tx,
+        output_tree_id,
+        private_tx_hash: private_tx,
         external_data_hash,
-        field(1),
-        owner_pk_hash,
-        nullifier_pk,
-        right_align(&salt),
-        ciphertext_0,
-        ciphertext_1,
-        ciphertext_2,
-    ])
+        allow_dummy_inputs: true,
+        binding: MergePublicInputBinding::Owner {
+            signing_key_hash: owner_pk_hash,
+            nullifier_public_key: nullifier_pk,
+        },
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt,
+            ciphertext: output_ciphertext,
+        },
+    }
+    .hash(tree_slots_hash_chain(&tree_slots()).unwrap())
     .unwrap();
     MergeVector {
         name: name.to_string(),
@@ -291,8 +289,8 @@ fn compute_vectors() -> PublicInputHashVectors {
                       Every value is a 32-byte big-endian hex string; nullifier, output hash and \
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
-                      are zolana_client::PublicInputs::hash; merges hash the MergeProver::build \
-                      element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
+                      are zolana_client::PublicInputs::hash; merges hash the \
+                      MergeProver::build element order. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
                       print_public_input_hash_vectors: cargo test -p zolana-client --test \
                       public_input_hash_vectors print_public_input_hash_vectors -- --ignored \
                       --nocapture"

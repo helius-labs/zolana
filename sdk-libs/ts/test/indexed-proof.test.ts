@@ -109,6 +109,32 @@ it.each([
   );
 });
 
+it("sizes a merge statement by its rail", () => {
+  const owner = ShieldedKeypair.generate();
+  try {
+    const input = ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+      }),
+      owner,
+    );
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    const { inputs } = prepareMerge(prepared, treeAddress(prepared.inputTreeId));
+    if (inputs.circuit !== "merge") throw new Error("merge fixture prepared another circuit");
+    // A default merge publishes 12 elements before the tree slots.
+    expect(inputs.publicInputs).toHaveLength(12);
+    expect(decodeIndexedInputs(inputs).publicInputs).toHaveLength(12);
+    expect(() =>
+      decodeIndexedInputs({ ...inputs, publicInputs: inputs.publicInputs.slice(0, 8) }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+  } finally {
+    owner.destroy();
+  }
+});
+
 it("binds merge resolution and keeps preparation free of indexer calls", async () => {
   const owner = ShieldedKeypair.generate();
   const input = ProofInputUtxo.fromKeypair(

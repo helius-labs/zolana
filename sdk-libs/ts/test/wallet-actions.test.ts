@@ -1544,3 +1544,53 @@ describe("multi-recipient transfer", () => {
     ).resolves.toHaveProperty("transaction");
   });
 });
+
+describe("merge encryption opt-in", () => {
+  it("refuses an owner whose record disables merging before proving", async () => {
+    const keypair = spendingKeypair();
+    const shielded = keypair.shieldedAddress();
+    const owner = shielded.solanaAddress();
+    const wallet = fundedWallet(keypair, [20n, 30n]);
+    const keys = localKeys(keypair);
+    const pda = await internalUserRecordPda(owner);
+    const record = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(owner),
+      pda.bump,
+      ...shielded.nullifierPublicKey,
+      ...shielded.viewingPublicKey.toBytes(),
+      0,
+    );
+    const unexpected = vi.fn((): never => {
+      throw new Error("a disabled record must fail before proving");
+    });
+    try {
+      await expect(
+        buildMergeTransaction({
+          client: {
+            proofDataSource: "client",
+            tree: TREE,
+            treeId: 0,
+            getAccount: vi.fn(async (key: Address) =>
+              key === pda.address
+                ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
+                : undefined,
+            ),
+            proveMerge: unexpected,
+            assembleAuthorizedMergeTransaction: unexpected,
+          },
+          wallet,
+          keys,
+          feePayer: owner,
+        }),
+      ).rejects.toMatchObject({
+        code: "WALLET_BUILD_MERGE",
+        causeCode: "WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED",
+      });
+      expect(unexpected).not.toHaveBeenCalled();
+    } finally {
+      keys.destroy();
+      keypair.destroy();
+    }
+  });
+});

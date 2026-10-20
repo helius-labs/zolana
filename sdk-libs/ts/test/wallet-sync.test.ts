@@ -1143,14 +1143,182 @@ describe("wallet sync", () => {
       ],
     };
 
-    const report = await decryptWithKeys(keys, { wallet, transactions: [forged] });
+    const before = serializeWallet(wallet);
+    await expect(decryptWithKeys(keys, { wallet, transactions: [forged] })).rejects.toMatchObject({
+      code: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
+    });
+    expect(serializeWallet(wallet)).toBe(before);
+  });
 
-    expect(report).toMatchObject({ storedUtxos: 0 });
+  it.each([false, true])("wipes sync's merge key copies after failure=%s", async (failure) => {
+    const { keypair, keys, merge } = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const derive = KeyMemo.prototype.derive;
+    const copies: Bytes32[] = [];
+    vi.spyOn(KeyMemo.prototype, "derive").mockImplementation(function (this: KeyMemo, request) {
+      const value = derive.call(this, request);
+      if (request.kind === "mergeOutputKey" && value !== undefined) copies.push(value);
+      return value;
+    });
+    const slot = merge.outputSlots[0];
+    if (slot === undefined) throw new Error("missing merge fixture slot");
+    const unreadable = {
+      ...merge,
+      outputSlots: [{ ...slot, payload: new Uint8Array(slot.payload.length) }],
+    };
+    try {
+      const result = decryptWithKeys(keys, {
+        wallet,
+        transactions: [
+          failure
+            ? {
+                ...merge,
+                outputSlots: [
+                  { ...slot, outputContext: { ...slot.outputContext, hash: bytes(1) } },
+                ],
+              }
+            : merge,
+        ],
+      });
+      if (failure)
+        await expect(result).rejects.toMatchObject({
+          code: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
+        });
+      else {
+        await result;
+        // An already represented output does not need its ciphertext again.
+        await decryptWithKeys(keys, { wallet, transactions: [unreadable] });
+        expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+      }
+      expect(copies.length).toBeGreaterThan(0);
+      for (const copy of copies) expect(copy).toEqual(new Uint8Array(32));
+    } finally {
+      keys.destroy();
+      keypair.destroy();
+    }
+  });
+
+  it("keeps unrelated merge noise ignorable", async () => {
+    const { keys, keypair } = mergeAfterSplit();
+    const foreign = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const report = await decryptWithKeys(keys, { wallet, transactions: [foreign.merge] });
     expect(report.undecryptableCandidates).toBeGreaterThan(0);
     expect(wallet.utxos()).toEqual([]);
-    expect(wallet.balance(SOL_MINT).amount).toBe(0n);
     expect(wallet.privateTransactions()).toEqual([]);
   });
+
+  it.each(["malformed", "out of range", "wrong commitment"] as const)(
+    "does not commit past an owned ring merge with %s ciphertext, and retries its cursor",
+    async (corruption) => {
+      const keypair = ShieldedKeypair.generate();
+      const keys = LocalShieldedKeys.fromKeypair(keypair);
+      const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+      const held = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: bytes(7),
+        ringProgramId: OWNER,
+      });
+      const hash = held.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      const nullifier = keypair.nullifier(hash, held.blinding);
+      wallet._replace({
+        ...wallet._state(),
+        utxos: [
+          {
+            utxo: held,
+            outputContext: { hash, tree: TREE, leafIndex: 0n },
+            nullifier,
+            spent: false,
+          },
+        ],
+      });
+      // The unseen input is first: ownership must also check later nullifiers.
+      const firstNullifier = bytes(12);
+      const ringDataHash = bytes(3);
+      const merged = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+        ringProgramId: OWNER,
+      });
+      const payload = mergePayload(keypair, firstNullifier, 42n, ringDataHash);
+      const broken =
+        corruption === "malformed"
+          ? new Uint8Array()
+          : corruption === "wrong commitment"
+            ? mergePayload(keypair, firstNullifier, 43n, ringDataHash)
+            : payload.map((byte, index) => (index >= payload.length - 32 ? 255 : byte));
+      let outputPayload = broken;
+      const getShieldedTransactionsByNullifiers = vi.fn(async (_request: RequestWithCursor) => ({
+        context: { blockTime: 10n, slot: 10n },
+        scannedThrough: Uint8Array.of(8),
+        transactions: [
+          {
+            slot: 2n,
+            txSignature: SIGNATURE,
+            proofless: false,
+            ringProgramId: OWNER,
+            messages: [],
+            nullifiers: [firstNullifier, nullifier],
+            outputSlots: [
+              {
+                viewTag: firstNullifier,
+                outputContext: {
+                  hash: merged.hash(
+                    keypair.nullifierPublicKey(),
+                    DEFAULT_TREE_ID,
+                    undefined,
+                    ringDataHash,
+                  ),
+                  tree: TREE,
+                  leafIndex: 1n,
+                },
+                payload: outputPayload,
+              },
+            ],
+          },
+        ],
+      }));
+      const client = syncReads({
+        getShieldedTransactionsByTags: async () => ({
+          context: { blockTime: 10n, slot: 10n },
+          transactions: [],
+          scannedThrough: Uint8Array.of(7),
+        }),
+        getEncryptedUtxosByTags: async () => ({
+          context: { blockTime: 10n, slot: 10n },
+          matches: [],
+        }),
+        getShieldedTransactionsByNullifiers,
+      });
+      const store = { save: vi.fn(async (_snapshot: string) => {}) };
+      const before = serializeWallet(wallet);
+      const beforeState = wallet._state();
+      try {
+        await expect(
+          syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher }),
+        ).rejects.toMatchObject({
+          code: "WALLET_SYNC",
+          causeCode: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
+        });
+        expect(serializeWallet(wallet)).toBe(before);
+        expect(wallet._state()).toEqual(beforeState);
+        expect(store.save).not.toHaveBeenCalled();
+        outputPayload = payload;
+        getShieldedTransactionsByNullifiers.mockClear();
+        await syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher });
+        expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0].cursor).toBeUndefined();
+        expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.amount).toBe(42n);
+        expect(store.save).toHaveBeenCalledOnce();
+      } finally {
+        keys.destroy();
+        keypair.destroy();
+      }
+    },
+  );
 
   it("refuses a key holder that answers a batch short or with a hole", async () => {
     const { keypair, keys, split, merge } = mergeAfterSplit();
@@ -2075,7 +2243,96 @@ describe("wallet sync", () => {
     ).toEqual([output]);
   });
 
-  it("ignores a merge whose first nullifier is not owned", async () => {
+  // SPP does not verify a ring merge ciphertext, so a ring program may publish
+  // one that does not open to the committed output.
+  it.each([
+    [
+      "the ciphertext of another amount",
+      (keypair: ShieldedKeypair, firstNullifier: Bytes32) =>
+        mergePayload(keypair, firstNullifier, 41n, new Uint8Array(32) as Bytes32),
+    ],
+    [
+      "noise",
+      () =>
+        encodeMergeOutputData({
+          salt: new Uint8Array(16).fill(3) as Bytes16,
+          ciphertext: [7, 8, 9].map((byte) => new Uint8Array(32).fill(byte) as Bytes32) as [
+            Bytes32,
+            Bytes32,
+            Bytes32,
+          ],
+          ringDataHash: new Uint8Array(32) as Bytes32,
+        }),
+    ],
+  ])(
+    "rejects an owned ring merge publishing %s without changing the wallet",
+    async (_name, payloadFor) => {
+      const keypair = ShieldedKeypair.generate();
+      const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+      const input = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: bytes(1),
+        ringProgramId: OWNER,
+      });
+      const inputHash = input.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      const firstNullifier = input.nullifier(inputHash, keypair.nullifierKey());
+      wallet._replace({
+        ...wallet._state(),
+        utxos: [
+          {
+            utxo: input,
+            outputContext: { hash: inputHash, tree: TREE, leafIndex: 0n },
+            nullifier: firstNullifier,
+            spent: false,
+          },
+        ],
+      });
+      const output = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+        ringProgramId: OWNER,
+      });
+      const before = serializeWallet(wallet);
+      await expect(
+        decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+          wallet,
+          transactions: [
+            {
+              slot: 2n,
+              txSignature: SIGNATURE,
+              outputSlots: [
+                {
+                  viewTag: firstNullifier,
+                  outputContext: {
+                    hash: output.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+                    tree: TREE,
+                    leafIndex: 1n,
+                  },
+                  payload: payloadFor(keypair, firstNullifier),
+                },
+              ],
+              ringProgramId: OWNER,
+              messages: [],
+              nullifiers: [
+                firstNullifier,
+                ...Array.from({ length: 7 }, (_, offset) =>
+                  mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 1),
+                ),
+              ],
+              proofless: false,
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({ code: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE" });
+      expect(serializeWallet(wallet)).toBe(before);
+    },
+  );
+
+  it("rejects an unreadable owner-tagged merge even when its inputs are unknown", async () => {
     const keypair = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();
     // Nullifiers are field elements on chain; these are no nullifier of this wallet.
@@ -2139,18 +2396,18 @@ describe("wallet sync", () => {
         transactions: [],
       })),
     });
-    const report = await syncWallet({
-      wallet,
-      keys: LocalShieldedKeys.fromKeypair(keypair),
-      client,
+    const before = serializeWallet(wallet);
+    await expect(
+      syncWallet({
+        wallet,
+        keys: LocalShieldedKeys.fromKeypair(keypair),
+        client,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
     });
-
-    expect(report).toMatchObject({
-      unknownAssetFields: [],
-      unknownAssetIds: [],
-    });
-    expect(report.undecryptableCandidates).toBeGreaterThan(0);
-    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+    expect(serializeWallet(wallet)).toBe(before);
   });
 
   it("marks a multi-device spend through paginated nullifier lookup", async () => {

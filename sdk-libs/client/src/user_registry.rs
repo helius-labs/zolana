@@ -11,8 +11,8 @@ use zolana_keypair::{
     X25519Pubkey,
 };
 use zolana_user_registry_interface::{
-    instruction::{register, set_merging_enabled, update_keys, RegisterData, UpdateKeysData},
-    user_record_pda, user_registry_program_id, UserRecord,
+    instruction::{register, set_merge_encryption, update_keys, RegisterData, UpdateKeysData},
+    user_record_pda, user_registry_program_id, MergeEncryptionScheme, UserRecord,
 };
 
 use crate::{
@@ -320,11 +320,15 @@ fn register_instructions(
     Ok(vec![ix])
 }
 
-/// The instruction that enables, or disables, merges of `owner`'s UTXOs. The
-/// owner signs it. While merging is enabled, a merge proved with the owner's
-/// nullifier secret is valid without the owner's signature.
-pub fn set_merging_enabled_instruction(owner: Pubkey, enabled: bool) -> Instruction {
-    set_merging_enabled(user_record_pda(&owner).0, owner, enabled)
+/// The instruction that selects the encryption scheme of merges of `owner`'s
+/// UTXOs, or disables them. The owner signs it. While a scheme is selected, a
+/// merge proved with the owner's nullifier secret and encrypted under that
+/// scheme is valid without the owner's signature.
+pub fn set_merge_encryption_instruction(
+    owner: Pubkey,
+    scheme: MergeEncryptionScheme,
+) -> Instruction {
+    set_merge_encryption(user_record_pda(&owner).0, owner, scheme)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(
@@ -610,7 +614,7 @@ mod tests {
             bump,
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     }
 
@@ -630,7 +634,7 @@ mod tests {
             bump,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     }
 
@@ -722,7 +726,7 @@ mod tests {
             bump,
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         MockRpc {
             account: Some((
@@ -979,7 +983,7 @@ mod tests {
             bump,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         let rpc = MockRpc {
             account: Some((

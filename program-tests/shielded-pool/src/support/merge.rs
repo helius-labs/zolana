@@ -34,7 +34,8 @@ use zolana_ring_member_registry::{MemberRegistryTree, Opening};
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use zolana_user_registry_interface::{
-    state::UserRecord, user_record_pda, USER_REGISTRY_PROGRAM_ID,
+    state::{MergeEncryptionScheme, UserRecord},
+    user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
 use super::fixtures::Pool;
@@ -67,7 +68,11 @@ pub fn write_user_record(
             .pubkey()
             .expect("fixture nullifier public key"),
         viewing_pubkey,
-        merging_enabled,
+        merge_encryption: if merging_enabled {
+            MergeEncryptionScheme::PoseidonCtrV1
+        } else {
+            MergeEncryptionScheme::Disabled
+        },
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     record

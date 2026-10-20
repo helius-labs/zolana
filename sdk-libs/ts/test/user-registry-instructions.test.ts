@@ -13,22 +13,23 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  MergeEncryptionScheme,
   ShieldedKeypair,
   SigningKey,
   USER_REGISTRY_PROGRAM_ID,
   ViewingKey,
   buildKeyUpdateTransaction,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   type ShieldedAddress,
 } from "../src/index.js";
 import { getUserRecordAddress } from "../src/addresses.js";
 import {
   getRegisterInstructionAsync,
-  getSetMergingEnabledInstructionAsync,
+  getSetMergeEncryptionInstructionAsync,
 } from "../src/instructions.js";
 import type { Bytes32, Bytes33 } from "../src/interface/index.js";
-import { internalUserRecordPda } from "../src/wallet/registry.js";
+import { decodeUserRecordAccount, internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const PAYER = address("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
@@ -148,10 +149,16 @@ describe("getRegisterInstructionAsync", () => {
   });
 });
 
-describe("getSetMergingEnabledInstructionAsync", () => {
-  it("encodes tag 1 and the flag for the owner's record", async () => {
-    const enabled = await getSetMergingEnabledInstructionAsync({ owner: OWNER, enabled: true });
-    const disabled = await getSetMergingEnabledInstructionAsync({ owner: OWNER, enabled: false });
+describe("getSetMergeEncryptionInstructionAsync", () => {
+  it("encodes tag 1 and the scheme for the owner's record", async () => {
+    const enabled = await getSetMergeEncryptionInstructionAsync({
+      owner: OWNER,
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
+    });
+    const disabled = await getSetMergeEncryptionInstructionAsync({
+      owner: OWNER,
+      scheme: MergeEncryptionScheme.Disabled,
+    });
 
     expect(enabled.programAddress).toBe(USER_REGISTRY_PROGRAM_ID);
     expect(enabled.data).toEqual(Uint8Array.of(1, 1));
@@ -160,6 +167,42 @@ describe("getSetMergingEnabledInstructionAsync", () => {
       { address: await getUserRecordAddress(OWNER), role: AccountRole.WRITABLE },
       { address: OWNER, role: AccountRole.READONLY_SIGNER },
     ]);
+  });
+
+  it("refuses a scheme the registry does not define", async () => {
+    await expect(
+      getSetMergeEncryptionInstructionAsync({ owner: OWNER, scheme: 2 as MergeEncryptionScheme }),
+    ).rejects.toMatchObject({ code: "WALLET_INVALID_MERGE_ENCRYPTION_SCHEME" });
+  });
+});
+
+describe("decodeUserRecordAccount", () => {
+  const recordWith = (scheme: number) => ({
+    owner: USER_REGISTRY_PROGRAM_ID,
+    lamports: 1n,
+    data: Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(OWNER),
+      255,
+      ...NULLIFIER_KEY,
+      ...new Uint8Array(33).fill(2),
+      scheme,
+    ),
+  });
+
+  it("reads the merge encryption scheme the record's last byte names", () => {
+    expect(decodeUserRecordAccount(recordWith(0)).mergeEncryption).toBe(
+      MergeEncryptionScheme.Disabled,
+    );
+    expect(decodeUserRecordAccount(recordWith(1)).mergeEncryption).toBe(
+      MergeEncryptionScheme.PoseidonCtrV1,
+    );
+  });
+
+  it.each([2, 255])("refuses scheme byte %i", (scheme) => {
+    expect(() => decodeUserRecordAccount(recordWith(scheme))).toThrow(
+      expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }),
+    );
   });
 });
 
@@ -314,12 +357,12 @@ describe("buildKeyUpdateTransaction", () => {
   });
 });
 
-describe("buildSetMergingEnabledTransaction", () => {
-  it("compiles the set-merging-enabled instruction", async () => {
-    const transaction = await buildSetMergingEnabledTransaction({
+describe("buildSetMergeEncryptionTransaction", () => {
+  it("compiles the set-merge-encryption instruction", async () => {
+    const transaction = await buildSetMergeEncryptionTransaction({
       client: blockhashClient,
       owner: OWNER,
-      enabled: true,
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
     });
     const instruction = onlyInstruction(transaction);
 

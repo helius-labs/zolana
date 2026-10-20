@@ -5,6 +5,7 @@ use std::{
     thread,
     time::Duration,
 };
+use zolana_user_registry_interface::MergeEncryptionScheme;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
@@ -632,14 +633,14 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                 "owner": encode_pubkey_string(owners[0]),
                 "nullifierPubkey": encode_hash_string(bytes32(3)),
                 "viewingPubkey": STANDARD.encode([4; X25519_PUBKEY_LEN]),
-                "mergingEnabled": true,
+                "mergeEncryption": 1,
             },
             null,
             {
                 "owner": encode_pubkey_string(owners[2]),
                 "nullifierPubkey": encode_hash_string(bytes32(5)),
                 "viewingPubkey": STANDARD.encode([6; X25519_PUBKEY_LEN]),
-                "mergingEnabled": false,
+                "mergeEncryption": 0,
             },
         ],
     })));
@@ -668,7 +669,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                     bump: user_record_pda(&owners[0]).1,
                     nullifier_pubkey: bytes32(3),
                     viewing_pubkey: [4; X25519_PUBKEY_LEN],
-                    merging_enabled: true,
+                    merge_encryption: MergeEncryptionScheme::PoseidonCtrV1,
                 }),
                 None,
                 Some(UserRecord {
@@ -676,7 +677,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
                     bump: user_record_pda(&owners[2]).1,
                     nullifier_pubkey: bytes32(5),
                     viewing_pubkey: [6; X25519_PUBKEY_LEN],
-                    merging_enabled: false,
+                    merge_encryption: MergeEncryptionScheme::Disabled,
                 }),
             ],
         }
@@ -692,7 +693,7 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
             "owner": encode_pubkey_string(owner),
             "nullifierPubkey": encode_hash_string(bytes32(3)),
             "viewingPubkey": STANDARD.encode([4; 32]),
-            "mergingEnabled": false,
+            "mergeEncryption": 0,
         }],
     })));
 

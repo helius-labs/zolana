@@ -1,12 +1,15 @@
+use arrayvec::ArrayVec;
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, right_align};
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{merge_circuit_width, MergeTransactIxDataRef},
+        instruction_data::merge_transact::{
+            merge_circuit_width, MergeOutputEncryption, MergeTransactIxDataRef,
+            MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS,
+        },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
@@ -23,11 +26,13 @@ use crate::instructions::verifier;
 /// the registry's signing identity. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
-    /// registry record -- both the signing identity and nullifier public key.
-    /// Verified against `merge_<n_inputs>_1`.
+    /// registry record -- both the signing identity and nullifier public key --
+    /// and the output ciphertext under the owner's registered scheme. The
+    /// scheme and the input count select the verifying key.
     Default {
         signing_pk_field: [u8; 32],
         nullifier_pk: [u8; 32],
+        output_encryption: MergeOutputEncryption,
     },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the carried output `ring_data_hash`. The
@@ -80,12 +85,7 @@ impl<'a> MergeProof<'a> {
 
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
-        if !self
-            .ix
-            .output_ciphertext
-            .iter()
-            .all(is_canonical_bn254_scalar_be)
-        {
+        if !self.ix.output_encryption.is_canonical() {
             return Err(ShieldedPoolError::NonCanonicalMergeCiphertext.into());
         }
         let public_input_hash = self.public_input_hash()?;
@@ -116,9 +116,19 @@ impl<'a> MergeProof<'a> {
 
     fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
         let vk = match (&self.derived.owner_binding, self.circuit_width()?) {
-            (MergeOwnerBinding::Default { .. }, 8) => &merge_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Default { .. }, 24) => &merge_24_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Default { .. }, 52) => &merge_52_1::VERIFYINGKEY,
+            (
+                MergeOwnerBinding::Default {
+                    output_encryption, ..
+                },
+                width,
+            ) => match output_encryption {
+                MergeOutputEncryption::PoseidonCtrV1 { .. } => match width {
+                    8 => &merge_8_1::VERIFYINGKEY,
+                    24 => &merge_24_1::VERIFYINGKEY,
+                    52 => &merge_52_1::VERIFYINGKEY,
+                    _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
+                },
+            },
             (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
@@ -137,11 +147,11 @@ impl<'a> MergeProof<'a> {
     /// signing identity and nullifier public key (from the registry), while the
     /// policy-ring merge proves a member record for that identity under its
     /// registry root and appends the output `ring_data_hash`, `ring_program_id`
-    /// and authenticated root. Both end with the output ciphertext salt and
-    /// the three ciphertext elements. The
+    /// and authenticated root. Both end with the scheme's ciphertext elements
+    /// (PoseidonCtrV1: the salt and the three ciphertext elements). The
     /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
     /// without padding. Continuing from its hash with the variant tail folds
-    /// 13 default elements or 14 ring elements into the same hash chain.
+    /// all elements into the same hash chain.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
@@ -154,36 +164,36 @@ impl<'a> MergeProof<'a> {
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,
         ])?;
-        let [ciphertext_0, ciphertext_1, ciphertext_2] = *self.ix.output_ciphertext;
-        let salt = right_align(self.ix.output_ciphertext_salt);
+        let mut inputs =
+            ArrayVec::<[u8; 32], { 4 + MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS }>::new();
+        inputs.push(prefix_hash);
         match &self.derived.owner_binding {
+            MergeOwnerBinding::Default {
+                signing_pk_field,
+                nullifier_pk,
+                output_encryption,
+            } => {
+                inputs.push(*signing_pk_field);
+                inputs.push(*nullifier_pk);
+                // Sized for every scheme's tail, so this cannot overflow.
+                output_encryption
+                    .append_public_inputs(&mut inputs)
+                    .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+            }
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
                 member_registry_root,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *output_ring_data_hash,
-                *ring_program_id,
-                *member_registry_root,
-                salt,
-                ciphertext_0,
-                ciphertext_1,
-                ciphertext_2,
-            ]),
-            MergeOwnerBinding::Default {
-                signing_pk_field,
-                nullifier_pk,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *signing_pk_field,
-                *nullifier_pk,
-                salt,
-                ciphertext_0,
-                ciphertext_1,
-                ciphertext_2,
-            ]),
+            } => {
+                inputs.push(*output_ring_data_hash);
+                inputs.push(*ring_program_id);
+                inputs.push(*member_registry_root);
+                self.ix
+                    .output_encryption
+                    .append_public_inputs(&mut inputs)
+                    .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+            }
         }
-        .map_err(Into::into)
+        create_hash_chain_4_from_slice(&inputs).map_err(Into::into)
     }
 }

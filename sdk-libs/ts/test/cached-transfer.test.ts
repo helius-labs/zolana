@@ -951,7 +951,7 @@ describe("a merge writing its output to a cache slot", () => {
     expect(cached.cacheSlot).toBe(5);
     expect(plain.cacheSlot).toBeUndefined();
     expect(data.cacheSlot).toBe(5);
-    expect(encodeMergeTransactInstructionData(data)).toHaveLength(415);
+    expect(encodeMergeTransactInstructionData(data)).toHaveLength(416);
     expect(cached.externalDataHash).toEqual(
       mergeExternalDataHash({
         instructionTag: InstructionTag.mergeTransact,

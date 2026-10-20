@@ -3,12 +3,12 @@ mod common;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix,
+    build_register_ix, build_set_merge_encryption_ix, build_update_keys_ix,
     user_registry_program_id, UserRecord, UserRegistryTestRig,
 };
 use zolana_user_registry_interface::{
     instruction::{self, RegisterData},
-    user_record_pda,
+    user_record_pda, MergeEncryptionScheme,
 };
 
 use common::{funded_keypair, keys, register};
@@ -26,7 +26,7 @@ fn register_initializes_the_complete_record() {
     assert_eq!(record.bump, user_record_pda(&owner.pubkey()).1);
     assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, value.viewing);
-    assert!(!record.merging_enabled);
+    assert_eq!(record.merge_encryption, MergeEncryptionScheme::Disabled);
 
     let account = rig
         .svm
@@ -55,7 +55,7 @@ fn register_supports_a_prefunded_pda() {
     assert_eq!(record.viewing_pubkey, value.viewing);
     assert_eq!(record.owner, owner.pubkey());
     assert_eq!(record.bump, user_record_pda(&owner.pubkey()).1);
-    assert!(!record.merging_enabled);
+    assert_eq!(record.merge_encryption, MergeEncryptionScheme::Disabled);
 
     let account = rig
         .svm
@@ -102,7 +102,7 @@ fn register_charges_rent_to_a_separate_payer() {
             bump,
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     );
     let account = rig.svm.get_account(&user_record).expect("record account");
@@ -153,7 +153,7 @@ fn register_tops_up_a_prefunded_pda_from_a_separate_payer() {
             bump,
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     );
     assert_eq!(rig.svm.get_balance(&user_record), Some(rent));
@@ -173,7 +173,11 @@ fn update_keys_changes_only_the_viewing_key() {
     let owner = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(6));
     rig.send(
-        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true),
+        build_set_merge_encryption_ix(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            MergeEncryptionScheme::PoseidonCtrV1,
+        ),
         &[&owner],
     )
     .expect("enable merging");
@@ -190,7 +194,7 @@ fn update_keys_changes_only_the_viewing_key() {
     assert_eq!(after.viewing_pubkey, updated.viewing);
     assert_eq!(after.owner, before.owner);
     assert_eq!(after.bump, before.bump);
-    assert_eq!(after.merging_enabled, before.merging_enabled);
+    assert_eq!(after.merge_encryption, before.merge_encryption);
     let account = rig
         .svm
         .get_account(&user_record_pda(&owner.pubkey()).0)
@@ -207,11 +211,18 @@ fn owner_can_enable_merging() {
     register(&mut rig, &owner, keys(15));
 
     rig.send(
-        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true),
+        build_set_merge_encryption_ix(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            MergeEncryptionScheme::PoseidonCtrV1,
+        ),
         &[&owner],
     )
     .expect("enable merging");
-    assert!(rig.record(&owner.pubkey()).merging_enabled);
+    assert_eq!(
+        rig.record(&owner.pubkey()).merge_encryption,
+        MergeEncryptionScheme::PoseidonCtrV1
+    );
 }
 
 #[test]
@@ -220,15 +231,26 @@ fn owner_can_disable_merging() {
     let owner = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(15));
     rig.send(
-        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true),
+        build_set_merge_encryption_ix(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            MergeEncryptionScheme::PoseidonCtrV1,
+        ),
         &[&owner],
     )
     .expect("enable merging");
 
     rig.send(
-        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), false),
+        build_set_merge_encryption_ix(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            MergeEncryptionScheme::Disabled,
+        ),
         &[&owner],
     )
     .expect("disable merging");
-    assert!(!rig.record(&owner.pubkey()).merging_enabled);
+    assert_eq!(
+        rig.record(&owner.pubkey()).merge_encryption,
+        MergeEncryptionScheme::Disabled
+    );
 }

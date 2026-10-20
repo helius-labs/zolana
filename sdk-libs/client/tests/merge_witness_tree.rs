@@ -20,6 +20,7 @@ use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     instructions::merge::MergeTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
 };
+use zolana_user_registry_interface::MergeEncryptionScheme;
 use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
 const TREE_ID: u16 = 2;
@@ -58,7 +59,7 @@ fn record_account(owner: Address, keypair: &ShieldedKeypair) -> Account {
         bump: user_record_pda(&owner).1,
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
-        merging_enabled: true,
+        merge_encryption: MergeEncryptionScheme::PoseidonCtrV1,
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     data.extend_from_slice(&to_vec(&record).expect("serialize user record"));

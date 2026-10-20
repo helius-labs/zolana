@@ -1,5 +1,10 @@
+use arrayvec::{ArrayVec, CapacityError};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use zolana_hasher::{
+    primitives::{is_canonical_bn254_scalar_be, right_align},
+    sha256::Sha256BE,
+    Hasher, HasherError,
+};
 
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 
@@ -48,17 +53,65 @@ pub struct MergeProofRef<'a> {
     pub c: &'a [u8; 32],
 }
 
+/// Most public-input elements any [`MergeOutputEncryption`] scheme appends.
+pub const MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS: usize = 4;
+
+/// The merged output's amount and mint encrypted for its owner, so the owner
+/// can rebuild the output from the merge transaction alone. The variant is the
+/// scheme: on `merge_transact` it must equal the scheme in the owner's registry
+/// record and it selects the verifying key. Both merge proofs bind its payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum MergeOutputEncryption {
+    /// Poseidon counter mode under `Poseidon("TMOK", nsk, nullifiers[0])`,
+    /// padded under the per-proof `salt`; `ciphertext` holds the amount and
+    /// the two `hash_bytes_32` chunks of the mint.
+    #[wincode(tag = 1)]
+    PoseidonCtrV1 {
+        salt: [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
+        ciphertext: [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
+    },
+}
+
+impl MergeOutputEncryption {
+    /// Whether every ciphertext element is a canonical BN254 scalar. A
+    /// non-canonical encoding would reduce to the same public input as its
+    /// canonical twin, so the program rejects it before verification.
+    pub fn is_canonical(&self) -> bool {
+        match self {
+            Self::PoseidonCtrV1 { ciphertext, .. } => {
+                ciphertext.iter().all(is_canonical_bn254_scalar_be)
+            }
+        }
+    }
+
+    /// Appends the scheme's elements of the merge public-input hash, in
+    /// circuit order, after the owner binding. PoseidonCtrV1: the
+    /// right-aligned salt, then the three ciphertext elements. Each scheme has
+    /// its own circuit, so the element count may differ per scheme, up to
+    /// [`MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS`].
+    pub fn append_public_inputs<const N: usize>(
+        &self,
+        inputs: &mut ArrayVec<[u8; 32], N>,
+    ) -> Result<(), CapacityError> {
+        match self {
+            Self::PoseidonCtrV1 { salt, ciphertext } => {
+                inputs
+                    .try_push(right_align(salt))
+                    .map_err(CapacityError::simplify)?;
+                inputs.try_extend_from_slice(ciphertext)
+            }
+        }
+    }
+}
+
 /// `merge_transact` instruction data (spec: SPP `merge_transact`).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeTransactIxData {
     pub expiry_unix_ts: u64,
     pub proof: MergeProof,
     pub output_utxo_hash: [u8; 32],
-    /// The output's amount and mint encrypted for the owner, so the owner can
-    /// rebuild the output from this instruction alone. Both are public inputs
-    /// of the merge proof.
-    pub output_ciphertext_salt: [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
-    pub output_ciphertext: [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
+    pub output_encryption: MergeOutputEncryption,
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
@@ -97,8 +150,7 @@ pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
-    pub output_ciphertext_salt: &'a [u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
-    pub output_ciphertext: &'a [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS],
+    pub output_encryption: MergeOutputEncryption,
     pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
@@ -161,100 +213,5 @@ impl MergeExternalDataHash<'_> {
             preimage.push(slot);
         }
         Sha256BE::hash(&preimage)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn data() -> MergeTransactIxData {
-        MergeTransactIxData {
-            cache_slot: None,
-            expiry_unix_ts: 42,
-            proof: MergeProof {
-                a: [1u8; 32],
-                b: [2u8; 128],
-                c: [3u8; 32],
-            },
-            output_utxo_hash: [9u8; 32],
-            output_ciphertext_salt: [5u8; MERGE_OUTPUT_CIPHERTEXT_SALT_LEN],
-            output_ciphertext: [[6u8; 32], [7u8; 32], [8u8; 32]],
-            nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
-                .map(|i| [i; 32])
-                .collect(),
-            utxo_tree_root_index: 4,
-            nullifier_tree_root_index: 10,
-            private_tx_hash: [3u8; 32],
-        }
-    }
-
-    #[test]
-    fn round_trips_owned_and_ref() {
-        let owned = data();
-        let bytes = owned.serialize().unwrap();
-        let view = MergeTransactIxDataRef::from_bytes(&bytes).unwrap();
-        assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-        assert_eq!(view.proof.a, &owned.proof.a);
-        assert_eq!(view.proof.b, &owned.proof.b);
-        assert_eq!(view.proof.c, &owned.proof.c);
-        assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
-        assert_eq!(view.output_ciphertext_salt, &owned.output_ciphertext_salt);
-        assert_eq!(view.output_ciphertext, &owned.output_ciphertext);
-        assert_eq!(view.nullifiers, owned.nullifiers);
-        assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
-        assert_eq!(
-            view.nullifier_tree_root_index,
-            owned.nullifier_tree_root_index
-        );
-        assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-    }
-
-    #[test]
-    fn fixed_shape_wire_length_matches_the_protocol_contract() {
-        let bytes = data().serialize().expect("serialize merge instruction");
-
-        assert_eq!(bytes.len(), 382 + 32 * MERGE_DEFAULT_INPUT_COUNT);
-    }
-
-    #[test]
-    fn rejects_empty_and_oversized_nullifier_lists() {
-        for count in [0, MAX_MERGE_INPUTS + 1] {
-            let mut owned = data();
-            owned.nullifiers = vec![[1u8; 32]; count];
-            let bytes = owned.serialize().unwrap();
-            assert!(
-                MergeTransactIxDataRef::from_bytes(&bytes).is_err(),
-                "{count} nullifiers"
-            );
-        }
-    }
-
-    fn hash_of(discriminator: u8, expiry: u64, output: &[u8; 32]) -> [u8; 32] {
-        MergeExternalDataHash {
-            cache: None,
-            spp_instruction_discriminator: discriminator,
-            expiry_unix_ts: expiry,
-            output_utxo_hash: output,
-        }
-        .hash()
-        .unwrap()
-    }
-
-    #[test]
-    fn external_data_hash_is_injective() {
-        let base = hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[1u8; 32]);
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::MERGE_TRANSACT, 2, &[1u8; 32])
-        );
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::MERGE_TRANSACT, 1, &[2u8; 32])
-        );
-        assert_ne!(
-            base,
-            hash_of(crate::instruction::tag::RING_MERGE_TRANSACT, 1, &[1u8; 32])
-        );
     }
 }

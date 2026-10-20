@@ -15,10 +15,11 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge, mergeRingDataHash } from "../../transaction/instructions/builders.js";
+import { mergeMintChunks } from "../../transaction/serialization/merge.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
-import { CACHE_CAPACITY } from "../../interface/state.js";
+import { CACHE_CAPACITY, MergeEncryptionScheme } from "../../interface/state.js";
 import type {
   MergeCacheTarget,
   ProofReader,
@@ -408,11 +409,8 @@ export function prepareMerge(
   if (ciphertext0 === undefined || ciphertext1 === undefined || ciphertext2 === undefined) {
     throw new ClientError("CLIENT_INVALID_MERGE");
   }
-  const mint = addressBytes(prepared.output.asset);
-  const mintChunks = [
-    asField(bytesToBigInt(mint.subarray(0, 31))),
-    asField(bytesToBigInt(mint.subarray(31))),
-  ] as const;
+  const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
+  const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
@@ -483,12 +481,15 @@ export function prepareMerge(
           expiryUnixTs,
           proof: copyMergeProof(proof),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
-          outputCiphertextSalt: new Uint8Array(outputCiphertextSalt) as Bytes16,
-          outputCiphertext: Object.freeze([
-            new Uint8Array(outputCiphertext[0]) as Bytes32,
-            new Uint8Array(outputCiphertext[1]) as Bytes32,
-            new Uint8Array(outputCiphertext[2]) as Bytes32,
-          ] as const),
+          outputEncryption: Object.freeze({
+            scheme: MergeEncryptionScheme.PoseidonCtrV1,
+            salt: new Uint8Array(outputCiphertextSalt) as Bytes16,
+            ciphertext: Object.freeze([
+              new Uint8Array(outputCiphertext[0]) as Bytes32,
+              new Uint8Array(outputCiphertext[1]) as Bytes32,
+              new Uint8Array(outputCiphertext[2]) as Bytes32,
+            ] as const),
+          }),
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           // The trailing compact padding is left out; SPP fills it back in.
           nullifiers: Object.freeze(

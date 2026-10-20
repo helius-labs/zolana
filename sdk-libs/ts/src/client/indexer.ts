@@ -431,7 +431,7 @@ function convertRegistryRecord(
     owner: record.owner,
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
     viewingPublicKey: decodeX25519(record.viewingPubkey, method, `${path}.viewingPubkey`),
-    mergingEnabled: record.mergingEnabled,
+    mergeEncryption: record.mergeEncryption,
   });
 }
 

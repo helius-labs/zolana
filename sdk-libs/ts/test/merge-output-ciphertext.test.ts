@@ -1,9 +1,17 @@
 import { readFileSync } from "node:fs";
 
 import { getAddressDecoder, getAddressEncoder } from "@solana/kit";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { prepareMerge } from "../src/client/prover/merge.js";
+import { prepareMerge as prepareMergeFlow } from "../src/flows/merge.js";
+import * as mergeKeys from "../src/keypair/merge/index.js";
+import * as mergeCipher from "../src/transaction/serialization/merge.js";
+import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
+import { TransactionError } from "../src/transaction/error.js";
+import { checked } from "../src/transaction/internal.js";
+import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
+import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import type { Address, Bytes16, Bytes32 } from "../src/interface/types.js";
 import { NullifierKey, ShieldedKeypair, type Bytes31 } from "../src/keypair/index.js";
@@ -71,6 +79,29 @@ function vectorInputs() {
 }
 
 describe("merge output ciphertext", () => {
+  it("rejects non-canonical aliases of every ciphertext element", () => {
+    const { nullifierKey, key, salt, plaintext } = vectorInputs();
+    try {
+      const ciphertext = encryptMergeOutput(plaintext, key, salt);
+      expect(decryptMergeOutput(encryptedBody(salt, ciphertext), key)).toEqual(plaintext);
+      for (const [index, element] of ciphertext.entries()) {
+        for (const value of [bytesToBigInt(element) + BN254_SCALAR_ORDER, BN254_SCALAR_ORDER]) {
+          const body = encryptedBody(salt, ciphertext);
+          body.set(bigIntToBytes(value), salt.length + index * 32);
+          expect(() => decryptMergeOutput(body, key)).toThrow(
+            expect.objectContaining({
+              code: "TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT",
+              details: { index },
+            }),
+          );
+        }
+      }
+    } finally {
+      key.fill(0);
+      nullifierKey.destroy();
+    }
+  });
+
   it("reproduces the shared Rust ciphertext vector", () => {
     const { nullifierKey, key, salt, plaintext } = vectorInputs();
     try {
@@ -251,4 +282,85 @@ describe("merge output data", () => {
       encodeMergeOutputData({ salt, ciphertext, ringDataHash: filled<Bytes32>(33, 9) }),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_INVALID_LENGTH" }));
   });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("merge key lifetime", () => {
+  function note(owner: ShieldedKeypair) {
+    return ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 7n,
+        blinding: checked<Bytes32>(new Uint8Array(32).fill(2), 32, "blinding"),
+      }),
+      owner,
+    );
+  }
+
+  it.each(["success", "invalid owner", "cipher failure"])(
+    "wipes builder keys after %s",
+    (outcome) => {
+      const owner = ShieldedKeypair.generate();
+      const stranger = ShieldedKeypair.generate();
+      const input = note(outcome === "invalid owner" ? stranger : owner);
+      const returned = checked<Bytes32>(new Uint8Array(32).fill(3), 32, "key");
+      vi.spyOn(mergeKeys, "mergeOutputKey").mockReturnValue(returned);
+      const encrypt = mergeCipher.encryptMergeOutput;
+      const used: Bytes32[] = [];
+      vi.spyOn(mergeCipher, "encryptMergeOutput").mockImplementation((plaintext, key, salt) => {
+        used.push(key);
+        if (outcome === "cipher failure") throw new TransactionError("TRANSACTION_POSEIDON");
+        return encrypt(plaintext, key, salt);
+      });
+      try {
+        if (outcome === "success")
+          expect(Merge.fromKeypair(owner, [input]).prepare().output.amount).toBe(7n);
+        else expect(() => Merge.fromKeypair(owner, [input])).toThrow(TransactionError);
+        expect(returned).toEqual(new Uint8Array(32));
+        expect(used).toHaveLength(outcome === "invalid owner" ? 0 : 1);
+        for (const key of used) expect(key).toEqual(new Uint8Array(32));
+      } finally {
+        owner.destroy();
+        stranger.destroy();
+      }
+    },
+  );
+
+  it.each(["success", "malformed batch", "invalid output tree", "identity failure"])(
+    "wipes key-holder merge answers after %s",
+    async (outcome) => {
+      const owner = ShieldedKeypair.generate();
+      const keys = LocalShieldedKeys.fromKeypair(owner);
+      const input = note(owner);
+      const derive = keys.derive.bind(keys);
+      const answers: Bytes32[] = [];
+      vi.spyOn(keys, "derive").mockImplementation(async (requests) => {
+        answers.push(...(await derive(requests)));
+        return outcome === "malformed batch" ? [...answers, ...answers.slice(0, 1)] : answers;
+      });
+      if (outcome === "identity failure")
+        vi.spyOn(keys, "address").mockImplementation(() => {
+          throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
+        });
+      try {
+        const result = prepareMergeFlow({
+          keys,
+          inputs: [input],
+          invalidAnswers: () => new TransactionError("TRANSACTION_KEYS_BATCH_MISMATCH"),
+          ...(outcome === "invalid output tree" ? { outputTreeId: -1 } : {}),
+        });
+        if (outcome === "success") expect((await result).output.amount).toBe(7n);
+        else await expect(result).rejects.toBeInstanceOf(TransactionError);
+        expect(answers.length).toBeGreaterThan(0);
+        for (const key of answers) expect(key).toEqual(new Uint8Array(32));
+      } finally {
+        keys.destroy();
+        owner.destroy();
+      }
+    },
+  );
 });

@@ -938,6 +938,24 @@ class SyncPass {
     }
   }
 
+  /** Check after every key round and newly discovered input has been resolved. */
+  assertOwnedMergesDecoded(sites: readonly Site[], identityTag: Bytes32): void {
+    const ownedNullifiers = new Set(this.#utxos.map((entry) => hex(entry.nullifier)));
+    for (const site of sites) {
+      if (this.#processedSlots.has(`${String(site.transaction)}:${String(site.slot)}`)) continue;
+      const tx = this.#transactions[site.transaction];
+      const slot = tx?.outputSlots[site.slot];
+      if (tx === undefined || slot === undefined) continue;
+      if (this.#outputHashes.has(hex(slot.outputContext.hash))) continue;
+      if (
+        equal(slot.viewTag, identityTag) ||
+        tx.nullifiers.some((nullifier) => ownedNullifiers.has(hex(nullifier)))
+      ) {
+        throw new TransactionError("TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE");
+      }
+    }
+  }
+
   /**
    * A merge output publishes its amount and mint under a key derived from the
    * nullifier secret and the first nullifier, and the proof binds that
@@ -969,11 +987,12 @@ class SyncPass {
       return;
     }
     // Requested together so one round answers both.
-    const key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier });
-    const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-    if (key === undefined || outputBlinding === undefined) return;
-
+    let key: Bytes32 | undefined;
+    let outputBlinding: Bytes32 | undefined;
     try {
+      key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier });
+      outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
+      if (key === undefined || outputBlinding === undefined) return;
       const plaintext = decryptMergeOutput(body.encrypted, key);
       const utxo = new Utxo({
         owner: this.#owner,
@@ -993,6 +1012,9 @@ class SyncPass {
       }
     } catch (error) {
       this.#recordUndecryptable(error, siteKey);
+    } finally {
+      key?.fill(0);
+      outputBlinding?.fill(0);
     }
   }
 
@@ -1110,6 +1132,7 @@ export async function decryptTransactions(
         await memo.resolve(input.context);
         continue;
       }
+      pass.assertOwnedMergesDecoded(mergeSites, identityTag);
       return commitPass(input, pass, index, viewingKeyHistory);
     }
     throw new TransactionError("TRANSACTION_KEYS_UNRESOLVED");

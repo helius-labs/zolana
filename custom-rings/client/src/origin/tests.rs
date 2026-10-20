@@ -1003,7 +1003,7 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
     use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
     use zolana_interface::instruction::instruction_data::{
         merge_ring::MergeRingIxData,
-        merge_transact::{MergeProof, MergeTransactIxData},
+        merge_transact::{MergeOutputEncryption, MergeProof, MergeTransactIxData},
     };
     let (mut group, mut indexed) = confirmed_transfer_fixture();
     indexed.tx_viewing_pk = None;
@@ -1024,8 +1024,10 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [6; 32],
-            output_ciphertext_salt: [7; 16],
-            output_ciphertext: [[0; 32]; 3],
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: [7; 16],
+                ciphertext: [[0; 32]; 3],
+            },
             private_tx_hash: [0; 32],
             nullifiers: indexed.nullifiers.clone(),
             utxo_tree_root_index: 0,

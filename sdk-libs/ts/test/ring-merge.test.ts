@@ -419,6 +419,9 @@ describe("ring merge", () => {
           circuitType: "merge-ring",
           memberRegistryRoot: `0x${BigInt(`0x${Buffer.from(mergeRegistry.root).toString("hex")}`).toString(16)}`,
         });
+        expect(proofDataSource === "prover" ? body.prepared : body).toHaveProperty(
+          "outputCiphertextSalt",
+        );
         if (proofDataSource === "prover") expect(body.prepared).not.toHaveProperty("treeSlots");
         else expect(body).toHaveProperty("treeSlots");
       } finally {

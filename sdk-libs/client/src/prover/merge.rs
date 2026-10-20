@@ -1,19 +1,23 @@
+mod public_inputs;
+pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
+
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::primitives::pack_be;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{
             merge_ring::MergeRingIxData,
-            merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+            merge_transact::{
+                MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
+            },
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     state::cache::CACHE_CAPACITY,
-    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    tree_slot::tree_slots_hash_chain,
 };
 use zolana_keypair::{viewing_key::Salt, NullifierKey};
 use zolana_transaction::{
@@ -112,8 +116,10 @@ impl MergeProofResult {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
             output_utxo_hash: self.output_hash,
-            output_ciphertext_salt: self.output_ciphertext_salt,
-            output_ciphertext: self.output_ciphertext,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: self.output_ciphertext_salt,
+                ciphertext: self.output_ciphertext,
+            },
             nullifiers: without_compact_padding(&self.nullifiers).to_vec(),
             utxo_tree_root_index: self.utxo_tree_root_index,
             nullifier_tree_root_index: self.nullifier_tree_root_index,
@@ -287,29 +293,33 @@ impl MergeProver {
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
-        let mut elements = vec![
-            create_padded_right_hash_chain_4(
-                &assembled_inputs.nullifiers,
-                assembled_inputs.nullifiers.len(),
-            )?,
-            output_hash,
-            tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
-            tree_id_field(output_tree_id),
-            private_tx,
-            external_data_hash,
-            right_align(&[1u8]),
-        ];
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
-        if ring_program_id.is_some() {
-            elements.extend([output_ring_data_hash, ring_hash]);
-        } else {
-            // Bind both halves of the UTXO owner to the registry, so another
-            // nullifier key cannot manufacture a merge for this signing identity.
-            elements.extend([user_signing_pk_hash, nullifier_pubkey]);
+        let elements = MergePublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hash,
+            output_tree_id,
+            private_tx_hash: private_tx,
+            external_data_hash,
+            allow_dummy_inputs: true,
+            binding: if ring_program_id.is_some() {
+                MergePublicInputBinding::Ring {
+                    output_data_hash: output_ring_data_hash,
+                    program_id_hash: ring_hash,
+                    member_registry_root: None,
+                }
+            } else {
+                MergePublicInputBinding::Owner {
+                    signing_key_hash: user_signing_pk_hash,
+                    nullifier_public_key: nullifier_pubkey,
+                }
+            },
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: output_ciphertext_salt,
+                ciphertext: output_ciphertext,
+            },
         }
-        elements.push(right_align(&output_ciphertext_salt));
-        elements.extend(output_ciphertext);
+        .elements(Some(tree_slots_hash_chain(&assembled_inputs.tree_slots)?))?;
         let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs

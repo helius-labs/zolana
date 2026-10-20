@@ -126,7 +126,7 @@ fn user_record(
         owner: *owner,
         nullifier_pubkey: Hash(record.nullifier_pubkey),
         viewing_pubkey: Base64String(record.viewing_pubkey.to_vec()),
-        merging_enabled: record.merging_enabled,
+        merge_encryption: record.merge_encryption as u8,
     }))
 }
 
@@ -141,6 +141,7 @@ mod tests {
     use sea_orm_migration::MigratorTrait;
     use serde_json::{json, Value};
     use zolana_indexer_api::Context;
+    use zolana_user_registry_interface::MergeEncryptionScheme;
 
     fn owner(value: u8) -> SerializablePubkey {
         SerializablePubkey::from([value; 32])
@@ -152,7 +153,7 @@ mod tests {
             bump: user_record_pda(&owner.0).1,
             nullifier_pubkey: [3; 32],
             viewing_pubkey: [4; 33],
-            merging_enabled: true,
+            merge_encryption: MergeEncryptionScheme::PoseidonCtrV1,
         }
     }
 
@@ -329,14 +330,14 @@ mod tests {
                     owner: owners[0],
                     nullifier_pubkey: Hash([3; 32]),
                     viewing_pubkey: Base64String(vec![4; 33]),
-                    merging_enabled: true,
+                    merge_encryption: 1,
                 }),
                 None,
                 Some(UserRecord {
                     owner: owners[2],
                     nullifier_pubkey: Hash([3; 32]),
                     viewing_pubkey: Base64String(vec![4; 33]),
-                    merging_enabled: true,
+                    merge_encryption: 1,
                 }),
             ]
         );

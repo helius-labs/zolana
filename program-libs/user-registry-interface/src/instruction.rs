@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use super::state::{NULLIFIER_PUBKEY_LEN, VIEWING_PUBKEY_LEN};
+use super::state::{MergeEncryptionScheme, NULLIFIER_PUBKEY_LEN, VIEWING_PUBKEY_LEN};
 
 pub mod discriminator {
     pub const REGISTER: u8 = 0;
-    pub const SET_MERGING_ENABLED: u8 = 1;
+    pub const SET_MERGE_ENCRYPTION: u8 = 1;
     pub const UPDATE_KEYS: u8 = 2;
 }
 
@@ -21,8 +21,8 @@ pub struct UpdateKeysData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct SetMergingEnabledData {
-    pub enabled: bool,
+pub struct SetMergeEncryptionData {
+    pub scheme: MergeEncryptionScheme,
 }
 
 #[cfg(feature = "solana")]
@@ -34,7 +34,9 @@ mod builders {
     use solana_instruction::{AccountMeta, Instruction};
     use solana_pubkey::Pubkey;
 
-    use super::{discriminator, RegisterData, SetMergingEnabledData, UpdateKeysData};
+    use super::{
+        discriminator, MergeEncryptionScheme, RegisterData, SetMergeEncryptionData, UpdateKeysData,
+    };
     use crate::user_registry_program_id;
 
     const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
@@ -70,8 +72,12 @@ mod builders {
     }
 
     /// Accounts: `[user_record (writable), owner (signer)]`. Only the owner may
-    /// enable or disable merging.
-    pub fn set_merging_enabled(user_record: Pubkey, owner: Pubkey, enabled: bool) -> Instruction {
+    /// select the merge encryption scheme or disable merging.
+    pub fn set_merge_encryption(
+        user_record: Pubkey,
+        owner: Pubkey,
+        scheme: MergeEncryptionScheme,
+    ) -> Instruction {
         Instruction {
             program_id: user_registry_program_id(),
             accounts: vec![
@@ -79,8 +85,8 @@ mod builders {
                 AccountMeta::new_readonly(owner, true),
             ],
             data: encode_instruction(
-                discriminator::SET_MERGING_ENABLED,
-                &SetMergingEnabledData { enabled },
+                discriminator::SET_MERGE_ENCRYPTION,
+                &SetMergeEncryptionData { scheme },
             ),
         }
     }

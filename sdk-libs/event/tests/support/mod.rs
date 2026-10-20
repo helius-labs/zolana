@@ -5,6 +5,7 @@ use borsh::BorshSerialize;
 use solana_pubkey::Pubkey;
 use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
 use zolana_event_parser::ParsedInstruction;
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
@@ -90,8 +91,10 @@ pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
         expiry_unix_ts: 0,
         proof: MergeProof::zeroed(),
         output_utxo_hash,
-        output_ciphertext_salt: MERGE_CIPHERTEXT_SALT,
-        output_ciphertext: MERGE_CIPHERTEXT,
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: MERGE_CIPHERTEXT_SALT,
+            ciphertext: MERGE_CIPHERTEXT,
+        },
         private_tx_hash: [7u8; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x40 + u8::try_from(i).expect("test shape"); 32])

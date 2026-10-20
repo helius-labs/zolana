@@ -964,7 +964,10 @@ fn tx_size(args: Vec<String>) {
             .into_iter()
             .chain([3, 9, 25, MAX_MERGE_INPUTS - 1])
     {
-        use zolana_interface::instruction::{instruction_data::MergeProof, MergeTransactIxData};
+        use zolana_interface::instruction::{
+            instruction_data::{MergeOutputEncryption, MergeProof},
+            MergeTransactIxData,
+        };
         use zolana_program::instruction::{MergeRing, MergeTransact};
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
@@ -974,8 +977,10 @@ fn tx_size(args: Vec<String>) {
             expiry_unix_ts: 0,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
-            output_ciphertext_salt: [0u8; 16],
-            output_ciphertext: [[0u8; 32]; 3],
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: [0u8; 16],
+                ciphertext: [[0u8; 32]; 3],
+            },
             private_tx_hash: [0u8; 32],
             nullifiers,
             utxo_tree_root_index: 0,

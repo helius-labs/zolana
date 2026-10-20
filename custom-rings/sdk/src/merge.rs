@@ -14,7 +14,7 @@ use zolana_client::{
 use zolana_interface::{
     instruction::instruction_data::{
         merge_ring::MergeRingIxData,
-        merge_transact::{MergeProof, MergeTransactIxData},
+        merge_transact::{MergeOutputEncryption, MergeProof, MergeTransactIxData},
     },
     instruction::tag::RING_MERGE_TRANSACT,
     merge_utils::ciphertext_hash,
@@ -188,8 +188,10 @@ impl PreparedCustomRingMerge {
                     expiry_unix_ts: self.inner.expiry_unix_ts,
                     proof: MergeProof::zeroed(),
                     output_utxo_hash: [0; 32],
-                    output_ciphertext_salt: self.inner.output_ciphertext_salt,
-                    output_ciphertext: self.inner.output_ciphertext,
+                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                        salt: self.inner.output_ciphertext_salt,
+                        ciphertext: self.inner.output_ciphertext,
+                    },
                     private_tx_hash: [0; 32],
                     nullifiers: self
                         .inner

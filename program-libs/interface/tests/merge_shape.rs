@@ -2,6 +2,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
+use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 fn data_with(input_count: usize) -> MergeTransactIxData {
     MergeTransactIxData {
@@ -13,8 +14,10 @@ fn data_with(input_count: usize) -> MergeTransactIxData {
             c: [3u8; 32],
         },
         output_utxo_hash: [9u8; 32],
-        output_ciphertext_salt: [5u8; 16],
-        output_ciphertext: [[6u8; 32], [7u8; 32], [8u8; 32]],
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [5u8; 16],
+            ciphertext: [[6u8; 32], [7u8; 32], [8u8; 32]],
+        },
         nullifiers: (0..input_count).map(|i| [i as u8; 32]).collect(),
         utxo_tree_root_index: 4,
         nullifier_tree_root_index: 10,
@@ -28,7 +31,7 @@ fn every_supported_shape_has_the_contracted_encoded_length() {
         let bytes = data_with(input_count)
             .serialize()
             .expect("serialize merge instruction");
-        assert_eq!(bytes.len(), 382 + 32 * input_count);
+        assert_eq!(bytes.len(), 383 + 32 * input_count);
         MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
     }
 }
@@ -80,7 +83,7 @@ fn cache_slot_round_trips_in_both_merge_rails() {
     use zolana_interface::instruction::{
         instruction_data::merge_ring::MergeRingIxDataRef, MergeRingIxData,
     };
-    for (cache_slot, encoded_len) in [(None, 638), (Some(0), 639), (Some(35), 639)] {
+    for (cache_slot, encoded_len) in [(None, 639), (Some(0), 640), (Some(35), 640)] {
         let mut data = data_with(8);
         data.cache_slot = cache_slot;
         let bytes = data.serialize().unwrap();

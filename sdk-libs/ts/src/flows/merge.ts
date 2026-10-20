@@ -1,6 +1,6 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { Merge, PreparedMerge, mergeRingDataHash } from "../transaction/instructions/builders.js";
-import { deriveAnswers } from "../transaction/wallet/key-batch.js";
+import { deriveAnswers, wipeByteAnswers } from "../transaction/wallet/key-batch.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
 
@@ -31,14 +31,12 @@ export async function prepareMerge(
     ],
     context,
   );
-  let outputKey: Bytes32 | undefined;
   try {
-    const [outputBlinding, privateTxBlinding, derivedOutputKey, ...dummyNullifiers] = deriveAnswers(
+    const [outputBlinding, privateTxBlinding, outputKey, ...dummyNullifiers] = deriveAnswers(
       answers,
       3 + slots.length,
       input.invalidAnswers,
     );
-    outputKey = derivedOutputKey;
     if (
       outputBlinding === undefined ||
       privateTxBlinding === undefined ||
@@ -57,8 +55,6 @@ export async function prepareMerge(
       ...(input.ring === undefined ? {} : { ring: input.ring }),
     }).prepare();
   } finally {
-    outputKey?.fill(0);
-    // Derivation answers transfer ownership to this call. Validation copies them.
-    if (Array.isArray(answers) && answers[2] instanceof Uint8Array) answers[2].fill(0);
+    wipeByteAnswers(answers);
   }
 }

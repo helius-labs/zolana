@@ -528,7 +528,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     // Public-input layout: the 6-element base chain, the interleaved public
     // transfer slots (all idle here), then ring/signer/dummy-policy, then the
     // variant appendix (ConfidentialRingEddsa: the output-owner chain; RingAuthority:
-    // nothing — its signer element is the bare payer hash).
+    // nothing — its signer element is the bare payer hash). On ConfidentialRingEddsa
+    // the payer owns the real input, so the instruction lists it as the owner
+    // signer that fills slot 0.
     let mut signer_hashes =
         vec![zero; Shape::new(usize::from(n_inputs), usize::from(n_outputs)).signer_width()];
     if let Some(first) = signer_hashes.first_mut() {
@@ -1903,6 +1905,9 @@ fn anonymous_ring_eddsa_transact_accepts_the_widest_input_shape() {
     assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");
 }
 
+/// The owner-signer run may fill every slot of the signer vector
+/// (`Shape::signer_width`), one more than the input count; one signer past
+/// that fails the shape check.
 #[test]
 fn transact_rejects_an_owner_signer_run_longer_than_the_signer_width() {
     let mut env = proof_env();

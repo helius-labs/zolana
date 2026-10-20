@@ -61,8 +61,8 @@ pub enum ShieldedPoolError {
     StaleNullifierRoot = 7015,
     #[error("account address does not match its canonical PDA derivation")]
     InvalidPda = 7016,
-    #[error("merging is not enabled for this user")]
-    MergeDisabled = 7017,
+    #[error("merge output encryption scheme differs from the owner's registered scheme")]
+    MergeEncryptionSchemeMismatch = 7017,
     #[error("user record account is invalid")]
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
@@ -253,7 +253,7 @@ mod tests {
                 InvalidRingConfig => 7014,
                 StaleNullifierRoot => 7015,
                 InvalidPda => 7016,
-                MergeDisabled => 7017,
+                MergeEncryptionSchemeMismatch => 7017,
                 InvalidUserRecord => 7018,
                 InvalidMergeShape => 7019,
                 RingAuthorityTransactDisabled => 7020,
@@ -340,7 +340,7 @@ mod tests {
             InvalidRingConfig,
             StaleNullifierRoot,
             InvalidPda,
-            MergeDisabled,
+            MergeEncryptionSchemeMismatch,
             InvalidUserRecord,
             InvalidMergeShape,
             RingAuthorityTransactDisabled,

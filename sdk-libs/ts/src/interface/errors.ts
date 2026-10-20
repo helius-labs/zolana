@@ -27,7 +27,7 @@ export const ShieldedPoolError = Object.freeze({
   InvalidRingConfig: 7014,
   StaleNullifierRoot: 7015,
   InvalidPda: 7016,
-  MergeDisabled: 7017,
+  MergeEncryptionSchemeMismatch: 7017,
   InvalidUserRecord: 7018,
   InvalidMergeShape: 7019,
   RingAuthorityTransactDisabled: 7020,

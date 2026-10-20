@@ -10,6 +10,23 @@ export const StateDiscriminator = Object.freeze({
   cache: 7,
 } as const);
 
+/**
+ * The merge output encryption scheme an owner's registry record accepts.
+ * `Disabled` rejects every default merge for the owner; any other scheme lets
+ * any caller merge for the owner with exactly that scheme.
+ */
+export const MergeEncryptionScheme = Object.freeze({
+  Disabled: 0,
+  PoseidonCtrV1: 1,
+} as const);
+export type MergeEncryptionScheme =
+  (typeof MergeEncryptionScheme)[keyof typeof MergeEncryptionScheme];
+
+/** @internal */
+export function isMergeEncryptionScheme(value: unknown): value is MergeEncryptionScheme {
+  return value === MergeEncryptionScheme.Disabled || value === MergeEncryptionScheme.PoseidonCtrV1;
+}
+
 export const CACHE_CAPACITY = 36;
 export const CACHE_ACCOUNT_SIZE = 1_228;
 

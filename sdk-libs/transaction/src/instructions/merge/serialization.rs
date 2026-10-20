@@ -1,6 +1,6 @@
 use solana_address::Address;
 use zolana_hasher::{
-    primitives::{pack_be, right_align, PACK_BE_CHUNK_BYTES},
+    primitives::{is_canonical_bn254_scalar_be, pack_be, right_align, PACK_BE_CHUNK_BYTES},
     Hasher, Poseidon,
 };
 use zolana_keypair::{constants::SALT_LEN, viewing_key::Salt, PublicKey};
@@ -49,6 +49,11 @@ impl MergeOutputPlaintext {
     /// output against the published commitment.
     pub fn decrypt(body: &[u8], key: &[u8; 32]) -> Result<Self, TransactionError> {
         let (salt, ciphertext) = split_body(body)?;
+        for (index, element) in ciphertext.iter().enumerate() {
+            if !is_canonical_bn254_scalar_be(element) {
+                return Err(TransactionError::NonCanonicalMergeCiphertext { index });
+            }
+        }
         // Almost every wrong key produces a field element that cannot be a u64.
         // Reject it before deriving the two mint pads for this candidate.
         let amount = split_low::<8>(&field_sub(&ciphertext[0], &pad(key, &salt, 0)?), 0)?;

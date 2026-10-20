@@ -30,7 +30,7 @@ use zolana_interface::{
         deposit::{
             DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         },
-        merge_transact::{MergeProof, MergeTransactIxData},
+        merge_transact::{MergeOutputEncryption, MergeProof, MergeTransactIxData},
         transact::{TransactIxData, TreeContext},
     },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
@@ -1631,8 +1631,10 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [1; 32],
-                output_ciphertext_salt: [2; 16],
-                output_ciphertext: [[3; 32]; 3],
+                output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                    salt: [2; 16],
+                    ciphertext: [[3; 32]; 3],
+                },
                 private_tx_hash: [3; 32],
                 nullifiers: vec![[5; 32]; 8],
                 utxo_tree_root_index: 0,
