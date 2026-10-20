@@ -60,6 +60,10 @@ Breaking
 - `ProverClient` requires rotated confidential, ring and P256-ring transfer
   keys and both merge key sets, replacing the 54-input merge keys with
   52-input keys → deploy the matching prover key set before upgrading.
+- `buildDepositTransaction` now reads the chain for an SPL deposit and, when
+  the mint has no vault, adds its creation paid for by the depositor, failing
+  the build when the protocol config cannot be read or forbids it → pass
+  `createSplInterface: false` to keep building the deposit alone.
 
 Added
 
@@ -68,13 +72,24 @@ Added
   single payment stays a `transfer` intent), and accepts a `feePayer` other
   than the wallet owner like `buildTransferTransaction`.
 - `WalletErrorCode` adds `WALLET_INVALID_PAYMENT_COUNT` and
-  `WALLET_INVALID_PAYMENT` for invalid payment lists and
+  `WALLET_INVALID_PAYMENT` for a payment list that is empty, longer than
+  fifteen, or holds a malformed payment, and
   `WALLET_INVALID_MERGE_ENCRYPTION_SCHEME` for an unsupported merge scheme.
 - `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
   tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
   tree creation step that differs from the step that started it, and
   `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
   BN254 field.
+- `buildDepositTransaction` accepts `setupInstructions`, which it places
+  before every other instruction in the transaction.
+- `WalletErrorCode` adds `WALLET_SPL_INTERFACE_CREATION_RESTRICTED` for a
+  deposit that would create a mint's vault the protocol config does not let
+  the depositor create, and `WALLET_PROTOCOL_CONFIG_NOT_FOUND` for a chain
+  with no protocol config.
+- `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
+  client that names its prover.
+- `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
+  its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
 
 Changed
 

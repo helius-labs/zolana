@@ -1,5 +1,5 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
+import { DEFAULT_COMPUTE_UNIT_LIMIT, checkedAddress } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader, TreeContext } from "../client/ports.js";
 import type {
   Address,
@@ -10,7 +10,15 @@ import type {
   RequestContext,
   Transaction,
 } from "../interface/types.js";
-import { depositInstruction } from "../interface/instructions/index.js";
+import {
+  decodeProtocolConfigAccount,
+  decodeSplAssetRegistryAccount,
+} from "../interface/codecs/index.js";
+import {
+  createSplInterfaceInstruction,
+  depositInstruction,
+} from "../interface/instructions/index.js";
+import { protocolConfigAddress, splAssetRegistryAddress } from "../interface/pda/index.js";
 import { initializePoseidon } from "../hasher/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { SOL_MINT } from "../transaction/asset.js";
@@ -128,6 +136,59 @@ export interface DepositTransactionParams {
   readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
+  /**
+   * Prepend the instruction that creates the mint's registry entry and vault
+   * when the mint has none, paid for by the depositor. Defaults to true and is
+   * ignored for SOL. Two first deposits of one mint built concurrently both
+   * carry the creation, so the second to land fails.
+   */
+  readonly createSplInterface?: boolean;
+  /** Placed verbatim before every other instruction, in order. */
+  readonly setupInstructions?: readonly Instruction[];
+}
+
+/**
+ * Whether a deposit of `mint` must first create its SPL interface. Throws when
+ * creation is needed but the depositor may not do it, so a transaction known to
+ * fail on chain is never built.
+ */
+async function splInterfaceCreationNeeded(
+  client: Pick<ChainReader, "getAccount">,
+  mint: Address,
+  depositor: Address,
+  context?: RequestContext,
+): Promise<boolean> {
+  const registry = await client.getAccount(await splAssetRegistryAddress(mint), context);
+  // Anyone can send lamports to the registry PDA before it is created, which
+  // leaves a data-less account the program's create path still accepts. Any
+  // account with data is decoded, so a malformed one fails instead of passing.
+  if (registry !== undefined && registry.data.length > 0) {
+    decodeSplAssetRegistryAccount(registry.data);
+    return false;
+  }
+  const configAccount = await client.getAccount(await protocolConfigAddress(), context);
+  if (configAccount === undefined) {
+    throw new WalletError("WALLET_PROTOCOL_CONFIG_NOT_FOUND", { details: { mint } });
+  }
+  const config = decodeProtocolConfigAccount(configAccount.data);
+  // The program's create_spl_interface check owns this policy.
+  if (!config.splInterfaceCreationIsPermissionless && config.authority !== depositor) {
+    throw new WalletError("WALLET_SPL_INTERFACE_CREATION_RESTRICTED", {
+      details: { mint, depositor },
+    });
+  }
+  return true;
+}
+
+/** Caller-built instructions are structural objects, so their addresses are revalidated. */
+function checkedSetupInstruction(instruction: Instruction, index: number): void {
+  checkedAddress(instruction.programAddress, `setupInstructions[${String(index)}].programAddress`);
+  instruction.accounts?.forEach((account, slot) =>
+    checkedAddress(
+      account.address,
+      `setupInstructions[${String(index)}].accounts[${String(slot)}].address`,
+    ),
+  );
 }
 
 export async function buildDepositTransaction(
@@ -135,6 +196,7 @@ export async function buildDepositTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    input.setupInstructions?.forEach(checkedSetupInstruction);
     const recipient = await resolveShieldedRecipient(
       { rpc: input.client, recipient: input.recipient },
       (unregistered) =>
@@ -155,12 +217,33 @@ export async function buildDepositTransaction(
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });
+    const createInterface =
+      asset !== SOL_MINT &&
+      (input.createSplInterface ?? true) &&
+      (await splInterfaceCreationNeeded(input.client, asset, depositor, context));
+    const instructions = [
+      ...(createInterface
+        ? [
+            await createSplInterfaceInstruction({
+              authority: depositor,
+              mint: asset,
+              ...(input.splTokenProgram === undefined
+                ? {}
+                : { tokenProgram: input.splTokenProgram }),
+            }),
+          ]
+        : []),
+      await deposit.instruction(tree, depositor),
+    ];
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
       feePayer: input.feePayer,
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
-      instructions: [await deposit.instruction(tree, depositor)],
+      ...(input.setupInstructions === undefined
+        ? {}
+        : { setupInstructions: input.setupInstructions }),
+      instructions,
     });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_DEPOSIT", cause);
