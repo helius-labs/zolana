@@ -95,8 +95,8 @@ func expectedPublicInputCount(circuit common.CircuitType) int {
 	case common.MergeCircuitType:
 		return 12
 	case common.MergeRingCircuitType:
-		// The ring tail also binds the member registry root.
-		return 13
+		// The ring tail binds the member registry root and the anonymous flag.
+		return 14
 	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
 		return 8
 	}

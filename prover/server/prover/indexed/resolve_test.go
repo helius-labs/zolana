@@ -25,8 +25,8 @@ func TestIndexedMergePublicInputWidths(t *testing.T) {
 	if got := expectedPublicInputCount(common.MergeCircuitType); got != 12 {
 		t.Fatalf("default merge: got %d public inputs, want 12", got)
 	}
-	if got := expectedPublicInputCount(common.MergeRingCircuitType); got != 13 {
-		t.Fatalf("ring merge: got %d public inputs, want 13", got)
+	if got := expectedPublicInputCount(common.MergeRingCircuitType); got != 14 {
+		t.Fatalf("ring merge: got %d public inputs, want 14", got)
 	}
 }
 
@@ -456,7 +456,7 @@ func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 		right, wrong int
 	}{
 		{common.MergeCircuitType, 12, 13},
-		{common.MergeRingCircuitType, 13, 12},
+		{common.MergeRingCircuitType, 14, 12},
 	} {
 		if _, _, err := decodeRequest(request(test.circuitType, test.wrong)); err == nil || err.Error() != "invalid public input count" {
 			t.Fatalf("%s with %d public inputs: got %v, want the count refused", test.circuitType, test.wrong, err)
