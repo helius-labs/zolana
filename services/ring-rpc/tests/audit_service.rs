@@ -36,6 +36,7 @@ use zolana_ring_rpc::{
     Unauthorized, WebAuthnAssertion, AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
     HEALTH, RING_DEPOSITS, RING_STATUS,
 };
+use zolana_ring_transaction::RingAnonymous;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, UtxoSerialization,
@@ -759,7 +760,7 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
             TREE_ID,
         )
         .expect("output opening");
-        let encoded = Confidential::encode_ring_anonymous_plaintext(
+        let encoded = RingAnonymous::encode_plaintext(
             &ConfidentialOutputPlaintext {
                 asset_id: SOL_ASSET_ID,
                 amount: 500 + index as u64,

@@ -243,12 +243,15 @@ a delegate. A per-window velocity policy fails at `create_policy`,
 spend record names its member.
 
 Anonymous outputs carry view tags in their owner tag, never an owner key.
-`CustomRingTransfer::with_anonymous_view_tags` supplies them, and staging fails
+`zolana-ring-transaction` encodes them from the `AnonymousViewTags` that
+`CustomRingTransfer::with_anonymous_view_tags` supplies, and staging fails
 without them (`MissingAnonymousViewTags`). A recipient output carries the
-shared or request tag the sender holds for that recipient, else the recipient's
-bootstrap tag. Every other output carries the sender's next unused
-`sender_view_tag`. Staging also refuses an output with data, ring data or a
-nonzero data or ring data hash (`AnonymousOutputData`). The recipient
+recipient's bootstrap tag. Anyone who knows the recipient's viewing key can
+link outputs under that tag, so encryption refuses a recipient not named with
+`with_bootstrap_tag` (`RecipientViewTagUnset`). Every other output with a
+ciphertext carries the sender's next unused `sender_view_tag`. Staging also
+refuses an output with data, ring data or a nonzero data or ring data hash
+(`AnonymousOutputData`). The recipient
 recomputes an anonymous commitment with zero data hashes.
 
 An audited deposit into an anonymous ring keeps `ring_data_hash` zero

@@ -391,7 +391,7 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
 }
 
 #[test]
-fn merge_rejects_foreign_owner_rail_and_nullifier_key() {
+fn merge_rejects_foreign_owner_and_nullifier_key() {
     let owner = keypair(7);
     let stranger = keypair(9);
     let independent =

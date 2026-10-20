@@ -27,6 +27,7 @@ members = [
     "custom-rings/program",
     "custom-rings/sdk",
     "custom-rings/test",
+    "custom-rings/transaction",
     "sdk-libs/client",
     "sdk-libs/gnark-ffi-prover",
     "sdk-libs/gnark-ffi-prover/build-helper",
@@ -100,6 +101,7 @@ zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0
 zolana-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
 custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
 zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
+zolana-ring-transaction = { path = "custom-rings/transaction", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }

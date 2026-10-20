@@ -205,7 +205,9 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        recipient.address.signing_pubkey.curve()?;
+        if recipient.address.signing_pubkey.is_zero() {
+            return Err(TransactionError::ZeroRecipientOwner);
+        }
         self.outputs.push(SppProofOutputUtxo {
             owner_address: Some(recipient.address),
             asset: recipient.asset,

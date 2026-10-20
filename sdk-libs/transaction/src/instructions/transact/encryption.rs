@@ -1,20 +1,13 @@
-use std::collections::HashMap;
-
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{
-    constants::SALT_LEN, random_salt, viewing_key::ViewTag, PublicKey, ShieldedAddress, ViewingKey,
-    X25519Pubkey,
-};
+use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
 
 use super::{sender_owner_tag, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
-    instructions::transact::{
-        shape::canonical_shape, ExternalData, SppProofInputs, SppProofOutputUtxo,
-    },
+    instructions::transact::{shape::canonical_shape, ExternalData, SppProofInputs},
     keys::{ShieldedKeys, TransactionKeyRequest},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -30,38 +23,68 @@ pub struct ResolvedOwnerTag {
     pub resolved: [u8; 32],
 }
 
-#[must_use]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AnonymousViewTags {
-    sender: ViewTag,
-    recipients: HashMap<X25519Pubkey, ViewTag>,
+pub trait OutputEncoder {
+    /// One tag per output slot, in slot order.
+    fn owner_tags(
+        &self,
+        transaction: &ConfidentialTransaction,
+        sender: &ShieldedAddress,
+    ) -> Result<Vec<ResolvedOwnerTag>, TransactionError>;
+
+    fn encode_slot(
+        &self,
+        plaintext: &ConfidentialOutputPlaintext,
+        view_tag: [u8; 32],
+        cx: &ConfidentialEncode,
+    ) -> Result<MessageData, TransactionError>;
 }
 
-impl AnonymousViewTags {
-    /// `sender` is the wallet's next unused `sender_view_tag`.
-    pub fn new(sender: ViewTag) -> Self {
-        Self {
-            sender,
-            recipients: HashMap::new(),
-        }
+impl OutputEncoder for Confidential {
+    fn owner_tags(
+        &self,
+        transaction: &ConfidentialTransaction,
+        sender: &ShieldedAddress,
+    ) -> Result<Vec<ResolvedOwnerTag>, TransactionError> {
+        transaction.owner_tags(&sender.signing_pubkey)
     }
 
-    /// A shared or payment request tag for `recipient`, whose outputs otherwise
-    /// carry its bootstrap tag.
-    pub fn with_recipient(mut self, recipient: X25519Pubkey, tag: ViewTag) -> Self {
-        self.recipients.insert(recipient, tag);
-        self
-    }
-
-    fn resolve(&self, output: &SppProofOutputUtxo, sender: &ShieldedAddress) -> ViewTag {
-        match output.owner_address {
-            Some(owner) if owner.signing_pubkey != sender.signing_pubkey => self
-                .recipients
-                .get(&owner.viewing_pubkey)
-                .copied()
-                .unwrap_or_else(|| owner.viewing_pubkey.u()),
-            _ => self.sender,
+    fn encode_slot(
+        &self,
+        plaintext: &ConfidentialOutputPlaintext,
+        view_tag: [u8; 32],
+        cx: &ConfidentialEncode,
+    ) -> Result<MessageData, TransactionError> {
+        let mut message = Confidential::encode_plaintext(plaintext, view_tag, cx)?;
+        if plaintext.ring_program_id.is_some() {
+            let OutputDataEncoding::Encrypted(mut blob) =
+                OutputDataEncoding::try_from_slice(&message.data)
+                    .map_err(|error| TransactionError::Deserialize(error.to_string()))?
+            else {
+                return Err(TransactionError::BadDiscriminator(
+                    EncryptedScheme::Confidential.as_byte(),
+                ));
+            };
+            *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+                EncryptedScheme::RingConfidential.as_byte();
+            message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+                .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
         }
+        Ok(message)
+    }
+}
+
+pub struct OutputEncryption<'a, E> {
+    pub sender: &'a ShieldedAddress,
+    pub tx_viewing_key: &'a ViewingKey,
+    pub encoder: &'a E,
+}
+
+impl<E: OutputEncoder> OutputEncryption<'_, E> {
+    pub fn encrypt(
+        self,
+        transaction: ConfidentialTransaction,
+    ) -> Result<SppProofInputs, TransactionError> {
+        transaction.encrypt_outputs(self)
     }
 }
 
@@ -109,25 +132,21 @@ impl ConfidentialTransaction {
         sender: &ShieldedAddress,
         tx_viewing_key: &ViewingKey,
     ) -> Result<SppProofInputs, TransactionError> {
-        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, None)
+        OutputEncryption {
+            sender,
+            tx_viewing_key,
+            encoder: &Confidential,
+        }
+        .encrypt(self)
     }
 
-    /// Keeps recipient viewing keys in the auditor disclosure, not the public
-    /// output body. The caller must publish that disclosure before proving SPP.
-    pub fn encrypt_anonymous_with_viewing_key(
-        self,
-        sender: &ShieldedAddress,
-        tx_viewing_key: &ViewingKey,
-        view_tags: &AnonymousViewTags,
-    ) -> Result<SppProofInputs, TransactionError> {
-        self.encrypt_with_viewing_key_mode(sender, tx_viewing_key, Some(view_tags))
-    }
-
-    fn encrypt_with_viewing_key_mode(
+    fn encrypt_outputs<E: OutputEncoder>(
         mut self,
-        sender: &ShieldedAddress,
-        tx_viewing_key: &ViewingKey,
-        anonymous: Option<&AnonymousViewTags>,
+        OutputEncryption {
+            sender,
+            tx_viewing_key,
+            encoder,
+        }: OutputEncryption<'_, E>,
     ) -> Result<SppProofInputs, TransactionError> {
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
@@ -155,24 +174,13 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = match anonymous {
-            Some(view_tags) => self
-                .outputs
-                .iter()
-                .map(|output| {
-                    let resolved = if output.is_compact() {
-                        [0; 32]
-                    } else {
-                        view_tags.resolve(output, sender)
-                    };
-                    ResolvedOwnerTag {
-                        tag: OwnerTag::Inline(resolved),
-                        resolved,
-                    }
-                })
-                .collect(),
-            None => self.owner_tags(&sender.signing_pubkey)?,
-        };
+        let owner_tags = encoder.owner_tags(&self, sender)?;
+        if owner_tags.len() != self.outputs.len() {
+            return Err(TransactionError::OwnerTagCount {
+                got: owner_tags.len(),
+                want: self.outputs.len(),
+            });
+        }
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
@@ -199,34 +207,9 @@ impl ConfidentialTransaction {
                     salt,
                     slot_index: slot_index as u32,
                 };
-                let mut message = if anonymous.is_some() {
-                    Confidential::encode_ring_anonymous_plaintext(
-                        &plaintext,
-                        owner_tag.resolved,
-                        &cx,
-                    )?
-                } else {
-                    Confidential::encode_plaintext(
-                        &plaintext,
-                        address.signing_pubkey.confidential_view_tag()?,
-                        &cx,
-                    )?
-                };
-                if output.ring_program_id.is_some() && anonymous.is_none() {
-                    let OutputDataEncoding::Encrypted(mut blob) =
-                        OutputDataEncoding::try_from_slice(&message.data)
-                            .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-                    else {
-                        return Err(TransactionError::BadDiscriminator(
-                            EncryptedScheme::Confidential.as_byte(),
-                        ));
-                    };
-                    *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                        EncryptedScheme::RingConfidential.as_byte();
-                    message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                        .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-                }
-                Ok(Some(message))
+                encoder
+                    .encode_slot(&plaintext, owner_tag.resolved, &cx)
+                    .map(Some)
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
         let dummy_len = if self
@@ -234,7 +217,7 @@ impl ConfidentialTransaction {
             .iter()
             .any(|output| output.is_dummy() && !output.is_compact())
         {
-            dummy_ciphertext_len(self.ring_program_id, salt)?
+            dummy_ciphertext_len(encoder, self.ring_program_id, salt)?
         } else {
             0
         };
@@ -331,27 +314,29 @@ impl ConfidentialTransaction {
     }
 }
 
-fn dummy_ciphertext_len(
+fn dummy_ciphertext_len<E: OutputEncoder>(
+    encoder: &E,
     ring_program_id: Option<Address>,
     salt: [u8; SALT_LEN],
 ) -> Result<usize, TransactionError> {
     let throwaway = ViewingKey::new();
-    Ok(Confidential::encode_plaintext(
-        &ConfidentialOutputPlaintext {
-            asset_id: SOL_ASSET_ID,
-            amount: 0,
-            blinding: [0u8; 32],
-            ring_program_id,
-            data: Data::default(),
-        },
-        [0u8; 32],
-        &ConfidentialEncode {
-            recipient_pubkey: throwaway.pubkey(),
-            tx: throwaway,
-            salt,
-            slot_index: 0,
-        },
-    )?
-    .data
-    .len())
+    Ok(encoder
+        .encode_slot(
+            &ConfidentialOutputPlaintext {
+                asset_id: SOL_ASSET_ID,
+                amount: 0,
+                blinding: [0u8; 32],
+                ring_program_id,
+                data: Data::default(),
+            },
+            [0u8; 32],
+            &ConfidentialEncode {
+                recipient_pubkey: throwaway.pubkey(),
+                tx: throwaway,
+                salt,
+                slot_index: 0,
+            },
+        )?
+        .data
+        .len())
 }

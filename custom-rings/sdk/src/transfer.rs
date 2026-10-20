@@ -47,9 +47,10 @@ use zolana_ring_client::{
     DepositOpening, DepositSeal,
 };
 use zolana_ring_policy::{ListNamespace, Member, VelocityMode, VelocityRow};
+use zolana_ring_transaction::AnonymousViewTags;
 use zolana_transaction::{
     instructions::transact::{
-        AnonymousViewTags, ConfidentialTransaction, ExternalData, ResolvedOwnerTag, SppProofInputs,
+        ConfidentialTransaction, ExternalData, OutputEncryption, ResolvedOwnerTag, SppProofInputs,
         SppProofOutputUtxo,
     },
     keys::{ShieldedKeys, TransactionKeyRequest},
@@ -720,7 +721,12 @@ impl<'a> CustomRingTransfer<'a> {
                 .anonymous_view_tags
                 .as_ref()
                 .ok_or(TransferError::MissingAnonymousViewTags)?;
-            transaction.encrypt_anonymous_with_viewing_key(&sender, &tx_viewing_key, view_tags)?
+            OutputEncryption {
+                sender: &sender,
+                tx_viewing_key: &tx_viewing_key,
+                encoder: view_tags,
+            }
+            .encrypt(transaction)?
         } else {
             transaction.encrypt_with_viewing_key(&sender, &tx_viewing_key)?
         };
@@ -3664,7 +3670,10 @@ mod tests {
                 transaction,
             })
             .with_anonymous_signer(&sender.signing_key)
-            .with_anonymous_view_tags(AnonymousViewTags::new([3; 32]))
+            .with_anonymous_view_tags(
+                AnonymousViewTags::new([3; 32])
+                    .with_bootstrap_tag(recipient.shielded_address().unwrap().viewing_pubkey),
+            )
             .stage(
                 zolana_keypair::X25519Keypair::new().pubkey(),
                 RingMode::Anonymous,

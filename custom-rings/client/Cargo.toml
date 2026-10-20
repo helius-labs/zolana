@@ -37,6 +37,7 @@ zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-policy = { workspace = true }
+zolana-ring-transaction = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]

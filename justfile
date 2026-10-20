@@ -372,6 +372,7 @@ test-sdk-libs:
     # unnoticed.
     cargo nextest run -p zolana-test-utils --features parallel
     cargo nextest run -p zolana-ring-client
+    cargo nextest run -p zolana-ring-transaction
     cargo nextest run -p zolana-ring-rpc
     cargo nextest run -p custom-ring-sdk
     cargo nextest run -p custom-ring-cli

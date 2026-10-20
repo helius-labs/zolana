@@ -14,9 +14,9 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, pad_input_utxos, resolve_shape, AnonymousViewTags,
-        ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
+        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
+        PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::confidential::Confidential,
@@ -243,6 +243,19 @@ fn constructor_enforces_declared_trees_and_preserves_interleaved_input_order() {
             got: MAX_INPUT_TREES + 1,
             max: MAX_INPUT_TREES,
         },
+    );
+}
+
+#[test]
+fn a_zero_recipient_owner_is_rejected() {
+    let owner = keypair(1);
+    let recipient = ShieldedAddress {
+        signing_pubkey: PublicKey::zeroed(),
+        ..keypair(2).shielded_address().unwrap()
+    };
+    error(
+        builder(&owner, 10).transfer_sol(&recipient, 1).map(|_| ()),
+        E::ZeroRecipientOwner,
     );
 }
 
@@ -960,63 +973,6 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
                 None,
                 slot_len(&proof, 0),
             );
-        }
-    }
-}
-
-#[test]
-fn anonymous_ring_encryption_publishes_view_tags() {
-    let owner = keypair(1);
-    let recipient = keypair(2);
-    let sender = owner.shielded_address().unwrap();
-    let receiver = recipient.shielded_address().unwrap();
-    let ring = Address::new_from_array([42; 32]);
-    let sender_tag = owner.get_sender_view_tag(0).unwrap();
-    let shared_tag = owner
-        .get_send_shared_view_tag(&receiver.viewing_pubkey, 0)
-        .unwrap();
-    let bootstrap = AnonymousViewTags::new(sender_tag);
-    let shared = bootstrap
-        .clone()
-        .with_recipient(receiver.viewing_pubkey, shared_tag);
-    for (view_tags, recipient_tag) in [
-        (bootstrap, receiver.viewing_pubkey.u()),
-        (shared, shared_tag),
-    ] {
-        let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
-        let key = owner
-            .viewing_key
-            .get_transaction_viewing_key(&input.nullifier)
-            .unwrap();
-        let mut tx =
-            ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
-        tx.transfer_sol(&receiver, 3).unwrap();
-        let proof = tx
-            .encrypt_anonymous_with_viewing_key(&sender, &key, &view_tags)
-            .unwrap();
-        let expected = [(&recipient, 3, recipient_tag), (&owner, 7, sender_tag)];
-        for (index, (reader, amount, tag)) in expected.into_iter().enumerate() {
-            let output = &proof.external_data.outputs[index];
-            assert_eq!(output.owner_tag, OwnerTag::Inline(tag));
-            assert_eq!(proof.external_data.resolved_owner_tags[index], tag);
-            let OutputDataEncoding::Encrypted(blob) =
-                OutputDataEncoding::try_from_slice(output.data.as_ref().unwrap()).unwrap()
-            else {
-                panic!("encrypted output")
-            };
-            assert_eq!(blob[0], EncryptedScheme::RingAnonymous.as_byte());
-            let plaintext = reader
-                .viewing_key
-                .decrypt_utxo(
-                    &blob[1..],
-                    &key.pubkey(),
-                    proof.external_data.salt,
-                    index as u32,
-                )
-                .unwrap();
-            let recovered = zolana_transaction::serialization::confidential::ConfidentialOutputPlaintext::deserialize(&plaintext).unwrap();
-            assert_eq!(recovered.amount, amount);
-            assert_eq!(recovered.ring_program_id, Some(ring));
         }
     }
 }

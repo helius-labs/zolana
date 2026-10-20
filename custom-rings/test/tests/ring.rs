@@ -91,6 +91,7 @@ use zolana_ring_rpc::{
     ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
     Unauthorized, Upstreams,
 };
+use zolana_ring_transaction::AnonymousViewTags;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use zolana_test_utils::{
     smart_account,
@@ -102,7 +103,7 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     decrypt_spendable,
-    instructions::transact::{canonical_shape, AnonymousViewTags, ConfidentialTransaction},
+    instructions::transact::{canonical_shape, ConfidentialTransaction},
     utxo::SppProofInputUtxo,
     AssetRegistry, Data, Mint, Utxo, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -1151,7 +1152,10 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
     if anonymous {
         builder = builder
             .with_anonymous_signer(&env.sender.keypair.signing_key)
-            .with_anonymous_view_tags(AnonymousViewTags::new(sender_view_tag));
+            .with_anonymous_view_tags(
+                AnonymousViewTags::new(sender_view_tag)
+                    .with_bootstrap_tag(env.recipient.keypair.shielded_address()?.viewing_pubkey),
+            );
     }
     let mut proven = builder.prove(TransferProofEnvironment {
         indexer,

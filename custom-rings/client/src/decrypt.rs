@@ -26,6 +26,7 @@ use zolana_transaction::{
 
 use zolana_event::MessageData;
 use zolana_ring_policy::SpendRecord;
+use zolana_ring_transaction::RingAnonymous;
 
 use crate::{
     counters::{find_counters_message, SealedCounters},
@@ -303,7 +304,7 @@ impl OutputAudit<'_> {
                     ) else {
                         return Ok(None);
                     };
-                    let Ok(plaintext) = Confidential::deserialize(&bytes) else {
+                    let Ok(plaintext) = RingAnonymous::deserialize(&bytes) else {
                         return Ok(None);
                     };
                     (viewing_pk, plaintext, disclosed.identity_key)

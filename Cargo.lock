@@ -2176,6 +2176,7 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-key-registry",
  "zolana-ring-policy",
+ "zolana-ring-transaction",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -2211,6 +2212,7 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-policy",
  "zolana-ring-rpc",
+ "zolana-ring-transaction",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -11709,6 +11711,7 @@ dependencies = [
  "zolana-ring-client",
  "zolana-ring-key-registry",
  "zolana-ring-policy",
+ "zolana-ring-transaction",
  "zolana-transaction",
 ]
 
@@ -11802,6 +11805,20 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-transaction",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-transaction"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "zolana-event",
+ "zolana-interface",
+ "zolana-keypair",
  "zolana-transaction",
 ]
 

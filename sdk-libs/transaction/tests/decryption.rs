@@ -842,17 +842,14 @@ fn key_holder_failures_propagate_and_verification_preserves_candidates() {
 }
 
 #[test]
-fn parsed_conversion_errors_propagate_instead_of_being_treated_as_cipher_noise() {
+fn plaintexts_that_rebuild_no_note_skip_their_slot() {
     let owner = keypair(32);
     let note = wallet_utxo(&owner, Mint::SOL, 53, 1, 1);
     let tx_key = keypair(33).viewing_key;
     let mut cases = Vec::new();
     let mut ring = note.clone();
     ring.utxo.data = Data::new(vec![DataRecord::RingData(vec![1])]);
-    cases.push((
-        confidential_slot(&ring, owner.viewing_pubkey(), &tx_key, 0),
-        TransactionError::MissingRingProgramId,
-    ));
+    cases.push(confidential_slot(&ring, owner.viewing_pubkey(), &tx_key, 0));
     let plaintext = TransferPlaintextUtxos {
         type_prefix: TRANSFER_PLAINTEXT,
         blinding_seed: [0; 32],
@@ -861,26 +858,19 @@ fn parsed_conversion_errors_propagate_instead_of_being_treated_as_cipher_noise()
     };
     let mut blob = vec![EncryptedScheme::PlaintextTransfer.as_byte()];
     blob.extend(PlaintextTransfer::serialize(&plaintext).unwrap());
-    cases.push((
-        slot(
-            &note,
-            borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).unwrap(),
-        ),
-        TransactionError::MissingFirstNullifier,
+    cases.push(slot(
+        &note,
+        borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).unwrap(),
     ));
-    for (output, error) in cases {
+    for output in cases {
         let mut tx = publication(&note, vec![output]);
         tx.tx_viewing_pk = Some(tx_key.pubkey());
         tx.salt = Some([7; 16]);
         let control = publication(&note, vec![proofless_slot(&note, &owner)]);
         let txs = vec![control, tx];
-        let explicit = decrypt(&owner, &txs, &AssetRegistry::default())
-            .and_then(|d| verify_spendable(&owner, &d));
-        assert_eq!(explicit, Err(error.clone()));
-        assert_eq!(
-            decrypt_spendable(&owner, &txs, &AssetRegistry::default()),
-            Err(error)
-        );
+        let spendable = decrypt_spendable(&owner, &txs, &AssetRegistry::default()).unwrap();
+        let found: Vec<_> = spendable.utxos().map(|found| &found.utxo).collect();
+        assert_eq!(found, [&note.utxo]);
     }
 }
 

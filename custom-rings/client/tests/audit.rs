@@ -35,6 +35,7 @@ use zolana_ring_client::{
     RingAudit, RingEnvironment, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
     AUDITOR_MESSAGE_LEN,
 };
+use zolana_ring_transaction::RingAnonymous;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, SppProofOutputUtxo,
@@ -408,7 +409,7 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
     .expect("output opening")
     .with_ring([0; 32], &Some(ring))
     .expect("ring opening");
-    let message = Confidential::encode_ring_anonymous_plaintext(
+    let message = RingAnonymous::encode_plaintext(
         &plaintext,
         recipient.pubkey().u(),
         &ConfidentialEncode {

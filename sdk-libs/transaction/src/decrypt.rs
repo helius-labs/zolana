@@ -324,21 +324,29 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     let data_hash = plaintext.data_hash;
                     let ring_data_hash = plaintext.ring_data_hash;
-                    Ok(Some(DecodedSlot {
-                        utxos: Proofless::into_utxos(plaintext, &owner_cx)?,
-                        data_hash,
-                        ring_data_hash,
-                    }))
+                    Ok(
+                        rebuilt(Proofless::into_utxos(plaintext, &owner_cx))?.map(|utxos| {
+                            DecodedSlot {
+                                utxos,
+                                data_hash,
+                                ring_data_hash,
+                            }
+                        }),
+                    )
                 }
                 EncryptedScheme::PlaintextTransfer => {
                     let Ok(plaintext) = PlaintextTransfer::deserialize(body) else {
                         return Ok(None);
                     };
-                    Ok(Some(DecodedSlot {
-                        utxos: PlaintextTransfer::into_utxos(plaintext, &owner_cx)?,
-                        data_hash: None,
-                        ring_data_hash: None,
-                    }))
+                    Ok(
+                        rebuilt(PlaintextTransfer::into_utxos(plaintext, &owner_cx))?.map(
+                            |utxos| DecodedSlot {
+                                utxos,
+                                data_hash: None,
+                                ring_data_hash: None,
+                            },
+                        ),
+                    )
                 }
                 _ => Ok(None),
             }
@@ -400,7 +408,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };
-                        Confidential::into_utxos(plaintext, &owner_cx)?
+                        Confidential::into_utxos(plaintext, &owner_cx)
                     }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
@@ -409,9 +417,12 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         if plaintext.owner_pubkey != address.signing_pubkey {
                             continue;
                         }
-                        AnonymousRecipient::into_utxos(plaintext, &owner_cx)?
+                        AnonymousRecipient::into_utxos(plaintext, &owner_cx)
                     }
                     _ => return Ok(None),
+                };
+                let Some(utxos) = rebuilt(utxos)? else {
+                    continue;
                 };
                 return Ok(Some(DecodedSlot {
                     utxos,
@@ -553,6 +564,19 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
         }));
     }
     Ok(None)
+}
+
+/// A sender-chosen plaintext that rebuilds no note skips its slot, except a registry miss.
+fn rebuilt(
+    utxos: Result<Vec<Utxo>, TransactionError>,
+) -> Result<Option<Vec<Utxo>>, TransactionError> {
+    match utxos {
+        Ok(utxos) => Ok(Some(utxos)),
+        Err(error @ (TransactionError::UnknownAsset(_) | TransactionError::UnknownMint(_))) => {
+            Err(error)
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 /// `None` when no viewing key can open the requests.

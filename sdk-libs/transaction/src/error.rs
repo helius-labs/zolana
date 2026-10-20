@@ -73,6 +73,12 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
+    #[error("output slot {slot_index} has no view tag chosen for its recipient")]
+    RecipientViewTagUnset { slot_index: usize },
+
+    #[error("owner tag count {got} does not match output count {want}")]
+    OwnerTagCount { got: usize, want: usize },
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
@@ -212,6 +218,9 @@ pub enum TransactionError {
     #[error("too many transaction assets: got {got}, max {max}")]
     TooManyAssets { got: usize, max: usize },
 
+    #[error("recipient owner key is the zero dummy marker")]
+    ZeroRecipientOwner,
+
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
@@ -223,9 +232,6 @@ pub enum TransactionError {
 
     #[error("too many outputs: got {got}, max {max}")]
     TooManyOutputsForShape { got: usize, max: usize },
-
-    #[error("merge input {index} has a different owner rail")]
-    MergeInputRailMismatch { index: usize },
 
     #[error("merge input {index} has a different owner than the merging keypair")]
     MergeInputOwnerMismatch { index: usize },
