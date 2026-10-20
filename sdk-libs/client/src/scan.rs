@@ -148,7 +148,9 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     tags,
                     transactions,
                     owned,
-                    spendable: spendable.with_latest_tree_id(output_tree_id),
+                    spendable: spendable
+                        .with_latest_tree_id(output_tree_id)
+                        .with_transaction_keys(self.keys)?,
                 });
             }
         }

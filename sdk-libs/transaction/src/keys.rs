@@ -30,7 +30,6 @@ use crate::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
     },
-    utxo::WalletUtxo,
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -106,36 +105,7 @@ pub trait ShieldedKeys {
         transactions: &[ShieldedTransaction],
         assets: &AssetRegistry,
     ) -> Result<SpendableDecryptionResult, TransactionError> {
-        let mut spendable = decrypt_spendable(self, transactions, assets)?;
-        let viewing_pubkey = self.address()?.viewing_pubkey;
-        let mut utxos: Vec<&mut WalletUtxo> = spendable
-            .balances
-            .assets
-            .iter_mut()
-            .flat_map(|balance| balance.utxos.iter_mut())
-            .chain(spendable.utxos_with_data.iter_mut())
-            .collect();
-        let requests: Vec<TransactionKeyRequest> = utxos
-            .iter()
-            .map(|utxo| TransactionKeyRequest {
-                viewing_pubkey,
-                first_nullifier: utxo.nullifier,
-            })
-            .collect();
-        if requests.is_empty() {
-            return Ok(spendable);
-        }
-        let keys = self.transaction_keys(&requests)?;
-        if keys.len() != requests.len() {
-            return Err(TransactionError::IncompleteDerivation {
-                got: keys.len(),
-                want: requests.len(),
-            });
-        }
-        for (utxo, key) in utxos.iter_mut().zip(keys) {
-            utxo.tx_viewing_key = Some(*key.secret_bytes());
-        }
-        Ok(spendable)
+        decrypt_spendable(self, transactions, assets)?.with_transaction_keys(self)
     }
 }
 
