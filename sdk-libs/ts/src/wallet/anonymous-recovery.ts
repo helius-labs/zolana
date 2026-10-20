@@ -37,7 +37,7 @@ export interface AnonymousRingRecoveryReport {
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
 
-/** Tries every scheme-9 slot of every confirmed ring transaction through `head` regardless of tag, fails on an uncovered head, trusts the indexer for completeness. */
+/** Tries every scheme-9 slot of every confirmed ring transaction through `head` under every held viewing key regardless of tag, fails on an uncovered head, trusts the indexer for completeness. */
 export async function recoverAnonymousRing(
   params: AnonymousRingRecoveryParams,
   context?: RequestContext,
@@ -57,12 +57,12 @@ export async function recoverAnonymousRing(
   }
   try {
     const transactions = await ringHistory(params, pageSize, maxPages, context);
-    const viewingPublicKey = params.keys.address().viewingPublicKey;
+    const viewingPublicKeys = params.keys.viewingPublicKeys();
     const routes = new AnonymousTagRoutes();
     for (const tx of transactions) {
       for (const slot of tx.outputSlots) {
         if (isRingAnonymous(slot.payload)) {
-          routes.route(slot.viewTag, viewingPublicKey, { kind: "recovered" });
+          routes.route(slot.viewTag, viewingPublicKeys, { kind: "recovered" });
         }
       }
     }

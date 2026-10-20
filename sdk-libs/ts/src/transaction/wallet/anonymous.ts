@@ -61,7 +61,7 @@ export interface AnonymousRingReport {
 }
 
 interface Route {
-  readonly viewingPublicKey: X25519PublicKey;
+  readonly viewingPublicKeys: readonly X25519PublicKey[];
   readonly stream: AnonymousStream;
 }
 
@@ -78,8 +78,13 @@ export class AnonymousTagRoutes {
     this.#decryptionsPerTag = decryptionsPerTag;
   }
 
-  route(tag: Bytes32, viewingPublicKey: X25519PublicKey, stream: AnonymousStream): void {
-    this.#routes.set(hex(tag), { viewingPublicKey, stream });
+  /** A slot under `tag` is tried under each key in order until one opens it. */
+  route(
+    tag: Bytes32,
+    viewingPublicKeys: readonly X25519PublicKey[],
+    stream: AnonymousStream,
+  ): void {
+    this.#routes.set(hex(tag), { viewingPublicKeys: [...viewingPublicKeys], stream });
   }
 
   routeOf(tag: Bytes32): Route | undefined {

@@ -42,8 +42,8 @@ pub struct RingRecoveryReport {
     pub ring_program_id: Address,
     /// Transactions past `head` wait for the next recovery.
     pub head: u64,
-    /// The indexer frontier, the checkpoint of the next recovery.
-    pub checkpoint: Vec<u8>,
+    /// The cursor the next recovery resumes at, `None` restarts at ring creation.
+    pub checkpoint: Option<Vec<u8>>,
     pub notes: Vec<AnonymousNote>,
     pub bad_pair_hints: Vec<PairHintError>,
 }
@@ -55,7 +55,7 @@ pub(crate) struct Recovered {
 
 struct RingHistory {
     transactions: Vec<ShieldedTransaction>,
-    frontier: Vec<u8>,
+    checkpoint: Option<Vec<u8>>,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
@@ -77,7 +77,8 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
         }
     }
 
-    /// Resumes at the frontier an earlier [`RingRecoveryReport`] returned.
+    /// Resumes at the checkpoint an earlier [`RingRecoveryReport`] returned, the
+    /// page it names is read again.
     #[must_use]
     pub fn with_checkpoint(mut self, checkpoint: Vec<u8>) -> Self {
         self.checkpoint = Some(checkpoint);
@@ -126,14 +127,15 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
             report: RingRecoveryReport {
                 ring_program_id: self.ring_program_id,
                 head: self.head,
-                checkpoint: history.frontier,
+                checkpoint: history.checkpoint,
                 notes: found.notes,
                 bad_pair_hints: found.bad_pair_hints,
             },
         })
     }
 
-    /// Fails without a stated frontier or past the page limit.
+    /// Stops at the first page past `head` and checkpoints that page, fails
+    /// without a stated frontier or past the page limit.
     fn history<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<RingHistory, ClientError> {
         let mut transactions = Vec::new();
         let mut cursor = self.checkpoint.clone();
@@ -148,12 +150,20 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                 self.indexer_config,
             )?;
             pages += 1;
+            let past_head = page.transactions.iter().position(|tx| tx.slot > self.head);
+            let through_head = &page.transactions[..past_head.unwrap_or(page.transactions.len())];
             transactions.extend(
-                page.transactions
-                    .into_iter()
+                through_head
+                    .iter()
                     .filter(|tx| tx.ring_program_id == Some(self.ring_program_id))
-                    .filter(|tx| tx.slot <= self.head),
+                    .cloned(),
             );
+            if past_head.is_some() {
+                return Ok(RingHistory {
+                    transactions,
+                    checkpoint: cursor,
+                });
+            }
             let frontier = page.scanned_through.clone();
             match next_page(&cursor, page.next_cursor, &frontier)? {
                 Some(_) if pages == self.page_limit.get() => {
@@ -169,7 +179,7 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                     })?;
                     return Ok(RingHistory {
                         transactions,
-                        frontier,
+                        checkpoint: Some(frontier),
                     });
                 }
             }

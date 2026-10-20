@@ -44,6 +44,11 @@ impl RingAnonymousOutput {
     }
 }
 
+/// The slot byte a change tag and a recipient key stream index.
+pub fn anonymous_slot_index(slot_index: usize) -> Result<u8, TransactionError> {
+    u8::try_from(slot_index).map_err(|_| TransactionError::AnonymousSlotIndex { slot_index })
+}
+
 /// The public context of one scheme-9 slot, each party adds its own X25519 secret.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingAnonymousSlot {

@@ -7,7 +7,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
 import {
   bigIntBytes,
   bytesToBigInt,
@@ -472,7 +472,7 @@ export function decodeRingAnonymous(bytes: Uint8Array): RingAnonymousOutputPlain
 
 function canonicalBlinding(bytes: Uint8Array): Bytes32 {
   const blinding = checked<Bytes32>(bytes, 32, "blinding");
-  if (bytesToBigInt(blinding) >= BN254_SCALAR_ORDER) {
+  if (!isCanonicalField(blinding)) {
     throw new TransactionError("TRANSACTION_INVALID_BLINDING");
   }
   return blinding;

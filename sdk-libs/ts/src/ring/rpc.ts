@@ -14,12 +14,8 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import {
-  BN254_SCALAR_ORDER,
-  SOLANA_OWNER_TAG,
-  hashBytes,
-  initializePoseidon,
-} from "../hasher/index.js";
+import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
+import { isCanonicalField } from "../interface/canonical-field.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
@@ -620,7 +616,7 @@ export class RingRpc {
     const cursor = readResponseCursor(value["cursor"], checked);
     const field = (input: unknown, path: string): Bytes32 => {
       const bytes = hash(input, path);
-      if (bytesToBigInt(bytes) >= BN254_SCALAR_ORDER) throw invalid(path);
+      if (!isCanonicalField(bytes)) throw invalid(path);
       return bytes;
     };
     const identity = (item: Record<string, unknown>, path: string) => ({
@@ -887,7 +883,7 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
 function decodeOpening(wire: Record<string, unknown>, anonymous: boolean): DecryptedRingOpening {
   const field = (name: string): Bytes32 => {
     const value = hash(wire[name], `outputOpenings.${name}`);
-    if (bytesToBigInt(value) >= BN254_SCALAR_ORDER) throw invalid(`outputOpenings.${name}`);
+    if (!isCanonicalField(value)) throw invalid(`outputOpenings.${name}`);
     return value;
   };
   const opening: AuditOutputOpening = {

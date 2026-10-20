@@ -3,7 +3,6 @@ import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
 import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
-import { concatBytes } from "../../keypair/bytes.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -81,7 +80,7 @@ const SYNC_TREE_ID = DEFAULT_TREE_ID;
 /** `undefined` for a pair hint outside the canonical X25519 encoding, the note itself stays verified. */
 function pairKeyOf(pairU: Bytes32): X25519PublicKey | undefined {
   try {
-    return X25519PublicKey.fromBytes(concatBytes(Uint8Array.of(4), pairU));
+    return X25519PublicKey.fromU(pairU);
   } catch {
     return undefined;
   }
@@ -1090,10 +1089,11 @@ class SyncPass {
   processAnonymousRoutes(index: TagIndex, routes: AnonymousTagRoutes): void {
     for (const [tag, route] of routes.entries()) {
       for (const site of index.recipientSites.get(tag) ?? []) {
-        if (this.#isRingAnonymous(site)) {
-          this.#decodeRingAnonymousSlot(route.viewingPublicKey, site, routes);
-        } else if (route.stream.kind === "deposit") {
-          this.decodeSlot(route.viewingPublicKey, site);
+        const ringAnonymous = this.#isRingAnonymous(site);
+        if (!ringAnonymous && route.stream.kind !== "deposit") continue;
+        for (const viewingPublicKey of route.viewingPublicKeys) {
+          if (ringAnonymous) this.#decodeRingAnonymousSlot(viewingPublicKey, site, routes);
+          else this.decodeSlot(viewingPublicKey, site);
         }
       }
     }

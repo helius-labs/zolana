@@ -17,8 +17,9 @@ pub mod scheme;
 
 pub use proofless::{Proofless, ProoflessEncode};
 pub use ring_anonymous::{
-    ring_anonymous_message, ring_anonymous_padding, ring_anonymous_padding_tag,
-    RingAnonymousOutput, RingAnonymousOutputPlaintext, RingAnonymousSlot,
+    anonymous_slot_index, ring_anonymous_message, ring_anonymous_padding,
+    ring_anonymous_padding_tag, RingAnonymousOutput, RingAnonymousOutputPlaintext,
+    RingAnonymousSlot,
 };
 pub use ring_deposit::RingDepositPlaintext;
 

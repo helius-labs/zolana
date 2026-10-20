@@ -2,6 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
 import type { Address, Bytes16, Bytes32, Bytes64, RequestContext } from "../../interface/types.js";
+import { ANONYMOUS_SLOT_INDEX_MAX } from "../../keypair/audit.js";
 import { checkedBytes } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
@@ -406,7 +407,7 @@ function maxSlotIndex(label: DecryptLabel): number {
     case "ringDeposit":
       return 0;
     case "ringAnonymous":
-      return 0xff;
+      return ANONYMOUS_SLOT_INDEX_MAX;
     case "transfer":
       return 0xffff_ffff;
   }

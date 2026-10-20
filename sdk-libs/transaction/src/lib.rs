@@ -42,7 +42,8 @@ pub use selection::{
     select_merge, select_merge_where, select_spend, select_spend_excluding, select_spend_where,
 };
 pub use serialization::{
-    scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
+    anonymous_slot_index, scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext,
+    UtxoSerialization,
 };
 pub use solana_address::Address;
 pub use utxo::wallet as spendable;

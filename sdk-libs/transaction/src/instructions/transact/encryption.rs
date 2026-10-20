@@ -17,7 +17,9 @@ use crate::{
     keys::{ShieldedKeys, TransactionKeyRequest},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{ring_anonymous_padding, ring_anonymous_padding_tag},
+        ring_anonymous::{
+            anonymous_slot_index, ring_anonymous_padding, ring_anonymous_padding_tag,
+        },
         UtxoSerialization,
     },
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
@@ -182,11 +184,10 @@ impl AnonymousViewTags {
             return Err(TransactionError::AnonymousOutputData { slot_index });
         }
         if owner.signing_pubkey == sender.signing_pubkey {
-            let slot = u8::try_from(slot_index)
-                .map_err(|_| TransactionError::AnonymousSlotIndex { slot_index })?;
-            return Ok(AnonymousSlot::Hidden(
-                self.change_keys(first_nullifier, slot)?,
-            ));
+            return Ok(AnonymousSlot::Hidden(self.change_keys(
+                first_nullifier,
+                anonymous_slot_index(slot_index)?,
+            )?));
         }
         match self.slots.get(&slot_index) {
             Some(slot) if slot.recipient == owner => Ok(AnonymousSlot::Hidden(slot.keys)),
@@ -231,9 +232,12 @@ impl AnonymousViewTags {
         }
         for (tag, slot) in tags.iter_mut().zip(slots) {
             if matches!(slot, AnonymousSlot::Padding) {
-                *tag = std::iter::repeat_with(&mut sample)
-                    .find(|candidate| taken.insert(*candidate))
-                    .unwrap_or_default();
+                *tag = loop {
+                    let candidate = sample();
+                    if taken.insert(candidate) {
+                        break candidate;
+                    }
+                };
             }
         }
         Ok(tags)

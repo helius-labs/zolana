@@ -392,7 +392,7 @@ describe("anonymous ring sync", () => {
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(recipient);
     const routes = new AnonymousTagRoutes();
-    routes.route(inboxTag(recipient, 0, 0n), recipient.viewingPublicKey(), {
+    routes.route(inboxTag(recipient, 0, 0n), [recipient.viewingPublicKey()], {
       kind: "inbox",
       addressIndex: 0,
     });
@@ -735,6 +735,43 @@ describe("anonymous ring sync", () => {
     expect(pages).toBe(2);
   });
 
+  it("recovers a note sealed to a retired viewing key", async () => {
+    const recipient = keypair(1);
+    const retired = keypair(6);
+    const payer = keypair(2);
+    const lost = note(recipient, 77n, 16);
+    const txKey = keypair(16).viewingKey();
+    const lostTx = transaction(
+      txKey,
+      16,
+      [bytes(16)],
+      [anonymousSlot(payer.viewingKey(), txKey, retired.viewingPublicKey(), lost, bytes(8), 0)],
+    );
+    const client = syncReads({
+      getShieldedTransactionsByTags: async () => ({
+        context: CONTEXT,
+        transactions: [lostTx],
+        scannedThrough: Uint8Array.of(1),
+      }),
+    });
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeys({
+      address: recipient.shieldedAddress(),
+      viewingKeys: [recipient.viewingKey(), retired.viewingKey()],
+      nullifierKey: recipient.nullifierKey(),
+    });
+
+    const report = await recoverAnonymousRing({
+      wallet,
+      keys,
+      client,
+      ringProgramId: RING,
+      head: 20n,
+    });
+    expect(report.scannedTransactions).toBe(1);
+    expect(unspentHashes(wallet)).toEqual([hex(lost.hash)]);
+  });
+
   it("fails recovery on a page limit and on a cursor that does not advance", async () => {
     const recipient = keypair(1);
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
@@ -793,7 +830,7 @@ describe("anonymous ring sync", () => {
     expect(wallet.utxos()).toEqual([]);
 
     const routes = new AnonymousTagRoutes();
-    routes.route(inboxTag(recipient, 0, 0n), recipient.viewingPublicKey(), {
+    routes.route(inboxTag(recipient, 0, 0n), [recipient.viewingPublicKey()], {
       kind: "inbox",
       addressIndex: 0,
     });

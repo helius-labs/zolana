@@ -465,7 +465,7 @@ fn a_spammed_inbox_index_advances_the_stream_and_runs_the_recovery_scan() {
     assert_eq!(report.used_addresses, 1);
     assert_eq!(report.recoveries.len(), 1);
     assert_eq!(report.recoveries[0].ring_program_id, RING);
-    assert_eq!(report.recoveries[0].checkpoint, FRONTIER.to_vec());
+    assert_eq!(report.recoveries[0].checkpoint, Some(FRONTIER.to_vec()));
     assert_eq!(*indexer.history_reads.borrow(), 1);
     assert!(!indexer.queried(&[9; 32]));
 }
@@ -477,10 +477,8 @@ fn recovery_finds_a_note_under_a_wrong_tag_and_resumes_at_the_frontier() {
     let (mut wrong_tag_tx, paid) = inbox_payment(&payer, &recipient, 0, 0, 10, 11);
     wrong_tag_tx.output_slots[0].view_tag = [9; 32];
     let (other_tx, _) = inbox_payment(&payer, &keypair(5), 0, 0, 3, 12);
-    let (mut late_tx, _) = inbox_payment(&payer, &recipient, 0, 1, 4, 13);
-    late_tx.slot = 1_000;
     let indexer = Indexer {
-        ring_history: vec![wrong_tag_tx, other_tx, late_tx],
+        ring_history: vec![wrong_tag_tx, other_tx],
         ring_page: Some(1),
         ..Indexer::default()
     };
@@ -510,9 +508,60 @@ fn recovery_finds_a_note_under_a_wrong_tag_and_resumes_at_the_frontier() {
         )
     );
     assert_eq!(result.report.head, 100);
-    assert_eq!(result.report.checkpoint, FRONTIER.to_vec());
+    assert_eq!(result.report.checkpoint, Some(FRONTIER.to_vec()));
     assert_eq!(result.transactions.len(), 2);
-    assert_eq!(*indexer.history_reads.borrow(), 3);
+    assert_eq!(*indexer.history_reads.borrow(), 2);
+}
+
+#[test]
+fn recovery_stops_at_a_page_past_the_head_and_the_next_run_resumes_there() {
+    let recipient = keypair(1);
+    let payer = keypair(2);
+    let (first_tx, first) = inbox_payment(&payer, &recipient, 0, 0, 10, 11);
+    let (second_tx, second) = inbox_payment(&payer, &recipient, 0, 1, 10, 12);
+    let (third_tx, third) = inbox_payment(&payer, &recipient, 0, 2, 10, 13);
+    let (mut late_tx, late) = inbox_payment(&payer, &recipient, 0, 3, 10, 14);
+    late_tx.slot = 150;
+    let (mut later_tx, later) = inbox_payment(&payer, &recipient, 0, 4, 10, 15);
+    later_tx.slot = 200;
+    let indexer = Indexer {
+        ring_history: vec![first_tx, second_tx, third_tx, late_tx, later_tx],
+        ring_page: Some(2),
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+
+    // The second page straddles the head, so it is the checkpoint and is read again.
+    let through_head = RingRecovery::new(&recipient, &assets, RING, 100)
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(
+        through_head
+            .report
+            .notes
+            .iter()
+            .map(|note| note.utxo_hash)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([first.hash, second.hash, third.hash])
+    );
+    assert_eq!(through_head.report.checkpoint, Some(vec![2]));
+    assert_eq!(*indexer.history_reads.borrow(), 2);
+
+    let resumed = RingRecovery::new(&recipient, &assets, RING, 300)
+        .with_checkpoint(through_head.report.checkpoint.unwrap())
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(
+        resumed
+            .report
+            .notes
+            .iter()
+            .map(|note| note.utxo_hash)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([third.hash, late.hash, later.hash])
+    );
+    assert_eq!(resumed.report.checkpoint, Some(FRONTIER.to_vec()));
+    assert_eq!(*indexer.history_reads.borrow(), 4);
 }
 
 #[test]

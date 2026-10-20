@@ -15,7 +15,10 @@ use crate::{
     instructions::transact::AnonymousOutputKeys,
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
+        ring_anonymous::{
+            anonymous_slot_index, ring_anonymous_message, RingAnonymousOutputPlaintext,
+            RingAnonymousSlot,
+        },
         UtxoSerialization,
     },
     EncryptedScheme, Mint,
@@ -180,7 +183,7 @@ impl SppProofOutputUtxo {
             tx_viewing_pk: tx.pubkey(),
             recipient_pk: address.viewing_pubkey,
             salt,
-            slot: u8::try_from(slot_index).map_err(|_| TransactionError::TooManyOutputs)?,
+            slot: anonymous_slot_index(slot_index)?,
         };
         let opening = RingAnonymousOutputPlaintext {
             asset_address: *self.asset.asset.as_array(),

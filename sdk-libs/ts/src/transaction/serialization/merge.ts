@@ -1,5 +1,6 @@
 import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
-import { BN254_SCALAR_ORDER, fieldAdd, fieldSub } from "../../hasher/index.js";
+import { fieldAdd, fieldSub } from "../../hasher/index.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
 import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
 import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
 import { TransactionError } from "../error.js";
@@ -80,11 +81,11 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
   const [pad0, pad1, pad2] = mergeOutputPads(key, body.subarray(0, SALT_LENGTH));
   const decrypt = (index: number, pad: bigint): bigint => {
     const offset = SALT_LENGTH + 32 * index;
-    const element = bytesToBigInt(body.subarray(offset, offset + 32));
-    if (element >= BN254_SCALAR_ORDER) {
+    const element = body.subarray(offset, offset + 32);
+    if (!isCanonicalField(element)) {
       throw new TransactionError("TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT", { index });
     }
-    return fieldSub(element, pad);
+    return fieldSub(bytesToBigInt(element), pad);
   };
   const amount = decrypt(0, pad0);
   const chunk0 = decrypt(1, pad1);

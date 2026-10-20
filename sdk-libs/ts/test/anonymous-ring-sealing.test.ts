@@ -298,7 +298,7 @@ describe("anonymous ring sealing", () => {
     const transaction = indexed(encrypted);
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
     const routes = new AnonymousTagRoutes();
-    routes.route(slots[0]!.tag, recipient.viewingPublicKey(), { kind: "inbox", addressIndex: 0 });
+    routes.route(slots[0]!.tag, [recipient.viewingPublicKey()], { kind: "inbox", addressIndex: 0 });
     const report = await decryptTransactions({
       wallet,
       keys: LocalShieldedKeys.fromKeypair(recipient),

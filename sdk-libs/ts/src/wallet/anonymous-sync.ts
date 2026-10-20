@@ -106,7 +106,7 @@ export class AnonymousStreams {
     this.#pending = this.#open.map((open, position) => {
       const window = new TagWindow(open.start, byStream[position] ?? []);
       for (const tag of window.tags()) {
-        this.routes.route(tag, this.#viewingPublicKey, open.window);
+        this.routes.route(tag, [this.#viewingPublicKey], open.window);
       }
       return { open, window };
     });
@@ -161,7 +161,7 @@ export class AnonymousStreams {
     tags.forEach((tag, at) => {
       const derived = requests[at];
       if (derived?.kind !== "change") return;
-      this.routes.route(tag, this.#viewingPublicKey, {
+      this.routes.route(tag, [this.#viewingPublicKey], {
         kind: "change",
         firstNullifier: derived.firstNullifier,
       });

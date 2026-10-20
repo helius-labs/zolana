@@ -31,7 +31,7 @@ use crate::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
     },
-    serialization::ring_anonymous::RingAnonymousSlot,
+    serialization::ring_anonymous::{anonymous_slot_index, RingAnonymousSlot},
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -236,8 +236,7 @@ impl ShieldedKeys for LocalShieldedKeys {
                         tx_viewing_pk: request.tx_viewing_pubkey,
                         recipient_pk: request.viewing_pubkey,
                         salt: request.salt,
-                        slot: u8::try_from(request.slot_index)
-                            .map_err(|_| TransactionError::TooManyOutputs)?,
+                        slot: anonymous_slot_index(request.slot_index as usize)?,
                     }
                     .apply(&dh, &mut body)?;
                     body.to_vec()

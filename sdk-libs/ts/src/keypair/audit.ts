@@ -6,13 +6,8 @@ import {
   treeSlotsHashChain,
   type TreeSlot,
 } from "../interface/tree-slot.js";
-import {
-  BN254_SCALAR_ORDER,
-  SOLANA_OWNER_TAG,
-  fieldAdd,
-  fieldSub,
-  hashBytes,
-} from "../hasher/index.js";
+import { SOLANA_OWNER_TAG, fieldAdd, fieldSub, hashBytes } from "../hasher/index.js";
+import { isCanonicalField } from "../interface/canonical-field.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
@@ -195,9 +190,16 @@ export interface AnonymousOutputStream {
   readonly slotIndex: number;
 }
 
+/** The slot byte a change tag and a recipient key stream index. */
+export const ANONYMOUS_SLOT_INDEX_MAX = 0xff;
+
 /** Mirrors Rust `recipient_stream_secret`, the salt and slot index in the key keep two slots sharing `dh` on distinct keystreams. */
 export function recipientStreamSecret(dh: Bytes32, stream: AnonymousOutputStream): Bytes32 {
-  if (!Number.isInteger(stream.slotIndex) || stream.slotIndex < 0 || stream.slotIndex > 0xff)
+  if (
+    !Number.isInteger(stream.slotIndex) ||
+    stream.slotIndex < 0 ||
+    stream.slotIndex > ANONYMOUS_SLOT_INDEX_MAX
+  )
     throw new RangeError("anonymous output slot index is out of range");
   const [dhLow, dhHigh] = pack32(checkedBytes<Bytes32>(dh, 32, "shared secret"));
   try {
@@ -318,8 +320,7 @@ export function parseAuditorMessage(
   const bytes = checkedBytes(data, 65 + 32 * count, "auditor message");
   const disclosure = Array.from({ length: count }, (_, index) => {
     const field = bytes.slice(65 + 32 * index, 65 + 32 * (index + 1)) as Bytes32;
-    if (bytesToBigInt(field) >= BN254_SCALAR_ORDER)
-      throw new RangeError("non-canonical audit disclosure field");
+    if (!isCanonicalField(field)) throw new RangeError("non-canonical audit disclosure field");
     return field;
   });
   return Object.freeze({

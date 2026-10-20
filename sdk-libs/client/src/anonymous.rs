@@ -8,8 +8,8 @@ use std::{
 use solana_address::Address;
 use zolana_keypair::{viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
-    AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme, PairHintError, RingTagRequest,
-    ShieldedKeys, TransactionError,
+    anonymous_slot_index, AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme, PairHintError,
+    RingTagRequest, ShieldedKeys, TransactionError,
 };
 
 use crate::{
@@ -273,12 +273,10 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
                 continue;
             }
             for slot in 0..tx.output_slots.len() {
-                let slot = u8::try_from(slot)
-                    .map_err(|_| TransactionError::AnonymousSlotIndex { slot_index: slot })?;
                 requests.push(RingTagRequest::Change {
                     viewing_pubkey: self.viewing_pubkey,
                     first_nullifier,
-                    slot,
+                    slot: anonymous_slot_index(slot)?,
                 });
             }
             spends.push(tx.clone());

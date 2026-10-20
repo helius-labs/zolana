@@ -464,7 +464,7 @@ function anonymousAuditOutput(
 ): AuditedOutput {
   const errors: OutputPayloadErrorKind[] = [];
   try {
-    X25519PublicKey.fromBytes(concatBytes(Uint8Array.of(4), body.note.pairU));
+    X25519PublicKey.fromU(body.note.pairU);
   } catch {
     errors.push("pairHint");
   }
