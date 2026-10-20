@@ -13,7 +13,7 @@ use zolana_ring_policy::ListId;
 
 use crate::{
     catalogue,
-    config::{expand_tilde, RingConfig},
+    config::{expand_tilde, ModeName, RingConfig},
     deploy, line,
     policy::{self, CompiledPolicy, PolicySpec},
     status, Context, InitArgs, Trust,
@@ -125,6 +125,7 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
         config_authority,
         auditor_pk,
         has_policy,
+        ctx.config.mode,
         existing.as_ref(),
     )?;
     let policy = match &policy {
@@ -214,6 +215,7 @@ fn create_config(
     config_authority: &Keypair,
     auditor_pk: X25519Pubkey,
     has_policy: bool,
+    mode: ModeName,
     existing: Option<&CustomRingConfig>,
 ) -> Result<(&'static str, &'static str)> {
     let mismatch = |holder: Address, auditor: &X25519Pubkey| {
@@ -232,6 +234,10 @@ fn create_config(
             "the ring is deployed as {}, ring.toml now selects the other tier, redeploy is not a tier change",
             if config.has_policy { "a policy ring" } else { "audit-only" }
         );
+        ensure!(
+            config.mode == mode.mode(),
+            "ring.toml selects a {mode} ring, the deployed config has another mode, redeploy is not a mode change"
+        );
     }
     let target = config_authority.pubkey();
     let state = config_state(
@@ -249,10 +255,17 @@ fn create_config(
         ctx.send(&[config_authority, deployer], &[hand_over])?;
         return Ok((PRESENT, "transferred"));
     }
-    let mut instructions =
-        vec![ctx
-            .ring
-            .create_config(target, deployer.pubkey(), auditor_pk, has_policy)?];
+    let create = match mode {
+        ModeName::Confidential => CustomRing::create_config,
+        ModeName::Anonymous => CustomRing::create_anonymous_config,
+    };
+    let mut instructions = vec![create(
+        ctx.ring,
+        target,
+        deployer.pubkey(),
+        auditor_pk,
+        has_policy,
+    )?];
     let transfer = deployer.pubkey() != target;
     if transfer {
         instructions.push(hand_over);

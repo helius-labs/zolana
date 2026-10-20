@@ -61,6 +61,7 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
         authority_keypair: PathBuf::from(&args.authority_keypair),
         upgrade_authority_keypair: None,
         config_authority_keypair: None,
+        mode: answers.mode,
         policy: answers.policy,
         cosigner: None,
         deposit_audit: true,
@@ -141,6 +142,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        config::ModeName,
         policy::PolicyError,
         ui::{Answer, Defaults, Scripted},
     };
@@ -172,6 +174,7 @@ mod tests {
         assert_eq!(config.program_id.0, program.pubkey());
         assert_eq!(config.target, Target::Localnet);
         assert_eq!(config.authority_keypair, dest.join("authority.json"));
+        assert_eq!(config.mode, ModeName::Confidential);
         assert!(config.policy.is_none());
         assert_eq!(
             config.devnet.ring_rpc_pubkey.as_deref(),
@@ -215,7 +218,12 @@ mod tests {
             ["", "", "", "", "", "", "", ""]
                 .map(Answer::from)
                 .into_iter()
-                .chain([Answer::Yes(true), Answer::from("devnet"), Answer::Yes(true)]),
+                .chain([
+                    Answer::Yes(true),
+                    Answer::from("devnet"),
+                    Answer::from("anonymous"),
+                    Answer::Yes(true),
+                ]),
         );
         run(
             NewArgs {
@@ -229,6 +237,7 @@ mod tests {
         assert!(ask.is_drained());
         let config = RingConfig::load(&dest.join("governed").join(RING_TOML)).expect("load");
         assert_eq!(config.target, Target::Devnet);
+        assert_eq!(config.mode, ModeName::Anonymous);
         let written_policy = config.policy.expect("policy tier");
         assert_eq!(
             written_policy.address_tree(),

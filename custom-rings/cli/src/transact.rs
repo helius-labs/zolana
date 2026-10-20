@@ -1,10 +1,11 @@
 //! `transact` and `transfer`, two ring deposits spent in one transfer the auditor reads back.
 
 use anyhow::{bail, ensure, Context as _, Result};
+use custom_ring_interface::RingMode;
 use custom_ring_sdk::ListRegistry;
 use custom_ring_sdk::{
-    CoSignScope, CustomRingCoSigner, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    PinnedPolicy, RingDeposit, RingDepositReceipt,
+    AnonymousRecipient, CoSignScope, CustomRingCoSigner, CustomRingTransfer,
+    CustomRingTransferInput, DepositAsset, PinnedPolicy, RingDeposit, RingDepositReceipt,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -12,7 +13,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_interface::pda;
-use zolana_keypair::{shielded::ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{shielded::ShieldedAddress, RingAddress, ShieldedKeypair};
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{ListId, Member, RuleTable};
 use zolana_transaction::{
@@ -21,7 +22,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    assets, file, line, list, member,
+    address, assets, file, line, list, member,
     ui::{self, icon},
     Context, CosignerArg, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
@@ -34,7 +35,7 @@ pub(crate) const PAYER_FEE_BUDGET: u64 = 10_000_000;
 /// Whatever the two deposits hold above `amount` stays with the sender.
 struct Transfer<'a> {
     sender: &'a ShieldedKeypair,
-    recipient: ShieldedAddress,
+    recipient: Payee,
     amount: u64,
     deposits: [u64; 2],
     asset: DepositAsset,
@@ -44,7 +45,23 @@ struct Transfer<'a> {
     enrol: bool,
 }
 
+/// An anonymous ring tags its payment from the recipient's ring address.
+enum Payee {
+    Shielded(ShieldedAddress),
+    Ring(RingAddress),
+}
+
+impl Payee {
+    fn address(&self) -> &ShieldedAddress {
+        match self {
+            Self::Shielded(address) => address,
+            Self::Ring(address) => &address.recipient,
+        }
+    }
+}
+
 pub fn run(ctx: &Context, args: TransactArgs) -> Result<()> {
+    let mode = ring_mode(ctx)?;
     let (policy, cosigner) = guard(ctx, &args.cosigner, SOL_MINT, args.amount)?;
     // The demo deposits the amount twice, funded before the first deposit.
     let authority = open(ctx, args.amount.saturating_mul(2))?;
@@ -55,10 +72,16 @@ pub fn run(ctx: &Context, args: TransactArgs) -> Result<()> {
     );
     let sender = ShieldedKeypair::from_keypair(&ctx.sender()?)?;
     let recipient = ShieldedKeypair::new_ed25519()?;
+    let payee = match mode {
+        RingMode::Anonymous => {
+            Payee::Ring(address::ring_address(&recipient, ctx.ring.program_id(), 0)?)
+        }
+        RingMode::Off | RingMode::Registry => Payee::Shielded(recipient.shielded_address()?),
+    };
     // The change stays with the sender, so its balance shows next to the payment.
     let transfer = Transfer {
         sender: &sender,
-        recipient: recipient.shielded_address()?,
+        recipient: payee,
         amount: args.amount,
         deposits: [args.amount; 2],
         asset: DepositAsset::Sol,
@@ -75,7 +98,7 @@ pub fn run(ctx: &Context, args: TransactArgs) -> Result<()> {
         );
     }
     line("sender tag", owner_tag(&sender.shielded_address()?)?);
-    line("recipient tag", owner_tag(&transfer.recipient)?);
+    line("recipient tag", owner_tag(transfer.recipient.address())?);
     print_signatures(ctx, &deposits, transact)?;
     read_back(ctx, authority, transact)
 }
@@ -86,6 +109,10 @@ pub fn run_transfer(ctx: &Context, args: TransferArgs) -> Result<()> {
         args.amount >= 2,
         "amount {} does not split across the two deposits a ring transfer spends",
         args.amount
+    );
+    ensure!(
+        ring_mode(ctx)? != RingMode::Anonymous,
+        "an anonymous ring pays a `zolana:` ring address, `transfer` pays a shielded address"
     );
     let mint = args.mint.map_or(SOL_MINT, |mint| mint.0);
     let payer = ctx.authority()?.pubkey();
@@ -101,7 +128,7 @@ pub fn run_transfer(ctx: &Context, args: TransferArgs) -> Result<()> {
     let half = args.amount / 2;
     let transfer = Transfer {
         sender: &sender,
-        recipient: args.to,
+        recipient: Payee::Shielded(args.to),
         amount: args.amount,
         deposits: [half, args.amount - half],
         asset,
@@ -204,6 +231,13 @@ fn approval(mint: Address, outflow: u64, rules: Option<&RuleTable>) -> Result<bo
     }))
 }
 
+fn ring_mode(ctx: &Context) -> Result<RingMode> {
+    let config = ctx.block(ctx.ring.config(ctx.chain()))?;
+    Ok(config
+        .context("the ring has no config, run `init` first")?
+        .mode)
+}
+
 /// Only after the ring rpc serves the configured auditor is the authority funded.
 fn open(ctx: &Context, deposited: u64) -> Result<&Keypair> {
     ctx.ring_rpc().check_serves(ctx.ring.program_id())?;
@@ -242,23 +276,31 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
     {
         enrol_in_allow(ctx, payer, policy, t)?;
     }
-    let fee = solana_system_interface::instruction::transfer(
-        &payer.pubkey(),
-        &t.sender.pubkey(),
-        SENDER_FEE_BUDGET,
-    );
-    ctx.send(&[payer], &[fee])?;
-    line("member key", member::ensure_key(ctx, t.sender)?);
+    // An anonymous owner never signs in public and escrows no key, the payer funds its spend.
+    let fee_payer = match &t.recipient {
+        Payee::Ring(_) => payer.pubkey(),
+        Payee::Shielded(_) => {
+            let fee = solana_system_interface::instruction::transfer(
+                &payer.pubkey(),
+                &t.sender.pubkey(),
+                SENDER_FEE_BUDGET,
+            );
+            ctx.send(&[payer], &[fee])?;
+            line("member key", member::ensure_key(ctx, t.sender)?);
+            t.sender.pubkey()
+        }
+    };
     let inputs = deposited_notes(ctx, t.sender, &receipts)?;
     let tree_id = inputs[0].tree_id;
     let shape = canonical_shape(inputs.len(), 2)?;
     let mut transaction =
-        ConfidentialTransaction::new_with_ring(inputs, t.sender.pubkey(), ctx.ring.program_id())?
+        ConfidentialTransaction::new_with_ring(inputs, fee_payer, ctx.ring.program_id())?
             .with_output_tree_id(tree_id)?;
+    let recipient = t.recipient.address();
     if t.asset.mint() == SOL_MINT {
-        transaction.transfer_sol(&t.recipient, t.amount)?;
+        transaction.transfer_sol(recipient, t.amount)?;
     } else {
-        transaction.transfer(&t.recipient, t.asset.mint(), t.amount)?;
+        transaction.transfer(recipient, t.asset.mint(), t.amount)?;
     }
     transaction.pad_utxos(shape, &t.sender.shielded_address()?)?;
     let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
@@ -271,7 +313,16 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
         transfer = transfer.with_cosigner(cosigner.pubkey());
     }
     let signers: Vec<_> = cosigner.into_iter().collect();
-    let transact = ctx.submit(transfer, t.sender, &signers)?;
+    let transact = match &t.recipient {
+        Payee::Shielded(_) => ctx.submit(transfer, t.sender, &signers)?,
+        Payee::Ring(address) => {
+            let anonymous = transfer
+                .with_anonymous_signer(&t.sender.signing_key, &t.sender.viewing_key)
+                .with_recipient(AnonymousRecipient::Address(address.clone()));
+            let proven = ctx.block(anonymous.prove(ctx.chain()))?;
+            ctx.submit(proven.instruction()?, payer, &signers)?
+        }
+    };
     Ok((receipts.iter().map(|r| r.signature).collect(), transact))
 }
 
@@ -319,7 +370,7 @@ fn enrol_in_allow(
     }
     for (party, address) in [
         ("sender", &t.sender.shielded_address()?),
-        ("recipient", &t.recipient),
+        ("recipient", t.recipient.address()),
     ] {
         let member = Member::owner_tag(owner_tag(address)?.as_array())?;
         let change = list::set_list(ctx, authority, ListId::Allow, member, true)?;

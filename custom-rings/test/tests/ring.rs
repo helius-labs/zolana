@@ -30,7 +30,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::{wait_for, Probe};
+use custom_ring_cli::{address::ring_address, wait_for, Probe};
 use custom_ring_interface::{
     CustomRingError, RingMode, RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG,
 };
@@ -71,7 +71,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    random_blinding, RingAddress, ShieldedAddress, ShieldedKeypair, X25519Keypair,
+    random_blinding, InboxSecret, RingAddress, ShieldedAddress, ShieldedKeypair, X25519Keypair,
 };
 use zolana_program::instruction::{
     AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts, RingAssetDeposit,
@@ -86,7 +86,9 @@ use zolana_ring_policy::{Member, ZERO_NULLIFIER_PK};
 use zolana_ring_rpc::{
     ChainSource, Hub, RingRpcError, RootSecret, TransactionSource, Unauthorized, Upstreams,
 };
-use zolana_test_utils::wallet::{sync_wallet, KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_test_utils::wallet::{
+    recover_wallet, sync_wallet, KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+};
 use zolana_test_utils::{
     smart_account,
     spl::{create_token_account, mint_to},
@@ -126,6 +128,9 @@ const RING_TRANSFER_AMOUNT: u64 = 1_500_000_000;
 /// asserts the audit against itself.
 const RING_CHANGE: u64 = RING_DEPOSIT_A + RING_DEPOSIT_B - RING_TRANSFER_AMOUNT;
 const SECOND_HOP_AMOUNT: u64 = 400_000_000;
+/// Paid from the sender's second-hop note under an inbox secret the recipient never issued.
+const WRONG_TAG_AMOUNT: u64 = 250_000_000;
+const RECOVERED_SPEND: u64 = 100_000_000;
 
 /// Output slot layout this test publishes: the sender's change first, the
 /// recipient second. A slot's index is what its ciphertext is bound to, so these
@@ -1274,8 +1279,7 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         input_amounts.sort_unstable();
         assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);
 
-        // The recipient finds the inbox payment by its address, a fresh wallet
-        // of the sender its change through the deposit stream and the spend.
+        // The recipient finds the inbox payment by its address.
         let recipient_authority =
             KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
         sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
@@ -1295,6 +1299,36 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
             .anonymous_ring
             .known_counterparties
             .contains(&pair_pk));
+
+        // The recipient spends the synced note back to the sender's standing address.
+        let received = unspent_utxo(&env.recipient.wallet, RING_TRANSFER_AMOUNT)?;
+        AnonymousPayment {
+            ring,
+            sender: &env.recipient.keypair,
+            payer: &env.payer,
+            inputs: vec![indexed_note(
+                received,
+                &env.recipient.keypair,
+                &env,
+                env.tree,
+            )?],
+            to: ring_address(&env.sender.keypair, ring_program, 0)?,
+            amount: SECOND_HOP_AMOUNT,
+        }
+        .send(&env, auditor_tag)?;
+        sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
+        assert_eq!(
+            sorted_unspent_notes(&env.recipient.wallet),
+            vec![(
+                SOL_MINT,
+                RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT,
+                Some(ring_program)
+            )],
+            "the recipient keeps the change of its spend"
+        );
+
+        // A fresh wallet of the sender finds its change through the deposit
+        // stream and the spend, and the payment back on its first inbox tag.
         let mut fresh_sender =
             Wallet::new(env.sender.keypair.shielded_address()?, env.assets.clone())?
                 .with_ring_deposit_payload(ring_program, zolana_ring_client::deposit_payload);
@@ -1302,8 +1336,76 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         sync_wallet(&mut fresh_sender, &sender_authority, indexer)?;
         assert_eq!(
             sorted_unspent_notes(&fresh_sender),
-            vec![(SOL_MINT, RING_CHANGE, Some(ring_program))]
+            vec![
+                (SOL_MINT, SECOND_HOP_AMOUNT, Some(ring_program)),
+                (SOL_MINT, RING_CHANGE, Some(ring_program)),
+            ]
         );
+        assert_eq!(fresh_sender.anonymous_ring.issued_addresses, 1);
+
+        // A payment under a tag no issued address derives reaches the recipient
+        // only through the untagged recovery scan.
+        let returned = unspent_utxo(&fresh_sender, SECOND_HOP_AMOUNT)?;
+        let misdirected = RingAddress {
+            inbox_secret: InboxSecret::from_bytes([0x5a; 32]),
+            ..ring_address(&env.recipient.keypair, ring_program, 0)?
+        };
+        let wrong_tag = AnonymousPayment {
+            ring,
+            sender: &env.sender.keypair,
+            payer: &env.payer,
+            inputs: vec![indexed_note(returned, &env.sender.keypair, &env, env.tree)?],
+            to: misdirected,
+            amount: WRONG_TAG_AMOUNT,
+        }
+        .send(&env, auditor_tag)?;
+        sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
+        assert_eq!(
+            sorted_unspent_notes(&env.recipient.wallet),
+            vec![(
+                SOL_MINT,
+                RING_TRANSFER_AMOUNT - SECOND_HOP_AMOUNT,
+                Some(ring_program)
+            )],
+            "the tag fast path misses the misdirected payment"
+        );
+        let report = recover_wallet(
+            &mut env.recipient.wallet,
+            &recipient_authority,
+            indexer,
+            ring_program,
+            wrong_tag.slot,
+        )?;
+        assert_eq!(report.head, wrong_tag.slot);
+        let recovered = env
+            .recipient
+            .wallet
+            .unspent()
+            .find(|held| held.utxo.amount == WRONG_TAG_AMOUNT)
+            .cloned()
+            .ok_or_else(|| anyhow!("recovery found the misdirected payment"))?;
+        assert!(report
+            .notes
+            .iter()
+            .any(|note| note.utxo_hash == recovered.utxo_hash));
+
+        // The recovered note spends like any other.
+        AnonymousPayment {
+            ring,
+            sender: &env.recipient.keypair,
+            payer: &env.payer,
+            inputs: vec![indexed_note(
+                recovered.utxo.clone(),
+                &env.recipient.keypair,
+                &env,
+                env.tree,
+            )?],
+            to: ring_address(&env.sender.keypair, ring_program, 0)?,
+            amount: RECOVERED_SPEND,
+        }
+        .send(&env, auditor_tag)?;
+        sync_wallet(&mut env.recipient.wallet, &recipient_authority, indexer)?;
+        assert!(env.recipient.wallet.is_spent(&recovered));
         return Ok(());
     }
 
@@ -3024,6 +3126,54 @@ impl AuditLookup<'_> {
             .find(|tx| tx.tx_signature == self.signature)
             .ok_or_else(|| anyhow!("transaction {} audited", self.signature))
     }
+}
+
+/// An anonymous ring payment, the ring payer funds it so no public signer names the owner.
+struct AnonymousPayment<'a> {
+    ring: CustomRing,
+    sender: &'a ShieldedKeypair,
+    payer: &'a Keypair,
+    inputs: Vec<WalletUtxo>,
+    to: RingAddress,
+    amount: u64,
+}
+
+impl AnonymousPayment<'_> {
+    fn send(self, env: &TestEnv, auditor_tag: [u8; 32]) -> Result<ShieldedTransaction> {
+        let mut transaction = ConfidentialTransaction::new_with_ring(
+            self.inputs,
+            self.payer.pubkey(),
+            self.ring.program_id(),
+        )?;
+        transaction.transfer_sol(&self.to.recipient, self.amount)?;
+        transaction.pad_utxos(
+            canonical_shape(transaction.inputs().len(), 2)?,
+            &self.sender.shielded_address()?,
+        )?;
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: self.ring,
+            sender: self.sender,
+            nullifier_key: Some(&self.sender.nullifier_key),
+            transaction,
+        })
+        .with_anonymous_signer(&self.sender.signing_key, &self.sender.viewing_key)
+        .with_recipient(AnonymousRecipient::Address(self.to));
+        let proven = env.run(transfer.prove(env.client.as_async()))?;
+        let signature = land(env, proven.instruction()?, self.payer, &[])?;
+        Ok(wait_for_indexed_transaction(
+            env.client.indexer(),
+            auditor_tag,
+            signature,
+        ))
+    }
+}
+
+fn unspent_utxo(wallet: &Wallet, amount: u64) -> Result<Utxo> {
+    wallet
+        .unspent()
+        .find(|held| held.utxo.amount == amount)
+        .map(|held| held.utxo.clone())
+        .ok_or_else(|| anyhow!("an unspent note of {amount}"))
 }
 
 fn output_blinding(prepared: &ConfidentialTransaction, slot: u32) -> Result<[u8; 32]> {

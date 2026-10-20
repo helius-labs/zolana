@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, ensure, Context as _, Result};
+use custom_ring_interface::RingMode;
 use custom_ring_sdk::CoSignScope;
 use serde::{Deserialize, Serialize};
 use solana_address::{error::ParseAddressError, Address};
@@ -40,6 +41,9 @@ pub struct RingConfig {
     pub upgrade_authority_keypair: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
+    /// Fixed once `init` creates the config.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mode: ModeName,
     /// Presence selects the policy tier, `init` pins the compiled table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicySpec>,
@@ -80,6 +84,15 @@ named_enum! {
     pub enum Target("target") {
         Localnet = "localnet",
         Devnet = "devnet",
+    }
+}
+
+named_enum! {
+    #[derive(Default)]
+    pub enum ModeName("ring mode") {
+        #[default]
+        Confidential = "confidential",
+        Anonymous = "anonymous",
     }
 }
 
@@ -129,6 +142,15 @@ pub struct Urls {
     /// `false` sends the prover plaintext witnesses, only for a prover the operator runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prover_tee: Option<bool>,
+}
+
+impl ModeName {
+    pub const fn mode(self) -> RingMode {
+        match self {
+            Self::Confidential => RingMode::Off,
+            Self::Anonymous => RingMode::Anonymous,
+        }
+    }
 }
 
 impl CoSignClass {
@@ -502,10 +524,27 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(!written.contains("upgrade_authority_keypair"));
         assert!(!written.contains("ring_rpc_pubkey"));
         assert!(!written.contains("policy"));
+        assert_eq!(config.mode, ModeName::Confidential);
+        assert!(!written.contains("mode"));
         assert_eq!(
             toml::from_str::<RingConfig>(&written).expect("reparse"),
             config
         );
+    }
+
+    #[test]
+    fn an_anonymous_ring_records_its_mode() {
+        let text = format!("mode = \"anonymous\"\n{EXAMPLE}");
+        let config: RingConfig = toml::from_str(&text).expect("parse");
+        assert_eq!(config.mode.mode(), RingMode::Anonymous);
+        let rendered = config.render().expect("render");
+        assert!(rendered.contains("mode = \"anonymous\""));
+        assert_eq!(
+            toml::from_str::<RingConfig>(&rendered).expect("reparse"),
+            config
+        );
+        let refused = format!("mode = \"registry\"\n{EXAMPLE}");
+        assert!(toml::from_str::<RingConfig>(&refused).is_err());
     }
 
     #[test]

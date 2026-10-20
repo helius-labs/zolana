@@ -2,6 +2,7 @@
 
 mod macros;
 
+pub mod address;
 pub mod assets;
 pub mod authority;
 pub mod catalogue;
@@ -60,7 +61,7 @@ use zolana_keypair::ShieldedAddress;
 use zolana_ring_client::ReaderKey;
 
 pub use crate::{
-    config::{CoSignClass, Mint, RingConfig, Service, Target, ThresholdSpec, RING_TOML},
+    config::{CoSignClass, Mint, ModeName, RingConfig, Service, Target, ThresholdSpec, RING_TOML},
     list::MemberArg,
     policy::ListName,
     ring_rpc::{RingRpcClient, Trust},
@@ -165,6 +166,8 @@ pub enum Command {
     Policy(PolicyCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
+    /// Print the member's `zolana:` address, what an anonymous ring pays.
+    Address(AddressArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -343,6 +346,23 @@ pub struct AuditorKeyArgs {
     /// Create the key and its `.pub` instead of reading it, refuses to overwrite.
     #[arg(long)]
     pub create: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AddressArgs {
+    /// Issue indices in order from 0, a new index per payer keeps payers apart.
+    #[arg(long, default_value_t = 0)]
+    pub index: u32,
+    /// The member's Solana keypair, `keys/sender-keypair.json` by default.
+    #[arg(long)]
+    pub keypair: Option<PathBuf>,
+    /// Requested amount in base units, unauthenticated like the mint and label.
+    #[arg(long)]
+    pub amount: Option<u64>,
+    #[arg(long)]
+    pub mint: Option<Mint>,
+    #[arg(long)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -757,6 +777,7 @@ fn dispatch(ctx: &mut Context, command: Command) -> Result<()> {
         Command::List(command) => list::run(ctx, command),
         Command::Policy(command) => policy::run(ctx, command),
         Command::AuditorKey(args) => keys::run(&ctx.path(&args.key_file), args.create),
+        Command::Address(args) => address::run(ctx, args),
         Command::New(_)
         | Command::Target { .. }
         | Command::Url { .. }

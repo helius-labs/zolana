@@ -31,7 +31,7 @@ pub struct AnonymousRingState {
     /// Ring addresses handed out, scanned whole before the gap rule applies.
     pub issued_addresses: u32,
     /// Pair keys of payers and viewing keys of recipients paid before.
-    pub known_counterparties: HashSet<X25519Pubkey>,
+    pub known_counterparties: BTreeSet<X25519Pubkey>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -62,7 +62,7 @@ pub struct AnonymousRingNote {
 pub struct AnonymousRingReport {
     pub notes: Vec<AnonymousRingNote>,
     /// Pair keys read from first payments, absent from the state's counterparties.
-    pub new_counterparties: HashSet<X25519Pubkey>,
+    pub new_counterparties: BTreeSet<X25519Pubkey>,
     /// Never below the issued count.
     pub used_addresses: u32,
     pub inbox_next: BTreeMap<u32, u64>,
@@ -128,7 +128,7 @@ pub(crate) struct AnonymousStreams<'a, K: ?Sized> {
     keys: &'a K,
     viewing_pubkey: X25519Pubkey,
     config: Option<IndexerRpcConfig>,
-    counterparties: HashSet<X25519Pubkey>,
+    counterparties: BTreeSet<X25519Pubkey>,
     open: Vec<OpenStream>,
     opened_addresses: u32,
     routes: AnonymousTagRoutes,

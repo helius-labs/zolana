@@ -387,7 +387,7 @@ fn two_payers_on_one_inbox_index_are_both_found() {
         BTreeSet::from([first.hash, second.hash])
     );
     let report = result.anonymous.unwrap();
-    let pair_keys: HashSet<_> = [keypair(2), keypair(3)]
+    let pair_keys: BTreeSet<_> = [keypair(2), keypair(3)]
         .iter()
         .map(|payer| {
             payer
@@ -832,7 +832,7 @@ fn an_issued_count_is_scanned_whole_and_a_known_counterparty_from_the_start() {
     let result = UtxoScan::new(&recipient, &assets)
         .with_anonymous_ring(AnonymousRingState {
             issued_addresses: far + 1,
-            known_counterparties: HashSet::from([pair_pk]),
+            known_counterparties: BTreeSet::from([pair_pk]),
         })
         .fetch(&indexer)
         .unwrap();
@@ -890,7 +890,7 @@ fn a_first_contact_opens_the_pair_stream_in_the_same_scan() {
         BTreeSet::from([first.hash, later.hash])
     );
     let report = result.anonymous.unwrap();
-    assert_eq!(report.new_counterparties, HashSet::from([pair_pk]));
+    assert_eq!(report.new_counterparties, BTreeSet::from([pair_pk]));
     assert_eq!(report.pair_next.get(&pair_pk), Some(&1));
     let streams: BTreeSet<_> = report
         .notes

@@ -10,7 +10,7 @@ use zolana_transaction::SOL_MINT;
 
 use crate::{
     catalogue::{discover, Catalogue},
-    config::{redact_url, Base58Address, Target, Urls},
+    config::{redact_url, Base58Address, ModeName, Target, Urls},
     line,
     policy::{
         describe, Alternative, AssetLimitSpec, ListName, PolicySpec, RuleSpec, SourceSpec,
@@ -34,6 +34,7 @@ pub struct Answers {
     pub target: Target,
     pub localnet: Urls,
     pub devnet: Urls,
+    pub mode: ModeName,
     pub policy: Option<PolicySpec>,
 }
 
@@ -182,6 +183,11 @@ impl Wizard<'_> {
             Target::Localnet => &localnet.rpc,
             Target::Devnet => &devnet.rpc,
         };
+        ui::heading(icon::WIZARD, "mode");
+        ui::hint(
+            "an anonymous ring hides the owner of every spend, its auditor still opens every note",
+        );
+        let mode = ModeName::ALL[self.ask.pick("ring mode", &labels(ModeName::ALL), 0)?];
         let policy = match preset {
             Some(policy) => Some(policy),
             None => self.policy(target, rpc_url)?,
@@ -191,6 +197,7 @@ impl Wizard<'_> {
             target,
             localnet,
             devnet,
+            mode,
             policy,
         })
     }
@@ -566,9 +573,14 @@ pub(crate) mod tests {
     }
 
     fn script_for(target: Target, policy: &[Answer]) -> Vec<Answer> {
+        script_with(target, ModeName::Confidential, policy)
+    }
+
+    fn script_with(target: Target, mode: ModeName, policy: &[Answer]) -> Vec<Answer> {
         let mut answers = cluster_answers();
         answers.push(Answer::Yes(true));
         answers.push(Answer::from(target.as_str()));
+        answers.push(Answer::from(mode.as_str()));
         answers.extend_from_slice(policy);
         answers
     }
@@ -634,6 +646,19 @@ pub(crate) mod tests {
         assert_eq!(
             answers.devnet.ring_rpc_pubkey.as_deref(),
             Some(CURATOR.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn the_mode_is_asked_after_the_target() {
+        let finish = [Answer::from("finish")];
+        let answers =
+            run(script_with(Target::Localnet, ModeName::Anonymous, &finish)).expect("wizard");
+        assert_eq!(answers.mode, ModeName::Anonymous);
+        assert!(answers.policy.is_none());
+        assert_eq!(
+            run(script(&finish)).expect("wizard").mode,
+            ModeName::Confidential
         );
     }
 
