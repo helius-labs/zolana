@@ -6,16 +6,9 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 )
 
 const byteBits = 8
-
-// BytesToField packs bounded big-endian bytes as one field value. At most 31
-// bytes fit below BN254's scalar modulus. A 32-byte value must start with zero.
-func BytesToField(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	return BytesToFieldWith(api, rangecheck.New(api), bytes)
-}
 
 // BitChecker range-checks by bit decomposition, adding no BSB22 commitment.
 type BitChecker struct{ API frontend.API }

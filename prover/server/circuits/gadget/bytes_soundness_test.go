@@ -3,6 +3,7 @@ package gadget
 import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/std/math/bits"
+	"github.com/consensys/gnark/std/rangecheck"
 	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 	"math/big"
 	"strings"
@@ -18,7 +19,7 @@ type packedBytesCircuit struct {
 }
 
 func (c *packedBytesCircuit) Define(api frontend.API) error {
-	api.AssertIsEqual(BytesToField(api, []frontend.Variable{c.A, c.B}), c.Expected)
+	api.AssertIsEqual(BytesToFieldWith(api, rangecheck.New(api), []frontend.Variable{c.A, c.B}), c.Expected)
 	return nil
 }
 
@@ -28,7 +29,7 @@ type paddedBytesCircuit struct {
 }
 
 func (c *paddedBytesCircuit) Define(api frontend.API) error {
-	api.AssertIsEqual(BytesToField(api, c.Bytes[:]), c.Expected)
+	api.AssertIsEqual(BytesToFieldWith(api, rangecheck.New(api), c.Bytes[:]), c.Expected)
 	return nil
 }
 
