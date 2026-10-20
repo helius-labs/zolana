@@ -92,21 +92,37 @@ impl SppProofInputs {
             .nullifier())
     }
 
+    /// The Solana signers the shielded pool lists as owner signers: the
+    /// Ed25519 and PDA owners of real inputs, then of outputs that carry data,
+    /// deduplicated in that order. The circuit requires an output's owner to
+    /// sign when its data hash is set. The fee payer is listed only when it is
+    /// one of those owners.
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
-        let mut signers = Vec::new();
-        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
-        for input_utxo in self
+        let input_owners = self
             .input_utxos
             .iter()
             .filter(|input_utxo| !input_utxo.is_dummy())
-        {
-            let address = match input_utxo.utxo.owner.curve()? {
+            .map(|input_utxo| &input_utxo.utxo.owner);
+        let data_output_owners = self
+            .output_utxos
+            .iter()
+            .filter(|output_utxo| {
+                output_utxo
+                    .data_hash
+                    .is_some_and(|data_hash| data_hash != [0u8; 32])
+            })
+            .filter_map(|output_utxo| output_utxo.owner_address.as_ref())
+            .map(|owner_address| &owner_address.signing_pubkey);
+        let mut signers = Vec::new();
+        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
+        for owner in input_owners.chain(data_output_owners) {
+            let address = match owner.curve()? {
                 Curve::P256 => continue,
                 Curve::Ed25519 | Curve::Pda => {
-                    Address::new_from_array(input_utxo.utxo.owner.confidential_view_tag()?)
+                    Address::new_from_array(owner.confidential_view_tag()?)
                 }
             };
-            let hash = input_utxo.utxo.owner.owner_proof_input_hash()?;
+            let hash = owner.owner_proof_input_hash()?;
             if signer_hashes.contains(&hash) {
                 continue;
             }
@@ -116,9 +132,10 @@ impl SppProofInputs {
         Ok(signers)
     }
 
-    /// The owner-signed rails' public signer vector: every Ed25519 input owner,
-    /// deduplicated in input order and zero-padded to `width`. The fee payer is
-    /// not in it unless it owns an input, so paying never authorizes a spend.
+    /// The owner-signed rails' public signer vector: every
+    /// [`Self::owner_signer_pubkeys`] entry as its signer identity,
+    /// zero-padded to `width`. The fee payer is not in it unless it is one of
+    /// those owners, so paying never authorizes a spend.
     pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
         let mut hashes = Vec::with_capacity(width);
         for signer in self.owner_signer_pubkeys()? {
@@ -142,7 +159,7 @@ impl SppProofInputs {
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()
-            .filter(|input_utxo| input_utxo.is_dummy() || input_utxo.cache_slot.is_some())
+            .filter(|input_utxo| !input_utxo.requires_inclusion())
             .map(|input_utxo| input_utxo.nullifier())
             .collect()
     }
@@ -151,7 +168,7 @@ impl SppProofInputs {
         Ok(self
             .input_utxos
             .iter()
-            .filter(|input_utxo| !input_utxo.is_dummy() && input_utxo.cache_slot.is_none())
+            .filter(|input_utxo| input_utxo.requires_inclusion())
             .collect())
     }
 }

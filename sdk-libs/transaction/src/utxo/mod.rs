@@ -3,6 +3,7 @@ mod hash;
 pub mod input;
 mod note;
 pub mod output;
+mod proof_input;
 pub mod wallet;
 
 pub use blinding::{
@@ -16,5 +17,6 @@ pub use input::SppProofInputUtxo;
 pub(crate) use note::resolve_ring_program_id;
 pub use note::Utxo;
 pub use output::SppProofOutputUtxo;
+pub use proof_input::ProofInputUtxo;
 pub use wallet::WalletUtxo;
 pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};

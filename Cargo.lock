@@ -12195,6 +12195,8 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-signature",
  "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
  "wincode",
  "zolana-event",
  "zolana-hasher",
