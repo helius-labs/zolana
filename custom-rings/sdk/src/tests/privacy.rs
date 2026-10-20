@@ -14,7 +14,7 @@ use zolana_interface::tree_slot::populated_tree_slots_hash_chain;
 use zolana_keypair::{RingAddress, ShieldedKeypair, X25519Keypair};
 use zolana_ring_member_registry::MemberRegistryTree;
 use zolana_ring_policy::{ListId, ListSet, Member, Rule, RuleTable, Subject};
-use zolana_transaction::instructions::transact::ConfidentialTransaction;
+use zolana_transaction::{instructions::transact::ConfidentialTransaction, Mint};
 
 use super::{committed, Staged};
 use crate::{
@@ -23,8 +23,8 @@ use crate::{
         tests::{listed, RegistryRpc},
         WitnessInput,
     },
-    AnonymousRecipient, CustomRingConfig, CustomRingTransfer, CustomRingTransferInput,
-    PinnedPolicy, PoolTree,
+    AnonymousPayment, AnonymousRecipient, CustomRingConfig, CustomRingTransfer,
+    CustomRingTransferInput, PinnedPolicy, PoolTree,
 };
 
 const TABLE: RuleTable = RuleTable::builder()
@@ -69,16 +69,12 @@ async fn publish(
 ) -> Published {
     let program = ring().program_id();
     let receiver = recipient.shielded_address().unwrap();
-    let mut transaction = ConfidentialTransaction::new_with_ring(
+    let transaction = ConfidentialTransaction::new_with_ring(
         vec![note(sender, 10, 0, Some(program))],
         Address::new_from_array([7; 32]),
         program,
     )
     .unwrap();
-    transaction.transfer_sol(&receiver, 4).unwrap();
-    transaction
-        .pad_utxos(Shape::IN2_OUT2, &sender.shielded_address().unwrap())
-        .unwrap();
     let transfer = CustomRingTransfer::new(CustomRingTransferInput {
         ring: ring(),
         sender,
@@ -86,11 +82,18 @@ async fn publish(
         transaction,
     })
     .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-    .with_recipient(AnonymousRecipient::Paired(RingAddress {
-        recipient: receiver,
-        ring_program_id: program,
-        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
-    }));
+    .with_payment(AnonymousPayment {
+        to: AnonymousRecipient::Paired(RingAddress {
+            recipient: receiver,
+            ring_program_id: program,
+            inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+        }),
+        asset: Mint::SOL,
+        amount: 4,
+    })
+    .unwrap()
+    .with_shape(Shape::IN2_OUT2)
+    .unwrap();
     let staged: Box<Staged> = transfer
         .rail
         .stage(ring(), rpc, config, None)

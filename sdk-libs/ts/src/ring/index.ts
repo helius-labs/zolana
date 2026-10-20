@@ -328,8 +328,16 @@ export {
   proveCustomRingTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
-export { messageSignerSpendSigner, signingKeySpendSigner } from "./anonymous.js";
-export type { AnonymousRingRecipient, AnonymousSpendSigner } from "./anonymous.js";
+export {
+  AnonymousPreparedTransfer,
+  messageSignerSpendSigner,
+  signingKeySpendSigner,
+} from "./anonymous.js";
+export type {
+  AnonymousRingPayment,
+  AnonymousRingRecipient,
+  AnonymousSpendSigner,
+} from "./anonymous.js";
 export type {
   AnonymousRingTransferClient,
   AnonymousRingTransferParams,

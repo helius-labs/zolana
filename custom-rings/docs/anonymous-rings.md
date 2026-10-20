@@ -233,10 +233,14 @@ refused in anonymous mode, so key escrow stays off. See
 
 ## Integration
 
-A payer parses a `RingPaymentRequest` and passes its address to
-`with_recipient` as `AnonymousRecipient::Address` for a first payment.
-`AnonymousRecipient::Paired` uses the pair stream and still carries the full
-address. `with_anonymous_signer` takes the hidden owner's signer and viewing
+A payer parses a `RingPaymentRequest` and pays its address with
+`with_payment`, which builds the output slot from that address. Two requests of
+one wallet share the shielded address but not the inbox secret, so the tag
+follows the slot, never the owner. `AnonymousRecipient::Address` marks a first
+payment. `AnonymousRecipient::Paired` uses the pair stream and still carries
+the full address. Payments come before padding, `with_shape` pads to a chosen
+shape and staging otherwise pads to the smallest one. The TypeScript
+`AnonymousPreparedTransfer.prepare` does the same over a `ConfidentialTransfer`. `with_anonymous_signer` takes the hidden owner's signer and viewing
 key. `with_session` shares one `TransactSession` across the wallet's transfers.
 
 A recipient learns the sender's pseudonym from a first payment. It finds a

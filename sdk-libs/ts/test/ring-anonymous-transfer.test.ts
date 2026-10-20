@@ -43,7 +43,12 @@ import { RingAddress } from "../src/keypair/ring-address.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
-import { checkAnonymousOutputs, signingKeySpendSigner } from "../src/ring/anonymous.js";
+import {
+  AnonymousPreparedTransfer,
+  checkAnonymousOutputs,
+  signingKeySpendSigner,
+  type AnonymousRingPayment,
+} from "../src/ring/anonymous.js";
 import { ringTransactInstruction } from "../src/ring/instructions.js";
 import {
   proveAnonymousRingTransfer,
@@ -415,11 +420,11 @@ function keypair(value: number): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed(value)));
 }
 
-function ringAddress(owner: ShieldedKeypair, ring: Address = RING): RingAddress {
+function ringAddress(owner: ShieldedKeypair, ring: Address = RING, inbox = 0): RingAddress {
   return new RingAddress({
     recipient: owner.shieldedAddress(),
     ringProgramId: ring,
-    inboxSecret: owner.viewingKey().inboxSecret(0),
+    inboxSecret: owner.viewingKey().inboxSecret(inbox),
   });
 }
 
@@ -428,10 +433,25 @@ const RECIPIENT = keypair(4);
 const PAYER = keypair(9).shieldedAddress().solanaAddress();
 const AUDITOR = X25519Keypair.fromBytes(filled(0x33) as Bytes32);
 
-/** A 10 SOL ring note of the sender paying 4 to the recipient in a 2x2 transfer. */
+/** A 10 SOL ring note of the sender paying 4 to the recipient's address in a 2x2 transfer. */
 function prepared(
-  input: Readonly<{ payer?: Address; shape?: Readonly<{ inputs: number; outputs: number }> }> = {},
-) {
+  input: Readonly<{
+    payer?: Address;
+    shape?: Readonly<{ inputs: number; outputs: number }>;
+    payments?: readonly AnonymousRingPayment[];
+  }> = {},
+): AnonymousPreparedTransfer {
+  return AnonymousPreparedTransfer.prepare(
+    ringTransfer(input),
+    input.payments ?? [
+      { to: { kind: "address", address: ringAddress(RECIPIENT) }, asset: SOL_MINT, amount: 4n },
+    ],
+  );
+}
+
+function ringTransfer(
+  input: Readonly<{ payer?: Address; shape?: Readonly<{ inputs: number; outputs: number }> }>,
+): ConfidentialTransfer {
   const spend = ProofInputUtxo.fromKeypair(
     new Utxo({
       owner: SENDER.signingPublicKey(),
@@ -442,11 +462,9 @@ function prepared(
     }),
     SENDER,
   );
-  const transfer = new ConfidentialTransfer(SENDER.shieldedAddress(), [spend], input.payer ?? PAYER)
+  return new ConfidentialTransfer(SENDER.shieldedAddress(), [spend], input.payer ?? PAYER)
     .withRingProgramId(RING)
     .withShape(input.shape ?? { inputs: 2, outputs: 2 });
-  transfer.send(RECIPIENT.shieldedAddress(), SOL_MINT, 4n);
-  return transfer.prepare();
 }
 
 async function configAccount(mode: number) {
@@ -535,7 +553,6 @@ async function transfer(
     tree: TREE,
     signer: signingKeySpendSigner(SigningKey.fromEd25519Bytes(seed(3))),
     viewingKey: SENDER.viewingKey(),
-    recipients: [{ kind: "address", address: ringAddress(RECIPIENT) }],
     ...overrides,
   });
 }
@@ -632,12 +649,22 @@ describe("anonymous ring transfer", () => {
     await expect(
       transfer({ prepared: prepared({ shape: { inputs: 1, outputs: 8 } }) }),
     ).rejects.toMatchObject({ code: "RING_ANONYMOUS_SHAPE_UNSUPPORTED" });
-    await expect(transfer({ recipients: [] })).rejects.toMatchObject({
-      code: "RING_ANONYMOUS_RECIPIENT_UNKNOWN",
-    });
+    const unpaired = ringTransfer({});
+    unpaired.send(RECIPIENT.shieldedAddress(), SOL_MINT, 4n);
+    await expect(
+      transfer({ prepared: AnonymousPreparedTransfer.prepare(unpaired, []) }),
+    ).rejects.toMatchObject({ code: "RING_ANONYMOUS_RECIPIENT_UNKNOWN" });
     await expect(
       transfer({
-        recipients: [{ kind: "paired", address: ringAddress(RECIPIENT, PAYER) }],
+        prepared: prepared({
+          payments: [
+            {
+              to: { kind: "paired", address: ringAddress(RECIPIENT, PAYER) },
+              asset: SOL_MINT,
+              amount: 4n,
+            },
+          ],
+        }),
       }),
     ).rejects.toMatchObject({ code: "RING_FOREIGN_RING" });
     const keys = LocalKeys.fromKeypair(SENDER, {
@@ -651,12 +678,54 @@ describe("anonymous ring transfer", () => {
           proveRingTransact: () => Promise.reject(new Error("unused")),
         },
         ringProgramId: RING,
-        prepared: prepared(),
+        prepared: prepared().transfer,
         keys,
         assets: new AssetRegistry(),
         tree: TREE,
       }),
     ).rejects.toMatchObject({ code: "RING_ANONYMOUS_SIGNER_REQUIRED" });
+  });
+
+  it("tags each payment from the inbox stream of the address it pays", async () => {
+    // Two requests of one wallet share the shielded address and differ in the inbox secret.
+    const first = ringAddress(RECIPIENT, RING, 0);
+    const second = ringAddress(RECIPIENT, RING, 1);
+    for (const order of [
+      [
+        { address: first, amount: 2n },
+        { address: second, amount: 3n },
+      ],
+      [
+        { address: second, amount: 3n },
+        { address: first, amount: 2n },
+      ],
+    ]) {
+      const captured: Captured = {};
+      await transfer(
+        {
+          prepared: prepared({
+            shape: { inputs: 2, outputs: 4 },
+            payments: order.map(({ address, amount }) => ({
+              to: { kind: "address", address },
+              asset: SOL_MINT,
+              amount,
+            })),
+          }),
+        },
+        captured,
+      );
+      const proofInputs = captured.spp!.proofInputs;
+      for (const { address, amount } of order) {
+        const slot = proofInputs.outputs.findIndex(
+          (output) =>
+            output.amount === amount &&
+            output.ownerAddress?.signingPublicKey.equals(RECIPIENT.signingPublicKey()),
+        );
+        expect(proofInputs.externalData.resolvedOwnerTags[slot]).toEqual(
+          address.inboxSecret.viewTag(0n),
+        );
+      }
+    }
   });
 
   it("refuses every published slot the ring program would refuse", async () => {

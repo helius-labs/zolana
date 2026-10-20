@@ -741,6 +741,24 @@ fn anonymous_signer_slots_exclude_the_fee_payer_for_every_shape() {
     }
 }
 
+/// One unpadded ring note of `amount` lamports, the anonymous rail adds its payments.
+fn ring_transaction(sender: &ShieldedKeypair, amount: u64) -> ConfidentialTransaction {
+    ConfidentialTransaction::new_with_ring(
+        vec![note(sender, amount, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap()
+}
+
+fn sol_payment(to: AnonymousRecipient, amount: u64) -> AnonymousPayment {
+    AnonymousPayment {
+        to,
+        asset: Mint::SOL,
+        amount,
+    }
+}
+
 fn owner_transfer(
     sender: &ShieldedKeypair,
     transaction: ConfidentialTransaction,
@@ -850,20 +868,14 @@ async fn anonymous_staging_derives_every_tag_from_the_sender_key() {
         (AnonymousRecipient::Address(address.clone()), inbox_tag),
         (AnonymousRecipient::Paired(address.clone()), pair_tag),
     ] {
-        let mut transaction = ConfidentialTransaction::new_with_ring(
-            vec![note(&sender, 10, 0, Some(program()))],
-            Address::new_from_array([7; 32]),
-            program(),
-        )
-        .unwrap();
-        transaction.transfer_sol(&receiver, 4).unwrap();
-        transaction
-            .pad_utxos(Shape::IN2_OUT2, &sender.shielded_address().unwrap())
-            .unwrap();
+        let transaction = ring_transaction(&sender, 10);
         let first_nullifier = *transaction.first_nullifier();
         let transfer = owner_transfer(&sender, transaction)
             .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-            .with_recipient(recipient);
+            .with_payment(sol_payment(recipient, 4))
+            .unwrap()
+            .with_shape(Shape::IN2_OUT2)
+            .unwrap();
         let staged = transfer
             .rail
             .stage(ring(), &Accounts::default(), &anonymous(), None)
@@ -886,14 +898,17 @@ async fn anonymous_staging_derives_every_tag_from_the_sender_key() {
                 .unwrap()
         );
     }
-    let (_, transaction) = prepared_transfer(4);
     let foreign = Address::new_from_array([9; 32]);
-    let transfer = owner_transfer(&sender, transaction)
+    let transfer = owner_transfer(&sender, ring_transaction(&sender, 10))
         .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-        .with_recipient(AnonymousRecipient::Address(RingAddress {
-            ring_program_id: foreign,
-            ..address
-        }));
+        .with_payment(sol_payment(
+            AnonymousRecipient::Address(RingAddress {
+                ring_program_id: foreign,
+                ..address
+            }),
+            4,
+        ))
+        .unwrap();
     assert!(matches!(
         transfer
             .rail
@@ -1062,22 +1077,21 @@ async fn anonymous_slots_reserve_distinct_indices_per_stream() {
         occupied: vec![inbox(0), inbox(2), pair(0)],
         queries: Mutex::default(),
     };
-    let mut transaction = ConfidentialTransaction::new_with_ring(
-        vec![note(&sender, 20, 0, Some(program()))],
-        Address::new_from_array([7; 32]),
-        program(),
-    )
-    .unwrap();
-    transaction.transfer_sol(&receiver, 2).unwrap();
-    transaction.transfer_sol(&receiver, 3).unwrap();
-    transaction.transfer_sol(&sibling, 4).unwrap();
-    let transfer = owner_transfer(&sender, transaction)
+    let sibling_address = RingAddress {
+        recipient: sibling,
+        ..address.clone()
+    };
+    let transfer = owner_transfer(&sender, ring_transaction(&sender, 20))
         .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-        .with_recipient(AnonymousRecipient::Address(address.clone()))
-        .with_recipient(AnonymousRecipient::Paired(RingAddress {
-            recipient: sibling,
-            ..address.clone()
-        }));
+        .with_payment(sol_payment(AnonymousRecipient::Address(address.clone()), 2))
+        .unwrap()
+        .with_payment(sol_payment(AnonymousRecipient::Address(address.clone()), 3))
+        .unwrap()
+        .with_payment(sol_payment(
+            AnonymousRecipient::Paired(sibling_address.clone()),
+            4,
+        ))
+        .unwrap();
     let staged = transfer
         .rail
         .stage(ring(), &indexer, &anonymous(), None)
@@ -1090,21 +1104,12 @@ async fn anonymous_slots_reserve_distinct_indices_per_stream() {
 
     // A paired recipient on the same viewing key competes for the same pair indices.
     let indexer = OccupiedTags::default();
-    let mut transaction = ConfidentialTransaction::new_with_ring(
-        vec![note(&sender, 20, 0, Some(program()))],
-        Address::new_from_array([7; 32]),
-        program(),
-    )
-    .unwrap();
-    transaction.transfer_sol(&receiver, 2).unwrap();
-    transaction.transfer_sol(&sibling, 3).unwrap();
-    let transfer = owner_transfer(&sender, transaction)
+    let transfer = owner_transfer(&sender, ring_transaction(&sender, 20))
         .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-        .with_recipient(AnonymousRecipient::Paired(address.clone()))
-        .with_recipient(AnonymousRecipient::Paired(RingAddress {
-            recipient: sibling,
-            ..address
-        }));
+        .with_payment(sol_payment(AnonymousRecipient::Paired(address), 2))
+        .unwrap()
+        .with_payment(sol_payment(AnonymousRecipient::Paired(sibling_address), 3))
+        .unwrap();
     let staged = transfer
         .rail
         .stage(ring(), &indexer, &anonymous(), None)
@@ -1113,6 +1118,46 @@ async fn anonymous_slots_reserve_distinct_indices_per_stream() {
     let tags = &staged.proof_inputs.external_data.resolved_owner_tags;
     assert_eq!(&tags[..2], &[pair(0), pair(1)]);
     assert_eq!(indexer.queries.lock().unwrap().len(), 1);
+}
+
+/// Two requests of one wallet carry different inbox secrets, each slot keeps the address it pays.
+#[tokio::test]
+async fn anonymous_tags_follow_the_address_each_output_pays() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let request = |index| RingAddress {
+        recipient: recipient.shielded_address().unwrap(),
+        ring_program_id: program(),
+        inbox_secret: recipient.viewing_key.inbox_secret(index).unwrap(),
+    };
+    let (first, second) = (request(0), request(1));
+    for payments in [[(&first, 2), (&second, 3)], [(&second, 3), (&first, 2)]] {
+        let mut transfer = owner_transfer(&sender, ring_transaction(&sender, 10))
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
+        for (address, amount) in payments {
+            transfer = transfer
+                .with_payment(sol_payment(
+                    AnonymousRecipient::Address(address.clone()),
+                    amount,
+                ))
+                .unwrap();
+        }
+        let staged = transfer
+            .with_shape(Shape::IN2_OUT4)
+            .unwrap()
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await
+            .unwrap();
+        let inputs = &staged.proof_inputs;
+        for (slot, (address, amount)) in payments.into_iter().enumerate() {
+            assert_eq!(inputs.output_utxos[slot].amount, amount);
+            assert_eq!(
+                inputs.external_data.resolved_owner_tags[slot],
+                address.inbox_secret.view_tag(0).unwrap()
+            );
+        }
+    }
 }
 
 #[tokio::test]

@@ -36,7 +36,9 @@ use zolana_transaction::{
 };
 
 pub use self::{
-    anonymous::{Anonymous, AnonymousRecipient, AnonymousSpendSigner, AnonymousTransfer},
+    anonymous::{
+        Anonymous, AnonymousPayment, AnonymousRecipient, AnonymousSpendSigner, AnonymousTransfer,
+    },
     delegate::{ring_authority_width, DelegateOutput, DelegateTransferInput, Delegated},
     owner::{CustomRingTransferInput, Owner},
 };

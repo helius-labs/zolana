@@ -1,7 +1,10 @@
 //! The hidden owner's rail of an anonymous ring. The owner signs inside the
 //! AnonymousRingEddsa proof and the auditor disclosure names every hidden party.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use custom_ring_interface::{
@@ -18,7 +21,10 @@ use zolana_keypair::{
 };
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_ring_transaction::{AnonymousViewTags, TransactSession};
-use zolana_transaction::instructions::transact::{ConfidentialTransaction, SppProofInputs};
+use zolana_transaction::{
+    instructions::transact::{ConfidentialTransaction, SppProofInputs},
+    Mint,
+};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
 use crate::{
@@ -61,7 +67,8 @@ pub struct Anonymous<'a> {
     pub(super) owner: Owner<'a>,
     pub(super) signer: &'a dyn AnonymousSpendSigner,
     viewing_key: &'a ViewingKey,
-    recipients: Vec<AnonymousRecipient>,
+    /// Keyed by the output slot each payment created.
+    payments: BTreeMap<usize, AnonymousRecipient>,
     session: Arc<TransactSession>,
 }
 
@@ -80,6 +87,14 @@ impl AnonymousRecipient {
             Self::Address(address) | Self::Paired(address) => address,
         }
     }
+}
+
+/// An output built from the address it pays, in the address's ring.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnonymousPayment {
+    pub to: AnonymousRecipient,
+    pub asset: Mint,
+    pub amount: u64,
 }
 
 pub type AnonymousTransfer<'a> = RingTransfer<Anonymous<'a>>;
@@ -105,7 +120,7 @@ impl<'a> RingTransfer<Owner<'a>> {
                 owner: self.rail,
                 signer,
                 viewing_key,
-                recipients: Vec::new(),
+                payments: BTreeMap::new(),
                 session: Arc::default(),
             },
             cosigner: self.cosigner,
@@ -114,11 +129,27 @@ impl<'a> RingTransfer<Owner<'a>> {
 }
 
 impl RingTransfer<Anonymous<'_>> {
-    /// Every output owner other than the sender needs one.
-    #[must_use = "use the updated transfer"]
-    pub fn with_recipient(mut self, recipient: AnonymousRecipient) -> Self {
-        self.rail.recipients.push(recipient);
-        self
+    /// Every ring output owner other than the sender is paid here, before the transaction is padded.
+    pub fn with_payment(mut self, payment: AnonymousPayment) -> Result<Self, RingError> {
+        let transaction = &mut self.rail.owner.transaction;
+        // Padding never reorders a slot, the tag follows the output it was built with.
+        let slot = transaction.outputs().len();
+        let address = payment.to.address();
+        transaction.transfer_with_ring(
+            &address.recipient,
+            payment.asset,
+            payment.amount,
+            Some(address.ring_program_id),
+        )?;
+        self.rail.payments.insert(slot, payment.to);
+        Ok(self)
+    }
+
+    /// Pads to `shape`, else staging pads to the smallest supported shape.
+    pub fn with_shape(mut self, shape: Shape) -> Result<Self, RingError> {
+        let sender = self.rail.owner.sender.address()?;
+        self.rail.owner.transaction.pad_utxos(shape, &sender)?;
+        Ok(self)
     }
 
     /// The wallet's sealed streams, a transfer without one seals under its own.
@@ -200,8 +231,8 @@ impl Anonymous<'_> {
         transaction: &ConfidentialTransaction,
     ) -> Result<AnonymousViewTags, RingError> {
         if let Some(foreign) = self
-            .recipients
-            .iter()
+            .payments
+            .values()
             .map(|recipient| recipient.address().ring_program_id)
             .find(|program| *program != ring.program_id())
         {
@@ -218,11 +249,7 @@ impl Anonymous<'_> {
             if output.ring_program_id.is_none() || owner.signing_pubkey == sender.signing_pubkey {
                 continue;
             }
-            let Some(recipient) = self
-                .recipients
-                .iter()
-                .find(|recipient| recipient.address().recipient == owner)
-            else {
+            let Some(recipient) = self.payments.get(&slot) else {
                 continue;
             };
             let address = recipient.address();

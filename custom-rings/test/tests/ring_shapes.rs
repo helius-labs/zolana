@@ -11,6 +11,10 @@ use zolana_test_utils::test_validator_asserts::{assert_ring_transact, RingTransa
 
 const NOTE_AMOUNT: u64 = 1_000_000;
 
+fn payment_amount(shape: Shape, output_count: usize) -> u64 {
+    NOTE_AMOUNT * shape.n_inputs() as u64 / (2 * output_count as u64)
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Mode {
     Member,
@@ -126,26 +130,71 @@ impl GovernedRing<'_> {
         payer: Address,
     ) -> Result<CustomRingTransfer<'_>> {
         let env = self.env;
-        let total = NOTE_AMOUNT * shape.n_inputs() as u64;
-        let mut tx = if output_count < shape.n_outputs() {
+        let mut tx = self.ring_transaction(shape, output_count, inputs, payer)?;
+        for _ in 1..output_count {
+            tx.transfer_sol(
+                &env.recipient.keypair.shielded_address()?,
+                payment_amount(shape, output_count),
+            )?;
+        }
+        tx.pad_utxos(shape, &env.sender.keypair.shielded_address()?)?;
+        Ok(self.ring_transfer(tx))
+    }
+
+    /// The anonymous rail builds each payment slot from the ring address.
+    fn anonymous_transfer(
+        &self,
+        shape: Shape,
+        output_count: usize,
+        inputs: Vec<WalletUtxo>,
+        payer: Address,
+    ) -> Result<custom_ring_sdk::AnonymousTransfer<'_>> {
+        let env = self.env;
+        let address = RingAddress {
+            recipient: env.recipient.keypair.shielded_address()?,
+            ring_program_id: self.ring.program_id(),
+            inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
+        };
+        let mut transfer = self
+            .ring_transfer(self.ring_transaction(shape, output_count, inputs, payer)?)
+            .with_anonymous_signer(
+                &env.sender.keypair.signing_key,
+                &env.sender.keypair.viewing_key,
+            );
+        for _ in 1..output_count {
+            transfer = transfer.with_payment(custom_ring_sdk::AnonymousPayment {
+                to: AnonymousRecipient::Address(address.clone()),
+                asset: Mint::SOL,
+                amount: payment_amount(shape, output_count),
+            })?;
+        }
+        Ok(transfer.with_shape(shape)?)
+    }
+
+    fn ring_transaction(
+        &self,
+        shape: Shape,
+        output_count: usize,
+        inputs: Vec<WalletUtxo>,
+        payer: Address,
+    ) -> Result<ConfidentialTransaction> {
+        let env = self.env;
+        Ok(if output_count < shape.n_outputs() {
             ConfidentialTransaction::new_compact_with_ring(inputs, payer, self.ring.program_id())?
         } else {
             ConfidentialTransaction::new_with_ring(inputs, payer, self.ring.program_id())?
         }
-        .with_output_tree_id(env.tree_id(env.tree)?)?;
-        for _ in 1..output_count {
-            tx.transfer_sol(
-                &env.recipient.keypair.shielded_address()?,
-                total / (2 * output_count as u64),
-            )?;
-        }
-        tx.pad_utxos(shape, &env.sender.keypair.shielded_address()?)?;
-        Ok(CustomRingTransfer::new(CustomRingTransferInput {
+        .with_output_tree_id(env.tree_id(env.tree)?)?)
+    }
+
+    fn ring_transfer(&self, transaction: ConfidentialTransaction) -> CustomRingTransfer<'_> {
+        let env = self.env;
+        CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: &env.sender.keypair,
             nullifier_key: Some(&env.sender.keypair.nullifier_key),
-            transaction: tx,
-        }))
+            transaction,
+        })
     }
 
     fn reject_oversized_cosigned_transfer(&self, inputs: &[WalletUtxo]) -> Result<()> {
@@ -274,25 +323,12 @@ impl GovernedRing<'_> {
                 transfer = transfer.with_compact_padding();
             }
             env.run(transfer.prove(client.as_async()))
+        } else if self.mode.anonymous() {
+            let transfer = self.anonymous_transfer(shape, output_count, inputs, payer.pubkey())?;
+            env.run(transfer.prove(client.as_async()))
         } else {
             let transfer = self.owner_transfer(shape, output_count, inputs, payer.pubkey())?;
-            if self.mode.anonymous() {
-                env.run(
-                    transfer
-                        .with_anonymous_signer(
-                            &env.sender.keypair.signing_key,
-                            &env.sender.keypair.viewing_key,
-                        )
-                        .with_recipient(AnonymousRecipient::Address(RingAddress {
-                            recipient: env.recipient.keypair.shielded_address()?,
-                            ring_program_id: self.ring.program_id(),
-                            inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
-                        }))
-                        .prove(client.as_async()),
-                )
-            } else {
-                env.run(transfer.prove(client.as_async()))
-            }
+            env.run(transfer.prove(client.as_async()))
         }
         .with_context(|| format!("prove {label}"))?;
         let instruction = proven.instruction()?;

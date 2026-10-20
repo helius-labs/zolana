@@ -126,7 +126,7 @@ import {
   checkAnonymousOutputs,
   checkAnonymousSigner,
   checkAnonymousSlots,
-  type AnonymousRingRecipient,
+  type AnonymousPreparedTransfer,
   type AnonymousSpendSigner,
 } from "./anonymous.js";
 import { TRANSFER_DEMAND, checkRingCoSigner, type CoSignDemand } from "./cosign.js";
@@ -734,15 +734,15 @@ export type AnonymousRingTransferClient = Omit<RingTransferClient, "proveRingTra
   Pick<IndexerReader, "getShieldedTransactionsByTags"> &
   Pick<Prover, "proveAnonymousRingTransact">;
 
-/** Mirrors Rust `RingTransfer<Anonymous>`, every ring output owner other than the sender needs a recipient. */
-export type AnonymousRingTransferParams = Omit<CustomRingTransferParams, "client"> &
+/** Mirrors Rust `RingTransfer<Anonymous>`, every ring output owner other than the sender is a payment of `prepared`. */
+export type AnonymousRingTransferParams = Omit<CustomRingTransferParams, "client" | "prepared"> &
   Readonly<{
     client: AnonymousRingTransferClient;
+    prepared: AnonymousPreparedTransfer;
     /** Must be the sender's signing key, it signs inside the proof only. */
     signer: AnonymousSpendSigner;
     /** The sender's long-lived viewing key, borrowed for the call. */
     viewingKey: ViewingKey;
-    recipients: readonly AnonymousRingRecipient[];
   }>;
 
 /** The hidden owner of an anonymous ring signs inside the SPP proof, no transaction signer names it. */
@@ -754,14 +754,14 @@ export async function proveAnonymousRingTransfer(
     input.client.proofDataSource,
     (attempt) =>
       proveRingTransferStatement(
-        input,
+        { ...input, prepared: input.prepared.transfer },
         {
           kind: "anonymous",
           client: input.client,
           keys: input.keys,
           signer: input.signer,
           viewingKey: input.viewingKey,
-          recipients: input.recipients,
+          payments: input.prepared,
         },
         attempt,
       ),
@@ -783,14 +783,14 @@ export async function buildAnonymousRingTransferTransaction(
     ringProgramId: input.ringProgramId,
     configured,
     supplied: options?.cosigner,
-    demand: spendDemand(input.prepared),
+    demand: spendDemand(input.prepared.transfer),
     approvalRequired: proven.approvalRequired,
   });
   const { transaction } = await provenRingTransaction(
     {
       client: input.client,
       ringProgramId: input.ringProgramId,
-      feePayer: input.prepared.payer,
+      feePayer: input.prepared.transfer.payer,
       proven,
       ...(options?.cosigner === undefined ? {} : { cosigner: options.cosigner }),
       ...(options?.withdrawal === undefined ? {} : { withdrawal: options.withdrawal }),
@@ -846,7 +846,7 @@ type RingTransferFlow =
       keys: WalletKeys;
       signer: AnonymousSpendSigner;
       viewingKey: ViewingKey;
-      recipients: readonly AnonymousRingRecipient[];
+      payments: AnonymousPreparedTransfer;
     }>;
 
 /** The anonymous rail past staging, its blinding seed and slot tags fixed. */
@@ -1320,8 +1320,7 @@ async function stageAnonymous(
         viewingKey: flow.viewingKey,
         sender,
         ringProgramId: input.ringProgramId,
-        prepared,
-        recipients: flow.recipients,
+        prepared: flow.payments,
       },
       context,
     ),

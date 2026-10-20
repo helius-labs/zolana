@@ -4,7 +4,7 @@ use anyhow::{bail, ensure, Context as _, Result};
 use custom_ring_interface::RingMode;
 use custom_ring_sdk::ListRegistry;
 use custom_ring_sdk::{
-    AnonymousRecipient, CoSignScope, CustomRingCoSigner, CustomRingTransfer,
+    AnonymousPayment, AnonymousRecipient, CoSignScope, CustomRingCoSigner, CustomRingTransfer,
     CustomRingTransferInput, DepositAsset, PinnedPolicy, RingDeposit, RingDepositReceipt,
 };
 use solana_address::Address;
@@ -292,17 +292,20 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
     };
     let inputs = deposited_notes(ctx, t.sender, &receipts)?;
     let tree_id = inputs[0].tree_id;
+    let asset = inputs[0].utxo.asset;
     let shape = canonical_shape(inputs.len(), 2)?;
     let mut transaction =
         ConfidentialTransaction::new_with_ring(inputs, fee_payer, ctx.ring.program_id())?
             .with_output_tree_id(tree_id)?;
-    let recipient = t.recipient.address();
-    if t.asset.mint() == SOL_MINT {
-        transaction.transfer_sol(recipient, t.amount)?;
-    } else {
-        transaction.transfer(recipient, t.asset.mint(), t.amount)?;
+    // The anonymous rail builds its payment slot from the ring address.
+    if let Payee::Shielded(recipient) = &t.recipient {
+        if t.asset.mint() == SOL_MINT {
+            transaction.transfer_sol(recipient, t.amount)?;
+        } else {
+            transaction.transfer(recipient, t.asset.mint(), t.amount)?;
+        }
+        transaction.pad_utxos(shape, &t.sender.shielded_address()?)?;
     }
-    transaction.pad_utxos(shape, &t.sender.shielded_address()?)?;
     let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
         ring: ctx.ring,
         sender: t.sender,
@@ -318,7 +321,12 @@ fn send(ctx: &Context, payer: &Keypair, t: &Transfer<'_>) -> Result<(Vec<Signatu
         Payee::Ring(address) => {
             let anonymous = transfer
                 .with_anonymous_signer(&t.sender.signing_key, &t.sender.viewing_key)
-                .with_recipient(AnonymousRecipient::Address(address.clone()));
+                .with_payment(AnonymousPayment {
+                    to: AnonymousRecipient::Address(address.clone()),
+                    asset,
+                    amount: t.amount,
+                })?
+                .with_shape(shape)?;
             let proven = ctx.block(anonymous.prove(ctx.chain()))?;
             ctx.submit(proven.instruction()?, payer, &signers)?
         }

@@ -101,7 +101,7 @@ use zolana_transaction::{
     decrypt_spendable,
     instructions::transact::{canonical_shape, ConfidentialTransaction},
     utxo::SppProofInputUtxo,
-    AssetRegistry, Data, Utxo, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, Mint, Utxo, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -1103,22 +1103,17 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
         .into_iter()
         .map(|utxo| indexed_note(utxo, &env.sender.keypair, &env, env.tree))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut transfer =
+    let mut prepared =
         ConfidentialTransaction::new_with_ring(inputs, sender_address, ring_program)?;
-    transfer.transfer_sol(
-        &env.recipient.keypair.shielded_address()?,
-        RING_TRANSFER_AMOUNT,
-    )?;
-    let prepared = {
-        transfer.pad_utxos(
-            zolana_transaction::instructions::transact::canonical_shape(
-                transfer.inputs().len(),
-                2,
-            )?,
-            &(env.sender.keypair.shielded_address()?),
+    let shape = canonical_shape(prepared.inputs().len(), 2)?;
+    // The anonymous rail builds its payment slot from the ring address.
+    if !anonymous {
+        prepared.transfer_sol(
+            &env.recipient.keypair.shielded_address()?,
+            RING_TRANSFER_AMOUNT,
         )?;
-        transfer
-    };
+        prepared.pad_utxos(shape, &(env.sender.keypair.shielded_address()?))?;
+    }
 
     let first_nullifier = *prepared.first_nullifier();
     let transfer = CustomRingTransfer::new(CustomRingTransferInput {
@@ -1134,11 +1129,16 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
                     &env.sender.keypair.signing_key,
                     &env.sender.keypair.viewing_key,
                 )
-                .with_recipient(AnonymousRecipient::Address(RingAddress {
-                    recipient: env.recipient.keypair.shielded_address()?,
-                    ring_program_id: ring_program,
-                    inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
-                }));
+                .with_payment(custom_ring_sdk::AnonymousPayment {
+                    to: AnonymousRecipient::Address(RingAddress {
+                        recipient: env.recipient.keypair.shielded_address()?,
+                        ring_program_id: ring_program,
+                        inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
+                    }),
+                    asset: Mint::SOL,
+                    amount: RING_TRANSFER_AMOUNT,
+                })?
+                .with_shape(shape)?;
             env.run(transfer.prove(env.client.as_async()))?
         }
         false => env.run(transfer.prove(env.client.as_async()))?,
@@ -3140,15 +3140,11 @@ struct AnonymousPayment<'a> {
 
 impl AnonymousPayment<'_> {
     fn send(self, env: &TestEnv, auditor_tag: [u8; 32]) -> Result<ShieldedTransaction> {
-        let mut transaction = ConfidentialTransaction::new_with_ring(
+        let shape = canonical_shape(self.inputs.len(), 2)?;
+        let transaction = ConfidentialTransaction::new_with_ring(
             self.inputs,
             self.payer.pubkey(),
             self.ring.program_id(),
-        )?;
-        transaction.transfer_sol(&self.to.recipient, self.amount)?;
-        transaction.pad_utxos(
-            canonical_shape(transaction.inputs().len(), 2)?,
-            &self.sender.shielded_address()?,
         )?;
         let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
@@ -3157,7 +3153,12 @@ impl AnonymousPayment<'_> {
             transaction,
         })
         .with_anonymous_signer(&self.sender.signing_key, &self.sender.viewing_key)
-        .with_recipient(AnonymousRecipient::Address(self.to));
+        .with_payment(custom_ring_sdk::AnonymousPayment {
+            to: AnonymousRecipient::Address(self.to),
+            asset: Mint::SOL,
+            amount: self.amount,
+        })?
+        .with_shape(shape)?;
         let proven = env.run(transfer.prove(env.client.as_async()))?;
         let signature = land(env, proven.instruction()?, self.payer, &[])?;
         Ok(wait_for_indexed_transaction(

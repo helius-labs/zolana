@@ -14,7 +14,11 @@ import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { SigningKey } from "../keypair/signing-key.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
-import type { PreparedTransfer, SppProofInputs } from "../transaction/instructions/transact.js";
+import type {
+  ConfidentialTransfer,
+  PreparedTransfer,
+  SppProofInputs,
+} from "../transaction/instructions/transact.js";
 import {
   EncryptedScheme,
   RING_ANONYMOUS_PLAINTEXT_LENGTH,
@@ -46,6 +50,52 @@ export type AnonymousRingRecipient =
   | Readonly<{ kind: "address"; address: RingAddress }>
   /** A recipient paid or received from before, on the pair stream toward its viewing key. */
   | Readonly<{ kind: "paired"; address: RingAddress }>;
+
+/** An output built from the address it pays, in the address's ring. Rust `AnonymousPayment`. */
+export type AnonymousRingPayment = Readonly<{
+  to: AnonymousRingRecipient;
+  asset: Address;
+  amount: bigint;
+}>;
+
+/** A prepared anonymous transfer, each payment slot keeps the address its output was built from. */
+export class AnonymousPreparedTransfer {
+  readonly transfer: PreparedTransfer;
+  readonly #recipients: ReadonlyMap<number, AnonymousRingRecipient>;
+
+  private constructor(
+    transfer: PreparedTransfer,
+    recipients: ReadonlyMap<number, AnonymousRingRecipient>,
+  ) {
+    this.transfer = transfer;
+    this.#recipients = recipients;
+    Object.freeze(this);
+  }
+
+  /** Sends every payment after the outputs `transfer` already holds, then prepares it. */
+  static prepare(
+    transfer: ConfidentialTransfer,
+    payments: readonly AnonymousRingPayment[],
+  ): AnonymousPreparedTransfer {
+    for (const { to, asset, amount } of payments)
+      transfer.sendToRing(to.address.recipient, asset, amount, to.address.ringProgramId);
+    const prepared = transfer.prepare();
+    // `prepare` keeps sends last and in order, padding only appends.
+    const first = prepared.outputs.length - payments.length;
+    return new AnonymousPreparedTransfer(
+      prepared,
+      new Map(payments.map((payment, index) => [first + index, payment.to])),
+    );
+  }
+
+  recipient(slotIndex: number): AnonymousRingRecipient | undefined {
+    return this.#recipients.get(slotIndex);
+  }
+
+  recipients(): readonly AnonymousRingRecipient[] {
+    return [...this.#recipients.values()];
+  }
+}
 
 /** Signs with an in-process key, the caller keeps and destroys it. */
 export function signingKeySpendSigner(key: SigningKey): AnonymousSpendSigner {
@@ -124,14 +174,13 @@ export async function anonymousSlotTags(
     viewingKey: ViewingKey;
     sender: ShieldedAddress;
     ringProgramId: Address;
-    prepared: PreparedTransfer;
-    recipients: readonly AnonymousRingRecipient[];
+    prepared: AnonymousPreparedTransfer;
   }>,
   context?: RequestContext,
 ): Promise<readonly (AnonymousRingSlot | undefined)[]> {
-  const foreign = input.recipients.find(
-    (recipient) => recipient.address.ringProgramId !== input.ringProgramId,
-  );
+  const foreign = input.prepared
+    .recipients()
+    .find((recipient) => recipient.address.ringProgramId !== input.ringProgramId);
   if (foreign !== undefined)
     throw new RingError("RING_FOREIGN_RING", {
       details: { ringProgramId: foreign.address.ringProgramId },
@@ -141,7 +190,8 @@ export async function anonymousSlotTags(
     ringProgramId: input.ringProgramId,
     inboxSecret: input.viewingKey.inboxSecret(0),
   });
-  const destinations = input.prepared
+  const prepared = input.prepared.transfer;
+  const destinations = prepared
     .proofOutputs()
     .map((output, slotIndex): AnonymousRingDestination | undefined => {
       const owner = output.ownerAddress;
@@ -149,9 +199,7 @@ export async function anonymousSlotTags(
       if (owner === undefined || output.ringProgramId === undefined) return undefined;
       if (owner.signingPublicKey.equals(input.sender.signingPublicKey))
         return { kind: "change", address: change };
-      const recipient = input.recipients.find((candidate) =>
-        equalBytes(candidate.address.recipient.toBytes(), owner.toBytes()),
-      );
+      const recipient = input.prepared.recipient(slotIndex);
       if (recipient === undefined)
         throw new RingError("RING_ANONYMOUS_RECIPIENT_UNKNOWN", { details: { slotIndex } });
       return recipient.kind === "address"
@@ -165,7 +213,7 @@ export async function anonymousSlotTags(
   return new AnonymousTagAllocator({
     stream: new TagStream(input.indexer),
     sender: input.viewingKey,
-    firstNullifier: input.prepared.firstNullifier,
+    firstNullifier: prepared.firstNullifier,
   }).assign(destinations, context);
 }
 
