@@ -654,9 +654,10 @@ fn shaped_tags_reject_audit_only_rings_and_unshipped_or_overfull_shapes() {
             encode_transact(tag, &audit_ix_data(bogus_proof(), transact_data())),
         );
         audit.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
-        for (capacity, actual) in [(1, 2), (24, 24)] {
+        for (capacity, outputs, actual) in [(1, 2, 2), (24, 4, 24)] {
             let mut transact = transact_data();
-            transact.circuit = CircuitId::ConfidentialRingEddsa(capacity, 2, N_PUBLIC_SLOTS as u8);
+            transact.circuit =
+                CircuitId::ConfidentialRingEddsa(capacity, outputs, N_PUBLIC_SLOTS as u8);
             transact.inputs = (1..=actual)
                 .map(|i| InputUtxo {
                     nullifier_hash: [i; 32],

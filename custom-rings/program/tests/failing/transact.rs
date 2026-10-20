@@ -580,7 +580,7 @@ fn an_anonymous_ring_refuses_every_other_rail_exactly() {
     confidential.circuit = CircuitId::ConfidentialRingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
     anonymous_fixture(confidential)
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
-    anonymous_fixture(anonymous_transact(1, 2))
+    anonymous_fixture(anonymous_transact(8, 4))
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     let mut hidden = anonymous_transact(2, 2);
     hidden.messages = vec![auditor_message(auditor_message_len(2))];
