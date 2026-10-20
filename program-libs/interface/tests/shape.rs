@@ -15,7 +15,7 @@ fn max_transaction_addresses_is_the_v1_message_limit() {
 }
 
 #[test]
-fn signer_width_is_one_payer_plus_the_owner_slots_for_every_supported_shape() {
+fn signer_width_is_the_owner_slots_plus_a_paying_owner_for_every_supported_shape() {
     let expected: [(Shape, usize); 38] = [
         (Shape::IN1_OUT2, 2),
         (Shape::IN1_OUT4, 2),

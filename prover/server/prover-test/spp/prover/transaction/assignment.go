@@ -73,7 +73,6 @@ type proofAssignment struct {
 func buildProofAssignment(
 	shape protocol.Shape,
 	tx ProofTransactionRequest,
-	payerHash *big.Int,
 	options proofBuildOptions,
 ) (proofAssignment, error) {
 	if err := validateProofShape(shape, tx); err != nil {
@@ -148,7 +147,7 @@ func buildProofAssignment(
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	publicInputs, err := buildPublicInputs(shape, payerHash, inputs, outputs, external, privateTxHash, trees)
+	publicInputs, err := buildPublicInputs(shape, inputs, outputs, external, privateTxHash, trees)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -334,7 +333,6 @@ func buildProofTrees(
 
 func buildPublicInputs(
 	shape protocol.Shape,
-	payerHash *big.Int,
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	external externalValues,
@@ -364,7 +362,7 @@ func buildPublicInputs(
 			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
-	signers, err := signerPkHashes(payerHash, inputs.inputOwnerPkHashes, shape.SignerWidth())
+	signers, err := signerPkHashes(inputs.inputOwnerPkHashes, shape.SignerWidth())
 	if err != nil {
 		return protocol.PublicInputs{}, err
 	}
@@ -423,11 +421,13 @@ func uncachedInputs(selection []*big.Int, nInputs int) txcircuit.CachedInputs {
 	return cached
 }
 
-func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int, width int) ([]*big.Int, error) {
+// signerPkHashes is the public signer vector: the deduplicated input owners,
+// zero-padded to width. The fee payer is not in it, so paying never authorizes
+// spending the payer's UTXOs; an owner that pays is listed as an owner.
+func signerPkHashes(inputOwnerPkHashes []*big.Int, width int) ([]*big.Int, error) {
 	out := make([]*big.Int, width)
-	out[0] = new(big.Int).Set(payerHash)
-	seen := []*big.Int{payerHash}
-	next := 1
+	seen := []*big.Int{}
+	next := 0
 	for _, owner := range inputOwnerPkHashes {
 		if owner == nil || owner.Sign() == 0 {
 			continue
@@ -443,7 +443,7 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int, width int
 			continue
 		}
 		if next == width {
-			return nil, fmt.Errorf("spp: more than %d unique owner signers", width-1)
+			return nil, fmt.Errorf("spp: more than %d unique owner signers", width)
 		}
 		seen = append(seen, owner)
 		out[next] = new(big.Int).Set(owner)

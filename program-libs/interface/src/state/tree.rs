@@ -57,9 +57,22 @@ pub fn tree_working_capital_lamports(
     input_queue_batch_size: u64,
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
+    tree_liquid_working_capital_lamports(input_queue_batch_size, 0, nullifier_pda_rent)
+}
+
+/// The part of the working capital that must stay liquid in the tree: rent at
+/// the current rate for every nullifier PDA that may still be created while
+/// `live_nullifier_pdas` are open. Rent held by open PDAs returns to the tree
+/// on close, so it is not reserved twice.
+pub fn tree_liquid_working_capital_lamports(
+    input_queue_batch_size: u64,
+    live_nullifier_pdas: u64,
+    nullifier_pda_rent: u64,
+) -> Option<u64> {
     (NUM_BATCHES as u64)
         .checked_add(1)?
         .checked_mul(input_queue_batch_size)?
+        .saturating_sub(live_nullifier_pdas)
         .checked_mul(nullifier_pda_rent)
 }
 
@@ -115,105 +128,4 @@ pub fn read_tree_id(account_data: &[u8]) -> Option<u16> {
     let bytes =
         account_data.get(tree_id_offset()..tree_id_offset() + core::mem::size_of::<u16>())?;
     Some(u16::from_le_bytes(bytes.try_into().ok()?))
-}
-
-#[cfg(test)]
-mod tests {
-    use solana_rent::Rent;
-
-    use super::*;
-    use crate::{tree_slot::tree_id_field, NULLIFIER_PDA_SIZE};
-
-    /// The sponsored default charges nothing, so nothing accrues to reimburse
-    /// from either: a schedule that paid a forester out of an empty fee balance
-    /// would advertise a rate `take_reimbursement` can never honour.
-    #[test]
-    fn default_tree_fees_are_sponsored_for_every_batch_size() {
-        for zkp_batch_size in [nullifier_tree_params().input_queue_zkp_batch_size, 10, 1] {
-            assert_eq!(
-                default_tree_fees(zkp_batch_size),
-                Some(TreeFeeSchedule::default()),
-                "zkp_batch_size {zkp_batch_size}"
-            );
-        }
-        assert_eq!(default_tree_fees(0), None);
-    }
-
-    /// The documented at-cost figures: the close rate is
-    /// `ceil(append / closes_per_transaction)` at the count
-    /// `forester/tests/close_nullifier_pdas.rs` pins, and the pair prices the
-    /// canonical zkp batch at the 90 lamports per nullifier `xtask::tree_fees`
-    /// pins.
-    #[test]
-    fn at_cost_reimbursements_match_the_pinned_closes_per_transaction() {
-        const CLOSES_PER_TRANSACTION: u64 = 57;
-        assert_eq!(
-            AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
-            AT_COST_APPEND_REIMBURSEMENT_LAMPORTS.div_ceil(CLOSES_PER_TRANSACTION)
-        );
-
-        let zkp_batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
-        assert_eq!(
-            TreeFeeSchedule::at_cost(
-                zkp_batch_size,
-                AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
-                AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
-            )
-            .expect("at-cost schedule")
-            .fee_per_nullifier,
-            90
-        );
-    }
-
-    #[test]
-    fn working_capital_funds_three_batches_of_live_nullifier_pdas() {
-        let nullifier_pda_rent = Rent::default().minimum_balance(NULLIFIER_PDA_SIZE);
-        assert_eq!(nullifier_pda_rent, 960_480);
-
-        let canonical = nullifier_tree_params().input_queue_batch_size;
-        assert_eq!(
-            tree_working_capital_lamports(canonical, nullifier_pda_rent),
-            Some(3 * 24_995 * 960_480)
-        );
-        assert_eq!(
-            tree_working_capital_lamports(canonical / 2, nullifier_pda_rent),
-            Some(3 * 12_497 * 960_480)
-        );
-        assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
-    }
-
-    #[test]
-    fn read_tree_id_reads_the_initialized_id_at_offset_two() {
-        assert_eq!(tree_id_offset(), 2);
-        let mut bytes = vec![0u8; tree_account_size()];
-        // The `TreeAccount` borrows `bytes` mutably; read the id field off the
-        // temporary so the borrow ends before the raw-byte reads below.
-        let tree_id_array = TreeAccount::init(
-            &mut bytes,
-            1,
-            STATE_HEIGHT as u8,
-            [7u8; 32],
-            0x1234,
-            nullifier_tree_params(),
-            default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
-                .expect("default tree fees"),
-        )
-        .expect("init tree")
-        .tree_id_array();
-        // The tree crate cannot depend on the interface, so it spells out the
-        // field encoding itself; both must agree byte for byte.
-        assert_eq!(tree_id_array, tree_id_field(0x1234));
-        assert_eq!(read_tree_id(&bytes), Some(0x1234));
-        assert_eq!(bytes.get(2..4), Some(&0x1234u16.to_le_bytes()[..]));
-        assert_eq!(read_tree_id(&bytes[..3]), None);
-    }
-
-    #[test]
-    fn tree_creation_takes_two_allocation_steps() {
-        assert_eq!(STATE_ROOT_HISTORY_CAPACITY, 500);
-        assert_eq!(tree_account_size(), 18_608);
-        assert_eq!(tree_creation_step_count(), 2);
-        assert!(tree_account_size() > TREE_ALLOCATION_STEP);
-        assert!(tree_account_size() <= 2 * TREE_ALLOCATION_STEP);
-    }
 }

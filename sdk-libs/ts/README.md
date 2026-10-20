@@ -487,7 +487,9 @@ Pages URLs remain available as the backing origin.
 - Ed25519 is the supported owner scheme for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
 - Viewing keys use P256; this is separate from unsupported P256 owner
-  registration or spending.
+  registration or spending. P256-owned UTXOs are spendable only through a
+  custom ring, including a P256 UTXO deposited into the default ring (see
+  "P-256 wallet" in `docs/spec.md`).
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, UTXOs, or keys.

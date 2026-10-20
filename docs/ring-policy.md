@@ -193,9 +193,12 @@ The **upgrade authority** deploys the binary, pins the table at
 once. The **auditor** decrypts transfers and registered nullifier keys but
 cannot authorize an ownership transfer or withdrawal. The **permanent
 delegate** signs moves between members over the authority rail and cannot
-withdraw. Its dedicated policy key keeps ordinary rules and
-exempts velocity. Scoped co-signing still applies. It spends a member's notes
-with the member's nullifier key, escrowed to the ring auditor in the key
+withdraw, because this ring refuses public legs on that rail
+(`DelegatePublicLeg`). SPP's authority circuit keeps shielded UTXOs inside
+the ring but accepts public withdrawals, so another ring that enables the
+authority rail and forbids such withdrawals must reject them itself. The
+delegate's dedicated policy key keeps ordinary rules and exempts velocity.
+Scoped co-signing still applies. It spends a member's notes with the member's nullifier key, escrowed to the ring auditor in the key
 registry. Setting the delegate turns on key escrow for the ring, after which
 every UTXO output needs a nullifier key registered for its owner and only the
 spend record the namespace owns keeps the zero key. The current

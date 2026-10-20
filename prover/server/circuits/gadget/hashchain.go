@@ -87,8 +87,12 @@ func NonZeroHashChain(api frontend.API, inputs []frontend.Variable) frontend.Var
 // HashChain4Gadget folds Poseidon over the inputs three elements at a time:
 // h = inputs[0], then h = Poseidon(h, g0, g1, g2) for each group of up to three
 // consecutive elements of inputs[1:], zero-padding a short trailing group so
-// every call is the 4-input permutation. No domain separation: every chain
-// hashed this way has a length fixed by the compiled circuit.
+// every call is the 4-input permutation. The hash includes neither a domain
+// tag nor the length: explicit trailing zeros are indistinguishable from
+// padding, so [a, b], [a, b, 0] and [a, b, 0, 0] hash alike. Use it only
+// where the length is fixed by the compiled circuit or where trailing zeros
+// are rejected; a variable-length commitment must hash an explicit length
+// and domain tag.
 type HashChain4Gadget struct {
 	Inputs []frontend.Variable
 }

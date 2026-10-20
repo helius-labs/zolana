@@ -11,11 +11,11 @@ use zolana_keypair::{
 };
 use zolana_user_registry_interface::{
     instruction::{
-        p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,
+        p256_key_binding_message, p256_verify_instruction, register, set_merge_encryption,
         update_keys, RegisterData, UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
     },
     state::P256_PUBKEY_LEN,
-    user_record_pda, user_registry_program_id, UserRecord,
+    user_record_pda, user_registry_program_id, MergeEncryptionScheme, UserRecord,
 };
 
 use crate::{
@@ -403,11 +403,15 @@ fn register_instructions(
     compose_key_binding_instructions(user_record, owner, ix, owner_p256, proof)
 }
 
-/// The instruction that enables, or disables, merges of `owner`'s UTXOs. The
-/// owner signs it. While merging is enabled, a merge proved with the owner's
-/// nullifier secret is valid without the owner's signature.
-pub fn set_merging_enabled_instruction(owner: Pubkey, enabled: bool) -> Instruction {
-    set_merging_enabled(user_record_pda(&owner).0, owner, enabled)
+/// The instruction that selects the encryption scheme of merges of `owner`'s
+/// UTXOs, or disables them. The owner signs it. While a scheme is selected, a
+/// merge proved with the owner's nullifier secret and encrypted under that
+/// scheme is valid without the owner's signature.
+pub fn set_merge_encryption_instruction(
+    owner: Pubkey,
+    scheme: MergeEncryptionScheme,
+) -> Instruction {
+    set_merge_encryption(user_record_pda(&owner).0, owner, scheme)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(
@@ -707,7 +711,7 @@ mod tests {
             owner_p256: Some([2u8; 33]),
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     }
 
@@ -728,7 +732,7 @@ mod tests {
             owner_p256: Some(*keypair.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         }
     }
 
@@ -872,7 +876,7 @@ mod tests {
             owner_p256: data.owner_p256,
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         MockRpc {
             account: Some((
@@ -1138,7 +1142,7 @@ mod tests {
             owner_p256: None,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            merging_enabled: false,
+            merge_encryption: MergeEncryptionScheme::Disabled,
         };
         let rpc = MockRpc {
             account: Some((
@@ -1216,7 +1220,7 @@ mod tests {
                 owner_p256: Some([4u8; 33]),
                 nullifier_pubkey: [2u8; 32],
                 viewing_pubkey: [3u8; 33],
-                merging_enabled: false,
+                merge_encryption: MergeEncryptionScheme::Disabled,
             })
             .expect("serialize user record"),
         );

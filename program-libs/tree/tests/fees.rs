@@ -1,4 +1,6 @@
-use zolana_tree::{error::TreeError, NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
+use zolana_tree::{
+    error::TreeError, NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, MAX_FEE_PER_NULLIFIER,
+};
 
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
@@ -65,7 +67,7 @@ fn set_fee_schedule_keeps_the_balance() {
         append_reimbursement: 10_000,
         close_reimbursement: 92,
     };
-    tree.set_fee_schedule(doubled);
+    tree.set_fee_schedule(doubled).unwrap();
     assert_eq!(tree.fees(), doubled);
     assert_eq!(tree.fee_balance(), 198);
     assert_eq!(tree.credit_insertion_fee(1), Ok(132));
@@ -132,4 +134,43 @@ fn zero_schedule_charges_and_pays_nothing() {
     assert_eq!(tree.take_append_reimbursement(3), 0);
     assert_eq!(tree.take_close_reimbursement(8), 0);
     assert_eq!(tree.fee_balance(), 0);
+}
+
+#[test]
+fn fee_schedule_validation_caps_the_fee_per_nullifier() {
+    let at_cap = TreeFeeSchedule {
+        fee_per_nullifier: MAX_FEE_PER_NULLIFIER,
+        ..TreeFeeSchedule::default()
+    };
+    assert_eq!(at_cap.validate(), Ok(()));
+    let above_cap = TreeFeeSchedule {
+        fee_per_nullifier: MAX_FEE_PER_NULLIFIER + 1,
+        ..at_cap
+    };
+    assert_eq!(above_cap.validate(), Err(TreeError::FeeTooHigh));
+}
+
+#[test]
+fn init_rejects_a_fee_above_the_cap() {
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let above_cap = TreeFeeSchedule {
+        fee_per_nullifier: MAX_FEE_PER_NULLIFIER + 1,
+        ..EXACT
+    };
+    assert_eq!(
+        init_tree(&mut bytes, above_cap).err(),
+        Some(TreeError::FeeTooHigh)
+    );
+}
+
+#[test]
+fn live_nullifier_pdas_track_creation_and_close() {
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let mut tree = init_tree(&mut bytes, EXACT).unwrap();
+    assert_eq!(tree.live_nullifier_pdas(), 0);
+    tree.record_nullifier_pdas_created(5);
+    tree.record_nullifier_pdas_closed(2);
+    assert_eq!(tree.live_nullifier_pdas(), 3);
+    tree.record_nullifier_pdas_closed(4);
+    assert_eq!(tree.live_nullifier_pdas(), 0);
 }

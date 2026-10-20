@@ -926,8 +926,10 @@ pub struct UserRecord {
     pub nullifier_pubkey: Hash,
     /// SEC1-compressed P256 ECDH viewing pubkey (33 bytes).
     pub viewing_pubkey: Base64String,
-    /// Opt-in for `merge_transact`. When true, any caller may merge this owner's UTXOs.
-    pub merging_enabled: bool,
+    /// Merge output encryption scheme the owner accepts for `merge_transact`:
+    /// 0 disables merging, 1 is PoseidonCtrV1. While a scheme is selected, any
+    /// caller may merge this owner's UTXOs under that scheme.
+    pub merge_encryption: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -978,7 +980,7 @@ mod tests {
                     "ownerP256": null,
                     "nullifierPubkey": Hash::from([6; 32]).to_base58(),
                     "viewingPubkey": "AQID",
-                    "mergingEnabled": true,
+                    "mergeEncryption": 1,
                 },
             ],
         });
@@ -988,7 +990,7 @@ mod tests {
         assert_eq!(record.owner, SerializablePubkey::from([5; 32]));
         assert_eq!(record.owner_p256, None);
         assert_eq!(record.viewing_pubkey, Base64String(vec![1, 2, 3]));
-        assert!(record.merging_enabled);
+        assert_eq!(record.merge_encryption, 1);
 
         // A Solana-only owner is sent as an explicit null, as the spec allows.
         let value = serde_json::to_value(&response).unwrap();

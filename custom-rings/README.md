@@ -86,8 +86,9 @@ members over the shielded pool's authority rail. Its dedicated policy key
 keeps audit, list rules and ordinary amount guards and exempts velocity
 caps, counters and velocity-derived approval. The members' identities are
 the screened parties. The ring refuses a public leg on that rail, so a
-delegate cannot withdraw, and the shielded pool refuses the rail until
-governance enables it for the ring with `set_ring_activation`. A move spends
+delegate cannot withdraw; SPP's authority rail alone would accept a public
+withdrawal. The shielded pool refuses the rail until governance enables it
+for the ring with `set_ring_activation`. A move spends
 the source member's notes with that member's nullifier key. `init` creates
 the ring's key registry, a member-keyed tree the ring owns and Photon
 indexes, and `transact` and `transfer` escrow the sender's key there on
@@ -342,7 +343,7 @@ stay spendable with that key, keep it with the other keys.
 `zolana-ring merge` syncs that sender, selects the smallest two to 24 clean
 notes of one mint on one tree, and consolidates them. It merges SOL by default;
 `--mint <address>` selects a registered SPL mint and `--count` caps the input
-count, up to 54.
+count, up to 52.
 `zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
 `deploy`.
 
@@ -458,7 +459,7 @@ once for each windowed member.
 `recoverRingMemberNotes` feeds `buildRingDelegateRecoveredTransaction`. Explicit
 submission APIs handle signing and eligible stale key-registry root,
 window-boundary and verified blockhash-expiry retries. `createRingMergeSubmission` consolidates
-two to 24 clean notes of one owner, asset and ring (up to 54 with `maxInputs`), preserving their
+two to 24 clean notes of one owner, asset and ring (up to 52 with `maxInputs`), preserving their
 value and enforcing the configured transfer co-signer.
 
 TypeScript callers needing restart recovery use `sendPersisted` with a
@@ -488,7 +489,11 @@ the key only to a request the upgrade authority signs while no config exists,
 so `init` needs that keypair and the program must be deployed first. `init`
 creates the config under the upgrade authority and hands it to
 `config_authority_keypair` when that key differs. Input owners authorize the
-spend, any signer may pay the transaction fee. Keys and `.env` belong in the
+spend, any signer may pay the transaction fee. The forwarder rejects a
+depositor or payer that did not sign the instruction
+(`MissingFundingSigner`): it raises every `ring_auth` occurrence to a
+signer for the SPP call, so a caller naming `ring_auth` there would spend
+what that PDA controls. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
@@ -504,10 +509,18 @@ Both deposit instructions require the canonical deposit audit account after
 the co-signer slots. Upgrade the ring clients with the program. The proofless
 instruction is rejected while disclosure is required. An audited instruction
 always verifies its proof, including when the setting is off.
-Ring merge is also ciphertext-free: it combines up to 54 notes of one owner,
-asset and ring into one note without moving value to another owner. The SDKs
-fill the merge proof's unused slots with compact padding, which the transaction
-leaves out, so a merge reveals how many notes it combines. It is not in
+Ring merge publishes the merged note's amount and mint as a ciphertext that
+only its owner decrypts, so the owner can rebuild the note from the merge
+transaction alone. Neither the ring merge proof nor SPP checks that ciphertext,
+and these rails do not enforce it in the ring program. This is an accepted risk:
+a holder of the owner's escrowed nullifier key can merge a note the owner cannot
+open and publish a ciphertext that does not match the merged note. The owner's
+output hash check rejects it, and recovery reports the merge in `unopened`. It
+combines up to 52 notes of one owner, asset and
+ring into one note without moving value to another owner; a ring merge
+transaction fits at most 51 real inputs. The SDKs fill the merge proof's unused slots with
+compact padding, which the transaction leaves out, so a merge reveals how many
+notes it combines. It is not in
 the auditor-tag scan; any later transfer of the merged value still takes the
 normal audited policy path.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced

@@ -137,8 +137,8 @@ pub struct TransactProofInputs {
     /// The dummy-input policy in bit 0 and every input's tree index above it
     /// (`zolana_interface::tree_slot::pack_input_flags`).
     pub input_flags: [u8; 32],
-    /// Number of unique entries at the head of `signer_pk_hashes` (payer
-    /// first); the remaining slots are zero padding. Public only so the moved
+    /// Number of unique entries at the head of `signer_pk_hashes`; the
+    /// remaining slots are zero padding. Public only so the moved
     /// circuit-vector tests can pin the assembly; production code writes it
     /// exclusively through `fill_owner_signer_hashes`.
     pub unique_owner_signer_count: u8,
@@ -235,12 +235,17 @@ impl TransactProofInputs {
         Ok(())
     }
 
-    /// Assign the payer and ordered, first-occurrence-deduplicated EdDSA signer
-    /// identities. The cache must be empty: collect all signers before hashing
-    /// output owners. The payer occupies slot zero, so an appended payer is ignored.
+    /// Assign the signer vector. On the owner-signed rails it holds the
+    /// ordered, first-occurrence-deduplicated owner-signer identities and not
+    /// the fee payer: paying for a transaction must not authorize spending the
+    /// payer's UTXOs, so an owner that also pays is listed as an owner signer.
+    /// The ring authority rail (`requires_input_signatures == false`)
+    /// authorizes no owner; its vector holds only the payer. The cache must be empty:
+    /// collect all signers before hashing output owners.
     #[profile]
     pub fn fill_owner_signer_hashes(
         &mut self,
+        requires_input_signatures: bool,
         payer: &AccountView,
         owner_signers: &[AccountView],
         owner_hashes: &mut OwnerHashCache,
@@ -248,10 +253,14 @@ impl TransactProofInputs {
         if !owner_hashes.entries.is_empty() {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
-        self.signer_pk_hashes[0] = owner_hashes.insert(payer.address().as_array())?;
+        let signers = if requires_input_signatures {
+            owner_signers
+        } else {
+            core::slice::from_ref(payer)
+        };
 
-        let mut unique_count = 1usize;
-        for signer in owner_signers {
+        let mut unique_count = 0usize;
+        for signer in signers {
             let Some(hash) = owner_hashes.new_signer_hash(signer.address().as_array())? else {
                 continue;
             };
@@ -673,10 +682,12 @@ pub fn fixed_signer_hash_chain(
     width: usize,
 ) -> Result<[u8; 32], ProgramError> {
     let unique_count = unique_signer_pk_hashes.len();
-    if unique_count == 0 || width > SIGNER_ZERO_SUFFIX_CHAINS.len() || unique_count > width {
+    if width == 0 || width > SIGNER_ZERO_SUFFIX_CHAINS.len() || unique_count > width {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
+    // A zero `unique_count` (only P256 or dummy inputs) is valid: the vector
+    // is all padding and folds to the precomputed zero chain below.
     let shape = ShieldedPoolError::InvalidTransactShape;
     let mut index = unique_count;
     let mut chain = if unique_count == width {

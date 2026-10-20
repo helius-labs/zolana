@@ -22,7 +22,10 @@ type publicInputHashBindingOptions struct {
 	includeRingProgramID       bool
 	includeOutputOwnerPkHashes bool
 	signerWidth                int
-	extraMutations             []publicInputHashMutation
+	// authorityPayer mutates the ring authority rail's payer entry instead of
+	// the owner-signer vector.
+	authorityPayer bool
+	extraMutations []publicInputHashMutation
 }
 
 func assertPublicInputHashBindsEveryField(
@@ -124,7 +127,13 @@ func assertPublicInputHashBindsEveryField(
 			refreshWithChangedField(&assignment.RingProgramID)
 		}})
 	}
-	if options.signerWidth < 1 || options.signerWidth > len(assignment.SignerPkHashes) {
+	if options.authorityPayer {
+		assignment.AuthoritySignerPkHashes()
+		mutations = append(mutations, publicInputHashMutation{
+			name: "signer_pk_hashes/0",
+			run:  func() { refreshWithChangedField(&assignment.AuthorityPayer) },
+		})
+	} else if options.signerWidth < 1 || options.signerWidth > len(assignment.SignerPkHashes) {
 		t.Fatalf(
 			"invalid signer width: got %d for %d signer fields",
 			options.signerWidth,
@@ -132,6 +141,9 @@ func assertPublicInputHashBindsEveryField(
 		)
 	}
 	for i := range options.signerWidth {
+		if options.authorityPayer {
+			break
+		}
 		index := i
 		mutations = append(mutations, publicInputHashMutation{
 			name: fmt.Sprintf("signer_pk_hashes/%d", index),

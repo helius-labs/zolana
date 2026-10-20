@@ -113,7 +113,7 @@ fn tree_slots(vector: &Value) -> [TreeSlot; INPUT_TREES] {
 /// output and output-owner chains and the final fold are 4-input Poseidon
 /// folds, the signer run stays a binary right fold and the tree slots a binary
 /// right fold from the zero suffix. `public_slot_amounts` are the
-/// already-encoded field elements and `signer_pk_hashes` is the payer-first run
+/// already-encoded field elements and `signer_pk_hashes` is the owner-signer run
 /// already zero-padded to the variant's width (a one-element run right-folds
 /// to itself).
 struct GoAssembly<'a> {
@@ -285,7 +285,7 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 
 /// The real `public_input_hash` agrees with the vector-pinned Go ordering for
 /// every circuit selector, with the public transfer slots interleaved as
-/// `(asset, amount)`, the payer-first signer run right-folded at the variant's
+/// `(asset, amount)`, the owner-signer run right-folded at the variant's
 /// width (input-signing rails: `Shape::signer_width`, 29 on `32x2` and 12 on
 /// `49x2`; the authority rail: a bare payer element), and the output-owner-chain
 /// appendix selected by the variant. The `32x2` confidential row fills every
@@ -582,7 +582,7 @@ fn padded_right_fold_matches_the_full_width_fold() {
         }
         bytes
     };
-    for width in (1..=16).chain([24, 49, 54]) {
+    for width in (1..=16).chain([24, 49, 52]) {
         for sent_count in 0..=width {
             for zero_last_sent in [false, true] {
                 let mut sent: Vec<[u8; 32]> = (0..sent_count).map(value).collect();

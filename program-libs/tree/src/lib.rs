@@ -82,13 +82,9 @@ pub mod smt;
 use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
-pub use fees::TreeFeeSchedule;
+pub use fees::{TreeFeeSchedule, MAX_FEE_PER_NULLIFIER};
 pub use nullifier_tree::init::NullifierTreeInitParams;
-use nullifier_tree::{
-    constants::{DEFAULT_NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES},
-    init::match_circuit_size,
-    layout::NullifierTreeLayout,
-};
+use nullifier_tree::{constants::NULLIFIER_TREE_ZKP_BATCHES, layout::NullifierTreeLayout};
 #[cfg(feature = "account-view")]
 use pinocchio::{account::RefMut, AccountView, Address};
 pub use smt::UtxoTreeLayout;
@@ -108,7 +104,7 @@ pub const INITIALIZED: u8 = 1;
 pub const PAUSED: u8 = 2;
 
 /// Bytes reserved in the account header for future tree metadata.
-pub const TREE_RESERVED_BYTES: usize = 32;
+pub const TREE_RESERVED_BYTES: usize = 24;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -119,6 +115,10 @@ pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP_BATCHES: usize>
     pub _padding: [u8; 4],
     pub fees: TreeFeeSchedule,
     pub fee_balance: u64,
+    /// Nullifier PDAs this tree funded that are still open. Their rent returns
+    /// to the tree on close, so only the rest of the working capital must stay
+    /// liquid.
+    pub live_nullifier_pdas: u64,
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
     pub nullifier: NullifierTreeLayout<ZKP_BATCHES>,
@@ -173,6 +173,12 @@ impl<'a> TreeAccount<'a> {
         core::mem::offset_of!(SppTreeLayout, utxo) + smt::ROOT_OFFSET
     }
 
+    /// Byte offset of the utxo tree, the first region after the header. Tree
+    /// creation keeps its pending-creation record there until `init`.
+    pub const fn utxo_tree_offset() -> usize {
+        core::mem::offset_of!(SppTreeLayout, utxo)
+    }
+
     /// Byte offset of the little-endian `u16` tree id within the account.
     pub const fn tree_id_offset() -> usize {
         core::mem::offset_of!(SppTreeLayout, tree_id)
@@ -190,13 +196,8 @@ impl<'a> TreeAccount<'a> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
-        // The zkp batch size must have a verifying key, otherwise no batch
-        // update can be proven and the queue wedges once both batches fill.
-        if nullifier_params.height != DEFAULT_NULLIFIER_TREE_HEIGHT
-            || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
-        {
-            return Err(TreeError::NullifierInit);
-        }
+        nullifier_params.validate()?;
+        fees.validate()?;
         if bytes.len() != size_of::<SppTreeLayout>() {
             return Err(TreeError::InvalidBufferSize);
         }
@@ -212,6 +213,7 @@ impl<'a> TreeAccount<'a> {
         layout._padding = [0u8; 4];
         layout.fees = fees;
         layout.fee_balance = 0;
+        layout.live_nullifier_pdas = 0;
         layout._reserved = [0u8; TREE_RESERVED_BYTES];
 
         layout.utxo.init(utxo_tree_height as usize)?;

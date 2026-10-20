@@ -61,10 +61,10 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | EmitEvent (10) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
 | Deposit (11) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
 | Transact (12) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-TRANSACT-48, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18, INV-TRANSACT-48 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-MERGE-15 |
+| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18, INV-TRANSACT-48 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16, INV-MERGE-30 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19, INV-MERGE-29, INV-MERGE-31, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-MERGE-15 |
 | RingDeposit (14) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-RING-DEPOSIT-09, INV-XC-26 | INV-RING-DEPOSIT-06..08, INV-RING-DEPOSIT-10 | INV-XC-04 | INV-DEPOSIT-17 |
 | RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18, INV-TRANSACT-48 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18, INV-TRANSACT-48 | INV-RING-MERGE-05, INV-MERGE-30 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13, INV-MERGE-29, INV-MERGE-31 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 | RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-30 |
 | CloseNullifierPdas (18) | `tree.md` | INV-CLOSE-PDA-03, INV-CLOSE-PDA-04, INV-CLOSE-PDA-05, INV-CLOSE-PDA-09 | INV-CLOSE-PDA-05 | INV-CLOSE-PDA-01 | INV-CLOSE-PDA-02, INV-CLOSE-PDA-06, INV-CLOSE-PDA-10 | INV-CLOSE-PDA-07, INV-XC-04 | INV-CLOSE-PDA-08 |
 | SetTreeFees (19) | `tree.md` | INV-SET-FEES-01, INV-SET-FEES-03, INV-SET-FEES-04 | INV-SET-FEES-05, INV-SET-FEES-06 | INV-SET-FEES-02 | INV-SET-FEES-07 | INV-SET-FEES-08, INV-XC-04 | INV-SET-FEES-09 |
@@ -82,26 +82,26 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 295
+- Total invariants: 305
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
-  - merge.md: 42 (MergeTransact 19, RingMergeTransact 14, MergeCache 9)
-  - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
+  - merge.md: 46 (MergeTransact 22, RingMergeTransact 15, MergeCache 9)
+  - tree.md: 61 (CreateTree 12, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, open-PDA accounting 1, CloseNullifierPdas 11, SetTreeFees 10, ClaimTreeLamports 8)
   - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 26 (Create 9, UpdateOwner 5, Update 6, SetRingActivation 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
 - Critical (funds/double-spend/authority takeover): 106
-- High: 108
-- Medium: 76
-- Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
+- High: 116
+- Medium: 78
+- Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
   1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape (since replaced by 8-in, 24-in and 54-in, 1-out shapes) and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
+  3. Merge fixed 8-in/1-out shape (since replaced by 8-in, 24-in and 52-in, 1-out shapes) and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); at the time the merge published no ciphertext. Superseded (2026-10-15, Certora M-03): the merge now publishes a proof-bound ciphertext of the output's amount and mint as `VerifiablyEncrypted` data.
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
@@ -156,28 +156,33 @@ through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
 `RingEddsaCached`, `RingP256Cached`); `RingAuthority` binds no selection.
 INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
-Post-PR172 sync (2026-07-31):
+Merge output ciphertext sync (2026-10-15, Certora M-03): the merge proof
+encrypts the output's amount and mint for the owner and binds the salt and
+ciphertext as public inputs, and the widest merge shape is 52 inputs instead
+of 54. INV-MERGE-29..31 added (3, all covered); INV-MERGE-12/-14 and
+INV-RING-MERGE-08/-13 restated. The counts below include them.
 
-- Covered: 268 / 295
+Current coverage (2026-10-18):
+
+- Covered: 277 / 305
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Partial: 20 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(268 + 2 + 19 + 1 + 5 = 295. The per-file partial+untested column sums to 20
+(277 + 2 + 20 + 1 + 5 = 305. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 32/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 35/7/0/4, tree 56/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
-All added tests pass. Suites run green this pass:
-`shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
-`merge_functional` binary with a real on-chain merge proof), plus the
-documented gates (fmt, clippy, workspace check, photon, xtask, Go prover).
+The hermetic lane runs `just test-hermetic`; compiler and lint gates run
+`just clippy` and `just check-all`. Prover-backed and live tests are separate
+lanes and require the published proving keys.
 
 ### Remaining gaps
 
@@ -204,7 +209,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-19 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+20 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the
@@ -245,10 +250,13 @@ Status of the audit findings against the current (post-PR164) tree:
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
   PR164 (bound in the `external_data_hash` preimage, now `ExternalDataPreimage` -- INV-XC-16).
 - F-06 merge viewing-key canonicality: MOOT (the vulnerable flow is gone.
-  PR164 merge outputs are ciphertext-free: `prover/server/circuits/spp_merge`
-  contains no encryption or KDF over a recipient key, and the merge output is
-  derived deterministically from the inputs so the owner needs no decryption.
-  The surviving `verifiable-encryption` consumer
+  At PR164 merge outputs published no ciphertext: `prover/server/circuits/spp_merge`
+  contained no encryption or KDF over a recipient key, and the merge output was
+  derived deterministically from the inputs. Superseded 2026-10-15 (Certora
+  M-03): the merge output is now published as a proof-bound ciphertext of the
+  amount and mint, keyed by a Poseidon derivation from the owner's nullifier
+  secret and the first input nullifier, never by a recipient P-256 viewing key,
+  so the viewing-key canonicality issue still does not apply. The surviving `verifiable-encryption` consumer
   (`sdk-tests/zk-program-swap/prover/circuits/take_verifiable_encryption/take.go`)
   derives its AES key from the order-UTXO blinding via Poseidon KDF, never from
   a recipient P-256 pubkey; `p256.CompressPubkey`/`ECDH` have no callers in the
@@ -266,7 +274,8 @@ Status of the audit findings against the current (post-PR164) tree:
   `program-tests/shielded-pool/tests/protocol_config/gate.rs`.
 - F-08 ring-merge viewing-key binding: PARTIALLY addressed (output
   `ring_data_hash` now proof-bound; owner identity still omitted by design --
-  INV-RING-MERGE-08, INV-RING-MERGE-12).
+  INV-RING-MERGE-08, INV-RING-MERGE-12). Since 2026-10-15 the proof also binds
+  the ciphertext of the output's amount and mint (INV-MERGE-29).
 - F-09 `merge_view_tag` not proof-bound: MOOT (field removed).
 - F-10 root-history zero-placeholder burn: FIXED by PR164 and strengthened by
   one state root per updated slot. `append_batch` stores only the batch-final
@@ -287,7 +296,8 @@ Status of the audit findings against the current (post-PR164) tree:
   transaction, whose circuit requires the owner to sign.
 
 Post-audit note: an attempted removal of `OutputDataEncoding::VerifiablyEncrypted`
-(dead after PR164's ciphertext-free merge) was **reverted** — the variant is
-reserved for upcoming auditor encryption flows (custom rings with auditor;
-PR #177 review, ananas-block). The spec entry on `docs/spec-pr171-catchup`
-documents it as reserved, not legacy.
+(then unused after PR164 removed the merge ciphertext) was **reverted** — the
+variant was kept for upcoming auditor encryption flows (custom rings with
+auditor; PR #177 review, ananas-block). Superseded 2026-10-15: the variant is
+live again, because the merged output is published as
+`VerifiablyEncrypted(6 || ...)` (see the Merge section of `docs/spec.md`).

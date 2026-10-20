@@ -1,6 +1,6 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { Merge, PreparedMerge } from "../transaction/instructions/builders.js";
-import { deriveAnswers } from "../transaction/wallet/key-batch.js";
+import { deriveAnswers, wipeByteAnswers } from "../transaction/wallet/key-batch.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
 
@@ -21,6 +21,7 @@ export async function prepareMerge(
     [
       { kind: "mergeOutputBlinding", firstNullifier },
       { kind: "mergePrivateTxBlinding", firstNullifier },
+      { kind: "mergeOutputKey", firstNullifier },
       ...slots.map((slotIndex) => ({
         kind: "mergeDummyNullifier" as const,
         firstNullifier,
@@ -29,19 +30,30 @@ export async function prepareMerge(
     ],
     context,
   );
-  const [outputBlinding, privateTxBlinding, ...dummyNullifiers] = deriveAnswers(
-    answers,
-    2 + slots.length,
-    input.invalidAnswers,
-  );
-  if (outputBlinding === undefined || privateTxBlinding === undefined) throw input.invalidAnswers();
-  return new Merge({
-    address: input.keys.address(),
-    inputs: input.inputs,
-    outputBlinding,
-    privateTxBlinding,
-    dummyNullifiers,
-    ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
-    ...(input.ring === undefined ? {} : { ring: input.ring }),
-  }).prepare();
+  try {
+    const [outputBlinding, privateTxBlinding, outputKey, ...dummyNullifiers] = deriveAnswers(
+      answers,
+      3 + slots.length,
+      input.invalidAnswers,
+    );
+    if (
+      outputBlinding === undefined ||
+      privateTxBlinding === undefined ||
+      outputKey === undefined
+    ) {
+      throw input.invalidAnswers();
+    }
+    return new Merge({
+      address: input.keys.address(),
+      inputs: input.inputs,
+      outputBlinding,
+      privateTxBlinding,
+      outputKey,
+      dummyNullifiers,
+      ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
+      ...(input.ring === undefined ? {} : { ring: input.ring }),
+    }).prepare();
+  } finally {
+    wipeByteAnswers(answers);
+  }
 }

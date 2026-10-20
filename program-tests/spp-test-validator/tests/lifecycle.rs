@@ -70,7 +70,9 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
             1,
         ),
     ];
-    for (settings_key, members, threshold) in expected {
+    for (settings_key, mut members, threshold) in expected {
+        // Squads stores members sorted by key, not in creation order.
+        members.sort();
         let account = rpc
             .get_account(Address::new_from_array(settings_key.to_bytes()))
             .with_context(|| format!("fetching settings account {settings_key}"))?

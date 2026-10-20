@@ -4,7 +4,7 @@ import {
   treeSlotsHashChain,
   type TreeSlot,
 } from "../interface/tree-slot.js";
-import { hashBytes } from "../hasher/index.js";
+import { BN254_SCALAR_ORDER, fieldAdd, fieldSub, hashBytes } from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
 
@@ -31,8 +31,6 @@ export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */
 export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
 
 export interface AuditOutputOpening {
@@ -174,7 +172,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
   const bytes = checkedBytes(data, AUDITOR_MESSAGE_LENGTH, "auditor message");
   const disclosure = Array.from({ length: AUDIT_DISCLOSURE_FIELD_COUNT }, (_, index) => {
     const field = bytes.slice(65 + 32 * index, 65 + 32 * (index + 1)) as Bytes32;
-    if (bytesToBigInt(field) >= BN254_MODULUS)
+    if (bytesToBigInt(field) >= BN254_SCALAR_ORDER)
       throw new RangeError("non-canonical audit disclosure field");
     return field;
   });
@@ -278,7 +276,7 @@ function sealOutputDisclosure(
     plaintext.map(
       (field, index) =>
         bigIntToBytes(
-          (bytesToBigInt(field) + disclosureStream(secret, salt, index)) % BN254_MODULUS,
+          fieldAdd(bytesToBigInt(field), disclosureStream(secret, salt, index)),
         ) as Bytes32,
     ),
   );
@@ -294,8 +292,7 @@ export function openAuditOutputDisclosure(
   const fields = disclosure.map(
     (field, index) =>
       bigIntToBytes(
-        (bytesToBigInt(field) + BN254_MODULUS - disclosureStream(secret, salt, index)) %
-          BN254_MODULUS,
+        fieldSub(bytesToBigInt(field), disclosureStream(secret, salt, index)),
       ) as Bytes32,
   );
   return Object.freeze(

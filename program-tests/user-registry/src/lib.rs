@@ -17,7 +17,7 @@ use zolana_user_registry_interface::{
         self as user_registry_instruction, p256_key_binding_message, p256_verify_instruction,
         RegisterData, UpdateKeysData,
     },
-    user_record_pda,
+    user_record_pda, MergeEncryptionScheme,
 };
 pub use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
 
@@ -181,9 +181,13 @@ pub fn build_register_ixs(
     compose_p256_proof(owner, owner_p256, p256_signature, registry)
 }
 
-pub fn build_set_merging_enabled_ix(owner: &Pubkey, signer: &Pubkey, enabled: bool) -> Instruction {
+pub fn build_set_merge_encryption_ix(
+    owner: &Pubkey,
+    signer: &Pubkey,
+    scheme: MergeEncryptionScheme,
+) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    user_registry_instruction::set_merging_enabled(user_record, *signer, enabled)
+    user_registry_instruction::set_merge_encryption(user_record, *signer, scheme)
 }
 
 pub fn build_update_keys_ix(

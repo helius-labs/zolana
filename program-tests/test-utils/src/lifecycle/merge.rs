@@ -13,8 +13,8 @@ use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
-    instruction::{register, set_merging_enabled, RegisterData},
-    user_record_pda,
+    instruction::{register, set_merge_encryption, RegisterData},
+    user_record_pda, MergeEncryptionScheme,
 };
 
 use super::LifecycleHarness;
@@ -37,8 +37,9 @@ pub(crate) struct MergeRecord {
 impl LifecycleHarness {
     /// Register `name` on the user-registry under a fresh Solana keypair and opt the
     /// record into merging. Returns the registering Solana keypair so the merge helper
-    /// can derive the `user_record` PDA the program reads. `enable_merge` gates the
-    /// `set_merging_enabled` opt-in so the disabled path can be exercised.
+    /// can derive the `user_record` PDA the program reads. `enable_merge` selects the
+    /// PoseidonCtrV1 scheme, or leaves merging disabled so that path can be
+    /// exercised.
     pub fn register_merge_owner(&mut self, name: &str, enable_merge: bool) -> Result<Keypair> {
         self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
@@ -64,10 +65,15 @@ impl LifecycleHarness {
         let register_ix = register(user_record, owner.pubkey(), payer, register_data);
         send_transaction(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
 
-        // Opt the record into merging. When enabled, any caller may run
-        // `merge_transact`; the disabled path leaves it `false`, which the program
-        // rejects with `MergeDisabled`.
-        let set_enabled_ix = set_merging_enabled(user_record, owner.pubkey(), enable_merge);
+        // Opt the record into merging. With a scheme selected, any caller may run
+        // `merge_transact`; the disabled path leaves it `Disabled`, which matches
+        // no scheme, so the program rejects it with `MergeEncryptionSchemeMismatch`.
+        let scheme = if enable_merge {
+            MergeEncryptionScheme::PoseidonCtrV1
+        } else {
+            MergeEncryptionScheme::Disabled
+        };
+        let set_enabled_ix = set_merge_encryption(user_record, owner.pubkey(), scheme);
         send_transaction(&mut self.rpc, &[set_enabled_ix], &owner.pubkey(), &[&owner])?;
         Ok(owner)
     }
@@ -75,7 +81,7 @@ impl LifecycleHarness {
     /// Build, prove, and submit a merge of `count` of `name`'s spendable `asset`
     /// UTXOs into one consolidated output, run by the configured merge authority for
     /// the registered owner `owner_solana`. Returns the transaction send result so
-    /// the caller can assert success or the `MergeDisabled` failure.
+    /// the caller can assert success or the `MergeEncryptionSchemeMismatch` failure.
     ///
     /// The merge vault pays through `execute_sync` up to the default merge
     /// width. A wider merge carries a nullifier PDA per slot, and the smart
@@ -260,8 +266,8 @@ impl LifecycleHarness {
         // A real wallet would already have discovered the deposits it selected
         // for this merge. This local lifecycle harness keeps deposits only in its
         // spendable list, so seed any missing input notes before replaying the
-        // merge event; reconstruction needs their amounts, assets, and first
-        // blinding.
+        // merge event, so the merge's nullifiers mark them spent. The merged
+        // output itself decrypts from the merge transaction alone.
         for input in &inputs {
             let input_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if self
@@ -275,10 +281,10 @@ impl LifecycleHarness {
             }
             let proof = wait_for_merkle_proof(&self.indexer, self.tree_address, input_hash);
             // The harness never indexed the deposit that published this note, so
-            // its publication coordinates are placeholders. Only the commitment,
-            // the nullifier and the amounts feed merge reconstruction, and the
-            // same value is seeded into the wallet and into `expected`, so the
-            // full-struct assert still compares like for like.
+            // its publication coordinates are placeholders. Only the commitment
+            // and the nullifier matter to the merge, and the same value is
+            // seeded into the wallet and into `expected`, so the full-struct
+            // assert still compares like for like.
             let note = WalletUtxo {
                 utxo: input.clone(),
                 nullifier_pubkey: nullifier_pk,
@@ -354,8 +360,8 @@ impl LifecycleHarness {
         Ok(())
     }
 
-    /// Attempt a merge expecting it to fail with `MergeDisabled`; the owner is
-    /// registered but never enabled merging.
+    /// Attempt a merge expecting it to fail with `MergeEncryptionSchemeMismatch`;
+    /// the owner is registered but never selected a merge encryption scheme.
     pub fn merge_expect_disabled(
         &mut self,
         name: &str,
@@ -373,7 +379,7 @@ impl LifecycleHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                Rejection::pool(ShieldedPoolError::MergeDisabled)
+                Rejection::pool(ShieldedPoolError::MergeEncryptionSchemeMismatch)
                     .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;

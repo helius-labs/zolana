@@ -128,9 +128,6 @@ pub struct ProvenCustomRingMerge {
     pub output_hash: [u8; 32],
     pub input_count: usize,
     pub merged_amount: u64,
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    pub output_data: zolana_event::MessageData,
 }
 
 impl PreparedCustomRingMerge {
@@ -283,9 +280,6 @@ impl PreparedCustomRingMerge {
                 .filter(|input| !input.is_dummy())
                 .count(),
             merged_amount: self.inner.output_utxo.amount,
-            tx_viewing_pk: self.inner.tx_viewing_pk,
-            salt: self.inner.salt,
-            output_data: self.inner.output_data,
             data,
         })
     }
@@ -353,9 +347,6 @@ impl StagedMerge {
             output_hash: self.result.output_hash,
             input_count: self.input_count,
             merged_amount: self.merged_amount,
-            tx_viewing_pk: self.result.tx_viewing_pk,
-            salt: self.result.salt,
-            output_data: self.result.output_data.clone(),
         })
     }
 }
@@ -479,6 +470,7 @@ impl CustomRingMergeInstruction {
 #[cfg(test)]
 mod tests {
     use solana_address::Address;
+    use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
     use zolana_interface::{instruction::instruction_data::merge_transact::MergeProof, pda};
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{Mint, Utxo};
@@ -529,6 +521,10 @@ mod tests {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],
+                output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                    salt: [0; 16],
+                    ciphertext: [[0; 32]; 3],
+                },
                 nullifiers: vec![[0; 32]; MERGE_DEFAULT_INPUT_COUNT],
                 utxo_tree_root_index: 0,
                 nullifier_tree_root_index: 0,

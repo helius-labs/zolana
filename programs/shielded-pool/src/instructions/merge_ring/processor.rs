@@ -46,7 +46,8 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
     // `user_record` registry, so the `Ring` binding omits owner identity entirely
     // (see `MergeProof::public_input_hash`); the binding and the declared input
-    // count select the verifying key.
+    // count select the verifying key. The proof does not bind
+    // `merge.output_encryption`; the indexer publishes it unverified.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,

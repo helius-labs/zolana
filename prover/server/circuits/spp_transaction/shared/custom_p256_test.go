@@ -676,7 +676,8 @@ func TestCustomRingP256AddressOnlyKeepsOwnerPrivate(t *testing.T) {
 	)
 }
 
-// The payer is excluded from dummy markers on this rail as well.
+// A fee payer outside the signer vector is not a dummy marker on this rail
+// either.
 func TestCustomRingP256RejectsDummyOutputPayerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

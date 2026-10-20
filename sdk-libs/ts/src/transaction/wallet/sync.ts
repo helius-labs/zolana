@@ -34,6 +34,7 @@ import {
   ringDepositUtxo,
   type DepositPayloadDecoder,
 } from "../serialization/ring-deposit.js";
+import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
 import {
@@ -90,11 +91,11 @@ export interface PrivateBalances {
 
 /**
  * Rounds a decode pass can need: one for the ciphertexts, one for the
- * nullifiers over their plaintexts, two per merge site (its derivations, then
- * the nullifier of its output, which the next merge in the chain spends), and
- * the final pass with every answer in hand. A resolved round answers every
- * request or throws, so a pass past this bound is a memo that is not caching,
- * not a deeper wallet.
+ * nullifiers over their plaintexts, the merge derivations and the nullifiers of
+ * the merge outputs (every merge site asks in the same rounds, so this is an
+ * upper bound), and the final pass with every answer in hand. A resolved round
+ * answers every request or throws, so a pass past this bound is a memo that is
+ * not caching, not a deeper wallet.
  */
 function maxKeyRounds(mergeSites: number): number {
   return 3 + 2 * mergeSites;
@@ -916,108 +917,103 @@ class SyncPass {
     this.undecryptableCandidates++;
   }
 
+  /**
+   * Each merge output decrypts from its own transaction, so one pass reaches
+   * every site in any order; a site whose derivations are pending is reached
+   * again in the next round.
+   */
   resolveMergeSites(sites: readonly Site[]): void {
-    let pending = [...sites];
-    while (pending.length > 0) {
-      const unresolved: Site[] = [];
-      for (const site of pending) {
-        const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
-        if (this.#processedSlots.has(siteKey)) continue;
-        const tx = this.#transactions[site.transaction];
-        if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
-          this.undecryptableCandidates++;
-          continue;
-        }
-        if (!this.#reconstructMerge(tx, site, siteKey)) unresolved.push(site);
+    for (const site of sites) {
+      const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
+      if (this.#processedSlots.has(siteKey)) continue;
+      const tx = this.#transactions[site.transaction];
+      if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
+        this.undecryptableCandidates++;
+        continue;
       }
-      if (unresolved.length === pending.length) {
-        this.undecryptableCandidates += unresolved.length;
-        return;
-      }
-      pending = unresolved;
+      this.#reconstructMerge(tx, site, siteKey);
     }
   }
 
-  /** Missing inputs may be outputs of another merge in the same batch. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
+  /** Check after every key round and newly discovered input has been resolved. */
+  assertOwnedMergesDecoded(sites: readonly Site[], identityTag: Bytes32): void {
+    const ownedNullifiers = new Set(this.#utxos.map((entry) => hex(entry.nullifier)));
+    for (const site of sites) {
+      if (this.#processedSlots.has(`${String(site.transaction)}:${String(site.slot)}`)) continue;
+      const tx = this.#transactions[site.transaction];
+      const slot = tx?.outputSlots[site.slot];
+      if (tx === undefined || slot === undefined) continue;
+      if (this.#outputHashes.has(hex(slot.outputContext.hash))) continue;
+      if (
+        equal(slot.viewTag, identityTag) ||
+        tx.nullifiers.some((nullifier) => ownedNullifiers.has(hex(nullifier)))
+      ) {
+        throw new TransactionError("TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE");
+      }
+    }
+  }
+
+  /**
+   * A merge output publishes its amount and mint under a key derived from the
+   * nullifier secret and the first nullifier, so the owner rebuilds the output
+   * whichever inputs the merger folded in. A default merge proof binds that
+   * ciphertext; a ring merge publishes it unverified. The cipher is
+   * unauthenticated: another wallet's merge, or a wrong ring merge ciphertext,
+   * decrypts to noise, which the plaintext range check or the commitment
+   * rejects, and the slot counts as undecryptable.
+   */
+  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): void {
     const slot = tx.outputSlots[site.slot];
     const firstNullifier = tx.nullifiers[0];
+    // A merge publishes its sent nullifiers; compact padding is left out.
     if (
       slot === undefined ||
       firstNullifier === undefined ||
-      !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
+      mergePaddedInputCount(tx.nullifiers.length) === undefined
     ) {
-      return false;
-    }
-
-    // A merge publishes its sent nullifiers; compact padding is left out.
-    if (mergePaddedInputCount(tx.nullifiers.length) === undefined) {
       this.undecryptableCandidates++;
-      return true;
+      return;
     }
-    // Requested together so one round answers both, and read before any
-    // matching: a pending derivation means "not yet", never "not a merge".
-    const dummyNullifiers = tx.nullifiers.map((_, index) =>
-      this.#keys.derive({ kind: "mergeDummyNullifier", firstNullifier, slotIndex: index }),
-    );
-    const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-    if (outputBlinding === undefined || dummyNullifiers.some((value) => value === undefined)) {
-      return false;
+    const body = readMergeOutputBody(slot.payload);
+    // A ring merge leads with its output ring data hash, and the transaction
+    // names its ring program; a body and transaction that disagree are not a
+    // merge this wallet can rebuild.
+    if (
+      body === undefined ||
+      (body.ringDataHash === undefined) !== (tx.ringProgramId === undefined)
+    ) {
+      this.undecryptableCandidates++;
+      return;
     }
-
+    // Requested together so one round answers both.
+    let key: Bytes32 | undefined;
+    let outputBlinding: Bytes32 | undefined;
     try {
-      const matched: WalletUtxo[] = [];
-      for (const [index, nullifier] of tx.nullifiers.entries()) {
-        const dummy = dummyNullifiers[index];
-        if (dummy !== undefined && equal(nullifier, dummy)) {
-          continue;
-        }
-        const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
-        if (entry === undefined) {
-          return false;
-        }
-        matched.push(entry);
-      }
-      const first = matched[0];
-      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      let amount = 0n;
-      for (const entry of matched) {
-        amount += entry.utxo.amount;
-        if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
-      }
-      const ringProgramId = first.utxo.ringProgramId;
-      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
-        this.undecryptableCandidates++;
-        return true;
-      }
-      const ringDataHash =
-        ringProgramId === undefined
-          ? undefined
-          : slot.payload.length === 32
-            ? (copy(slot.payload) as Bytes32)
-            : null;
-      if (ringDataHash === null) {
-        this.undecryptableCandidates++;
-        return true;
-      }
+      key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier });
+      outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
+      if (key === undefined || outputBlinding === undefined) return;
+      const plaintext = decryptMergeOutput(body.encrypted, key);
       const utxo = new Utxo({
         owner: this.#owner,
-        asset: first.utxo.asset,
-        amount,
+        asset: plaintext.mint,
+        amount: plaintext.amount,
         blinding: outputBlinding,
-        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+        ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
       });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
+      const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, body.ringDataHash);
+      if (!equal(hash, slot.outputContext.hash)) {
+        this.undecryptableCandidates++;
+        return;
+      }
+      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, body.ringDataHash)) {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
       }
-      return true;
     } catch (error) {
       this.#recordUndecryptable(error, siteKey);
-      return true;
+    } finally {
+      key?.fill(0);
+      outputBlinding?.fill(0);
     }
   }
 
@@ -1126,6 +1122,7 @@ export async function decryptTransactions(
         await memo.resolve(input.context);
         continue;
       }
+      pass.assertOwnedMergesDecoded(mergeSites, identityTag);
       return commitPass(input, pass, index, viewingKeyHistory);
     }
     throw new TransactionError("TRANSACTION_KEYS_UNRESOLVED");

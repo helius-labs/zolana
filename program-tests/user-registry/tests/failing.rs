@@ -5,13 +5,13 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, user_registry_program_id,
+    build_register_ix, build_set_merge_encryption_ix, user_registry_program_id,
     TestTransactionResult, UserRegistryTestRig,
 };
 use zolana_user_registry::error::UserRegistryError;
 use zolana_user_registry_interface::{
     instruction::{self, discriminator, RegisterData, UpdateKeysData},
-    user_record_pda,
+    user_record_pda, MergeEncryptionScheme,
 };
 
 use common::{funded_keypair, keys, register};
@@ -222,7 +222,11 @@ fn non_owner_cannot_toggle_merging_atomically() {
     let stranger = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(15));
     rig.send(
-        build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true),
+        build_set_merge_encryption_ix(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            MergeEncryptionScheme::PoseidonCtrV1,
+        ),
         &[&owner],
     )
     .expect("enable merging");
@@ -231,7 +235,11 @@ fn non_owner_cannot_toggle_merging_atomically() {
 
     assert_registry_error(
         rig.send(
-            build_set_merging_enabled_ix(&owner.pubkey(), &stranger.pubkey(), false),
+            build_set_merge_encryption_ix(
+                &owner.pubkey(),
+                &stranger.pubkey(),
+                MergeEncryptionScheme::Disabled,
+            ),
             &[&stranger],
         ),
         UserRegistryError::UnauthorizedSigner,
@@ -250,14 +258,18 @@ fn unsign_signer_meta(ix: &mut Instruction) {
 }
 
 #[test]
-fn set_merging_enabled_requires_owner_signature() {
+fn set_merge_encryption_requires_owner_signature() {
     let mut rig = UserRegistryTestRig::new();
     let owner = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(24));
     let record_address = user_record_pda(&owner.pubkey()).0;
     let before = rig.svm.get_account(&record_address).expect("record");
 
-    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    let mut ix = build_set_merge_encryption_ix(
+        &owner.pubkey(),
+        &owner.pubkey(),
+        MergeEncryptionScheme::PoseidonCtrV1,
+    );
     unsign_signer_meta(&mut ix);
 
     assert_error(
@@ -345,12 +357,12 @@ fn dispatch_rejects_malformed_register_data_exactly() {
 /// Every borsh-parsing dispatch arm rejects a truncated/trailing payload with
 /// the exact instruction-data error, before any account is touched. (Main's
 /// #167 cleanup removed the three sync-delegate arms; REGISTER,
-/// SET_MERGING_ENABLED, and UPDATE_KEYS remain.)
+/// SET_MERGE_ENCRYPTION, and UPDATE_KEYS remain.)
 #[test]
 fn dispatch_rejects_malformed_payloads_for_every_parsing_arm() {
     let mut rig = UserRegistryTestRig::new();
     for tag in [
-        discriminator::SET_MERGING_ENABLED,
+        discriminator::SET_MERGE_ENCRYPTION,
         discriminator::UPDATE_KEYS,
     ] {
         assert_registry_error(
@@ -379,7 +391,11 @@ fn record_mutation_rejects_invalid_record_accounts() {
     // Unowned: a funded system account in the record slot.
     let unowned = Pubkey::new_unique();
     rig.fund(&unowned, 1_000_000);
-    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    let mut ix = build_set_merge_encryption_ix(
+        &owner.pubkey(),
+        &owner.pubkey(),
+        MergeEncryptionScheme::PoseidonCtrV1,
+    );
     ix.accounts.first_mut().expect("record meta").pubkey = unowned;
     assert_registry_error(
         rig.send(ix, &[&owner]),
@@ -400,7 +416,11 @@ fn record_mutation_rejects_invalid_record_accounts() {
             },
         )
         .expect("write uninitialized record");
-    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    let mut ix = build_set_merge_encryption_ix(
+        &owner.pubkey(),
+        &owner.pubkey(),
+        MergeEncryptionScheme::PoseidonCtrV1,
+    );
     ix.accounts.first_mut().expect("record meta").pubkey = uninitialized;
     assert_registry_error(
         rig.send(ix, &[&owner]),
@@ -421,7 +441,11 @@ fn record_mutation_rejects_invalid_record_accounts() {
             },
         )
         .expect("write wrong-discriminator record");
-    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    let mut ix = build_set_merge_encryption_ix(
+        &owner.pubkey(),
+        &owner.pubkey(),
+        MergeEncryptionScheme::PoseidonCtrV1,
+    );
     ix.accounts.first_mut().expect("record meta").pubkey = wrong_discriminator;
     assert_registry_error(
         rig.send(ix, &[&owner]),
@@ -429,14 +453,18 @@ fn record_mutation_rejects_invalid_record_accounts() {
     );
 
     // Readonly: the real record with the writable flag stripped.
-    let mut ix = build_set_merging_enabled_ix(&owner.pubkey(), &owner.pubkey(), true);
+    let mut ix = build_set_merge_encryption_ix(
+        &owner.pubkey(),
+        &owner.pubkey(),
+        MergeEncryptionScheme::PoseidonCtrV1,
+    );
     ix.accounts.first_mut().expect("record meta").is_writable = false;
     assert_registry_error(
         rig.send(ix, &[&owner]),
         UserRegistryError::InvalidRecordAccount,
     );
     assert!(
-        !rig.record(&owner.pubkey()).merging_enabled,
+        rig.record(&owner.pubkey()).merge_encryption == MergeEncryptionScheme::Disabled,
         "no rejected mutation may have toggled merging"
     );
 }

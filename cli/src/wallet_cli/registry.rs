@@ -3,7 +3,9 @@ use solana_signer::Signer;
 use zolana_client::user_registry::{register_if_absent, StrictRegistration};
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_transaction::Address;
-use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
+use zolana_user_registry_interface::{
+    instruction::set_merge_encryption, user_record_pda, MergeEncryptionScheme,
+};
 
 use super::{
     material::{load_existing_wallet, load_sender_from_resolved_sync},
@@ -50,23 +52,24 @@ pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
     Ok(())
 }
 
-/// Toggle the wallet's `merging_enabled` flag on its user-registry record. This is
-/// the opt-in the merge service requires; the actual note consolidation is the
-/// `merge` command.
+/// Set the wallet's merge encryption scheme on its user-registry record:
+/// `--enable` selects PoseidonCtrV1, the scheme this CLI encrypts merges with,
+/// and `--disable` turns merging off. This is the opt-in the merge service
+/// requires; the actual note consolidation is the `merge` command.
 pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;
     let owner = material.funding.pubkey();
 
-    let enabled = match (opts.enable, opts.disable) {
-        (true, false) => true,
-        (false, true) => false,
+    let scheme = match (opts.enable, opts.disable) {
+        (true, false) => MergeEncryptionScheme::PoseidonCtrV1,
+        (false, true) => MergeEncryptionScheme::Disabled,
         _ => bail!("provide exactly one of --enable or --disable"),
     };
 
     let (user_record, _bump) = user_record_pda(&owner);
-    let instructions = [set_merging_enabled(user_record, owner, enabled)];
+    let instructions = [set_merge_encryption(user_record, owner, scheme)];
     let signature = rpc.create_and_send_transaction(
         &instructions,
         Address::new_from_array(owner.to_bytes()),
@@ -74,6 +77,6 @@ pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
 
-    println!("ok set_merging owner={owner} enabled={enabled} signature={signature}");
+    println!("ok set_merging owner={owner} scheme={scheme:?} signature={signature}");
     Ok(())
 }

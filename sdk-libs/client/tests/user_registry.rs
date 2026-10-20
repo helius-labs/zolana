@@ -3,10 +3,11 @@ use solana_address::Address;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use zolana_client::user_registry::{
-    build_registration_transaction_sync, set_merging_enabled_instruction,
+    build_registration_transaction_sync, set_merge_encryption_instruction,
 };
 use zolana_client::{check_merge_record, ClientError, Rpc};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use zolana_user_registry_interface::MergeEncryptionScheme;
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
 struct RegistryAbsent;
@@ -73,7 +74,7 @@ fn registration_builder_defaults_payer_to_owner() {
 }
 
 /// An ed25519 owner, its shielded address, and its user record.
-fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
+fn merge_owner(merge_encryption: MergeEncryptionScheme) -> (Pubkey, ShieldedAddress, UserRecord) {
     let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[8u8; 32]))
         .expect("ed25519 keypair");
     let address = keypair.shielded_address().expect("shielded address");
@@ -84,20 +85,20 @@ fn merge_owner(merging_enabled: bool) -> (Pubkey, ShieldedAddress, UserRecord) {
         owner_p256: None,
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
-        merging_enabled,
+        merge_encryption,
     };
     (owner, address, record)
 }
 
 #[test]
-fn a_merge_needs_merging_enabled_and_the_owners_registered_keys() {
-    let (owner, address, record) = merge_owner(true);
+fn a_merge_needs_the_supported_scheme_and_the_owners_registered_keys() {
+    let (owner, address, record) = merge_owner(MergeEncryptionScheme::PoseidonCtrV1);
     check_merge_record(&record, owner, &address).expect("matching record");
 
-    let (_, _, disabled) = merge_owner(false);
+    let (_, _, disabled) = merge_owner(MergeEncryptionScheme::Disabled);
     assert!(matches!(
         check_merge_record(&disabled, owner, &address),
-        Err(ClientError::MergeDisabled { owner: got }) if got == owner
+        Err(ClientError::MergeEncryptionSchemeUnsupported { owner: got }) if got == owner
     ));
     let mut p256 = record.clone();
     p256.owner_p256 = Some([2u8; 33]);
@@ -124,9 +125,9 @@ fn a_merge_needs_merging_enabled_and_the_owners_registered_keys() {
 }
 
 #[test]
-fn set_merging_enabled_targets_the_owners_record() {
+fn set_merge_encryption_targets_the_owners_record() {
     let owner = Pubkey::new_unique();
-    let instruction = set_merging_enabled_instruction(owner, true);
+    let instruction = set_merge_encryption_instruction(owner, MergeEncryptionScheme::PoseidonCtrV1);
     assert_eq!(instruction.accounts[0].pubkey, user_record_pda(&owner).0);
     assert!(instruction.accounts[0].is_writable);
     assert_eq!(instruction.accounts[1].pubkey, owner);

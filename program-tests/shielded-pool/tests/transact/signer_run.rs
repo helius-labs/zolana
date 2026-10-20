@@ -1,7 +1,8 @@
 //! Signer-run assembly unit tests, moved out of the program crate
-//! (`transact/verify.rs`): payer-first dedup of owner signers, the shared
-//! owner-hash cache, confidential-marked output-owner selection, and the
-//! fixed-width signer hash chain's zero-suffix optimization.
+//! (`transact/verify.rs`): first-occurrence dedup of owner signers without
+//! the payer, the shared owner-hash cache, confidential-marked output-owner
+//! selection, and the fixed-width signer hash chain's zero-suffix
+//! optimization.
 
 use pinocchio::{error::ProgramError, AccountView};
 use shielded_pool_program::testing::{
@@ -40,8 +41,10 @@ fn incomplete_proof_inputs_are_rejected() {
     );
 }
 
+/// The payer is not an owner signer. An owner that also pays is
+/// listed among the owner-signer accounts and keeps its first-occurrence slot.
 #[test]
-fn owner_signers_are_first_occurrence_deduplicated_with_payer_first() {
+fn owner_signers_are_first_occurrence_deduplicated_without_the_payer() {
     let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
     let owner_signers = vec![
         get_account_view([2; 32], [0; 32], true, false, false, vec![]),
@@ -53,23 +56,61 @@ fn owner_signers_are_first_occurrence_deduplicated_with_payer_first() {
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
-        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
+        .fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes)
         .unwrap();
 
     assert_eq!(proof_inputs.unique_owner_signer_count, 3);
     assert_eq!(
-        proof_inputs.signer_pk_hashes[0],
-        solana_owner_identity(&[1; 32]).unwrap()
+        proof_inputs.signer_pk_hashes[..4],
+        [
+            solana_owner_identity(&[2; 32]).unwrap(),
+            solana_owner_identity(&[1; 32]).unwrap(),
+            solana_owner_identity(&[3; 32]).unwrap(),
+            [0; 32],
+        ]
     );
+}
+
+/// A payer that is not listed as an owner signer authorizes nothing: the
+/// signer vector stays empty.
+#[test]
+fn the_payer_alone_is_not_an_owner_signer() {
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+
+    proof_inputs
+        .fill_owner_signer_hashes(true, &payer, &[], &mut owner_hashes)
+        .unwrap();
+
+    assert_eq!(proof_inputs.unique_owner_signer_count, 0);
+    assert_eq!(proof_inputs.signer_pk_hashes, [[0; 32]; MAX_SIGNERS]);
+}
+
+/// The ring authority rail authorizes no owner; its signer vector holds only the payer.
+#[test]
+fn the_ring_authority_rail_binds_only_the_payer() {
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    let owner_signers = vec![get_account_view(
+        [2; 32],
+        [0; 32],
+        true,
+        false,
+        false,
+        vec![],
+    )];
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::RingAuthority(2, 2, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+
+    proof_inputs
+        .fill_owner_signer_hashes(false, &payer, &owner_signers, &mut owner_hashes)
+        .unwrap();
+
+    assert_eq!(proof_inputs.unique_owner_signer_count, 1);
     assert_eq!(
-        proof_inputs.signer_pk_hashes[1],
-        solana_owner_identity(&[2; 32]).unwrap()
+        proof_inputs.signer_pk_hashes[..2],
+        [solana_owner_identity(&[1; 32]).unwrap(), [0; 32]]
     );
-    assert_eq!(
-        proof_inputs.signer_pk_hashes[2],
-        solana_owner_identity(&[3; 32]).unwrap()
-    );
-    assert_eq!(proof_inputs.signer_pk_hashes[3], [0; 32]);
 }
 
 #[test]
@@ -79,23 +120,23 @@ fn owner_signer_run_is_bounded_by_max_signers() {
         let tag = u8::try_from(index + 2).expect("signer tag fits a byte");
         get_account_view([tag; 32], [0; 32], true, false, false, vec![])
     };
-    let mut owner_signers: Vec<_> = (0..MAX_SIGNERS - 1).map(unique_signer).collect();
+    let mut owner_signers: Vec<_> = (0..MAX_SIGNERS).map(unique_signer).collect();
 
     let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
     proof_inputs
-        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
+        .fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes)
         .unwrap();
     assert_eq!(
         usize::from(proof_inputs.unique_owner_signer_count),
         MAX_SIGNERS
     );
 
-    owner_signers.push(unique_signer(MAX_SIGNERS - 1));
+    owner_signers.push(unique_signer(MAX_SIGNERS));
     let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
     let mut owner_hashes = OwnerHashCache::new();
     assert_eq!(
-        proof_inputs.fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes),
+        proof_inputs.fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes),
         Err(ProgramError::Custom(
             ShieldedPoolError::InvalidTransactShape as u32
         ))
@@ -186,14 +227,15 @@ fn widest_signer_accounts(owner_signer_count: usize) -> Vec<AccountView> {
     accounts
 }
 
-/// The account parser bounds the owner signer run by `owner_signer_slots`, not
-/// by the input count: on `32x2` the 29th owner signer (the 30th unique signer
-/// with the payer) is rejected before any hashing.
+/// The account parser bounds the owner signer run by the signer width
+/// (`owner_signer_slots` plus one for an owner that also pays), not by the
+/// input count: on `32x2` the 30th owner signer is rejected before any
+/// hashing.
 #[test]
 fn widest_signer_shape_rejects_an_owner_signer_run_past_its_slots() {
     let bytes = widest_signer_ix_bytes();
     let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
-    let slots = owner_signer_slots(WIDEST_SIGNER_SHAPE.n_inputs());
+    let slots = WIDEST_SIGNER_SHAPE.signer_width();
 
     let mut accounts = widest_signer_accounts(slots);
     let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix)
@@ -233,7 +275,7 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
     ];
     let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
     let owner_signers = [get_account_view(
-        [3; 32],
+        [1; 32],
         [0; 32],
         true,
         false,
@@ -244,15 +286,15 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
-        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
+        .fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes)
         .unwrap();
-    assert_eq!(owner_hashes.len(), 2);
+    assert_eq!(owner_hashes.len(), 1);
 
     proof_inputs
         .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
         .unwrap();
-    assert_eq!(owner_hashes.len(), 3);
-    assert_eq!(proof_inputs.unique_owner_signer_count, 2);
+    assert_eq!(owner_hashes.len(), 2);
+    assert_eq!(proof_inputs.unique_owner_signer_count, 1);
     assert_eq!(
         proof_inputs.output_owner_pk_hashes[0],
         proof_inputs.signer_pk_hashes[0]
@@ -287,7 +329,7 @@ fn owner_signer_hashing_rejects_a_cache_populated_by_output_owners() {
         .unwrap();
 
     assert_eq!(
-        proof_inputs.fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes),
+        proof_inputs.fill_owner_signer_hashes(true, &payer, &owner_signers, &mut owner_hashes),
         Err(ProgramError::Custom(
             ShieldedPoolError::InvalidTransactShape as u32
         ))
@@ -365,10 +407,17 @@ fn zero_suffix_constants_cover_every_supported_width() {
     }
 }
 
+/// A transaction without owner signers publishes an all-zero signer vector.
 #[test]
-fn fixed_signer_hash_chain_rejects_empty_signer_prefix() {
+fn fixed_signer_hash_chain_of_no_signers_is_the_zero_chain() {
+    for width in 1..=MAX_SIGNERS {
+        assert_eq!(
+            fixed_signer_hash_chain(&[], width).unwrap(),
+            create_right_hash_chain_from_slice(&vec![[0u8; 32]; width]).unwrap(),
+        );
+    }
     assert_eq!(
-        fixed_signer_hash_chain(&[], 1),
+        fixed_signer_hash_chain(&[], 0),
         Err(ProgramError::Custom(
             ShieldedPoolError::InvalidTransactShape as u32
         )),

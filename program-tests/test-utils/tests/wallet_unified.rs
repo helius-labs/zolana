@@ -3,18 +3,48 @@ mod wallet_common;
 use wallet_common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
+use zolana_event::{encode_merge_output_data, MergeOutputDataRef};
+use zolana_keypair::NullifierKey;
 #[cfg(feature = "parallel")]
 use zolana_test_utils::wallet::PrivateTransactionDirection;
 use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
 use zolana_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUT_COUNT,
+        merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
+        MERGE_DEFAULT_INPUT_COUNT,
     },
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
 
 const WINDOW: u64 = 8;
+const MERGE_SALT: [u8; 16] = [11; 16];
+
+/// The indexer payload of a merge output: `output`'s amount and mint under the
+/// per-merge key of `first_nullifier`, plus the ring data hash of a ring merge.
+fn merge_payload(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+    output: &Utxo,
+    ring_data_hash: Option<&[u8; 32]>,
+) -> Vec<u8> {
+    let ciphertext = MergeOutputPlaintext {
+        amount: output.amount,
+        mint: output.asset.asset,
+    }
+    .encrypt(
+        &merge_output_key(nullifier_key, first_nullifier).unwrap(),
+        &MERGE_SALT,
+    )
+    .unwrap();
+    encode_merge_output_data(MergeOutputDataRef {
+        salt: &MERGE_SALT,
+        ciphertext: &ciphertext,
+        prefix: ring_data_hash
+            .map(core::slice::from_ref)
+            .unwrap_or_default(),
+    })
+}
 
 #[test]
 fn sync_stores_unified_change_and_recipient_utxos() {
@@ -65,8 +95,10 @@ fn sync_stores_unified_change_and_recipient_utxos() {
     );
 }
 
+/// A fresh sync handed a chained merge before the merge it spends decrypts both
+/// from their own transactions and ends in the incremental sync's state.
 #[test]
-fn fresh_sync_resolves_merge_dependencies() {
+fn fresh_sync_decrypts_chained_merges_seen_out_of_order() {
     let assets = AssetRegistry::default();
     let alice = keypair_from_index(2);
     let bob = keypair_from_index(3);
@@ -123,7 +155,7 @@ fn fresh_sync_resolves_merge_dependencies() {
                 tree_id: 0,
                 leaf_index: 2,
             },
-            payload: Vec::new(),
+            payload: merge_payload(nullifier_key, &first_nullifier, &output, None),
         }],
         messages: Vec::new(),
         nullifiers,
@@ -169,7 +201,7 @@ fn fresh_sync_resolves_merge_dependencies() {
                 tree_id: 0,
                 leaf_index: 3,
             },
-            payload: Vec::new(),
+            payload: merge_payload(nullifier_key, &chained_nullifier, &chained_output, None),
         }],
         messages: Vec::new(),
         nullifiers: chained_nullifiers,
@@ -203,7 +235,14 @@ fn fresh_sync_resolves_merge_dependencies() {
         .sync(&authority, std::slice::from_ref(&chained_merge), 1, WINDOW)
         .unwrap();
     assert_eq!(incremental.balance(SOL_MINT, None).unwrap().amount, 42);
-    assert_eq!(fresh.utxos, incremental.utxos);
+    // `Wallet::sync` stores notes in the order it is handed the transactions,
+    // and each merge decrypts from its own transaction, so compare the notes in
+    // chain order.
+    let mut fresh_utxos = fresh.utxos.clone();
+    fresh_utxos.sort_by_key(|utxo| (utxo.slot, utxo.leaf_index));
+    let mut incremental_utxos = incremental.utxos.clone();
+    incremental_utxos.sort_by_key(|utxo| (utxo.slot, utxo.leaf_index));
+    assert_eq!(fresh_utxos, incremental_utxos);
 }
 
 /// A compact merge publishes only its sent nullifiers: the padding slots are
@@ -262,7 +301,7 @@ fn sync_recovers_a_compact_merge() {
                 tree_id: 0,
                 leaf_index: 2,
             },
-            payload: Vec::new(),
+            payload: merge_payload(nullifier_key, &first_nullifier, &output, None),
         }],
         messages: Vec::new(),
         nullifiers: vec![first_nullifier],
@@ -337,7 +376,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
                 tree_id: 0,
                 leaf_index: 2,
             },
-            payload: [0u8; 32].to_vec(),
+            payload: merge_payload(nullifier_key, &first_nullifier, &output, Some(&[0; 32])),
         }],
         messages: Vec::new(),
         nullifiers,

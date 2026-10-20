@@ -64,6 +64,9 @@ fn registered_user_record_is_served_by_photon() -> TestResult {
     assert_eq!(on_chain.owner_p256, None);
     assert_eq!(on_chain.nullifier_pubkey, address.nullifier_pubkey);
     assert_eq!(on_chain.viewing_pubkey, *address.viewing_pubkey.as_bytes());
-    assert!(!on_chain.merging_enabled);
+    assert_eq!(
+        on_chain.merge_encryption,
+        zolana_user_registry_interface::MergeEncryptionScheme::Disabled
+    );
     Ok(())
 }

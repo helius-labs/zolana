@@ -2883,7 +2883,11 @@ mod tests {
                     tree_id: TEST_TREE_ID,
                     leaf_index: 0,
                 },
-                payload: Vec::new(),
+                payload: zolana_event::encode_merge_output_data(zolana_event::MergeOutputDataRef {
+                    salt: &prepared.output_ciphertext_salt,
+                    ciphertext: &prepared.output_ciphertext,
+                    prefix: &[],
+                }),
             }],
             messages: Vec::new(),
             nullifiers: commitments

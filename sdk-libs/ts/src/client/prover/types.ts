@@ -101,6 +101,10 @@ export interface MergeInputs {
   /** Exactly `INPUT_TREES` entries; the input tree in slot 0, zero slots after it. */
   readonly treeSlots: readonly TreeSlotFields[];
   readonly outputTreeId: Field;
+  /** The `hash_bytes_32` chunks of the merged mint; the circuit derives the asset from them. */
+  readonly mintChunks: readonly [Field, Field];
+  /** Per-proof pad nonce of the output ciphertext, a public input. */
+  readonly outputCiphertextSalt: Field;
   readonly ownerPublicKeyHash: Field;
   readonly userNullifierPublicKey: Field;
   /** Present once the `ProofAuthority` has completed the inputs. */

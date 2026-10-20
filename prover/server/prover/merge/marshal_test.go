@@ -74,13 +74,15 @@ func TestMergeParametersJSONKeys(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId"} {
+	for _, key := range []string{"treeSlots", "outputTreeId", "mintChunks", "outputCiphertextSalt"} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, data)
 		}
 	}
-	if _, ok := fields["privateTxBlinding"]; ok {
-		t.Fatal("privateTxBlinding must not be on the wire; the circuit derives it")
+	for _, key := range []string{"privateTxBlinding", "asset"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("%s must not be on the wire; the circuit derives it", key)
+		}
 	}
 
 	var slots []map[string]json.RawMessage
@@ -131,6 +133,19 @@ func TestMergeParametersRejectMissingUserNullifierSecret(t *testing.T) {
 	var got MergeParameters
 	if err := json.Unmarshal(stripped, &got); err == nil {
 		t.Fatal("expected an omitted userNullifierSecret to be rejected")
+	}
+}
+
+// The mint is exactly two hash_bytes_32 chunks; any other count would leave a
+// circuit signal unassigned or drop part of the mint.
+func TestMergeParametersRejectWrongMintChunkCount(t *testing.T) {
+	for _, chunks := range [][]string{nil, {"0x01"}, {"0x01", "0x02", "0x03"}} {
+		params := sampleParams().CreateMergeParametersJSON()
+		params.MintChunks = chunks
+		var got MergeParameters
+		if err := got.UpdateWithJSON(params); err == nil {
+			t.Fatalf("accepted %d mint chunks", len(chunks))
+		}
 	}
 }
 
@@ -203,6 +218,56 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	}
 }
 
+// The output ciphertext salt is a default-rail input only: the merge-ring
+// circuit has no ciphertext, so a merge-ring request omits the salt and one
+// carrying it is refused, while a default request without it is refused.
+func TestOutputCiphertextSaltIsDefaultRailOnly(t *testing.T) {
+	encode := func(circuitType common.CircuitType) map[string]json.RawMessage {
+		t.Helper()
+		params := sampleParams()
+		params.CircuitType = circuitType
+		data, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatalf("unmarshal to map: %v", err)
+		}
+		return fields
+	}
+	decode := func(fields map[string]json.RawMessage) error {
+		t.Helper()
+		data, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatalf("marshal fields: %v", err)
+		}
+		var params MergeParameters
+		return json.Unmarshal(data, &params)
+	}
+
+	ring := encode(common.MergeRingCircuitType)
+	if _, ok := ring["outputCiphertextSalt"]; ok {
+		t.Fatal("a merge-ring request must not carry the output ciphertext salt")
+	}
+	if err := decode(ring); err != nil {
+		t.Fatalf("merge-ring request without a salt: %v", err)
+	}
+	ring["outputCiphertextSalt"] = json.RawMessage(`"0x1"`)
+	if err := decode(ring); err == nil {
+		t.Fatal("a merge-ring request carrying a salt must be refused")
+	}
+
+	merge := encode(common.MergeCircuitType)
+	if err := decode(merge); err != nil {
+		t.Fatalf("merge request with a salt: %v", err)
+	}
+	delete(merge, "outputCiphertextSalt")
+	if err := decode(merge); err == nil {
+		t.Fatal("a merge request without a salt must be refused")
+	}
+}
+
 func sampleParams() *MergeParameters {
 	inputs := make([]InputParams, defaultTestNInputs)
 	for i := range inputs {
@@ -237,20 +302,21 @@ func sampleParams() *MergeParameters {
 		NullifierRoot: big.NewInt(13),
 	}
 	return &MergeParameters{
-		Inputs:              inputs,
-		Output:              OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
-		TreeSlots:           treeSlots,
-		OutputTreeID:        big.NewInt(11),
-		Asset:               big.NewInt(1),
-		OwnerPkHash:         big.NewInt(0x1212),
-		UserNullifierPk:     big.NewInt(0x3333),
-		UserNullifierSecret: big.NewInt(0x4444),
-		OutputRingDataHash:  big.NewInt(0),
-		ExternalDataHash:    big.NewInt(0x6666),
-		PrivateTxHash:       big.NewInt(0x7777),
-		AllowDummyInputs:    big.NewInt(1),
-		PublicInputHash:     big.NewInt(0x8888),
-		RingProgramID:       big.NewInt(0),
+		Inputs:               inputs,
+		Output:               OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
+		TreeSlots:            treeSlots,
+		OutputTreeID:         big.NewInt(11),
+		MintChunks:           [2]*big.Int{big.NewInt(0x0102), big.NewInt(0x20)},
+		OwnerPkHash:          big.NewInt(0x1212),
+		UserNullifierPk:      big.NewInt(0x3333),
+		UserNullifierSecret:  big.NewInt(0x4444),
+		OutputRingDataHash:   big.NewInt(0),
+		ExternalDataHash:     big.NewInt(0x6666),
+		PrivateTxHash:        big.NewInt(0x7777),
+		AllowDummyInputs:     big.NewInt(1),
+		OutputCiphertextSalt: big.NewInt(0x5a17),
+		PublicInputHash:      big.NewInt(0x8888),
+		RingProgramID:        big.NewInt(0),
 	}
 }
 

@@ -27,7 +27,7 @@ export const ShieldedPoolError = Object.freeze({
   InvalidRingConfig: 7014,
   StaleNullifierRoot: 7015,
   InvalidPda: 7016,
-  MergeDisabled: 7017,
+  MergeEncryptionSchemeMismatch: 7017,
   InvalidUserRecord: 7018,
   InvalidMergeShape: 7019,
   RingAuthorityTransactDisabled: 7020,
@@ -88,6 +88,9 @@ export const ShieldedPoolError = Object.freeze({
   CacheRentRecipientMismatch: 7077,
   ZeroInputNullifier: 7078,
   ZeroOutputUtxoHash: 7079,
+  TreeFeeTooHigh: 7080,
+  TreeCreationMismatch: 7081,
+  NonCanonicalMergeCiphertext: 7082,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

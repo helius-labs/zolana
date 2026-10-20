@@ -21,16 +21,18 @@ export {
 } from "./interface/instructions/index.js";
 export {
   registerInstruction as getRegisterInstructionAsync,
-  setMergingEnabledInstruction as getSetMergingEnabledInstructionAsync,
+  setMergeEncryptionInstruction as getSetMergeEncryptionInstructionAsync,
 } from "./wallet/registry.js";
 export {
   DepositAsset,
+  MergeEncryptionScheme,
   TransactWithdrawal,
   type AssetDeposit,
   type CacheAccess,
   type CreateCacheData,
   type DepositInstructionData,
   type DepositSplAccounts,
+  type MergeOutputEncryption,
   type MergeTransactInstructionData,
   type TransactInstructionData,
   type TreeFeeSchedule,

@@ -18,14 +18,12 @@ import (
 
 func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	payerHash := big.NewInt(0)
-
 	// Fewer inputs/outputs than the shape are allowed (padded with dummies); only
 	// exceeding the shape's capacity is an error.
 	_, err := buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs+1),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs),
-	}, payerHash, proofBuildOptions{})
+	}, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "allows at most 1 inputs, got 2") {
 		t.Fatalf("input arity error = %v", err)
 	}
@@ -33,7 +31,7 @@ func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	_, err = buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs+1),
-	}, payerHash, proofBuildOptions{})
+	}, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "allows at most 2 outputs, got 3") {
 		t.Fatalf("output arity error = %v", err)
 	}
@@ -46,7 +44,7 @@ func TestBuildProofAssignmentRejectsNonCanonicalShape(t *testing.T) {
 	_, err := buildProofAssignment(protocol.Shape{NInputs: 2, NOutputs: 2}, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, 1),
 		Outputs: make([]ProofUtxoRequest, 2),
-	}, big.NewInt(0), proofBuildOptions{})
+	}, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "not canonical") {
 		t.Fatalf("non-canonical shape error = %v", err)
 	}
@@ -67,12 +65,12 @@ func TestBuildProofAssignmentRejectsRingFields(t *testing.T) {
 		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, _, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
 			tc.mutate(&tx)
-			_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), "must be zero") {
 				t.Fatalf("error = %v", err)
 			}
@@ -82,14 +80,14 @@ func TestBuildProofAssignmentRejectsRingFields(t *testing.T) {
 
 func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, _, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tx.Inputs[1].NullifierSecret = proofFieldInput(big.NewInt(999))
 	refreshStateEntry(t, &tx, 1)
 
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		t.Fatalf("distinct nullifier secrets must build: %v", err)
 	}
@@ -157,13 +155,13 @@ func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, _, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
 			tt.mutate(&tx)
 
-			_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}
@@ -621,7 +619,7 @@ func TestProofUtxoRootIndices(t *testing.T) {
 func TestBuildProofAssignmentBindsTreeIDs(t *testing.T) {
 	const inputTreeID, outputTreeID = 7, 11
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, _, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +629,7 @@ func TestBuildProofAssignmentBindsTreeIDs(t *testing.T) {
 		refreshStateEntry(t, &tx, i)
 	}
 
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err != nil {
 		t.Fatalf("build assignment: %v", err)
 	}
@@ -669,7 +667,7 @@ func TestBuildProofAssignmentBindsTreeIDs(t *testing.T) {
 // rebinds the input hash to input_tree_id, so the leaf lookup misses.
 func TestBuildProofAssignmentRejectsStateEntryFromAnotherTree(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, _, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,7 +675,7 @@ func TestBuildProofAssignmentRejectsStateEntryFromAnotherTree(t *testing.T) {
 	// transaction to tree 7 without rehashing must be rejected.
 	tx.InputTreeID = 7
 
-	_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	_, err = buildProofAssignment(shape, tx, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "is not present in state_entries") {
 		t.Fatalf("error = %v", err)
 	}

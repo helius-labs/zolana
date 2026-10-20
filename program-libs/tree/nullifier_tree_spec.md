@@ -35,13 +35,18 @@ The account header also holds the fee schedule and the fee balance:
 | 16 | `fees.append_reimbursement: u64` | lamports paid per applied ZKP batch |
 | 24 | `fees.close_reimbursement: u64` | lamports paid per closed PDA |
 | 32 | `fee_balance: u64` | collected fees not yet paid out |
-| 40 | reserved | 32 bytes |
+| 40 | `live_nullifier_pdas: u64` | nullifier PDAs funded by the tree and not yet closed |
+| 48 | reserved | 24 bytes |
 | 72 | UTXO tree | `UtxoTreeLayout` |
 | 17152 | nullifier tree | `NullifierTreeLayout` |
 
 The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
-overwrites it; neither checks the values. `set_tree_fees` also accepts a
-`PAUSED` tree, so the schedule can be retuned while the write paths are frozen.
+overwrites it. Both reject a `fee_per_nullifier` above `MAX_FEE_PER_NULLIFIER`
+(1,000,000 lamports, `ShieldedPoolError::TreeFeeTooHigh`, 7080). Spends pay the
+tree's rate at execution and the payer does not sign it, so the cap bounds what
+a fee change can charge a payer; neither path checks solvency. `set_tree_fees`
+also accepts a `PAUSED` tree, so the schedule can be retuned while the write
+paths are frozen.
 It is a per-tree parameter, and the default charges nothing (see
 [Fee schedule](#fee-schedule)).
 `TreeFeeSchedule::at_cost` derives the smallest `fee_per_nullifier` satisfying
@@ -132,8 +137,9 @@ PDA = canonical_pda(
 ```
 
 ```rust
-// Fixed 10-byte little-endian layout.
+// Fixed 11-byte little-endian layout.
 struct NullifierPda {
+    discriminator: u8, // 8, `discriminator::NULLIFIER_PDA`
     queue_index: u64,
     tree_id: u16,
 }
@@ -351,7 +357,11 @@ discriminator, in state `INITIALIZED`.
     (`ShieldedPoolError::InvalidReimbursementRecipient`, 7050), checked before
     any state change. A short fee balance pays what it holds and never fails
     the update, so a fee increase cannot stall the queue. A call that only
-    caches or evicts pays nothing.
+    caches or evicts pays nothing. The cascade's whole reimbursement goes to
+    the recipient of the call that triggers it, including updates that other
+    forester workers cached earlier: the cache stores no submitter. Workers
+    that share the forester authority and pay their own transaction fees
+    should split reimbursements among themselves or submit in queue order.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
@@ -452,9 +462,12 @@ discriminator, in state `INITIALIZED`.
 
 For every PDA account:
 
-4. Require a writable, program-owned account of exactly ten bytes, read as
-   little-endian `queue_index` then `tree_id`, with `PDA.queue_index >= 1`
-   (`ShieldedPoolError::InvalidNullifierPda`, 7046).
+4. Require a writable, program-owned account of exactly eleven bytes whose
+   first byte is the nullifier PDA discriminator, read as little-endian
+   `queue_index` then `tree_id`, with `PDA.queue_index >= 1`
+   (`ShieldedPoolError::InvalidNullifierPda`, 7046). Close does not re-derive
+   the address, so without the discriminator it would close any other
+   program-owned account of the same length.
    Queue sequences start at 1, so an all-zero record is an account the
    program never wrote, such as a system-allocated account assigned to the
    program.
@@ -502,7 +515,7 @@ For one full queue batch, with `L` the number of live PDAs:
 K = B / Z
 maintenance_transactions = K + ceil(B / C)
 network_fee = maintenance_transactions * base_fee
-locked_nullifier_pda_rent = L * Rent::minimum_balance(10)
+locked_nullifier_pda_rent = L * Rent::minimum_balance(11)
 ```
 
 With `B = 24_995` and `Z = 4999`, a full batch is 5 append transactions and
@@ -514,8 +527,8 @@ attempts are additional.
 Only the append has a measured compute bound, which tests hold below 500,000
 units at the test batch size.
 
-At the current default rent rate, one ten-byte PDA requires 960,480
-lamports. One full batch locks 24.0071976 SOL, all returned to the tree when its
+At the current default rent rate, one eleven-byte PDA requires 967,440
+lamports. One full batch locks 24.1811628 SOL, all returned to the tree when its
 PDAs are closed.
 
 ### Working capital
@@ -524,7 +537,7 @@ The tree funds every PDA, so at creation it must hold, above its own rent
 exemption:
 
 ```text
-working_capital = 3 * B * Rent::minimum_balance(10)
+working_capital = 3 * B * Rent::minimum_balance(11)
 ```
 
 A PDA cannot be closed before its batch is reclaimable, and reclaimability

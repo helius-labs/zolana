@@ -178,7 +178,7 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	}
 	// A dummy may repeat the shared P256 identity only while a default-ring
 	// P256 input already publishes it; a ring spend keeps it out of the set.
-	dummyIdentities := append(shared.Signers(nil), authorizedEddsa.WithoutPayer()...)
+	dummyIdentities := append(shared.Signers(nil), authorizedEddsa...)
 	dummyIdentities = append(dummyIdentities, c.Public.DefaultP256OwnerPkHash)
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,

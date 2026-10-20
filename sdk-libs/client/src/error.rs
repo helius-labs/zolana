@@ -215,8 +215,8 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
-    #[error("owner {owner} has not enabled the merge service on its user-registry record")]
-    MergeDisabled { owner: Pubkey },
+    #[error("owner {owner}'s merge encryption scheme is disabled or unsupported by this client")]
+    MergeEncryptionSchemeUnsupported { owner: Pubkey },
 
     #[error("merging keypair signing key does not match the owner's registry record")]
     MergeSigningKeyMismatch,
@@ -341,6 +341,12 @@ pub enum ClientError {
 
     #[error("merge output does not match the finalized inputs")]
     MergeOutputMismatch,
+
+    /// The output ciphertext does not encrypt the amount and mint of the
+    /// output the inputs commit to; the request fails before it reaches the
+    /// prover.
+    #[error("merge output ciphertext does not encrypt the output under the owner's key")]
+    MergeOutputCiphertextMismatch,
 
     /// A real input reached the prover request without the secret its owner
     /// proves ownership with, because no

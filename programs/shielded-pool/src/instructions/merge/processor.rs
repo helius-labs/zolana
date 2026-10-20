@@ -9,12 +9,13 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, InputTreeSequence},
     instruction::instruction_data::merge_transact::{
-        MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+        MergeExternalDataHash, MergeOutputEncryption, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::TreeSlot,
 };
 use zolana_tree::TreeAccount;
+use zolana_user_registry_interface::MergeEncryptionScheme;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
@@ -65,6 +66,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     validate_field_elements(&ix)?;
+    if !ix.output_encryption.is_canonical() {
+        return Err(ShieldedPoolError::NonCanonicalMergeCiphertext.into());
+    }
 
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
@@ -74,10 +78,15 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
-    // Per-user merge opt-in: the owner must have enabled merging. Any caller may
-    // then run the merge.
-    if !pk_fields.merging_enabled {
-        return Err(ShieldedPoolError::MergeDisabled.into());
+    // Per-user merge opt-in: the owner must have selected an encryption scheme.
+    // Any caller may then run the merge, but only with that scheme, so a
+    // delegated merger cannot pick a weaker one. A `Disabled` record matches no
+    // instruction's scheme.
+    let scheme = match ix.output_encryption {
+        MergeOutputEncryption::PoseidonCtrV1 { .. } => MergeEncryptionScheme::PoseidonCtrV1,
+    };
+    if pk_fields.merge_encryption != scheme {
+        return Err(ShieldedPoolError::MergeEncryptionSchemeMismatch.into());
     }
 
     let signing_pk_field = pk_fields.signing_pk_field;
@@ -100,6 +109,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Default {
             signing_pk_field,
             nullifier_pk: pk_fields.nullifier_pk,
+            output_encryption: ix.output_encryption,
         },
         cache,
         output_view_tag,
@@ -151,6 +161,7 @@ pub(crate) fn process_merge_core(
         let forester_fee = tree
             .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;
+        tree.record_nullifier_pdas_created(ix.nullifiers.len() as u64);
         (
             InputTreeResult {
                 input_tree: InputTreeSequence {

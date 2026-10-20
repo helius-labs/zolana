@@ -70,9 +70,11 @@ proof's witness, so use it only for a prover you run or trust with it;
 
 ## Merging
 
-A merge turns up to 54 plain UTXOs of one asset on one tree into one. The
-owner enables it once with `set_merging_enabled_instruction(owner, true)`,
-which the owner signs; after that a merge needs no owner signature.
+A merge turns up to 52 plain UTXOs of one asset on one tree into one. The
+owner enables it once by selecting the merge encryption scheme with
+`set_merge_encryption_instruction(owner, MergeEncryptionScheme::PoseidonCtrV1)`,
+which the owner signs; after that a merge with that scheme needs no owner
+signature.
 
 ```rust
 let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
@@ -89,7 +91,7 @@ let signature = submission.send_sync(&client, &fee_payer)?;
 appended to tree 0. Pass the inputs' tree, or the tree the indexer names for
 new outputs when that one is full or paused.
 
-`prove_sync` checks the owner's record (merging enabled, same keys), fetches
+`prove_sync` checks the owner's record (PoseidonCtrV1 selected, same keys), fetches
 the witness, proves and verifies the proof. The proof binds no fee payer, so
 the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)` is
 the `merge_transact` to put in any message, for example a relayer's.
@@ -130,6 +132,13 @@ data by the client. Custom-ring proof environments read it from the prover
 client they are given.
 Both modes support cached spends and merge outputs. The forester selects
 client fetching with `--client-proof-data`.
+
+The cache and its selected slots are public, so a one-input spend that reads
+one slot, publishes no UTXO root and withdraws publicly reveals which cached
+output it spends. Use the cache for short-lived batch work such as merges that
+feed dependent proofs.
+When a spend needs unlinkability, wait for tree inclusion and select no cache
+slot. See "Cache privacy" in `docs/spec.md`.
 
 Prover fetching sends locally prepared inputs to `/prove/<key>/indexed`. The prover
 resolves Merkle paths and root contexts. The SDK binds the returned roots to

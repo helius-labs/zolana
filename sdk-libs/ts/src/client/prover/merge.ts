@@ -1,5 +1,6 @@
 import type {
   Address,
+  Bytes16,
   Bytes32,
   MergeTransactInstructionData,
   RequestContext,
@@ -14,10 +15,11 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import { mergeMintChunks } from "../../transaction/serialization/merge.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
 
-import { CACHE_CAPACITY } from "../../interface/state.js";
+import { CACHE_CAPACITY, MergeEncryptionScheme } from "../../interface/state.js";
 import type {
   MergeCacheTarget,
   ProofReader,
@@ -269,18 +271,36 @@ interface MergePublicInputFields {
   readonly outputTreeId: TreeId;
   readonly privateTxHash: bigint;
   readonly externalDataHash: bigint;
-  /**
-   * The owner binding: the signing and nullifier public keys on the plain
-   * rail, the output ring data hash and ring program id on a ring merge.
-   */
-  readonly owner: readonly [bigint, bigint];
+  readonly binding: MergePublicInputBinding;
 }
+
+/**
+ * What follows the shared seven-element prefix. A default merge binds the
+ * owner's signing and nullifier public keys and its PoseidonCtrV1 output
+ * ciphertext (the salt as a field element, then the three elements). A ring
+ * merge binds the output ring data hash and the ring program id only: SPP
+ * publishes its ciphertext unverified.
+ */
+type MergePublicInputBinding =
+  | Readonly<{
+      kind: "default";
+      ownerPublicKeyHash: bigint;
+      nullifierPublicKey: bigint;
+      outputCiphertextSalt: bigint;
+      outputCiphertext: readonly [bigint, bigint, bigint];
+    }>
+  | Readonly<{
+      kind: "ring";
+      outputRingDataHash: bigint;
+      ringProgramId: bigint;
+    }>;
 
 /**
  * The merge public inputs without the tree slots, which
  * `resolvedPublicInputHash` inserts. The nullifier chain folds to the right
  * over the circuit width; the 1 is the dummy-input policy merge always
- * publishes. Mirrors the element order of Rust `MergeProver::build`.
+ * publishes; the binding follows. Mirrors the element order of Rust
+ * `MergeProver::build`.
  */
 export function mergePublicInputs(input: MergePublicInputFields): readonly bigint[] {
   return [
@@ -290,7 +310,14 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.privateTxHash,
     input.externalDataHash,
     1n,
-    ...input.owner,
+    ...(input.binding.kind === "default"
+      ? [
+          input.binding.ownerPublicKeyHash,
+          input.binding.nullifierPublicKey,
+          input.binding.outputCiphertextSalt,
+          ...input.binding.outputCiphertext,
+        ]
+      : [input.binding.outputRingDataHash, input.binding.ringProgramId]),
   ];
 }
 
@@ -380,24 +407,46 @@ export function prepareMerge(
     "merge owner public key",
   );
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
+  const outputCiphertextSalt = prepared.outputCiphertextSalt();
+  const outputCiphertext = prepared.outputCiphertext();
+  const [ciphertext0, ciphertext1, ciphertext2] = outputCiphertext.map((element) =>
+    bytesField(element, "merge output ciphertext"),
+  );
+  if (ciphertext0 === undefined || ciphertext1 === undefined || ciphertext2 === undefined) {
+    throw new ClientError("CLIENT_INVALID_MERGE");
+  }
+  const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
+  const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
     outputTreeId: prepared.outputTreeId,
     privateTxHash: bytesToBigInt(privateTxHash),
     externalDataHash: bytesToBigInt(externalDataHash),
-    owner:
+    binding:
       prepared.output.ringProgramId === undefined
-        ? [
+        ? {
+            kind: "default",
             ownerPublicKeyHash,
-            bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
-          ]
-        : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
+            nullifierPublicKey: bytesField(
+              prepared.nullifierPublicKey,
+              "merge nullifier public key",
+            ),
+            outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
+            outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
+          }
+        : {
+            kind: "ring",
+            outputRingDataHash: BigInt(output.circuit.ringDataHash),
+            ringProgramId: BigInt(output.circuit.ringProgramId),
+          },
   }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
     outputTreeId: asField(outputTreeIdField),
+    mintChunks,
+    outputCiphertextSalt: asField(bytesToBigInt(outputCiphertextSalt)),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(
       bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
@@ -434,6 +483,15 @@ export function prepareMerge(
           expiryUnixTs,
           proof: copyMergeProof(proof),
           outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
+          outputEncryption: Object.freeze({
+            scheme: MergeEncryptionScheme.PoseidonCtrV1,
+            salt: new Uint8Array(outputCiphertextSalt) as Bytes16,
+            ciphertext: Object.freeze([
+              new Uint8Array(outputCiphertext[0]) as Bytes32,
+              new Uint8Array(outputCiphertext[1]) as Bytes32,
+              new Uint8Array(outputCiphertext[2]) as Bytes32,
+            ] as const),
+          }),
           eddsaOwner,
           privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
           // The trailing compact padding is left out; SPP fills it back in.

@@ -24,7 +24,7 @@ const (
 // Merge instruction data carries no circuit selector: both the prover and the
 // program derive the shape from the declared nullifier count, so every side
 // must agree on which counts exist.
-var SupportedInputCounts = []int{8, 24, 54}
+var SupportedInputCounts = []int{8, 24, 52}
 
 // IsSupportedInputCount reports whether a merge circuit exists for n inputs.
 func IsSupportedInputCount(n int) bool {
@@ -87,7 +87,10 @@ type Transaction struct {
 	Inputs []Input
 	Output Output
 
-	Asset frontend.Variable
+	// MintChunks are the hash_bytes_32 chunks of the merged asset's mint:
+	// bytes 0..31 and byte 31. The asset field is derived from them, so an
+	// output ciphertext can carry the mint itself.
+	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
@@ -97,10 +100,12 @@ type Transaction struct {
 	RingProgramID frontend.Variable
 }
 
-// Derived contains the owner identity a wrapper may publish in its
-// public-input-hash preimage.
+// Derived contains the values an output encryption scheme encrypts or keys on.
 type Derived struct {
-	OwnerPkHash frontend.Variable
+	// OutputAmount is the merged output's amount, the sum of the input amounts.
+	OutputAmount frontend.Variable
+	// FirstNullifier is the first (always real) input's single-use nullifier.
+	FirstNullifier frontend.Variable
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -194,6 +199,8 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		[]frontend.Variable{t.OwnerPkHash, t.UserNullifierPk},
 	)
 
+	asset := gadget.HashChain(api, t.MintChunks[:])
+
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{t.UserNullifierSecret})
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
 	api.AssertIsBoolean(t.Public.AllowDummyInputs)
@@ -217,7 +224,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
 		NullifierSecret: t.UserNullifierSecret,
-		Asset:           t.Asset,
+		Asset:           asset,
 		RingProgramID:   t.RingProgramID,
 		FirstNullifier:  frontend.Variable(0),
 	}
@@ -241,7 +248,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.OutputHash,
 		outputBlinding,
 		userOwnerHash,
-		t.Asset,
+		asset,
 		sumInputs,
 		t.RingProgramID,
 		t.Public.OutputTreeID,
@@ -265,6 +272,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	return Derived{
-		OwnerPkHash: t.OwnerPkHash,
+		OutputAmount:   sumInputs,
+		FirstNullifier: nullifiers[0],
 	}, nil
 }

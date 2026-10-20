@@ -18,6 +18,7 @@ import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
 import { encodeOutputData } from "../src/transaction/serialization/index.js";
 import {
+  MergeEncryptionScheme,
   SHIELDED_POOL_PROGRAM_ID,
   ShieldedKeypair,
   SigningKey,
@@ -30,7 +31,7 @@ import {
   buildDepositTransaction,
   buildKeyUpdateTransaction,
   buildRegistrationTransaction,
-  buildSetMergingEnabledTransaction,
+  buildSetMergeEncryptionTransaction,
   createZolanaClient,
 } from "../src/index.js";
 import {
@@ -273,7 +274,7 @@ describe("public package surface", () => {
   });
 
   it("builds the merging opt-in as an unsigned transaction", async () => {
-    const transaction = await buildSetMergingEnabledTransaction({
+    const transaction = await buildSetMergeEncryptionTransaction({
       client: {
         getLatestBlockhash: vi.fn(async () => ({
           blockhash: BLOCKHASH,
@@ -281,7 +282,7 @@ describe("public package surface", () => {
         })),
       },
       owner: OWNER,
-      enabled: true,
+      scheme: MergeEncryptionScheme.PoseidonCtrV1,
     });
 
     expect(() => assertIsFullySignedTransaction(transaction)).toThrow();
@@ -624,6 +625,7 @@ describe("address and instruction builders", () => {
       payer,
       inputTree: TREE,
       outputTree: OWNER,
+      ownerSigners: [],
       data: {
         expiryUnixTs: 0n,
         privateTxHash: new Uint8Array(32) as Bytes32,

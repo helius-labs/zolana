@@ -1,3 +1,4 @@
+import type { MergeEncryptionScheme } from "../interface/state.js";
 import type { Address, Signature } from "../interface/types.js";
 
 export type Base64String = string & { readonly __base64: unique symbol };
@@ -232,8 +233,11 @@ export interface UserRecord {
   readonly nullifierPubkey: Hash;
   /** SEC1-compressed P256 ECDH viewing pubkey. */
   readonly viewingPubkey: Base64String;
-  /** Opt-in for `merge_transact`: any caller may merge this owner's UTXOs. */
-  readonly mergingEnabled: boolean;
+  /**
+   * Merge opt-in and scheme: `Disabled` (0) refuses `merge_transact`, any other
+   * scheme lets any caller merge this owner's UTXOs with exactly that scheme.
+   */
+  readonly mergeEncryption: MergeEncryptionScheme;
 }
 
 export interface GetUserRecordsResponse {

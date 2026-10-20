@@ -9,7 +9,7 @@ import {
 } from "../src/interface/shape.js";
 
 describe("signerWidth", () => {
-  it("reserves one payer slot plus one owner slot per input up to 30 inputs", () => {
+  it("reserves one slot per input plus one for an owner that pays, up to 30 inputs", () => {
     for (const shape of SPP_SUPPORTED_SHAPES.filter((entry) => entry.inputs <= 30)) {
       expect(signerWidth(shape)).toBe(shape.inputs + 1);
     }

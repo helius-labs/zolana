@@ -1,5 +1,7 @@
 import type { Address } from "@solana/kit";
 
+import type { MergeEncryptionScheme } from "./state.js";
+
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
 };
@@ -281,6 +283,17 @@ export interface RingConfigAccount {
   readonly bump: number;
 }
 
+/**
+ * A merge output's encryption, tagged by its scheme. PoseidonCtrV1 holds the
+ * per-proof salt and the three ciphertext elements: the amount and the two
+ * chunks of the mint.
+ */
+export type MergeOutputEncryption = Readonly<{
+  scheme: (typeof MergeEncryptionScheme)["PoseidonCtrV1"];
+  salt: Bytes16;
+  ciphertext: readonly [Bytes32, Bytes32, Bytes32];
+}>;
+
 export interface MergeTransactInstructionData {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
@@ -289,6 +302,13 @@ export interface MergeTransactInstructionData {
     c: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;
+  /**
+   * The output's amount and mint encrypted for the owner, so the owner rebuilds
+   * the output from this instruction alone. On `merge_transact` its scheme must
+   * equal the owner's registered scheme and the merge proof binds it; a ring
+   * merge carries it unverified.
+   */
+  readonly outputEncryption: MergeOutputEncryption;
   readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];

@@ -1,5 +1,6 @@
 use mollusk_svm::result::Check;
 use solana_account::Account;
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -172,12 +173,12 @@ fn tree_creation_changes_only_the_tree_account() {
         tree_after,
         &Account {
             lamports: expected_lamports,
-            data: vec![0u8; TREE_ALLOCATION_STEP],
+            data: pending_tree_data(TREE_ALLOCATION_STEP, &payer, &ix),
             owner: PROGRAM_ID_PUBKEY,
             executable: false,
             rent_epoch: tree_after.rent_epoch,
         },
-        "first step allocates a zeroed 10 KiB chunk funded with rent plus working capital"
+        "first step allocates a 10 KiB chunk funded with rent plus working capital, zeroed except for its pending-creation record"
     );
     let payer_before = account_named(&accounts, &payer);
     let payer_after = account_named(&result.resulting_accounts, &payer);
@@ -186,6 +187,22 @@ fn tree_creation_changes_only_the_tree_account() {
         expected_lamports,
         "payer funds exactly the tree"
     );
+}
+
+/// A partially allocated tree: zeroed, except for the pending-creation record
+/// (the first step's payer and instruction data) at the utxo tree offset.
+fn pending_tree_data(len: usize, payer: &Pubkey, step: &Instruction) -> Vec<u8> {
+    let mut data = vec![0u8; len];
+    let record: Vec<u8> = payer
+        .to_bytes()
+        .into_iter()
+        .chain(step.data.iter().skip(1).copied())
+        .collect();
+    let offset = zolana_tree::TreeAccount::utxo_tree_offset();
+    data.get_mut(offset..offset + record.len())
+        .expect("record fits the first chunk")
+        .copy_from_slice(&record);
+    data
 }
 
 #[test]
@@ -209,8 +226,14 @@ fn tree_creation_completes_in_two_steps_and_advances_next_tree_id() {
         .create_and_send_default_payer_transaction(partial, &[&pool.authority])
         .expect("first allocation step");
     let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
-    assert_eq!(tree.len(), TREE_ALLOCATION_STEP);
-    assert!(tree.iter().all(|byte| *byte == 0));
+    assert_eq!(
+        tree,
+        pending_tree_data(
+            TREE_ALLOCATION_STEP,
+            &pool.rpc.payer.pubkey(),
+            &create.allocation_step()
+        )
+    );
     assert_eq!(
         zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
         2

@@ -216,10 +216,8 @@ fn dummy_outputs(owner_tag: [u8; 32], output_tree_id: u16) -> Vec<WitnessOutput>
 
 /// A real zero-amount SOL change output owned by `payer_owner` followed by a
 /// dummy that names it. `AssertDummyTags` only accepts a dummy tag that names
-/// an owner signer other than the payer or a real output's owner, and these
-/// fixtures spend a payer-owned note with no other signer, so an all-dummy
-/// output set has no nameable participant. The wallet follows the same rule for
-/// a self-paid transaction with no real output.
+/// an owner signer or a real output's owner. The wallet builds the same change
+/// output for a self-paid transaction with no real output.
 fn change_and_dummy_outputs(
     payer_owner: PublicKey,
     nullifier_pk: [u8; 32],
@@ -432,7 +430,7 @@ fn sol_split_case(reorder_recipients: bool) {
         payer: payer.pubkey(),
         input_trees: vec![env.tree],
         output_tree: env.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
@@ -575,7 +573,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         payer: payer.pubkey(),
         input_trees: vec![env.tree],
         output_tree: env.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
@@ -730,7 +728,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         payer: payer.pubkey(),
         input_trees: vec![env.tree],
         output_tree: env.tree,
-        owner_signers: Vec::new(),
+        owner_signers: vec![payer.pubkey()],
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {

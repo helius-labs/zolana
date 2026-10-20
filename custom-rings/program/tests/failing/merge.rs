@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 
 use crate::common::{
     auditor_pubkey, authority, escrowed_config_account, initialized_config_account, merge_fixture,
-    merge_fixture_with, setup_mollusk,
+    merge_fixture_with, ring_auth_pda, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -43,4 +43,23 @@ fn a_policy_merge_keeps_its_tree_choice() {
     merge_fixture_with(initialized_config_account(authority(), auditor_pubkey(2)))
         .expect_spp_cpi(&mollusk);
     merge_fixture_with(escrowed_config_account()).expect_spp_cpi(&mollusk);
+}
+
+/// A ring PDA cannot sign on entry, so naming `ring_auth` as the merge payer
+/// is rejected.
+#[test]
+fn merge_rejects_ring_auth_as_the_payer() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = merge_fixture();
+    fixture.substitute("payer", ring_auth_pda().0);
+    fixture.unsign("payer");
+    fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
+}
+
+#[test]
+fn merge_rejects_an_unsigned_payer() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = merge_fixture();
+    fixture.unsign("payer");
+    fixture.expect_err(&mollusk, custom(CustomRingError::MissingFundingSigner));
 }

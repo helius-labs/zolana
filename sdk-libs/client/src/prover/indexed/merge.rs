@@ -1,18 +1,17 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_interface::{
-    instruction::{
-        instruction_data::{
-            merge_ring::MergeRingIxData,
-            merge_transact::{
-                merge_circuit_width, MergeExternalDataHash, MergeProof, MergeTransactIxData,
-            },
+use zolana_hasher::primitives::pack_be;
+use zolana_interface::instruction::{
+    instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{
+            merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
+            MergeTransactIxData,
         },
-        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
-    tree_slot::tree_id_field,
+    tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
 };
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::instructions::{
     merge::{
@@ -22,13 +21,14 @@ use zolana_transaction::instructions::{
 };
 
 use super::{
-    hex_field, invalid, invalid_resolution, scalar_one, transfer::SecretField, IndexedCircuit,
-    IndexedLookup, IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree, Request,
+    hex_field, invalid, invalid_resolution, transfer::SecretField, IndexedCircuit, IndexedLookup,
+    IndexedProof, IndexedProofData, IndexedProofRequest, IndexedTree, Request,
 };
 use crate::{
     prover::{
-        field::right_align_slice,
+        field::{right_align, right_align_slice},
         json::MergeOutputParamsJson,
+        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
@@ -93,6 +93,7 @@ impl IndexedMergePreparation {
         if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
             return Err(invalid());
         }
+        check_output_ciphertext(&merge, &nullifier_key, &first_nullifier)?;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
@@ -190,24 +191,33 @@ impl IndexedMergePreparation {
             &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
         )
         .hash()?;
-        let public_inputs = vec![
-            create_padded_right_hash_chain_4(&nullifiers, nullifiers.len())?,
+        let salt = right_align(&merge.output_ciphertext_salt);
+        let public_inputs = MergePublicInputs {
+            nullifiers: &nullifiers,
             output_hash,
-            tree_id_field(merge.output_tree_id),
-            private,
-            external,
-            scalar_one(),
-            if merge.ring_program_id.is_some() {
-                ring_data_hash
+            output_tree_id: merge.output_tree_id,
+            private_tx_hash: private,
+            external_data_hash: external,
+            allow_dummy_inputs: true,
+            binding: if merge.ring_program_id.is_some() {
+                MergePublicInputBinding::Ring {
+                    output_data_hash: ring_data_hash,
+                    program_id_hash: ring_hash,
+                }
             } else {
-                owner_pk_hash
+                MergePublicInputBinding::Owner {
+                    signing_key_hash: owner_pk_hash,
+                    nullifier_public_key: nullifier_pk,
+                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                        salt: merge.output_ciphertext_salt,
+                        ciphertext: merge.output_ciphertext,
+                    },
+                }
             },
-            if merge.ring_program_id.is_some() {
-                ring_hash
-            } else {
-                nullifier_pk
-            },
-        ];
+        }
+        .elements(None)?;
+        let [mint_chunk_0, mint_chunk_1] =
+            pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
         let witness = PreparedMergeJson {
             circuit_type: if merge.ring_program_id.is_some() {
                 IndexedCircuit::MergeRing
@@ -220,7 +230,8 @@ impl IndexedMergePreparation {
                 hash: hex_field(&output_hash),
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
-            asset: hex_field(&output.utxo.asset),
+            mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
+            output_ciphertext_salt: merge.ring_program_id.is_none().then(|| hex_field(&salt)),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -249,6 +260,10 @@ impl IndexedMergePreparation {
                 c: [0; 32],
             },
             output_utxo_hash: output_hash,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: merge.output_ciphertext_salt,
+                ciphertext: merge.output_ciphertext,
+            },
             nullifiers: without_compact_padding(&nullifiers).to_vec(),
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
@@ -336,7 +351,10 @@ struct PreparedMergeJson {
     inputs: Vec<PreparedMergeInputJson>,
     output: MergeOutputParamsJson,
     output_tree_id: String,
-    asset: String,
+    mint_chunks: [String; 2],
+    /// Default merge rail only; the merge-ring circuit has no ciphertext.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_ciphertext_salt: Option<String>,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -410,7 +428,7 @@ mod tests {
                 .get("statePathElements")
                 .is_none());
             assert_eq!(body["inputs"][1]["commitment"], serde_json::Value::Null);
-            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 8);
+            assert_eq!(body["publicInputs"].as_array().unwrap().len(), 12);
             assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
         }
     }

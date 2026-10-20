@@ -1,10 +1,10 @@
-use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 
 use super::ConfidentialTransaction;
 use crate::{
     error::TransactionError,
+    field::field_sub,
     instructions::transact::{SettlementTransfer, SppProofInputs},
     Mint, SOL_MINT,
 };
@@ -132,20 +132,12 @@ pub const BN254_MODULUS_DEC: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
 pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
-    if amount == 0 {
-        return [0u8; 32];
-    }
-    let magnitude = BigUint::from(amount);
-    let field = if is_deposit {
+    let magnitude = zolana_hasher::primitives::right_align(&amount.to_be_bytes());
+    if is_deposit {
         magnitude
     } else {
-        BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("valid BN254 modulus literal")
-            - magnitude
-    };
-    let bytes = field.to_bytes_be();
-    let mut out = [0u8; 32];
-    out[32 - bytes.len()..].copy_from_slice(&bytes);
-    out
+        field_sub(&[0u8; 32], &magnitude)
+    }
 }
 
 pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {

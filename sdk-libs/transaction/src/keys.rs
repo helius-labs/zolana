@@ -25,7 +25,7 @@ use zolana_keypair::{
 use crate::{
     error::TransactionError,
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
+        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
     },
 };
 
@@ -52,7 +52,8 @@ pub struct DecryptRequest<'a> {
 
 /// Every value the protocol derives from the nullifier secret. `Nullifier`
 /// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers,
-/// its output blinding, and its private-transaction blinding.
+/// its output blinding, its private-transaction blinding, and the per-merge
+/// key of its output ciphertext.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeriveRequest {
     Nullifier {
@@ -67,6 +68,9 @@ pub enum DeriveRequest {
         first_nullifier: [u8; 32],
     },
     MergePrivateTxBlinding {
+        first_nullifier: [u8; 32],
+    },
+    MergeOutputKey {
         first_nullifier: [u8; 32],
     },
 }
@@ -191,6 +195,9 @@ impl ShieldedKeys for LocalShieldedKeys {
                 }
                 DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
                     merge_private_tx_blinding(&self.nullifier, first_nullifier)
+                }
+                DeriveRequest::MergeOutputKey { first_nullifier } => {
+                    merge_output_key(&self.nullifier, first_nullifier)
                 }
             })
             .collect()

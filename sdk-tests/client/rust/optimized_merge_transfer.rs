@@ -32,7 +32,7 @@ use zolana_user_registry_interface::user_record_pda;
 /// The most inputs one merge can spend while the cache creation rides in the
 /// same 4,096-byte transaction: each input adds its nullifier and its nullifier
 /// PDA. The merge proves on the `MAX_MERGE_INPUTS` circuit, compact-padded.
-const UTXO_COUNT: usize = 53;
+const UTXO_COUNT: usize = 51;
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const TRANSFER_AMOUNT: u64 = 500_000_000;
 /// Distinguishes this cache from any other the sponsor holds; the address is
@@ -44,7 +44,7 @@ const CACHE_EXPIRES_AT: i64 = 2_000_000_000;
 /// The slot this merge writes its output commitment into. With several merges
 /// each takes its own slot of the same cache.
 const CACHE_SLOT: u8 = 0;
-/// A 53-input merge costs about 300,000 compute units, most of it the 53
+/// A 51-input merge costs about 300,000 compute units, most of it the 51
 /// nullifier PDAs.
 const MERGE_CU_LIMIT: u32 = 400_000;
 
@@ -88,7 +88,7 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 /// The critical path is `max(merge proof + merge lands, transfer proof)`
 /// instead of `merge proof + merge lands + indexing + transfer proof`.
 fn main() -> Result<()> {
-    // A registered sender whose private balance sits in 53 separate UTXOs, plus
+    // A registered sender whose private balance sits in 51 separate UTXOs, plus
     // a rent sponsor for the cache account.
     let MergeScenario {
         rpc_url,
@@ -286,7 +286,9 @@ fn main() -> Result<()> {
         payer: sender.pubkey(),
         input_trees: vec![tree],
         output_tree: tree,
-        owner_signers: Vec::new(),
+        // The sender owns the merged note and also pays, so it signs as an
+        // owner too.
+        owner_signers: vec![sender.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transfer.with_proof(ProofCompressed::try_from(transfer_proof)?.to_transact_proof()),
     }

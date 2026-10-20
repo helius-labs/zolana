@@ -143,7 +143,9 @@ func (s Shape) IsSupported() bool {
 }
 
 // SignerWidth is the public signer vector length on the signature-requiring
-// rails: the payer plus OwnerSignerSlots. The ring authority rail uses 1.
+// rails: the deduplicated owner signers (OwnerSignerSlots, plus one for an
+// owner that also pays the fee), zero-padded. The ring authority rail holds
+// its payer in a vector of width 1.
 func (s Shape) SignerWidth() int {
 	return OwnerSignerSlots(s.NInputs) + 1
 }

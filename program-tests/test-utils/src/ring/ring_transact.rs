@@ -963,12 +963,17 @@ impl RingHarness {
             None,
         )?;
 
+        let owner_signers = proof_inputs
+            .owner_signer_pubkeys()?
+            .iter()
+            .map(|address| Pubkey::new_from_array(address.to_bytes()))
+            .collect();
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
             input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
-            owner_signers: Vec::new(),
+            owner_signers,
             interface_transfer_accounts: Vec::new(),
             data,
         }
@@ -1232,7 +1237,7 @@ impl RingHarness {
 /// Assemble the `TransactIxData` from the signed transaction's external data and
 /// the prover result, mirroring `client::prover::transact::witness::assemble`. Each
 /// padded input carries its nullifier hash and root indices; authorization comes
-/// from the leading signer run in the accounts array (payer first), not from any
+/// from the leading owner-signer run in the accounts array, not from any
 /// per-input field. `external_data` fields flow through unchanged (already
 /// rebound to `RING_TRANSACT`).
 #[allow(clippy::too_many_arguments)]

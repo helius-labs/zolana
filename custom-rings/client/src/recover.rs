@@ -1,21 +1,25 @@
 //! Rebuilds a source member's unspent ring notes from the auditor's visibility.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     num::{NonZeroU32, NonZeroUsize},
 };
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
 use zolana_client::{IndexerRpcConfig, Rpc};
-use zolana_event::EncryptedRingDepositOutput;
+use zolana_event::{
+    split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding, MERGE_OUTPUT_SCHEME,
+};
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
-    instructions::merge::{merge_circuit_width, merge_dummy_nullifier, merge_output_blinding},
-    AssetRegistry, Data, OutputContext, ShieldedTransaction, Utxo, WalletUtxo,
+    instructions::merge::{
+        merge_circuit_width, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
+    },
+    AssetRegistry, Data, OutputContext, ShieldedTransaction, TransactionError, Utxo, WalletUtxo,
 };
 
 use crate::{
@@ -81,6 +85,9 @@ pub struct RecoveredNotes {
     pub unopened: Vec<[u8; 32]>,
     /// Tagged deposits with unknown ownership and spentness.
     pub unsupported_deposits: Vec<[u8; 32]>,
+    /// Mints of merge outputs the asset registry has no id for; those merges
+    /// stay in `unopened`. Register the mints and recover again.
+    pub unknown_mints: BTreeSet<Address>,
 }
 
 impl<'a> RingRecovery<'a> {
@@ -242,6 +249,7 @@ impl<'a> MemberRecovery<'a> {
         // 3. Disclosed deposits are found without trusting their recipient view
         // tags.
         let mut unsupported_deposits = Vec::new();
+        let mut unknown_mints = BTreeSet::new();
         let source_owner_hash = self.source.address.owner_hash()?;
         let bootstrap_tag = self.source.address.viewing_pubkey.x();
         for deposit in (DepositHistory {
@@ -383,16 +391,26 @@ impl<'a> MemberRecovery<'a> {
                     continue;
                 }
                 let tree_id = output.tree_id;
-                if let Some(candidate) = (MergeOpening {
+                let rebuilt = (MergeOutputDecryption {
                     source: &self.source,
                     transaction,
-                    candidates: &candidates,
+                    assets,
+                    ring_program_id: self.recovery.ring_program_id,
                     tree_id,
                 })
-                .rebuild()?
-                {
-                    seen.insert(output.hash);
-                    candidates.push(candidate);
+                .rebuild();
+                match rebuilt {
+                    Ok(Some(candidate)) => {
+                        seen.insert(output.hash);
+                        candidates.push(candidate);
+                    }
+                    Ok(None) => {}
+                    // A mint the registry lacks leaves this merge undecrypted and
+                    // is reported, rather than failing the whole recovery.
+                    Err(RecoveryError::Transaction(TransactionError::UnknownMint(mint))) => {
+                        unknown_mints.insert(mint);
+                    }
+                    Err(error) => return Err(error),
                 }
             }
             if previous_count == candidates.len() {
@@ -424,6 +442,7 @@ impl<'a> MemberRecovery<'a> {
             utxos,
             unopened,
             unsupported_deposits,
+            unknown_mints,
         })
     }
 }
@@ -557,62 +576,47 @@ impl<I: Rpc> SpendHistory<'_, I> {
     }
 }
 
-struct MergeOpening<'a, 'b> {
+struct MergeOutputDecryption<'a, 'b> {
     source: &'a SourceMember<'b>,
     transaction: &'a ShieldedTransaction,
-    candidates: &'a [WalletUtxo],
+    assets: &'a AssetRegistry,
+    ring_program_id: Address,
     tree_id: u16,
 }
 
-impl MergeOpening<'_, '_> {
+impl MergeOutputDecryption<'_, '_> {
+    /// Decrypts a ring merge's output from its own transaction, so the owner
+    /// needs none of the merge's inputs. SPP publishes the ring merge
+    /// ciphertext unverified, so the output is accepted only when the
+    /// decrypted note reproduces the output commitment; a merge whose
+    /// ciphertext does not stays unopened.
     fn rebuild(self) -> Result<Option<WalletUtxo>, RecoveryError> {
         let transaction = self.transaction;
         let Some(first_nullifier) = transaction.nullifiers.first() else {
             return Ok(None);
         };
-        let Some(first) = self
-            .candidates
-            .iter()
-            .find(|note| note.nullifier == *first_nullifier)
-        else {
+        let Some(slot) = transaction.output_slots.first() else {
             return Ok(None);
         };
-        let mut amount = 0u64;
-        for (index, nullifier) in transaction.nullifiers.iter().enumerate() {
-            if *nullifier
-                == merge_dummy_nullifier(self.source.nullifier_key, first_nullifier, index as u8)?
-            {
-                continue;
-            }
-            let Some(note) = self
-                .candidates
-                .iter()
-                .find(|note| note.nullifier == *nullifier)
-            else {
-                return Ok(None);
-            };
-            if note.utxo.asset != first.utxo.asset
-                || note.utxo.ring_program_id != first.utxo.ring_program_id
-                || note.data_hash.is_some_and(|hash| hash != [0; 32])
-            {
-                return Ok(None);
-            }
-            amount = amount
-                .checked_add(note.utxo.amount)
-                .ok_or(zolana_transaction::TransactionError::SelectedBalanceOverflow)?;
-        }
-        let slot = &transaction.output_slots[0];
-        let Ok(ring_data_hash) = <[u8; 32]>::try_from(slot.payload.as_slice()) else {
+        let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
             return Ok(None);
         };
-        let utxo = Utxo {
-            owner: self.source.address.signing_pubkey,
-            asset: first.utxo.asset,
-            amount,
-            blinding: merge_output_blinding(self.source.nullifier_key, first_nullifier)?,
-            ring_program_id: first.utxo.ring_program_id,
-            data: Data::default(),
+        let Some((&MERGE_OUTPUT_SCHEME, body)) = blob.split_first() else {
+            return Ok(None);
         };
+        let Some((Some(&ring_data_hash), encrypted)) = split_merge_output_body(body) else {
+            return Ok(None);
+        };
+        let key = merge_output_key(self.source.nullifier_key, first_nullifier)?;
+        let Ok(plaintext) = MergeOutputPlaintext::decrypt(encrypted, &key) else {
+            return Ok(None);
+        };
+        let utxo = plaintext.into_utxo(
+            self.source.address.signing_pubkey,
+            self.assets.mint(&plaintext.mint)?,
+            merge_output_blinding(self.source.nullifier_key, first_nullifier)?,
+            Some(self.ring_program_id),
+        );
         if utxo.hash(
             &self.source.address.nullifier_pubkey,
             &[0; 32],

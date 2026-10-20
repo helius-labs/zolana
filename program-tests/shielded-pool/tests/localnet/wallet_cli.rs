@@ -278,13 +278,13 @@ impl BalanceOutput {
 }
 
 struct SetMergingOutput {
-    enabled: bool,
+    scheme: String,
 }
 
 impl SetMergingOutput {
     fn parse(output: &str) -> Result<Self> {
         Ok(Self {
-            enabled: StatusLine::parse(output, "set_merging")?.field("enabled")?,
+            scheme: StatusLine::parse(output, "set_merging")?.field("scheme")?,
         })
     }
 }
@@ -620,7 +620,8 @@ fn phase_merge_split_notes(env: &CycleEnv) -> Result<()> {
         &cli_env,
     )?;
     assert!(
-        merge_before_opt_in.contains("has not enabled the merge service"),
+        merge_before_opt_in
+            .contains("merge encryption scheme is disabled or unsupported by this client"),
         "merge should require explicit opt-in: {merge_before_opt_in}"
     );
 
@@ -633,7 +634,10 @@ fn phase_merge_split_notes(env: &CycleEnv) -> Result<()> {
         ],
         &cli_env,
     )?;
-    assert!(SetMergingOutput::parse(&set_merging_out)?.enabled);
+    assert_eq!(
+        SetMergingOutput::parse(&set_merging_out)?.scheme,
+        "PoseidonCtrV1"
+    );
 
     let merge_out = run_cli_with_env(
         &["merge", "--keypair", &env.bob_keypair.display().to_string()],

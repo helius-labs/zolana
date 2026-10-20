@@ -3,6 +3,7 @@ import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
+  mergeOutputKey,
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -18,6 +19,7 @@ import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
+import { encryptMergeOutput, type MergeOutputCiphertext } from "../serialization/merge.js";
 import {
   ProofInputUtxo,
   checkedTreeId,
@@ -59,6 +61,8 @@ export class PreparedMerge {
   readonly outputTreeId: TreeId;
   readonly #dummyNullifiers: readonly Bytes32[];
   readonly #privateTxBlinding: Bytes32;
+  readonly #outputCiphertextSalt: Bytes16;
+  readonly #outputCiphertext: MergeOutputCiphertext;
 
   constructor(
     input: Readonly<{
@@ -75,6 +79,14 @@ export class PreparedMerge {
       dummyNullifiers: readonly Bytes32[];
       /** `mergePrivateTxBlinding(firstNullifier)`. */
       privateTxBlinding: Bytes32;
+      /** Fresh per proof; the pad nonce of `outputCiphertext`. */
+      outputCiphertextSalt: Bytes16;
+      /**
+       * `encryptMergeOutput` of the output's amount and mint under
+       * `mergeOutputKey(firstNullifier)`. The proof binds it, so the owner
+       * rebuilds the output from the merge transaction alone.
+       */
+      outputCiphertext: MergeOutputCiphertext;
       outputTreeId: TreeId;
     }>,
   ) {
@@ -145,6 +157,25 @@ export class PreparedMerge {
       32,
       "merge private tx blinding",
     );
+    this.#outputCiphertextSalt = checked<Bytes16>(
+      input.outputCiphertextSalt,
+      16,
+      "merge output ciphertext salt",
+    );
+    if (input.outputCiphertext.length !== 3) {
+      throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+        field: "outputCiphertext",
+        expected: 3,
+        actual: input.outputCiphertext.length,
+      });
+    }
+    const [ciphertext0, ciphertext1, ciphertext2] = input.outputCiphertext.map((element) =>
+      checked<Bytes32>(element, 32, "merge output ciphertext"),
+    );
+    if (ciphertext0 === undefined || ciphertext1 === undefined || ciphertext2 === undefined) {
+      throw new TransactionError("TRANSACTION_INVALID_LENGTH", { field: "outputCiphertext" });
+    }
+    this.#outputCiphertext = Object.freeze([ciphertext0, ciphertext1, ciphertext2] as const);
     this.outputTreeId = checkedTreeId(input.outputTreeId);
   }
 
@@ -166,6 +197,19 @@ export class PreparedMerge {
 
   privateTxBlinding(): Bytes32 {
     return new Uint8Array(this.#privateTxBlinding) as Bytes32;
+  }
+
+  outputCiphertextSalt(): Bytes16 {
+    return new Uint8Array(this.#outputCiphertextSalt) as Bytes16;
+  }
+
+  outputCiphertext(): MergeOutputCiphertext {
+    const [ciphertext0, ciphertext1, ciphertext2] = this.#outputCiphertext;
+    return Object.freeze([
+      new Uint8Array(ciphertext0) as Bytes32,
+      new Uint8Array(ciphertext1) as Bytes32,
+      new Uint8Array(ciphertext2) as Bytes32,
+    ] as const);
   }
 
   /** The slots the padding fills, in order; what `dummyNullifiers` was derived for. */
@@ -247,6 +291,10 @@ export class Merge {
       privateTxBlinding: Bytes32;
       /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
       dummyNullifiers: readonly Bytes32[];
+      /** `mergeOutputKey(firstNullifier)`, the key of the output ciphertext. */
+      outputKey: Bytes32;
+      /** The pad nonce of the output ciphertext; a fresh random salt by default. */
+      outputCiphertextSalt?: Bytes16;
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
     }>,
@@ -287,6 +335,22 @@ export class Merge {
     const inputTreeId = singleInputTreeId(inputs);
     const padded = [...inputs];
     while (padded.length < width) padded.push(ProofInputUtxo.compact(inputTreeId));
+    const outputCiphertextSalt = checked<Bytes16>(
+      input.outputCiphertextSalt ?? randomSalt(),
+      16,
+      "merge output ciphertext salt",
+    );
+    const outputKey = checked<Bytes32>(input.outputKey, 32, "merge output key");
+    let outputCiphertext: MergeOutputCiphertext;
+    try {
+      outputCiphertext = encryptMergeOutput(
+        { amount, mint: asset },
+        outputKey,
+        outputCiphertextSalt,
+      );
+    } finally {
+      outputKey.fill(0);
+    }
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
@@ -308,6 +372,8 @@ export class Merge {
       nullifierPublicKey: address.nullifierPublicKey,
       dummyNullifiers: input.dummyNullifiers,
       privateTxBlinding: input.privateTxBlinding,
+      outputCiphertextSalt,
+      outputCiphertext,
       outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
     });
   }
@@ -322,7 +388,9 @@ export class Merge {
     if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const firstNullifier = first.nullifier();
     const nullifierKey = keypair.nullifierKey();
+    let outputKey: Bytes32 | undefined;
     try {
+      outputKey = mergeOutputKey(nullifierKey, firstNullifier);
       return new Merge({
         address: keypair.shieldedAddress(),
         inputs,
@@ -331,9 +399,11 @@ export class Merge {
         dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
           mergeDummyNullifier(nullifierKey, firstNullifier, slot),
         ),
+        outputKey,
         outputTreeId,
       });
     } finally {
+      outputKey?.fill(0);
       nullifierKey.destroy();
     }
   }
@@ -351,6 +421,8 @@ export class Merge {
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
+      outputCiphertextSalt: this.#prepared.outputCiphertextSalt(),
+      outputCiphertext: this.#prepared.outputCiphertext(),
       outputTreeId: this.#prepared.outputTreeId,
     });
     return this;
@@ -366,6 +438,8 @@ export class Merge {
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
       dummyNullifiers: this.#prepared.dummyNullifiers(),
       privateTxBlinding: this.#prepared.privateTxBlinding(),
+      outputCiphertextSalt: this.#prepared.outputCiphertextSalt(),
+      outputCiphertext: this.#prepared.outputCiphertext(),
       outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;
