@@ -56,6 +56,7 @@ export type {
   CustomRingDepositProofRequest,
   CustomRingMergeAnonymousProofRequest,
   CustomRingMergeSlot,
+  RingMergeRegistryProof,
   WalletKeys,
 } from "@heliuslabs/zolana/client";
 export { outflowLimitsOff } from "@heliuslabs/zolana/client";

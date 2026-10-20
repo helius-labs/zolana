@@ -17,7 +17,9 @@ import type {
   CustomRingMergeSlot,
   CustomRingRecordWitness,
   CustomRingSourceOwner,
+  MergeAssembler,
   Prover,
+  RingMergeRegistryProof,
 } from "../src/client/index.js";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
@@ -116,6 +118,9 @@ describe("public package surface", () => {
     expectTypeOf<
       CustomRingMergeAnonymousProofRequest["memberRecord"]
     >().toEqualTypeOf<CustomRingRecordWitness>();
+    expectTypeOf<
+      NonNullable<Parameters<MergeAssembler["proveMerge"]>[0]["ringRegistry"]>
+    >().toEqualTypeOf<RingMergeRegistryProof>();
   });
 
   it("creates the default client and initializes protocol crypto", async () => {

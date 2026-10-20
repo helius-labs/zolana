@@ -17,6 +17,7 @@ merge transaction alone.
 
 Breaking
 
+- `Prover` and `RingMergeClient` require `proveCustomRingMergeAnonymous` → a custom `Prover` implements it, `ZolanaClient` already does.
 - `AuditedMergeRecord.nullifier` is absent for a merge of an anonymous ring, which carries the disclosed spent commitments in `inputCommitments` instead → read the nullifier only when it is set.
 - `SignatureType` no longer includes `"p256"`, and `SigningKey.generate` and `ShieldedKeypair.generate` accept only `"ed25519"` → derive PDA owners from their program and keep `P256ReaderKey` for passkey audit access.
 - `@heliuslabs/zolana/ring` leaves circuit codecs, registry proof helpers and policy primitives in `@heliuslabs/zolana/ring/advanced` → import those low-level helpers from the advanced subpath.
@@ -177,6 +178,7 @@ Breaking
 
 Added
 
+- `/zolana/client` exports `CustomRingMergeAnonymousProofRequest` and `CustomRingMergeSlot`, the request `Prover.proveCustomRingMergeAnonymous` takes to prove an anonymous ring merge, and `RingMergeRegistryProof`, the registry proof `MergeAssembler.proveMerge` takes.
 - `buildRingMergeTransaction` merges notes in an anonymous ring from a `nullifierKey`, opening the member record without an escrowed key and proving the auditor disclosure of the merged note, and refuses a merge wider than 24 inputs with `RING_ANONYMOUS_MERGE_TOO_WIDE` and a missing key with `RING_ANONYMOUS_NULLIFIER_KEY_REQUIRED`.
 - `syncWallet` given `anonymousRing: AnonymousRingState` and keys with `ringViewTags` walks the recipient's inbox, pair, deposit and change streams of an anonymous ring by exact tags, stores the scheme-9 notes whose commitments match, and returns `SyncReport.anonymousRing` with the notes, the new counterparties, the next index per stream and the addresses under spam.
 - `RingTagKeys` extends `ShieldedKeys` with `ringViewTags`, answered by `LocalShieldedKeys` and `LocalKeys`, and `RingTagRequest` names one inbox, pair, deposit or change tag.
@@ -274,6 +276,7 @@ Changed
 
 Fixed
 
+- `proveAnonymousRingTransfer` treated every output owned by the sender's signing key as change, so a payment to the sender's own `RingAddress` published a change tag and a payment to an address with another viewing key failed with `TRANSACTION_ANONYMOUS_SLOT_MISMATCH`, now each `AnonymousRingPayment` takes its address's inbox or pair tag and is sealed to that address's viewing key, and only an unpaid output owned by the sender's full address is change.
 - `syncWallet` aborted on an anonymous note whose pair hint is a low-order X25519 key, now the note is kept and the hint is reported in `badPairHints`. `auditRingTransaction` reports the same hint as a `pairHint` payload error. It also checked every output against tree 0, so a merge into another tree failed with `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` or was dropped, now each output is checked against its indexed tree id.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.

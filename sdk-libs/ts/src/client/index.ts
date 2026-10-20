@@ -40,6 +40,7 @@ export type {
   RingMemberRecordsResponse,
   RingIndexedMemberRecordView,
   RingSealedNullifierKey,
+  RingMergeRegistryProof,
   RingMemberRegistryReader,
   RingMemberRegistryTip,
   RingMemberProofRequest,
