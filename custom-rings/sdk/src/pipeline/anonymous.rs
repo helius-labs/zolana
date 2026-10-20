@@ -70,7 +70,7 @@ pub struct Anonymous<'a> {
 pub enum AnonymousRecipient {
     /// A first payment, on the inbox stream of the shared address.
     Address(RingAddress),
-    /// A recipient paid or received from before, on the pair stream toward its viewing key.
+    /// A paired tag reaches the recipient only after an inbox payment from the same sender established the pair.
     Paired(RingAddress),
 }
 

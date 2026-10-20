@@ -318,6 +318,13 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
     );
 }
 
+fn disclosed_owner_hash(owner_key: [u8; 32], nullifier_pk: &[u8; 32]) -> [u8; 32] {
+    let mut tagged_key = [SOLANA_OWNER_TAG; 33];
+    tagged_key[1..].copy_from_slice(&owner_key);
+    let identity = hash_bytes(&tagged_key).expect("owner identity");
+    Poseidon::hashv(&[&identity, nullifier_pk]).expect("owner hash")
+}
+
 /// One real anonymous slot, the body sealed to `recipient` as the sender does.
 struct AnonymousFixture {
     auditor: X25519Keypair,
@@ -334,10 +341,7 @@ fn anonymous_fixture() -> AnonymousFixture {
     let ring = Address::new_from_array([9u8; 32]);
     let owner_key = [4u8; 32];
     let nullifier_pk = field(7);
-    let mut tagged_key = [SOLANA_OWNER_TAG; 33];
-    tagged_key[1..].copy_from_slice(&owner_key);
-    let identity = hash_bytes(&tagged_key).expect("owner identity");
-    let owner_hash = Poseidon::hashv(&[&identity, &nullifier_pk]).expect("owner hash");
+    let owner_hash = disclosed_owner_hash(owner_key, &nullifier_pk);
     let note = RingAnonymousOutputPlaintext {
         asset_address: SOL_MINT.to_bytes(),
         amount: 42,
@@ -492,6 +496,94 @@ fn a_bad_anonymous_pair_hint_keeps_the_output() {
     );
     assert_eq!(audited.outputs.len(), 1);
     assert_eq!(audited.output_openings, vec![fixture.opening.clone()]);
+}
+
+/// A scheme 3 exit of an anonymous ring opens from the disclosed owner and the confidential body.
+#[test]
+fn an_anonymous_exit_is_audited_as_a_default_ring_output() {
+    let auditor = X25519Keypair::new();
+    let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
+    let owner_key = [5u8; 32];
+    let nullifier_pk = field(9);
+    let exit = plaintext(TOKEN_ASSET_ID, 77, 0x23);
+    let opening = ProofInputUtxo::new(
+        disclosed_owner_hash(owner_key, &nullifier_pk),
+        &TOKEN_MINT,
+        exit.amount,
+        &exit.blinding,
+        TREE_ID,
+    )
+    .expect("exit opening");
+    let encoded = Confidential::encode_plaintext(
+        &exit,
+        owner_key,
+        &ConfidentialEncode {
+            tx: tx_key.clone(),
+            recipient_pubkey: recipient.pubkey(),
+            salt: SALT,
+            slot_index: 0,
+        },
+    )
+    .expect("encode exit slot");
+    let slot = OutputSlot {
+        view_tag: encoded.view_tag,
+        output_context: output_context(&opening, 0),
+        payload: encoded.data,
+    };
+    let disclosed = |owner_key| AnonymousDisclosure {
+        sender: [3; 32],
+        inputs: vec![AuditInputOpening::default()],
+        outputs: vec![AnonymousOutputOpening {
+            identity_tag: SOLANA_OWNER_TAG,
+            identity_key: owner_key,
+            nullifier_pk,
+            viewing_pk: *recipient.pubkey().as_bytes(),
+        }],
+    };
+    let audit = |disclosure: &AnonymousDisclosure| {
+        let sealed =
+            AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, disclosure)
+                .expect("auditor capsule");
+        let tx = transaction(
+            &tx_key,
+            vec![slot.clone()],
+            vec![sealed.message.to_message_data(&auditor.pubkey())],
+        );
+        TransactionAudit {
+            auditor: &auditor,
+            transaction: &tx,
+            assets: &registry(),
+        }
+        .run_with_mode(RingMode::Anonymous)
+        .expect("anonymous audit")
+    };
+
+    let audited = audit(&disclosed(owner_key));
+    assert_eq!(audited.payload_errors, vec![]);
+    assert_eq!(audited.output_openings, vec![opening]);
+    assert_eq!(
+        audited.outputs,
+        vec![AuditedOutput {
+            slot_index: 0,
+            recipient_viewing_pk: recipient.pubkey(),
+            owner_tag: owner_key,
+            asset: TOKEN_MINT,
+            amount: 77,
+            blinding: Zeroizing::new(field(0x23)),
+            ring_program_id: None,
+            data: Data::default(),
+        }]
+    );
+
+    // The proven owner decides, a body under another disclosed owner opens nothing.
+    let audited = audit(&disclosed([6u8; 32]));
+    assert_eq!(
+        audited.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::Commitment)]
+    );
+    assert_eq!(audited.output_openings, vec![ProofInputUtxo::default()]);
+    assert!(audited.outputs.is_empty());
 }
 
 #[test]
