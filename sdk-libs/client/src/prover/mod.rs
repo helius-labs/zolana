@@ -15,7 +15,6 @@ pub mod ring_authority;
 pub mod tee;
 pub mod timing;
 pub mod transact;
-mod utxo;
 pub(crate) mod verify;
 pub mod witness;
 
@@ -44,8 +43,8 @@ pub use transact::{
     RingTransferProofResult, RingTransferProver, TransferInputUtxo, TransferProofResult,
     TransferProver,
 };
-pub use utxo::ProofInputUtxo;
 pub use verify::{
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,
 };
 pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};
+pub use zolana_transaction::utxo::ProofInputUtxo;

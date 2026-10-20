@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use zolana_instruction::instruction::{CloseCache, CreateCache};
 use zolana_interface::{
     instruction::{
         CacheAccess, CacheWrite, CircuitId, CreateCacheData, InputUtxo, OwnerTag, TransactIxData,
@@ -13,7 +14,6 @@ use zolana_interface::{
     },
     verifying_keys::MAX_CACHE_WRITES,
 };
-use zolana_program::instruction::{CloseCache, CreateCache};
 
 const CACHE_VECTORS_JSON: &str = include_str!("../../../test-vectors/cache.json");
 

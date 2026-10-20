@@ -65,7 +65,7 @@ export class ShieldedAddress {
   /** Mirrors Rust `ShieldedAddress::for_pda`. */
   static forPda(
     keys: Readonly<{
-      pda: Bytes32;
+      pda: Bytes32 | Address;
       nullifierPublicKey: Bytes32;
       viewingPublicKey: X25519PublicKey;
     }>,

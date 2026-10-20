@@ -223,6 +223,7 @@ fn real_input(
         .expect("hash");
     let nullifier = keypair.nullifier(&utxo_hash, &blinding).expect("nullifier");
     SppProofInputUtxo {
+        address: false,
         utxo,
         nullifier_pubkey,
         utxo_hash,
@@ -747,4 +748,39 @@ fn a_padding_output_contributes_its_real_hash_while_a_dummy_input_contributes_ze
             message_hash
         );
     }
+}
+
+/// An address input's commitment, zero-key nullifier and nullifier public key.
+/// The TypeScript SDK pins the same literals in `address-inputs.test.ts`.
+#[test]
+fn address_input_vectors() {
+    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([9; 32]));
+    let vectors = [0u16, 3].map(|tree_id| {
+        let input = SppProofInputUtxo::new_address(owner, [7; 32], tree_id).expect("address");
+        input.validate_address().expect("valid address");
+        (
+            hex::encode(input.utxo_hash),
+            hex::encode(input.nullifier),
+            hex::encode(input.nullifier_pubkey),
+            input.requires_inclusion(),
+        )
+    });
+    let zero_key = "2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c";
+    assert_eq!(
+        vectors,
+        [
+            (
+                "1780838c8c1ad3c6127efc4d70fd2f09f96bab7c2b078332f4e197b6cef535a7".to_string(),
+                "2ccadcb35e84b6f69c77ad0dd0fce90e3055b620fec2228851f9d157c5cf899d".to_string(),
+                zero_key.to_string(),
+                false,
+            ),
+            (
+                "208fcf3d74a4e39c2e6a58211cfec0b204955498a681f91aa9469be464705be8".to_string(),
+                "0a5483f98a28bfb399e0bc00c36590dd8565683ae6d4af4b62e794652e7360bb".to_string(),
+                zero_key.to_string(),
+                false,
+            ),
+        ]
+    );
 }

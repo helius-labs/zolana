@@ -38,6 +38,7 @@ impl TryFrom<u8> for Curve {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify), tsify(type = "Uint8Array"))]
 pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 
 impl PublicKey {
@@ -134,5 +135,23 @@ impl PublicKey {
             }
             Ok(Curve::Pda) | Err(_) => false,
         }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for PublicKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::serialize(&self.0, serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for PublicKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes: [u8; PUBLIC_KEY_LEN] = serde_bytes::deserialize(deserializer)?;
+        if bytes == [0u8; PUBLIC_KEY_LEN] {
+            return Ok(Self::zeroed());
+        }
+        Self::from_bytes(bytes).map_err(serde::de::Error::custom)
     }
 }

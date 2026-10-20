@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"math/big"
 
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	merge "github.com/helius-labs/zolana/prover/server/prover/merge"
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 type inputTarget struct {
-	disabled              bool
-	slot, nullifier       *big.Int
-	dummy, cached         bool
-	state, exclusion      *[]*big.Int
-	stateIndex, low, high **big.Int
-	exclusionIndex        **big.Int
+	disabled               bool
+	slot, nullifier        *big.Int
+	dummy, cached, address bool
+	state, exclusion       *[]*big.Int
+	stateIndex, low, high  **big.Int
+	exclusionIndex         **big.Int
 }
 
 type preparedProof struct {
@@ -37,7 +38,8 @@ func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectio
 		input := &inputs[index]
 		result[index] = inputTarget{
 			slot: input.TreeSlot, nullifier: input.Nullifier, dummy: input.IsDummy.Sign() != 0,
-			state: &input.StatePathElements, stateIndex: &input.StatePathIndex,
+			address: input.Utxo.Domain.Cmp(big.NewInt(txcircuit.AddressDomain)) == 0,
+			state:   &input.StatePathElements, stateIndex: &input.StatePathIndex,
 			exclusion: &input.NullifierLowPathElements, exclusionIndex: &input.NullifierLowPathIndex,
 			low: &input.NullifierLowValue, high: &input.NullifierNextValue,
 		}
@@ -128,7 +130,7 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		if input.dummy && (int(lookup.TreeSlot) >= len(opened) || !opened[lookup.TreeSlot]) {
 			return nil, fmt.Errorf("input tree starts with a dummy")
 		}
-		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || (input.dummy || input.cached) != (lookup.Commitment == nil) {
+		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || (input.dummy || input.cached || input.address) != (lookup.Commitment == nil) {
 			return nil, fmt.Errorf("input lookup mismatch")
 		}
 		opened[lookup.TreeSlot] = true

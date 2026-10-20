@@ -192,7 +192,7 @@ Senders translating a Solana address to a shielded viewing pubkey:
 1. Read the user-record PDA at `["zolana/registry/v0", owner]`. Absent → registry miss; fall back to no-registry behaviour.
 2. Use `UserRecord::sender_viewing_pubkey()` together with the owner's shielded identity hash from `owner`.
 
-Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
+Recipients restoring a wallet decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
 
 ### Notes
 

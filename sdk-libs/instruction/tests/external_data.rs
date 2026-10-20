@@ -1,4 +1,7 @@
 use zolana_hasher::{sha256::Sha256BE, Hasher};
+use zolana_instruction::{
+    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
+};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -8,9 +11,6 @@ use zolana_interface::{
         tag,
     },
     SOL_INTERFACE,
-};
-use zolana_program::{
-    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
 };
 
 const TRANSACT_TAG: [u8; 1] = [tag::TRANSACT];

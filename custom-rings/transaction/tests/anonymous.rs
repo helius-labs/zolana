@@ -39,6 +39,8 @@ fn wallet_utxo(owner: &ShieldedKeypair, amount: u64) -> WalletUtxo {
         slot: 1,
         tx_signature: Signature::from([1; 64]),
         slot_index: 0,
+        latest_tree_id: None,
+        tx_viewing_key: None,
     }
 }
 

@@ -48,7 +48,6 @@
     "SerializedPrivateTransaction",
     "SerializedViewingKeyEntry",
     "SerializedWalletUtxo",
-    "SettlementTransfer",
     "SignatureReader",
     "SolanaRpc",
     "SolanaRpcSubscriptions",

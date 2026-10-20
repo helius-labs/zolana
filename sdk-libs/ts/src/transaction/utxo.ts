@@ -1,7 +1,13 @@
 import { address } from "@solana/kit";
 
 import type { Address, Bytes32 } from "../interface/types.js";
-import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import {
+  ADDRESS_DOMAIN,
+  DUMMY_DOMAIN,
+  UTXO_DOMAIN,
+  ZERO_NULLIFIER_PK,
+} from "../interface/program.js";
+import { isCanonicalField } from "../interface/canonical-field.js";
 import { CACHE_CAPACITY } from "../interface/state.js";
 import { DEFAULT_TREE_ID, treeIdField } from "../interface/tree-slot.js";
 import { randomBlinding } from "../keypair/bytes.js";
@@ -256,7 +262,7 @@ export class Utxo {
 }
 
 /**
- * A UTXO as the circuit consumes it: the opening plus the nullifier public key
+ * A UTXO as the circuit consumes it: its fields and the nullifier public key
  * that closes its commitment and the nullifier that spending it publishes.
  *
  * The nullifier is derived by whoever holds the nullifier secret (see
@@ -273,7 +279,15 @@ export class ProofInputUtxo {
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly cacheSlot?: number;
+  /**
+   * The nullifier an address input publishes, which is the reserved address;
+   * absent for state spends and padding. A copy taken at construction, so a
+   * spread of this input keeps it; the SDK revalidates the input itself
+   * wherever it hashes or proves the slot.
+   */
+  readonly addressNullifier?: Bytes32;
   readonly #compact: boolean;
+  readonly #address: boolean;
 
   constructor(
     input: Readonly<{
@@ -286,10 +300,19 @@ export class ProofInputUtxo {
       cacheSlot?: number;
       /** Compact padding: a dummy that publishes nullifier 0 and is left out of the instruction. */
       compact?: boolean;
+      /**
+       * An address input: reserves an address without spending a state leaf.
+       * `ProofInputUtxo.address` builds one; the constructor refuses any
+       * other field set.
+       */
+      address?: boolean;
     }>,
   ) {
     if (!(input.utxo instanceof Utxo)) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "proofInput" });
+    }
+    if (input.address !== undefined && typeof input.address !== "boolean") {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "address" });
     }
     this.treeId = checkedTreeId(input.treeId ?? DEFAULT_TREE_ID);
     this.utxo = new Utxo({
@@ -312,18 +335,55 @@ export class ProofInputUtxo {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
     const ringDataHash = normalizeRingDataHash(input.ringDataHash);
-    if (ringDataHash !== undefined) {
+    if (input.address === true && input.ringDataHash !== undefined) {
+      // Normalizing would drop a zero ring data hash, and an address input
+      // must carry none at all, so it is kept for `validateAddress` to refuse.
+      this.ringDataHash = checked<Bytes32>(input.ringDataHash, 32, "ring data hash");
+    } else if (ringDataHash !== undefined) {
       this.ringDataHash = ringDataHash;
     }
+    this.#address = input.address === true;
     this.#compact = input.compact === true;
-    if (this.#compact && !this.isDummy()) {
+    if (!this.isAddress() && this.#compact && !this.isDummy()) {
       throw new TransactionError("TRANSACTION_NONCANONICAL_DUMMY_INPUT", { field: "compact" });
     }
-    this.checkCanonicalDummy();
+    if (!this.isAddress()) this.checkCanonicalDummy();
     if (input.cacheSlot !== undefined) {
       this.cacheSlot = checkedCacheSlot(input.cacheSlot);
-      if (this.isDummy()) throw new TransactionError("TRANSACTION_CACHED_DUMMY_INPUT");
+      if (!this.isAddress() && this.isDummy())
+        throw new TransactionError("TRANSACTION_CACHED_DUMMY_INPUT");
     }
+    if (this.isAddress()) {
+      this.validateAddress();
+      this.addressNullifier = copy(this.#nullifier);
+    }
+  }
+
+  /**
+   * Reserves an address scoped to a signing owner, a seed and a tree: the
+   * slot publishes the address as its nullifier with a non-inclusion proof
+   * and spends no state leaf. Only the default confidential transfer proves
+   * it. The owner must be an Ed25519 or PDA key. The seed must be a
+   * canonical BN254 field value, below the field modulus, and should include
+   * the application's program id and the account identifier, so no other
+   * program or account derives the same address. Mirrors Rust
+   * `SppProofInputUtxo::new_address`.
+   */
+  static address(
+    owner: ShieldedPublicKey,
+    seed: Bytes32,
+    treeId: TreeId = DEFAULT_TREE_ID,
+  ): ProofInputUtxo {
+    const utxo = new Utxo({ owner, asset: DUMMY_ASSET, amount: 0n, blinding: seed });
+    const checkedTree = checkedTreeId(treeId);
+    const hash = addressUtxoHash(utxo, checkedTree);
+    return new ProofInputUtxo({
+      utxo,
+      nullifierPublicKey: ZERO_NULLIFIER_PK,
+      nullifier: zeroKeyNullifier(hash, utxo.blinding),
+      treeId: checkedTree,
+      address: true,
+    });
   }
 
   /** Derives the nullifier locally; the key never leaves this call. */
@@ -423,6 +483,45 @@ export class ProofInputUtxo {
     return this.#compact;
   }
 
+  /** Whether this slot reserves an address rather than spending a UTXO. */
+  isAddress(): boolean {
+    return this.#address;
+  }
+
+  /** Whether the slot needs a state inclusion proof: a real, uncached spend. */
+  requiresInclusion(): boolean {
+    return !this.isDummy() && !this.isAddress() && this.cacheSlot === undefined;
+  }
+
+  /**
+   * Checks an address input's fields and zero-key nullifier before it is
+   * built, hashed or proved. Each failure has its own code. Mirrors Rust
+   * `SppProofInputUtxo::validate_address`.
+   */
+  validateAddress(): void {
+    this.#addressHash();
+  }
+
+  /** Validates the address input and returns its commitment. */
+  #addressHash(): Bytes32 {
+    if (!this.isAddress()) throw new TransactionError("TRANSACTION_NOT_ADDRESS_INPUT");
+    if (this.isCompact()) throw new TransactionError("TRANSACTION_ADDRESS_INPUT_COMPACT");
+    if (this.cacheSlot !== undefined)
+      throw new TransactionError("TRANSACTION_ADDRESS_INPUT_CACHED");
+    const field = nonEmptyAddressField(this);
+    if (field !== undefined) {
+      throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD", { field });
+    }
+    const hash = addressUtxoHash(this.utxo, this.treeId);
+    if (!equal(this.nullifierPublicKey, ZERO_NULLIFIER_PK)) {
+      throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NULLIFIER_PUBLIC_KEY_MISMATCH");
+    }
+    if (!equal(this.#nullifier, zeroKeyNullifier(hash, this.utxo.blinding))) {
+      throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH");
+    }
+    return hash;
+  }
+
   withCacheSlot(slot: number): ProofInputUtxo {
     return new ProofInputUtxo({
       utxo: this.utxo,
@@ -433,6 +532,7 @@ export class ProofInputUtxo {
       ...(this.ringDataHash === undefined ? {} : { ringDataHash: this.ringDataHash }),
       cacheSlot: slot,
       ...(this.#compact ? { compact: true } : {}),
+      ...(this.#address ? { address: true } : {}),
     });
   }
 
@@ -459,6 +559,7 @@ export class ProofInputUtxo {
   }
 
   hash(): Bytes32 {
+    if (this.isAddress()) return this.#addressHash();
     this.checkCanonicalDummy();
     const owner = this.isDummy()
       ? ZERO_32
@@ -514,6 +615,40 @@ function dummyNullifier(utxo: Utxo, treeId: TreeId): Bytes32 {
     true,
   );
   return zeroKeyNullifier(hash, utxo.blinding);
+}
+
+/**
+ * The address domain commits to no asset, amount, payload or ring, only to a
+ * signing owner under the zero nullifier key and the seed in the blinding.
+ */
+function addressUtxoHash(utxo: Utxo, treeId: TreeId): Bytes32 {
+  if (utxo.owner.isZero()) throw new TransactionError("TRANSACTION_ADDRESS_INPUT_ZERO_OWNER");
+  if (!isCanonicalField(utxo.blinding)) {
+    throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED");
+  }
+  return commitmentPoseidon([
+    rightAlign(Uint8Array.of(ADDRESS_DOMAIN)),
+    treeIdField(checkedTreeId(treeId)),
+    ZERO_32,
+    ZERO_32,
+    ZERO_32,
+    commitmentPoseidon([ZERO_32, ZERO_32]),
+    commitmentPoseidon([
+      poseidon([utxo.owner.ownerProofInputHash(), ZERO_NULLIFIER_PK]),
+      utxo.blinding,
+    ]),
+  ]);
+}
+
+/** The first field an address input carries that its commitment cannot hold. */
+function nonEmptyAddressField(input: ProofInputUtxo): string | undefined {
+  if (input.utxo.asset !== DUMMY_ASSET) return "asset";
+  if (input.utxo.amount !== 0n) return "amount";
+  if (!input.utxo.data.isEmpty()) return "data";
+  if (input.utxo.ringProgramId !== undefined) return "ring_program_id";
+  if (input.dataHash !== undefined) return "data_hash";
+  if (input.ringDataHash !== undefined) return "ring_data_hash";
+  return undefined;
 }
 
 const DUMMY_ASSET = address("11111111111111111111111111111111");

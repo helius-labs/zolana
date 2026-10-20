@@ -29,7 +29,6 @@
   - [Derivation seed](#derivation-seed)
   - [Solana wallet](#solana-wallet)
   - [HSM](#hsm)
-  - [Seed phrase](#seed-phrase)
   - [PDA](#pda)
 - [UTXO](#utxo)
   - [UTXO Hash](#utxo-hash)
@@ -502,24 +501,6 @@ Sign: on the device. Device signing keys cannot run key agreement, so the
 roles root in separate device keys (three-key custody) and are supplied at
 construction. The `nullifier_secret` stays host-side
 ([Nullifier Key](#nullifier-key)).
-
-## Seed phrase
-
-All three parts derive from one BIP-39 mnemonic: the signing key on Solana's
-derivation path, the role keys on TSPP paths. Every path segment is hardened;
-`node(path)` is the 32-byte SLIP-0010 Ed25519 node key at `path` (HMAC-SHA512
-tree over the seed). `TSPP_COIN =
-1392955331` (`be_u32(SHA-256("luminous.TSPP.v1")[0..4]) & 0x7FFF_FFFF`).
-
-- `seed := BIP-39(mnemonic, passphrase)` — PBKDF2-HMAC-SHA512, 64 bytes; `passphrase = ""` unless the wallet sets one.
-- `signing_sk := node(m/44'/501'/account'/0')` — Ed25519 secret on Solana's path: importing the mnemonic into a Solana wallet yields the same key.
-- `nullifier_secret := node(m/44'/TSPP_COIN'/account'/1'/0')[1..32]` — the node key with its first byte dropped (31 bytes).
-- `viewing_sk := clamp(node(m/44'/TSPP_COIN'/account'/2'/0'))` — the Ed25519 node key clamped as an X25519 scalar ([`X25519Keypair`](#glossary)).
-- `account'` — each account index is an independent shielded keypair.
-
-Shares the signing key with the [Solana wallet](#solana-wallet) scenario but
-not the role keys; the two keypairs coexist, and a seed-phrase wallet also
-derives the Solana-wallet keypair to sync both.
 
 ## PDA
 
@@ -2948,7 +2929,7 @@ struct SetMergeEncryptionRequest {
 
 ## First Time Sync Wallet
 
-Restores a fresh wallet including fetching and decrypting all user UTXOs from a BIP-39 mnemonic.
+Restores a fresh wallet including fetching and decrypting all user UTXOs from its keys.
 The flow is executed by the user's wallet.
 The same flow can be used to resync a wallet or poll.
 
@@ -2975,7 +2956,7 @@ Wallet {
 `viewing_entry` denotes `viewing_history.last()` throughout this section.
 
 1. **Initialize the wallet.**
-    1. Restore the signing and viewing keys from the wallet mnemonic.
+    1. Restore the signing and viewing keys.
     2. Append the wallet's [`ViewingKey`](#viewingkey) to `viewing_history`.
 
 2. **Default-ring sync, anonymous-ring sync, and merge sync run as independent parallel branches.**

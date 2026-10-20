@@ -17,10 +17,8 @@ import { wireDecoder } from "../../src/interface/decode.js";
 import { postJsonRpc } from "../../src/services/jsonrpc.js";
 import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
-import { SPL_TOKEN_2022_PROGRAM_ID } from "../../src/interface/program.js";
+import { SPL_TOKEN_2022_PROGRAM_ID, ZERO_NULLIFIER_PK } from "../../src/interface/program.js";
 import { ShieldedAddress } from "../../src/keypair/shielded.js";
-
-import { ZERO_NULLIFIER_PK } from "../../src/ring/policy.js";
 import {
   RingProgramBinary,
   RingError,

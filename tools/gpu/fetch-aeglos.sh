@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ $# != 1 || $1 == --help ]]; then
-    echo "Usage: $0 OUTPUT_DIRECTORY"
+if [[ $# == 0 || $# -gt 2 || $1 == --help ]]; then
+    echo "Usage: $0 OUTPUT_DIRECTORY [cpu]"
     exit 0
 fi
+if [[ ${2:-cpu} != cpu ]]; then
+    echo 'The second argument must be cpu' >&2
+    exit 1
+fi
 root=$(cd "$(dirname "$0")/../.." && pwd)
-lock="$root/prover/server/prover/backend/aeglos-source.lock"
+lock="$root/prover/server/prover/backend/aeglos-${2:+cpu-}source.lock"
 read -r digest archive < "$lock"
 [[ $digest =~ ^[0-9a-f]{64}$ && $archive =~ ^aeglos-([0-9a-f]{40})\.tar$ ]]
 revision=${BASH_REMATCH[1]}

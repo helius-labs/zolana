@@ -2736,18 +2736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ed25519-dalek-bip32"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b49a684b133c4980d7ee783936af771516011c8cd15f429dbda77245e282f03"
-dependencies = [
- "derivation-path",
- "ed25519-dalek",
- "hmac 0.12.1",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "educe"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6562,6 +6550,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_bytes"
 version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6589,6 +6588,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.5",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -7713,13 +7723,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "263d614c12aa267a3278703175fd6440552ca61bc960b5a02a4482720c53438b"
 dependencies = [
  "ed25519-dalek",
- "ed25519-dalek-bip32",
  "five8",
  "five8_core",
  "rand 0.9.5",
  "solana-address 2.6.1",
- "solana-derivation-path",
- "solana-seed-derivable",
  "solana-seed-phrase",
  "solana-signature",
  "solana-signer",
@@ -10329,6 +10336,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tsify"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea3af6b48c5c5624f7eb3c2f578d1335fadac433321980cae0063e8eb0acaa44"
+dependencies = [
+ "serde",
+ "serde-wasm-bindgen",
+ "tsify-macros",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "tsify-macros"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1e2e93369379d0a527c7d6632b58c55d52db7a106d8afbde3b354f3a57a9f1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11564,6 +11595,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-instruction"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "pinocchio 0.11.2",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+ "thiserror 2.0.20",
+ "wincode",
+ "zolana-account-checks",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-tree",
+]
+
+[[package]]
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
@@ -11596,20 +11646,20 @@ dependencies = [
  "bs58",
  "ctr",
  "ed25519-dalek",
- "ed25519-dalek-bip32",
  "hex",
  "hkdf",
  "rand 0.8.8",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
- "solana-derivation-path",
  "solana-keypair",
- "solana-seed-phrase",
  "solana-signer",
  "thiserror 2.0.20",
  "tokio",
+ "tsify",
+ "wasm-bindgen",
  "x25519-dalek",
  "zeroize",
  "zolana-hasher",
@@ -11632,17 +11682,13 @@ name = "zolana-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "bytemuck",
  "pinocchio 0.11.2",
- "serde_json",
  "solana-address 2.6.1",
- "solana-instruction",
- "solana-pubkey 4.2.1",
- "thiserror 2.0.20",
  "wincode",
  "zolana-account-checks",
  "zolana-client",
  "zolana-hasher",
+ "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
@@ -11892,9 +11938,12 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-signature",
  "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
  "wincode",
  "zolana-event",
  "zolana-hasher",
+ "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",

@@ -17,7 +17,12 @@ import {
   treeAddress,
 } from "../src/interface/pda/index.js";
 import { bigintToBytes } from "../src/client/internal.js";
-import { DUMMY_DOMAIN, SHIELDED_POOL_PROGRAM_ID, UTXO_DOMAIN } from "../src/interface/program.js";
+import {
+  DUMMY_DOMAIN,
+  SHIELDED_POOL_PROGRAM_ID,
+  UTXO_DOMAIN,
+  ZERO_NULLIFIER_PK,
+} from "../src/interface/program.js";
 import { DepositAsset, type Bytes16, type Bytes31, type Bytes32 } from "../src/interface/types.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { ShieldedAddress, ShieldedKeypair } from "../src/keypair/shielded.js";
@@ -31,7 +36,7 @@ import {
   ringEscrowedOwners,
   unregisteredOutputKey,
 } from "../src/ring/key-escrow.js";
-import { ZERO_NULLIFIER_PK, memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
+import { memberOfTag, ringNamespaceOwnerHash } from "../src/ring/policy.js";
 import {
   planPolicyTrees,
   provePolicyTrees,

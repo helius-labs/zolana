@@ -15,7 +15,7 @@ import {
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
-import { ADDRESS_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import { ADDRESS_DOMAIN, UTXO_DOMAIN, ZERO_NULLIFIER_PK } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
 import type { TreeId } from "../transaction/utxo.js";
 import type { Bytes16, Bytes32, MessageData, RequestContext } from "../interface/types.js";
@@ -761,12 +761,6 @@ export interface SpendRecordHashes {
   readonly utxoHash: Bytes32;
   readonly nullifier: Bytes32;
 }
-
-/** @internal Mirrors Rust `ZERO_NULLIFIER_PK`, `Poseidon(0)`, the nullifier public key of the zero secret. */
-export const ZERO_NULLIFIER_PK = Uint8Array.from([
-  0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
-  0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
-]) as Bytes32;
 
 /** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {

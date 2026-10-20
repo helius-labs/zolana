@@ -1,6 +1,6 @@
 use solana_address::Address;
+pub use zolana_instruction::PrivateTxHash;
 use zolana_keypair::hash::sha256;
-pub use zolana_program::PrivateTxHash;
 
 use super::{
     cache::{cache_bound_external_data_hash, cache_write_slots},
@@ -49,7 +49,7 @@ impl SppProofInputs {
     }
 
     pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
-        derive_private_tx_blinding(&self.first_nullifier()?, &self.blinding_seed)
+        private_tx_blinding(&self.input_utxos, &self.blinding_seed)
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
@@ -59,73 +59,69 @@ impl SppProofInputs {
         if !shape.is_supported() {
             return Err(TransactionError::UnsupportedShape { n_in, n_out });
         }
-        self.check_dummies_last()?;
+        check_dummies_last(&self.input_utxos, &self.output_utxos)?;
         Ok(shape)
     }
 
-    fn check_dummies_last(&self) -> Result<(), TransactionError> {
-        if let Some(index) =
-            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_dummy))
-        {
-            return Err(TransactionError::RealInputAfterDummy { index });
-        }
-        if let Some(index) =
-            real_slot_after_dummy(self.output_utxos.iter().map(SppProofOutputUtxo::is_dummy))
-        {
-            return Err(TransactionError::RealOutputAfterDummy { index });
-        }
-        // Compact padding forms the trailing suffix SPP fills back in, and input
-        // slot 0 seeds the output blindings, so it is never compact.
-        if self
-            .input_utxos
-            .first()
-            .is_some_and(SppProofInputUtxo::is_compact)
-        {
-            return Err(TransactionError::DummyInFirstInputSlot);
-        }
-        if let Some(index) =
-            real_slot_after_dummy(self.input_utxos.iter().map(SppProofInputUtxo::is_compact))
-        {
-            return Err(TransactionError::InputAfterCompactPadding { index });
-        }
-        if let Some(index) =
-            real_slot_after_dummy(self.output_utxos.iter().map(SppProofOutputUtxo::is_compact))
-        {
-            return Err(TransactionError::OutputAfterCompactPadding { index });
-        }
-        Ok(())
-    }
-
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
-        self.check_dummies_last()?;
-        let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
-        for input_utxo in &self.input_utxos {
-            if input_utxo.is_dummy() {
-                input_hashes.push([0u8; 32]);
-            } else {
-                input_hashes.push(input_utxo.hash());
-            }
-        }
-
-        let mut output_hashes = Vec::with_capacity(self.output_utxos.len());
-        for output in &self.output_utxos {
-            if output.is_dummy() {
-                output_hashes.push([0u8; 32]);
-            } else {
-                output_hashes.push(output.hash(self.output_tree_id)?);
-            }
-        }
-
+        let private_tx = self.padding_independent_private_tx_hash()?;
         let external_data_hash = cache_bound_external_data_hash(
             &self.external_data,
             &cache_write_slots(&self.output_utxos, self.cache_accounts.write)?,
             self.cache_accounts.write,
         )?;
-        let private_tx =
-            PrivateTxHash::new(&input_hashes, &output_hashes, &self.private_tx_blinding()?)
-                .hash()?;
         Ok(transact_message_hash(&private_tx, &external_data_hash))
     }
+
+    pub fn padding_independent_private_tx_hash(&self) -> Result<[u8; 32], TransactionError> {
+        padding_independent_private_tx_hash(
+            &self.input_utxos,
+            &self.output_utxos,
+            self.output_tree_id,
+            &self.blinding_seed,
+        )
+    }
+}
+
+pub fn transact_message_hash(
+    private_tx_hash: &[u8; 32],
+    external_data_hash: &[u8; 32],
+) -> [u8; 32] {
+    sha256(&[private_tx_hash.as_slice(), external_data_hash.as_slice()].concat())
+}
+
+pub(super) fn check_dummies_last(
+    input_utxos: &[SppProofInputUtxo],
+    output_utxos: &[SppProofOutputUtxo],
+) -> Result<(), TransactionError> {
+    if let Some(index) = real_slot_after_dummy(input_utxos.iter().map(SppProofInputUtxo::is_dummy))
+    {
+        return Err(TransactionError::RealInputAfterDummy { index });
+    }
+    if let Some(index) =
+        real_slot_after_dummy(output_utxos.iter().map(SppProofOutputUtxo::is_dummy))
+    {
+        return Err(TransactionError::RealOutputAfterDummy { index });
+    }
+    // Compact padding forms the trailing suffix SPP fills back in, and input
+    // slot 0 seeds the output blindings, so it is never compact.
+    if input_utxos
+        .first()
+        .is_some_and(SppProofInputUtxo::is_compact)
+    {
+        return Err(TransactionError::DummyInFirstInputSlot);
+    }
+    if let Some(index) =
+        real_slot_after_dummy(input_utxos.iter().map(SppProofInputUtxo::is_compact))
+    {
+        return Err(TransactionError::InputAfterCompactPadding { index });
+    }
+    if let Some(index) =
+        real_slot_after_dummy(output_utxos.iter().map(SppProofOutputUtxo::is_compact))
+    {
+        return Err(TransactionError::OutputAfterCompactPadding { index });
+    }
+    Ok(())
 }
 
 pub(crate) fn real_slot_after_dummy(mut dummies: impl Iterator<Item = bool>) -> Option<usize> {
@@ -136,9 +132,53 @@ pub(crate) fn real_slot_after_dummy(mut dummies: impl Iterator<Item = bool>) -> 
     })
 }
 
-pub fn transact_message_hash(
-    private_tx_hash: &[u8; 32],
-    external_data_hash: &[u8; 32],
-) -> [u8; 32] {
-    sha256(&[private_tx_hash.as_slice(), external_data_hash.as_slice()].concat())
+pub(super) fn private_tx_blinding(
+    input_utxos: &[SppProofInputUtxo],
+    blinding_seed: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let first_nullifier = input_utxos
+        .first()
+        .ok_or(TransactionError::NoInputs)?
+        .nullifier();
+    derive_private_tx_blinding(&first_nullifier, blinding_seed)
+}
+
+pub(super) fn padding_independent_private_tx_hash(
+    input_utxos: &[SppProofInputUtxo],
+    output_utxos: &[SppProofOutputUtxo],
+    output_tree_id: u16,
+    blinding_seed: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    check_dummies_last(input_utxos, output_utxos)?;
+    let input_hashes: Vec<_> = input_utxos
+        .iter()
+        .map(SppProofInputUtxo::private_tx_input_hash)
+        .collect();
+    let address_nullifiers: Vec<_> = input_utxos
+        .iter()
+        .map(SppProofInputUtxo::private_tx_address_nullifier)
+        .collect();
+    Ok(PrivateTxHash {
+        input_hashes: &input_hashes,
+        output_hashes: &output_hashes(output_utxos, output_tree_id)?,
+        address_nullifiers: Some(&address_nullifiers),
+        blinding: &private_tx_blinding(input_utxos, blinding_seed)?,
+    }
+    .hash()?)
+}
+
+pub(super) fn output_hashes(
+    output_utxos: &[SppProofOutputUtxo],
+    output_tree_id: u16,
+) -> Result<Vec<[u8; 32]>, TransactionError> {
+    output_utxos
+        .iter()
+        .map(|output| {
+            if output.is_dummy() {
+                Ok([0u8; 32])
+            } else {
+                output.hash(output_tree_id)
+            }
+        })
+        .collect()
 }

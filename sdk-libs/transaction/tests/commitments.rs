@@ -603,8 +603,8 @@ fn dummy_hash_has_fixed_domain_and_tree_bound_zero_secret_nullifier() {
 }
 
 #[test]
-/// The signer vector holds the input owners only. The fee payer
-/// is in it exactly when it owns an input, as one more owner signer.
+/// The signer vector holds the input owners, then the owners of outputs with
+/// data. The fee payer is in it exactly when it is one of those owners.
 fn signers_are_owners_deduplicated_by_identity_and_exclude_the_payer_and_dummies() {
     let alice = keypair(7);
     let bob = keypair(9);
@@ -655,6 +655,23 @@ fn signers_are_owners_deduplicated_by_identity_and_exclude_the_payer_and_dummies
     assert_eq!(tx.owner_signer_pubkeys().unwrap(), vec![]);
     assert_eq!(tx.signer_pk_hashes(1).unwrap(), vec![[0; 32]]);
     assert_eq!(tx.signer_pk_hashes(0).unwrap(), Vec::<[u8; 32]>::new());
+    // The circuit requires the owner of an output with data to sign, so that
+    // owner follows the input owners, the payer included. An output without
+    // data, or with a zero data hash, adds no signer.
+    let mut bob_data = output();
+    bob_data.owner_address = Some(bob.shielded_address().unwrap());
+    let mut zero_data = output();
+    zero_data.owner_address = Some(keypair(21).shielded_address().unwrap());
+    zero_data.data_hash = Some([0; 32]);
+    let mut no_data = zero_data.clone();
+    no_data.data_hash = None;
+    tx.input_utxos = vec![alice_input];
+    tx.output_utxos = vec![no_data, bob_data, zero_data, output()];
+    tx.payer = bob_address;
+    assert_eq!(
+        tx.owner_signer_pubkeys().unwrap(),
+        vec![alice_address, bob_address]
+    );
     // This committed identity vector independently pins the primitive used by signer assembly.
     let vector: serde_json::Value = serde_json::from_str(include_str!(
         "../../../test-vectors/transact_derivation.json"

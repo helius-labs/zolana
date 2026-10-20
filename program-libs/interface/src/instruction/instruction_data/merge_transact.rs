@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use arrayvec::{ArrayVec, CapacityError};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{

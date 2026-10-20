@@ -468,6 +468,8 @@ func runCli() {
 					&cli.Uint64Flag{Name: "indexer-max-batch-leaves", Usage: "Maximum indexed forester replay leaves", Value: indexed.DefaultMaxBatchLeaves, EnvVars: []string{"PROVER_INDEXER_MAX_BATCH_LEAVES"}},
 					&cli.IntFlag{Name: "indexer-concurrency", Usage: "Concurrent indexer preparation requests", Value: 32, EnvVars: []string{"PROVER_INDEXER_CONCURRENCY"}},
 					&cli.IntFlag{Name: "transfer-concurrency", Usage: "Transfer proofs proved at once across direct and queued requests", Value: 1, EnvVars: []string{"PROVER_TRANSFER_CONCURRENCY"}},
+					&cli.DurationFlag{Name: "batch-window", Usage: "Time an idle Aeglos engine waits for more proofs of one proving key, at most 1s", EnvVars: []string{"PROVER_BATCH_WINDOW"}},
+					&cli.IntFlag{Name: "batch-max", Usage: "Proofs an Aeglos backend proves together, 1 proves each alone", Value: 4, EnvVars: []string{"PROVER_BATCH_MAX"}},
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
@@ -877,7 +879,9 @@ func runCli() {
 // Under the 30s ECS stop timeout.
 const shutdownTimeout = 25 * time.Second
 
-func initializeProofBackend(_ *cli.Context) error { return backend.Initialize() }
+func initializeProofBackend(context *cli.Context) error {
+	return backend.Initialize(backend.Options{BatchWindow: context.Duration("batch-window"), BatchMax: context.Int("batch-max")})
+}
 
 func startTEE(context *cli.Context) (*tee.Server, error) {
 	mode := context.String("tee")

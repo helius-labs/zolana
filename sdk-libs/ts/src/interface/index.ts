@@ -20,6 +20,7 @@ export {
   decodeTreeFeeSchedule,
   decodeTreeFees,
   decodeTreeHeadRoots,
+  encodeTransactInstructionData,
   encodeTreeFeeSchedule,
 } from "./codecs/index.js";
 export { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "./constants.js";
@@ -40,9 +41,10 @@ export {
   depositInstruction,
   nullifierPdaAccounts,
   ringTransactAccounts,
+  transactCpiAccounts,
   transactInstruction,
 } from "./instructions/index.js";
-export type { CacheWriteAccounts } from "./instructions/index.js";
+export type { CacheWriteAccounts, TransactAccountsInput } from "./instructions/index.js";
 export { DepositAsset, TransactWithdrawal } from "./types.js";
 export {
   ciphertextHash,

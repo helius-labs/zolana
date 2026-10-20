@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use wincode::{
     config::{Configuration, DEFAULT_PREALLOCATION_SIZE_LIMIT},
     containers,

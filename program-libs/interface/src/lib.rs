@@ -1,3 +1,10 @@
+#![no_std]
+
+#[cfg_attr(any(test, feature = "borsh"), macro_use)]
+extern crate alloc;
+#[cfg(test)]
+extern crate std;
+
 pub mod error;
 pub use zolana_event as event;
 pub mod instruction;
@@ -53,6 +60,12 @@ pub const MAX_OUTPUTS: usize = 16;
 
 /// Maximum number of inputs any supported transact circuit shape spends.
 pub const MAX_TRANSACT_INPUTS: usize = 49;
+
+/// `Poseidon(0)`: the nullifier public key of nullifier secret 0.
+pub const ZERO_NULLIFIER_PUBKEY: [u8; 32] = [
+    0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
+    0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
+];
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

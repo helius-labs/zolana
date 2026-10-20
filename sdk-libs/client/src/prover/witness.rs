@@ -26,16 +26,18 @@ use crate::{
 /// Everything the circuit witnesses about one transaction's inputs.
 #[derive(Clone, Default)]
 pub struct InputWitnesses {
-    /// One per real input, in the order `inputs` was given.
+    /// One per slot that spends a state leaf (a real, uncached input), in
+    /// slot order.
     ///
-    /// That order is the real-input subsequence, not the slot vector:
-    /// callers supply only non-dummy inputs, and `attach_input_proofs`
-    /// matches on the same convention. A reader that
+    /// That order is the spend subsequence, not the slot vector:
+    /// `attach_input_proofs` matches on the same convention. A reader that
     /// returned these in slot order would attach every witness to the wrong
     /// input, silently.
     pub spend_proofs: Vec<SpendProof>,
-    /// One per padding slot, in slot order. The circuit checks non-inclusion
-    /// for every slot, so a dummy needs a real low-element witness too.
+    /// One per slot that proves only nullifier non-inclusion, in slot order:
+    /// padding (compact padding included), cached inputs and address slots.
+    /// The circuit checks non-inclusion for every slot, so these need a real
+    /// low-element witness too.
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
@@ -50,6 +52,35 @@ pub struct InputWitnesses {
 /// `impl WitnessReader for MyIndexer {}`. [`ZolanaIndexer`] overrides it to
 /// run the round trips together.
 pub trait WitnessReader {
+    /// Fetch proofs for complete transaction slots, including address-only
+    /// transactions. Each non-inclusion proof comes from its slot's own tree.
+    fn transaction_proofs(
+        &self,
+        inputs: &[SppProofInputUtxo],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<InputWitnesses, ClientError>
+    where
+        Self: Rpc,
+    {
+        let refs: Vec<_> = inputs.iter().collect();
+        let groups = group_by_tree(&refs);
+        let mut responses = Vec::new();
+        for group in &groups {
+            let tree = pda::tree(group.tree_id);
+            let leaves = group.spend_leaves();
+            let state = if leaves.is_empty() {
+                Vec::new()
+            } else {
+                self.get_merkle_proofs(tree, leaves, config)?.proofs
+            };
+            let exclusion = self
+                .get_non_inclusion_proofs(tree, group.nullifiers(), config)?
+                .proofs;
+            responses.push((state, exclusion));
+        }
+        place_transaction_proofs(&groups, responses)
+    }
+
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
@@ -95,6 +126,41 @@ pub trait WitnessReader {
 /// would otherwise need an async method, and the two indexers are distinct
 /// types rather than one behind a runtime flag.
 pub trait AsyncWitnessReader {
+    fn transaction_proofs(
+        &self,
+        inputs: &[SppProofInputUtxo],
+        config: Option<IndexerRpcConfig>,
+    ) -> impl std::future::Future<Output = Result<InputWitnesses, ClientError>> + Send
+    where
+        Self: AsyncRpc + Sync,
+    {
+        async move {
+            let refs: Vec<_> = inputs.iter().collect();
+            let groups = group_by_tree(&refs);
+            let responses = futures::future::try_join_all(groups.iter().map(|group| async move {
+                let tree = pda::tree(group.tree_id);
+                let state = async {
+                    let leaves = group.spend_leaves();
+                    if leaves.is_empty() {
+                        Ok(Vec::new())
+                    } else {
+                        self.get_merkle_proofs(tree, leaves, config)
+                            .await
+                            .map(|response| response.proofs)
+                    }
+                };
+                let exclusion = async {
+                    self.get_non_inclusion_proofs(tree, group.nullifiers(), config)
+                        .await
+                        .map(|response| response.proofs)
+                };
+                tokio::try_join!(state, exclusion)
+            }))
+            .await?;
+            place_transaction_proofs(&groups, responses)
+        }
+    }
+
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
@@ -118,6 +184,14 @@ struct TreeGroup<'a> {
 }
 
 impl TreeGroup<'_> {
+    fn spend_leaves(&self) -> Vec<[u8; 32]> {
+        self.inputs
+            .iter()
+            .filter(|input| input.requires_inclusion())
+            .map(|input| input.utxo_hash)
+            .collect()
+    }
+
     fn leaves(&self) -> Vec<[u8; 32]> {
         self.inputs.iter().map(|input| input.utxo_hash).collect()
     }
@@ -170,6 +244,18 @@ fn scatter(mut placed: Vec<(usize, SpendProof)>) -> Vec<SpendProof> {
 }
 
 impl WitnessReader for ZolanaIndexer {
+    fn transaction_proofs(
+        &self,
+        inputs: &[SppProofInputUtxo],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<InputWitnesses, ClientError> {
+        self.block_on(AsyncWitnessReader::transaction_proofs(
+            self.async_indexer(),
+            inputs,
+            config,
+        ))
+    }
+
     fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
@@ -273,4 +359,54 @@ fn validate_spend_proofs<'a>(
             Ok(proof)
         })
         .collect()
+}
+
+// Restore the two proof subsequences in slot order after fetching by tree.
+fn place_transaction_proofs(
+    groups: &[TreeGroup<'_>],
+    responses: Vec<(Vec<crate::rpc::MerkleProof>, Vec<NonInclusionProof>)>,
+) -> Result<InputWitnesses, ClientError> {
+    let mut spends = Vec::new();
+    let mut exclusions = Vec::new();
+    for (group, (state, non_inclusion)) in groups.iter().zip(responses) {
+        let expected_state = group
+            .inputs
+            .iter()
+            .filter(|input| input.requires_inclusion())
+            .count();
+        if state.len() != expected_state || non_inclusion.len() != group.inputs.len() {
+            return Err(ClientError::IncompleteTransactionProofs {
+                tree_id: group.tree_id,
+                expected_state,
+                state: state.len(),
+                expected_nullifier: group.inputs.len(),
+                nullifier: non_inclusion.len(),
+            });
+        }
+        let mut state = state.into_iter();
+        for ((&position, input), nullifier) in
+            group.positions.iter().zip(&group.inputs).zip(non_inclusion)
+        {
+            if input.requires_inclusion() {
+                let proof = SpendProof {
+                    state: state
+                        .next()
+                        .ok_or(ClientError::MissingInputMerkleProof { index: position })?,
+                    nullifier,
+                };
+                proof.validate(input, position)?;
+                spends.push((position, proof));
+            } else {
+                crate::prover::transact::witness::validate_nullifier_proof(
+                    &nullifier, input, position,
+                )?;
+                exclusions.push((position, nullifier));
+            }
+        }
+    }
+    exclusions.sort_by_key(|(position, _)| *position);
+    Ok(InputWitnesses {
+        spend_proofs: scatter(spends),
+        dummy_nullifier_proofs: exclusions.into_iter().map(|(_, proof)| proof).collect(),
+    })
 }
