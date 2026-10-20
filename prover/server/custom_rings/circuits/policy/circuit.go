@@ -1,8 +1,6 @@
 package policy
 
 import (
-	"slices"
-
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
@@ -31,8 +29,6 @@ type CustomRingPolicyCircuit struct {
 	PublicTreeHash   frontend.Variable          `gnark:"-"`
 	PublicPolicyHash frontend.Variable          `gnark:"-"`
 	RegistryWitness  *[2]registry.SparseSubtree `gnark:"-"`
-	// Set by the delivery cost test alone, no key compiles with it.
-	withoutDelivery bool
 
 	NIn               frontend.Variable
 	NOut              frontend.Variable
@@ -88,8 +84,15 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	return nil
 }
 
+// auditStatement is base.Audit.Statement for every key.
+type auditStatement = func(base.Audit, frontend.API, frontend.Rangechecker, base.AuditTx, base.Delivery) [base.BaseElements]frontend.Variable
+
 // The compiled circuit fixes the rail, no witness selects it.
 func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) []frontend.Variable {
+	return c.constrainStatement(api, rail, base.Audit.Statement)
+}
+
+func (c *CustomRingPolicyCircuit) constrainStatement(api frontend.API, rail policyRail, statement auditStatement) []frontend.Variable {
 	rc := rangecheck.New(api)
 	// 1. Pin the statement variant before pruning constant branches.
 	if c.FixedInputs != 0 {
@@ -125,13 +128,7 @@ func (c *CustomRingPolicyCircuit) constrain(api frontend.API, rail policyRail) [
 
 	// 5. Disclose the checked openings, deliver the bodies and bind every configuration dependency.
 	auditTx := c.auditTx(tx)
-	var audit [base.BaseElements]frontend.Variable
-	if c.withoutDelivery {
-		elements := auditWitness.Define(api, rc, auditTx)
-		audit = [base.BaseElements]frontend.Variable(slices.Insert(elements[:], base.BodyChainIndex, frontend.Variable(0)))
-	} else {
-		audit = auditWitness.Statement(api, rc, auditTx, c.Delivery)
-	}
+	audit := statement(auditWitness, api, rc, auditTx, c.Delivery)
 	treeHash := c.PublicTreeHash
 	if treeHash == nil {
 		treeHash = shared.TreeSlotsHashChain(api, c.TreeSlots[:])

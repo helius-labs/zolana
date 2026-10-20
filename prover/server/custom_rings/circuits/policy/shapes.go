@@ -3,6 +3,7 @@ package policy
 import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
 
@@ -54,6 +55,10 @@ func NewShapeCircuit(inputs, outputs int, anonymous, delegate, subtree bool) *Sh
 }
 
 func (c *ShapeCircuit) Define(api frontend.API) error {
+	return c.define(api, base.Audit.Statement)
+}
+
+func (c *ShapeCircuit) define(api frontend.API, statement auditStatement) error {
 	p := &c.Policy
 	p.Dynamic = &c.ShapeWires
 	p.ShortOrdinaryAudit = !c.Anonymous && !c.Delegate && len(c.ShapeWires.Inputs) == 24 && len(c.ShapeWires.Outputs) == 2
@@ -70,6 +75,6 @@ func (c *ShapeCircuit) Define(api frontend.API) error {
 	if c.Delegate {
 		rail = delegateRail
 	}
-	api.AssertIsEqual(p.PublicInputHash, gadget.HashChain(api, p.constrain(api, rail)))
+	api.AssertIsEqual(p.PublicInputHash, gadget.HashChain(api, p.constrainStatement(api, rail, statement)))
 	return nil
 }

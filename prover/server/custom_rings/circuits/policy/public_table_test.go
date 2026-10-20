@@ -146,7 +146,12 @@ func TestPublicTableTwoByThreeProofs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cs.GetNbConstraints() >= 100000 {
+			budget := 100000
+			if anonymous {
+				// Delivery proves three output bodies.
+				budget = 200000
+			}
+			if cs.GetNbConstraints() >= budget {
 				t.Fatalf("budget: %d constraints", cs.GetNbConstraints())
 			}
 			commitments := cs.GetCommitments().(constraint.Groth16Commitments)

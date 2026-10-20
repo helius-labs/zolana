@@ -2,6 +2,7 @@ package policy
 
 import (
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -85,8 +86,7 @@ func TestAnonymousDeliveryCostPerShape(t *testing.T) {
 		}
 		t.Run(string(shape.CircuitType()), func(t *testing.T) {
 			with := compileShape(t, shape).GetNbConstraints()
-			circuit := NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)
-			circuit.Policy.withoutDelivery = true
+			circuit := &undeliveredShape{*NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)}
 			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 			if err != nil {
 				t.Fatal(err)
@@ -94,4 +94,13 @@ func TestAnonymousDeliveryCostPerShape(t *testing.T) {
 			t.Logf("%s total=%d delivery=%d", shape.CircuitType(), with, with-cs.GetNbConstraints())
 		})
 	}
+}
+
+type undeliveredShape struct{ ShapeCircuit }
+
+func (c *undeliveredShape) Define(api frontend.API) error {
+	return c.define(api, func(a base.Audit, api frontend.API, rc frontend.Rangechecker, tx base.AuditTx, _ base.Delivery) [base.BaseElements]frontend.Variable {
+		elements := a.Define(api, rc, tx)
+		return [base.BaseElements]frontend.Variable(slices.Insert(elements[:], base.BodyChainIndex, frontend.Variable(0)))
+	})
 }
