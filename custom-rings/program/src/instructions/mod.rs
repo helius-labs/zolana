@@ -9,6 +9,7 @@ pub(crate) mod forward;
 mod grant_read_access;
 mod init_spp_ring_config;
 mod loader;
+mod merge_disclosure;
 mod policy_shared;
 mod policy_trees;
 mod public_legs;

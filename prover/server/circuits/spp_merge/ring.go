@@ -48,6 +48,8 @@ type RingCircuit struct {
 	MemberRegistryRoot       frontend.Variable
 	RegisteredCiphertextHash frontend.Variable
 	MemberRecord             registry.RecordOpening
+	// Anonymous is set by the ring program from its RingMode, its own merge proof discloses the output key.
+	Anonymous frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -89,12 +91,13 @@ func (c *RingCircuit) Define(api frontend.API) error {
 	tx.AssertRingDataPreserved(api)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 	c.MemberRecord.AssertPresent(api, 1, c.MemberRegistryRoot, c.OwnerPkHash)
-	api.AssertIsDifferent(c.RegisteredCiphertextHash, 0)
-	api.AssertIsEqual(c.MemberRecord.EscrowKey,
-		gadget.PoseidonHash(api, []frontend.Variable{c.UserNullifierPk, c.RegisteredCiphertextHash}))
+	api.AssertIsBoolean(c.Anonymous)
+	api.AssertIsDifferent(api.Select(c.Anonymous, 1, c.RegisteredCiphertextHash), 0)
+	escrowKey := gadget.PoseidonHash(api, []frontend.Variable{c.UserNullifierPk, c.RegisteredCiphertextHash})
+	api.AssertIsEqual(api.Mul(api.Sub(1, c.Anonymous), api.Sub(c.MemberRecord.EscrowKey, escrowKey)), 0)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.MemberRegistryRoot)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.MemberRegistryRoot, c.Anonymous)
 	// Both rails end with the salt, then the output ciphertext.
 	fields = append(fields, c.OutputCiphertextSalt)
 	fields = append(fields, derived.OutputCiphertext...)

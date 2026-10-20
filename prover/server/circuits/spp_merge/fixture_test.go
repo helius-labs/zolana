@@ -55,6 +55,8 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
+	// anonymous enrolls the owner without an escrow key and sets the merge flag.
+	anonymous bool
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
@@ -131,6 +133,7 @@ type mergeWitnessFixture struct {
 	memberRegistryRoot  *big.Int
 	registeredCtHash    *big.Int
 	memberRecord        registry.RecordOpening
+	anonymous           *big.Int
 	outputCiphertext    []*big.Int
 	publicInputPreimage []*big.Int
 	publicInputHash     *big.Int
@@ -411,9 +414,14 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	var memberRoot, registeredCtHash *big.Int
 	var memberRecord registry.RecordOpening
 	if options.rail == ringFixtureRail {
-		registeredCtHash = big.NewInt(0xC7)
 		members := spptest.NewMemberRegistry(t, registry.Height)
-		members.RegisterKey(t, ownerKeyHash, userNullifierPk, registeredCtHash)
+		if options.anonymous {
+			registeredCtHash = big.NewInt(0)
+			members.Update(t, ownerKeyHash, big.NewInt(0), big.NewInt(0))
+		} else {
+			registeredCtHash = big.NewInt(0xC7)
+			members.RegisterKey(t, ownerKeyHash, userNullifierPk, registeredCtHash)
+		}
 		memberRoot = members.Root()
 		opened := members.Opening(ownerKeyHash)
 		memberRecord.Next = opened.Record.Next
@@ -446,6 +454,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 			outputRingData,
 			ringProgramID,
 			memberRoot,
+			anonymousFlag(options.anonymous),
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
@@ -519,6 +528,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		memberRegistryRoot:  memberRoot,
 		registeredCtHash:    registeredCtHash,
 		memberRecord:        memberRecord,
+		anonymous:           anonymousFlag(options.anonymous),
 		outputCiphertext:    outputCiphertext,
 		publicInputPreimage: publicInputPreimage,
 		publicInputHash:     publicInputHash,
@@ -557,8 +567,16 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.MemberRegistryRoot = f.memberRegistryRoot
 	assignment.RegisteredCiphertextHash = f.registeredCtHash
 	assignment.MemberRecord = f.memberRecord
+	assignment.Anonymous = f.anonymous
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
+}
+
+func anonymousFlag(anonymous bool) *big.Int {
+	if anonymous {
+		return big.NewInt(1)
+	}
+	return big.NewInt(0)
 }
 
 func hashChain4(t testing.TB, in []*big.Int) *big.Int {

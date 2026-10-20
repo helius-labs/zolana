@@ -264,6 +264,7 @@ impl RingHarness {
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
             member_registry_root: data.member_registry_root,
+            anonymous: data.anonymous,
             cache: None,
         }
         .instruction();
@@ -426,6 +427,7 @@ impl RingHarness {
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
             member_registry_root: data.member_registry_root,
+            anonymous: data.anonymous,
             cache: None,
         }
         .instruction();

@@ -1,8 +1,8 @@
 use arrayvec::ArrayVec;
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, primitives::right_align};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -45,6 +45,8 @@ pub enum MergeOwnerBinding {
         /// A root selected from the calling ring's authenticated history.
         /// The ring proof opens the owner's registered recovery key under it.
         member_registry_root: [u8; 32],
+        /// Only the signing ring program sets it, the proof then skips the escrow key.
+        anonymous: bool,
     },
 }
 
@@ -147,7 +149,7 @@ impl<'a> MergeProof<'a> {
     /// signing identity and nullifier public key (from the registry), while the
     /// policy-ring merge proves a member record for that identity under its
     /// registry root and appends the output `ring_data_hash`, `ring_program_id`
-    /// and authenticated root. Both end with the scheme's ciphertext elements
+    /// authenticated root and anonymous flag. Both end with the scheme's ciphertext elements
     /// (PoseidonCtrV1: the salt and the three ciphertext elements). The
     /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
     /// without padding. Continuing from its hash with the variant tail folds
@@ -165,7 +167,7 @@ impl<'a> MergeProof<'a> {
             self.derived.allow_dummy_inputs,
         ])?;
         let mut inputs =
-            ArrayVec::<[u8; 32], { 4 + MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS }>::new();
+            ArrayVec::<[u8; 32], { 5 + MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS }>::new();
         inputs.push(prefix_hash);
         match &self.derived.owner_binding {
             MergeOwnerBinding::Default {
@@ -184,10 +186,12 @@ impl<'a> MergeProof<'a> {
                 ring_program_id,
                 output_ring_data_hash,
                 member_registry_root,
+                anonymous,
             } => {
                 inputs.push(*output_ring_data_hash);
                 inputs.push(*ring_program_id);
                 inputs.push(*member_registry_root);
+                inputs.push(right_align(&[u8::from(*anonymous)]));
                 self.ix
                     .output_encryption
                     .append_public_inputs(&mut inputs)

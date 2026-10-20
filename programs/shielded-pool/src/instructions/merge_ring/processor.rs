@@ -59,6 +59,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
         member_registry_root: *ix.member_registry_root,
+        anonymous: ix.anonymous,
     };
 
     // The merged output is indexed by the first input nullifier. The indexer

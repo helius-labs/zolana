@@ -10,6 +10,7 @@ fn data() -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash: [8u8; 32],
         member_registry_root: [9u8; 32],
+        anonymous: false,
         merge: MergeTransactIxData {
             cache_slot: None,
             expiry_unix_ts: 42,

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use custom_ring_interface::{
-    compute_unit_limit, CustomRingError, InstructionTag, MemberRegistryRoot,
+    compute_unit_limit, CustomRingError, InstructionTag, MemberRegistryRoot, RingMode,
 };
 use solana_address::Address;
 use solana_commitment_config::CommitmentLevel;
@@ -378,6 +378,7 @@ impl RingOperation<'_> {
                 proved(proven.instruction()?, InstructionTag::UpdateMembers, bound)
             }
             Self::Merge(operation) => {
+                let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge));
                 check_transaction_size_with_budget(
                     &payer,
                     &operation.prepared.preview_instruction(
@@ -385,8 +386,26 @@ impl RingOperation<'_> {
                         payer,
                         operation.cosigner,
                     ),
-                    ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge)),
+                    budget,
                 )?;
+                let mode = operation
+                    .prepared
+                    .ring()
+                    .config(client)
+                    .await?
+                    .ok_or(RingError::MissingRingConfig)?
+                    .mode;
+                if mode == RingMode::Anonymous {
+                    check_transaction_size_with_budget(
+                        &payer,
+                        &operation.prepared.anonymous_preview_instruction(
+                            &operation.input,
+                            payer,
+                            operation.cosigner,
+                        ),
+                        budget,
+                    )?;
+                }
                 let mut proven = boxed(|| {
                     operation
                         .prepared

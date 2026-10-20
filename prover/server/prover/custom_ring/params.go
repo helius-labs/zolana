@@ -217,6 +217,37 @@ type DepositParams struct {
 	MemberRegistryRoot Field            `json:"memberRegistryRoot"`
 }
 
+// MergeInput is one SPP merge slot as the anonymous merge circuit opens it.
+type MergeInput struct {
+	Domain       Field `json:"domain"`
+	TreeID       Field `json:"treeId"`
+	Amount       Field `json:"amount"`
+	Blinding     Field `json:"blinding"`
+	RingDataHash Field `json:"ringDataHash"`
+}
+
+// MergeAnonymousParams discloses an anonymous ring's SPP merge to its auditor.
+type MergeAnonymousParams struct {
+	CircuitType        string        `json:"circuitType"`
+	PublicInputHash    Field         `json:"publicInputHash"`
+	PrivateTxHash      Field         `json:"privateTxHash"`
+	OutputUtxoHash     Field         `json:"outputUtxoHash"`
+	FirstNullifier     Field         `json:"firstNullifier"`
+	RingProgramID      Field         `json:"ringProgramId"`
+	MemberRegistryRoot Field         `json:"memberRegistryRoot"`
+	AuditorPk          Bytes         `json:"auditorPk"`
+	Salt               Field         `json:"salt"`
+	EphSk              Bytes         `json:"ephSk"`
+	DisclosureKey      Bytes         `json:"disclosureKey"`
+	OwnerKey           Bytes         `json:"ownerKey"`
+	NullifierSecret    Field         `json:"nullifierSecret"`
+	MintChunks         []Field       `json:"mintChunks"`
+	Inputs             []MergeInput  `json:"inputs"`
+	OutputTreeID       Field         `json:"outputTreeId"`
+	OutputRingDataHash Field         `json:"outputRingDataHash"`
+	MemberRecord       RecordOpening `json:"memberRecord"`
+}
+
 // TreeSlots pads the populated prefix on the wire with zero slots.
 type TreeSlots []common.TreeSlotParams
 

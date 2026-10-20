@@ -12,10 +12,17 @@ export { auditRingMerges } from "./audit-merge.js";
 export type {
   AuditedRingMerge,
   AuditedRingMergeOpening,
+  DisclosedRingMerge,
   RingMergeAuditPage,
   RingMergeAuditReader,
   UnresolvedRingMerge,
 } from "./audit-merge.js";
+export {
+  mergeDisclosureFieldCount,
+  openRingMergeDisclosure,
+  ringMergeAnonymousPublicInputHash,
+} from "./merge-disclosure.js";
+export type { RingMergeDisclosure, RingMergeOpening } from "./merge-disclosure.js";
 export type { RingMemberRegistryRoot } from "./codecs.js";
 export {
   NF_KEY_ENC_INFO,
@@ -260,6 +267,7 @@ export {
 } from "./origin.js";
 export type {
   AuditedDepositSource,
+  MergeDisclosureSource,
   OriginInstruction,
   OriginInstructionGroup,
   RingWithdrawal,

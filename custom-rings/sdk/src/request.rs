@@ -519,6 +519,61 @@ impl UpdateMembersBody {
     }
 }
 
+/// One SPP merge slot as the anonymous merge circuit opens it, padding zero.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MergeSlot {
+    #[serde(with = "fe")]
+    pub domain: [u8; 32],
+    #[serde(with = "fe")]
+    pub tree_id: [u8; 32],
+    #[serde(with = "fe")]
+    pub amount: [u8; 32],
+    #[serde(with = "fe")]
+    pub blinding: [u8; 32],
+    #[serde(with = "fe")]
+    pub ring_data_hash: [u8; 32],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MergeAnonymousBody {
+    pub circuit_type: RingCircuit,
+    #[serde(with = "fe")]
+    pub public_input_hash: [u8; 32],
+    #[serde(with = "fe")]
+    pub private_tx_hash: [u8; 32],
+    #[serde(with = "fe")]
+    pub output_utxo_hash: [u8; 32],
+    #[serde(with = "fe")]
+    pub first_nullifier: [u8; 32],
+    #[serde(with = "fe")]
+    pub ring_program_id: [u8; 32],
+    #[serde(with = "fe")]
+    pub member_registry_root: [u8; 32],
+    #[serde(serialize_with = "fe::coordinate")]
+    pub auditor_pk: X25519Pubkey,
+    /// The SPP output ciphertext salt right aligned.
+    #[serde(with = "fe")]
+    pub salt: [u8; 32],
+    #[serde(serialize_with = "fe::zeroizing")]
+    pub eph_sk: Zeroizing<[u8; 32]>,
+    #[serde(serialize_with = "fe::zeroizing")]
+    pub disclosure_key: Zeroizing<[u8; 32]>,
+    #[serde(with = "fe")]
+    pub owner_key: [u8; 32],
+    #[serde(serialize_with = "fe::zeroizing")]
+    pub nullifier_secret: Zeroizing<[u8; 32]>,
+    #[serde(serialize_with = "fe::seq")]
+    pub mint_chunks: [[u8; 32]; 2],
+    pub inputs: Vec<MergeSlot>,
+    #[serde(with = "fe")]
+    pub output_tree_id: [u8; 32],
+    #[serde(with = "fe")]
+    pub output_ring_data_hash: [u8; 32],
+    pub member_record: RecordWitness,
+}
+
 macro_rules! ring_bodies {
     ($($body:ty),*) => {$(
         impl RingBody for $body {
@@ -535,7 +590,8 @@ ring_bodies!(
     PolicyEnvelope<'_>,
     DepositBody,
     RegisterKeyBody,
-    UpdateMembersBody
+    UpdateMembersBody,
+    MergeAnonymousBody
 );
 
 /// Always `true`, the anonymous fields travel only with their mode.

@@ -453,8 +453,8 @@ impl IndexedCircuit {
             Self::TransferAnonymousRingEddsa => 22,
             // Tree-independent prefix, rail tail, salt and three ciphertext fields.
             Self::Merge => 12,
-            // The ring statement also binds the selected member-registry root.
-            Self::MergeRing => 13,
+            // The ring statement also binds the selected member-registry root and the ring mode.
+            Self::MergeRing => 14,
         }
     }
 }
@@ -718,8 +718,8 @@ mod tests {
             public_inputs: vec![scalar_one(); count],
         };
         IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
-        IndexedProofRequest::new(request("merge-ring", 13)).expect("ring merge shape");
-        for (circuit, count) in [("merge", 13), ("merge-ring", 12)] {
+        IndexedProofRequest::new(request("merge-ring", 14)).expect("ring merge shape");
+        for (circuit, count) in [("merge", 13), ("merge-ring", 13)] {
             assert!(matches!(
                 IndexedProofRequest::new(request(circuit, count)),
                 Err(ClientError::InvalidIndexedRequest)

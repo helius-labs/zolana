@@ -1020,6 +1020,7 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
     let data = MergeRingIxData {
         output_ring_data_hash: [13; 32],
         member_registry_root: [14; 32],
+        anonymous: false,
         merge: MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
@@ -1047,6 +1048,54 @@ fn confirmed_merge_fixture() -> (InstructionGroup, ShieldedTransaction) {
     group.inner[0].data = [vec![tag::RING_MERGE_TRANSACT], data.serialize().unwrap()].concat();
     group.inner[1].data = encode_event_instruction(EventKind::Merge, &event);
     (group, indexed)
+}
+
+/// Only a ring caller forwarding the exact body with the anonymous flag binds a disclosure.
+#[test]
+fn an_anonymous_merge_binds_the_disclosure_its_ring_forwarded() {
+    use custom_ring_interface::{
+        CustomRingMergeIxData, CustomRingProof, MergeDisclosure, PlainGroth16Proof,
+    };
+    use zolana_interface::instruction::instruction_data::merge_ring::MergeRingIxData;
+    let (mut group, _) = confirmed_merge_fixture();
+    let spp = MergeRingIxData::deserialize(&group.inner[0].data[1..]).unwrap();
+    let disclosure = MergeDisclosure {
+        proof: CustomRingProof {
+            groth16: PlainGroth16Proof {
+                proof_a: [1; 32],
+                proof_b: [2; 64],
+                proof_c: [3; 32],
+            },
+            commitment: [1; 32],
+            commitment_pok: [2; 32],
+        },
+        eph_pk: [4; 33],
+        ciphertext: [5; 32],
+        fields: vec![[6; 32]; 13],
+    };
+    let request = CustomRingMergeIxData {
+        registry_root_index: 0,
+        output_ring_data_hash: spp.output_ring_data_hash,
+        disclosure: Some(disclosure.clone()),
+        merge: spp.merge.clone(),
+    };
+    group.outer.data = [
+        vec![custom_ring_interface::tag::MERGE],
+        request.serialize().unwrap(),
+    ]
+    .concat();
+    let registered = ring_event_origin_in(std::slice::from_ref(&group), 0, RING).unwrap();
+    assert_eq!(registered.merge_disclosure, None);
+    group.inner[0].data[65] = 1;
+    let anonymous = ring_event_origin_in(std::slice::from_ref(&group), 0, RING).unwrap();
+    assert_eq!(
+        anonymous.merge_disclosure,
+        Some(ConfirmedMergeDisclosure {
+            eph_pk: disclosure.eph_pk,
+            ciphertext: disclosure.ciphertext,
+            fields: disclosure.fields,
+        })
+    );
 }
 
 #[test]

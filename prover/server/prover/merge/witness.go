@@ -71,6 +71,11 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.RingProgramID = p.RingProgramID
 	circuit.MemberRegistryRoot = p.MemberRegistryRoot
 	circuit.RegisteredCiphertextHash = p.RegisteredCiphertextHash
+	circuit.Anonymous = 0
+	if p.Anonymous {
+		circuit.RegisteredCiphertextHash = 0
+		circuit.Anonymous = 1
+	}
 	if p.MemberRecord == nil || len(p.MemberRecord.Path) != len(circuit.MemberRecord.Path) {
 		return nil, fmt.Errorf("merge ring: member record path must have %d elements", len(circuit.MemberRecord.Path))
 	}

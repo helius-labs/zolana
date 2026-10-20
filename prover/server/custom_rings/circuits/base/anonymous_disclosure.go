@@ -92,7 +92,7 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 		disclosedInputs = api.Add(disclosedInputs, disclosed)
 		inputs[i] = chunks(api, slices.Concat(
 			uintBytes(api, api.Mul(disclosed, w.TreeID), 2), uintBytes(api, api.Mul(disclosed, w.Amount), 8),
-			fieldBytes(api, w.Asset), fieldBytes(api, w.Blinding),
+			FieldBytes(api, w.Asset), FieldBytes(api, w.Blinding),
 		), auditInputChunks, disclosed)
 	}
 	api.AssertIsDifferent(api.Add(api.Sub(1, anonymous), disclosedInputs), 0)
@@ -124,7 +124,7 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 			x25519.AssertCanonical(api, u)
 		}
 		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, gadget.HashBytes(api, recipient))), 0)
-		outputs[i] = chunks(api, slices.Concat(recipient, fieldBytes(api, w.NullifierPk), viewing[:]), auditOutputChunks, disclosed)
+		outputs[i] = chunks(api, slices.Concat(recipient, FieldBytes(api, w.NullifierPk), viewing[:]), auditOutputChunks, disclosed)
 	}
 
 	// The output region starts after the selected input prefix, so the layout is a sum over input counts.
@@ -186,9 +186,15 @@ type boundedBytes struct{}
 
 func (boundedBytes) Check(frontend.Variable, int) {}
 
-// fieldBytes is the unique native field encoding, so no alias changes a trace.
-func fieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
+// FieldBytes is the unique native field encoding, so no alias changes a trace.
+func FieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
 	return canonicalBytes(api, value)
+}
+
+// PackDisclosure zero pads bytes to whole 31-byte chunks, every byte is bounded where it is produced.
+func PackDisclosure(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
+	n := (len(bytes) + gadget.HashBytesChunkSize - 1) / gadget.HashBytesChunkSize
+	return chunks(api, bytes, n, 1)
 }
 
 // uintBytes bounds an unsigned integer to n bytes.

@@ -41,8 +41,8 @@ func (p *MergeParameters) ValidateShape() error {
 		return fmt.Errorf("merge: outputTreeId is required")
 	}
 	if p.CircuitType == common.MergeRingCircuitType {
-		if p.MemberRegistryRoot == nil || p.MemberRegistryRoot.Sign() == 0 ||
-			p.RegisteredCiphertextHash == nil || p.RegisteredCiphertextHash.Sign() == 0 ||
+		registered := p.RegisteredCiphertextHash != nil && p.RegisteredCiphertextHash.Sign() != 0
+		if p.MemberRegistryRoot == nil || p.MemberRegistryRoot.Sign() == 0 || registered == p.Anonymous ||
 			p.MemberRecord == nil || len(p.MemberRecord.Path) != registry.Height ||
 			p.MemberRecord.Next.Int == nil || p.MemberRecord.EscrowKey.Int == nil {
 			return fmt.Errorf("merge ring: complete recovery registration is required")

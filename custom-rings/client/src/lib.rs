@@ -21,15 +21,18 @@ pub use crate::{
     decrypt::{recover_tx_viewing_key, TransactionAudit},
     deposit::{deposit_payload, ring_deposits_in, RingDeposit},
     encryption::{
-        auditor_view_tag, open_deposit, seal_deposits, AnonymousDisclosure, AnonymousOutputOpening,
-        AuditInputOpening, AuditorEncryption, AuditorMessage, DepositEncryption, DepositOpening,
+        auditor_view_tag, open_deposit, open_merge_disclosure, seal_deposits, AnonymousDisclosure,
+        AnonymousOutputOpening, AuditInputOpening, AuditorEncryption, AuditorMessage,
+        DepositEncryption, DepositOpening, MergeDisclosureEncryption, MergeOpening,
         NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::AuditError,
-    merge_audit::{AuditedMerge, MergeAudit, MergeAuditPage, MergeAuditResult, UnresolvedMerge},
+    merge_audit::{
+        AuditedMerge, MergeAudit, MergeAuditPage, MergeAuditResult, MergeKeys, UnresolvedMerge,
+    },
     origin::{
-        ring_event_origin_in, ConfirmedDeposit, ConfirmedEvent, ConfirmedEventKind, RingOrigin,
-        RingWithdrawal, TransactionOrigin,
+        ring_event_origin_in, ConfirmedDeposit, ConfirmedEvent, ConfirmedEventKind,
+        ConfirmedMergeDisclosure, RingOrigin, RingWithdrawal, TransactionOrigin,
     },
     reader::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,

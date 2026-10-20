@@ -134,3 +134,53 @@ func TestMergeRingPreservesEveryRealInputRingData(t *testing.T) {
 		})
 	}
 }
+
+func anonymousRingFixture(t *testing.T) *mergeWitnessFixture {
+	t.Helper()
+	return buildMergeFixture(t, mergeFixtureOptions{
+		rail: ringFixtureRail, ringProgramID: big.NewInt(0x5A0E), anonymous: true,
+		inputRingData: []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)}, outputRingData: big.NewInt(0xD0),
+	})
+}
+
+// An anonymous member has no escrow key, the flag alone waives the escrow relation.
+func TestMergeRingAnonymousSkipsTheEscrowKey(t *testing.T) {
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), anonymousRingFixture(t).ringCircuit(), ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("anonymous ring merge not solved: %v", err)
+	}
+}
+
+// The flag is a public value, flipping it on either side of the statement fails.
+func TestMergeRingBindsTheAnonymousFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*testing.T, *mergeWitnessFixture)
+	}{
+		{"anonymous witness under a registered statement", func(t *testing.T, f *mergeWitnessFixture) {
+			f.anonymous = big.NewInt(0)
+			refreshRingPublicInputHash(t, f)
+			f.anonymous = big.NewInt(1)
+		}},
+		{"unregistered member claims a registered merge", func(t *testing.T, f *mergeWitnessFixture) {
+			f.anonymous = big.NewInt(0)
+			refreshRingPublicInputHash(t, f)
+		}},
+		{"non-boolean flag", func(t *testing.T, f *mergeWitnessFixture) {
+			f.anonymous = big.NewInt(2)
+			refreshRingPublicInputHash(t, f)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := anonymousRingFixture(t)
+			tc.mutate(t, f)
+			if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), f.ringCircuit(), ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("merge accepted a tampered anonymous flag")
+			}
+		})
+	}
+	registered := buildRingWitness(t, big.NewInt(0x5A0E))
+	registered.Anonymous = 1
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), registered, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("a registered merge solved with the anonymous flag outside its statement")
+	}
+}

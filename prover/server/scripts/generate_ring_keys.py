@@ -86,7 +86,20 @@ def base_catalog(entries):
     ]
     for entry in entries:
         lines += [f'    {entry["module"]} => "{entry["file"]}",']
-    lines += ["}", ""]
+    lines += [
+        "}",
+        "",
+        "/// The anonymous ring merge key of one SPP merge width.",
+        "pub fn merge_anonymous_verifying_key(",
+        "    width: usize,",
+        ") -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {",
+        "    match width {",
+    ]
+    prefix = "custom-ring-merge-anonymous-"
+    for entry in entries:
+        if entry["circuit"].startswith(prefix):
+            lines += [f'        {entry["circuit"].removeprefix(prefix)} => Some(&{entry["module"]}::VERIFYINGKEY),']
+    lines += ["        _ => None,", "    }", "}", ""]
     # This file is included at the crate root, keeping each module's existing path.
     write(INTERFACE / "verifying_keys.rs", "\n".join(lines).replace("//! Generated", "// Generated"))
 

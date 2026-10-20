@@ -337,8 +337,11 @@ pub(crate) struct MergeParametersJson {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MergeRegistrationJson {
     member_registry_root: String,
-    registered_ciphertext_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registered_ciphertext_hash: Option<String>,
     member_record: MergeMemberRecordJson,
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    anonymous: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -356,7 +359,7 @@ pub(crate) fn merge_registration_to_json(
 ) -> MergeRegistrationJson {
     MergeRegistrationJson {
         member_registry_root: fe_to_string(&registration.root),
-        registered_ciphertext_hash: fe_to_string(&registration.ciphertext_hash),
+        registered_ciphertext_hash: registration.ciphertext_hash.as_ref().map(fe_to_string),
         member_record: MergeMemberRecordJson {
             next: canonical_field_to_string(&registration.next),
             lists: registration.lists,
@@ -368,6 +371,7 @@ pub(crate) fn merge_registration_to_json(
                 .map(canonical_field_to_string)
                 .collect(),
         },
+        anonymous: registration.ciphertext_hash.is_none(),
     }
 }
 
@@ -737,7 +741,7 @@ mod merge_tests {
         inputs.output_ring_data_hash = BigUint::from(3u8);
         inputs.registration = Some(crate::prover::MergeRegistration {
             root: [1; 32],
-            ciphertext_hash: [2; 32],
+            ciphertext_hash: Some([2; 32]),
             next: [3; 32],
             lists: 0,
             escrow_key: [4; 32],

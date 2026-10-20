@@ -1,5 +1,5 @@
 mod public_inputs;
-pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
+pub use public_inputs::{MergePublicInputBinding, MergePublicInputs, MergeRegistryBinding};
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -99,8 +99,9 @@ impl MergeProofResult {
             return Err(ClientError::RingMemberUnregistered);
         }
         // The first seven common elements are followed by ring data and the
-        // ring program ID. Insert the root before the salt and ciphertext.
-        self.hash_elements.insert(9, registration.root);
+        // ring program ID. Insert the root and mode before the salt and ciphertext.
+        self.hash_elements
+            .splice(9..9, registration.binding().elements());
         self.public_input_hash = create_hash_chain_4_from_slice(&self.hash_elements)?;
         self.inputs.public_input_hash = be(&self.public_input_hash);
         self.inputs.registration = Some(registration);
@@ -133,13 +134,17 @@ impl MergeProofResult {
     /// `ring_data_hash`. The caller passes the result to the
     /// `MergeRing` builder with the tree / ring_config accounts.
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
+        let registry = self.inputs.registration.as_ref().map_or(
+            MergeRegistryBinding {
+                root: [0; 32],
+                anonymous: false,
+            },
+            MergeRegistration::binding,
+        );
         MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
-            member_registry_root: self
-                .inputs
-                .registration
-                .as_ref()
-                .map_or([0; 32], |registered| registered.root),
+            member_registry_root: registry.root,
+            anonymous: registry.anonymous,
             merge: self.instruction_data(proof),
         }
     }
@@ -306,7 +311,7 @@ impl MergeProver {
                 MergePublicInputBinding::Ring {
                     output_data_hash: output_ring_data_hash,
                     program_id_hash: ring_hash,
-                    member_registry_root: None,
+                    registry: None,
                 }
             } else {
                 MergePublicInputBinding::Owner {

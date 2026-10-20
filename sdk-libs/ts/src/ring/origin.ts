@@ -3,7 +3,7 @@ import { getBase58Encoder } from "@solana/kit";
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
 import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
-import { Reader, sha256, addressBytes, encodeBase58 } from "../interface/internal.js";
+import { Reader, Writer, sha256, addressBytes, encodeBase58 } from "../interface/internal.js";
 import { treeAddress } from "../interface/pda/index.js";
 import { INPUT_TREES } from "../interface/tree-slot.js";
 import { decodeRingDepositInstructionData, readMergeData } from "../interface/codecs/index.js";
@@ -37,6 +37,11 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { encodeMergeOutputData } from "../transaction/serialization/merge.js";
 
 import { RingError } from "./error.js";
+import {
+  readRingMergeDisclosure,
+  writeRingMergeDisclosure,
+  type RingMergeDisclosure,
+} from "./merge-disclosure.js";
 
 const base58Encoder = getBase58Encoder();
 
@@ -60,6 +65,41 @@ export interface TransactionOrigin {
     ring: Address,
     context?: RequestContext,
   ): Promise<"transfer" | "deposit" | "merge" | undefined>;
+  /** An anonymous ring's merge audit reads the verified disclosure, other rings never call it. */
+  confirmedMergeDisclosure?: MergeDisclosureSource["confirmedMergeDisclosure"];
+}
+
+/** The disclosure of an anonymous merge whose proof the ring program verified before SPP settled it. */
+export interface MergeDisclosureSource {
+  confirmedMergeDisclosure(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<RingMergeDisclosure | undefined>;
+}
+
+/** The ring forwards its exact SPP body behind `ringDataHash || root || anonymous`. */
+function confirmedMergeDisclosureOf(found: TrustedEvent): RingMergeDisclosure | undefined {
+  const wrapper = found.wrapper;
+  if (
+    found.source.data[0] !== InstructionTag.ringMergeTransact ||
+    wrapper?.data[0] !== InstructionTag.ringMergeTransact
+  )
+    return undefined;
+  const request = new Reader(wrapper.data.subarray(2));
+  const ringDataHash = request.bytes(32, "merge.ringDataHash");
+  const disclosure = readRingMergeDisclosure(request);
+  if (disclosure === undefined) return undefined;
+  const prefix = 2 + 32 + writeRingMergeDisclosure(new Writer(), disclosure).finish().length;
+  const forwarded = found.source.data;
+  if (
+    !equal(forwarded.subarray(1, 33), ringDataHash) ||
+    forwarded[65] !== 1 ||
+    !equal(forwarded.subarray(66), wrapper.data.subarray(prefix))
+  )
+    throw invalid("merge.disclosure");
+  return disclosure;
 }
 
 /** Confirmed audited-deposit data, separate from a boolean ring-origin check. */
@@ -390,7 +430,9 @@ export function senderOf(
 }
 
 /** Mirrors the Rust `TransactionOrigin` impl for `SolanaRpc`. */
-export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSource {
+export class RpcTransactionOrigin
+  implements TransactionOrigin, AuditedDepositSource, MergeDisclosureSource
+{
   readonly #rpc: SolanaRpc;
   readonly #transactions = new Map<Signature, Promise<unknown>>();
   static readonly #MAX_TRANSACTIONS = 4096;
@@ -424,6 +466,20 @@ export class RpcTransactionOrigin implements TransactionOrigin, AuditedDepositSo
       eventIndex,
       ring,
     );
+  }
+
+  async confirmedMergeDisclosure(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<RingMergeDisclosure | undefined> {
+    const found = ringEventIn(
+      confirmedInstructionGroups(await this.#transaction(signature, context)),
+      eventIndex,
+      ring,
+    );
+    return found === undefined ? undefined : confirmedMergeDisclosureOf(found);
   }
 
   async confirmedTransaction(
@@ -546,6 +602,19 @@ export class CachedTransactionOrigin implements TransactionOrigin {
       });
     return this.#origin.confirmedEventKind(transaction, ring, context);
   }
+
+  confirmedMergeDisclosure(
+    signature: Signature,
+    eventIndex: number,
+    ring: Address,
+    context?: RequestContext,
+  ): Promise<RingMergeDisclosure | undefined> {
+    if (this.#origin.confirmedMergeDisclosure === undefined)
+      throw new RingError("RING_ORIGIN_DECODE", {
+        details: { reason: "confirmed merge disclosure unavailable" },
+      });
+    return this.#origin.confirmedMergeDisclosure(signature, eventIndex, ring, context);
+  }
 }
 
 interface ConfirmedEventData extends Pick<
@@ -590,6 +659,7 @@ function readConfirmedEvent(
     const data = new Reader(source.data.slice(1));
     const ringDataHash = data.bytes(32, "merge.ringDataHash") as Bytes32;
     data.bytes(32, "merge.memberRegistryRoot");
+    data.bool("merge.anonymous");
     const merge = readMergeData(data);
     data.done();
     const { salt, ciphertext } = merge.outputEncryption;

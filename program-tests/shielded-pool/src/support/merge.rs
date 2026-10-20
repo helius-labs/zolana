@@ -583,6 +583,7 @@ impl RealRingMerge {
             data: self.data.merge.clone(),
             output_ring_data_hash: self.data.output_ring_data_hash,
             member_registry_root: self.data.member_registry_root,
+            anonymous: self.data.anonymous,
             cache: self.cache.map(|cache| CacheWriteAccounts {
                 cache,
                 writer: pool.rpc.payer.pubkey(),
@@ -698,7 +699,7 @@ impl RealRingMergeProof {
         };
         let registration = MergeRegistration {
             root: members.root(),
-            ciphertext_hash: ciphertext_hash(&ciphertext).expect("ciphertext hash"),
+            ciphertext_hash: Some(ciphertext_hash(&ciphertext).expect("ciphertext hash")),
             next: record.next,
             lists: record.lists,
             escrow_key: record.escrow_key,

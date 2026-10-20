@@ -15,6 +15,9 @@ pub struct MergeRingIxData {
     /// Recent member-registry root proving that the owner nullifier key was
     /// registered with an auditor-recoverable escrow ciphertext.
     pub member_registry_root: [u8; 32],
+    /// Set by the signing ring program from its own mode, the proof skips the
+    /// escrow relation under it and binds it in the public input.
+    pub anonymous: bool,
     pub merge: MergeTransactIxData,
 }
 
@@ -34,6 +37,7 @@ impl MergeRingIxData {
 pub struct MergeRingIxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],
     pub member_registry_root: &'a [u8; 32],
+    pub anonymous: bool,
     pub merge: MergeTransactIxDataRef<'a>,
 }
 

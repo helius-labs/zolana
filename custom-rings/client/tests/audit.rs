@@ -997,6 +997,7 @@ impl TransactionOrigin for KnownOrigins {
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
                 deposits: Vec::new(),
+                merge_disclosure: None,
             })
             .ok_or_else(|| AuditError::Unavailable {
                 signature,

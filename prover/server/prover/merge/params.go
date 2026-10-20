@@ -95,6 +95,8 @@ type MergeParameters struct {
 	MemberRegistryRoot       *big.Int
 	RegisteredCiphertextHash *big.Int
 	MemberRecord             *customring.RecordOpening
+	// Anonymous skips the escrow relation, RegisteredCiphertextHash stays nil.
+	Anonymous bool
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int

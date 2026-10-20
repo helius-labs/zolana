@@ -38,7 +38,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 // refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.
 func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	t.Helper()
-	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID, f.memberRegistryRoot)
+	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID, f.memberRegistryRoot, f.anonymous)
 }
 
 // refreshPublicInputHash hashes the common public columns, the rail-specific

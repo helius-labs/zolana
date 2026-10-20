@@ -103,7 +103,7 @@ func (w DeliveryWires) define(api frontend.API, rc frontend.Rangechecker, keys a
 	CheckBytes(rc, w.PairU[:])
 	plaintext := slices.Concat(
 		masked(api, real, w.AssetAddress[:]), uintBytes(api, api.Mul(real, s.note.Amount), 8),
-		fieldBytes(api, api.Mul(real, s.note.Blinding)), masked(api, real, w.PairU[:]),
+		FieldBytes(api, api.Mul(real, s.note.Blinding)), masked(api, real, w.PairU[:]),
 	)
 	for j, b := range aes.NewCipher(api, key).CTREncrypt(nonce, plaintext) {
 		assertWhen(api, real, api.Sub(b, w.Ciphertext[j]))

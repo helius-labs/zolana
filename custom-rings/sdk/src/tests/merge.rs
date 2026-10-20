@@ -1,7 +1,10 @@
 use custom_ring_interface::{
-    CustomRingMergeIxData, CustomRingMergeIxDataRef, RingProgramConfig, RING_PROGRAM_CONFIG,
+    merge_disclosure_field_count, CustomRingMergeIxData, CustomRingMergeIxDataRef,
+    RingProgramConfig, RING_PROGRAM_CONFIG,
 };
 use solana_address::Address;
+use zeroize::Zeroizing;
+use zolana_client::prover::ProveRequest;
 use zolana_client::{AsyncProverClient, AsyncZolanaClient};
 use zolana_interface::{
     instruction::{
@@ -11,11 +14,14 @@ use zolana_interface::{
     },
     pda,
 };
+use zolana_keypair::X25519Pubkey;
 use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_transaction::Mint;
 
 use super::support::{account, no_witnesses, note, tree_account, Accounts};
 use crate::{
+    prover::{RingCircuit, RingRequest},
+    request::{MergeAnonymousBody, MergeSlot, RecordWitness},
     CustomRing, CustomRingMerge, CustomRingMergeInstruction, MergeProofInput, PoolTree,
     PreparedCustomRingMerge, RingError, MERGE_DEFAULT_INPUT_COUNT,
 };
@@ -61,6 +67,7 @@ fn instruction_targets_the_same_ring_and_uses_its_authority() {
     let data = CustomRingMergeIxData {
         registry_root_index: 0,
         output_ring_data_hash: [7; 32],
+        disclosure: None,
         merge: MergeTransactIxData {
             cache_slot: None,
             expiry_unix_ts: u64::MAX,
@@ -150,6 +157,96 @@ async fn a_merge_refuses_a_missing_ring_and_inputs_of_another_tree() {
         prepared(&owner, 0).prove(input(five), &client).await,
         Err(RingError::InputTreeMismatch)
     ));
+}
+
+/// The anonymous preview sizes the disclosure of its own width, any other ring carries none.
+#[test]
+fn an_anonymous_preview_carries_the_disclosure_of_its_width() {
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let prepared = prepared(&owner, 0);
+    let tree = PoolTree::from_id(0);
+    let input = MergeProofInput {
+        nullifier_key: owner.nullifier_key.clone(),
+        input_tree: tree.address,
+        output_tree: tree.address,
+    };
+    let payer = Address::new_from_array([3; 32]);
+    for (instruction, fields) in [
+        (
+            prepared.anonymous_preview_instruction(&input, payer, None),
+            Some(merge_disclosure_field_count(8)),
+        ),
+        (prepared.preview_instruction(&input, payer, None), None),
+    ] {
+        let parsed = CustomRingMergeIxDataRef::from_bytes(&instruction.data[1..]).unwrap();
+        assert_eq!(
+            parsed.disclosure.map(|disclosure| disclosure.fields.len()),
+            fields
+        );
+    }
+}
+
+/// The Rust body spells every wire the Go decoder reads for the pinned statement.
+#[test]
+fn the_anonymous_merge_body_matches_the_go_request() {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../test-vectors/ring-merge-anonymous.json"
+    ))
+    .unwrap();
+    let request = &vector["request"];
+    let bytes = |value: &serde_json::Value| -> Vec<u8> {
+        hex::decode(value.as_str().unwrap().trim_start_matches("0x")).unwrap()
+    };
+    let field = |value: &serde_json::Value| -> [u8; 32] { bytes(value).try_into().unwrap() };
+    let body = MergeAnonymousBody {
+        circuit_type: RingCircuit::MergeAnonymous { inputs: 8 },
+        public_input_hash: field(&request["publicInputHash"]),
+        private_tx_hash: field(&request["privateTxHash"]),
+        output_utxo_hash: field(&request["outputUtxoHash"]),
+        first_nullifier: field(&request["firstNullifier"]),
+        ring_program_id: field(&request["ringProgramId"]),
+        member_registry_root: field(&request["memberRegistryRoot"]),
+        auditor_pk: X25519Pubkey::from_bytes(bytes(&vector["auditor_pk"]).try_into().unwrap())
+            .unwrap(),
+        salt: field(&request["salt"]),
+        eph_sk: Zeroizing::new(field(&request["ephSk"])),
+        disclosure_key: Zeroizing::new(field(&request["disclosureKey"])),
+        owner_key: field(&request["ownerKey"]),
+        nullifier_secret: Zeroizing::new(field(&request["nullifierSecret"])),
+        mint_chunks: [
+            field(&request["mintChunks"][0]),
+            field(&request["mintChunks"][1]),
+        ],
+        inputs: request["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|input| MergeSlot {
+                domain: field(&input["domain"]),
+                tree_id: field(&input["treeId"]),
+                amount: field(&input["amount"]),
+                blinding: field(&input["blinding"]),
+                ring_data_hash: field(&input["ringDataHash"]),
+            })
+            .collect(),
+        output_tree_id: field(&request["outputTreeId"]),
+        output_ring_data_hash: field(&request["outputRingDataHash"]),
+        member_record: RecordWitness {
+            next: field(&request["memberRecord"]["next"]),
+            lists: request["memberRecord"]["lists"].as_u64().unwrap(),
+            escrow_key: field(&request["memberRecord"]["escrowKey"]),
+            index: request["memberRecord"]["index"].as_u64().unwrap(),
+            path: request["memberRecord"]["path"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(field)
+                .collect(),
+        },
+    };
+    let encoded: serde_json::Value =
+        serde_json::from_str(&RingRequest(&body).body().unwrap()).unwrap();
+    assert_eq!(&encoded, request);
 }
 
 #[test]

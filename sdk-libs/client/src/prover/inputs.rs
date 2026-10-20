@@ -122,12 +122,22 @@ pub struct MergeInputs {
 #[derive(Debug, Clone)]
 pub struct MergeRegistration {
     pub root: [u8; 32],
-    pub ciphertext_hash: [u8; 32],
+    /// `None` in an anonymous ring, whose own merge proof discloses the output key.
+    pub ciphertext_hash: Option<[u8; 32]>,
     pub next: [u8; 32],
     pub lists: u64,
     pub escrow_key: [u8; 32],
     pub index: u64,
     pub path: Vec<[u8; 32]>,
+}
+
+impl MergeRegistration {
+    pub fn binding(&self) -> crate::prover::merge::MergeRegistryBinding {
+        crate::prover::merge::MergeRegistryBinding {
+            root: self.root,
+            anonymous: self.ciphertext_hash.is_none(),
+        }
+    }
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree

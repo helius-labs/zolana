@@ -171,6 +171,7 @@ Breaking
   the depositor create the vault, and accepts `setupInstructions`, which it
   places before every other instruction → pass `createSplInterface: false` to
   keep building the deposit alone.
+- Ring merge proofs bind the ring's anonymous flag beside the member registry root, and `ringMergeInstruction` writes the disclosure option ahead of the merge body → deploy this release's shielded-pool program, ring program and merge keys together.
 
 Added
 
@@ -178,6 +179,7 @@ Added
 - `RingTagKeys` extends `ShieldedKeys` with `ringViewTags`, answered by `LocalShieldedKeys` and `LocalKeys`, and `RingTagRequest` names one inbox, pair, deposit or change tag.
 - `decryptTransactions` takes `anonymous: AnonymousTagRoutes` and opens a scheme-9 slot only under the key its tag is routed to, with `DECRYPTIONS_PER_INDEX` openings per tag.
 - `TagStream.firstFreeIndex` and `occupiedIndices` read a tag stream in `DEFAULT_TAG_WINDOW` sized windows against the indexer, an output nobody can open still occupies its index.
+- `auditRingMerges` returns `disclosed`, every merge of an anonymous ring opened from the disclosure its ring program verified, with the owner key, the output opening and the spent commitments in `RingMergeOpening`; `openRingMergeDisclosure`, `ringMergeAnonymousPublicInputHash` and `mergeDisclosureFieldCount` expose the same opening and statement, and `ringMergeInstruction` takes the `RingMergeDisclosure` an anonymous ring requires.
 - `WalletErrorCode` adds `WALLET_TAG_STREAM_EXHAUSTED` for a tag stream with no free index below 2^64.
 - `RingAddress` and `RingPaymentRequest` encode and parse the `zolana:` payment request a ring member shares off chain, with its checksum, amount, mint and label, and `InboxSecret.viewTag` gives a payer the tag of each first payment to that address.
 - `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.

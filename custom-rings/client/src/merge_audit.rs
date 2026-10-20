@@ -34,8 +34,8 @@ use zolana_transaction::instructions::merge::{
 };
 
 use crate::{
-    encryption::SealedNullifierKey,
-    origin::{ConfirmedEventKind, TransactionOrigin},
+    encryption::{open_merge_disclosure, MergeOpening, SealedNullifierKey},
+    origin::{ConfirmedEventKind, ConfirmedMergeDisclosure, TransactionOrigin},
     AuditError,
 };
 
@@ -59,7 +59,16 @@ pub struct AuditedMerge {
     pub blinding: [u8; 32],
     pub ring_data_hash: [u8; 32],
     pub input_nullifiers: Vec<[u8; 32]>,
-    pub nullifier: [u8; 32],
+    pub keys: MergeKeys,
+}
+
+/// What the auditor holds of the merge owner beyond the opening.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MergeKeys {
+    /// The registry escrow opened the nullifier key, the merged note's nullifier follows.
+    Escrowed { nullifier: [u8; 32] },
+    /// An anonymous merge disclosed every spent commitment, padding zero, the nullifier key stays hidden.
+    Disclosed { input_commitments: Vec<[u8; 32]> },
 }
 
 /// A confirmed merge that no authenticated current registration opened.
@@ -156,7 +165,9 @@ impl PendingMerge {
             blinding: fields.blinding,
             ring_data_hash: self.ring_data_hash,
             input_nullifiers: self.input_nullifiers.clone(),
-            nullifier: fields.nullifier,
+            keys: MergeKeys::Escrowed {
+                nullifier: fields.nullifier,
+            },
         });
         Ok(())
     }
@@ -290,6 +301,7 @@ impl<'a> MergeAudit<'a> {
         seen: &mut HashSet<(Signature, u16)>,
     ) -> Result<MergeAuditResult, AuditError> {
         let mut pending = Vec::new();
+        let mut disclosed = Vec::new();
         for mut tx in transactions {
             let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
             let confirmed = origin
@@ -320,6 +332,45 @@ impl<'a> MergeAudit<'a> {
                 &ring_data_hash,
                 encrypted,
             )?;
+            if let Some(disclosure) = &confirmed.merge_disclosure {
+                let opening = open_disclosed(self.auditor, disclosure, encrypted)?;
+                if opening.input_commitments.len()
+                    != merge_circuit_width(tx.nullifiers.len()).unwrap_or_default()
+                {
+                    return Err(invalid_merge());
+                }
+                let owner_member = *Member::owner_tag(&opening.owner_key)?.as_bytes();
+                let mint = Address::new_from_array(opening.mint);
+                let owner_hash = Poseidon::hashv(&[&owner_member, &opening.nullifier_pk])?;
+                let commitment = ProofInputUtxo::new(
+                    owner_hash,
+                    &mint,
+                    opening.amount,
+                    &opening.output_blinding,
+                    slot.output_context.tree_id,
+                )?
+                .with_ring(ring_data_hash, &Some(self.ring))?
+                .hash()?;
+                if commitment != slot.output_context.hash {
+                    return Err(AuditError::MergeDisclosureMismatch);
+                }
+                disclosed.push(AuditedMerge {
+                    tx_signature: tx.tx_signature,
+                    event_index,
+                    output_commitment: commitment,
+                    owner_member,
+                    owner_pubkey: Some(Address::new_from_array(opening.owner_key)),
+                    mint,
+                    amount: opening.amount,
+                    blinding: opening.output_blinding,
+                    ring_data_hash,
+                    input_nullifiers: tx.nullifiers,
+                    keys: MergeKeys::Disclosed {
+                        input_commitments: opening.input_commitments,
+                    },
+                });
+                continue;
+            }
             pending.push(PendingMerge {
                 tx_signature: tx.tx_signature,
                 event_index,
@@ -333,7 +384,10 @@ impl<'a> MergeAudit<'a> {
             });
         }
         if pending.is_empty() {
-            return Ok(MergeAuditResult::default());
+            return Ok(MergeAuditResult {
+                opened: disclosed,
+                unresolved: Vec::new(),
+            });
         }
         let mut attempts = 0;
         self.scan_registry(indexer, registry, |registered| {
@@ -346,7 +400,10 @@ impl<'a> MergeAudit<'a> {
             )
         })
         .await?;
-        let mut result = MergeAuditResult::default();
+        let mut result = MergeAuditResult {
+            opened: disclosed,
+            unresolved: Vec::new(),
+        };
         for merge in pending {
             if let Some(opened) = merge.opened {
                 result.opened.push(opened);
@@ -588,6 +645,24 @@ fn open_candidate(
         blinding,
         nullifier: registered.key.nullifier(&output_commitment, &blinding)?,
     }))
+}
+
+/// The ring verified the disclosure proof, so the salt is the SPP merge output salt it binds.
+fn open_disclosed(
+    auditor: &X25519Keypair,
+    disclosure: &ConfirmedMergeDisclosure,
+    encrypted: &[u8],
+) -> Result<MergeOpening, AuditError> {
+    let salt = encrypted
+        .first_chunk::<MERGE_OUTPUT_SALT_LEN>()
+        .ok_or_else(invalid_merge)?;
+    open_merge_disclosure(
+        auditor,
+        &X25519Pubkey::from_bytes(disclosure.eph_pk)?,
+        &disclosure.ciphertext,
+        *salt,
+        &disclosure.fields,
+    )
 }
 
 fn invalid_merge() -> AuditError {

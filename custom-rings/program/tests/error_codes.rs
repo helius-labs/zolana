@@ -78,6 +78,8 @@ fn error_codes_are_stable() {
         (DuplicateAnonymousTag as u32, 8195),
         (InvalidAnonymousOutputHash as u32, 8196),
         (AnonymousOutputCount as u32, 8197),
+        (MissingMergeDisclosure as u32, 8198),
+        (MergeDisclosureWidth as u32, 8199),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -162,6 +164,8 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | InvalidAnonymousTag
         | DuplicateAnonymousTag
         | InvalidAnonymousOutputHash
-        | AnonymousOutputCount => {}
+        | AnonymousOutputCount
+        | MissingMergeDisclosure
+        | MergeDisclosureWidth => {}
     }
 }

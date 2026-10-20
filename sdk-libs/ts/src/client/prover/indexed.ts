@@ -393,7 +393,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
       (inputs.circuit === "merge"
         ? inputs.payload.ringProgramId === 0n
           ? 12
-          : 13
+          : 14
         : inputs.circuit === "transferRingAuthority"
           ? 14
           : 17)

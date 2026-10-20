@@ -36,6 +36,10 @@ pub(crate) enum RingCircuit {
     Deposit,
     RegisterKey,
     UpdateMembers,
+    /// One key per SPP merge width.
+    MergeAnonymous {
+        inputs: u8,
+    },
 }
 
 impl From<BaseCircuit> for RingCircuit {
@@ -64,6 +68,9 @@ impl RingCircuit {
             Self::Deposit => "custom-ring-deposit",
             Self::RegisterKey => "custom-ring-register-key",
             Self::UpdateMembers => "custom-ring-update-members",
+            Self::MergeAnonymous { inputs } => {
+                return format!("custom-ring-merge-anonymous-{inputs}");
+            }
             Self::Shaped {
                 inputs,
                 outputs,
@@ -114,6 +121,14 @@ impl RingCircuit {
             Self::Deposit => &deposit_verifying_key::VERIFYINGKEY,
             Self::RegisterKey => &register_key_verifying_key::VERIFYINGKEY,
             Self::UpdateMembers => &update_members_verifying_key::VERIFYINGKEY,
+            Self::MergeAnonymous { inputs } => {
+                custom_ring_interface::merge_anonymous_verifying_key(usize::from(inputs))
+                    .ok_or_else(|| {
+                        ClientError::ProofVerification(
+                            "no anonymous merge key for this width".to_owned(),
+                        )
+                    })?
+            }
             Self::Shaped { .. } => {
                 return Err(ClientError::ProofVerification(
                     "shaped policy requires its public table".to_owned(),

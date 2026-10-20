@@ -422,6 +422,7 @@ impl TransactionOrigin for History {
                 .find(|(key, _)| *key == signature)
                 .map(|(_, bindings)| bindings.clone())
                 .unwrap_or_default(),
+            merge_disclosure: None,
         })
     }
 }

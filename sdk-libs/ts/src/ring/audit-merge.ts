@@ -15,12 +15,21 @@ import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
-import { equal } from "../transaction/internal.js";
+import { equal, poseidon } from "../transaction/internal.js";
 import { Utxo } from "../transaction/utxo.js";
 import { bytesKey } from "../wallet/internal.js";
 import { addressBytes } from "../interface/internal.js";
 
-import { fetchRingMemberRegistryRoot } from "./config.js";
+import { fetchRingMemberRegistryRoot, fetchRingProgramConfig } from "./config.js";
+import {
+  openRingMergeDisclosure,
+  type RingMergeDisclosure,
+  type RingMergeOpening,
+} from "./merge-disclosure.js";
+import { mergePaddedInputCount } from "../interface/constants.js";
+import { readMergeOutputBody } from "../transaction/serialization/merge.js";
+import { ownerUtxoHash } from "../transaction/utxo.js";
+import type { Bytes16 } from "../interface/types.js";
 import { RingError } from "./error.js";
 import {
   openNullifierKey,
@@ -49,6 +58,15 @@ export interface AuditedRingMerge {
   readonly nullifier: Bytes32;
 }
 
+/** An anonymous ring's merge, opened from the disclosure its ring program verified. */
+export interface DisclosedRingMerge {
+  readonly signature: Signature;
+  readonly slot: bigint;
+  readonly opening: RingMergeOpening;
+  readonly outputContext: OutputContext;
+  readonly ringDataHash?: Bytes32;
+}
+
 /** Every other confirmed merge remains visible by its committed output. */
 export interface UnresolvedRingMerge {
   readonly signature: Signature;
@@ -66,6 +84,8 @@ export interface AuditedRingMergeOpening extends MergeAuditorOpening {
 
 export interface RingMergeAuditPage {
   readonly openings: readonly AuditedRingMergeOpening[];
+  /** Merges of an anonymous ring, empty for every other mode. */
+  readonly disclosed: readonly DisclosedRingMerge[];
   readonly merges: readonly AuditedRingMerge[];
   readonly unresolved: readonly UnresolvedRingMerge[];
   readonly unavailableMembers: readonly Bytes32[];
@@ -121,13 +141,24 @@ export async function auditRingMerges(
     throw new RingError("RING_RPC", {
       details: { reason: "confirmed merge batch exceeds memory bound" },
     });
-  const registry = await fetchRingMemberRegistryRoot(input.client, input.ringProgramId, context);
+  const [registry, config] = await Promise.all([
+    fetchRingMemberRegistryRoot(input.client, input.ringProgramId, context),
+    fetchRingProgramConfig(input.client, input.ringProgramId, context),
+  ]);
   // A history page is bounded, while the member registry may hold 2^20 leaves.
   // Keep confirmed merges and stream one recovered member key at a time.
-  const history = await confirmedMerges(input, pageSize, maxPages, context);
+  const history = await confirmedMerges(
+    input,
+    config.mode === "anonymous",
+    pageSize,
+    maxPages,
+    context,
+  );
+  const disclosed = await openDisclosedMerges(input, history, context);
   if (history.transactions.length === 0)
     return Object.freeze({
       openings: Object.freeze([]),
+      disclosed: Object.freeze([]),
       merges: Object.freeze([]),
       unresolved: Object.freeze([]),
       unavailableMembers: Object.freeze([]),
@@ -316,6 +347,7 @@ export async function auditRingMerges(
   for (const [index, transaction] of history.transactions.entries()) {
     const outputContext = transaction.outputSlots[0]!.outputContext;
     const result = results.get(index);
+    if (history.disclosures[index] !== undefined) continue;
     if (result === undefined) {
       unresolved.push({
         signature: transaction.txSignature,
@@ -349,11 +381,67 @@ export async function auditRingMerges(
   }
   return Object.freeze({
     openings: Object.freeze(openings),
+    disclosed: Object.freeze(disclosed),
     merges: Object.freeze(merges),
     unresolved: Object.freeze(unresolved),
     unavailableMembers: Object.freeze([...unavailableMembers.values()]),
     ...(history.nextCursor === undefined ? {} : { nextCursor: history.nextCursor }),
   });
+}
+
+interface ConfirmedMergeHistory {
+  readonly transactions: readonly IndexedShieldedTransaction[];
+  /** Aligned with `transactions`, set for every merge of an anonymous ring. */
+  readonly disclosures: readonly (RingMergeDisclosure | undefined)[];
+  readonly nextCursor?: Uint8Array;
+}
+
+/** The disclosure names the owner and the output opening, the settled commitment must agree. */
+async function openDisclosedMerges(
+  input: Readonly<{ client: RingMergeAuditReader; ringProgramId: Address; auditor: X25519Keypair }>,
+  history: ConfirmedMergeHistory,
+  context?: RequestContext,
+): Promise<DisclosedRingMerge[]> {
+  const resolveTreeId = ringTreeIdResolver(input.client, [], context);
+  const disclosed: DisclosedRingMerge[] = [];
+  for (const [index, transaction] of history.transactions.entries()) {
+    const disclosure = history.disclosures[index];
+    if (disclosure === undefined) continue;
+    const slot = transaction.outputSlots[0]!;
+    const body = readMergeOutputBody(slot.payload);
+    if (body === undefined || body.ringDataHash === undefined)
+      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge output body" } });
+    const opening = openRingMergeDisclosure(
+      input.auditor,
+      disclosure,
+      body.encrypted.slice(0, 16) as Bytes16,
+    );
+    if (opening.inputCommitments.length !== mergePaddedInputCount(transaction.nullifiers.length))
+      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure width" } });
+    const commitment = ownerUtxoHash({
+      owner: poseidon([memberOfTag(addressBytes(opening.ownerKey)), opening.nullifierPublicKey]),
+      asset: opening.mint,
+      amount: opening.amount,
+      blinding: opening.outputBlinding,
+      treeId: await resolveTreeId(slot.outputContext.tree),
+      ringDataHash: body.ringDataHash,
+      ringProgramId: input.ringProgramId,
+    });
+    if (!equal(commitment, slot.outputContext.hash))
+      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge disclosure output" } });
+    disclosed.push(
+      Object.freeze({
+        signature: transaction.txSignature,
+        slot: transaction.slot,
+        opening,
+        outputContext: slot.outputContext,
+        ...(body.ringDataHash.some((byte) => byte !== 0)
+          ? { ringDataHash: body.ringDataHash }
+          : {}),
+      }),
+    );
+  }
+  return disclosed;
 }
 
 async function confirmedMerges(
@@ -363,16 +451,16 @@ async function confirmedMerges(
     origin?: TransactionOrigin;
     cursor?: Uint8Array;
   }>,
+  anonymous: boolean,
   pageSize: number,
   maxPages: number,
   context?: RequestContext,
-): Promise<
-  Readonly<{ transactions: readonly IndexedShieldedTransaction[]; nextCursor?: Uint8Array }>
-> {
+): Promise<ConfirmedMergeHistory> {
   const origin = new CachedTransactionOrigin(
     input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
   );
   const transactions: IndexedShieldedTransaction[] = [];
+  const disclosures: (RingMergeDisclosure | undefined)[] = [];
   const seenEvents = new Set<string>();
   let cursor = input.cursor;
   for (let page = 0; page < maxPages; page++) {
@@ -413,14 +501,32 @@ async function confirmedMerges(
         });
       seenEvents.add(event);
       transactions.push(transaction);
+      if (!anonymous) {
+        disclosures.push(undefined);
+        continue;
+      }
+      if (transaction.eventIndex === undefined)
+        throw new RingError("RING_ORIGIN_DECODE", { details: { reason: "merge event index" } });
+      const disclosure = await origin.confirmedMergeDisclosure(
+        transaction.txSignature,
+        transaction.eventIndex,
+        input.ringProgramId,
+        context,
+      );
+      // An anonymous ring settles a merge only behind its verified disclosure.
+      if (disclosure === undefined)
+        throw new RingError("RING_ORIGIN_DECODE", {
+          details: { reason: "anonymous merge without disclosure" },
+        });
+      disclosures.push(disclosure);
     }
     const next = response.scannedThrough === undefined ? response.nextCursor : undefined;
-    if (next === undefined) return { transactions };
+    if (next === undefined) return { transactions, disclosures };
     if (cursor !== undefined && equal(cursor, next))
       throw new RingError("RING_RPC", {
         details: { reason: "merge scan cursor did not advance" },
       });
     cursor = next;
   }
-  return { transactions, ...(cursor === undefined ? {} : { nextCursor: cursor }) };
+  return { transactions, disclosures, ...(cursor === undefined ? {} : { nextCursor: cursor }) };
 }

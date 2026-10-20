@@ -53,6 +53,7 @@ import {
   setRingDepositAuditInstruction,
 } from "./config.js";
 import { RingError } from "./error.js";
+import { writeRingMergeDisclosure, type RingMergeDisclosure } from "./merge-disclosure.js";
 import {
   encodeRuleTable,
   checkedListId,
@@ -620,6 +621,8 @@ export async function ringMergeInstruction(
     data: MergeTransactInstructionData;
     outputRingDataHash: Bytes32;
     memberRegistryRootIndex: number;
+    /** Required exactly in an anonymous ring, the program refuses it anywhere else. */
+    disclosure?: RingMergeDisclosure;
     cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
@@ -644,10 +647,13 @@ export async function ringMergeInstruction(
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
       ...nullifiers.map((key) => meta(key, false, true)),
     ],
-    data: new Writer()
-      .u8(InstructionTag.ringMergeTransact, "instructionTag")
-      .u8(input.memberRegistryRootIndex, "memberRegistryRootIndex")
-      .bytes(input.outputRingDataHash, 32, "outputRingDataHash")
+    data: writeRingMergeDisclosure(
+      new Writer()
+        .u8(InstructionTag.ringMergeTransact, "instructionTag")
+        .u8(input.memberRegistryRootIndex, "memberRegistryRootIndex")
+        .bytes(input.outputRingDataHash, 32, "outputRingDataHash"),
+      input.disclosure,
+    )
       .bytes(encodeMergeTransactInstructionData(input.data))
       .finish(),
   };

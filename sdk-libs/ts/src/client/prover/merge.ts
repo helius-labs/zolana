@@ -286,7 +286,7 @@ interface MergePublicInputFields {
    */
   readonly owner: readonly [bigint, bigint];
   /** Present only on a ring merge, after its ring id and before the ciphertext. */
-  readonly memberRegistryRoot?: bigint;
+  readonly ringRegistry?: Readonly<{ root: bigint; anonymous: boolean }>;
   /** The output ciphertext's salt as a field element, then its three elements. */
   readonly outputCiphertextSalt: bigint;
   readonly outputCiphertext: readonly [bigint, bigint, bigint];
@@ -308,7 +308,9 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.externalDataHash,
     1n,
     ...input.owner,
-    ...(input.memberRegistryRoot === undefined ? [] : [input.memberRegistryRoot]),
+    ...(input.ringRegistry === undefined
+      ? []
+      : [input.ringRegistry.root, input.ringRegistry.anonymous ? 1n : 0n]),
     input.outputCiphertextSalt,
     ...input.outputCiphertext,
   ];
@@ -426,7 +428,13 @@ export function prepareMerge(
         : [BigInt(output.circuit.ringDataHash), BigInt(output.circuit.ringProgramId)],
     ...(ringRegistry === undefined
       ? {}
-      : { memberRegistryRoot: bytesField(ringRegistry.root, "member registry root") }),
+      : {
+          // The TypeScript builder merges registered members only, the anonymous flag stays clear.
+          ringRegistry: {
+            root: bytesField(ringRegistry.root, "member registry root"),
+            anonymous: false,
+          },
+        }),
     outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
     outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
   }).map(asField);

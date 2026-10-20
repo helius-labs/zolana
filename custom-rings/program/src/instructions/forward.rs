@@ -15,6 +15,7 @@ use crate::instructions::{
         load_audited_config, load_deposit_audit, load_escrow_root, load_registry_root,
         validate_spp_program,
     },
+    merge_disclosure::verify_merge_disclosure,
     public_legs::PublicLegs,
     shared::{cpi_spp, verify_pda},
     transact::Controls,
@@ -42,11 +43,6 @@ impl Forward {
         let anonymous = config.mode == RingMode::Anonymous;
         if matches!(self, Forward::Deposit) {
             return Err(CustomRingError::DepositAuditRequired.into());
-        }
-        // Merge disclosure relies on a proof-bound registry escrow key. Anonymous
-        // members have no registered identity to bind that key to.
-        if matches!(self, Forward::Merge) && anonymous {
-            return Err(CustomRingError::InvalidMergeDisclosure.into());
         }
         let audited = match self {
             Forward::AuditedDeposit => Some(AuditedDeposit::parse(data)?),
@@ -160,11 +156,16 @@ impl Forward {
                 deposit,
             )?;
         }
+        if let (Some(merge), Some(root)) = (&merge, &merge_root) {
+            verify_merge_disclosure(program_id, &config, merge, root)?;
+        }
+        // SPP waives the escrow key only under the flag, set from the ring's own mode.
         let forwarded_merge = merge.zip(merge_root).map(|(merge, root)| {
-            let mut forwarded = Vec::with_capacity(data.len() + 31);
+            let mut forwarded = Vec::with_capacity(1 + 32 + 32 + 1 + merge.merge_body.len());
             forwarded.push(data[0]);
             forwarded.extend_from_slice(merge.output_ring_data_hash);
             forwarded.extend_from_slice(&root);
+            forwarded.push(u8::from(anonymous));
             forwarded.extend_from_slice(merge.merge_body);
             forwarded
         });

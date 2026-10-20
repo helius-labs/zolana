@@ -542,6 +542,7 @@ mod tests {
                 signers: Vec::new(),
                 withdrawals: Vec::new(),
                 deposits: Vec::new(),
+                merge_disclosure: None,
             })
         }
     }

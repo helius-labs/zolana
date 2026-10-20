@@ -27,12 +27,18 @@ const NF_KEY_ENC_INFO: &[u8; 10] = b"CRING/nfk1";
 const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
 /// ASCII "CR_OD", the Go `OutputDisclosureDomain` seeding the output disclosure pad.
 const DISCLOSURE_DOMAIN: u64 = 0x4352_5f4f44;
+/// ASCII "CR_MD", the Go `MergeDisclosureDomain`, a merge pad never repeats an output pad.
+const MERGE_DISCLOSURE_DOMAIN: u64 = 0x4352_5f4d44;
 
 type Result<T> = core::result::Result<T, AuditError>;
 
 #[cfg(test)]
 #[path = "encryption/proof_statement_tests.rs"]
 mod proof_statement_tests;
+
+#[path = "encryption/merge_disclosure.rs"]
+mod merge_disclosure;
+pub use merge_disclosure::{open_merge_disclosure, MergeDisclosureEncryption, MergeOpening};
 
 /// The auditor key's u-coordinate, the tag the auditor scans for.
 pub fn auditor_view_tag(pk: &X25519Pubkey) -> [u8; 32] {
@@ -509,10 +515,15 @@ fn disclosure_bytes<const N: usize>(slot: &[u8], at: usize) -> Result<[u8; N]> {
 }
 
 /// The circuit's disclosure keystream, `Poseidon(seed, i)` per field, a known pad reveals no other.
-fn disclosure_pad(secret: &[u8; 32], salt: [u8; 16], count: usize) -> Result<Vec<[u8; 32]>> {
+fn disclosure_pad(
+    domain: u64,
+    secret: &[u8; 32],
+    salt: [u8; 16],
+    count: usize,
+) -> Result<Vec<[u8; 32]>> {
     let FieldPair { lo, hi } = pack_2fe(secret);
     let seed = Zeroizing::new(poseidon(&[
-        &right_align(&DISCLOSURE_DOMAIN.to_be_bytes()),
+        &right_align(&domain.to_be_bytes()),
         &lo,
         &hi,
         &right_align(&salt),
@@ -522,14 +533,24 @@ fn disclosure_pad(secret: &[u8; 32], salt: [u8; 16], count: usize) -> Result<Vec
         .collect()
 }
 
-/// Adds or removes the keystream of each disclosure field modulo the BN254 order.
 fn disclosure_stream(
     secret: &[u8; 32],
     salt: [u8; 16],
     fields: &[[u8; 32]],
     encrypt: bool,
 ) -> Result<Vec<[u8; 32]>> {
-    let pad = disclosure_pad(secret, salt, fields.len())?;
+    domain_stream(DISCLOSURE_DOMAIN, secret, salt, fields, encrypt)
+}
+
+/// Adds or removes the keystream of each disclosure field modulo the BN254 order.
+fn domain_stream(
+    domain: u64,
+    secret: &[u8; 32],
+    salt: [u8; 16],
+    fields: &[[u8; 32]],
+    encrypt: bool,
+) -> Result<Vec<[u8; 32]>> {
+    let pad = disclosure_pad(domain, secret, salt, fields.len())?;
     let mut out = vec![[0u8; 32]; fields.len()];
     for ((field, mask), result) in fields.iter().zip(&pad).zip(out.iter_mut()) {
         *result = match encrypt {

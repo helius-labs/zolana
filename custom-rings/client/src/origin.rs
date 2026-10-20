@@ -29,6 +29,16 @@ pub struct RingOrigin {
     pub withdrawals: Vec<RingWithdrawal>,
     /// Capsule bindings from this event's confirmed audited deposit instruction.
     pub deposits: Vec<ConfirmedDeposit>,
+    /// The anonymous merge disclosure whose proof the direct ring caller verified.
+    pub merge_disclosure: Option<ConfirmedMergeDisclosure>,
+}
+
+/// The auditor's half of a confirmed anonymous merge, bound to the forwarded SPP body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedMergeDisclosure {
+    pub eph_pk: [u8; custom_ring_interface::TAGGED_X25519_KEY_LEN],
+    pub ciphertext: [u8; custom_ring_interface::AUDIT_CIPHERTEXT_LEN],
+    pub fields: Vec<[u8; 32]>,
 }
 
 /// The confirmed instruction selects the recovery path, never indexer metadata.
@@ -205,6 +215,51 @@ pub fn ring_event_origin_in(
             false => Vec::new(),
         },
         deposits: confirmed_deposits(groups, source, ring)?,
+        merge_disclosure: confirmed_merge_disclosure(groups, source, ring),
+    })
+}
+
+/// The ring merge forwards `output_ring_data_hash || root || anonymous || body` behind the tag.
+const FORWARDED_MERGE_PREFIX_LEN: usize = 1 + 32 + 32 + 1;
+
+/// A disclosure counts only when the ring forwarded the exact SPP body with the anonymous flag.
+fn confirmed_merge_disclosure(
+    groups: &[InstructionGroup],
+    source: &ParsedInstruction,
+    ring: Address,
+) -> Option<ConfirmedMergeDisclosure> {
+    if source.data.first() != Some(&tag::RING_MERGE_TRANSACT) {
+        return None;
+    }
+    let caller = direct_caller(groups, source)?;
+    if caller.program_id != ring || caller.data.first() != Some(&custom_ring_interface::tag::MERGE)
+    {
+        return None;
+    }
+    let request =
+        custom_ring_interface::CustomRingMergeIxDataRef::from_bytes(&caller.data[1..]).ok()?;
+    let disclosure = request.disclosure?;
+    let forwarded = source.data.get(1..FORWARDED_MERGE_PREFIX_LEN)?;
+    (forwarded[..32] == request.output_ring_data_hash[..]
+        && forwarded[64] == 1
+        && source.data.get(FORWARDED_MERGE_PREFIX_LEN..) == Some(request.merge_body))
+    .then(|| ConfirmedMergeDisclosure {
+        eph_pk: *disclosure.eph_pk,
+        ciphertext: *disclosure.ciphertext,
+        fields: disclosure.fields.to_vec(),
+    })
+}
+
+fn direct_caller<'a>(
+    groups: &'a [InstructionGroup],
+    source: &ParsedInstruction,
+) -> Option<&'a ParsedInstruction> {
+    groups.iter().find_map(|group| {
+        let index = group
+            .inner
+            .iter()
+            .position(|inner| core::ptr::eq(inner, source))?;
+        event_parent(group, index)
     })
 }
 
@@ -218,13 +273,7 @@ fn confirmed_deposits(
     if source.data.first() != Some(&tag::RING_DEPOSIT) {
         return Ok(Vec::new());
     }
-    let caller = groups.iter().find_map(|group| {
-        let index = group
-            .inner
-            .iter()
-            .position(|inner| core::ptr::eq(inner, source))?;
-        event_parent(group, index)
-    });
+    let caller = direct_caller(groups, source);
     if !caller.is_some_and(|caller| {
         caller.program_id == ring
             && caller.data.first() == Some(&custom_ring_interface::tag::AUDITED_DEPOSIT)

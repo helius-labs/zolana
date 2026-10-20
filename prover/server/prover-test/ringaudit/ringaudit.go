@@ -112,6 +112,10 @@ func (k Keys) AuditorPk() [32]byte {
 	return k.auditorPk
 }
 
+func (k Keys) EphPk() [33]byte {
+	return k.ephPk
+}
+
 type Sealed struct {
 	AuditorLo      *big.Int
 	AuditorHi      *big.Int
@@ -543,8 +547,14 @@ func bytesOf(values []frontend.Variable) []byte {
 // DisclosurePad mirrors the base disclosure pad, Poseidon(seed, i) over the keyed seed.
 func DisclosurePad(t testing.TB, key [32]byte, salt [16]byte, n int) []*big.Int {
 	t.Helper()
+	return DomainPad(t, base.OutputDisclosureDomain, key, salt, n)
+}
+
+// DomainPad mirrors base.DisclosurePad under one seed domain.
+func DomainPad(t testing.TB, domain uint64, key [32]byte, salt [16]byte, n int) []*big.Int {
+	t.Helper()
 	keyLo, keyHi := pack32(key)
-	seed := spptest.MustPoseidon(t, 5, []*big.Int{new(big.Int).SetUint64(base.OutputDisclosureDomain), keyLo, keyHi, new(big.Int).SetBytes(salt[:])})
+	seed := spptest.MustPoseidon(t, 5, []*big.Int{new(big.Int).SetUint64(domain), keyLo, keyHi, new(big.Int).SetBytes(salt[:])})
 	pad := make([]*big.Int, n)
 	for i := range pad {
 		pad[i] = spptest.MustPoseidon(t, 3, []*big.Int{seed, big.NewInt(int64(i))})

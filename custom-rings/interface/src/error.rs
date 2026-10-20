@@ -111,6 +111,8 @@ ring_errors! {
     DuplicateAnonymousTag = 8195 => "two anonymous outputs publish one tag",
     InvalidAnonymousOutputHash = 8196 => "an anonymous output hash is zero",
     AnonymousOutputCount = 8197 => "an anonymous transaction publishes every output slot of its shape",
+    MissingMergeDisclosure = 8198 => "an anonymous ring merge carries its disclosure proof",
+    MergeDisclosureWidth = 8199 => "the merge disclosure field count does not match the merge width",
 }
 
 impl From<CustomRingError> for ProgramError {

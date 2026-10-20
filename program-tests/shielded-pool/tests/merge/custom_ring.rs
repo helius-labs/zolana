@@ -119,6 +119,7 @@ fn instruction(
         data: CustomRingMergeIxData {
             registry_root_index: 0,
             output_ring_data_hash: merge.data.output_ring_data_hash,
+            disclosure: None,
             merge: merge.data.merge.clone(),
         },
     }
@@ -196,6 +197,30 @@ fn registered_merge_rejects_bad_roots_then_settles_through_spp() {
     );
     assert_nullifier_pdas(&pool.rpc, &pool.tree, &merge.nullifiers)
         .expect("SPP created nullifier PDAs");
+}
+
+/// The flag enters the SPP statement, a registered proof never verifies as anonymous.
+#[test]
+fn merge_ring_rejects_a_tampered_anonymous_flag() {
+    let mut pool = proof_env();
+    let mut merge = RealRingMergeProof {
+        input_count: 8,
+        real_input_count: 1,
+    }
+    .build(&mut pool);
+    merge.data.anonymous = true;
+    let ix = merge.instruction(&pool);
+    let before = tree_progress(&pool.rpc, &pool.tree);
+    let error = pool
+        .rpc
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(MERGE_CU_LIMIT),
+        )
+        .expect_err("a flipped anonymous flag must not verify");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    assert_eq!(tree_progress(&pool.rpc, &pool.tree), before);
 }
 
 fn registered_compact_merge_settles(input_count: usize, real_input_count: usize) {

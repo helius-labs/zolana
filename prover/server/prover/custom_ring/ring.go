@@ -13,6 +13,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/merge"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -52,6 +53,13 @@ var RingCircuits = []RingCircuit{
 }
 
 func init() {
+	for _, width := range common.MergeAnonymousWidths {
+		RingCircuits = append(RingCircuits, RingCircuit{
+			Type:    common.CustomRingMergeAnonymousCircuitType(width),
+			Circuit: func() frontend.Circuit { return merge.New(width) },
+			params:  func() any { return new(MergeAnonymousParams) },
+		})
+	}
 	for _, shape := range common.RingPolicyShapes {
 		RingCircuits = append(RingCircuits, RingCircuit{Type: shape.CircuitType(), params: policyParamsFactory(shape.CircuitType()), Circuit: func() frontend.Circuit {
 			return policy.NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)

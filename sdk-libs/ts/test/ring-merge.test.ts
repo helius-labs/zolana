@@ -20,6 +20,7 @@ import {
   ringAuthAddress,
   ringCoSignerAddress,
   ringMemberRegistryRootAddress,
+  ringConfigPda,
   ringMemberRegistryRootPda,
 } from "../src/interface/pda/index.js";
 import type { Address, Bytes32, Bytes128, Signature } from "../src/interface/types.js";
@@ -45,7 +46,7 @@ import { buildRingMergeTransaction } from "../src/ring/merge.js";
 import type { MergeAssembler } from "../src/client/ports.js";
 import { BLOCKHASH, kitReads, transactionsPage } from "./helpers/clients.js";
 import { oneMemberRegistry, memberRegistryRootData } from "./helpers/member-registry.js";
-import { ownedAccount } from "./helpers/ring-accounts.js";
+import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { memberOfIdentity } from "../src/ring/policy.js";
 import { auditRingMerges } from "../src/ring/audit-merge.js";
 import { encodeMergeOutputData } from "../src/transaction/serialization/merge.js";
@@ -758,25 +759,37 @@ describe("ring merge", () => {
       ringProgramId: RING,
     };
     const [registry, bump] = await ringMemberRegistryRootPda(RING);
+    const [config, configBump] = await ringConfigPda(RING);
     const client = {
       ...kitReads({ solanaRpc: {} }),
       getAccount: async (address: Address) =>
-        address === registry
+        address === config
           ? ownedAccount(
               RING,
-              memberRegistryRootData({
-                root: mergeRegistry.root,
-                nextIndex: 2n,
-                bump,
-                cursor: 1,
+              ringProgramConfigData({
+                authority: RING,
+                auditorPublicKey: mergeAuditor.publicKey().toBytes(),
+                bump: configBump,
+                hasPolicy: false,
+                keyEscrow: true,
               }),
             )
-          : address === treeAddress(7)
+          : address === registry
             ? ownedAccount(
-                SHIELDED_POOL_PROGRAM_ID,
-                treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 0n, treeId: 7 }),
+                RING,
+                memberRegistryRootData({
+                  root: mergeRegistry.root,
+                  nextIndex: 2n,
+                  bump,
+                  cursor: 1,
+                }),
               )
-            : undefined,
+            : address === treeAddress(7)
+              ? ownedAccount(
+                  SHIELDED_POOL_PROGRAM_ID,
+                  treeAccount({ stateCursor: 0, written: 1, nullifierCursor: 0n, treeId: 7 }),
+                )
+              : undefined,
       getRingMemberRecord: async () => mergeRegistry.entry,
       getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
     };

@@ -410,6 +410,7 @@ impl TransactionSource for StaticSource {
                 ring_invoked,
                 signers: vec![SENDER],
                 deposits: Vec::new(),
+                merge_disclosure: None,
                 withdrawals: vec![
                     RingWithdrawal {
                         recipient: RECIPIENT,

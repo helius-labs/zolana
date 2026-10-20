@@ -1619,14 +1619,24 @@ pub fn merge_fixture_with(config: Account) -> Fixture {
     Fixture::new(merge_ring_data(None), slots)
 }
 
-/// A plain ring merge, or the audited layout that appends `recipient`, a proof
-/// commitment and an envelope.
-pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
+/// A proof-shaped anonymous merge disclosure of `fields` masked fields.
+pub fn merge_disclosure(fields: usize) -> custom_ring_interface::MergeDisclosure {
+    custom_ring_interface::MergeDisclosure {
+        proof: Zeroable::zeroed(),
+        eph_pk: auditor_pubkey(4),
+        ciphertext: [6; 32],
+        fields: vec![[7; 32]; fields],
+    }
+}
+
+/// An eight-input ring merge, with the anonymous ring's disclosure when given.
+pub fn merge_ring_data(disclosure: Option<custom_ring_interface::MergeDisclosure>) -> Vec<u8> {
     let mut data = vec![tag::MERGE];
     data.extend(
         CustomRingMergeIxData {
             registry_root_index: 0,
             output_ring_data_hash: [8; 32],
+            disclosure,
             merge: MergeTransactIxData {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
@@ -1645,12 +1655,6 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
         .serialize()
         .expect("serialize ring merge"),
     );
-    if let Some(recipient) = recipient {
-        data.extend_from_slice(&recipient);
-        data.extend_from_slice(&[6; 64]);
-        data.extend_from_slice(&auditor_pubkey(4));
-        data.extend_from_slice(&[7; 113]);
-    }
     data
 }
 

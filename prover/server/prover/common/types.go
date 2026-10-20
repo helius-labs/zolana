@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -37,7 +38,7 @@ const (
 	CustomRingBaseCircuitType                CircuitType = "custom-ring-base"
 	CustomRingConfidentialCircuitType        CircuitType = "custom-ring-base-confidential"
 	CustomRingCompactConfidentialCircuitType CircuitType = "custom-ring-base-confidential-compact"
-	CustomRingWideAnonymousCircuitType CircuitType = "custom-ring-base-anonymous-wide"
+	CustomRingWideAnonymousCircuitType       CircuitType = "custom-ring-base-anonymous-wide"
 
 	// CustomRingPolicyCircuitType folds the audit statement with policy
 	// enforcement in one proof and one verification per transact.
@@ -57,6 +58,20 @@ const (
 	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
 )
 
+// MergeAnonymousWidths are the SPP merge widths, one anonymous ring merge key each.
+var MergeAnonymousWidths = func() []int {
+	widths := make([]int, len(mergeSupportedInputCounts))
+	for i, inputs := range mergeSupportedInputCounts {
+		widths[i] = int(inputs)
+	}
+	return widths
+}()
+
+// CustomRingMergeAnonymousCircuitType names the anonymous merge disclosure circuit of one width.
+func CustomRingMergeAnonymousCircuitType(width int) CircuitType {
+	return CircuitType(fmt.Sprintf("custom-ring-merge-anonymous-%d", width))
+}
+
 // RingCircuitTypes are the custom-ring circuits, each proven with one key.
 var RingCircuitTypes = []CircuitType{
 	CustomRingConfidentialCircuitType,
@@ -71,6 +86,12 @@ var RingCircuitTypes = []CircuitType{
 	CustomRingKeyRegisterCircuitType,
 	CustomRingDepositCircuitType,
 	CustomRingUpdateMembersCircuitType,
+}
+
+func init() {
+	for _, width := range MergeAnonymousWidths {
+		RingCircuitTypes = append(RingCircuitTypes, CustomRingMergeAnonymousCircuitType(width))
+	}
 }
 
 func (c CircuitType) IsRing() bool {

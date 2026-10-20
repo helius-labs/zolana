@@ -21,3 +21,10 @@ verifying_keys! {
     deposit_verifying_key => "custom_ring_deposit.key",
     update_members_verifying_key => "custom_ring_update_members.key",
 }
+
+/// The anonymous ring merge key of one SPP merge width, filled by the key rotation.
+pub fn merge_anonymous_verifying_key(
+    _width: usize,
+) -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {
+    None
+}

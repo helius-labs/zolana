@@ -1,16 +1,22 @@
 //! The custom-ring binding of SPP's owner-preserving merge.
 
-use custom_ring_interface::{CustomRingMergeIxData, RingMode};
+use custom_ring_interface::{
+    merge_disclosure_field_count, CustomRingMergeIxData, MergeAnonymousPublicInput,
+    MergeDisclosure, RingMode, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
+};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use zeroize::Zeroizing;
 use zolana_client::{
     prover::{
         indexed::{IndexedMergePreparation, ProvenIndexedMerge},
         requests, MergeRegistration,
     },
     AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, MergeProver,
-    ProofCompressed,
+    ProofCompressed, ProofInputUtxo,
 };
+use zolana_hasher::primitives::{hash_bytes, pack_be, right_align};
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_interface::{
     instruction::instruction_data::{
         merge_ring::MergeRingIxData,
@@ -19,8 +25,9 @@ use zolana_interface::{
     instruction::tag::RING_MERGE_TRANSACT,
     merge_utils::ciphertext_hash,
 };
-use zolana_keypair::NullifierKey;
+use zolana_keypair::{NullifierKey, X25519Pubkey};
 use zolana_program::instruction::MergeRing;
+use zolana_ring_client::{MergeDisclosureEncryption, MergeOpening};
 use zolana_transaction::{
     error::TransactionError,
     instructions::merge::{MergeProofInputs, MergeTransaction},
@@ -37,6 +44,9 @@ use zolana_ring_policy::Member;
 
 use crate::{
     member_registry::{ReadMemberRecord, RecordOpening},
+    prover::{RingCircuit, RingRequest},
+    request::{MergeAnonymousBody, MergeSlot, RecordWitness},
+    to_instruction_proof,
     transact_ix::ring_prefix,
     tree_id, CustomRing, RingError,
 };
@@ -118,40 +128,191 @@ struct RegisteredMerge {
     proof: MergeRegistration,
 }
 
-async fn registered_merge<R: AsyncRpc, I: AsyncIndexer>(
+/// The member record the merge opens, with its escrow unless the ring is anonymous.
+#[must_use]
+struct MemberMerge<'a> {
     ring: CustomRing,
-    inputs: &MergeProofInputs,
-    nullifier_key: &NullifierKey,
-    client: &AsyncZolanaClient<R, I>,
-) -> Result<RegisteredMerge, RingError> {
-    let member = Member::from_bytes(inputs.signing_pubkey.owner_proof_input_hash()?)?;
-    let read = ReadMemberRecord { ring, member }
+    inputs: &'a MergeProofInputs,
+    nullifier_key: &'a NullifierKey,
+    anonymous: bool,
+}
+
+impl MemberMerge<'_> {
+    async fn read<R: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<R, I>,
+    ) -> Result<RegisteredMerge, RingError> {
+        let member = Member::from_bytes(self.inputs.signing_pubkey.owner_proof_input_hash()?)?;
+        let read = ReadMemberRecord {
+            ring: self.ring,
+            member,
+        }
         .read(client)
         .await?
         .ok_or(RingError::MissingMemberRegistry)?;
-    let sealed = read.sealed_key().ok_or(RingError::InvalidRecordOpening)?;
-    sealed.verify_nullifier_pubkey(&nullifier_key.pubkey()?)?;
-    let RecordOpening::Present {
-        record,
-        index,
-        path,
-        ..
-    } = read.opening
-    else {
-        return Err(RingError::InvalidRecordOpening);
-    };
-    Ok(RegisteredMerge {
-        root_index: read.root.history_index,
-        proof: MergeRegistration {
-            root: read.root.root,
-            ciphertext_hash: ciphertext_hash(&sealed.sealed.ciphertext)?,
-            next: record.next,
-            lists: record.lists,
-            escrow_key: record.escrow_key,
+        // An anonymous member escrows nothing, its merge proof discloses the owner to the auditor.
+        let ciphertext_hash = match self.anonymous {
+            true => None,
+            false => {
+                let sealed = read.sealed_key().ok_or(RingError::InvalidRecordOpening)?;
+                sealed.verify_nullifier_pubkey(&self.nullifier_key.pubkey()?)?;
+                Some(ciphertext_hash(&sealed.sealed.ciphertext)?)
+            }
+        };
+        let RecordOpening::Present {
+            record,
             index,
             path,
-        },
-    })
+            ..
+        } = read.opening
+        else {
+            return Err(RingError::InvalidRecordOpening);
+        };
+        Ok(RegisteredMerge {
+            root_index: read.root.history_index,
+            proof: MergeRegistration {
+                root: read.root.root,
+                ciphertext_hash,
+                next: record.next,
+                lists: record.lists,
+                escrow_key: record.escrow_key,
+                index,
+                path,
+            },
+        })
+    }
+}
+
+/// The auditor's opening of an anonymous merge, proven against the SPP merge it precedes.
+#[must_use]
+struct AnonymousMergeDisclosure<'a> {
+    ring: CustomRing,
+    auditor: X25519Pubkey,
+    merge: &'a MergeProofInputs,
+    nullifier_key: &'a NullifierKey,
+    registration: &'a MergeRegistration,
+    spp: &'a MergeTransactIxData,
+}
+
+/// The prover body and the instruction half of one disclosure, sealed under one key.
+struct SealedMergeDisclosure {
+    body: Box<MergeAnonymousBody>,
+    eph_pk: [u8; TAGGED_X25519_KEY_LEN],
+    ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+    fields: Vec<[u8; 32]>,
+}
+
+impl AnonymousMergeDisclosure<'_> {
+    async fn prove<R: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<R, I>,
+    ) -> Result<MergeDisclosure, RingError> {
+        let sealed = self.seal()?;
+        let proof = client.prove_request(&RingRequest(&*sealed.body)).await?;
+        sealed
+            .body
+            .circuit_type
+            .verify(&proof, sealed.body.public_input_hash)?;
+        Ok(MergeDisclosure {
+            proof: to_instruction_proof(proof)?,
+            eph_pk: sealed.eph_pk,
+            ciphertext: sealed.ciphertext,
+            fields: sealed.fields,
+        })
+    }
+
+    fn seal(&self) -> Result<SealedMergeDisclosure, RingError> {
+        let merge = self.merge;
+        let width =
+            u8::try_from(merge.input_utxos.len()).map_err(|_| ClientError::UnsupportedShape {
+                n_in: merge.input_utxos.len(),
+                n_out: 1,
+            })?;
+        let owner_key = merge.signing_pubkey.as_ed25519()?;
+        let output = &merge.output_utxo;
+        let opening = MergeOpening {
+            owner_key,
+            nullifier_pk: self.nullifier_key.pubkey()?,
+            mint: *output.asset.asset.as_array(),
+            amount: output.amount,
+            output_blinding: output.blinding,
+            input_commitments: merge
+                .input_utxos
+                .iter()
+                .map(|input| {
+                    if input.is_dummy() {
+                        [0; 32]
+                    } else {
+                        input.utxo_hash
+                    }
+                })
+                .collect(),
+        };
+        let sealed =
+            MergeDisclosureEncryption::new(&opening, merge.output_ciphertext_salt, &self.auditor)?;
+        let first_nullifier = *self.spp.nullifiers.first().ok_or(ClientError::NoInputs)?;
+        let ring_program_id = hash_bytes(self.ring.program_id().as_array())?;
+        let public_input_hash = MergeAnonymousPublicInput {
+            private_tx_hash: &self.spp.private_tx_hash,
+            output_utxo_hash: &self.spp.output_utxo_hash,
+            first_nullifier: &first_nullifier,
+            ring_id: &ring_program_id,
+            member_registry_root: &self.registration.root,
+            auditor_pk: self.auditor.as_bytes(),
+            eph_pk: sealed.eph_pk.as_bytes(),
+            ciphertext: &sealed.ciphertext,
+            salt: &merge.output_ciphertext_salt,
+            fields: &sealed.fields,
+        }
+        .hash()?;
+        let inputs = merge
+            .input_utxos
+            .iter()
+            .map(|input| {
+                let utxo = ProofInputUtxo::try_from(input)?;
+                Ok(MergeSlot {
+                    domain: utxo.domain,
+                    tree_id: utxo.tree_id,
+                    amount: utxo.amount,
+                    blinding: utxo.blinding,
+                    ring_data_hash: utxo.ring_data_hash,
+                })
+            })
+            .collect::<Result<_, TransactionError>>()?;
+        let registration = self.registration;
+        let body = Box::new(MergeAnonymousBody {
+            circuit_type: RingCircuit::MergeAnonymous { inputs: width },
+            public_input_hash,
+            private_tx_hash: self.spp.private_tx_hash,
+            output_utxo_hash: self.spp.output_utxo_hash,
+            first_nullifier,
+            ring_program_id,
+            member_registry_root: registration.root,
+            auditor_pk: self.auditor,
+            salt: right_align(&merge.output_ciphertext_salt),
+            eph_sk: sealed.ephemeral_sk,
+            disclosure_key: sealed.disclosure_key,
+            owner_key,
+            nullifier_secret: Zeroizing::new(right_align(&self.nullifier_key.secret())),
+            mint_chunks: pack_be::<32, 2>(output.asset.asset.as_array()),
+            inputs,
+            output_tree_id: tree_id_field(merge.output_tree_id),
+            output_ring_data_hash: output.ring_data_hash.unwrap_or_default(),
+            member_record: RecordWitness {
+                next: registration.next,
+                lists: registration.lists,
+                escrow_key: registration.escrow_key,
+                index: registration.index,
+                path: registration.path.clone(),
+            },
+        });
+        Ok(SealedMergeDisclosure {
+            body,
+            eph_pk: *sealed.eph_pk.as_bytes(),
+            ciphertext: sealed.ciphertext,
+            fields: sealed.fields,
+        })
+    }
 }
 
 impl PreparedCustomRingMerge {
@@ -175,6 +336,32 @@ impl PreparedCustomRingMerge {
         payer: Address,
         cosigner: Option<Address>,
     ) -> Instruction {
+        self.preview(input, payer, cosigner, None)
+    }
+
+    /// An anonymous ring's preview also carries the disclosure of its width.
+    pub(crate) fn anonymous_preview_instruction(
+        &self,
+        input: &MergeProofInput,
+        payer: Address,
+        cosigner: Option<Address>,
+    ) -> Instruction {
+        let disclosure = MergeDisclosure {
+            proof: bytemuck::Zeroable::zeroed(),
+            eph_pk: [0; TAGGED_X25519_KEY_LEN],
+            ciphertext: [0; AUDIT_CIPHERTEXT_LEN],
+            fields: vec![[0; 32]; merge_disclosure_field_count(self.inner.input_utxos.len())],
+        };
+        self.preview(input, payer, cosigner, Some(disclosure))
+    }
+
+    fn preview(
+        &self,
+        input: &MergeProofInput,
+        payer: Address,
+        cosigner: Option<Address>,
+        disclosure: Option<MergeDisclosure>,
+    ) -> Instruction {
         CustomRingMergeInstruction {
             ring: self.ring,
             input_tree: input.input_tree,
@@ -184,6 +371,7 @@ impl PreparedCustomRingMerge {
             data: CustomRingMergeIxData {
                 registry_root_index: 0,
                 output_ring_data_hash: self.inner.output_utxo.ring_data_hash.unwrap_or_default(),
+                disclosure,
                 merge: MergeTransactIxData {
                     expiry_unix_ts: self.inner.expiry_unix_ts,
                     proof: MergeProof::zeroed(),
@@ -219,11 +407,7 @@ impl PreparedCustomRingMerge {
             .config(client)
             .await?
             .ok_or(RingError::MissingRingConfig)?;
-        // Merge disclosure uses a registered recovery key and proof-bound output
-        // ciphertext. Anonymous members have no identity to register that key.
-        if config.mode == RingMode::Anonymous {
-            return Err(RingError::AnonymousRingRefused);
-        }
+        let anonymous = config.mode == RingMode::Anonymous;
         let input_tree_id = tree_id(client, input.input_tree).await?;
         if self
             .inner
@@ -234,8 +418,14 @@ impl PreparedCustomRingMerge {
             return Err(RingError::InputTreeMismatch);
         }
         self.inner.output_tree_id = tree_id(client, input.output_tree).await?;
-        let registered =
-            registered_merge(self.ring, &self.inner, &input.nullifier_key, client).await?;
+        let registered = MemberMerge {
+            ring: self.ring,
+            inputs: &self.inner,
+            nullifier_key: &input.nullifier_key,
+            anonymous,
+        }
+        .read(client)
+        .await?;
         let data: MergeRingIxData = match client.indexed_prover() {
             Some(prover) => {
                 let prepared = IndexedMergePreparation {
@@ -271,9 +461,25 @@ impl PreparedCustomRingMerge {
                 result.ring_instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?)
             }
         };
+        let disclosure = match anonymous {
+            true => Some(
+                AnonymousMergeDisclosure {
+                    ring: self.ring,
+                    auditor: config.auditor_pubkey,
+                    merge: &self.inner,
+                    nullifier_key: &input.nullifier_key,
+                    registration: &registered.proof,
+                    spp: &data.merge,
+                }
+                .prove(client)
+                .await?,
+            ),
+            false => None,
+        };
         let data = CustomRingMergeIxData {
             registry_root_index: registered.root_index,
             output_ring_data_hash: data.output_ring_data_hash,
+            disclosure,
             merge: data.merge,
         };
         let inner = self.inner;
@@ -339,6 +545,7 @@ impl CustomRingMergeInstruction {
             data: self.data.merge,
             output_ring_data_hash: self.data.output_ring_data_hash,
             member_registry_root: [0; 32],
+            anonymous: false,
             cache: None,
         }
         .instruction();

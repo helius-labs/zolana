@@ -111,6 +111,7 @@ pub fn merge_ring_ix(
     MergeRingIxData {
         output_ring_data_hash,
         member_registry_root: [1; 32],
+        anonymous: false,
         merge: merge_ix(output_utxo_hash),
     }
 }

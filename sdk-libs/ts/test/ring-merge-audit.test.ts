@@ -4,11 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import { kitReads, solanaRpcReads, transactionsPage } from "./helpers/clients.js";
 import { memberRegistryRootData, registryFixture } from "./helpers/member-registry.js";
-import { ownedAccount } from "./helpers/ring-accounts.js";
+import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { treeAccount } from "./helpers/tree-account.js";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { wireDecoder } from "../src/interface/decode.js";
-import { ringMemberRegistryRootPda, treeAddress } from "../src/interface/pda/index.js";
+import {
+  ringConfigPda,
+  ringMemberRegistryRootPda,
+  treeAddress,
+} from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, Signature } from "../src/interface/types.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
@@ -111,6 +115,7 @@ const member = (lastByte: number): Bytes32 => {
 const members = [member(1), member(2)] as const;
 const registry = registryFixture(members.map((value) => ({ member: value, lists: 0n })));
 const [registryAddress, bump] = await ringMemberRegistryRootPda(ring);
+const [configAddress, configBump] = await ringConfigPda(ring);
 
 function scanClient(
   changes: Readonly<{ wrongRoot?: boolean; gap?: boolean; duplicate?: boolean }> = {},
@@ -144,14 +149,25 @@ function scanClient(
   const client = {
     ...kitReads({ solanaRpc: solanaRpcReads({ getTransaction }) }),
     getAccount: async (account: Address) =>
-      account === registryAddress
-        ? ownedAccount(ring, memberRegistryRootData({ root: registry.root, nextIndex: 3n, bump }))
-        : account === treeAddress(treeId)
-          ? ownedAccount(
-              SHIELDED_POOL_PROGRAM_ID,
-              treeAccount({ stateCursor: 0, written: 43, nullifierCursor: 0n, treeId }),
-            )
-          : undefined,
+      account === configAddress
+        ? ownedAccount(
+            ring,
+            ringProgramConfigData({
+              authority: ring,
+              auditorPublicKey: X25519Keypair.generate().publicKey().toBytes(),
+              bump: configBump,
+              hasPolicy: false,
+              keyEscrow: true,
+            }),
+          )
+        : account === registryAddress
+          ? ownedAccount(ring, memberRegistryRootData({ root: registry.root, nextIndex: 3n, bump }))
+          : account === treeAddress(treeId)
+            ? ownedAccount(
+                SHIELDED_POOL_PROGRAM_ID,
+                treeAccount({ stateCursor: 0, written: 43, nullifierCursor: 0n, treeId }),
+              )
+            : undefined,
     getRingMemberRecord: async () => {
       throw new Error("single-member lookup must not be needed");
     },

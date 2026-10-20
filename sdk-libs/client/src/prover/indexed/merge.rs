@@ -28,7 +28,10 @@ use crate::{
     prover::{
         field::{right_align, right_align_slice},
         json::{merge_registration_to_json, MergeOutputParamsJson, MergeRegistrationJson},
-        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
+        merge::{
+            check_output_ciphertext, MergePublicInputBinding, MergePublicInputs,
+            MergeRegistryBinding,
+        },
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, MergeRegistration, Proof, ProofCompressed, ProofInputUtxo,
@@ -45,7 +48,7 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
-    member_registry_root: Option<[u8; 32]>,
+    registry: Option<MergeRegistryBinding>,
 }
 
 pub enum ProvenIndexedMerge {
@@ -218,7 +221,7 @@ impl IndexedMergePreparation {
                 MergePublicInputBinding::Ring {
                     output_data_hash: ring_data_hash,
                     program_id_hash: ring_hash,
-                    member_registry_root: registration.as_ref().map(|registered| registered.root),
+                    registry: registration.as_ref().map(MergeRegistration::binding),
                 }
             } else {
                 MergePublicInputBinding::Owner {
@@ -291,7 +294,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
-            member_registry_root: registration.map(|registered| registered.root),
+            registry: registration.as_ref().map(MergeRegistration::binding),
         })
     }
 }
@@ -341,11 +344,15 @@ impl Request for PreparedIndexedMerge {
         data.nullifier_tree_root_index = context.nullifier_tree_root_index;
         data.proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
         Ok(match self.ring_data_hash {
-            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
-                output_ring_data_hash,
-                member_registry_root: self.member_registry_root.ok_or_else(invalid_resolution)?,
-                merge: data,
-            }),
+            Some(output_ring_data_hash) => {
+                let registry = self.registry.ok_or_else(invalid_resolution)?;
+                ProvenIndexedMerge::Ring(MergeRingIxData {
+                    output_ring_data_hash,
+                    member_registry_root: registry.root,
+                    anonymous: registry.anonymous,
+                    merge: data,
+                })
+            }
             None => ProvenIndexedMerge::Merge(data),
         })
     }
@@ -441,7 +448,7 @@ mod tests {
             .unwrap();
         let registration = MergeRegistration {
             root: [1; 32],
-            ciphertext_hash: [2; 32],
+            ciphertext_hash: Some([2; 32]),
             next: [3; 32],
             lists: 0,
             escrow_key: [4; 32],
@@ -454,8 +461,9 @@ mod tests {
         }
         .prepare_registered(registration.clone())
         .unwrap();
-        assert_eq!(indexed.request.data.public_inputs.len(), 13);
+        assert_eq!(indexed.request.data.public_inputs.len(), 14);
         assert_eq!(indexed.request.data.public_inputs[8], registration.root);
+        assert_eq!(indexed.request.data.public_inputs[9], [0; 32]);
         for change_input in [false, true] {
             let mut merge = prepared.clone();
             if change_input {

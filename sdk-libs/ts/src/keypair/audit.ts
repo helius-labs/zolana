@@ -39,6 +39,8 @@ export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FI
 export const AUDITOR_MESSAGE_LENGTH = 65 + 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
 /** `"CR_OD"`, Go `OutputDisclosureDomain`, seeds the output disclosure pad. */
 const OUTPUT_DISCLOSURE_DOMAIN = 0x4352_5f4f44n;
+/** `"CR_MD"`, Go `MergeDisclosureDomain`, a merge pad never repeats an output pad. */
+const MERGE_DISCLOSURE_DOMAIN = 0x4352_5f4d44n;
 
 /** Two Poseidon outputs supply 31 key bytes, then one key byte and a 12-byte nonce. */
 export function symmetricAuditApply(shared: Bytes32, data: Uint8Array): Uint8Array {
@@ -408,18 +410,16 @@ function outputFields(output: AuditOutputOpening): readonly Bytes32[] {
 }
 
 /** The circuit's disclosure keystream, `Poseidon(seed, i)` per published value, a known pad reveals no other. */
-function disclosurePad(secret: Bytes32, salt: Bytes16, count: number): readonly bigint[] {
+function disclosurePad(
+  domain: bigint,
+  secret: Bytes32,
+  salt: Bytes16,
+  count: number,
+): readonly bigint[] {
   const [keyLow, keyHigh] = pack32(secret);
   const seed = new Uint8Array(32);
   try {
-    seed.set(
-      poseidon([
-        bigIntToBytes(OUTPUT_DISCLOSURE_DOMAIN) as Bytes32,
-        keyLow,
-        keyHigh,
-        rightAlign(salt),
-      ]),
-    );
+    seed.set(poseidon([bigIntToBytes(domain) as Bytes32, keyLow, keyHigh, rightAlign(salt)]));
     return Array.from({ length: count }, (_, index) =>
       bytesToBigInt(poseidon([seed, bigIntToBytes(BigInt(index)) as Bytes32])),
     );
@@ -442,8 +442,9 @@ function applyDisclosurePad(
   salt: Bytes16,
   values: readonly Bytes32[],
   seal: boolean,
+  domain = OUTPUT_DISCLOSURE_DOMAIN,
 ): readonly Bytes32[] {
-  const pad = disclosurePad(secret, salt, values.length);
+  const pad = disclosurePad(domain, secret, salt, values.length);
   return Object.freeze(
     values.map((value, index) => {
       const mask = maskAt(pad, index);
@@ -686,6 +687,16 @@ function unpackDisclosure(values: readonly Bytes32[], length: number): Uint8Arra
     plaintext.set(value.subarray(32 - chunk), index * DISCLOSURE_CHUNK_BYTES);
   });
   return plaintext;
+}
+
+/** Unmasks an anonymous merge disclosure, the plaintext zero padded to whole chunks, Rust `open_merge_disclosure`. */
+export function openMergeDisclosureFields(
+  key: Bytes32,
+  salt: Bytes16,
+  fields: readonly Bytes32[],
+): Uint8Array {
+  const chunks = applyDisclosurePad(key, salt, fields, false, MERGE_DISCLOSURE_DOMAIN);
+  return unpackDisclosure(chunks, chunks.length * DISCLOSURE_CHUNK_BYTES);
 }
 
 /** Input order binds the base statement, Rust `CustomRingBasePublicInput::hash`. */

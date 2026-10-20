@@ -21,6 +21,8 @@ const (
 	auditEncInfo = "CRING/adt1"
 	// OutputDisclosureDomain is "CR_OD", the output disclosure pad seed domain mirrored by Rust and TS.
 	OutputDisclosureDomain = 0x4352_5f4f44
+	// MergeDisclosureDomain is "CR_MD", a merge pad under the same key never repeats an output pad.
+	MergeDisclosureDomain = 0x4352_5f4d44
 )
 
 // Audit is the audit witness the base and policy circuits share.
@@ -176,8 +178,8 @@ func (a Audit) define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) ([
 				last = i + 1
 			}
 		}
-		// Keep the final hash group's zero padding, but no later groups.
-		length := 1 + 3*chainGroups(last)
+		// Keep the final hash group's zero padding, but no later groups. The fold reads a missing tail as zero.
+		length := min(len(plaintext), 1+3*chainGroups(last))
 		plaintext, live = plaintext[:length], live[:length]
 	}
 
@@ -193,7 +195,7 @@ func (a Audit) define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) ([
 			padCount--
 		}
 	}
-	pad := disclosurePad(api, key, salt, padCount)
+	pad := DisclosurePad(api, OutputDisclosureDomain, key, salt, padCount)
 	states := []frontend.Variable{api.Mul(live[0], api.Add(plaintext[0], pad[0]))}
 	for start := 1; start < len(plaintext); start += 3 {
 		group := []frontend.Variable{states[len(states)-1]}
@@ -258,9 +260,9 @@ func chainGroups(n int) int {
 	return (n - 1 + 2) / 3
 }
 
-// disclosurePad is Poseidon(seed, i) per field, the seed never leaves the circuit, a known pad reveals no other.
-func disclosurePad(api frontend.API, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
-	seed := gadget.PoseidonHash(api, []frontend.Variable{OutputDisclosureDomain, key[0], key[1], salt})
+// DisclosurePad is Poseidon(seed, i) per field, the seed never leaves the circuit, a known pad reveals no other.
+func DisclosurePad(api frontend.API, domain uint64, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
+	seed := gadget.PoseidonHash(api, []frontend.Variable{domain, key[0], key[1], salt})
 	pad := make([]frontend.Variable, n)
 	for i := range pad {
 		pad[i] = gadget.PoseidonHash(api, []frontend.Variable{seed, i})

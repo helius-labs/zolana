@@ -18,7 +18,7 @@ use zolana_secret_file::{
 };
 
 use crate::{
-    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage,
+    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage, MergeKeys,
     OutputPayloadErrorKind, ReaderKey, ReaderKeyError, RingWithdrawal,
 };
 
@@ -206,7 +206,12 @@ pub struct AuditedMergeRecord {
     pub blinding: Hash,
     pub ring_data_hash: Hash,
     pub input_nullifiers: Vec<Hash>,
-    pub nullifier: Hash,
+    /// Absent for an anonymous merge, whose nullifier key stays hidden.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nullifier: Option<Hash>,
+    /// The disclosed spent commitments of an anonymous merge, padding zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_commitments: Option<Vec<Hash>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,18 +231,32 @@ impl From<MergeAuditPage> for GetAuditedMergesResponse {
                     .result
                     .opened
                     .into_iter()
-                    .map(|merge| AuditedMergeRecord {
-                        tx_signature: merge.tx_signature.into(),
-                        event_index: merge.event_index,
-                        output_commitment: Hash(merge.output_commitment),
-                        owner_member: Hash(merge.owner_member),
-                        owner_pubkey: merge.owner_pubkey.map(Into::into),
-                        mint: merge.mint.into(),
-                        amount: merge.amount,
-                        blinding: Hash(merge.blinding),
-                        ring_data_hash: Hash(merge.ring_data_hash),
-                        input_nullifiers: merge.input_nullifiers.into_iter().map(Hash).collect(),
-                        nullifier: Hash(merge.nullifier),
+                    .map(|merge| {
+                        let (nullifier, input_commitments) = match merge.keys {
+                            MergeKeys::Escrowed { nullifier } => (Some(Hash(nullifier)), None),
+                            MergeKeys::Disclosed { input_commitments } => (
+                                None,
+                                Some(input_commitments.into_iter().map(Hash).collect()),
+                            ),
+                        };
+                        AuditedMergeRecord {
+                            tx_signature: merge.tx_signature.into(),
+                            event_index: merge.event_index,
+                            output_commitment: Hash(merge.output_commitment),
+                            owner_member: Hash(merge.owner_member),
+                            owner_pubkey: merge.owner_pubkey.map(Into::into),
+                            mint: merge.mint.into(),
+                            amount: merge.amount,
+                            blinding: Hash(merge.blinding),
+                            ring_data_hash: Hash(merge.ring_data_hash),
+                            input_nullifiers: merge
+                                .input_nullifiers
+                                .into_iter()
+                                .map(Hash)
+                                .collect(),
+                            nullifier,
+                            input_commitments,
+                        }
                     })
                     .collect(),
                 unresolved: page

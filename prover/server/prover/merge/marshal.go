@@ -61,6 +61,7 @@ type MergeParametersJSON struct {
 	MemberRegistryRoot       string                    `json:"memberRegistryRoot,omitempty"`
 	RegisteredCiphertextHash string                    `json:"registeredCiphertextHash,omitempty"`
 	MemberRecord             *customring.RecordOpening `json:"memberRecord,omitempty"`
+	Anonymous                bool                      `json:"anonymous,omitempty"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -99,8 +100,11 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	}
 	if circuitType == common.MergeRingCircuitType {
 		paramsJson.MemberRegistryRoot = common.FeHex(p.MemberRegistryRoot)
-		paramsJson.RegisteredCiphertextHash = common.FeHex(p.RegisteredCiphertextHash)
+		if !p.Anonymous {
+			paramsJson.RegisteredCiphertextHash = common.FeHex(p.RegisteredCiphertextHash)
+		}
 		paramsJson.MemberRecord = p.MemberRecord
+		paramsJson.Anonymous = p.Anonymous
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -148,17 +152,21 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.CircuitType == common.MergeRingCircuitType {
-		if params.MemberRegistryRoot == "" || params.RegisteredCiphertextHash == "" || params.MemberRecord == nil {
+		// An anonymous merge carries no escrow ciphertext, a registered one requires it.
+		if params.MemberRegistryRoot == "" || params.MemberRecord == nil || params.Anonymous != (params.RegisteredCiphertextHash == "") {
 			return fmt.Errorf("merge ring: recovery registration is required")
 		}
 		if p.MemberRegistryRoot, err = common.FeFromHex(params.MemberRegistryRoot); err != nil {
 			return fmt.Errorf("memberRegistryRoot: %w", err)
 		}
-		if p.RegisteredCiphertextHash, err = common.FeFromHex(params.RegisteredCiphertextHash); err != nil {
-			return fmt.Errorf("registeredCiphertextHash: %w", err)
+		p.Anonymous = params.Anonymous
+		if !p.Anonymous {
+			if p.RegisteredCiphertextHash, err = common.FeFromHex(params.RegisteredCiphertextHash); err != nil {
+				return fmt.Errorf("registeredCiphertextHash: %w", err)
+			}
 		}
 		p.MemberRecord = params.MemberRecord
-	} else if params.MemberRegistryRoot != "" || params.RegisteredCiphertextHash != "" || params.MemberRecord != nil {
+	} else if params.MemberRegistryRoot != "" || params.RegisteredCiphertextHash != "" || params.MemberRecord != nil || params.Anonymous {
 		return fmt.Errorf("merge: recovery registration is ring-only")
 	}
 	if p.OwnerPkHash, err = common.FeFromHex(params.OwnerPkHash); err != nil {

@@ -17,8 +17,21 @@ pub enum MergePublicInputBinding {
         output_data_hash: [u8; 32],
         program_id_hash: [u8; 32],
         /// `None` until the ring registration is bound.
-        member_registry_root: Option<[u8; 32]>,
+        registry: Option<MergeRegistryBinding>,
     },
+}
+
+/// The member registry root and the ring mode the ring program forwards beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeRegistryBinding {
+    pub root: [u8; 32],
+    pub anonymous: bool,
+}
+
+impl MergeRegistryBinding {
+    pub fn elements(self) -> [[u8; 32]; 2] {
+        [self.root, right_align(&[u8::from(self.anonymous)])]
+    }
 }
 
 /// One ordering for local proofs, indexed requests and cross-language vectors.
@@ -54,10 +67,10 @@ impl MergePublicInputs<'_> {
             MergePublicInputBinding::Ring {
                 output_data_hash,
                 program_id_hash,
-                member_registry_root,
+                registry,
             } => {
                 elements.extend([*output_data_hash, *program_id_hash]);
-                elements.extend(*member_registry_root);
+                elements.extend(registry.iter().flat_map(|binding| binding.elements()));
             }
             MergePublicInputBinding::Owner {
                 signing_key_hash,
