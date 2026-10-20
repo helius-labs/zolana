@@ -1354,6 +1354,20 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     }
 
     let mut source = fixture.source();
+    source.next_cursor = None;
+    let service = fixture.hub(source).service(None).expect("service");
+    let request = auth(&signer);
+    assert!(matches!(
+        service
+            .read(AuditRead {
+                auth: &request,
+                page: &page(),
+            })
+            .await,
+        Err(RingRpcError::InvalidIndexerResponse)
+    ));
+
+    let mut source = fixture.source();
     source.next_cursor = Some(vec![8]);
     let service = fixture.hub(source).service(None).expect("service");
     let repeated_page = Page::new(Some(vec![8].into()), None).expect("page");

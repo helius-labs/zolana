@@ -14,7 +14,7 @@ use custom_ring_interface::{
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    next_page, AsyncRpc, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
+    AsyncRpc, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
     RingHistoryOptions, ShieldedTransaction,
 };
 use zolana_event::{
@@ -37,6 +37,7 @@ use zolana_transaction::{
 use crate::{
     encryption::{open_merge_disclosure, MergeOpening, SealedNullifierKey},
     origin::{ConfirmedEventKind, ConfirmedMergeDisclosure, TransactionOrigin},
+    scan::PageEnd,
     AuditError,
 };
 
@@ -285,11 +286,11 @@ impl<'a> MergeAudit<'a> {
         if response.transactions.len() > self.page_size.get() as usize {
             return Err(AuditError::IncompleteScan);
         }
-        let next_cursor = next_page(
-            cursor,
-            response.next_cursor.clone(),
-            &response.scanned_through,
-        )?;
+        let next_cursor = PageEnd {
+            next_cursor: response.next_cursor.clone(),
+            scanned_through: response.scanned_through.clone(),
+        }
+        .next(cursor)?;
         Ok((response, next_cursor))
     }
 
@@ -852,6 +853,57 @@ mod tests {
         response.next_leaf_index = None;
         response.root = Hash([9; 32]);
         assert!(!complete_member_page(&response, &root, 7, 8, 5));
+    }
+
+    struct TerminalHistory {
+        scanned_through: Option<Vec<u8>>,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncRpc for TerminalHistory {
+        async fn get_shielded_transactions_by_ring(
+            &self,
+            _options: RingHistoryOptions,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: zolana_client::Context {
+                    slot: 1,
+                    block_time: 0,
+                },
+                output_tree_id: None,
+                transactions: Vec::new(),
+                next_cursor: None,
+                scanned_through: self.scanned_through.clone(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_terminal_history_page_without_a_frontier_fails_the_merge_scan() {
+        let auditor = X25519Keypair::new();
+        let audit = MergeAudit::new(Address::new_from_array([9; 32]), &auditor);
+        let indexer = TerminalHistory {
+            scanned_through: None,
+        };
+        assert!(matches!(
+            audit.read_history_page(&indexer, &Some(vec![1])).await,
+            Err(AuditError::ScanFrontierMissing)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_terminal_history_page_with_a_frontier_ends_the_merge_scan() {
+        let auditor = X25519Keypair::new();
+        let audit = MergeAudit::new(Address::new_from_array([9; 32]), &auditor);
+        let indexer = TerminalHistory {
+            scanned_through: Some(vec![2]),
+        };
+        let (_, next_cursor) = audit
+            .read_history_page(&indexer, &Some(vec![1]))
+            .await
+            .unwrap();
+        assert_eq!(next_cursor, None);
     }
 
     #[test]

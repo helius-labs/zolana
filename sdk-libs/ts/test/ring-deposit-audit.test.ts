@@ -732,9 +732,13 @@ describe("deposit recovery", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
-          transactionsPage({ transactions: input.ringProgramId === RING ? [deposit] : [] }),
+          transactionsPage({
+            scannedThrough: Uint8Array.of(1),
+            transactions: input.ringProgramId === RING ? [deposit] : [],
+          }),
       }),
-      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+      getShieldedTransactionsByNullifiers: async () =>
+        transactionsPage({ scannedThrough: Uint8Array.of(1) }),
     };
     try {
       const recovered = await recoverRingMemberNotes({
@@ -767,10 +771,13 @@ describe("deposit recovery", () => {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
           transactionsPage(
-            input.ringProgramId === undefined ? {} : { nextCursor: Uint8Array.of(1) },
+            input.ringProgramId === undefined
+              ? { scannedThrough: Uint8Array.of(1) }
+              : { nextCursor: Uint8Array.of(1) },
           ),
       }),
-      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+      getShieldedTransactionsByNullifiers: async () =>
+        transactionsPage({ scannedThrough: Uint8Array.of(1) }),
     };
     try {
       await expect(
@@ -868,11 +875,12 @@ describe("deposit recovery", () => {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
           transactionsPage({
+            scannedThrough: Uint8Array.of(1),
             transactions: input.ringProgramId === RING ? history : [],
           }),
       }),
       getShieldedTransactionsByNullifiers: vi.fn(async () =>
-        transactionsPage({ transactions: spends }),
+        transactionsPage({ scannedThrough: Uint8Array.of(1), transactions: spends }),
       ),
     };
     const params = {

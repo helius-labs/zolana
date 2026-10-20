@@ -25,7 +25,7 @@ import { decodeRingDepositOutput } from "../transaction/serialization/ring-depos
 import { Utxo, ownerUtxoHash, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
-import { auditRing, type RingAuditReader } from "./audit.js";
+import { auditRing, nextScanCursor, type RingAuditReader } from "./audit.js";
 import type { RingMode } from "./codecs.js";
 import { RingError } from "./error.js";
 import {
@@ -343,16 +343,13 @@ async function recoverDeposits(
         }
       }
     }
-    if (response.scannedThrough !== undefined || response.nextCursor === undefined)
+    const next = nextScanCursor(cursor, response);
+    if (next === undefined)
       return {
         unsupported: [...found.values()],
         candidates: [...candidates.values()],
       };
-    if (cursor !== undefined && equal(cursor, response.nextCursor))
-      throw new RingError("RING_RPC", {
-        details: { reason: "deposit scan cursor did not advance" },
-      });
-    cursor = response.nextCursor;
+    cursor = next;
   }
   throw new RingError("RING_RECOVERY_INCOMPLETE");
 }
@@ -374,12 +371,9 @@ async function spendingTransactions(
       context,
     );
     transactions.push(...page.transactions);
-    if (page.scannedThrough !== undefined || page.nextCursor === undefined) return transactions;
-    if (cursor !== undefined && equal(cursor, page.nextCursor))
-      throw new RingError("RING_RPC", {
-        details: { reason: "nullifier scan cursor did not advance" },
-      });
-    cursor = page.nextCursor;
+    const next = nextScanCursor(cursor, page);
+    if (next === undefined) return transactions;
+    cursor = next;
   }
 }
 

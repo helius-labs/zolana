@@ -791,7 +791,8 @@ describe("ring merge", () => {
                 )
               : undefined,
       getRingMemberRecord: async () => mergeRegistry.entry,
-      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ transactions: [transaction], scannedThrough: Uint8Array.of(1) }),
     };
     const origin = {
       ringInvoked: async () => true,

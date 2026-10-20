@@ -36,6 +36,7 @@ import {
   readSealedKey,
   registersKey,
 } from "./member-registry.js";
+import { nextScanCursor } from "./audit.js";
 import { MEMBER_REGISTRY_CAPACITY, verifyMemberOpening } from "./member-registry-tree.js";
 import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
 import { memberOfIdentity, memberOfTag } from "./policy.js";
@@ -541,12 +542,8 @@ async function confirmedMerges(
         });
       disclosures.push(disclosure);
     }
-    const next = response.scannedThrough === undefined ? response.nextCursor : undefined;
+    const next = nextScanCursor(cursor, response);
     if (next === undefined) return { transactions, disclosures };
-    if (cursor !== undefined && equal(cursor, next))
-      throw new RingError("RING_RPC", {
-        details: { reason: "merge scan cursor did not advance" },
-      });
     cursor = next;
   }
   return { transactions, disclosures, ...(cursor === undefined ? {} : { nextCursor: cursor }) };

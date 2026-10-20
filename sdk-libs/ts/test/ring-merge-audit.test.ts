@@ -122,7 +122,12 @@ const [registryAddress, bump] = await ringMemberRegistryRootPda(ring);
 const [configAddress, configBump] = await ringConfigPda(ring);
 
 function scanClient(
-  changes: Readonly<{ wrongRoot?: boolean; gap?: boolean; duplicate?: boolean }> = {},
+  changes: Readonly<{
+    wrongRoot?: boolean;
+    gap?: boolean;
+    duplicate?: boolean;
+    noFrontier?: boolean;
+  }> = {},
 ) {
   const memberPages = vi.fn(async (request: { startIndex: bigint }) => {
     const second = request.startIndex === 2n;
@@ -147,7 +152,10 @@ function scanClient(
   const transactionPages = vi.fn(async (request: { cursor?: Uint8Array }) =>
     request.cursor === undefined
       ? transactionsPage({ transactions: [indexed], nextCursor: cursor })
-      : transactionsPage({ transactions: changes.duplicate ? [indexed] : [] }),
+      : transactionsPage({
+          transactions: changes.duplicate ? [indexed] : [],
+          ...(changes.noFrontier ? {} : { scannedThrough: cursor }),
+        }),
   );
   const getTransaction = vi.fn(() => ({ send: async () => confirmed }));
   const client = {
@@ -221,6 +229,18 @@ describe("auditRingMerges confirmed scan", () => {
         auditRingMerges({ client, ringProgramId: ring, auditor, memberPageSize: 1 }),
       ).rejects.toMatchObject({ code });
       expect(getTransaction).toHaveBeenCalledTimes(1);
+    } finally {
+      auditor.destroy();
+    }
+  });
+
+  it("fails a terminal history page without a scan frontier", async () => {
+    const { client } = scanClient({ noFrontier: true });
+    const auditor = X25519Keypair.generate();
+    try {
+      await expect(
+        auditRingMerges({ client, ringProgramId: ring, auditor, memberPageSize: 1 }),
+      ).rejects.toMatchObject({ code: "RING_SCAN_FRONTIER_MISSING" });
     } finally {
       auditor.destroy();
     }

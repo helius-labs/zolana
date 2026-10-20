@@ -1047,6 +1047,9 @@ impl AsyncRpc for PagedIndexer {
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next_cursor = (page_index + 1 < self.pages.len())
             .then(|| vec![u8::try_from(page_index + 1).expect("page index")]);
+        let scanned_through = next_cursor
+            .is_none()
+            .then(|| vec![u8::try_from(page_index).expect("page index")]);
         Ok(GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
@@ -1054,7 +1057,7 @@ impl AsyncRpc for PagedIndexer {
             },
             transactions,
             next_cursor,
-            scanned_through: None,
+            scanned_through,
             output_tree_id: None,
         })
     }

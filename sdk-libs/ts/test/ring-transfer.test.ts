@@ -1180,7 +1180,10 @@ describe("ring audit", () => {
     );
     const client = ringAuditReader({
       getShieldedTransactionsByTags: async () =>
-        transactionsPage({ transactions: [collision, transaction] }),
+        transactionsPage({
+          transactions: [collision, transaction],
+          scannedThrough: Uint8Array.of(1),
+        }),
     });
     const page = await auditRing({
       client,
@@ -1237,7 +1240,10 @@ describe("ring audit", () => {
     }));
     const client = ringAuditReader({
       getShieldedTransactionsByTags: async () =>
-        transactionsPage({ transactions: [transaction, transaction] }),
+        transactionsPage({
+          transactions: [transaction, transaction],
+          scannedThrough: Uint8Array.of(1),
+        }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });
@@ -1278,7 +1284,8 @@ describe("ring audit", () => {
     const transaction = indexed(proofInputs);
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
     const client = ringAuditReader({
-      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ transactions: [transaction], scannedThrough: Uint8Array.of(1) }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });

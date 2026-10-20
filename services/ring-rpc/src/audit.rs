@@ -307,7 +307,11 @@ impl<S: TransactionSource> AuthorizedRead<'_, S> {
                 self.page.cursor().map(ToOwned::to_owned),
                 self.page.limit(),
             )
-            .await?;
+            .await
+            .map_err(|error| match error {
+                AuditError::ScanFrontierMissing => RingRpcError::InvalidIndexerResponse,
+                error => error.into(),
+            })?;
         validate_merge_page(&page, self.page)?;
         Ok(page.into())
     }
@@ -334,6 +338,7 @@ fn validate_indexer_response(
     let next = response.next_cursor.as_deref();
     let frontier = response.scanned_through.as_deref();
     if response.transactions.len() > page.limit.get() as usize
+        || next.or(frontier).is_none()
         || next.is_some_and(|cursor| !cursor_in_bounds(cursor) || page.cursor() == Some(cursor))
         || frontier.is_some_and(|cursor| {
             !cursor_in_bounds(cursor) || response.transactions.len() >= page.limit.get() as usize

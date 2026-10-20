@@ -30,7 +30,8 @@ pub type AuditedPage = ScanPage<AuditedTransaction>;
 /// One indexer page with its transactions, the next cursor and where the scan reached.
 pub(crate) type Page = (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>);
 
-/// Reads from `cursor` until `scanned_through` or the cap, a cursor that does not move fails.
+/// Reads from `cursor` until `scanned_through` or the cap, a stalled cursor or a terminal page
+/// without a frontier fails.
 pub(crate) async fn pages<F, Fut>(
     mut cursor: Option<Vec<u8>>,
     max_pages: NonZeroUsize,
@@ -42,10 +43,14 @@ where
 {
     let (mut transactions, mut read) = (Vec::new(), 0);
     loop {
-        let (page, next, scanned_through) = fetch(cursor.clone()).await?;
+        let (page, next_cursor, scanned_through) = fetch(cursor.clone()).await?;
         transactions.extend(page);
         read += 1;
-        cursor = next_page(&cursor, next, &scanned_through)?;
+        cursor = PageEnd {
+            next_cursor,
+            scanned_through,
+        }
+        .next(&cursor)?;
         if cursor.is_none() || read == max_pages.get() {
             let next_cursor = cursor;
             return Ok((
@@ -55,6 +60,21 @@ where
                 },
                 read,
             ));
+        }
+    }
+}
+
+pub(crate) struct PageEnd {
+    pub next_cursor: Option<Vec<u8>>,
+    pub scanned_through: Option<Vec<u8>>,
+}
+
+impl PageEnd {
+    /// `None` only past a page that states its scan frontier.
+    pub(crate) fn next(self, cursor: &Option<Vec<u8>>) -> Result<Option<Vec<u8>>, AuditError> {
+        match next_page(cursor, self.next_cursor, &self.scanned_through)? {
+            None if self.scanned_through.is_none() => Err(AuditError::ScanFrontierMissing),
+            next => Ok(next),
         }
     }
 }
@@ -229,6 +249,22 @@ mod tests {
         let served = [(Some(vec![1]), None), (Some(vec![2]), None)];
         let (page, read) = read(&served, 2).await.unwrap();
         assert_eq!((page.next_cursor, read), (Some(vec![2]), 2));
+    }
+
+    #[tokio::test]
+    async fn a_terminal_page_without_a_frontier_fails_the_scan() {
+        let served = [(Some(vec![1]), None), (None, None)];
+        assert!(matches!(
+            read(&served, 4).await,
+            Err(AuditError::ScanFrontierMissing)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_terminal_page_with_a_frontier_completes_the_scan() {
+        let served = [(Some(vec![1]), None), (None, Some(vec![1]))];
+        let (page, read) = read(&served, 4).await.unwrap();
+        assert_eq!((page.next_cursor, read), (None, 2));
     }
 
     #[tokio::test]

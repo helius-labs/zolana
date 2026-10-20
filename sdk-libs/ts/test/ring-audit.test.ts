@@ -748,9 +748,14 @@ describe("anonymous ring audit", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
-          transactionsPage(input.ringProgramId === undefined ? { transactions: [indexed] } : {}),
+          transactionsPage(
+            input.ringProgramId === undefined
+              ? { transactions: [indexed], scannedThrough: Uint8Array.of(1) }
+              : { scannedThrough: Uint8Array.of(1) },
+          ),
       }),
-      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+      getShieldedTransactionsByNullifiers: async () =>
+        transactionsPage({ scannedThrough: Uint8Array.of(1) }),
     };
     const recovered = await recoverRingMemberNotes({
       client,
@@ -795,7 +800,8 @@ describe("anonymous ring audit", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (request) => {
-          if (request.ringProgramId !== undefined) return transactionsPage();
+          if (request.ringProgramId !== undefined)
+            return transactionsPage({ scannedThrough: Uint8Array.of(1) });
           taggedReads++;
           return transactionsPage({
             transactions: [indexed],
@@ -804,7 +810,8 @@ describe("anonymous ring audit", () => {
           });
         },
       }),
-      getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+      getShieldedTransactionsByNullifiers: async () =>
+        transactionsPage({ scannedThrough: Uint8Array.of(1) }),
     };
     const recovered = await recoverRingMemberNotes({
       client,
@@ -824,6 +831,23 @@ describe("anonymous ring audit", () => {
     expect(taggedReads).toBe(1);
     expect(recovered.notes.map((note) => note.utxo.amount)).toEqual([42n]);
     expect(recovered.unopened).toEqual([]);
+  });
+
+  it("ends the scan only on a terminal page that states its frontier", async () => {
+    const audit = (scannedThrough?: Uint8Array) =>
+      auditRing({
+        client: ringAuditReader({
+          getShieldedTransactionsByTags: async () =>
+            transactionsPage(scannedThrough === undefined ? {} : { scannedThrough }),
+        }),
+        auditor,
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+      });
+    await expect(audit()).rejects.toMatchObject({ code: "RING_SCAN_FRONTIER_MISSING" });
+    const page = await audit(Uint8Array.of(1));
+    expect(page.transactions).toEqual([]);
+    expect(page.nextCursor).toBeUndefined();
   });
 
   it("rejects invalid scan bounds before returning an empty audit", async () => {

@@ -129,6 +129,18 @@ export interface RingAuditPage {
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
 
+/** Mirrors Rust `PageEnd::next`, `undefined` only past a page that states its scan frontier. */
+export function nextScanCursor(
+  cursor: Uint8Array | undefined,
+  page: Readonly<{ nextCursor?: Uint8Array; scannedThrough?: Uint8Array }>,
+): Uint8Array | undefined {
+  if (page.scannedThrough !== undefined) return undefined;
+  if (page.nextCursor === undefined) throw new RingError("RING_SCAN_FRONTIER_MISSING");
+  if (cursor !== undefined && equal(cursor, page.nextCursor))
+    throw new RingError("RING_RPC", { details: { reason: "scan cursor did not advance" } });
+  return page.nextCursor;
+}
+
 /**
  * Mirrors Rust `auditor_message`, the program accepts the tagged message only as
  * the unique last entry. `shape` selects the anonymous disclosure length.
@@ -381,13 +393,8 @@ export async function auditRing(
       }
       transactions.push(audited);
     }
-    // Photon also returns the last row's cursor on a terminal page. Its
-    // scanned-through frontier, not that row cursor, marks a complete scan.
-    const next = response.scannedThrough === undefined ? response.nextCursor : undefined;
+    const next = nextScanCursor(cursor, response);
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (cursor !== undefined && equal(cursor, next)) {
-      throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });
-    }
     cursor = next;
   }
   return Object.freeze({

@@ -493,7 +493,7 @@ mod tests {
                 output_tree_id: Some(0),
                 transactions: self.transactions.clone(),
                 next_cursor: None,
-                scanned_through: None,
+                scanned_through: Some(Vec::new()),
             })
         }
 
